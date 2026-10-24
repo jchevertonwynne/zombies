@@ -32,7 +32,9 @@
 
 **Spawn Point**: A fixed place in the Map where Zombies enter play.
 
-**Map**: The playable space. In the first version it is a single open Arena with cover.
+**Map**: The playable space. The first prototype used a single open Arena; real Maps are made of Zones joined by Doors.
+
+**Zone**: A named area of a Map, such as a room or a yard. Each Zone is either open or closed to the Player. Opening a Zone (usually by buying a Door) activates its Barriers and Spawn Points. Zones decide where Zombies come from, not how they move.
 
 **Arena**: An enclosed, open area with no doors or separate rooms.
 
