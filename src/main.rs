@@ -6,6 +6,7 @@ mod debug;
 mod hud;
 mod layers;
 mod map;
+mod map_prototype;
 mod player;
 mod points;
 mod round;
@@ -40,6 +41,7 @@ fn main() {
             hud::HudPlugin,
             audio::AudioPlugin,
             debug::DebugPlugin,
+            map_prototype::MapPrototypePlugin,
         ))
         .run();
 }

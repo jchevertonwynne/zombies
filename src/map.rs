@@ -2,7 +2,7 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 
 use crate::layers::GameLayer;
-use crate::state::{GameState, InRun};
+use crate::state::InRun;
 use crate::tuning::*;
 
 /// A fixed place in the Map where Zombies enter play.
@@ -18,8 +18,9 @@ impl Plugin for MapPlugin {
             brightness: 120.0,
             ..default()
         })
-        .insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.04)))
-        .add_systems(OnEnter(GameState::Playing), spawn_arena);
+        .insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.04)));
+        // PROTOTYPE: the greybox layouts in map_prototype replace the Arena on this branch.
+        let _ = spawn_arena;
     }
 }
 
