@@ -2,7 +2,7 @@
 
 **Player**: The single human-controlled survivor, viewed in first person.
 
-**Zombie**: A hostile undead enemy that walks straight towards the Player and attacks in melee.
+**Zombie**: A hostile undead enemy that finds its way to the Player and attacks in melee.
 
 **Round**: One numbered wave of Zombies. A Round ends once every Zombie it contains has been killed. The next Round has a higher number and is harder.
 
@@ -30,11 +30,17 @@
 
 **Points**: Currency the Player earns by damaging and killing Zombies. Not the same as score; Points exist to be spent (later on).
 
-**Spawn Point**: A fixed place in the Map where Zombies enter play.
+**Spawn Point**: A fixed place in the Map where Zombies enter play. Most sit just outside one Barrier, and a Zombie that spawns there has to get in through that Barrier. The rest are Risers.
+
+**Barrier**: A boarded-up window in a Zone's outer wall. Zombies tear the boards off to climb in. The Player can never pass through a Barrier, whether it is boarded or not.
+
+**Riser**: A Spawn Point in open ground, where a Zombie climbs up out of the dirt with no Barrier in its way.
 
 **Map**: The playable space. The first prototype used a single open Arena; real Maps are made of Zones joined by Doors.
 
 **Zone**: A named area of a Map, such as a room or a yard. Each Zone is either open or closed to the Player. Opening a Zone (usually by buying a Door) activates its Barriers and Spawn Points. Zones decide where Zombies come from, not how they move.
+
+**Active Zone**: The Zone the Player is standing in, or an open Zone next to it. Only Spawn Points in Active Zones send in Zombies.
 
 **Arena**: An enclosed, open area with no doors or separate rooms.
 
