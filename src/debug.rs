@@ -10,7 +10,8 @@ use crate::weapon::Loadout;
 /// The Weapon F2 hands over, to try switching before Wall Weapons exist.
 const GRANTED_WEAPON: WeaponId = WeaponId::Mp40;
 
-/// Whether the F1 debug view is on: collider outlines, Zone volumes and the Active Zones.
+/// Whether the F1 debug view is on: collider outlines, Zone volumes, the Active Zones,
+/// the path-node graph and each Zombie's route.
 #[derive(Resource, Default)]
 pub struct DebugView(pub bool);
 

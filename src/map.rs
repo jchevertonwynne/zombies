@@ -21,9 +21,65 @@ const DOOR_WIDTH: f32 = 2.4;
 const DOOR_HEIGHT: f32 = 3.0;
 const RAIL_HEIGHT: f32 = 1.1;
 
+const WINDOW_WIDTH: f32 = 1.6;
+const WINDOW_HEIGHT: f32 = 2.2;
+/// How far outside its window a window Spawn Point sits.
+const WINDOW_SPAWN_OUT: f32 = 2.0;
+
+/// One of the 13 windows in the ring's outer walls, each the home of one Barrier (an index into
+/// `WINDOWS`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BarrierId(pub u8);
+
+/// The windows: the Zone each lets into, its centre on the wall (x, z), and the way out.
+/// Until the Barriers slice they are open gaps that Zombies walk straight through.
+pub const WINDOWS: [(ZoneId, Vec2, Vec2); 13] = [
+    (ZoneId::StartRoom, Vec2::new(-7.0, 26.0), Vec2::Y),
+    (ZoneId::StartRoom, Vec2::new(7.0, 26.0), Vec2::Y),
+    (ZoneId::WestHall, Vec2::new(-26.0, 18.0), Vec2::NEG_X),
+    (ZoneId::WestHall, Vec2::new(-26.0, 4.0), Vec2::NEG_X),
+    (ZoneId::WestHall, Vec2::new(-26.0, -8.0), Vec2::NEG_X),
+    (ZoneId::EastHall, Vec2::new(26.0, 18.0), Vec2::X),
+    (ZoneId::EastHall, Vec2::new(26.0, 4.0), Vec2::X),
+    (ZoneId::EastHall, Vec2::new(26.0, -8.0), Vec2::X),
+    (ZoneId::DiningRoom, Vec2::new(-18.0, -26.0), Vec2::NEG_Y),
+    (ZoneId::DiningRoom, Vec2::new(-6.0, -26.0), Vec2::NEG_Y),
+    (ZoneId::DiningRoom, Vec2::new(-26.0, -20.0), Vec2::NEG_X),
+    (ZoneId::PowerRoom, Vec2::new(8.0, -26.0), Vec2::NEG_Y),
+    (ZoneId::PowerRoom, Vec2::new(20.0, -26.0), Vec2::NEG_Y),
+];
+
+/// Where a window's Spawn Point stands: on the ground just outside it.
+pub fn window_spawn(barrier: BarrierId) -> Vec3 {
+    let (_, centre, out) = WINDOWS[barrier.0 as usize];
+    let at = centre + out * WINDOW_SPAWN_OUT;
+    Vec3::new(at.x, 0.0, at.y)
+}
+
+/// The Yard's Risers, where Zombies climb out of the ground (x, z).
+const RISERS: [Vec2; 4] = [
+    Vec2::new(-7.0, 10.0),
+    Vec2::new(10.0, 10.0),
+    Vec2::new(-4.0, -11.0),
+    Vec2::new(11.0, -10.0),
+];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpawnKind {
+    /// Outside a window. The Zombie has to get in through that window's Barrier.
+    // The Barriers slice reads which Barrier; until then Zombies walk straight in.
+    #[allow(dead_code)]
+    Window(BarrierId),
+    /// In open ground: the Zombie climbs up out of the dirt.
+    Riser,
+}
+
 /// A fixed place in the Map where Zombies enter play, in the Zone it serves.
 #[derive(Component)]
-pub struct SpawnPoint(pub ZoneId);
+pub struct SpawnPoint {
+    pub zone: ZoneId,
+    pub kind: SpawnKind,
+}
 
 pub struct MapPlugin;
 
@@ -45,6 +101,8 @@ enum Gap {
     Door(Option<(ZoneId, ZoneId)>, Option<u64>),
     /// An open archway.
     Open { width: f32, height: f32 },
+    /// A window in an outer wall, open to Zombies and solid to the Player.
+    Window,
 }
 
 struct Builder<'a, 'w, 's> {
@@ -97,11 +155,27 @@ impl Builder<'_, '_, '_> {
             let (width, top) = match gap {
                 Gap::Door(..) => (DOOR_WIDTH, DOOR_HEIGHT),
                 Gap::Open { width, height } => (*width, *height),
+                Gap::Window => (WINDOW_WIDTH, WINDOW_HEIGHT),
             };
             let (s, e) = (at - width / 2.0, at + width / 2.0);
             piece(self, cursor, s, 0.0, height, WALL_THICKNESS, &wall_mat);
             piece(self, s, e, top, height, WALL_THICKNESS, &wall_mat);
             cursor = e;
+            if let Gap::Window = gap {
+                let mid = a + dir * *at;
+                let size = if along_x {
+                    Vec3::new(e - s, WINDOW_HEIGHT, WALL_THICKNESS)
+                } else {
+                    Vec3::new(WALL_THICKNESS, WINDOW_HEIGHT, e - s)
+                };
+                self.commands.spawn((
+                    InRun,
+                    Transform::from_xyz(mid.x, y0 + WINDOW_HEIGHT / 2.0, mid.y),
+                    RigidBody::Static,
+                    Collider::cuboid(size.x, size.y, size.z),
+                    CollisionLayers::new(GameLayer::Window, LayerMask::ALL),
+                ));
+            }
             if let Gap::Door(joins, price) = gap {
                 let mat = if price.is_some() { self.door.clone() } else { self.power_door.clone() };
                 let door = piece(self, s, e, 0.0, DOOR_HEIGHT, 0.25, &mat).unwrap();
@@ -126,6 +200,20 @@ impl Builder<'_, '_, '_> {
             }
         }
         piece(self, cursor, length, 0.0, height, WALL_THICKNESS, &wall_mat);
+    }
+
+    /// An outer wall from `a` to `b`, with a gap for each window on it.
+    fn outer_wall(&mut self, a: Vec2, b: Vec2, height: f32) {
+        let length = (b - a).length();
+        let mut gaps: Vec<_> = WINDOWS
+            .iter()
+            .map(|(_, centre, _)| *centre)
+            .filter(|&centre| (centre - a).perp_dot(b - a).abs() < 0.01)
+            .map(|centre| ((centre - a).dot(b - a) / length, Gap::Window))
+            .filter(|(at, _)| *at > 0.0 && *at < length)
+            .collect();
+        gaps.sort_by(|x, y| x.0.total_cmp(&y.0));
+        self.wall(a, b, 0.0, height, &gaps);
     }
 }
 
@@ -167,14 +255,25 @@ fn spawn_map(
     b.solid(Vec3::new(4.0, 0.2, 24.0), Vec3::new(-12.0, STOREY - 0.1, -2.0), &floor_mat);
     b.solid(Vec3::new(3.0, 0.2, 4.0), Vec3::new(-15.7, STOREY - 0.1, -2.0), &floor_mat);
 
-    // Outer walls. West Hall's are two storeys tall, since its ramp climbs to the first storey.
+    // Ground outside the outer walls, where Zombies gather at the windows.
+    for (size, centre) in [
+        (Vec3::new(60.0, 0.2, 4.0), Vec3::new(0.0, -0.1, 28.0)),
+        (Vec3::new(60.0, 0.2, 4.0), Vec3::new(0.0, -0.1, -28.0)),
+        (Vec3::new(4.0, 0.2, 52.0), Vec3::new(-28.0, -0.1, 0.0)),
+        (Vec3::new(4.0, 0.2, 52.0), Vec3::new(28.0, -0.1, 0.0)),
+    ] {
+        b.solid(size, centre, &yard_mat);
+    }
+
+    // Outer walls, with the windows. West Hall's are two storeys tall, since its ramp climbs to
+    // the first storey.
     let tall = 2.0 * STOREY;
-    b.wall(v(-26.0, 26.0), v(-14.0, 26.0), 0.0, tall, &[]);
-    b.wall(v(-14.0, 26.0), v(26.0, 26.0), 0.0, STOREY, &[]);
-    b.wall(v(-26.0, -14.0), v(-26.0, 26.0), 0.0, tall, &[]);
-    b.wall(v(-26.0, -26.0), v(-26.0, -14.0), 0.0, STOREY, &[]);
-    b.wall(v(-26.0, -26.0), v(26.0, -26.0), 0.0, STOREY, &[]);
-    b.wall(v(26.0, -26.0), v(26.0, 26.0), 0.0, STOREY, &[]);
+    b.outer_wall(v(-26.0, 26.0), v(-14.0, 26.0), tall);
+    b.outer_wall(v(-14.0, 26.0), v(26.0, 26.0), STOREY);
+    b.outer_wall(v(-26.0, -14.0), v(-26.0, 26.0), tall);
+    b.outer_wall(v(-26.0, -26.0), v(-26.0, -14.0), STOREY);
+    b.outer_wall(v(-26.0, -26.0), v(26.0, -26.0), STOREY);
+    b.outer_wall(v(26.0, -26.0), v(26.0, 26.0), STOREY);
 
     // Start Room
     b.wall(v(-14.0, 14.0), v(-14.0, 26.0), 0.0, tall, &[(6.0, door(StartRoom, WestHall, DOOR_PRICE_START_WEST))]);
@@ -234,27 +333,27 @@ fn spawn_map(
         b.solid(Vec3::new(w, 1.1, d), Vec3::new(x, 0.55, z), &crate_mat);
     }
 
-    // Spawn Points. Windows come with Barriers; until then indoor Zombies appear by the outer
-    // walls, and Yard Zombies rise from the ground.
-    for (zone, x, z) in [
-        (StartRoom, -8.0, 24.5),
-        (StartRoom, 8.0, 24.5),
-        (WestHall, -24.5, 18.0),
-        (WestHall, -24.5, 2.0),
-        (WestHall, -24.5, -10.0),
-        (EastHall, 24.5, 18.0),
-        (EastHall, 24.5, 2.0),
-        (EastHall, 24.5, -10.0),
-        (DiningRoom, -20.0, -24.5),
-        (DiningRoom, -6.0, -24.5),
-        (PowerRoom, 6.0, -24.5),
-        (PowerRoom, 20.0, -24.5),
-        (Yard, -7.0, 10.0),
-        (Yard, 10.0, 10.0),
-        (Yard, -4.0, -11.0),
-        (Yard, 11.0, -10.0),
-    ] {
-        commands.spawn((InRun, SpawnPoint(zone), Transform::from_xyz(x, 0.0, z)));
+    // Spawn Points: one outside each window, and the Yard's Risers.
+    for (i, (zone, ..)) in WINDOWS.iter().enumerate() {
+        let barrier = BarrierId(i as u8);
+        commands.spawn((
+            InRun,
+            SpawnPoint {
+                zone: *zone,
+                kind: SpawnKind::Window(barrier),
+            },
+            Transform::from_translation(window_spawn(barrier)),
+        ));
+    }
+    for at in RISERS {
+        commands.spawn((
+            InRun,
+            SpawnPoint {
+                zone: Yard,
+                kind: SpawnKind::Riser,
+            },
+            Transform::from_xyz(at.x, 0.0, at.y),
+        ));
     }
 
     // Lighting: a dim moon over the Yard, and a warm lamp in each room.

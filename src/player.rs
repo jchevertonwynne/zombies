@@ -207,7 +207,7 @@ fn move_player(
         velocity,
         time.delta(),
         &MoveAndSlideConfig::default(),
-        &SpatialQueryFilter::from_mask([GameLayer::World, GameLayer::Zombie])
+        &SpatialQueryFilter::from_mask([GameLayer::World, GameLayer::Zombie, GameLayer::Window])
             .with_excluded_entities([entity]),
         |hit| {
             if hit.normal.y > 0.7 {

@@ -12,6 +12,7 @@ mod map;
 mod menu;
 mod modifier;
 mod mode;
+mod nav;
 mod player;
 mod points;
 mod round;
@@ -48,6 +49,7 @@ fn main() {
         .add_plugins((
             map::MapPlugin,
             zone::ZonePlugin,
+            nav::NavPlugin,
             door::DoorPlugin,
             buy::BuyPlugin,
             player::PlayerPlugin,

@@ -549,6 +549,27 @@ pub const ZOMBIE_SWIPE_DAMAGE: f32 = 60.0;
 pub const ZOMBIE_FALL_SECS: f32 = 0.4;
 pub const ZOMBIE_CORPSE_SECS: f32 = 2.0;
 
+// Navigation and spawning
+/// Seconds between a Zombie's re-plans, or `ZOMBIE_REPATH_FAR_SECS` beyond `ZOMBIE_REPATH_FAR_DIST` of the Player.
+pub const ZOMBIE_REPATH_SECS: f32 = 0.25;
+pub const ZOMBIE_REPATH_FAR_SECS: f32 = 1.0;
+pub const ZOMBIE_REPATH_FAR_DIST: f32 = 30.0;
+/// How close (horizontally) a Zombie gets to a path node before heading for the next one.
+pub const ZOMBIE_WAYPOINT_REACH: f32 = 0.6;
+/// The most the Player's feet can be above or below a Zombie's for it to steer straight at them.
+pub const ZOMBIE_DIRECT_MAX_RISE: f32 = 1.0;
+/// Separation steering: Zombies closer than this push apart, by up to this weight of their stride.
+pub const ZOMBIE_SEPARATION_DIST: f32 = 1.0;
+pub const ZOMBIE_SEPARATION_WEIGHT: f32 = 0.6;
+/// Seconds a Riser takes to climb out of the ground; it can be shot but can't attack meanwhile.
+pub const ZOMBIE_RISE_SECS: f32 = 1.5;
+/// Stuck cleanup: a Zombie that makes no progress, or stays beyond `ZOMBIE_CLEANUP_DIST` of the
+/// Player, for `ZOMBIE_CLEANUP_SECS` despawns and goes back into the Horde.
+pub const ZOMBIE_CLEANUP_DIST: f32 = 40.0;
+pub const ZOMBIE_CLEANUP_SECS: f32 = 10.0;
+/// Moving this far counts as progress for the stuck rule.
+pub const ZOMBIE_PROGRESS_DIST: f32 = 1.0;
+
 // Rounds
 pub const ZOMBIE_HEALTH_START: u64 = 150;
 /// Added each Round through Round 9.
