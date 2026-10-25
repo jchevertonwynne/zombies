@@ -168,3 +168,18 @@ _Avoid_: skill, buff, upgrade
 
 **Boon Offer**: The choice of Boons shown after each Round in Gauntlet. The world is frozen until the Player picks one; there is no skipping or rerolling.
 _Avoid_: draft, level-up, card pick
+
+**Rarity**: How often a Boon turns up in Boon Offers: Common, Rare or Legendary. Each Boon has one fixed Rarity, and Rarity never changes how strong it is.
+_Avoid_: tier, quality
+
+**Stack**: One copy of a held Boon. A Boon can be picked again and again, each pick adding a Stack.
+_Avoid_: level, rank
+
+**Requirement**: A condition a Boon must meet before it can appear in a Boon Offer, such as holding another Boon.
+_Avoid_: prerequisite, unlock
+
+**Pact**: A cursed Boon: stronger than any Legendary but carrying a Drawback. Pacts are offered in place of Boons every fifth Round, may be skipped, and each can be held only once.
+_Avoid_: cursed boon, curse, bargain
+
+**Drawback**: The lasting cost a Pact puts on the Run, such as dearer prices or faster Zombies.
+_Avoid_: downside, penalty, curse
