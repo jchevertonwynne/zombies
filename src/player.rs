@@ -4,6 +4,7 @@ use avian3d::prelude::*;
 use bevy::input::common_conditions::input_just_pressed;
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
+use bevy::render::view::ColorGrading;
 use bevy::window::{CursorGrabMode, CursorOptions};
 
 use crate::equipment::Equipment;
@@ -54,6 +55,17 @@ impl Default for Locomotion {
     }
 }
 
+/// A factor on the camera's FOV from an effect, like the Teleporter's FOV warp. 1 for none. Its
+/// source rewrites it every frame the effect lasts and sets it back to 1 after.
+#[derive(Resource, Debug, Clone, Copy, PartialEq)]
+pub struct FovWarp(pub f32);
+
+impl Default for FovWarp {
+    fn default() -> Self {
+        Self(1.0)
+    }
+}
+
 /// A Zombie's swing connected.
 #[derive(Message)]
 pub struct PlayerHit {
@@ -65,7 +77,11 @@ pub struct PlayerPlugin;
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<PlayerHit>()
-            .add_systems(OnEnter(GameState::Playing), spawn_player)
+            .init_resource::<FovWarp>()
+            .add_systems(
+                OnEnter(GameState::Playing),
+                (spawn_player, |mut warp: ResMut<FovWarp>| *warp = FovWarp::default()),
+            )
             .add_systems(OnEnter(Pause::Running), grab_cursor)
             .add_systems(OnExit(Pause::Running), release_cursor)
             // Settings apply immediately, even from Pause.
@@ -116,6 +132,8 @@ fn spawn_player(mut commands: Commands, settings: Res<Settings>) {
                 fov: settings.fov_radians(),
                 ..default()
             }),
+            // Neutral, so effects (the Teleporter's black and white) can grade it.
+            ColorGrading::default(),
             DistanceFog {
                 color: Color::srgb(0.02, 0.02, 0.04),
                 falloff: FogFalloff::Linear {
@@ -138,13 +156,14 @@ fn release_cursor(mut cursor: Single<&mut CursorOptions>) {
     cursor.grab_mode = CursorGrabMode::None;
 }
 
-/// The FOV setting, narrowed while aiming down the sights.
+/// The FOV setting, narrowed while aiming down the sights, and warped by any effect.
 fn apply_fov(
     settings: Res<Settings>,
+    warp: Res<FovWarp>,
     loadout: Single<&Loadout, With<Player>>,
     mut cameras: Query<&mut Projection, With<PlayerCamera>>,
 ) {
-    let fov = settings.fov_radians() * loadout.fov_factor();
+    let fov = settings.fov_radians() * loadout.fov_factor() * warp.0;
     for mut projection in &mut cameras {
         if let Projection::Perspective(perspective) = &mut *projection
             && perspective.fov != fov

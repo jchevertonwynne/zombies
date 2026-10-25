@@ -1008,14 +1008,14 @@ fn knife(
 }
 
 /// Kills can put bullets back in the held Weapon's Magazine, through the modifier seam. A Trap's
-/// kill is the Map's, not the Player's.
+/// or the Teleporter's kill is the Map's, not the Player's.
 fn refill_on_kill(
     mut kills: MessageReader<ZombieKilled>,
     player: Single<(&mut Loadout, &Modifiers), With<Player>>,
 ) {
     let (mut loadout, modifiers) = player.into_inner();
     for kill in kills.read() {
-        if kill.attack != Attack::Trap {
+        if !matches!(kill.attack, Attack::Trap | Attack::Teleporter) {
             loadout.refill_on_kill(&modifiers.0);
         }
     }
