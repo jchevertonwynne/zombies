@@ -39,6 +39,8 @@ pub enum HitZone {
 pub enum Attack {
     Bullet,
     Knife,
+    /// Burn damage over time, from fire.
+    Burn,
 }
 
 /// Whether a hit counts as a Headshot: a bullet to the head. A Knife kill pays as a Knife kill wherever it lands.
@@ -336,7 +338,10 @@ fn apply_damage(
         }
         zombie.health -= request.damage;
         if zombie.health > 0.0 {
-            hits.write(ZombieHit);
+            // A Burn's ticks pay no hit Points.
+            if request.attack != Attack::Burn {
+                hits.write(ZombieHit);
+            }
             continue;
         }
 

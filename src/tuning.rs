@@ -3,7 +3,7 @@
 use bevy::math::Vec3;
 
 use crate::arsenal::{
-    Availability, Falloff, FireMode, Handling, Penetration, ReloadTime, Splash, WeaponClass, WeaponId,
+    Availability, Burn, Falloff, FireMode, Handling, Penetration, ReloadTime, Splash, WeaponClass, WeaponId,
     WeaponStats,
 };
 
@@ -221,6 +221,7 @@ const ROW: WeaponStats = WeaponStats {
     damage_min: 0.0,
     pellets: 1,
     splash: None,
+    burn: None,
     magazine: 0,
     reserve_max: 0,
     reserve_start: None,
@@ -673,6 +674,317 @@ pub const WEAPONS: [WeaponStats; 28] = [
     },
 ];
 
+/// A base row, for an upgraded row to start from: a dash in Appendix A3 means unchanged.
+const fn base(id: WeaponId) -> WeaponStats {
+    WEAPONS[id as usize]
+}
+
+/// The Hades' incendiary pellets (approx: A3 only says "burn damage").
+pub const HADES_BURN: Burn = Burn {
+    damage: 50.0,
+    tick_secs: 0.5,
+    secs: 3.0,
+};
+
+/// Every Weapon's hand-written Pack-a-Punch form (Appendix A3), in `WeaponId` order. Each row
+/// starts from its base row and writes out what A3 changes; nothing is a multiplier.
+pub const UPGRADED_WEAPONS: [WeaponStats; 28] = [
+    WeaponStats {
+        name: "Mustang & Sally",
+        class: WeaponClass::DualWield,
+        damage_max: 1000.0,
+        damage_min: 1000.0,
+        // Fires grenades. The splash radius is unverified.
+        splash: Some(Splash {
+            max: 1200.0, // approx
+            min: 100.0,  // approx
+            radius: 3.0, // approx
+        }),
+        magazine: 12, // 6 + 6
+        reserve_max: 50,
+        reserve_start: None,
+        fire_interval: rpm(300.0),
+        reload: reload(1.6, 1.6),
+        penetration: Penetration::None,
+        ..base(WeaponId::M1911)
+    },
+    WeaponStats {
+        name: "Hades",
+        damage_max: 200.0,
+        damage_min: 200.0,
+        pellets: 12,
+        burn: Some(HADES_BURN),
+        magazine: 2,
+        reserve_max: 60,
+        reload: reload(2.0, 2.5),
+        ..base(WeaponId::Olympia)
+    },
+    WeaponStats {
+        name: "Mnesia",
+        damage_max: 200.0,
+        damage_min: 150.0,
+        headshot: 6.0,
+        torso: 2.0,
+        magazine: 16,
+        reserve_max: 192,
+        ..base(WeaponId::M14)
+    },
+    WeaponStats {
+        name: "The Afterburner",
+        damage_max: 200.0,
+        damage_min: 120.0,
+        headshot: 5.0,
+        magazine: 64,
+        reserve_max: 192,
+        fire_interval: rpm(600.0),
+        ..base(WeaponId::Mp40)
+    },
+    WeaponStats {
+        name: "Gut Shot",
+        damage_max: 300.0,
+        damage_min: 300.0,
+        magazine: 10,
+        reserve_max: 60,
+        // Two shells at a time: half the time per shell.
+        reload: shells(0.9, 0.3, 0.95),
+        ..base(WeaponId::TrenchGun)
+    },
+    WeaponStats {
+        name: "AK-74fu2",
+        damage_max: 190.0,
+        damage_min: 140.0,
+        headshot: 5.0,
+        magazine: 40,
+        reserve_max: 280,
+        ..base(WeaponId::Ak74u)
+    },
+    WeaponStats {
+        name: "Calamity",
+        fire: FireMode::Auto,
+        damage_max: 300.0,
+        damage_min: 200.0,
+        magazine: 20,
+        reserve_max: 240,
+        fire_interval: rpm(535.0),
+        ..base(WeaponId::Cz75)
+    },
+    WeaponStats {
+        name: "Calamity & Jane",
+        fire: FireMode::Auto,
+        damage_max: 300.0,
+        damage_min: 200.0,
+        magazine: 40, // 20 + 20
+        reserve_max: 320,
+        fire_interval: rpm(535.0),
+        ..base(WeaponId::Cz75DualWield)
+    },
+    WeaponStats {
+        name: "Cobra",
+        damage_max: 1000.0,
+        damage_min: 600.0,
+        headshot: 3.0,
+        magazine: 12,
+        reserve_max: 96,
+        // The whole cylinder at once.
+        reload: reload(2.6, 2.6),
+        ..base(WeaponId::Python)
+    },
+    WeaponStats {
+        name: "Phantom",
+        damage_max: 130.0,
+        damage_min: 80.0,
+        headshot: 5.0,
+        magazine: 45,
+        reserve_max: 225,
+        ..base(WeaponId::Spectre)
+    },
+    WeaponStats {
+        name: "G115 Generator",
+        fire: FireMode::Auto,
+        damage_max: 150.0,
+        damage_min: 100.0,
+        headshot: 5.0,
+        magazine: 48,
+        reserve_max: 288,
+        ..base(WeaponId::G11)
+    },
+    WeaponStats {
+        name: "G16-GL35",
+        damage_max: 150.0,
+        damage_min: 100.0,
+        headshot: 5.0,
+        magazine: 45,
+        reserve_max: 225,
+        ..base(WeaponId::Famas)
+    },
+    WeaponStats {
+        // Its built-in Masterkey arrives with Underbarrels.
+        name: "AUG-50M3",
+        damage_max: 200.0,
+        damage_min: 140.0,
+        headshot: 5.0,
+        magazine: 30,
+        reserve_max: 390,
+        ..base(WeaponId::Aug)
+    },
+    WeaponStats {
+        name: "Predator",
+        damage_max: 210.0,
+        damage_min: 150.0,
+        headshot: 4.0,
+        magazine: 40,
+        reserve_max: 360,
+        reload: reload(1.7, 2.1),
+        ..base(WeaponId::Commando)
+    },
+    WeaponStats {
+        name: "Lamentation",
+        damage_max: 220.0,
+        damage_min: 150.0,
+        headshot: 5.0,
+        magazine: 35,
+        reserve_max: 490,
+        ..base(WeaponId::Galil)
+    },
+    WeaponStats {
+        name: "EPC WN",
+        fire: FireMode::Burst(3),
+        damage_max: 240.0,
+        damage_min: 180.0,
+        headshot: 5.0,
+        magazine: 30,
+        reserve_max: 360,
+        ..base(WeaponId::FnFal)
+    },
+    WeaponStats {
+        name: "Typhoid & Mary",
+        class: WeaponClass::DualWield,
+        damage_max: 300.0,
+        damage_min: 300.0,
+        magazine: 16, // 8 + 8
+        reserve_max: 80,
+        fire_interval: rpm(340.0),
+        // The whole Magazine at once.
+        reload: reload(3.0, 3.4),
+        // Still a shotgun at range.
+        falloff: Some(WEAPON_HANDLING[WeaponClass::Shotgun as usize].falloff),
+        ..base(WeaponId::Hs10)
+    },
+    WeaponStats {
+        name: "SPAZ-24",
+        fire: FireMode::Auto,
+        damage_max: 300.0,
+        damage_min: 300.0,
+        magazine: 24,
+        reserve_max: 72,
+        // The whole Magazine at once (~1 s).
+        reload: reload(1.0, 1.0),
+        ..base(WeaponId::Spas12)
+    },
+    WeaponStats {
+        name: "D115 Disassembler",
+        damage_max: 1000.0,
+        damage_min: 1000.0,
+        torso: 3.0,
+        magazine: 10,
+        reserve_max: 80,
+        ..base(WeaponId::Dragunov)
+    },
+    WeaponStats {
+        // Its body multipliers are unverified, so it keeps the L96A1's.
+        name: "L115 Isolator",
+        damage_max: 1000.0,
+        damage_min: 1000.0,
+        magazine: 8,
+        reserve_max: 72,
+        ..base(WeaponId::L96a1)
+    },
+    WeaponStats {
+        name: "R115 Resonator",
+        damage_max: 180.0,
+        damage_min: 130.0,
+        magazine: 125,
+        reserve_max: 500,
+        ..base(WeaponId::Rpk)
+    },
+    WeaponStats {
+        name: "H115 Oscillator",
+        damage_max: 210.0,
+        damage_min: 150.0,
+        magazine: 150,
+        reserve_max: 750,
+        ..base(WeaponId::Hk21)
+    },
+    WeaponStats {
+        name: "M72 Anarchy",
+        fire: FireMode::Auto,
+        damage_max: 3000.0, // approx
+        damage_min: 3000.0, // approx
+        splash: Some(Splash {
+            max: 600.0, // approx
+            min: 100.0, // approx
+            radius: 5.7,
+        }),
+        magazine: 10,
+        reserve_max: 40,
+        fire_interval: rpm(56.0),
+        reload: reload(3.0, 3.0),
+        ..base(WeaponId::M72Law)
+    },
+    WeaponStats {
+        name: "China Beach",
+        damage_max: 1000.0, // approx
+        damage_min: 1000.0, // approx
+        splash: Some(Splash {
+            max: 1000.0, // approx
+            min: 75.0,   // approx
+            radius: 5.0,
+        }),
+        magazine: 5,
+        reserve_max: 40,
+        // One Reload loads every grenade.
+        reload: reload(1.0, 1.0),
+        ..base(WeaponId::ChinaLake)
+    },
+    WeaponStats {
+        name: "Porter's X2 Ray Gun",
+        splash: Some(Splash {
+            max: 2000.0,
+            min: 300.0,
+            radius: 1.6,
+        }),
+        magazine: 40,
+        reserve_max: 200,
+        ..base(WeaponId::RayGun)
+    },
+    WeaponStats {
+        // Ammo only.
+        name: "ZeusCannon",
+        magazine: 4,
+        reserve_max: 24,
+        ..base(WeaponId::Thundergun)
+    },
+    WeaponStats {
+        // The 4 s fuse and the Monkey Bomb pull arrive with projectiles.
+        name: "Awful Lawton",
+        splash: Some(Splash {
+            max: 2500.0,
+            min: 225.0,
+            radius: 5.0,
+        }),
+        ..base(WeaponId::Crossbow)
+    },
+    WeaponStats {
+        name: "Krauss Refibrillator",
+        damage_max: 1000.0,
+        damage_min: 1000.0,
+        headshot: 3.0,
+        reserve_max: 9,
+        reload: reload(0.75, 0.75),
+        ..base(WeaponId::BallisticKnife)
+    },
+];
+
 // Knife
 pub const KNIFE_DAMAGE: f32 = 150.0;
 pub const KNIFE_RANGE: f32 = 1.6;
@@ -760,6 +1072,17 @@ pub const DOOR_USE_RANGE: f32 = USE_RANGE + 1.2;
 pub const CANT_AFFORD_FLASH_SECS: f32 = 0.5;
 /// An ammo buy costs half the Wall Weapon's price, rounded up to a multiple of this.
 pub const AMMO_PRICE_STEP: u64 = 10;
+/// An Upgraded Weapon's ammo buy, whatever its wall price.
+pub const PAP_AMMO_PRICE: u64 = 4500;
+
+// Pack-a-Punch
+pub const PAP_PRICE: u64 = 5000;
+/// How long the machine works on a Weapon before it can be taken.
+pub const PAP_PROCESS_SECS: f32 = 3.0;
+/// How long the Upgraded Weapon waits to be taken before it's lost, with no refund.
+pub const PAP_PICKUP_SECS: f32 = 15.0;
+/// Seconds for the glint band to sweep once along an Upgraded Weapon.
+pub const GLINT_SWEEP_SECS: f32 = 1.2;
 
 // Power and Perks
 /// How long the Power Switch's lever takes to throw.

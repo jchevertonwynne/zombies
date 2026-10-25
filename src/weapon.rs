@@ -2,7 +2,8 @@ use avian3d::prelude::*;
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
 
-use crate::arsenal::{FireMode, WeaponClass, WeaponId, WeaponStats};
+use crate::arsenal::{Burn, FireMode, WeaponClass, WeaponId, WeaponStats};
+use crate::burn::Ignite;
 use crate::combat::{Crossing, hit_damage, pierce, spread_direction};
 use crate::layers::GameLayer;
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve, resolve_count};
@@ -15,6 +16,8 @@ use crate::zombie::{Attack, DamageZombie, Dying, HitArea, HitZone, Zombie};
 /// One Weapon the Player carries: its ammo and its own modifier entries.
 pub struct WeaponCopy {
     pub id: WeaponId,
+    /// Whether it has been through Pack-a-Punch, which swaps in its upgraded row.
+    pub upgraded: bool,
     pub magazine: u32,
     pub reserve: u32,
     pub modifiers: Vec<Modifier>,
@@ -26,14 +29,28 @@ impl WeaponCopy {
         let stats = id.stats();
         Self {
             id,
+            upgraded: false,
             magazine: stats.magazine,
             reserve: stats.starting_reserve(),
             modifiers: Vec::new(),
         }
     }
 
+    /// Its row in the Weapon table: the base row, or the upgraded one.
     pub fn stats(&self) -> &'static WeaponStats {
-        self.id.stats()
+        if self.upgraded { self.id.upgraded() } else { self.id.stats() }
+    }
+
+    /// Its Pack-a-Punch form: the upgraded row, with a full Magazine and full Reserve Ammo. Its
+    /// own modifier entries stay with it, ready for Repacks.
+    pub fn upgrade(self) -> Self {
+        let stats = self.id.upgraded();
+        Self {
+            upgraded: true,
+            magazine: stats.magazine,
+            reserve: stats.reserve_max,
+            ..self
+        }
     }
 }
 
@@ -46,19 +63,23 @@ pub struct Reload {
 
 /// Putting one Weapon away and bringing another up.
 pub struct Swap {
-    pub from: WeaponId,
+    pub from: &'static WeaponStats,
+    /// The glint on the Weapon being put away.
+    pub from_glint: Option<Color>,
     pub elapsed: f32,
     pub drop_secs: f32,
     pub raise_secs: f32,
 }
 
 impl Swap {
-    fn between(from: WeaponId, to: WeaponId) -> Self {
+    fn between(from: &WeaponCopy, to: &'static WeaponStats) -> Self {
+        let (from_glint, from) = (glint_colour(from), from.stats());
         Self {
             from,
+            from_glint,
             elapsed: 0.0,
-            drop_secs: from.stats().handling().drop_secs,
-            raise_secs: to.stats().handling().raise_secs,
+            drop_secs: from.handling().drop_secs,
+            raise_secs: to.handling().raise_secs,
         }
     }
 
@@ -220,9 +241,10 @@ impl Loadout {
         if self.swap.is_some() || slot == self.held || self.slot(slot).is_none() {
             return false;
         }
-        let from = self.held().id;
+        let to = self.slot(slot).expect("a filled slot").stats();
+        self.swap = Some(Swap::between(self.held(), to));
         self.held = slot;
-        self.begin_swap(from);
+        self.reset_for_swap();
         true
     }
 
@@ -234,16 +256,49 @@ impl Loadout {
     /// Take a new Weapon and bring it up: into the empty slot if there is one, otherwise in
     /// place of the Weapon in hand.
     pub fn give(&mut self, id: WeaponId) {
-        let from = self.held().id;
-        if let Some(empty) = self.slots.iter().position(Option::is_none) {
-            self.held = empty;
-        }
-        self.slots[self.held] = Some(WeaponCopy::new(id));
-        self.begin_swap(from);
+        self.give_copy(WeaponCopy::new(id));
     }
 
-    fn begin_swap(&mut self, from: WeaponId) {
-        self.swap = Some(Swap::between(from, self.held().id));
+    /// Take a Weapon copy and bring it up: in place of another copy of the same Weapon if one is
+    /// carried, else into the empty slot, else in place of the Weapon in hand.
+    pub fn give_copy(&mut self, copy: WeaponCopy) {
+        let mut target = self.held;
+        if let Some(same) = self.slot_of(copy.id) {
+            target = same;
+        } else if let Some(empty) = self.slots.iter().position(Option::is_none) {
+            target = empty;
+        }
+        self.swap = Some(Swap::between(self.held(), copy.stats()));
+        self.held = target;
+        self.slots[target] = Some(copy);
+        self.reset_for_swap();
+    }
+
+    /// Hand over the Weapon in hand, as Pack-a-Punch takes it, and bring up the other one. Its
+    /// slot stays free until something fills it. The held slot is always filled, so the Player
+    /// must carry another Weapon.
+    pub fn take_held(&mut self) -> Option<WeaponCopy> {
+        let other = 1 - self.held;
+        self.slot(other)?;
+        let taken = self.slots[self.held].take().expect("the held slot is always filled");
+        self.held = other;
+        self.begin_swap(&taken);
+        Some(taken)
+    }
+
+    /// Whether the Player carries a Weapon besides the one in hand.
+    pub fn has_spare(&self) -> bool {
+        self.slot(1 - self.held).is_some()
+    }
+
+    /// Start putting `from` away and bringing up the Weapon now in hand.
+    fn begin_swap(&mut self, from: &WeaponCopy) {
+        self.swap = Some(Swap::between(from, self.held().stats()));
+        self.reset_for_swap();
+    }
+
+    /// A switch ends a Reload and a burst, and drops the sights and the bloom.
+    fn reset_for_swap(&mut self) {
         self.reload = None;
         self.burst_left = 0;
         self.aim = 0.0;
@@ -340,6 +395,23 @@ struct ViewModel {
     kick: f32,
 }
 
+/// The purple of an Upgraded Weapon: its name on the HUD, and its plain glint.
+pub const UPGRADED_PURPLE: Color = Color::srgb(0.62, 0.2, 1.0);
+
+/// The colour of a Weapon copy's glint, or `None` if it doesn't glint. Plain purple for every
+/// Upgraded Weapon until Ammo Mods colour it.
+pub fn glint_colour(copy: &WeaponCopy) -> Option<Color> {
+    copy.upgraded.then_some(UPGRADED_PURPLE)
+}
+
+/// The band of light sweeping along an Upgraded Weapon's model, a child of the view model.
+#[derive(Component)]
+struct Glint {
+    material: Handle<StandardMaterial>,
+    colour: Color,
+    sweep: f32,
+}
+
 pub struct WeaponPlugin;
 
 impl Plugin for WeaponPlugin {
@@ -369,11 +441,29 @@ fn spawn_view_model(
             perceptual_roughness: 0.4,
             ..default()
         });
+        let glint = materials.add(StandardMaterial {
+            base_color: UPGRADED_PURPLE,
+            emissive: LinearRgba::from(UPGRADED_PURPLE) * 8.0,
+            unlit: true,
+            ..default()
+        });
         commands.entity(camera).with_child((
             ViewModel { kick: 0.0 },
             Mesh3d(meshes.add(Cuboid::new(0.06, 0.1, 0.3))),
             MeshMaterial3d(metal),
             Transform::from_xyz(0.22, -0.2, -0.45),
+            children![(
+                Glint {
+                    material: glint.clone(),
+                    colour: UPGRADED_PURPLE,
+                    sweep: 0.0,
+                },
+                // A thin band just proud of the model's sides.
+                Mesh3d(meshes.add(Cuboid::new(0.066, 0.106, 0.04))),
+                MeshMaterial3d(glint),
+                Transform::default(),
+                Visibility::Hidden,
+            )],
         ));
     }
 }
@@ -436,6 +526,7 @@ fn fire(
     hit_areas: Query<(&HitArea, &ChildOf)>,
     zombies: Query<(Entity, &GlobalTransform), (With<Zombie>, Without<Dying>)>,
     mut damage: MessageWriter<DamageZombie>,
+    mut ignite: MessageWriter<Ignite>,
     mut shots: MessageWriter<ShotFired>,
 ) {
     let (entity, mut loadout, modifiers) = player.into_inner();
@@ -454,6 +545,11 @@ fn fire(
     shots.write(ShotFired);
 
     let stats = loadout.held().stats();
+    // Incendiary Weapons set every Zombie they hit alight.
+    let burn = stats.burn.map(|burn| Burn {
+        damage: loadout.resolve(Stat::Damage, burn.damage, entries),
+        ..burn
+    });
     let filter = attack_filter(entity);
     // The Thundergun has no damage per bullet; its scripted blast arrives with its own slice.
     let pellets = if stats.damage_max > 0.0 { stats.pellets } else { 0 };
@@ -508,6 +604,9 @@ fn fire(
                 zone: hit.zone,
                 attack: Attack::Bullet,
             });
+            if let Some(burn) = burn {
+                ignite.write(Ignite { zombie: hit.zombie, burn });
+            }
         }
     }
 
@@ -565,6 +664,8 @@ fn model_length(class: WeaponClass) -> f32 {
 
 fn animate_view_model(
     mut view_model: Single<(&mut ViewModel, &mut Transform)>,
+    mut glint: Single<(&mut Glint, &mut Transform, &mut Visibility), Without<ViewModel>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     player: Single<(&Loadout, &Modifiers, Has<Drinking>), With<Player>>,
     time: Res<Time>,
 ) {
@@ -574,12 +675,14 @@ fn animate_view_model(
 
     // Dip the gun out of view while reloading; drop the old gun and raise the new one on a switch.
     let mut class = loadout.held().stats().class;
+    let mut colour = glint_colour(loadout.held());
     let dip = if drinking {
         // Out of sight while the Perk is drunk.
         0.6
     } else if let Some(swap) = &loadout.swap {
         if swap.elapsed < swap.drop_secs {
-            class = swap.from.stats().class;
+            class = swap.from.class;
+            colour = swap.from_glint;
             swap.elapsed / swap.drop_secs * 0.4
         } else {
             (1.0 - (swap.elapsed - swap.drop_secs) / swap.raise_secs) * 0.4
@@ -594,6 +697,21 @@ fn animate_view_model(
     transform.translation = Vec3::new(0.22, -0.2 - dip, -0.45 - 0.15 * (length - 1.0) + model.kick * 0.05);
     transform.rotation = Quat::from_rotation_x(model.kick * 0.25 - dip * 2.0);
     transform.scale = Vec3::new(1.0, 1.0, length);
+
+    // The glint sweeps from the back of the model to the muzzle, over and over.
+    let (ref mut glint, ref mut glint_transform, ref mut visibility) = *glint;
+    visibility.set_if_neq(if colour.is_some() { Visibility::Inherited } else { Visibility::Hidden });
+    if let Some(colour) = colour {
+        if glint.colour != colour
+            && let Some(mut material) = materials.get_mut(&glint.material)
+        {
+            material.base_color = colour;
+            material.emissive = LinearRgba::from(colour) * 8.0;
+            glint.colour = colour;
+        }
+        glint.sweep = (glint.sweep + time.delta_secs() / GLINT_SWEEP_SECS).fract();
+        glint_transform.translation.z = 0.15 - 0.3 * glint.sweep;
+    }
 }
 
 #[cfg(test)]
@@ -819,6 +937,45 @@ mod tests {
         assert!(loadout.reload.is_none());
         let m14 = loadout.held();
         assert_eq!((m14.magazine, m14.reserve), (m14.stats().magazine, m14.stats().reserve_max));
+    }
+
+    #[test]
+    fn handing_over_the_weapon_in_hand_frees_its_slot() {
+        let mut loadout = Loadout::new(WeaponId::M1911);
+        assert!(loadout.take_held().is_none(), "the Player's only Weapon stays in hand");
+        loadout.give(WeaponId::M14);
+        run(&mut loadout, 5.0, NONE);
+
+        let m14 = loadout.take_held().expect("the M1911 is left to bring up");
+        assert_eq!(m14.id, WeaponId::M14);
+        assert_eq!(loadout.held().id, WeaponId::M1911);
+        assert!(loadout.swap.is_some());
+        assert!(loadout.slot(1).is_none() && !loadout.has_spare());
+
+        // A Wall Weapon bought meanwhile fills the free slot.
+        loadout.give(WeaponId::Mp40);
+        assert_eq!(loadout.slot(1).unwrap().id, WeaponId::Mp40);
+    }
+
+    #[test]
+    fn an_upgraded_copy_comes_back_in_place_of_the_same_weapon() {
+        let mut loadout = Loadout::new(WeaponId::M1911);
+        loadout.give(WeaponId::M14);
+        let m14 = loadout.take_held().unwrap();
+        loadout.give(WeaponId::M14);
+        loadout.give_copy(m14.upgrade());
+        assert_eq!(loadout.slot(1).unwrap().stats().name, "Mnesia");
+        assert_eq!(loadout.slot(0).unwrap().id, WeaponId::M1911);
+        assert_eq!(loadout.held().stats().name, "Mnesia");
+    }
+
+    #[test]
+    fn an_upgraded_copy_uses_its_upgraded_stats() {
+        let mut loadout = Loadout::new(WeaponId::M1911);
+        loadout.give_copy(WeaponCopy::new(WeaponId::M14).upgrade());
+        assert_eq!(loadout.damage_at(0.0, NONE), 200.0);
+        assert_eq!(loadout.magazine_size(NONE), 16);
+        assert!(loadout.ammo_full(1, NONE));
     }
 
     #[test]

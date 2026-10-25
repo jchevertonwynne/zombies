@@ -1,4 +1,5 @@
-//! Wall Weapons: chalk outlines that sell a Weapon, and then ammo for it at half price.
+//! Wall Weapons: chalk outlines that sell a Weapon, and then ammo for it at half price, or at
+//! `PAP_AMMO_PRICE` for an Upgraded copy.
 
 use bevy::prelude::*;
 
@@ -48,13 +49,20 @@ pub fn ammo_price(wall_price: u64) -> u64 {
     wall_price.div_ceil(2).div_ceil(AMMO_PRICE_STEP) * AMMO_PRICE_STEP
 }
 
-/// What a chalk sells, given the Weapon's wall price and, if the Player carries that Weapon,
-/// whether its ammo is full.
-pub fn offer(wall_price: u64, carried_full: Option<bool>) -> Offer {
-    match carried_full {
+/// The copy of a chalk's Weapon the Player carries, as far as its ammo buy cares.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Carried {
+    pub upgraded: bool,
+    /// Whether its Magazine and Reserve Ammo are both full.
+    pub full: bool,
+}
+
+/// What a chalk sells, given the Weapon's wall price and the copy the Player carries, if any.
+pub fn offer(wall_price: u64, carried: Option<Carried>) -> Offer {
+    match carried {
         None => Offer::Weapon(wall_price),
-        Some(full) => Offer::Ammo {
-            price: ammo_price(wall_price),
+        Some(Carried { upgraded, full }) => Offer::Ammo {
+            price: if upgraded { PAP_AMMO_PRICE } else { ammo_price(wall_price) },
             full,
         },
     }
@@ -82,9 +90,14 @@ fn price_wall_weapons(
     let (loadout, modifiers) = *player;
     for (entity, wall, mut buyable, refused) in &mut walls {
         let Some(price) = wall_price(wall.0) else { continue };
-        let carried_full = loadout.slot_of(wall.0).map(|slot| loadout.ammo_full(slot, &modifiers.0));
-        let offer = offer(price, carried_full);
-        let name = wall.0.stats().name;
+        let slot = loadout.slot_of(wall.0);
+        let carried = slot.map(|slot| Carried {
+            upgraded: loadout.slot(slot).is_some_and(|weapon| weapon.upgraded),
+            full: loadout.ammo_full(slot, &modifiers.0),
+        });
+        let offer = offer(price, carried);
+        // An Upgraded copy's ammo goes by its upgraded name.
+        let name = slot.and_then(|slot| loadout.slot(slot)).map_or(wall.0.stats().name, |weapon| weapon.stats().name);
         let prompt = match offer {
             Offer::Weapon(_) => format!("Press F to buy {name}"),
             Offer::Ammo { .. } => format!("Press F to buy ammo for {name}"),
@@ -167,9 +180,14 @@ mod tests {
         assert!(!offer(1000, None).refused());
     }
 
+    const BASE: Carried = Carried {
+        upgraded: false,
+        full: false,
+    };
+
     #[test]
     fn a_carried_weapon_becomes_an_ammo_buy() {
-        let ammo = offer(1000, Some(false));
+        let ammo = offer(1000, Some(BASE));
         assert_eq!(ammo, Offer::Ammo { price: 500, full: false });
         assert_eq!(ammo.price(), 500);
         assert!(!ammo.refused());
@@ -177,8 +195,19 @@ mod tests {
 
     #[test]
     fn a_full_ammo_buy_is_refused() {
-        let full = offer(1500, Some(true));
+        let full = offer(1500, Some(Carried { full: true, ..BASE }));
         assert_eq!(full.price(), 750, "the Prompt still shows the ammo price");
+        assert!(full.refused());
+    }
+
+    #[test]
+    fn an_upgraded_copys_ammo_costs_4500_at_any_chalk() {
+        let upgraded = Carried { upgraded: true, ..BASE };
+        for price in [500, 1000, 1200, 1500] {
+            assert_eq!(offer(price, Some(upgraded)), Offer::Ammo { price: 4500, full: false });
+        }
+        let full = offer(500, Some(Carried { full: true, ..upgraded }));
+        assert_eq!(full.price(), 4500);
         assert!(full.refused());
     }
 }
