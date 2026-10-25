@@ -1,5 +1,7 @@
 use bevy::prelude::*;
 
+use crate::last_stand::LastStand;
+use crate::player::Player;
 use crate::state::GameState;
 use crate::tuning::*;
 use crate::zombie::{Attack, HitZone, Pay, ZombieHit, ZombieKilled};
@@ -67,14 +69,17 @@ impl Plugin for PointsPlugin {
     }
 }
 
+/// Hits and kills pay, except in Last Stand, which earns nothing.
 fn earn(
     mut hits: MessageReader<ZombieHit>,
     mut kills: MessageReader<ZombieKilled>,
+    last_stand: Query<(), (With<Player>, With<LastStand>)>,
     mut points: ResMut<Points>,
     mut awarded: MessageWriter<PointsAwarded>,
 ) {
+    let earning = last_stand.is_empty();
     let amounts = hits.read().map(|hit| points_for(*hit)).chain(kills.read().map(kill_points));
-    for amount in amounts.filter(|&amount| amount > 0) {
+    for amount in amounts.filter(|&amount| amount > 0 && earning) {
         points.award(amount);
         awarded.write(PointsAwarded(amount));
     }

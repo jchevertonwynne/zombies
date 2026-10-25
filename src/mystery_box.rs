@@ -207,7 +207,7 @@ pub fn box_pool(held: &[WeaponId], in_play: &[WeaponId]) -> Vec<Prize> {
         .filter(|row| match row.availability {
             Availability::Box => true,
             Availability::LimitedBox => !in_play.contains(&row.id),
-            Availability::Start | Availability::Wall(_) => false,
+            Availability::Start | Availability::Wall(_) | Availability::Upgraded => false,
         })
         .map(|row| row.id)
         .filter(|&id| served(id) && !held.contains(&id))

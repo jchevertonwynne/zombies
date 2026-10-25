@@ -6,7 +6,8 @@
 
 use bevy::prelude::*;
 
-use crate::player::PlayerCamera;
+use crate::last_stand::LastStand;
+use crate::player::{Player, PlayerCamera};
 use crate::points::Points;
 use crate::state::{GameState, Pause};
 use crate::tuning::*;
@@ -138,11 +139,10 @@ impl Plugin for BuyPlugin {
     }
 }
 
-fn buyer(points: &Points, pause: &State<Pause>) -> Buyer {
+fn buyer(points: &Points, down: bool, pause: &State<Pause>) -> Buyer {
     Buyer {
         points: points.balance,
-        // The Last Stand arrives with Quick Revive; until then a Down is Game Over.
-        down: false,
+        down,
         paused: *pause.get() == Pause::Paused,
     }
 }
@@ -150,11 +150,12 @@ fn buyer(points: &Points, pause: &State<Pause>) -> Buyer {
 fn focus(
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
     buyables: Query<(Entity, &Buyable)>,
+    down: Single<Has<LastStand>, With<Player>>,
     points: Res<Points>,
     pause: Res<State<Pause>>,
     mut focus: ResMut<Focus>,
 ) {
-    let picked = if buyer(&points, &pause).blocked() {
+    let picked = if buyer(&points, *down, &pause).blocked() {
         None
     } else {
         let candidates = buyables.iter().map(|(entity, b)| (entity, b.use_point, b.range));
@@ -165,10 +166,11 @@ fn focus(
     }
 }
 
-fn buy(
+pub fn buy(
     input: Res<ButtonInput<KeyCode>>,
     focus: Res<Focus>,
     buyables: Query<(&Buyable, Has<Refused>)>,
+    down: Single<Has<LastStand>, With<Player>>,
     pause: Res<State<Pause>>,
     mut points: ResMut<Points>,
     mut purchased: MessageWriter<Purchased>,
@@ -181,7 +183,7 @@ fn buy(
     let Some(entity) = focus.0 else { return };
     let Ok((buyable, refused)) = buyables.get(entity) else { return };
     // Focus already holds only Buyables in reach.
-    match decide(buyer(&points, &pause), buyable.price, true).refused_if(refused) {
+    match decide(buyer(&points, *down, &pause), buyable.price, true).refused_if(refused) {
         Decision::Buy => {
             if let Some(price) = buyable.price {
                 points.spend(price);

@@ -242,7 +242,7 @@ const SNIPER_TORSO: f32 = 1.5;
 
 /// Every base Weapon (Appendix A1), in `WeaponId` order. Splash radii are in metres.
 /// Single-shot Weapons with no rate of fire listed can fire again as soon as their Reload ends.
-pub const WEAPONS: [WeaponStats; 28] = [
+pub const WEAPONS: [WeaponStats; 29] = [
     WeaponStats {
         id: WeaponId::M1911,
         name: "M1911",
@@ -671,6 +671,26 @@ pub const WEAPONS: [WeaponStats; 28] = [
         headshot: 1.5,
         ..ROW
     },
+    // Upgraded Weapons (Appendix A3). Only the M1911's so far, for the Last Stand.
+    WeaponStats {
+        id: WeaponId::MustangAndSally,
+        name: "Mustang & Sally",
+        class: WeaponClass::DualWield,
+        availability: Availability::Upgraded,
+        damage_max: 1000.0, // approx
+        damage_min: 1000.0, // approx
+        // The splash radius is unverified.
+        splash: Some(Splash {
+            max: 1200.0, // approx
+            min: 300.0,
+            radius: 2.5,
+        }),
+        magazine: 12, // 6 + 6
+        reserve_max: 50,
+        fire_interval: rpm(300.0),
+        reload: reload(1.6, 1.6),
+        ..ROW
+    },
 ];
 
 // Knife
@@ -794,6 +814,29 @@ pub const PERK_PRICE_DOUBLE_TAP: u64 = 2000;
 pub const JUGGERNOG_MAX_HEALTH: f32 = 160.0;
 pub const SPEED_COLA_RELOAD_MULT: f32 = 0.5;
 pub const DOUBLE_TAP_FIRE_INTERVAL_MULT: f32 = 0.75;
+/// Quick Revive needs no Power.
+pub const PERK_PRICE_QUICK_REVIVE: u64 = 500;
+/// Solo Quick Revive sells this many times, then its machine leaves.
+pub const QUICK_REVIVE_SOLO_BUYS: u32 = 3;
+/// After the last buy, the machine waits this long, then floats away over `QUICK_REVIVE_FLOAT_SECS`.
+pub const QUICK_REVIVE_LEAVE_DELAY_SECS: f32 = 2.0;
+pub const QUICK_REVIVE_FLOAT_SECS: f32 = 3.0;
+/// How high the machine rises as it floats away (approx).
+pub const QUICK_REVIVE_FLOAT_HEIGHT: f32 = 12.0;
+
+// Last Stand
+pub const LAST_STAND_SECS: f32 = 10.0;
+/// The crawl's factor on walk speed.
+pub const LAST_STAND_CRAWL_MULT: f32 = 0.15;
+/// The Last Stand's pistol, with a full Magazine and this many more in Reserve Ammo.
+pub const LAST_STAND_WEAPON: WeaponId = WeaponId::MustangAndSally;
+pub const LAST_STAND_SPARE_MAGAZINES: u32 = 2;
+/// Zombies walk away from a Player in Last Stand until they're about this far off.
+pub const LAST_STAND_ZOMBIE_RETREAT_DISTANCE: f32 = 15.0;
+/// How far the eye drops while crawling (approx).
+pub const LAST_STAND_EYE_DROP: f32 = 0.9;
+/// Health after a Self-Revive.
+pub const SELF_REVIVE_HEALTH: f32 = 100.0;
 
 // Mystery Box
 pub const BOX_PRICE: u64 = 950;

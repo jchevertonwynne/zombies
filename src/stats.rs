@@ -2,6 +2,7 @@
 
 use bevy::prelude::*;
 
+use crate::last_stand::{Down, go_down};
 use crate::state::{GameState, Pause};
 use crate::zombie::ZombieKilled;
 
@@ -32,15 +33,17 @@ impl Plugin for StatsPlugin {
             .add_systems(OnEnter(GameState::Playing), |mut stats: ResMut<RunStats>| {
                 *stats = RunStats::default()
             })
-            .add_systems(OnEnter(GameState::GameOver), count_final_down)
-            .add_systems(Update, count_kills)
+            // Counted in the frame of the Down, so the one that ends the Run is in its Record.
+            .add_systems(Update, (count_kills, count_downs.after(go_down)))
             .add_systems(Update, count_time.run_if(in_state(Pause::Running)));
     }
 }
 
-/// Without Quick Revive, the Down that ends the Run is the only kind.
-pub fn count_final_down(mut stats: ResMut<RunStats>) {
-    stats.downs = stats.downs.saturating_add(1);
+/// Every Down counts: one ending in a Self-Revive as much as the one ending the Run.
+fn count_downs(mut downs: MessageReader<Down>, mut stats: ResMut<RunStats>) {
+    for _ in downs.read() {
+        stats.downs = stats.downs.saturating_add(1);
+    }
 }
 
 /// `Time` here is virtual time, which stands still whenever the world is frozen.

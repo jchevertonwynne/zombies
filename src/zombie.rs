@@ -4,6 +4,7 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 
 use crate::door::Door;
+use crate::last_stand::LastStand;
 use crate::layers::GameLayer;
 use crate::nav::{NavGraph, Route, repath_interval, windows_open};
 use crate::player::{Player, PlayerHit};
@@ -349,17 +350,39 @@ fn clear_walk(spatial: &SpatialQuery, probe: &Collider, from: Vec3, to: Vec3) ->
         .is_none()
 }
 
+/// Which way a Zombie walks along the line to the Player.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Heading {
+    Toward,
+    Away,
+    Stay,
+}
+
+/// Where a Zombie heads, `distance` (horizontal) from the Player. It plants its feet while
+/// swinging, so the Player can back out of reach. While the Player is in Last Stand, Zombies walk
+/// away until they're about `LAST_STAND_ZOMBIE_RETREAT_DISTANCE` off.
+pub fn heading(distance: f32, swinging: bool, last_stand: bool) -> Heading {
+    if last_stand {
+        if distance < LAST_STAND_ZOMBIE_RETREAT_DISTANCE { Heading::Away } else { Heading::Stay }
+    } else if swinging || distance <= ZOMBIE_REACH * 0.8 {
+        Heading::Stay
+    } else {
+        Heading::Toward
+    }
+}
+
 /// Zombies find the Player anywhere on the Map: they re-plan a route over the path-node graph
 /// every so often, steer straight at the Player when there's a clear walk or they share a node
 /// area, and move under gravity with grounded move-and-slide.
 fn chase(
     mut zombies: Query<(Entity, &mut Zombie, &mut Route, &mut Transform, &Collider), (Without<Dying>, Without<Rising>)>,
-    player: Single<&Transform, (With<Player>, Without<Zombie>)>,
+    player: Single<(&Transform, Has<LastStand>), (With<Player>, Without<Zombie>)>,
     graph: Res<NavGraph>,
     doors: Query<&Door>,
     move_and_slide: MoveAndSlide,
     time: Res<Time>,
 ) {
+    let (player, last_stand) = *player;
     let dt = time.delta_secs();
     let half = body_half_height();
     let player_feet = player.translation - Vec3::Y * (PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0);
@@ -408,14 +431,23 @@ fn chase(
         let goal = route.waypoints.first().copied().unwrap_or(player_feet);
 
         let to_player = horizontal(player_feet - feet);
-        let in_reach = to_player.length() <= ZOMBIE_REACH * 0.8 && rise.abs() < 1.5;
+        // Same floor only: a Zombie under the Balcony never stops to swing at the Player on it.
+        let reach_distance = if rise.abs() < 1.5 { to_player.length() } else { f32::INFINITY };
+        let head = heading(reach_distance, zombie.wind_up.is_some(), last_stand);
         let mut heading = horizontal(goal - feet).normalize_or_zero();
         let neighbours = positions.iter().filter(|(other, _)| *other != entity).map(|(_, at)| *at);
         heading = (heading + separation(transform.translation, neighbours) * ZOMBIE_SEPARATION_WEIGHT).normalize_or_zero();
 
-        // Plant feet while swinging, so the Player can back out of reach.
-        let planted = zombie.wind_up.is_some() || in_reach;
-        let facing = if planted || route.waypoints.is_empty() { to_player } else { heading };
+        // A Player in Last Stand is left alone: Zombies walk straight away until they're well off.
+        let planted = head == Heading::Stay;
+        if head == Heading::Away {
+            heading = (-to_player).normalize_or_zero();
+        }
+        let facing = if planted || (route.waypoints.is_empty() && head == Heading::Toward) {
+            to_player
+        } else {
+            heading
+        };
         if facing.length_squared() > 1e-4 {
             transform.rotation = Quat::from_rotation_y(f32::atan2(-facing.x, -facing.z));
         }
@@ -479,12 +511,18 @@ fn clean_up_stuck(
 
 fn attack(
     mut zombies: Query<(&mut Zombie, &Transform), (Without<Dying>, Without<Rising>)>,
-    player: Single<&Transform, With<Player>>,
+    player: Single<(&Transform, Has<LastStand>), With<Player>>,
     mut hits: MessageWriter<PlayerHit>,
     time: Res<Time>,
 ) {
+    let (player, last_stand) = *player;
     let dt = time.delta_secs();
     for (mut zombie, transform) in &mut zombies {
+        // Zombies leave a Player in Last Stand alone.
+        if last_stand {
+            zombie.wind_up = None;
+            continue;
+        }
         // Same floor only: a Zombie under the Balcony can't swipe the Player standing on it.
         let in_reach = horizontal(player.translation - transform.translation).length() <= ZOMBIE_REACH
             && (player.translation.y - transform.translation.y).abs() < 1.5;
@@ -632,5 +670,24 @@ mod tests {
         assert_eq!(separation(Vec3::ZERO, [Vec3::new(3.0, 0.0, 0.0)]), Vec3::ZERO);
         let push = separation(Vec3::ZERO, [Vec3::new(0.5, 0.0, 0.0)]);
         assert!(push.x < 0.0 && push.y == 0.0 && push.z == 0.0);
+    }
+
+    #[test]
+    fn zombies_walk_up_to_the_player_and_stop_in_reach() {
+        assert_eq!(heading(10.0, false, false), Heading::Toward);
+        assert_eq!(heading(ZOMBIE_REACH * 0.5, false, false), Heading::Stay);
+    }
+
+    #[test]
+    fn a_swinging_zombie_plants_its_feet() {
+        assert_eq!(heading(10.0, true, false), Heading::Stay);
+    }
+
+    #[test]
+    fn zombies_back_off_to_about_15_m_from_a_player_in_last_stand() {
+        assert_eq!(heading(0.5, false, true), Heading::Away);
+        assert_eq!(heading(14.9, true, true), Heading::Away);
+        assert_eq!(heading(15.0, false, true), Heading::Stay);
+        assert_eq!(heading(40.0, false, true), Heading::Stay);
     }
 }

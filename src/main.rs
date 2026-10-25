@@ -8,6 +8,7 @@ mod combat;
 mod debug;
 mod door;
 mod hud;
+mod last_stand;
 mod layers;
 mod map;
 mod menu;
@@ -74,6 +75,6 @@ fn main() {
             audio::AudioPlugin,
             debug::DebugPlugin,
         ))
-        .add_plugins((power::PowerPlugin, perk::PerkPlugin))
+        .add_plugins((power::PowerPlugin, perk::PerkPlugin, last_stand::LastStandPlugin))
         .run();
 }

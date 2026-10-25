@@ -13,22 +13,24 @@ use crate::state::{GameState, InRun, Pause};
 use crate::tuning::*;
 use crate::weapon::Loadout;
 
-/// Quick Revive joins these with the Last Stand.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Perk {
     Juggernog,
     SpeedCola,
     DoubleTap,
+    /// One solo Self-Revive: the next Down starts a Last Stand instead of ending the Run.
+    QuickRevive,
 }
 
 impl Perk {
-    pub const ALL: [Perk; 3] = [Perk::Juggernog, Perk::SpeedCola, Perk::DoubleTap];
+    pub const ALL: [Perk; 4] = [Perk::Juggernog, Perk::SpeedCola, Perk::DoubleTap, Perk::QuickRevive];
 
     pub fn name(self) -> &'static str {
         match self {
             Perk::Juggernog => "Juggernog",
             Perk::SpeedCola => "Speed Cola",
             Perk::DoubleTap => "Double Tap",
+            Perk::QuickRevive => "Quick Revive",
         }
     }
 
@@ -37,6 +39,7 @@ impl Perk {
             Perk::Juggernog => PERK_PRICE_JUGGERNOG,
             Perk::SpeedCola => PERK_PRICE_SPEED_COLA,
             Perk::DoubleTap => PERK_PRICE_DOUBLE_TAP,
+            Perk::QuickRevive => PERK_PRICE_QUICK_REVIVE,
         }
     }
 
@@ -44,6 +47,7 @@ impl Perk {
     pub fn needs_power(self) -> bool {
         match self {
             Perk::Juggernog | Perk::SpeedCola | Perk::DoubleTap => true,
+            Perk::QuickRevive => false,
         }
     }
 
@@ -75,7 +79,14 @@ impl Perk {
             Perk::Juggernog => JUGGERNOG,
             Perk::SpeedCola => SPEED_COLA,
             Perk::DoubleTap => DOUBLE_TAP,
+            // Its Self-Revive is the Last Stand's business, not a stat.
+            Perk::QuickRevive => &[],
         }
+    }
+
+    /// Whether its machine leaves after `buys` buys. Only solo Quick Revive runs out.
+    pub fn machine_leaves(self, buys: u32) -> bool {
+        self == Perk::QuickRevive && buys >= QUICK_REVIVE_SOLO_BUYS
     }
 
     /// Where its machine stands, against a wall of its Zone, and the way it faces.
@@ -87,6 +98,8 @@ impl Perk {
             Perk::SpeedCola => (Vec3::new(-13.0, 0.0, -25.2), Vec3::Z),
             // The Power Room's south wall.
             Perk::DoubleTap => (Vec3::new(13.0, 0.0, -25.2), Vec3::Z),
+            // The Start Room's north wall, away from its Spawn Points.
+            Perk::QuickRevive => (Vec3::new(11.5, 0.0, 25.2), Vec3::NEG_Z),
         }
     }
 
@@ -95,6 +108,7 @@ impl Perk {
             Perk::Juggernog => Color::srgb(0.75, 0.1, 0.1),
             Perk::SpeedCola => Color::srgb(0.1, 0.6, 0.2),
             Perk::DoubleTap => Color::srgb(0.85, 0.55, 0.1),
+            Perk::QuickRevive => Color::srgb(0.2, 0.55, 0.9),
         }
     }
 }
@@ -111,6 +125,7 @@ pub enum MachinePrompt {
 }
 
 /// A Perk Machine's Prompt, given the Power and what the Player holds. There's no Perk limit.
+/// Holding Quick Revive is holding an unused life, so it can't be bought again until a Down.
 pub fn machine_prompt(perk: Perk, power_on: bool, owned: bool, drinking: bool) -> MachinePrompt {
     if owned || drinking {
         MachinePrompt::NoPrompt
@@ -128,6 +143,13 @@ pub struct Perks(pub Vec<Perk>);
 impl Perks {
     pub fn has(&self, perk: Perk) -> bool {
         self.0.contains(&perk)
+    }
+
+    /// A Down takes every Perk, and with them every entry they put on the Player.
+    pub fn lose_all(&mut self, modifiers: &mut Modifiers) {
+        for perk in self.0.drain(..) {
+            modifiers.0.retain(|entry| entry.source != Source(perk.name()));
+        }
     }
 }
 
@@ -161,6 +183,25 @@ pub fn hands_free(drinking: Query<(), (With<Player>, With<Drinking>)>) -> bool {
 pub struct PerkMachine {
     pub perk: Perk,
     use_point: Vec3,
+    /// How many times it has sold its Perk this Run.
+    buys: u32,
+}
+
+/// A machine that has sold its last Perk: it waits, floats away, and is gone.
+#[derive(Component)]
+struct Leaving {
+    elapsed: f32,
+    from: Vec3,
+}
+
+/// How far a leaving machine has risen after `elapsed` seconds, or `None` once it's gone.
+pub fn leaving_rise(elapsed: f32) -> Option<f32> {
+    let floating = elapsed - QUICK_REVIVE_LEAVE_DELAY_SECS;
+    if floating >= QUICK_REVIVE_FLOAT_SECS {
+        None
+    } else {
+        Some(floating.max(0.0) / QUICK_REVIVE_FLOAT_SECS * QUICK_REVIVE_FLOAT_HEIGHT)
+    }
 }
 
 /// The sign on a machine, lit once the Power is on.
@@ -175,7 +216,7 @@ impl Plugin for PerkPlugin {
             .add_systems(Update, give_perks)
             .add_systems(
                 Update,
-                (buy_perks, drink, prompt_machines, light_machines)
+                (buy_perks, drink, prompt_machines, light_machines, float_away)
                     .chain()
                     .run_if(in_state(Pause::Running)),
             );
@@ -204,6 +245,7 @@ fn spawn_machines(
                 PerkMachine {
                     perk,
                     use_point: centre + facing * (body.half_size.z + 0.1),
+                    buys: 0,
                 },
                 Mesh3d(meshes.add(body)),
                 MeshMaterial3d(materials.add(perk.colour().darker(0.25))),
@@ -218,7 +260,8 @@ fn spawn_machines(
                 Mesh3d(meshes.add(sign)),
                 MeshMaterial3d(lit),
                 Transform::from_xyz(0.0, 0.75, body.half_size.z + 0.03),
-                Visibility::Hidden,
+                // Quick Revive is lit from the start.
+                if perk.needs_power() { Visibility::Hidden } else { Visibility::Inherited },
             ));
     }
 }
@@ -229,24 +272,46 @@ fn give_perks(mut commands: Commands, players: Query<Entity, Added<Player>>) {
     }
 }
 
-/// A bought Perk starts the drink, putting the Weapon away mid-Reload if need be.
+/// A bought Perk starts the drink, putting the Weapon away mid-Reload if need be. A machine that
+/// has sold its last Perk starts to leave.
 fn buy_perks(
     mut commands: Commands,
     mut purchases: MessageReader<Purchased>,
-    machines: Query<&PerkMachine>,
+    mut machines: Query<(&mut PerkMachine, &Transform)>,
     player: Single<(Entity, &mut Loadout), With<Player>>,
 ) {
     let (entity, mut loadout) = player.into_inner();
-    for Purchased(machine) in purchases.read() {
-        if let Ok(machine) = machines.get(*machine) {
+    for Purchased(bought) in purchases.read() {
+        if let Ok((mut machine, transform)) = machines.get_mut(*bought) {
             loadout.reload = None;
             commands.entity(entity).insert(Drinking::new(machine.perk));
+            machine.buys = machine.buys.saturating_add(1);
+            if machine.perk.machine_leaves(machine.buys) {
+                commands.entity(*bought).remove::<(Buyable, Refused)>().insert(Leaving {
+                    elapsed: 0.0,
+                    from: transform.translation,
+                });
+            }
+        }
+    }
+}
+
+fn float_away(
+    mut commands: Commands,
+    mut machines: Query<(Entity, &mut Leaving, &mut Transform)>,
+    time: Res<Time>,
+) {
+    for (entity, mut leaving, mut transform) in &mut machines {
+        leaving.elapsed += time.delta_secs();
+        match leaving_rise(leaving.elapsed) {
+            Some(rise) => transform.translation = leaving.from + Vec3::Y * rise,
+            None => commands.entity(entity).despawn(),
         }
     }
 }
 
 /// The Perk applies when the drink ends.
-fn drink(
+pub fn drink(
     mut commands: Commands,
     player: Single<(Entity, &mut Drinking, &mut Perks, &mut Modifiers), With<Player>>,
     time: Res<Time>,
@@ -266,7 +331,7 @@ fn drink(
 /// Machines own their Buyables: a buy, the Power refusal, or no Prompt at all.
 fn prompt_machines(
     mut commands: Commands,
-    machines: Query<(Entity, &PerkMachine, Has<Buyable>, Has<Refused>)>,
+    machines: Query<(Entity, &PerkMachine, Has<Buyable>, Has<Refused>), Without<Leaving>>,
     player: Single<(&Perks, Has<Drinking>), With<Player>>,
     power: Res<Power>,
 ) {
@@ -398,11 +463,12 @@ mod tests {
         assert_eq!(Perk::Juggernog.price(), 2500);
         assert_eq!(Perk::SpeedCola.price(), 3000);
         assert_eq!(Perk::DoubleTap.price(), 2000);
+        assert_eq!(Perk::QuickRevive.price(), 500);
     }
 
     #[test]
     fn before_power_the_machines_refuse() {
-        for perk in Perk::ALL {
+        for perk in [Perk::Juggernog, Perk::SpeedCola, Perk::DoubleTap] {
             assert_eq!(
                 machine_prompt(perk, false, false, false),
                 MachinePrompt::NeedsPower
@@ -440,5 +506,67 @@ mod tests {
         let mut drinking = Drinking::new(Perk::Juggernog);
         assert!(!drinking.advance(PERK_DRINK_SECS - 0.1));
         assert!(drinking.advance(0.1));
+    }
+
+    #[test]
+    fn quick_revive_sells_without_power() {
+        assert_eq!(
+            machine_prompt(Perk::QuickRevive, false, false, false),
+            MachinePrompt::Buy
+        );
+    }
+
+    #[test]
+    fn quick_revive_cannot_be_bought_while_its_life_is_unused() {
+        for power_on in [false, true] {
+            assert_eq!(
+                machine_prompt(Perk::QuickRevive, power_on, true, false),
+                MachinePrompt::NoPrompt
+            );
+        }
+    }
+
+    #[test]
+    fn quick_revive_puts_no_entries_on_the_player() {
+        assert!(Perk::QuickRevive.modifiers().is_empty());
+    }
+
+    #[test]
+    fn only_quick_revive_leaves_and_only_after_the_third_buy() {
+        assert!(!Perk::QuickRevive.machine_leaves(1));
+        assert!(!Perk::QuickRevive.machine_leaves(2));
+        assert!(Perk::QuickRevive.machine_leaves(3));
+        for perk in [Perk::Juggernog, Perk::SpeedCola, Perk::DoubleTap] {
+            assert!(!perk.machine_leaves(100));
+        }
+    }
+
+    #[test]
+    fn a_leaving_machine_waits_2_s_then_floats_for_3_s_and_is_gone() {
+        assert_eq!(leaving_rise(0.0), Some(0.0));
+        assert_eq!(leaving_rise(1.9), Some(0.0));
+        assert!(close(leaving_rise(3.5).unwrap(), QUICK_REVIVE_FLOAT_HEIGHT / 2.0));
+        assert!(leaving_rise(4.99).unwrap() < QUICK_REVIVE_FLOAT_HEIGHT);
+        assert_eq!(leaving_rise(5.0), None);
+    }
+
+    #[test]
+    fn losing_every_perk_takes_only_their_entries() {
+        let mut perks = Perks(Perk::ALL.to_vec());
+        let boon = Modifier {
+            stat: Stat::Damage,
+            source: Source("Rapid Fire"),
+            effect: Effect::Mult(1.1),
+        };
+        let mut entries = held(&Perk::ALL);
+        entries.push(boon);
+        let mut modifiers = Modifiers(entries);
+        perks.lose_all(&mut modifiers);
+        assert!(perks.0.is_empty());
+        assert_eq!(modifiers.0, [boon]);
+        assert!(close(
+            resolve(Stat::MaxHealth, PLAYER_MAX_HEALTH, &modifiers.0),
+            PLAYER_MAX_HEALTH
+        ));
     }
 }
