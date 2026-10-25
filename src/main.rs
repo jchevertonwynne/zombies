@@ -12,6 +12,7 @@ mod debug;
 mod door;
 mod equipment;
 mod explosive;
+mod gauntlet;
 mod hud;
 mod last_stand;
 mod layers;
@@ -99,5 +100,7 @@ fn main() {
             trap::TrapPlugin,
             ammo_mod::AmmoModPlugin,
         ))
+        // Gauntlet, layered on top of everything above.
+        .add_plugins(gauntlet::GauntletPlugin)
         .run();
 }

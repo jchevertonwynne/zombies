@@ -148,7 +148,8 @@ fn buyer(points: &Points, down: bool, pause: &State<Pause>) -> Buyer {
     Buyer {
         points: points.balance,
         down,
-        paused: *pause.get() == Pause::Paused,
+        // Frozen counts: nothing is bought while the world stands still.
+        paused: *pause.get() != Pause::Running,
     }
 }
 

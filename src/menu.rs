@@ -12,7 +12,7 @@ use crate::records::{
     LastRun, RecordsFile, RunRecord, format_date, format_time, rank_line, record_run,
 };
 use crate::settings::{Setting, Settings};
-use crate::state::{GameState, MainMenuScreen, Pause, PauseScreen};
+use crate::state::{Freeze, GameState, MainMenuScreen, Pause, PauseScreen, resume_to};
 
 const BUTTON_IDLE: Color = Color::srgba(0.15, 0.15, 0.15, 0.9);
 const BUTTON_HOVER: Color = Color::srgba(0.3, 0.08, 0.06, 0.95);
@@ -25,7 +25,13 @@ const DIM_BACKGROUND: Color = Color::srgba(0.0, 0.0, 0.0, 0.6);
 /// What a menu button does when clicked.
 #[derive(Component, Debug, Clone, Copy)]
 enum MenuButton {
+    /// Opens the Mode screen.
     Play,
+    /// Highlights a Mode on the Mode screen, remembering it as the last Mode.
+    PickMode(Mode),
+    /// Starts a Run in the highlighted Mode.
+    Start,
+    Armory,
     Records,
     Settings,
     Quit,
@@ -55,6 +61,10 @@ struct RecordsTab(Mode);
 #[derive(Component)]
 struct RecordsBoard;
 
+/// The part of the Mode screen rebuilt when the highlighted Mode changes.
+#[derive(Component)]
+struct ModeBoard;
+
 /// The root of a Settings screen, which the reset confirmation opens over.
 #[derive(Component)]
 struct SettingsScreen;
@@ -75,6 +85,8 @@ impl Plugin for MenuPlugin {
             .init_resource::<RecordsTab>()
             .add_systems(OnEnter(GameState::MainMenu), spawn_menu_camera)
             .add_systems(OnEnter(MainMenuScreen::Root), spawn_main_menu)
+            .add_systems(OnEnter(MainMenuScreen::Mode), spawn_mode_screen)
+            .add_systems(OnEnter(MainMenuScreen::Armory), spawn_armory)
             .add_systems(OnEnter(MainMenuScreen::Records), spawn_records)
             .add_systems(OnEnter(MainMenuScreen::Settings), spawn_main_menu_settings)
             .add_systems(OnEnter(PauseScreen::Root), spawn_pause_menu)
@@ -90,6 +102,12 @@ impl Plugin for MenuPlugin {
                 refresh_records
                     .run_if(in_state(MainMenuScreen::Records))
                     .run_if(resource_changed::<RecordsTab>),
+            )
+            .add_systems(
+                Update,
+                refresh_mode_screen
+                    .run_if(in_state(MainMenuScreen::Mode))
+                    .run_if(resource_changed::<Settings>),
             )
             .add_systems(Update, play_again_key.run_if(in_state(GameState::GameOver)))
             .add_systems(Update, setting_values.run_if(resource_changed::<Settings>))
@@ -169,6 +187,95 @@ fn spawn_main_menu(mut commands: Commands) {
     commands
         .entity(menu)
         .insert(DespawnOnExit(MainMenuScreen::Root));
+}
+
+fn spawn_mode_screen(mut commands: Commands, settings: Res<Settings>) {
+    let mode = settings.last_mode;
+    let screen = screen(&mut commands, MENU_BACKGROUND, |screen| {
+        screen.spawn((
+            text("MODE", 64.0, Color::WHITE),
+            Node {
+                margin: UiRect::bottom(px(24.0)),
+                ..default()
+            },
+        ));
+        screen
+            .spawn((
+                ModeBoard,
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Center,
+                    row_gap: px(14.0),
+                    ..default()
+                },
+            ))
+            .with_children(|board| mode_board(board, mode));
+        button(screen, "Back", MenuButton::Back, 280.0);
+    });
+    commands
+        .entity(screen)
+        .insert(DespawnOnExit(MainMenuScreen::Mode));
+}
+
+/// The Mode buttons with the highlighted one in red, what it plays like, the Armory while
+/// Gauntlet is highlighted, and Start.
+fn mode_board(board: &mut ChildSpawnerCommands, highlighted: Mode) {
+    board
+        .spawn(Node {
+            column_gap: px(16.0),
+            ..default()
+        })
+        .with_children(|row| {
+            for (label, mode) in [("Classic", Mode::Classic), ("Gauntlet", Mode::Gauntlet)] {
+                let color = if mode == highlighted {
+                    ROUND_RED
+                } else {
+                    Color::WHITE
+                };
+                colored_button(row, label, MenuButton::PickMode(mode), 240.0, color);
+            }
+        });
+    let blurb = match highlighted {
+        Mode::Classic => "The original: survive as many Rounds as you can.",
+        Mode::Gauntlet => "Classic, with a build that grows Round by Round.",
+    };
+    board.spawn(text(blurb, 22.0, HINT_GREY));
+    if highlighted == Mode::Gauntlet {
+        button(board, "Armory", MenuButton::Armory, 280.0);
+    }
+    colored_button(board, "Start", MenuButton::Start, 280.0, NEW_BEST_GOLD);
+}
+
+fn refresh_mode_screen(
+    mut commands: Commands,
+    board: Query<Entity, With<ModeBoard>>,
+    settings: Res<Settings>,
+) {
+    let mode = settings.last_mode;
+    for board in &board {
+        commands
+            .entity(board)
+            .despawn_children()
+            .with_children(|board| mode_board(board, mode));
+    }
+}
+
+/// The Armory's entry point. Its Unlocks and Upgrades arrive with meta-progression.
+fn spawn_armory(mut commands: Commands) {
+    let screen = screen(&mut commands, MENU_BACKGROUND, |screen| {
+        screen.spawn(text("ARMORY", 64.0, Color::WHITE));
+        screen.spawn((
+            text("Unlocks and Upgrades are coming.", 24.0, HINT_GREY),
+            Node {
+                margin: UiRect::bottom(px(24.0)),
+                ..default()
+            },
+        ));
+        button(screen, "Back", MenuButton::Back, 280.0);
+    });
+    commands
+        .entity(screen)
+        .insert(DespawnOnExit(MainMenuScreen::Armory));
 }
 
 fn spawn_records(mut commands: Commands, mode: Res<Mode>, mut tab: ResMut<RecordsTab>) {
@@ -519,36 +626,43 @@ fn activate_button(
     mut mode: ResMut<Mode>,
     mut tab: ResMut<RecordsTab>,
     mut records: ResMut<RecordsFile>,
-    game: Res<State<GameState>>,
+    main_menu: Option<Res<State<MainMenuScreen>>>,
     mut settings: ResMut<Settings>,
     mut next_game: ResMut<NextState<GameState>>,
     mut next_main_menu: ResMut<NextState<MainMenuScreen>>,
-    mut next_pause: ResMut<NextState<Pause>>,
+    (mut next_pause, freeze): (ResMut<NextState<Pause>>, Res<Freeze>),
     mut next_pause_screen: ResMut<NextState<PauseScreen>>,
     mut exit: MessageWriter<AppExit>,
 ) {
-    let in_main_menu = *game.get() == GameState::MainMenu;
+    let main_menu = main_menu.map(|screen| *screen.get());
+    let in_main_menu = main_menu.is_some();
     let Ok(action) = buttons.get(activate.entity) else {
         return;
     };
     match *action {
-        // Straight into a Classic Run until the Mode screen exists.
-        MenuButton::Play => {
-            *mode = Mode::Classic;
+        MenuButton::Play => next_main_menu.set(MainMenuScreen::Mode),
+        MenuButton::PickMode(picked) => {
+            if settings.last_mode != picked {
+                settings.last_mode = picked;
+            }
+        }
+        MenuButton::Start => {
+            *mode = settings.last_mode;
             next_game.set(GameState::Playing);
         }
+        MenuButton::Armory => next_main_menu.set(MainMenuScreen::Armory),
         // The Mode stays as it was.
         MenuButton::PlayAgain => next_game.set(GameState::Playing),
         MenuButton::MainMenu => next_game.set(GameState::MainMenu),
         MenuButton::Records => next_main_menu.set(MainMenuScreen::Records),
         MenuButton::Settings if in_main_menu => next_main_menu.set(MainMenuScreen::Settings),
         MenuButton::Settings => next_pause_screen.set(PauseScreen::Settings),
-        MenuButton::Back if in_main_menu => next_main_menu.set(MainMenuScreen::Root),
+        MenuButton::Back if in_main_menu => next_main_menu.set(back_from(main_menu)),
         MenuButton::Back => next_pause_screen.set(PauseScreen::Root),
         MenuButton::Quit => {
             exit.write(AppExit::Success);
         }
-        MenuButton::Resume => next_pause.set(Pause::Running),
+        MenuButton::Resume => next_pause.set(resume_to(&freeze)),
         MenuButton::QuitToMainMenu => next_game.set(GameState::MainMenu),
         MenuButton::Adjust(setting, up) => settings.adjust(setting, up),
         MenuButton::RecordsTab(mode) => tab.0 = mode,
@@ -589,13 +703,22 @@ fn setting_values(settings: Res<Settings>, mut values: Query<(&SettingValue, &mu
     }
 }
 
-/// Esc backs out of the Main Menu's Records and Settings screens. (Pause's Esc lives in `state`.)
+/// The Main Menu screen Back (or Esc) leads to: the Armory backs out to the Mode screen, the
+/// rest to the Main Menu itself.
+fn back_from(screen: Option<MainMenuScreen>) -> MainMenuScreen {
+    match screen {
+        Some(MainMenuScreen::Armory) => MainMenuScreen::Mode,
+        _ => MainMenuScreen::Root,
+    }
+}
+
+/// Esc backs out of the Main Menu's other screens. (Pause's Esc lives in `state`.)
 fn main_menu_back(
     input: Res<ButtonInput<KeyCode>>,
     screen: Res<State<MainMenuScreen>>,
     mut next: ResMut<NextState<MainMenuScreen>>,
 ) {
     if input.just_pressed(KeyCode::Escape) && *screen.get() != MainMenuScreen::Root {
-        next.set(MainMenuScreen::Root);
+        next.set(back_from(Some(*screen.get())));
     }
 }

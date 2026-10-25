@@ -50,6 +50,11 @@ impl Points {
     }
 }
 
+/// Points paid by a rule layered on Classic, awarded like any other Points (so none in Last
+/// Stand).
+#[derive(Message)]
+pub struct BonusPoints(pub u64);
+
 /// Points were awarded (for HUD popups).
 #[derive(Message)]
 pub struct PointsAwarded(pub u64);
@@ -60,6 +65,7 @@ impl Plugin for PointsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Points>()
             .add_message::<PointsAwarded>()
+            .add_message::<BonusPoints>()
             .add_systems(OnEnter(GameState::Playing), |mut points: ResMut<Points>| {
                 *points = Points {
                     balance: STARTING_POINTS,
@@ -70,16 +76,21 @@ impl Plugin for PointsPlugin {
     }
 }
 
-/// Hits and kills pay, except in Last Stand, which earns nothing.
+/// Hits, kills and bonus Points pay, except in Last Stand, which earns nothing.
 fn earn(
     mut hits: MessageReader<ZombieHit>,
     mut kills: MessageReader<ZombieKilled>,
+    mut bonus: MessageReader<BonusPoints>,
     last_stand: Query<(), (With<Player>, With<LastStand>)>,
     mut points: ResMut<Points>,
     mut awarded: MessageWriter<PointsAwarded>,
 ) {
     let earning = last_stand.is_empty();
-    let amounts = hits.read().map(|hit| points_for(*hit)).chain(kills.read().map(kill_points));
+    let amounts = hits
+        .read()
+        .map(|hit| points_for(*hit))
+        .chain(kills.read().map(kill_points))
+        .chain(bonus.read().map(|bonus| bonus.0));
     for amount in amounts.filter(|&amount| amount > 0 && earning) {
         points.award(amount);
         awarded.write(PointsAwarded(amount));
