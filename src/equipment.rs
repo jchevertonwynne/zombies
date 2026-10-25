@@ -90,8 +90,6 @@ impl Equipment {
     }
 
     /// Max Ammo refills every piece of Equipment the Player has.
-    // Power-ups (Max Ammo) arrive in their own slice; this is the hook it calls.
-    #[allow(dead_code)]
     pub fn max_ammo(&mut self) {
         self.frags = self.frags.max(FRAG_MAX);
         if self.claymores_owned {

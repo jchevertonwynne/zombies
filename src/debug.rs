@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use crate::arsenal::WeaponId;
 use crate::equipment::Equipment;
 use crate::player::Player;
+use crate::power_up::DropPowerUp;
 use crate::state::Pause;
 use crate::weapon::{Loadout, WeaponCopy};
 
@@ -24,7 +25,8 @@ const GRANTED_WEAPONS: [WeaponId; 5] = [
 pub struct DebugView(pub bool);
 
 /// F1 toggles the debug view. F2 grants the next debug Weapon. F3 grants Monkey Bombs, as the
-/// Mystery Box would. F6 Pack-a-Punches the Weapon in hand.
+/// Mystery Box would. F6 Pack-a-Punches the Weapon in hand. F7 drops the next Power-up from the
+/// bag just ahead of the Player.
 pub struct DebugPlugin;
 
 impl Plugin for DebugPlugin {
@@ -52,6 +54,12 @@ impl Plugin for DebugPlugin {
                 grant_upgrade
                     .run_if(in_state(Pause::Running))
                     .run_if(input_just_pressed(KeyCode::F6)),
+            )
+            .add_systems(
+                Update,
+                drop_power_up
+                    .run_if(in_state(Pause::Running))
+                    .run_if(input_just_pressed(KeyCode::F7)),
             );
     }
 }
@@ -72,6 +80,15 @@ fn grant_upgrade(mut loadout: Single<&mut Loadout, With<Player>>) {
         let id = loadout.held().id;
         loadout.give_copy(WeaponCopy::new(id).upgrade());
     }
+}
+
+/// Drops a Power-up 3 m ahead of the Player, at their feet.
+fn drop_power_up(player: Single<&Transform, With<Player>>, mut drops: MessageWriter<DropPowerUp>) {
+    let ahead = player.forward() * 3.0;
+    let feet = player.translation.y - (crate::tuning::PLAYER_RADIUS + crate::tuning::PLAYER_CAPSULE_LENGTH / 2.0);
+    drops.write(DropPowerUp {
+        at: Vec3::new(player.translation.x + ahead.x, feet, player.translation.z + ahead.z),
+    });
 }
 
 fn grant_monkey_bombs(mut equipment: Single<&mut Equipment, With<Player>>) {

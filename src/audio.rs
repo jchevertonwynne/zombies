@@ -11,6 +11,7 @@ use bevy::prelude::*;
 use crate::barrier::{PlankRebuilt, PlankTorn};
 use crate::buy::{BuyRefused, CantAfford, Purchased};
 use crate::player::PlayerCamera;
+use crate::power_up::PowerUpTaken;
 use crate::round::RoundStarted;
 use crate::weapon::ShotFired;
 use crate::zombie::{ZombieHit, ZombieKilled};
@@ -125,6 +126,7 @@ fn play_sounds(
     mut refusals: MessageReader<BuyRefused>,
     mut torn: MessageReader<PlankTorn>,
     mut rebuilt: MessageReader<PlankRebuilt>,
+    mut power_ups: MessageReader<PowerUpTaken>,
 ) {
     for _ in shots.read() {
         sounds.play(&mut commands, Cue::GunshotPistol, None);
@@ -146,6 +148,9 @@ fn play_sounds(
     }
     for _ in rebuilt.read() {
         sounds.play(&mut commands, Cue::PlankRebuild, None);
+    }
+    for PowerUpTaken(power_up) in power_ups.read() {
+        sounds.play(&mut commands, power_up.announcer(), None);
     }
     // Not affording a buy and a refused buy share the buzzer.
     for _ in 0..cant_afford.read().count() + refusals.read().count() {

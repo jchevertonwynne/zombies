@@ -9,6 +9,7 @@ use crate::layers::GameLayer;
 use crate::barrier::{Barriers, Entering};
 use crate::nav::{NavGraph, Route, repath_interval};
 use crate::player::{Player, PlayerHit};
+use crate::power_up::{ActivePowerUps, PowerUp};
 use crate::state::{InRun, Pause};
 use crate::tuning::*;
 
@@ -47,6 +48,8 @@ pub enum Attack {
     Burn,
     /// An electric Trap's shock. The Map's kill, not the Player's.
     Trap,
+    /// The Nuke Power-up. Its kills are Unpaid.
+    Nuke,
     /// An Ammo Mod's own damage, Paid or Unpaid by the Ammo Mod. It never rolls Ammo Mods.
     AmmoMod(Pay),
 }
@@ -57,7 +60,7 @@ impl Attack {
         match self {
             Attack::AmmoMod(pay) => pay,
             Attack::Bullet | Attack::Knife | Attack::Burn => Pay::Paid,
-            Attack::Trap => Pay::Unpaid,
+            Attack::Trap | Attack::Nuke => Pay::Unpaid,
         }
     }
 }
@@ -72,6 +75,12 @@ pub fn is_headshot(zone: HitZone, attack: Attack) -> bool {
 pub enum Pay {
     Paid,
     Unpaid,
+}
+
+/// The damage a hit really does: all of the Zombie's health while Insta-Kill is on, so any
+/// damage kills.
+pub fn dealt_damage(damage: f32, insta_kill: bool) -> f32 {
+    if insta_kill && damage > 0.0 { f32::INFINITY } else { damage }
 }
 
 /// Request to damage a Zombie, written by the Player's attacks.
@@ -123,6 +132,8 @@ pub struct ZombieKilled {
     pub headshot: bool,
     pub zone: HitZone,
     pub attack: Attack,
+    /// Where the Zombie's feet were when it died, for a Power-up to drop at.
+    pub at: Vec3,
 }
 
 /// A stuck or lost Zombie was quietly removed. It wasn't killed, so it goes back into the Horde.
@@ -824,20 +835,22 @@ fn become_crawler(
 pub fn apply_damage(
     mut commands: Commands,
     mut requests: MessageReader<DamageZombie>,
-    mut zombies: Query<(&mut Zombie, &Children), Without<Dying>>,
+    mut zombies: Query<(&mut Zombie, &Children, &Transform), Without<Dying>>,
     hit_areas: Query<(), With<HitArea>>,
+    power_ups: Res<ActivePowerUps>,
     mut hits: MessageWriter<ZombieHit>,
     mut kills: MessageWriter<ZombieKilled>,
 ) {
+    let insta_kill = power_ups.active(PowerUp::InstaKill);
     for request in requests.read() {
-        let Ok((mut zombie, children)) = zombies.get_mut(request.zombie) else {
+        let Ok((mut zombie, children, transform)) = zombies.get_mut(request.zombie) else {
             continue;
         };
         // Several hits can land in one frame; only the first lethal one counts.
         if zombie.health <= 0.0 {
             continue;
         }
-        zombie.health -= request.damage;
+        zombie.health -= dealt_damage(request.damage, insta_kill);
         if zombie.health > 0.0 {
             // A Burn's ticks pay no hit Points.
             if request.attack != Attack::Burn {
@@ -851,6 +864,7 @@ pub fn apply_damage(
             headshot: is_headshot(request.zone, request.attack),
             zone: request.zone,
             attack: request.attack,
+            at: transform.translation - Vec3::Y * body_half_height(),
         });
         commands
             .entity(request.zombie)

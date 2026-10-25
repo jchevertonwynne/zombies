@@ -3,7 +3,7 @@
 //!
 //! Each Box is its own entity with its own price and spin, so several can stand at once. The Box
 //! that started the Run is the one that rolls Teddies and moves; a Box spawned with `teddy` off
-//! (as Fire Sale's will be) never does, and its spins don't count toward the Teddy table.
+//! (as Fire Sale's are) never does, and its spins don't count toward the Teddy table.
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
@@ -107,6 +107,9 @@ pub struct BoxRun {
     pub pulls: u32,
     /// How many times the Box has moved this Run.
     pub moves: u32,
+    /// While set (during a Fire Sale), a Box between locations stays away; its move finishes
+    /// once it clears.
+    pub hold_moves: bool,
 }
 
 /// The parts of a Box that animate.
@@ -347,6 +350,7 @@ fn spawn_boxes(mut commands: Commands, assets: Res<BoxAssets>, mut run: ResMut<B
         bag: shuffled_locations(BOX_LOCATIONS.len(), 0, &mut rand::rng()),
         pulls: 0,
         moves: 0,
+        hold_moves: false,
     };
     for location in 0..BOX_LOCATIONS.len() {
         let rubble = [(-0.4, 0.0, 0.3), (0.35, 0.1, -0.6), (0.1, -0.2, 1.2)].map(|(x, z, yaw)| {
@@ -494,7 +498,7 @@ fn run_boxes(
             }
             BoxState::Away { left, to } => {
                 let left = left - dt;
-                if left > 0.0 {
+                if left > 0.0 || run.hold_moves {
                     BoxState::Away { left, to }
                 } else {
                     mystery_box.location = to;

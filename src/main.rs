@@ -28,6 +28,7 @@ mod player;
 mod points;
 mod records;
 mod power;
+mod power_up;
 mod round;
 mod save;
 mod settings;
@@ -99,6 +100,7 @@ fn main() {
             burn::BurnPlugin,
             trap::TrapPlugin,
             ammo_mod::AmmoModPlugin,
+            power_up::PowerUpPlugin,
         ))
         // Gauntlet, layered on top of everything above.
         .add_plugins(gauntlet::GauntletPlugin)

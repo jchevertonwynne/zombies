@@ -196,6 +196,13 @@ impl Loadout {
         }
     }
 
+    /// Max Ammo: every Weapon carried gets full Reserve Ammo. Magazines are left as they are.
+    pub fn max_ammo(&mut self) {
+        for weapon in self.slots.iter_mut().flatten() {
+            weapon.reserve = weapon.reserve.max(weapon.stats().reserve_max);
+        }
+    }
+
     /// Damage per bullet at a distance, after falloff, before the hit zone and penetration.
     pub fn damage_at(&self, distance: f32, player: &[Modifier]) -> f32 {
         self.resolve(Stat::Damage, self.held().stats().damage_at(distance), player)
@@ -1062,6 +1069,22 @@ mod tests {
         loadout.refill(0, NONE);
         loadout.held_mut().reserve -= 1;
         assert!(!loadout.ammo_full(0, NONE), "one bullet short in the Reserve");
+    }
+
+    #[test]
+    fn max_ammo_fills_the_reserve_of_every_weapon() {
+        let mut loadout = Loadout::new(WeaponId::M1911);
+        loadout.give(WeaponId::M14);
+        for weapon in loadout.slots.iter_mut().flatten() {
+            weapon.magazine = 1;
+            weapon.reserve = 0;
+        }
+        loadout.max_ammo();
+        for slot in 0..2 {
+            let weapon = loadout.slot(slot).unwrap();
+            assert_eq!(weapon.reserve, weapon.stats().reserve_max);
+            assert_eq!(weapon.magazine, 1, "the Magazine is left alone");
+        }
     }
 
     #[test]

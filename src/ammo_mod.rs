@@ -527,6 +527,7 @@ fn roll_ammo_mods(
                         headshot: false,
                         zone: HitZone::Torso,
                         attack: Attack::AmmoMod(Pay::Unpaid),
+                        at,
                     });
                     commands
                         .entity(shot)

@@ -73,14 +73,12 @@ impl Barriers {
     }
 
     /// How many Barriers have no Planks left, for Carpenter's drop rule.
-    #[allow(dead_code)] // Carpenter (#51) reads this.
     pub fn fully_broken(&self) -> usize {
         self.planks.iter().filter(|&&planks| planks == 0).count()
     }
 
     /// Puts every Plank back on every Barrier, as Carpenter does. It pays nothing here and never
     /// touches the rebuild cap.
-    #[allow(dead_code)] // Carpenter (#51) calls this.
     pub fn restore_all(&mut self) {
         self.planks = [BARRIER_PLANKS; WINDOWS.len()];
     }
@@ -493,8 +491,8 @@ fn rebuild_planks(
     rebuilt.write(PlankRebuilt);
     let reward = rebuild.pay(round.number);
     if reward > 0 {
-        points.award(reward);
-        awarded.write(PointsAwarded(reward));
+        let paid = points.award(reward);
+        awarded.write(PointsAwarded(paid));
     }
 }
 
