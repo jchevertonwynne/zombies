@@ -24,6 +24,11 @@ pub struct Buyable {
     pub range: f32,
 }
 
+/// A Buyable showing a refusal, such as "You must turn on the Power first": its Prompt shows, but
+/// the Use key does nothing there.
+#[derive(Component)]
+pub struct Refused;
+
 /// The Player bought (or used) this Buyable. Its owner acts on it.
 #[derive(Message)]
 pub struct Purchased(pub Entity);
@@ -149,7 +154,7 @@ fn focus(
 fn buy(
     input: Res<ButtonInput<KeyCode>>,
     focus: Res<Focus>,
-    buyables: Query<&Buyable>,
+    buyables: Query<&Buyable, Without<Refused>>,
     pause: Res<State<Pause>>,
     mut points: ResMut<Points>,
     mut purchased: MessageWriter<Purchased>,

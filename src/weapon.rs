@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use crate::arsenal::{FireMode, WeaponClass, WeaponId, WeaponStats};
 use crate::layers::GameLayer;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_count};
+use crate::perk::{Drinking, hands_free};
 use crate::player::{Locomotion, Player, PlayerCamera};
 use crate::state::Pause;
 use crate::tuning::*;
@@ -248,7 +249,8 @@ impl Plugin for WeaponPlugin {
             .add_systems(Update, spawn_view_model)
             .add_systems(
                 Update,
-                (switch_weapons, reload, fire, knife, animate_view_model)
+                // A Perk drink puts the Weapon away and keeps the Knife out of reach.
+                ((switch_weapons, reload, fire, knife).chain().run_if(hands_free), animate_view_model)
                     .chain()
                     .run_if(in_state(Pause::Running)),
             );
@@ -414,16 +416,19 @@ fn model_length(class: WeaponClass) -> f32 {
 
 fn animate_view_model(
     mut view_model: Single<(&mut ViewModel, &mut Transform)>,
-    player: Single<(&Loadout, &Modifiers), With<Player>>,
+    player: Single<(&Loadout, &Modifiers, Has<Drinking>), With<Player>>,
     time: Res<Time>,
 ) {
     let (ref mut model, ref mut transform) = *view_model;
-    let (loadout, modifiers) = *player;
+    let (loadout, modifiers, drinking) = *player;
     model.kick = (model.kick - time.delta_secs() * 8.0).max(0.0);
 
     // Dip the gun out of view while reloading; drop the old gun and raise the new one on a switch.
     let mut class = loadout.held().stats().class;
-    let dip = if let Some(swap) = &loadout.swap {
+    let dip = if drinking {
+        // Out of sight while the Perk is drunk.
+        0.6
+    } else if let Some(swap) = &loadout.swap {
         if swap.elapsed < swap.drop_secs {
             class = swap.from.stats().class;
             swap.elapsed / swap.drop_secs * 0.4

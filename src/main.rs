@@ -12,8 +12,10 @@ mod map;
 mod menu;
 mod modifier;
 mod mode;
+mod perk;
 mod player;
 mod points;
+mod power;
 mod round;
 mod save;
 mod settings;
@@ -60,5 +62,6 @@ fn main() {
             audio::AudioPlugin,
             debug::DebugPlugin,
         ))
+        .add_plugins((power::PowerPlugin, perk::PerkPlugin))
         .run();
 }
