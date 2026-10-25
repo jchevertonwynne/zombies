@@ -129,7 +129,7 @@ _Avoid_: bleed out, downed state
 
 **Game Over**: The end of a Run, triggered by a Down without Quick Revive. It shows the Round reached and the Run Record.
 
-**Run Record**: The saved summary of one finished Run: Map, Mode, date, Round reached, Kills, Headshots, Downs, Points Earned and time survived. A Gauntlet Run Record also lists the Boons held at the end, in the order they were picked.
+**Run Record**: The saved summary of one finished Run: Map, Mode, date, Round reached, Kills, Headshots, Downs, Points Earned and time survived. A Gauntlet Run Record also lists the Boons held at the end, in the order they were picked, and how many Upgrade Track Ranks were switched on.
 
 **Records**: The best ten Run Records for a Map and Mode, ranked by Round reached and then by shorter time survived.
 _Avoid_: high scores, leaderboard
@@ -196,3 +196,18 @@ _Avoid_: cursed boon, curse, bargain
 
 **Drawback**: The lasting cost a Pact puts on the Run, such as dearer prices or faster Zombies.
 _Avoid_: downside, penalty, curse
+
+**Scrip**: The currency Gauntlet Runs earn for the Rounds they complete, kept between Runs and spent in the Armory. Classic never earns or uses it. Not the same as Points.
+_Avoid_: credits, currency, XP
+
+**Unlock**: Buying a Boon or Pact with Scrip so that it can appear in Boon Offers from then on. Every Common and a few Rares are unlocked from the first launch.
+_Avoid_: requirement
+
+**Upgrade Track**: A permanent Gauntlet bonus, such as more starting Points, bought one Rank at a time with Scrip. Each Track can be switched off before a Run.
+_Avoid_: talent, mirror, upgrade
+
+**Rank**: One bought step on an Upgrade Track. A Track has a fixed number of Ranks.
+_Avoid_: level, stack
+
+**Armory**: The screen, reached from the Mode screen, where Scrip is spent on Unlocks and Ranks and Upgrade Tracks are switched on or off.
+_Avoid_: shop, store, meta screen
