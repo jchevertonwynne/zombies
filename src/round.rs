@@ -2,6 +2,7 @@ use std::ops::RangeInclusive;
 
 use bevy::prelude::*;
 
+use crate::barrier::Entering;
 use crate::map::{SpawnKind, SpawnPoint};
 use crate::state::{GameState, Pause};
 use crate::tuning::*;
@@ -160,7 +161,7 @@ fn spawn_horde(
     let jitter = Vec3::new(rand::random_range(-0.75..0.75), 0.0, rand::random_range(-0.75..0.75));
     let tier = speed_tier(rand::random_range(speed_roll_range(round.number)));
 
-    spawn_zombie(
+    let zombie = spawn_zombie(
         &mut commands,
         &assets,
         point.translation + jitter,
@@ -168,6 +169,10 @@ fn spawn_horde(
         tier,
         kind == SpawnKind::Riser,
     );
+    // A Zombie outside a window has to get in through its Barrier.
+    if let SpawnKind::Window(barrier) = kind {
+        commands.entity(zombie).insert(Entering::new(barrier));
+    }
     round.left_to_spawn -= 1;
     round.spawn_timer = spawn_delay(round.number);
 }

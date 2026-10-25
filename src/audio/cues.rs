@@ -19,10 +19,6 @@ pub enum Mix {
     /// UI, the Player's own sounds, stingers and the announcer.
     Flat,
     /// A source out in the world, heard from where it is.
-    #[expect(
-        dead_code,
-        reason = "the first world sources arrive with the Appendix C cues"
-    )]
     Spatial,
 }
 
@@ -76,6 +72,8 @@ cues! {
     // Buying and the Map
     Buy => "buy", Root, Flat, 0.7;
     CantAfford => "cant_afford", Root, Flat, 0.6;
+    PlankTear => "plank_tear", Root, Spatial, 0.9;
+    PlankRebuild => "plank_rebuild", Root, Flat, 0.6;
 
     // Announcer. Declared so their lines are rendered and checked; they start playing when
     // Power-ups, Hellhound Rounds and the Sapper exist.

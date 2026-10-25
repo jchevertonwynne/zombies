@@ -3,6 +3,7 @@
 
 mod arsenal;
 mod audio;
+mod barrier;
 mod buy;
 mod burn;
 mod combat;
@@ -63,6 +64,7 @@ fn main() {
             map::MapPlugin,
             zone::ZonePlugin,
             nav::NavPlugin,
+            barrier::BarrierPlugin,
             door::DoorPlugin,
             buy::BuyPlugin,
             player::PlayerPlugin,

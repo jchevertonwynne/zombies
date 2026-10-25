@@ -82,8 +82,8 @@ const WINDOW_SPAWN_OUT: f32 = 2.0;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BarrierId(pub u8);
 
-/// The windows: the Zone each lets into, its centre on the wall (x, z), and the way out.
-/// Until the Barriers slice they are open gaps that Zombies walk straight through.
+/// The windows: the Zone each lets into, its centre on the wall (x, z), and the way out. Each is
+/// planked up by its Barrier.
 pub const WINDOWS: [(ZoneId, Vec2, Vec2); 13] = [
     (ZoneId::StartRoom, Vec2::new(-7.0, 26.0), Vec2::Y),
     (ZoneId::StartRoom, Vec2::new(7.0, 26.0), Vec2::Y),
@@ -118,8 +118,6 @@ const RISERS: [Vec2; 4] = [
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpawnKind {
     /// Outside a window. The Zombie has to get in through that window's Barrier.
-    // The Barriers slice reads which Barrier; until then Zombies walk straight in.
-    #[allow(dead_code)]
     Window(BarrierId),
     /// In open ground: the Zombie climbs up out of the dirt.
     Riser,

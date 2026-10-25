@@ -4,6 +4,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+use crate::barrier::Entering;
 use crate::buy::{Buyable, Purchased, Refused};
 use crate::explosive::{Explosion, in_sight, world_filter};
 use crate::hud::text;
@@ -580,7 +581,7 @@ fn lure_zombies(
     mut commands: Commands,
     bombs: Query<(&MonkeyBomb, &Transform)>,
     pulls: Query<&Pull>,
-    zombies: Query<(Entity, &Transform, Option<&Lured>), (With<Zombie>, Without<Dying>)>,
+    zombies: Query<(Entity, &Transform, Option<&Lured>, Option<&Entering>), (With<Zombie>, Without<Dying>)>,
 ) {
     let mut active: Vec<_> = bombs
         .iter()
@@ -595,16 +596,15 @@ fn lure_zombies(
         let candidates = zombies
             .iter()
             .filter(|(entity, ..)| !targets.iter().any(|(taken, _)| taken == entity))
-            .map(|(entity, transform, _)| LureCandidate {
+            .map(|(entity, transform, _, entering)| LureCandidate {
                 zombie: entity,
                 distance: transform.translation.distance(at),
-                // Barriers arrive in their own slice; Zombies tearing at one must say so here.
-                at_barrier: false,
+                at_barrier: entering.is_some_and(Entering::at_barrier),
             });
         targets.extend(lured(candidates).into_iter().map(|zombie| (zombie, at)));
     }
 
-    for (entity, _, lure) in &zombies {
+    for (entity, _, lure, _) in &zombies {
         let target = targets.iter().find(|(zombie, _)| *zombie == entity).map(|(_, at)| *at);
         match (target, lure) {
             (Some(at), Some(lure)) if lure.0 == at => {}

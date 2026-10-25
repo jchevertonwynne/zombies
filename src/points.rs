@@ -33,7 +33,7 @@ pub struct Points {
 }
 
 impl Points {
-    fn award(&mut self, amount: u64) {
+    pub fn award(&mut self, amount: u64) {
         self.balance = self.balance.saturating_add(amount);
         self.earned = self.earned.saturating_add(amount);
     }

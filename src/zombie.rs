@@ -6,7 +6,8 @@ use bevy::prelude::*;
 use crate::door::Door;
 use crate::last_stand::LastStand;
 use crate::layers::GameLayer;
-use crate::nav::{NavGraph, Route, repath_interval, windows_open};
+use crate::barrier::{Barriers, Entering};
+use crate::nav::{NavGraph, Route, repath_interval};
 use crate::player::{Player, PlayerHit};
 use crate::state::{InRun, Pause};
 use crate::tuning::*;
@@ -147,6 +148,11 @@ pub struct Zombie {
 }
 
 impl Zombie {
+    /// How fast it moves, by its Speed Tier.
+    pub fn speed(&self) -> f32 {
+        self.tier.speed()
+    }
+
     /// Switches to Sprinter, as the last Zombie of an early Round does.
     pub fn sprint(&mut self) {
         self.tier = SpeedTier::Sprinter;
@@ -241,7 +247,14 @@ fn body_half_height() -> f32 {
 
 /// Spawns a Zombie standing on the floor at `at`, or, for a Riser, buried under it and about to
 /// climb out.
-pub fn spawn_zombie(commands: &mut Commands, assets: &ZombieAssetsParam, at: Vec3, health: f32, tier: SpeedTier, rises: bool) {
+pub fn spawn_zombie(
+    commands: &mut Commands,
+    assets: &ZombieAssetsParam,
+    at: Vec3,
+    health: f32,
+    tier: SpeedTier,
+    rises: bool,
+) -> Entity {
     let assets = &assets.0;
     let half = body_half_height();
     let head_offset = half + ZOMBIE_HEAD_RADIUS * 0.5;
@@ -337,7 +350,8 @@ pub fn spawn_zombie(commands: &mut Commands, assets: &ZombieAssetsParam, at: Vec
                 box_collider(ZOMBIE_NECK_SIZE),
                 hit_layers,
             ));
-        });
+        })
+        .id()
 }
 
 fn box_collider(size: Vec3) -> Collider {
@@ -411,11 +425,12 @@ pub fn heading(distance: f32, swinging: bool, last_stand: bool) -> Heading {
 fn chase(
     mut zombies: Query<
         (Entity, &mut Zombie, &mut Route, &mut Transform, &Collider, Option<&Lured>),
-        (Without<Dying>, Without<Rising>, Without<KnockedDown>),
+        (Without<Dying>, Without<Rising>, Without<KnockedDown>, Without<Entering>),
     >,
     player: Single<(&Transform, Has<LastStand>), (With<Player>, Without<Zombie>)>,
     graph: Res<NavGraph>,
     doors: Query<&Door>,
+    barriers: Res<Barriers>,
     move_and_slide: MoveAndSlide,
     time: Res<Time>,
 ) {
@@ -447,7 +462,7 @@ fn chase(
             if !(level && (from == to || clear_walk(spatial, &probe, transform.translation, target))) {
                 // No route at all (the drop is one-way) leaves it steering straight at its target
                 // until the stuck rule replaces it.
-                let path = graph.plan(from, to, &open_doors, windows_open).unwrap_or_default();
+                let path = graph.plan(from, to, &open_doors, |b| barriers.is_open(b)).unwrap_or_default();
                 route.waypoints = path.into_iter().map(|i| graph.nodes[i].at).collect();
                 // Skip the first node when the second is a clear walk on the same floor, so a
                 // Zombie never doubles back to the node behind it.
@@ -533,15 +548,20 @@ fn rise(mut commands: Commands, mut risers: Query<(Entity, &mut Rising, &mut Tra
 }
 
 /// A Zombie that's stuck, or lost far from the Player, is quietly removed and sent back into the
-/// Horde, so a Round never stalls.
+/// Horde, so a Round never stalls. A Zombie outside a window is waiting on its Planks, not
+/// stuck, so its clock only starts once it's in.
 fn clean_up_stuck(
     mut commands: Commands,
-    mut zombies: Query<(Entity, &mut Zombie, &Transform), (Without<Dying>, Without<Rising>)>,
+    mut zombies: Query<(Entity, &mut Zombie, &Transform, Has<Entering>), (Without<Dying>, Without<Rising>)>,
     player: Single<&Transform, (With<Player>, Without<Zombie>)>,
     mut cleaned: MessageWriter<ZombieCleanedUp>,
     time: Res<Time>,
 ) {
-    for (entity, mut zombie, transform) in &mut zombies {
+    for (entity, mut zombie, transform, entering) in &mut zombies {
+        if entering {
+            zombie.stuck = StuckWatch::new(transform.translation);
+            continue;
+        }
         if zombie.stuck.update(transform.translation, player.translation, time.delta_secs()) {
             commands.entity(entity).despawn();
             cleaned.write(ZombieCleanedUp);
@@ -549,8 +569,13 @@ fn clean_up_stuck(
     }
 }
 
+/// Zombies inside swipe the Player in reach. Those outside a window reach through it instead (see
+/// the Barriers).
 fn attack(
-    mut zombies: Query<(&mut Zombie, &Transform), (Without<Dying>, Without<Rising>, Without<KnockedDown>)>,
+    mut zombies: Query<
+        (&mut Zombie, &Transform),
+        (Without<Dying>, Without<Rising>, Without<KnockedDown>, Without<Entering>),
+    >,
     player: Single<(&Transform, Has<LastStand>), With<Player>>,
     mut hits: MessageWriter<PlayerHit>,
     time: Res<Time>,
