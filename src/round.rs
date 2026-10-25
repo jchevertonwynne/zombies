@@ -106,11 +106,22 @@ impl Round {
 #[derive(Message)]
 pub struct RoundStarted;
 
+/// The Round's last Zombie died and the Intermission began.
+#[derive(Message)]
+pub struct RoundEnded;
+
+/// Held by anything layered on the Round that needs the Intermission to wait before counting
+/// down. While held, the Intermission stays at its full length.
+#[derive(Resource, Default)]
+pub struct IntermissionHold(pub bool);
+
 pub struct RoundPlugin;
 
 impl Plugin for RoundPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<RoundStarted>()
+            .add_message::<RoundEnded>()
+            .init_resource::<IntermissionHold>()
             .add_systems(OnEnter(GameState::Playing), start_first_round)
             .add_systems(
                 Update,
@@ -123,6 +134,7 @@ impl Plugin for RoundPlugin {
 
 fn start_first_round(mut commands: Commands, mut started: MessageWriter<RoundStarted>) {
     commands.insert_resource(Round::begin(1));
+    commands.insert_resource(IntermissionHold::default());
     started.write(RoundStarted);
 }
 
@@ -185,20 +197,30 @@ fn last_zombie_sprints(round: Res<Round>, mut alive: Query<&mut Zombie, Without<
     }
 }
 
-fn end_round(mut round: ResMut<Round>, alive: Query<(), (With<Zombie>, Without<Dying>)>) {
+fn end_round(
+    mut round: ResMut<Round>,
+    alive: Query<(), (With<Zombie>, Without<Dying>)>,
+    mut ended: MessageWriter<RoundEnded>,
+) {
     if round.phase == RoundPhase::Active && round.left_to_spawn == 0 && alive.is_empty() {
         round.phase = RoundPhase::Intermission(INTERMISSION_SECS);
+        ended.write(RoundEnded);
     }
 }
 
 fn run_intermission(
     mut round: ResMut<Round>,
+    hold: Res<IntermissionHold>,
     mut started: MessageWriter<RoundStarted>,
     time: Res<Time>,
 ) {
     let RoundPhase::Intermission(left) = round.phase else {
         return;
     };
+    if hold.0 {
+        round.phase = RoundPhase::Intermission(INTERMISSION_SECS);
+        return;
+    }
     let left = left - time.delta_secs();
     if left <= 0.0 {
         *round = Round::begin(round.number.saturating_add(1));

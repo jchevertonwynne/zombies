@@ -1254,3 +1254,20 @@ pub const FOV_STEP: u8 = 5;
 // Records
 /// Run Records kept per (Map, Mode).
 pub const RECORDS_KEPT: usize = 10;
+
+// Gauntlet
+/// The Boon Offer opens this long after a Round's last kill.
+pub const BOON_OFFER_DELAY_SECS: f32 = 2.0;
+/// Distinct Boons on one Offer, or fewer if fewer are eligible.
+pub const BOON_OFFER_SIZE: usize = 3;
+/// Clicks are ignored for this long after the Offer appears, so a trigger finger can't pick.
+pub const BOON_OFFER_INPUT_LOCKOUT_SECS: f32 = 0.5;
+/// A Boon's Offer weight by Rarity: Common, Rare, Legendary.
+pub const BOON_RARITY_WEIGHTS: [f64; 3] = [60.0, 30.0, 10.0];
+/// Each Stack held multiplies a Boon's Offer weight by this.
+pub const BOON_STACK_WEIGHT_FACTOR: f64 = 0.98;
+
+// Boons (Appendix B), per Stack
+pub const BOON_BLOOD_MONEY_POINTS_PER_KILL: u64 = 10;
+pub const BOON_HOLLOW_POINTS_DAMAGE_INCREASE: f32 = 0.10;
+pub const BOON_LIGHT_FEET_MOVE_SPEED_INCREASE: f32 = 0.05;
