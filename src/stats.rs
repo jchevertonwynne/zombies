@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 
-use crate::state::GameState;
+use crate::state::{GameState, Pause};
 use crate::zombie::ZombieKilled;
 
 #[derive(Resource, Default, Debug, PartialEq)]
@@ -10,6 +10,8 @@ pub struct RunStats {
     pub kills: u32,
     pub headshots: u32,
     pub downs: u32,
+    /// Game-time survived in seconds. Only counts while the world runs, so pauses don't.
+    pub survived_secs: f64,
 }
 
 impl RunStats {
@@ -30,12 +32,20 @@ impl Plugin for StatsPlugin {
             .add_systems(OnEnter(GameState::Playing), |mut stats: ResMut<RunStats>| {
                 *stats = RunStats::default()
             })
-            // Without Quick Revive, the Down that ends the Run is the only kind.
-            .add_systems(OnEnter(GameState::GameOver), |mut stats: ResMut<RunStats>| {
-                stats.downs = stats.downs.saturating_add(1)
-            })
-            .add_systems(Update, count_kills);
+            .add_systems(OnEnter(GameState::GameOver), count_final_down)
+            .add_systems(Update, count_kills)
+            .add_systems(Update, count_time.run_if(in_state(Pause::Running)));
     }
+}
+
+/// Without Quick Revive, the Down that ends the Run is the only kind.
+pub fn count_final_down(mut stats: ResMut<RunStats>) {
+    stats.downs = stats.downs.saturating_add(1);
+}
+
+/// `Time` here is virtual time, which stands still whenever the world is frozen.
+fn count_time(time: Res<Time>, mut stats: ResMut<RunStats>) {
+    stats.survived_secs += time.delta_secs_f64();
 }
 
 fn count_kills(mut kills: MessageReader<ZombieKilled>, mut stats: ResMut<RunStats>) {
@@ -82,6 +92,7 @@ mod tests {
             kills: u32::MAX,
             headshots: u32::MAX,
             downs: 0,
+            survived_secs: 0.0,
         };
         stats.record_kill(&kill(Pay::Paid, true));
         assert_eq!(stats.kills, u32::MAX);

@@ -3,6 +3,7 @@
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
 use crate::buy::Buyable;
 use crate::door::Door;
@@ -21,6 +22,24 @@ const DOOR_WIDTH: f32 = 2.4;
 const DOOR_HEIGHT: f32 = 3.0;
 const RAIL_HEIGHT: f32 = 1.1;
 
+/// Which Map a Run is played on. As a resource, it's the Map of the current (or just-ended) Run.
+#[derive(Resource, Serialize, Deserialize, Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MapId {
+    /// The greybox Map: five rooms ringing the Yard, plus the Balcony. The only Map so far.
+    #[default]
+    Greybox,
+}
+
+impl MapId {
+    pub const ALL: [MapId; 1] = [MapId::Greybox];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            MapId::Greybox => "Greybox",
+        }
+    }
+}
+
 /// A fixed place in the Map where Zombies enter play, in the Zone it serves.
 #[derive(Component)]
 pub struct SpawnPoint(pub ZoneId);
@@ -35,6 +54,7 @@ impl Plugin for MapPlugin {
             ..default()
         })
         .insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.04)))
+        .init_resource::<MapId>()
         .add_systems(OnEnter(GameState::Playing), spawn_map);
     }
 }

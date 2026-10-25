@@ -773,3 +773,7 @@ pub const FOV_MIN: u8 = 65;
 pub const FOV_MAX: u8 = 110;
 pub const FOV_DEFAULT: u8 = 80;
 pub const FOV_STEP: u8 = 5;
+
+// Records
+/// Run Records kept per (Map, Mode).
+pub const RECORDS_KEPT: usize = 10;

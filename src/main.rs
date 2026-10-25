@@ -15,6 +15,7 @@ mod modifier;
 mod mode;
 mod player;
 mod points;
+mod records;
 mod round;
 mod save;
 mod settings;
@@ -57,6 +58,7 @@ fn main() {
             round::RoundPlugin,
             points::PointsPlugin,
             stats::StatsPlugin,
+            records::RecordsPlugin,
             hud::HudPlugin,
             audio::AudioPlugin,
             debug::DebugPlugin,
