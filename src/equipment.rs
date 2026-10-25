@@ -6,7 +6,7 @@ use bevy::prelude::*;
 
 use crate::barrier::Entering;
 use crate::buy::{Buyable, Purchased, Refused};
-use crate::explosive::{Explosion, in_sight, world_filter};
+use crate::explosive::{Explosion, Explosive, in_sight, makes_crawlers, world_filter};
 use crate::hud::text;
 use crate::layers::GameLayer;
 use crate::player::{Player, PlayerCamera};
@@ -471,6 +471,7 @@ fn throw_frags(
                 at: camera.translation(),
                 splash: FRAG_SPLASH,
                 hurts_player: true,
+                crawlers: makes_crawlers(Explosive::Frag),
             });
         }
     }
@@ -534,6 +535,7 @@ fn burn_frags(
                 at: transform.translation + Vec3::Y * 0.1,
                 splash: FRAG_SPLASH,
                 hurts_player: true,
+                crawlers: makes_crawlers(Explosive::Frag),
             });
             commands.entity(entity).despawn();
         }
@@ -567,6 +569,7 @@ fn land_monkey_bombs(
                     at: transform.translation + Vec3::Y * 0.1,
                     splash: MONKEY_BOMB_SPLASH,
                     hurts_player: true,
+                    crawlers: makes_crawlers(Explosive::MonkeyBomb),
                 });
                 commands.entity(entity).despawn();
             }
@@ -649,6 +652,7 @@ fn trigger_claymores(
                     at: at + Vec3::Y * 0.3,
                     splash: CLAYMORE_SPLASH,
                     hurts_player: false,
+                    crawlers: makes_crawlers(Explosive::Claymore),
                 });
                 commands.entity(entity).despawn();
             }

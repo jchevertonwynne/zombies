@@ -91,6 +91,27 @@ pub struct KnockDown {
 #[derive(Message, Debug, Clone, Copy)]
 pub struct ZombieHit;
 
+/// An explosion blew a Zombie's legs off: it becomes a Crawler.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct Gibbed {
+    pub zombie: Entity,
+}
+
+/// The Crawler rule: whether a blast from an explosive that can make Crawlers blows a Zombie's
+/// legs off. Only a normal Zombie (not already a Crawler) that survives a hit of at least
+/// `CRAWLER_GIB_MIN_FRACTION` of its pre-hit `health` can lose them, on a `roll` in `[0, 1)`
+/// under `CRAWLER_GIB_CHANCE`.
+pub fn blows_legs_off(normal: bool, health: f32, damage: f32, roll: f64) -> bool {
+    normal && damage < health && damage >= health * CRAWLER_GIB_MIN_FRACTION && roll < CRAWLER_GIB_CHANCE
+}
+
+/// A Crawler can't tear Planks, so `CRAWLER_PLANKED_STUCK_SECS` spent at a planked Barrier counts
+/// as stuck. Returns the time waited so far, which an open Barrier resets, and whether it's stuck.
+pub fn planked_wait(waited: f32, planked: bool, dt: f32) -> (f32, bool) {
+    let waited = if planked { waited + dt } else { 0.0 };
+    (waited, waited >= CRAWLER_PLANKED_STUCK_SECS)
+}
+
 /// The kill message: a Zombie died. Every kill, from any source, is sent as one of these.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct ZombieKilled {
@@ -145,17 +166,49 @@ pub struct Zombie {
     /// Vertical speed, from gravity and slopes.
     fall_speed: f32,
     stuck: StuckWatch,
+    /// Its legs were blown off: it crawls, low and slow.
+    crawler: bool,
+    /// Seconds a Crawler has waited at a planked Barrier.
+    planked_wait: f32,
 }
 
 impl Zombie {
-    /// How fast it moves, by its Speed Tier.
-    pub fn speed(&self) -> f32 {
-        self.tier.speed()
+    fn new(health: f32, tier: SpeedTier, at: Vec3) -> Self {
+        Self {
+            health,
+            tier,
+            attack_cooldown: 0.0,
+            wind_up: None,
+            fall_speed: 0.0,
+            stuck: StuckWatch::new(at),
+            crawler: false,
+            planked_wait: 0.0,
+        }
     }
 
-    /// Switches to Sprinter, as the last Zombie of an early Round does.
+    /// How fast it moves: by its Speed Tier, or `CRAWLER_SPEED` once it's a Crawler.
+    pub fn speed(&self) -> f32 {
+        if self.crawler { CRAWLER_SPEED } else { self.tier.speed() }
+    }
+
+    /// Switches to Sprinter, as the last Zombie of an early Round does. A Crawler never sprints.
     pub fn sprint(&mut self) {
-        self.tier = SpeedTier::Sprinter;
+        if !self.crawler {
+            self.tier = SpeedTier::Sprinter;
+        }
+    }
+
+    pub fn health(&self) -> f32 {
+        self.health
+    }
+
+    pub fn is_crawler(&self) -> bool {
+        self.crawler
+    }
+
+    /// From its centre down to its feet.
+    fn half_height(&self) -> f32 {
+        if self.crawler { CRAWLER_RADIUS } else { body_half_height() }
     }
 }
 
@@ -198,6 +251,7 @@ struct ZombieAssets {
     head: Handle<Mesh>,
     arm: Handle<Mesh>,
     eye: Handle<Mesh>,
+    crawler_body: Handle<Mesh>,
     skin: Handle<StandardMaterial>,
     clothes: Handle<StandardMaterial>,
     eyes: Handle<StandardMaterial>,
@@ -212,11 +266,22 @@ impl Plugin for ZombiePlugin {
             .add_message::<ZombieKilled>()
             .add_message::<ZombieCleanedUp>()
             .add_message::<KnockDown>()
+            .add_message::<Gibbed>()
             .add_systems(Startup, load_assets)
             .add_systems(FixedUpdate, (chase, tumble).run_if(in_state(Pause::Running)))
             .add_systems(
                 Update,
-                (rise, attack, knock_down, apply_damage, fall_over, clean_up_stuck).run_if(in_state(Pause::Running)),
+                (
+                    rise,
+                    attack,
+                    knock_down,
+                    // First, so a Zombie killed in the same frame dies as the Crawler it became.
+                    become_crawler.before(apply_damage),
+                    apply_damage,
+                    fall_over,
+                    clean_up_stuck,
+                )
+                    .run_if(in_state(Pause::Running)),
             );
     }
 }
@@ -231,6 +296,11 @@ fn load_assets(
         head: meshes.add(Sphere::new(ZOMBIE_HEAD_RADIUS)),
         arm: meshes.add(Cuboid::from_size(ZOMBIE_ARM_SIZE)),
         eye: meshes.add(Sphere::new(0.035)),
+        // Lying along its facing (-Z), dragging itself forward.
+        crawler_body: meshes.add(
+            Mesh::from(Capsule3d::new(CRAWLER_RADIUS * 0.9, CRAWLER_BODY_LENGTH))
+                .rotated_by(Quat::from_rotation_x(FRAC_PI_2)),
+        ),
         skin: materials.add(Color::srgb(0.45, 0.52, 0.38)),
         clothes: materials.add(Color::srgb(0.22, 0.24, 0.2)),
         eyes: materials.add(StandardMaterial {
@@ -276,14 +346,7 @@ pub fn spawn_zombie(
         .insert((
             InRun,
             Name::new("Zombie"),
-            Zombie {
-                health,
-                tier,
-                attack_cooldown: 0.0,
-                wind_up: None,
-                fall_speed: 0.0,
-                stuck: StuckWatch::new(centre),
-            },
+            Zombie::new(health, tier, centre),
             Route::default(),
             Mesh3d(assets.body.clone()),
             MeshMaterial3d(assets.clothes.clone()),
@@ -352,6 +415,54 @@ pub fn spawn_zombie(
             ));
         })
         .id()
+}
+
+/// A Crawler's parts, around a body lying low along its facing: head and neck at the front, arms
+/// dragging it along, a torso, and no legs.
+fn spawn_crawler_parts(crawler: &mut ChildSpawnerCommands, assets: &ZombieAssets) {
+    let hit_layers = CollisionLayers::new(GameLayer::ZombieHitArea, LayerMask::ALL);
+    let front = -(CRAWLER_BODY_LENGTH / 2.0 + CRAWLER_RADIUS);
+    crawler
+        .spawn((
+            HitArea(HitZone::Head),
+            Mesh3d(assets.head.clone()),
+            MeshMaterial3d(assets.skin.clone()),
+            Transform::from_xyz(0.0, CRAWLER_RADIUS - ZOMBIE_HEAD_RADIUS, front),
+            Collider::sphere(ZOMBIE_HEAD_RADIUS),
+            hit_layers,
+        ))
+        .with_children(|head| {
+            for x in [-0.07, 0.07] {
+                head.spawn((
+                    Mesh3d(assets.eye.clone()),
+                    MeshMaterial3d(assets.eyes.clone()),
+                    Transform::from_xyz(x, 0.04, -ZOMBIE_HEAD_RADIUS * 0.9),
+                ));
+            }
+        });
+    crawler.spawn((
+        HitArea(HitZone::Neck),
+        Transform::from_xyz(0.0, 0.0, front + ZOMBIE_HEAD_RADIUS + ZOMBIE_NECK_SIZE.z / 2.0),
+        box_collider(ZOMBIE_NECK_SIZE),
+        hit_layers,
+    ));
+    crawler.spawn((
+        HitArea(HitZone::Torso),
+        Transform::from_xyz(0.0, 0.0, ZOMBIE_NECK_SIZE.z / 2.0),
+        Collider::cuboid(CRAWLER_RADIUS * 2.0, CRAWLER_RADIUS * 2.0, CRAWLER_BODY_LENGTH + CRAWLER_RADIUS),
+        hit_layers,
+    ));
+    // Arms out in front on the floor.
+    for x in [-CRAWLER_RADIUS - 0.05, CRAWLER_RADIUS + 0.05] {
+        crawler.spawn((
+            HitArea(HitZone::Limb),
+            Mesh3d(assets.arm.clone()),
+            MeshMaterial3d(assets.skin.clone()),
+            Transform::from_xyz(x, ZOMBIE_ARM_SIZE.y / 2.0 - CRAWLER_RADIUS, front),
+            box_collider(ZOMBIE_ARM_SIZE),
+            hit_layers,
+        ));
+    }
 }
 
 fn box_collider(size: Vec3) -> Collider {
@@ -436,7 +547,6 @@ fn chase(
 ) {
     let (player, last_stand) = *player;
     let dt = time.delta_secs();
-    let half = body_half_height();
     let player_feet = player.translation - Vec3::Y * (PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0);
     let open_doors: Vec<_> = doors.iter().filter(|door| door.open).filter_map(|door| door.joins).collect();
     let probe = Collider::sphere(ZOMBIE_RADIUS * 0.8);
@@ -444,6 +554,7 @@ fn chase(
     let positions: Vec<_> = zombies.iter().map(|(entity, _, _, transform, _, _)| (entity, transform.translation)).collect();
 
     for (entity, mut zombie, mut route, mut transform, collider, lured) in &mut zombies {
+        let half = zombie.half_height();
         let feet = transform.translation - Vec3::Y * half;
         // A Monkey Bomb's pull beats everything, even a Player in Last Stand.
         let target_feet = lured.map_or(player_feet, |lure| lure.0);
@@ -506,7 +617,7 @@ fn chase(
         if facing.length_squared() > 1e-4 {
             transform.rotation = Quat::from_rotation_y(f32::atan2(-facing.x, -facing.z));
         }
-        let stride = if planted { Vec3::ZERO } else { heading * zombie.tier.speed() };
+        let stride = if planted { Vec3::ZERO } else { heading * zombie.speed() };
         let velocity = stride + Vec3::Y * (zombie.fall_speed - GRAVITY * dt);
 
         let mut grounded = false;
@@ -549,20 +660,30 @@ fn rise(mut commands: Commands, mut risers: Query<(Entity, &mut Rising, &mut Tra
 
 /// A Zombie that's stuck, or lost far from the Player, is quietly removed and sent back into the
 /// Horde, so a Round never stalls. A Zombie outside a window is waiting on its Planks, not
-/// stuck, so its clock only starts once it's in.
+/// stuck, so its clock only starts once it's in. A Crawler can't tear them, though, so for it
+/// waiting at a planked Barrier too long is stuck.
 fn clean_up_stuck(
     mut commands: Commands,
-    mut zombies: Query<(Entity, &mut Zombie, &Transform, Has<Entering>), (Without<Dying>, Without<Rising>)>,
+    mut zombies: Query<(Entity, &mut Zombie, &Transform, Option<&Entering>), (Without<Dying>, Without<Rising>)>,
     player: Single<&Transform, (With<Player>, Without<Zombie>)>,
+    barriers: Res<Barriers>,
     mut cleaned: MessageWriter<ZombieCleanedUp>,
     time: Res<Time>,
 ) {
+    let dt = time.delta_secs();
     for (entity, mut zombie, transform, entering) in &mut zombies {
-        if entering {
+        if let Some(entering) = entering {
             zombie.stuck = StuckWatch::new(transform.translation);
+            let planked = zombie.crawler && entering.at_barrier() && barriers.planks(entering.barrier) > 0;
+            let stuck;
+            (zombie.planked_wait, stuck) = planked_wait(zombie.planked_wait, planked, dt);
+            if stuck {
+                commands.entity(entity).despawn();
+                cleaned.write(ZombieCleanedUp);
+            }
             continue;
         }
-        if zombie.stuck.update(transform.translation, player.translation, time.delta_secs()) {
+        if zombie.stuck.update(transform.translation, player.translation, dt) {
             commands.entity(entity).despawn();
             cleaned.write(ZombieCleanedUp);
         }
@@ -669,6 +790,32 @@ fn tumble(
     }
 }
 
+/// A Zombie whose legs were blown off drops to the floor as a Crawler: a low, short body the
+/// Player can jump over, with no leg hit areas. A Riser still climbing out keeps its legs.
+fn become_crawler(
+    mut commands: Commands,
+    mut gibbed: MessageReader<Gibbed>,
+    mut zombies: Query<(&mut Zombie, &mut Transform), (Without<Dying>, Without<Rising>)>,
+    assets: Res<ZombieAssets>,
+) {
+    for &Gibbed { zombie: entity } in gibbed.read() {
+        let Ok((mut zombie, mut transform)) = zombies.get_mut(entity) else {
+            continue;
+        };
+        if zombie.crawler {
+            continue;
+        }
+        zombie.crawler = true;
+        zombie.wind_up = None;
+        transform.translation.y -= body_half_height() - CRAWLER_RADIUS;
+        commands
+            .entity(entity)
+            .insert((Mesh3d(assets.crawler_body.clone()), Collider::sphere(CRAWLER_RADIUS)))
+            .despawn_children()
+            .with_children(|crawler| spawn_crawler_parts(crawler, &assets));
+    }
+}
+
 fn apply_damage(
     mut commands: Commands,
     mut requests: MessageReader<DamageZombie>,
@@ -714,17 +861,20 @@ fn apply_damage(
 
 fn fall_over(
     mut commands: Commands,
-    mut dying: Query<(Entity, &mut Dying, &mut Transform)>,
+    mut dying: Query<(Entity, &mut Dying, &mut Transform, &Zombie)>,
     time: Res<Time>,
 ) {
-    for (entity, mut dying, mut transform) in &mut dying {
+    for (entity, mut dying, mut transform, zombie) in &mut dying {
         let before = (dying.elapsed / ZOMBIE_FALL_SECS).min(1.0);
         dying.elapsed += time.delta_secs();
         let after = (dying.elapsed / ZOMBIE_FALL_SECS).min(1.0);
 
-        // Tip backwards about the local X axis, sinking so it lies on the floor.
+        // Tip backwards about the local X axis, sinking so it lies on the floor. A Crawler,
+        // already down, rolls onto its side.
         let step = (after - before) * FRAC_PI_2;
-        if step > 0.0 {
+        if step > 0.0 && zombie.crawler {
+            transform.rotate_local_z(step);
+        } else if step > 0.0 {
             transform.rotate_local_x(step);
             transform.translation.y -= (after - before) * (body_half_height() - ZOMBIE_RADIUS);
         }
@@ -786,6 +936,68 @@ mod tests {
         let at = |t: f32| if t < 8.0 { Vec3::ZERO } else { Vec3::new(2.0, 0.0, 0.0) };
         let fired = watch(30.0, Vec3::new(10.0, 0.0, 0.0), at).unwrap();
         assert!((fired - 18.0).abs() < STEP * 1.5, "fired at {fired}");
+    }
+
+    #[test]
+    fn a_survived_explosive_hit_of_a_tenth_of_its_health_has_an_even_chance_to_gib() {
+        assert!(blows_legs_off(true, 1000.0, 100.0, 0.0));
+        assert!(blows_legs_off(true, 1000.0, 999.0, 0.49));
+        assert!(!blows_legs_off(true, 1000.0, 100.0, 0.5), "a failed roll keeps its legs");
+        assert!(!blows_legs_off(true, 1000.0, 99.0, 0.0), "under a tenth of its health");
+    }
+
+    #[test]
+    fn a_killing_blast_never_gibs() {
+        assert!(!blows_legs_off(true, 300.0, 300.0, 0.0));
+        assert!(!blows_legs_off(true, 300.0, 5000.0, 0.0));
+    }
+
+    #[test]
+    fn only_normal_zombies_gib() {
+        assert!(!blows_legs_off(false, 1000.0, 500.0, 0.0));
+    }
+
+    #[test]
+    fn about_half_of_qualifying_hits_gib() {
+        let gibs = (0..1000).filter(|i| blows_legs_off(true, 1000.0, 500.0, *i as f64 / 1000.0)).count();
+        assert_eq!(gibs, 500);
+    }
+
+    #[test]
+    fn a_crawler_is_slow_and_never_sprints() {
+        let mut zombie = Zombie::new(150.0, SpeedTier::Walker, Vec3::ZERO);
+        zombie.crawler = true;
+        assert_eq!(zombie.speed(), CRAWLER_SPEED);
+        zombie.sprint();
+        assert_eq!(zombie.speed(), CRAWLER_SPEED, "a lone last-Zombie Crawler never sprints");
+        let mut normal = Zombie::new(150.0, SpeedTier::Walker, Vec3::ZERO);
+        normal.sprint();
+        assert_eq!(normal.speed(), ZOMBIE_SPRINT_SPEED);
+    }
+
+    #[test]
+    fn the_player_can_jump_over_a_crawler() {
+        let apex = PLAYER_JUMP_SPEED * PLAYER_JUMP_SPEED / (2.0 * GRAVITY);
+        let height = 2.0 * CRAWLER_RADIUS;
+        assert!((height - 0.6).abs() < 0.05, "about 0.6 m tall");
+        assert!(apex > height, "jumps {apex} m over {height} m");
+    }
+
+    #[test]
+    fn ten_seconds_at_a_planked_barrier_is_stuck() {
+        let (mut waited, mut stuck) = (0.0, false);
+        let mut t = 0.0;
+        while !stuck && t < 20.0 {
+            t += STEP;
+            (waited, stuck) = planked_wait(waited, true, STEP);
+        }
+        assert!((t - CRAWLER_PLANKED_STUCK_SECS).abs() < STEP * 1.5, "stuck at {t}");
+    }
+
+    #[test]
+    fn an_open_barrier_resets_the_planked_wait() {
+        let (waited, _) = planked_wait(9.5, true, STEP);
+        assert_eq!(planked_wait(waited, false, STEP), (0.0, false));
     }
 
     #[test]

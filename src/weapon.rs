@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use crate::arsenal::{Burn, FireMode, Splash, WeaponClass, WeaponId, WeaponStats};
 use crate::burn::Ignite;
 use crate::combat::{Crossing, hit_damage, pierce, spread_direction};
-use crate::explosive::{Explosion, Launched, flight};
+use crate::explosive::{Explosion, Explosive, Launched, flight, makes_crawlers};
 use crate::layers::GameLayer;
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve, resolve_count};
 use crate::perk::{Drinking, hands_free};
@@ -625,6 +625,7 @@ fn fire(
                 impact: loadout.damage_at(0.0, entries),
                 impact_headshot: stats.zone_multiplier(HitZone::Head),
                 splash,
+                crawlers: makes_crawlers(Explosive::Weapon(stats.id)),
             });
             continue;
         }
@@ -647,6 +648,7 @@ fn fire(
                 at: impact,
                 splash,
                 hurts_player: true,
+                crawlers: makes_crawlers(Explosive::Weapon(stats.id)),
             });
             continue;
         }
