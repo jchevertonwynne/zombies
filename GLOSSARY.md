@@ -30,6 +30,21 @@
 
 **Weapon Class**: The kind of Weapon, which decides how it fires: for example pistol, SMG, shotgun, sniper rifle or launcher.
 
+**Pack-a-Punch**: The machine that, once the Power is on, upgrades the Weapon in the Player's hand for Points.
+_Avoid_: upgrade machine
+
+**Upgraded Weapon**: A Weapon that has been through Pack-a-Punch. It has a new name, stronger stats and a glint that marks it out.
+_Avoid_: PaP'd gun, camo gun
+
+**Repack**: Paying Pack-a-Punch again to add one random Ammo Mod or Attachment to an Upgraded Weapon. Each Repack of the same Weapon costs more than the last.
+_Avoid_: reroll, re-PaP
+
+**Ammo Mod**: An effect on an Upgraded Weapon that has a chance to trigger when it hits a Zombie, then waits out a cooldown. A Weapon holds at most two.
+_Avoid_: AAT, alternate ammo type, enchantment
+
+**Attachment**: A part fitted to one mount of an Upgraded Weapon, such as its optic or magazine, that changes how it handles. A Weapon holds at most one per mount.
+_Avoid_: mod, add-on
+
 **Wall Weapon**: A Weapon bought from its chalk outline on a wall. The same chalk sells ammo for that Weapon.
 _Avoid_: wall buy, chalk gun
 
@@ -150,3 +165,6 @@ _Avoid_: roguelite mode
 
 **Boon**: A lasting upgrade the Player picks from an offer after completing a Round in Gauntlet. Boons are picked, never bought, and unlike Perks they survive a Down.
 _Avoid_: skill, buff, upgrade
+
+**Boon Offer**: The choice of Boons shown after each Round in Gauntlet. The world is frozen until the Player picks one; there is no skipping or rerolling.
+_Avoid_: draft, level-up, card pick
