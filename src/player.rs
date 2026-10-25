@@ -6,6 +6,7 @@ use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::render::view::ColorGrading;
 use bevy::window::{CursorGrabMode, CursorOptions};
+use bevy_transform_interpolation::TranslationEasingState;
 
 use crate::equipment::Equipment;
 use crate::last_stand::LastStand;
@@ -89,6 +90,26 @@ impl Default for FovWarp {
     }
 }
 
+/// A request to move the Player somewhere else at once (the Teleporter). Writing the Transform
+/// from `Update` doesn't work: whenever the next frame runs a physics step, the interpolation
+/// first completes its last easing and puts the Player straight back. The move is made at the
+/// start of the next physics step instead, as a clean cut with no smear, and stops the Player.
+#[derive(Resource, Default)]
+pub struct Teleport(Option<TeleportTo>);
+
+#[derive(Debug, Clone, Copy)]
+struct TeleportTo {
+    feet: Vec3,
+    facing: Option<Quat>,
+}
+
+impl Teleport {
+    /// Puts the Player's feet on `feet`, turned to `facing` if given.
+    pub fn send(&mut self, feet: Vec3, facing: Option<Quat>) {
+        self.0 = Some(TeleportTo { feet, facing });
+    }
+}
+
 /// A Zombie's swing connected.
 #[derive(Message)]
 pub struct PlayerHit {
@@ -128,7 +149,11 @@ impl Plugin for PlayerPlugin {
             .add_systems(OnExit(Pause::Running), release_cursor)
             // Settings apply immediately, even from Pause.
             .add_systems(Update, apply_fov)
-            .add_systems(FixedUpdate, move_player.run_if(in_state(Pause::Running)))
+            .init_resource::<Teleport>()
+            .add_systems(
+                FixedUpdate,
+                (teleport_player, move_player).chain().run_if(in_state(Pause::Running)),
+            )
             .add_systems(RunFixedMainLoop, look.run_if(in_state(Pause::Running)).in_set(LookSystems))
             .add_systems(
                 Update,
@@ -232,6 +257,25 @@ fn look(
     let (_, pitch, _) = camera.rotation.to_euler(EulerRot::YXZ);
     let pitch = (pitch - delta.y).clamp(-PITCH_LIMIT, PITCH_LIMIT);
     camera.rotation = Quat::from_rotation_x(pitch);
+}
+
+/// Carries out a `Teleport` at the start of the physics step. The easing starts from the new
+/// spot too, so no frame shows the Player partway there.
+fn teleport_player(
+    mut teleport: ResMut<Teleport>,
+    player: Single<(&mut Transform, &mut Locomotion, &mut TranslationEasingState), With<Player>>,
+) {
+    let Some(to) = teleport.0.take() else {
+        return;
+    };
+    let (mut transform, mut locomotion, mut easing) = player.into_inner();
+    transform.translation = to.feet + Vec3::Y * (PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0 + 0.05);
+    if let Some(facing) = to.facing {
+        transform.rotation = facing;
+    }
+    easing.start = Some(transform.translation);
+    locomotion.velocity = Vec3::ZERO;
+    locomotion.grounded = false;
 }
 
 fn move_player(

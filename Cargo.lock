@@ -7197,6 +7197,7 @@ version = "0.1.0"
 dependencies = [
  "avian3d",
  "bevy",
+ "bevy_transform_interpolation",
  "pathfinding",
  "rand",
  "ron",

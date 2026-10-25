@@ -15,7 +15,7 @@ use crate::hellhound::SpawnHellhounds;
 use crate::hud::overlay::{Overlay, Overlays};
 use crate::last_stand::LastStand;
 use crate::layers::GameLayer;
-use crate::player::{FovWarp, Player, PlayerCamera};
+use crate::player::{FovWarp, Player, PlayerCamera, Teleport};
 use crate::power::Power;
 use crate::power_up::DropPowerUp;
 use crate::round::Round;
@@ -573,17 +573,13 @@ fn use_teleporter(
     }
 }
 
-/// Puts the Player's feet on `floor`.
-fn place(transform: &mut Transform, floor: Vec3) {
-    transform.translation = floor + Vec3::Y * (PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0 + 0.05);
-}
-
 /// Runs the trip: the charge's kills and the leap into the holding space, then the arrival's kills,
 /// aftereffect and drop.
 fn run_trips(
     mut teleporter: ResMut<Teleporter>,
     mut aftermath: ResMut<Aftermath>,
-    player: Single<(&mut Transform, Has<LastStand>), With<Player>>,
+    player: Single<(&Transform, Has<LastStand>), With<Player>>,
+    mut teleport: ResMut<Teleport>,
     zombies: Query<
         (Entity, &Transform),
         (
@@ -603,7 +599,7 @@ fn run_trips(
     let Some(event) = teleporter.advance(time.delta_secs()) else {
         return;
     };
-    let (mut transform, last_stand) = player.into_inner();
+    let (transform, last_stand) = player.into_inner();
     let mut kill = |centre: Vec3, radius: f32, max: usize| {
         let near = victims(
             centre,
@@ -628,15 +624,14 @@ fn run_trips(
                 TELEPORTER_CHARGE_KILL_MAX,
             );
             if stays_for_trip(pad.at(), transform.translation, last_stand) {
-                place(&mut transform, HOLDING_AT);
+                teleport.send(HOLDING_AT, None);
             } else {
                 teleporter.abort();
             }
         }
         TripEvent::Arrived { since_last } => {
-            place(&mut transform, ARRIVAL_AT);
             // Facing into the room, away from the Mainframe.
-            transform.rotation = Quat::from_rotation_arc(Vec3::NEG_Z, MAINFRAME_FACING);
+            teleport.send(ARRIVAL_AT, Some(Quat::from_rotation_arc(Vec3::NEG_Z, MAINFRAME_FACING)));
             zone.0 = ZoneId::StartRoom;
             kill(MAINFRAME_AT, TELEPORTER_ARRIVAL_KILL_RADIUS, usize::MAX);
 

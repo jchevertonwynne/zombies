@@ -21,14 +21,13 @@ pub struct Sample {
 #[derive(Resource, Default)]
 struct Steps(u32);
 
+/// A `Teleport` sent from `Update` on a chosen frame, as the Teleporter sends one.
 #[derive(Resource, Default)]
-struct Placement(Option<Transform>);
+struct SendTeleport(Option<(Vec3, Option<Quat>)>);
 
-fn place_player(mut placement: ResMut<Placement>, player: Single<(&mut Transform, &mut Locomotion), With<Player>>) {
-    let (mut transform, mut locomotion) = player.into_inner();
-    if let Some(to) = placement.0.take() {
-        *transform = to;
-        *locomotion = Locomotion::default();
+fn send_teleport(mut request: ResMut<SendTeleport>, mut teleport: ResMut<Teleport>) {
+    if let Some((feet, facing)) = request.0.take() {
+        teleport.send(feet, facing);
     }
 }
 
@@ -36,8 +35,6 @@ pub struct Sim {
     app: App,
     pub frame_secs: f32,
 }
-
-const HALF_HEIGHT: f32 = PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0;
 
 impl Sim {
     /// The Map and the Player, rendering at `fps` while physics runs at its fixed rate.
@@ -55,10 +52,12 @@ impl Sim {
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
         .init_resource::<Steps>()
-        .init_resource::<Placement>()
+        .init_resource::<SendTeleport>()
+        .init_resource::<Teleport>()
+        .add_systems(Update, send_teleport)
         .insert_resource(Settings::default())
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / fps)))
-        .add_systems(FixedUpdate, (place_player, move_player, |mut steps: ResMut<Steps>| steps.0 += 1).chain())
+        .add_systems(FixedUpdate, (teleport_player, move_player, |mut steps: ResMut<Steps>| steps.0 += 1).chain())
         .add_systems(RunFixedMainLoop, look.in_set(LookSystems));
         configure_look(&mut app);
         app.finish();
@@ -74,14 +73,12 @@ impl Sim {
         sim
     }
 
-    /// Puts the Player's feet at `feet`, facing `yaw` radians (0 faces -Z), standing still. It
-    /// happens in the fixed step, as a move would, so the interpolation carries it.
+    /// Puts the Player's feet at `feet`, facing `yaw` radians (0 faces -Z), standing still, by
+    /// `Teleport`.
     pub fn place(&mut self, feet: Vec3, yaw: f32) {
         self.hold(&[]);
         self.mouse(Vec2::ZERO);
-        self.app.world_mut().resource_mut::<Placement>().0 = Some(
-            Transform::from_translation(feet + Vec3::Y * (HALF_HEIGHT + 0.02)).with_rotation(Quat::from_rotation_y(yaw)),
-        );
+        self.app.world_mut().resource_mut::<Teleport>().send(feet, Some(Quat::from_rotation_y(yaw)));
         self.run(20);
     }
 
@@ -271,4 +268,38 @@ fn jumping_still_leaves_the_floor() {
     assert!((peak - feet - expected).abs() < 0.05, "peaked {} up", peak - feet);
     let last = samples.last().unwrap();
     assert!(last.grounded && (last.pos.y - feet).abs() < 1e-3);
+}
+
+/// Writing the Transform from `Update` (as the Teleporter first did) was undone whenever the next
+/// frame ran a physics step: the Player snapped straight back. A `Teleport` lands on every frame
+/// offset and frame rate, shows no frame partway there, and turns and stops the Player.
+#[test]
+fn a_teleport_lands_cleanly_whenever_it_is_sent() {
+    let to = Vec3::new(-10.5, 0.0, 23.0);
+    let facing = Quat::from_rotation_y(1.0);
+    for fps in [144.0, 60.0, 90.0] {
+        for offset in 0..4 {
+            let mut sim = Sim::new(fps);
+            sim.place(Vec3::new(0.0, 0.0, 20.0), 0.0);
+            sim.hold(&[KeyCode::KeyD]);
+            sim.run(30);
+            sim.hold(&[]);
+            sim.run_secs(0.3);
+            sim.run(offset);
+            let from = sim.frame().pos;
+            sim.app.world_mut().resource_mut::<SendTeleport>().0 = Some((to, Some(facing)));
+            let samples = sim.run(40);
+            for s in &samples {
+                let near_start = s.pos.distance(from) < 0.5;
+                let near_end = s.pos.with_y(0.0).distance(to) < 0.05;
+                assert!(near_start || near_end, "{fps} fps, offset {offset}: a frame at {}", s.pos);
+            }
+            let last = samples.last().unwrap();
+            assert!(last.pos.with_y(0.0).distance(to) < 1e-3, "{fps} fps, offset {offset}: ended at {}", last.pos);
+            assert!(last.grounded);
+            let world = sim.app.world_mut();
+            let rotation = world.query_filtered::<&Transform, With<Player>>().single(world).unwrap().rotation;
+            assert!(rotation.angle_between(facing) < 1e-4);
+        }
+    }
 }
