@@ -1,11 +1,16 @@
-//! The Main Menu, the Pause menu and the Settings screen they share.
+//! The Main Menu, the Pause menu, the Settings screen they share, Records and Game Over.
 
 use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 use bevy::ui::Pressed;
 use bevy::ui_widgets::{Activate, Button};
 
-use crate::hud::{ROUND_RED, full_screen, text};
+use crate::hud::{ROUND_RED, full_screen, text, with_commas};
+use crate::map::MapId;
+use crate::mode::Mode;
+use crate::records::{
+    LastRun, RecordsFile, RunRecord, format_date, format_time, rank_line, record_run,
+};
 use crate::settings::{Setting, Settings};
 use crate::state::{GameState, MainMenuScreen, Pause, PauseScreen};
 
@@ -13,6 +18,9 @@ const BUTTON_IDLE: Color = Color::srgba(0.15, 0.15, 0.15, 0.9);
 const BUTTON_HOVER: Color = Color::srgba(0.3, 0.08, 0.06, 0.95);
 const BUTTON_PRESSED: Color = Color::srgba(0.5, 0.1, 0.06, 1.0);
 const HINT_GREY: Color = Color::srgb(0.7, 0.7, 0.7);
+const NEW_BEST_GOLD: Color = Color::srgb(1.0, 0.85, 0.2);
+const MENU_BACKGROUND: Color = Color::srgb(0.02, 0.02, 0.04);
+const DIM_BACKGROUND: Color = Color::srgba(0.0, 0.0, 0.0, 0.6);
 
 /// What a menu button does when clicked.
 #[derive(Component, Debug, Clone, Copy)]
@@ -27,7 +35,33 @@ enum MenuButton {
     QuitToMainMenu,
     /// Step a Setting up (`true`) or down.
     Adjust(Setting, bool),
+    /// Show this Mode's Records.
+    RecordsTab(Mode),
+    /// Ask to confirm resetting Records & Lifetime Stats.
+    ResetRecords,
+    ConfirmReset,
+    CancelReset,
+    /// From Game Over: a new Run in the same Mode.
+    PlayAgain,
+    /// From Game Over.
+    MainMenu,
 }
+
+/// Which Mode's Records the Records screen shows.
+#[derive(Resource, Default)]
+struct RecordsTab(Mode);
+
+/// The part of the Records screen rebuilt when the tab changes.
+#[derive(Component)]
+struct RecordsBoard;
+
+/// The root of a Settings screen, which the reset confirmation opens over.
+#[derive(Component)]
+struct SettingsScreen;
+
+/// The "Reset Records & Lifetime Stats?" confirmation.
+#[derive(Component)]
+struct ResetConfirmation;
 
 /// The text showing a Setting's current value.
 #[derive(Component)]
@@ -37,14 +71,27 @@ pub struct MenuPlugin;
 
 impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(GameState::MainMenu), spawn_menu_camera)
+        app.init_resource::<Mode>()
+            .init_resource::<RecordsTab>()
+            .add_systems(OnEnter(GameState::MainMenu), spawn_menu_camera)
             .add_systems(OnEnter(MainMenuScreen::Root), spawn_main_menu)
             .add_systems(OnEnter(MainMenuScreen::Records), spawn_records)
             .add_systems(OnEnter(MainMenuScreen::Settings), spawn_main_menu_settings)
             .add_systems(OnEnter(PauseScreen::Root), spawn_pause_menu)
             .add_systems(OnEnter(PauseScreen::Settings), spawn_pause_settings)
+            .add_systems(
+                OnEnter(GameState::GameOver),
+                spawn_game_over.after(record_run),
+            )
             .add_observer(activate_button)
             .add_systems(Update, highlight_buttons)
+            .add_systems(
+                Update,
+                refresh_records
+                    .run_if(in_state(MainMenuScreen::Records))
+                    .run_if(resource_changed::<RecordsTab>),
+            )
+            .add_systems(Update, play_again_key.run_if(in_state(GameState::GameOver)))
             .add_systems(Update, setting_values.run_if(resource_changed::<Settings>))
             .add_systems(Update, main_menu_back.run_if(in_state(GameState::MainMenu)));
     }
@@ -78,6 +125,16 @@ fn screen(
 }
 
 fn button(parent: &mut ChildSpawnerCommands, label: &str, action: MenuButton, width: f32) {
+    colored_button(parent, label, action, width, Color::WHITE);
+}
+
+fn colored_button(
+    parent: &mut ChildSpawnerCommands,
+    label: &str,
+    action: MenuButton,
+    width: f32,
+    color: Color,
+) {
     parent
         .spawn((
             Button,
@@ -92,11 +149,11 @@ fn button(parent: &mut ChildSpawnerCommands, label: &str, action: MenuButton, wi
             },
             BackgroundColor(BUTTON_IDLE),
         ))
-        .with_child(text(label, 26.0, Color::WHITE));
+        .with_child(text(label, 26.0, color));
 }
 
 fn spawn_main_menu(mut commands: Commands) {
-    let menu = screen(&mut commands, Color::srgb(0.02, 0.02, 0.04), |menu| {
+    let menu = screen(&mut commands, MENU_BACKGROUND, |menu| {
         menu.spawn((
             text("ZOMBIES", 96.0, ROUND_RED),
             Node {
@@ -114,13 +171,17 @@ fn spawn_main_menu(mut commands: Commands) {
         .insert(DespawnOnExit(MainMenuScreen::Root));
 }
 
-fn spawn_records(mut commands: Commands) {
-    let records = screen(&mut commands, Color::srgb(0.02, 0.02, 0.04), |records| {
-        records.spawn(text("RECORDS", 64.0, Color::WHITE));
+fn spawn_records(mut commands: Commands, mode: Res<Mode>, mut tab: ResMut<RecordsTab>) {
+    // Always written, so the board below is built on this first frame.
+    tab.0 = *mode;
+    let records = screen(&mut commands, MENU_BACKGROUND, |records| {
+        records.spawn(text("RECORDS", 48.0, Color::WHITE));
         records.spawn((
-            text("No Records yet. Coming soon.", 24.0, HINT_GREY),
+            RecordsBoard,
             Node {
-                margin: UiRect::vertical(px(24.0)),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                row_gap: px(6.0),
                 ..default()
             },
         ));
@@ -131,8 +192,207 @@ fn spawn_records(mut commands: Commands) {
         .insert(DespawnOnExit(MainMenuScreen::Records));
 }
 
+/// The Records table's columns: heading and width.
+const RECORD_COLUMNS: [(&str, f32); 8] = [
+    ("#", 40.0),
+    ("Round", 80.0),
+    ("Time", 100.0),
+    ("Kills", 80.0),
+    ("Headshots", 110.0),
+    ("Downs", 80.0),
+    ("Points Earned", 150.0),
+    ("Date", 130.0),
+];
+
+fn table_row(parent: &mut ChildSpawnerCommands, cells: [String; 8], color: Color) {
+    parent.spawn(Node::default()).with_children(|row| {
+        for (cell, (_, width)) in cells.into_iter().zip(RECORD_COLUMNS) {
+            row.spawn((
+                text(cell, 20.0, color),
+                Node {
+                    width: px(width),
+                    ..default()
+                },
+            ));
+        }
+    });
+}
+
+fn record_cells(rank: usize, run: &RunRecord) -> [String; 8] {
+    [
+        (rank + 1).to_string(),
+        run.round.to_string(),
+        format_time(run.survived_secs),
+        with_commas(run.kills.into()),
+        with_commas(run.headshots.into()),
+        with_commas(run.downs.into()),
+        with_commas(run.points_earned),
+        format_date(run.date),
+    ]
+}
+
+/// Rebuilds the tabs, the tab's boards and Lifetime Stats.
+fn refresh_records(
+    mut commands: Commands,
+    board: Query<Entity, With<RecordsBoard>>,
+    tab: Res<RecordsTab>,
+    file: Res<RecordsFile>,
+) {
+    let Ok(board) = board.single() else {
+        return;
+    };
+    let mode = tab.0;
+    commands
+        .entity(board)
+        .despawn_children()
+        .with_children(|board| {
+            board
+                .spawn(Node {
+                    column_gap: px(12.0),
+                    margin: UiRect::bottom(px(8.0)),
+                    ..default()
+                })
+                .with_children(|tabs| {
+                    for (label, tab) in [("Classic", Mode::Classic), ("Gauntlet", Mode::Gauntlet)] {
+                        let color = if tab == mode { ROUND_RED } else { Color::WHITE };
+                        colored_button(tabs, label, MenuButton::RecordsTab(tab), 200.0, color);
+                    }
+                });
+
+            for map in MapId::ALL {
+                board.spawn(text(map.name(), 28.0, Color::WHITE));
+                let headings = RECORD_COLUMNS.map(|(heading, _)| heading.to_string());
+                table_row(board, headings, HINT_GREY);
+                let mut runs = file.records.board(map, mode).peekable();
+                if runs.peek().is_none() {
+                    board.spawn(text("No Records yet.", 20.0, HINT_GREY));
+                }
+                for (rank, run) in runs.enumerate() {
+                    table_row(board, record_cells(rank, run), Color::WHITE);
+                }
+            }
+
+            let lifetime = &file.lifetime;
+            board.spawn((
+                text("LIFETIME STATS", 28.0, Color::WHITE),
+                Node {
+                    margin: UiRect::top(px(12.0)),
+                    ..default()
+                },
+            ));
+            board.spawn(text(
+                format!(
+                    "Runs {}   Kills {}   Headshots {}   Downs {}",
+                    with_commas(lifetime.runs.into()),
+                    with_commas(lifetime.kills),
+                    with_commas(lifetime.headshots),
+                    with_commas(lifetime.downs),
+                ),
+                20.0,
+                Color::WHITE,
+            ));
+            board.spawn(text(
+                format!(
+                    "Points Earned {}   Time Played {}",
+                    with_commas(lifetime.points_earned),
+                    format_time(lifetime.time_played_secs),
+                ),
+                20.0,
+                Color::WHITE,
+            ));
+            let best: Vec<_> = MapId::ALL
+                .iter()
+                .map(|&map| match lifetime.best_round(map, mode) {
+                    Some(round) => format!("{} {round}", map.name()),
+                    None => format!("{} -", map.name()),
+                })
+                .collect();
+            board.spawn(text(
+                format!("Highest Round: {}", best.join("   ")),
+                20.0,
+                Color::WHITE,
+            ));
+        });
+}
+
+fn spawn_game_over(mut commands: Commands, last: Res<LastRun>) {
+    let LastRun { record, rank } = &*last;
+    let screen = screen(&mut commands, DIM_BACKGROUND, |screen| {
+        screen.spawn(text("GAME OVER", 80.0, ROUND_RED));
+        screen.spawn(text(
+            format!("You reached Round {}", record.round),
+            40.0,
+            Color::WHITE,
+        ));
+        let rank_color = if *rank == Some(0) {
+            NEW_BEST_GOLD
+        } else {
+            HINT_GREY
+        };
+        screen.spawn(text(rank_line(*rank), 32.0, rank_color));
+        screen
+            .spawn(Node {
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                row_gap: px(4.0),
+                margin: UiRect::vertical(px(12.0)),
+                ..default()
+            })
+            .with_children(|lines| {
+                lines.spawn(text(
+                    format!(
+                        "Kills {}   Headshots {}   Downs {}",
+                        with_commas(record.kills.into()),
+                        with_commas(record.headshots.into()),
+                        with_commas(record.downs.into()),
+                    ),
+                    24.0,
+                    Color::WHITE,
+                ));
+                lines.spawn(text(
+                    format!(
+                        "Points Earned {}   Time {}",
+                        with_commas(record.points_earned),
+                        format_time(record.survived_secs),
+                    ),
+                    24.0,
+                    Color::WHITE,
+                ));
+                for extra in &record.extras {
+                    lines.spawn(text(
+                        format!("{} x{}", extra.id, extra.count),
+                        20.0,
+                        Color::WHITE,
+                    ));
+                }
+                lines.spawn(text(
+                    format!(
+                        "{}  ·  {:?}  ·  {}",
+                        record.map.name(),
+                        record.mode,
+                        format_date(record.date)
+                    ),
+                    20.0,
+                    HINT_GREY,
+                ));
+            });
+        button(screen, "Play Again", MenuButton::PlayAgain, 280.0);
+        button(screen, "Main Menu", MenuButton::MainMenu, 280.0);
+    });
+    commands
+        .entity(screen)
+        .insert(DespawnOnExit(GameState::GameOver));
+}
+
+/// Enter plays again from Game Over, as it always has.
+fn play_again_key(input: Res<ButtonInput<KeyCode>>, mut next: ResMut<NextState<GameState>>) {
+    if input.just_pressed(KeyCode::Enter) {
+        next.set(GameState::Playing);
+    }
+}
+
 fn spawn_pause_menu(mut commands: Commands) {
-    let menu = screen(&mut commands, Color::srgba(0.0, 0.0, 0.0, 0.6), |menu| {
+    let menu = screen(&mut commands, DIM_BACKGROUND, |menu| {
         menu.spawn((
             text("PAUSED", 64.0, Color::WHITE),
             Node {
@@ -190,28 +450,75 @@ fn settings_screen(commands: &mut Commands, settings: &Settings, background: Col
             height: px(16.0),
             ..default()
         });
+        button(
+            screen,
+            "Reset Records & Lifetime Stats",
+            MenuButton::ResetRecords,
+            440.0,
+        );
         button(screen, "Back", MenuButton::Back, 280.0);
     })
 }
 
+/// Opens the reset confirmation over the Settings screen.
+fn spawn_reset_confirmation(commands: &mut Commands, settings_screen: Entity) {
+    commands.entity(settings_screen).with_children(|parent| {
+        parent
+            .spawn((
+                ResetConfirmation,
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    row_gap: px(14.0),
+                    ..full_screen()
+                },
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.85)),
+                GlobalZIndex(20),
+            ))
+            .with_children(|confirm| {
+                confirm.spawn(text("Reset Records & Lifetime Stats?", 40.0, Color::WHITE));
+                confirm.spawn((
+                    text(
+                        "Every Run Record and Lifetime total will be lost.",
+                        24.0,
+                        HINT_GREY,
+                    ),
+                    Node {
+                        margin: UiRect::bottom(px(16.0)),
+                        ..default()
+                    },
+                ));
+                colored_button(confirm, "Reset", MenuButton::ConfirmReset, 280.0, ROUND_RED);
+                button(confirm, "Cancel", MenuButton::CancelReset, 280.0);
+            });
+    });
+}
+
 fn spawn_main_menu_settings(mut commands: Commands, settings: Res<Settings>) {
-    let screen = settings_screen(&mut commands, &settings, Color::srgb(0.02, 0.02, 0.04));
+    let screen = settings_screen(&mut commands, &settings, MENU_BACKGROUND);
     commands
         .entity(screen)
-        .insert(DespawnOnExit(MainMenuScreen::Settings));
+        .insert((SettingsScreen, DespawnOnExit(MainMenuScreen::Settings)));
 }
 
 fn spawn_pause_settings(mut commands: Commands, settings: Res<Settings>) {
-    let screen = settings_screen(&mut commands, &settings, Color::srgba(0.0, 0.0, 0.0, 0.6));
+    let screen = settings_screen(&mut commands, &settings, DIM_BACKGROUND);
     commands
         .entity(screen)
-        .insert(DespawnOnExit(PauseScreen::Settings));
+        .insert((SettingsScreen, DespawnOnExit(PauseScreen::Settings)));
 }
 
 /// A button was clicked (pressed and released over it).
 fn activate_button(
     activate: On<Activate>,
+    mut commands: Commands,
     buttons: Query<&MenuButton>,
+    settings_screen: Query<Entity, With<SettingsScreen>>,
+    confirmation: Query<Entity, With<ResetConfirmation>>,
+    mut mode: ResMut<Mode>,
+    mut tab: ResMut<RecordsTab>,
+    mut records: ResMut<RecordsFile>,
     game: Res<State<GameState>>,
     mut settings: ResMut<Settings>,
     mut next_game: ResMut<NextState<GameState>>,
@@ -226,7 +533,13 @@ fn activate_button(
     };
     match *action {
         // Straight into a Classic Run until the Mode screen exists.
-        MenuButton::Play => next_game.set(GameState::Playing),
+        MenuButton::Play => {
+            *mode = Mode::Classic;
+            next_game.set(GameState::Playing);
+        }
+        // The Mode stays as it was.
+        MenuButton::PlayAgain => next_game.set(GameState::Playing),
+        MenuButton::MainMenu => next_game.set(GameState::MainMenu),
         MenuButton::Records => next_main_menu.set(MainMenuScreen::Records),
         MenuButton::Settings if in_main_menu => next_main_menu.set(MainMenuScreen::Settings),
         MenuButton::Settings => next_pause_screen.set(PauseScreen::Settings),
@@ -238,6 +551,22 @@ fn activate_button(
         MenuButton::Resume => next_pause.set(Pause::Running),
         MenuButton::QuitToMainMenu => next_game.set(GameState::MainMenu),
         MenuButton::Adjust(setting, up) => settings.adjust(setting, up),
+        MenuButton::RecordsTab(mode) => tab.0 = mode,
+        MenuButton::ResetRecords => {
+            if confirmation.is_empty()
+                && let Ok(screen) = settings_screen.single()
+            {
+                spawn_reset_confirmation(&mut commands, screen);
+            }
+        }
+        MenuButton::ConfirmReset | MenuButton::CancelReset => {
+            if matches!(action, MenuButton::ConfirmReset) {
+                *records = RecordsFile::default();
+            }
+            for entity in &confirmation {
+                commands.entity(entity).despawn();
+            }
+        }
     }
 }
 

@@ -1,9 +1,28 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
 use crate::layers::GameLayer;
 use crate::state::{GameState, InRun};
 use crate::tuning::*;
+
+/// Which Map a Run is played on. As a resource, it's the Map of the current (or just-ended) Run.
+#[derive(Resource, Serialize, Deserialize, Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MapId {
+    /// The open test Arena, the only Map so far.
+    #[default]
+    Arena,
+}
+
+impl MapId {
+    pub const ALL: [MapId; 1] = [MapId::Arena];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            MapId::Arena => "Arena",
+        }
+    }
+}
 
 /// A fixed place in the Map where Zombies enter play.
 #[derive(Component)]
@@ -19,6 +38,7 @@ impl Plugin for MapPlugin {
             ..default()
         })
         .insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.04)))
+        .init_resource::<MapId>()
         .add_systems(OnEnter(GameState::Playing), spawn_arena);
     }
 }

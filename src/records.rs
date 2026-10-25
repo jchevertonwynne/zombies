@@ -1,0 +1,575 @@
+//! Run Records, the Records boards and Lifetime Stats, kept in `records.ron`.
+//!
+//! A Run Record is written when a Run ends, at Game Over or on quit (to the Main Menu or by closing
+//! the window). A crash loses it: there are no mid-Run saves.
+
+use std::cmp::Ordering;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
+
+use crate::map::MapId;
+use crate::mode::Mode;
+use crate::points::Points;
+use crate::round::Round;
+use crate::save::{self, SaveFile};
+use crate::settings::SaveDir;
+use crate::state::GameState;
+use crate::stats::{RunStats, count_final_down};
+use crate::tuning::*;
+
+/// The saved summary of one finished Run.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct RunRecord {
+    pub map: MapId,
+    pub mode: Mode,
+    /// When the Run ended, in whole seconds since the Unix epoch (UTC).
+    pub date: u64,
+    /// The Round reached.
+    pub round: u32,
+    /// Every kill, Paid or Unpaid.
+    pub kills: u32,
+    pub headshots: u32,
+    pub downs: u32,
+    pub points_earned: u64,
+    /// Game-time survived in seconds, with the world's frozen time left out.
+    pub survived_secs: f64,
+    /// Lines a Mode layered on Classic adds to its Run Records, in the order it added them.
+    /// Classic leaves this empty. See [`RecordExtras`].
+    #[serde(default)]
+    pub extras: Vec<RecordExtra>,
+}
+
+/// One extra line on a Run Record: a stable ID and a count.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct RecordExtra {
+    pub id: String,
+    pub count: u32,
+}
+
+/// The current Run's extra Record lines. Classic never writes here; a Mode layered on top keeps it
+/// up to date during the Run, and it's copied onto the Run Record as-is when the Run ends.
+#[derive(Resource, Default)]
+pub struct RecordExtras(pub Vec<RecordExtra>);
+
+/// Whether `a` ranks above (`Less`) or below (`Greater`) `b`: the higher Round first, then the
+/// shorter time.
+pub fn rank_order(a: &RunRecord, b: &RunRecord) -> Ordering {
+    b.round
+        .cmp(&a.round)
+        .then(a.survived_secs.total_cmp(&b.survived_secs))
+}
+
+/// The best [`RECORDS_KEPT`] Run Records for each (Map, Mode).
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+pub struct Records {
+    /// Best first. Within one (Map, Mode), equal Runs keep the order they were added in.
+    runs: Vec<RunRecord>,
+}
+
+impl Records {
+    /// One (Map, Mode)'s Records, best first.
+    pub fn board(&self, map: MapId, mode: Mode) -> impl Iterator<Item = &RunRecord> {
+        self.runs
+            .iter()
+            .filter(move |run| run.map == map && run.mode == mode)
+    }
+
+    /// Adds a Run Record. Returns its rank (0 = best) if it made its board, which may push that
+    /// board's last Record off. A Run that ties an older one ranks below it.
+    pub fn add(&mut self, record: RunRecord) -> Option<usize> {
+        let at = self
+            .runs
+            .partition_point(|run| rank_order(run, &record) != Ordering::Greater);
+        let rank = self.runs[..at]
+            .iter()
+            .filter(|run| run.map == record.map && run.mode == record.mode)
+            .count();
+        if rank >= RECORDS_KEPT {
+            return None;
+        }
+        let (map, mode) = (record.map, record.mode);
+        self.runs.insert(at, record);
+        self.keep_best(map, mode);
+        Some(rank)
+    }
+
+    /// Sorts the Records and trims every board, so a hand-edited file still holds a valid list.
+    fn tidy(&mut self) {
+        self.runs.sort_by(rank_order);
+        let mut seen = Vec::new();
+        for run in &self.runs {
+            if !seen.contains(&(run.map, run.mode)) {
+                seen.push((run.map, run.mode));
+            }
+        }
+        for (map, mode) in seen {
+            self.keep_best(map, mode);
+        }
+    }
+
+    /// Drops whatever ranks below a board's last kept Record.
+    fn keep_best(&mut self, map: MapId, mode: Mode) {
+        let mut kept = 0;
+        self.runs.retain(|run| {
+            if run.map != map || run.mode != mode {
+                return true;
+            }
+            kept += 1;
+            kept <= RECORDS_KEPT
+        });
+    }
+}
+
+/// The highest Round reached on one (Map, Mode).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct BestRound {
+    pub map: MapId,
+    pub mode: Mode,
+    pub round: u32,
+}
+
+/// Running totals across every Run.
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+pub struct LifetimeStats {
+    pub runs: u32,
+    pub kills: u64,
+    pub headshots: u64,
+    pub downs: u64,
+    pub points_earned: u64,
+    pub time_played_secs: f64,
+    pub best_rounds: Vec<BestRound>,
+}
+
+impl LifetimeStats {
+    /// Adds a finished Run to the totals.
+    pub fn add(&mut self, record: &RunRecord) {
+        self.runs = self.runs.saturating_add(1);
+        self.kills = self.kills.saturating_add(record.kills.into());
+        self.headshots = self.headshots.saturating_add(record.headshots.into());
+        self.downs = self.downs.saturating_add(record.downs.into());
+        self.points_earned = self.points_earned.saturating_add(record.points_earned);
+        self.time_played_secs += record.survived_secs;
+        match self
+            .best_rounds
+            .iter_mut()
+            .find(|best| best.map == record.map && best.mode == record.mode)
+        {
+            Some(best) => best.round = best.round.max(record.round),
+            None => self.best_rounds.push(BestRound {
+                map: record.map,
+                mode: record.mode,
+                round: record.round,
+            }),
+        }
+    }
+
+    /// The highest Round reached on a (Map, Mode), if it's been played.
+    pub fn best_round(&self, map: MapId, mode: Mode) -> Option<u32> {
+        self.best_rounds
+            .iter()
+            .find(|best| best.map == map && best.mode == mode)
+            .map(|best| best.round)
+    }
+}
+
+/// `records.ron`: the Records boards and Lifetime Stats.
+#[derive(Resource, Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct RecordsFile {
+    pub version: u32,
+    pub records: Records,
+    pub lifetime: LifetimeStats,
+}
+
+impl Default for RecordsFile {
+    fn default() -> Self {
+        Self {
+            version: Self::VERSION,
+            records: Records::default(),
+            lifetime: LifetimeStats::default(),
+        }
+    }
+}
+
+impl SaveFile for RecordsFile {
+    const FILE_NAME: &'static str = "records.ron";
+    const VERSION: u32 = 1;
+
+    fn version(&self) -> u32 {
+        self.version
+    }
+}
+
+impl RecordsFile {
+    /// Files a finished Run: Lifetime Stats always, the Records if it ranks. Returns its rank.
+    pub fn add(&mut self, record: RunRecord) -> Option<usize> {
+        self.lifetime.add(&record);
+        self.records.add(record)
+    }
+}
+
+/// The Run that just ended and its rank on the Records, for the Game Over screen.
+#[derive(Resource)]
+pub struct LastRun {
+    pub record: RunRecord,
+    pub rank: Option<usize>,
+}
+
+/// The Game Over screen's line about a Run's rank.
+pub fn rank_line(rank: Option<usize>) -> String {
+    match rank {
+        Some(0) => "New best!".to_string(),
+        Some(rank) => format!("#{} on the Records", rank + 1),
+        None => format!("Outside the top {RECORDS_KEPT}"),
+    }
+}
+
+/// Seconds as `m:ss`, or `h:mm:ss` from an hour up. Partial seconds are dropped.
+pub fn format_time(secs: f64) -> String {
+    let total = secs.max(0.0) as u64;
+    let (hours, minutes, seconds) = (total / 3600, total / 60 % 60, total % 60);
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes}:{seconds:02}")
+    }
+}
+
+/// Seconds since the Unix epoch as a `YYYY-MM-DD` date (UTC).
+pub fn format_date(unix_secs: u64) -> String {
+    // Howard Hinnant's days-to-civil, for days since 1970-01-01.
+    let days = (unix_secs / 86_400) as i64 + 719_468;
+    let era = days.div_euclid(146_097);
+    let day_of_era = days.rem_euclid(146_097);
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let shifted_month = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * shifted_month + 2) / 5 + 1;
+    let month = if shifted_month < 10 {
+        shifted_month + 3
+    } else {
+        shifted_month - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+pub struct RecordsPlugin;
+
+impl Plugin for RecordsPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<RecordExtras>()
+            .add_systems(Startup, load_records)
+            .add_systems(
+                OnEnter(GameState::Playing),
+                |mut extras: ResMut<RecordExtras>| extras.0.clear(),
+            )
+            .add_systems(
+                OnEnter(GameState::GameOver),
+                record_run.after(count_final_down),
+            )
+            .add_systems(
+                OnTransition {
+                    exited: GameState::Playing,
+                    entered: GameState::MainMenu,
+                },
+                record_run,
+            )
+            // Closing the window mid-Run is quitting too.
+            .add_systems(
+                Last,
+                record_run
+                    .run_if(on_message::<AppExit>)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(Update, save_records.run_if(resource_changed::<RecordsFile>));
+    }
+}
+
+fn load_records(mut commands: Commands, dir: Res<SaveDir>) {
+    let mut file = match &dir.0 {
+        Some(dir) => save::load::<RecordsFile>(dir),
+        None => RecordsFile::default(),
+    };
+    file.records.tidy();
+    commands.insert_resource(file);
+}
+
+/// Writes the ending Run's Record.
+pub fn record_run(
+    mut commands: Commands,
+    map: Res<MapId>,
+    mode: Res<Mode>,
+    round: Res<Round>,
+    stats: Res<RunStats>,
+    points: Res<Points>,
+    extras: Res<RecordExtras>,
+    mut file: ResMut<RecordsFile>,
+    dir: Res<SaveDir>,
+) {
+    let date = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs());
+    let record = RunRecord {
+        map: *map,
+        mode: *mode,
+        date,
+        round: round.number,
+        kills: stats.kills,
+        headshots: stats.headshots,
+        downs: stats.downs,
+        points_earned: points.earned,
+        survived_secs: stats.survived_secs,
+        extras: extras.0.clone(),
+    };
+    let rank = file.add(record.clone());
+    // Stored straight away as well as on change, so it lands even if the app is exiting.
+    store(&file, &dir);
+    commands.insert_resource(LastRun { record, rank });
+}
+
+fn save_records(file: Res<RecordsFile>, dir: Res<SaveDir>) {
+    // Freshly loaded Records are already on disk (or defaults); only changes get written.
+    if !file.is_added() {
+        store(&file, &dir);
+    }
+}
+
+fn store(file: &RecordsFile, dir: &SaveDir) {
+    if let Some(dir) = &dir.0
+        && let Err(err) = save::store(dir, file)
+    {
+        warn!("Couldn't save Records: {err}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::save::tests::TempDir;
+
+    fn run(round: u32, survived_secs: f64) -> RunRecord {
+        RunRecord {
+            map: MapId::Arena,
+            mode: Mode::Classic,
+            date: 0,
+            round,
+            kills: 0,
+            headshots: 0,
+            downs: 1,
+            points_earned: 0,
+            survived_secs,
+            extras: Vec::new(),
+        }
+    }
+
+    fn rounds(records: &Records, mode: Mode) -> Vec<(u32, f64)> {
+        records
+            .board(MapId::Arena, mode)
+            .map(|run| (run.round, run.survived_secs))
+            .collect()
+    }
+
+    #[test]
+    fn records_rank_by_round_reached() {
+        let mut records = Records::default();
+        records.add(run(5, 100.0));
+        records.add(run(12, 900.0));
+        records.add(run(8, 400.0));
+        assert_eq!(
+            rounds(&records, Mode::Classic),
+            vec![(12, 900.0), (8, 400.0), (5, 100.0)]
+        );
+    }
+
+    #[test]
+    fn equal_rounds_go_to_the_shorter_time() {
+        let mut records = Records::default();
+        records.add(run(10, 600.0));
+        assert_eq!(records.add(run(10, 550.0)), Some(0));
+        assert_eq!(records.add(run(10, 700.0)), Some(2));
+        assert_eq!(
+            rounds(&records, Mode::Classic),
+            vec![(10, 550.0), (10, 600.0), (10, 700.0)]
+        );
+    }
+
+    #[test]
+    fn an_exact_tie_ranks_below_the_older_run() {
+        let mut records = Records::default();
+        records.add(run(7, 300.0));
+        assert_eq!(records.add(run(7, 300.0)), Some(1));
+    }
+
+    #[test]
+    fn add_returns_the_rank_and_zero_is_the_best() {
+        let mut records = Records::default();
+        assert_eq!(records.add(run(3, 60.0)), Some(0));
+        assert_eq!(records.add(run(2, 60.0)), Some(1));
+        assert_eq!(records.add(run(4, 60.0)), Some(0));
+    }
+
+    #[test]
+    fn only_the_top_ten_are_kept() {
+        let mut records = Records::default();
+        for round in 1..=10 {
+            records.add(run(round, 0.0));
+        }
+        // Worse than all ten: not kept.
+        assert_eq!(records.add(run(1, 5.0)), None);
+        // Better than the last: kept, and Round 1 drops off.
+        assert_eq!(records.add(run(6, 0.0)), Some(5));
+        let board = rounds(&records, Mode::Classic);
+        assert_eq!(board.len(), 10);
+        assert_eq!(board.last(), Some(&(2, 0.0)));
+    }
+
+    #[test]
+    fn each_map_and_mode_has_its_own_board() {
+        let mut records = Records::default();
+        for round in 1..=10 {
+            records.add(run(round, 0.0));
+        }
+        let gauntlet = RunRecord {
+            mode: Mode::Gauntlet,
+            ..run(1, 0.0)
+        };
+        assert_eq!(records.add(gauntlet), Some(0));
+        assert_eq!(rounds(&records, Mode::Gauntlet), vec![(1, 0.0)]);
+        assert_eq!(rounds(&records, Mode::Classic).len(), 10);
+    }
+
+    #[test]
+    fn a_hand_edited_list_is_sorted_and_trimmed() {
+        let mut records = Records {
+            runs: (1..=12).map(|round| run(round, 0.0)).collect(),
+        };
+        records.tidy();
+        let board = rounds(&records, Mode::Classic);
+        assert_eq!(board.len(), 10);
+        assert_eq!(board[0], (12, 0.0));
+        assert_eq!(board[9], (3, 0.0));
+    }
+
+    #[test]
+    fn lifetime_stats_add_up_every_run() {
+        let mut lifetime = LifetimeStats::default();
+        lifetime.add(&RunRecord {
+            kills: 40,
+            headshots: 12,
+            downs: 1,
+            points_earned: 5_000,
+            ..run(6, 300.5)
+        });
+        lifetime.add(&RunRecord {
+            kills: 100,
+            headshots: 30,
+            downs: 2,
+            points_earned: 15_000,
+            ..run(11, 900.25)
+        });
+        assert_eq!(lifetime.runs, 2);
+        assert_eq!(lifetime.kills, 140);
+        assert_eq!(lifetime.headshots, 42);
+        assert_eq!(lifetime.downs, 3);
+        assert_eq!(lifetime.points_earned, 20_000);
+        assert_eq!(lifetime.time_played_secs, 1200.75);
+    }
+
+    #[test]
+    fn lifetime_keeps_the_highest_round_per_map_and_mode() {
+        let mut lifetime = LifetimeStats::default();
+        lifetime.add(&run(9, 0.0));
+        lifetime.add(&run(4, 0.0));
+        lifetime.add(&RunRecord {
+            mode: Mode::Gauntlet,
+            ..run(2, 0.0)
+        });
+        assert_eq!(lifetime.best_round(MapId::Arena, Mode::Classic), Some(9));
+        assert_eq!(lifetime.best_round(MapId::Arena, Mode::Gauntlet), Some(2));
+    }
+
+    #[test]
+    fn an_unplayed_map_and_mode_has_no_best_round() {
+        assert_eq!(
+            LifetimeStats::default().best_round(MapId::Arena, Mode::Classic),
+            None
+        );
+    }
+
+    #[test]
+    fn lifetime_totals_saturate_instead_of_wrapping() {
+        let mut lifetime = LifetimeStats {
+            runs: u32::MAX,
+            points_earned: u64::MAX,
+            ..default()
+        };
+        lifetime.add(&RunRecord {
+            points_earned: 10,
+            ..run(1, 0.0)
+        });
+        assert_eq!(lifetime.runs, u32::MAX);
+        assert_eq!(lifetime.points_earned, u64::MAX);
+    }
+
+    #[test]
+    fn every_run_counts_toward_lifetime_even_off_the_records() {
+        let mut file = RecordsFile::default();
+        for round in 1..=11 {
+            file.add(run(round, 0.0));
+        }
+        assert_eq!(file.add(run(1, 0.0)), None);
+        assert_eq!(file.lifetime.runs, 12);
+    }
+
+    #[test]
+    fn records_round_trip_through_the_file() {
+        let dir = TempDir::new("records-round-trip");
+        let mut file = RecordsFile::default();
+        file.add(RunRecord {
+            kills: 33,
+            date: 1_761_350_400,
+            extras: vec![RecordExtra {
+                id: "example".to_string(),
+                count: 3,
+            }],
+            ..run(7, 432.5)
+        });
+        save::store(&dir.0, &file).unwrap();
+        assert_eq!(save::load::<RecordsFile>(&dir.0), file);
+    }
+
+    #[test]
+    fn a_record_without_extras_still_loads() {
+        let text = "(version: 1, records: (runs: [(map: Arena, mode: Classic, date: 0, round: 3, \
+                    kills: 9, headshots: 2, downs: 1, points_earned: 900, survived_secs: 61.0)]), \
+                    lifetime: (runs: 0, kills: 0, headshots: 0, downs: 0, points_earned: 0, \
+                    time_played_secs: 0.0, best_rounds: []))";
+        let file = save::parse::<RecordsFile>(text).unwrap();
+        assert_eq!(file.records.board(MapId::Arena, Mode::Classic).count(), 1);
+    }
+
+    #[test]
+    fn the_rank_line_calls_out_a_new_best() {
+        assert_eq!(rank_line(Some(0)), "New best!");
+        assert_eq!(rank_line(Some(2)), "#3 on the Records");
+        assert_eq!(rank_line(None), "Outside the top 10");
+    }
+
+    #[test]
+    fn times_show_minutes_and_seconds_then_hours() {
+        assert_eq!(format_time(0.0), "0:00");
+        assert_eq!(format_time(65.9), "1:05");
+        assert_eq!(format_time(3_599.0), "59:59");
+        assert_eq!(format_time(3_725.0), "1:02:05");
+    }
+
+    #[test]
+    fn dates_are_utc_calendar_days() {
+        assert_eq!(format_date(0), "1970-01-01");
+        assert_eq!(format_date(951_782_400), "2000-02-29");
+        assert_eq!(format_date(1_761_350_400 + 86_399), "2025-10-25");
+    }
+}

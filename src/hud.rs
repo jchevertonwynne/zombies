@@ -34,13 +34,11 @@ pub struct HudPlugin;
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(OnEnter(GameState::Playing), spawn_hud)
-            .add_systems(OnEnter(GameState::GameOver), spawn_game_over_screen)
             .add_systems(
                 Update,
                 (damage_tint, round_text, points_text, ammo_text, spawn_popups, animate_popups)
                     .run_if(in_state(GameState::Playing)),
-            )
-            .add_systems(Update, restart.run_if(in_state(GameState::GameOver)));
+            );
     }
 }
 
@@ -207,50 +205,6 @@ fn animate_popups(
         } else {
             color.0.set_alpha(1.0 - popup.age / POPUP_SECS);
         }
-    }
-}
-
-pub fn overlay(commands: &mut Commands, lines: &[(&str, f32, Color)]) -> Entity {
-    commands
-        .spawn((
-            Node {
-                flex_direction: FlexDirection::Column,
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                row_gap: px(16.0),
-                ..full_screen()
-            },
-            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
-            GlobalZIndex(10),
-        ))
-        .with_children(|overlay| {
-            for (line, size, color) in lines {
-                overlay.spawn(text(*line, *size, *color));
-            }
-        })
-        .id()
-}
-
-fn spawn_game_over_screen(mut commands: Commands, round: Res<Round>) {
-    let survived = format!(
-        "You survived {} round{}",
-        round.number,
-        if round.number == 1 { "" } else { "s" }
-    );
-    let screen = overlay(
-        &mut commands,
-        &[
-            ("GAME OVER", 80.0, ROUND_RED),
-            (&survived, 32.0, Color::WHITE),
-            ("Press Enter to play again", 24.0, Color::srgb(0.7, 0.7, 0.7)),
-        ],
-    );
-    commands.entity(screen).insert(DespawnOnExit(GameState::GameOver));
-}
-
-fn restart(input: Res<ButtonInput<KeyCode>>, mut next: ResMut<NextState<GameState>>) {
-    if input.just_pressed(KeyCode::Enter) {
-        next.set(GameState::Playing);
     }
 }
 
