@@ -3,7 +3,8 @@
 use bevy::math::Vec3;
 
 use crate::arsenal::{
-    Availability, FireMode, Handling, Penetration, ReloadTime, Splash, WeaponClass, WeaponId, WeaponStats,
+    Availability, Falloff, FireMode, Handling, Penetration, ReloadTime, Splash, WeaponClass, WeaponId,
+    WeaponStats,
 };
 
 // Player
@@ -34,29 +35,163 @@ pub const STARTING_WEAPON: WeaponId = WeaponId::M1911;
 /// How far a bullet reaches.
 pub const HITSCAN_RANGE: f32 = 100.0;
 
-// Weapon handling by class (Appendix A2, approx), in `WeaponClass` order.
-pub const WEAPON_HANDLING: [Handling; 12] = [
-    handling(WeaponClass::Pistol, 0.55, 0.45),
-    handling(WeaponClass::DualWield, 0.3, 0.3),
-    handling(WeaponClass::Smg, 0.75, 0.5),
-    handling(WeaponClass::Rifle, 0.8, 0.6),
-    handling(WeaponClass::Shotgun, 0.75, 0.6),
-    handling(WeaponClass::Sniper, 1.2, 0.9),
-    handling(WeaponClass::Lmg, 0.95, 0.65),
-    handling(WeaponClass::Launcher, 1.2, 1.05),
-    handling(WeaponClass::RayGun, 0.8, 0.8),
-    handling(WeaponClass::Thundergun, 1.1, 0.83),
-    handling(WeaponClass::Crossbow, 0.9, 0.75),
-    handling(WeaponClass::BallisticKnife, 0.35, 0.35),
-];
+/// Aiming narrows the FOV ×0.77 down iron sights and ×0.46 through a scope.
+pub const ADS_FOV_IRON: f32 = 0.77;
+pub const ADS_FOV_SCOPE: f32 = 0.46;
+/// Seconds to bring the sights fully up, or down (approx).
+pub const ADS_SECS: f32 = 0.2;
+/// The share of the hip spread range (fresh to fully bloomed) each shot adds (approx).
+pub const SPREAD_BLOOM_PER_SHOT: f32 = 0.25;
+/// Seconds for a full bloom to settle back to fresh (approx).
+pub const SPREAD_RECOVERY_SECS: f32 = 0.6;
+pub const SPRINT_OUT_SECS: f32 = 0.3;
+/// Sprint-out for LMGs and dual-wield.
+pub const SPRINT_OUT_HEAVY_SECS: f32 = 0.45;
+/// Extra Zombies a bullet passes through, by penetration tier.
+pub const PENETRATION_SMALL: u32 = 1;
+pub const PENETRATION_MEDIUM: u32 = 2;
+pub const PENETRATION_LARGE: u32 = 4;
+/// Damage kept for each Zombie a bullet has already passed through (approx).
+pub const PENETRATION_DAMAGE_FACTOR: f32 = 0.75;
 
-const fn handling(class: WeaponClass, raise_secs: f32, drop_secs: f32) -> Handling {
-    Handling {
-        class,
-        raise_secs,
-        drop_secs,
+const fn inches(inches: f32) -> f32 {
+    inches * 0.0254
+}
+
+const fn falloff(start_inches: f32, end_inches: f32) -> Falloff {
+    Falloff {
+        start: inches(start_inches),
+        end: inches(end_inches),
     }
 }
+
+/// SMGs and pistols start falling off at 700–800 in; this takes the middle.
+const FALLOFF_SHORT: Falloff = falloff(750.0, 1800.0);
+
+/// The defaults every handling row starts from.
+const HANDLING: Handling = Handling {
+    class: WeaponClass::Pistol,
+    raise_secs: 0.0,
+    drop_secs: 0.0,
+    hip_spread: (0.0, 0.0),
+    aimed_spread: 0.0,
+    ads_fov: Some(1.0),
+    sprint_out_secs: SPRINT_OUT_SECS,
+    move_speed: 1.0,
+    falloff: Falloff::NONE,
+};
+
+// Weapon handling by class (Appendix A2, approx), in `WeaponClass` order. Spreads are in degrees.
+pub const WEAPON_HANDLING: [Handling; 12] = [
+    Handling {
+        class: WeaponClass::Pistol,
+        raise_secs: 0.55,
+        drop_secs: 0.45,
+        hip_spread: (3.0, 6.0),
+        falloff: FALLOFF_SHORT,
+        ..HANDLING
+    },
+    Handling {
+        class: WeaponClass::DualWield,
+        raise_secs: 0.3,
+        drop_secs: 0.3,
+        hip_spread: (4.0, 7.0),
+        ads_fov: None,
+        sprint_out_secs: SPRINT_OUT_HEAVY_SECS,
+        falloff: FALLOFF_SHORT,
+        ..HANDLING
+    },
+    Handling {
+        class: WeaponClass::Smg,
+        raise_secs: 0.75,
+        drop_secs: 0.5,
+        hip_spread: (2.0, 5.0),
+        ads_fov: Some(ADS_FOV_IRON),
+        falloff: FALLOFF_SHORT,
+        ..HANDLING
+    },
+    Handling {
+        class: WeaponClass::Rifle,
+        raise_secs: 0.8,
+        drop_secs: 0.6,
+        hip_spread: (3.0, 7.0),
+        ads_fov: Some(ADS_FOV_IRON),
+        move_speed: 0.95,
+        falloff: falloff(1600.0, 3000.0),
+        ..HANDLING
+    },
+    Handling {
+        class: WeaponClass::Shotgun,
+        raise_secs: 0.75,
+        drop_secs: 0.6,
+        // A2 gives 4–5 → 7–8 across the shotguns; this takes the middle.
+        hip_spread: (4.5, 7.5),
+        aimed_spread: 4.25,
+        ads_fov: Some(ADS_FOV_IRON),
+        falloff: falloff(256.0, 800.0),
+        ..HANDLING
+    },
+    Handling {
+        class: WeaponClass::Sniper,
+        raise_secs: 1.2,
+        drop_secs: 0.9,
+        hip_spread: (10.0, 15.0),
+        ads_fov: Some(ADS_FOV_SCOPE),
+        move_speed: 0.95,
+        ..HANDLING
+    },
+    Handling {
+        class: WeaponClass::Lmg,
+        raise_secs: 0.95,
+        drop_secs: 0.65,
+        hip_spread: (2.5, 7.0),
+        ads_fov: Some(ADS_FOV_IRON),
+        sprint_out_secs: SPRINT_OUT_HEAVY_SECS,
+        move_speed: 0.85,
+        falloff: falloff(1024.0, 2400.0),
+        ..HANDLING
+    },
+    Handling {
+        class: WeaponClass::Launcher,
+        raise_secs: 1.2,
+        drop_secs: 1.05,
+        hip_spread: (5.0, 6.0),
+        aimed_spread: 1.7,
+        ads_fov: Some(0.85),
+        move_speed: 0.8,
+        ..HANDLING
+    },
+    Handling {
+        class: WeaponClass::RayGun,
+        raise_secs: 0.8,
+        drop_secs: 0.8,
+        hip_spread: (1.0, 2.0),
+        sprint_out_secs: 0.2,
+        ..HANDLING
+    },
+    Handling {
+        class: WeaponClass::Thundergun,
+        raise_secs: 1.1,
+        drop_secs: 0.83,
+        hip_spread: (2.0, 4.0),
+        ..HANDLING
+    },
+    Handling {
+        class: WeaponClass::Crossbow,
+        raise_secs: 0.9,
+        drop_secs: 0.75,
+        hip_spread: (2.0, 4.0),
+        ads_fov: Some(0.85),
+        ..HANDLING
+    },
+    Handling {
+        class: WeaponClass::BallisticKnife,
+        raise_secs: 0.35,
+        drop_secs: 0.35,
+        ads_fov: Some(0.85),
+        ..HANDLING
+    },
+];
 
 /// Seconds between shots at a rate of fire.
 const fn rpm(rounds_per_minute: f32) -> f32 {
@@ -92,8 +227,18 @@ const ROW: WeaponStats = WeaponStats {
     fire_interval: SEMI_CAP,
     reload: reload(0.0, 0.0),
     headshot: 1.0,
+    neck: 1.0,
+    torso: 1.0,
     penetration: Penetration::None,
+    hip_spread: None,
+    aimed_spread: None,
+    ads_fov: None,
+    falloff: None,
 };
+
+/// Snipers' multipliers beyond the head.
+const SNIPER_NECK: f32 = 5.0;
+const SNIPER_TORSO: f32 = 1.5;
 
 /// Every base Weapon (Appendix A1), in `WeaponId` order. Splash radii are in metres.
 /// Single-shot Weapons with no rate of fire listed can fire again as soon as their Reload ends.
@@ -125,6 +270,8 @@ pub const WEAPONS: [WeaponStats; 28] = [
         fire_interval: rpm(212.0),
         reload: reload(3.3, 3.9),
         penetration: Penetration::Small,
+        aimed_spread: Some(5.5),
+        falloff: Some(falloff(300.0, 900.0)),
         ..ROW
     },
     WeaponStats {
@@ -139,6 +286,7 @@ pub const WEAPONS: [WeaponStats; 28] = [
         reload: reload(2.4, 3.45),
         headshot: 3.0,
         penetration: Penetration::Large,
+        falloff: Some(falloff(1400.0, 2500.0)),
         ..ROW
     },
     WeaponStats {
@@ -170,6 +318,7 @@ pub const WEAPONS: [WeaponStats; 28] = [
         fire_interval: rpm(212.0),
         reload: shells(0.9, 0.6, 0.95),
         penetration: Penetration::Medium,
+        aimed_spread: Some(5.5),
         ..ROW
     },
     WeaponStats {
@@ -227,6 +376,8 @@ pub const WEAPONS: [WeaponStats; 28] = [
         },
         headshot: 3.5,
         penetration: Penetration::Medium,
+        hip_spread: Some((2.0, 4.0)),
+        falloff: Some(falloff(384.0, 1200.0)),
         ..ROW
     },
     WeaponStats {
@@ -257,6 +408,7 @@ pub const WEAPONS: [WeaponStats; 28] = [
         reload: reload(2.7, 3.85),
         headshot: 4.0,
         penetration: Penetration::Medium,
+        ads_fov: Some(ADS_FOV_SCOPE),
         ..ROW
     },
     WeaponStats {
@@ -330,6 +482,7 @@ pub const WEAPONS: [WeaponStats; 28] = [
         reload: reload(2.5, 3.1),
         headshot: 4.0,
         penetration: Penetration::Medium,
+        hip_spread: Some((5.0, 9.0)),
         ..ROW
     },
     WeaponStats {
@@ -371,6 +524,8 @@ pub const WEAPONS: [WeaponStats; 28] = [
         fire_interval: rpm(234.0),
         reload: reload(2.95, 3.75),
         headshot: 10.0,
+        neck: SNIPER_NECK,
+        torso: SNIPER_TORSO,
         penetration: Penetration::Large,
         ..ROW
     },
@@ -385,6 +540,8 @@ pub const WEAPONS: [WeaponStats; 28] = [
         fire_interval: 1.0, // bolt rechamber
         reload: reload(3.3, 3.5),
         headshot: 10.0,
+        neck: SNIPER_NECK,
+        torso: SNIPER_TORSO,
         penetration: Penetration::Large,
         ..ROW
     },

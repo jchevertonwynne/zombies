@@ -3,6 +3,7 @@
 
 mod arsenal;
 mod audio;
+mod combat;
 mod debug;
 mod hud;
 mod layers;

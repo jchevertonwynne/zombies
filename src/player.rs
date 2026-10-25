@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
 
 use crate::layers::GameLayer;
-use crate::modifier::{Modifiers, Stat};
+use crate::modifier::Modifiers;
 use crate::settings::Settings;
 use crate::state::{GameState, InRun, Pause};
 use crate::tuning::*;
@@ -65,7 +65,7 @@ impl Plugin for PlayerPlugin {
             .add_systems(OnEnter(Pause::Running), grab_cursor)
             .add_systems(OnExit(Pause::Running), release_cursor)
             // Settings apply immediately, even from Pause.
-            .add_systems(Update, apply_fov.run_if(resource_changed::<Settings>))
+            .add_systems(Update, apply_fov)
             .add_systems(FixedUpdate, move_player.run_if(in_state(Pause::Running)))
             .add_systems(
                 Update,
@@ -134,10 +134,18 @@ fn release_cursor(mut cursor: Single<&mut CursorOptions>) {
     cursor.grab_mode = CursorGrabMode::None;
 }
 
-fn apply_fov(settings: Res<Settings>, mut cameras: Query<&mut Projection, With<PlayerCamera>>) {
+/// The FOV setting, narrowed while aiming down the sights.
+fn apply_fov(
+    settings: Res<Settings>,
+    loadout: Single<&Loadout, With<Player>>,
+    mut cameras: Query<&mut Projection, With<PlayerCamera>>,
+) {
+    let fov = settings.fov_radians() * loadout.fov_factor();
     for mut projection in &mut cameras {
-        if let Projection::Perspective(perspective) = &mut *projection {
-            perspective.fov = settings.fov_radians();
+        if let Projection::Perspective(perspective) = &mut *projection
+            && perspective.fov != fov
+        {
+            perspective.fov = fov;
         }
     }
 }
@@ -160,6 +168,7 @@ fn look(
 fn move_player(
     player: Single<(Entity, &mut Transform, &mut Locomotion, &Collider, &Loadout, &Modifiers), With<Player>>,
     input: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
     move_and_slide: MoveAndSlide,
     time: Res<Time>,
 ) {
@@ -170,8 +179,9 @@ fn move_player(
     let right = input.pressed(KeyCode::KeyD) as i8 - input.pressed(KeyCode::KeyA) as i8;
     let wish = Vec2::new(right as f32, forward as f32).normalize_or_zero();
 
-    // Sprinting only makes sense running forwards on the ground, and it runs out.
-    let wants_sprint = input.pressed(KeyCode::ShiftLeft) && forward > 0 && locomotion.grounded;
+    // Sprinting only makes sense running forwards on the ground, and it runs out. Aiming stops it.
+    let aiming = mouse.pressed(MouseButton::Right) && loadout.can_aim();
+    let wants_sprint = input.pressed(KeyCode::ShiftLeft) && forward > 0 && locomotion.grounded && !aiming;
     locomotion.sprinting = wants_sprint && !locomotion.winded;
     if locomotion.sprinting {
         locomotion.stamina -= dt;
@@ -187,7 +197,7 @@ fn move_player(
         }
     }
     let base = if locomotion.sprinting { PLAYER_SPRINT_SPEED } else { PLAYER_WALK_SPEED };
-    let speed = loadout.resolve(Stat::MoveSpeed, base, &modifiers.0);
+    let speed = loadout.move_speed(base, &modifiers.0);
 
     let wish_world = transform.rotation * Vec3::new(wish.x, 0.0, -wish.y) * speed;
     let horizontal = Vec3::new(locomotion.velocity.x, 0.0, locomotion.velocity.z);

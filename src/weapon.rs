@@ -3,12 +3,13 @@ use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
 
 use crate::arsenal::{FireMode, WeaponClass, WeaponId, WeaponStats};
+use crate::combat::{Crossing, hit_damage, pierce, spread_direction};
 use crate::layers::GameLayer;
-use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_count};
+use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve, resolve_count};
 use crate::player::{Locomotion, Player, PlayerCamera};
 use crate::state::Pause;
 use crate::tuning::*;
-use crate::zombie::{Attack, DamageZombie, HitArea, HitZone};
+use crate::zombie::{Attack, DamageZombie, Dying, HitArea, HitZone, Zombie};
 
 /// One Weapon the Player carries: its ammo and its own modifier entries.
 pub struct WeaponCopy {
@@ -75,6 +76,12 @@ pub struct Loadout {
     since_shot: f32,
     /// Shots left in the current burst.
     burst_left: u32,
+    /// How far the sights are up, 0 (hip) to 1 (aimed).
+    pub aim: f32,
+    /// How far the hip spread has bloomed, 0 (fresh) to 1 (full).
+    bloom: f32,
+    /// Seconds of sprint-out left before the Weapon can fire or aim.
+    sprint_out: f32,
 }
 
 impl Loadout {
@@ -86,6 +93,9 @@ impl Loadout {
             swap: None,
             since_shot: f32::INFINITY,
             burst_left: 0,
+            aim: 0.0,
+            bloom: 0.0,
+            sprint_out: 0.0,
         }
     }
 
@@ -111,8 +121,59 @@ impl Loadout {
         resolve_count(Stat::MagazineSize, base, player.iter().chain(&self.held().modifiers))
     }
 
-    pub fn damage(&self, player: &[Modifier]) -> f32 {
-        self.resolve(Stat::Damage, self.held().stats().damage_max, player)
+    /// Damage per bullet at a distance, after falloff, before the hit zone and penetration.
+    pub fn damage_at(&self, distance: f32, player: &[Modifier]) -> f32 {
+        self.resolve(Stat::Damage, self.held().stats().damage_at(distance), player)
+    }
+
+    /// The Player's move speed from a base: the held Weapon's class factor is one more entry
+    /// through the modifier seam.
+    pub fn move_speed(&self, base: f32, player: &[Modifier]) -> f32 {
+        let class = Modifier {
+            stat: Stat::MoveSpeed,
+            source: Source("Weapon Class"),
+            effect: Effect::Mult(self.held().stats().handling().move_speed),
+        };
+        resolve(Stat::MoveSpeed, base, player.iter().chain(&self.held().modifiers).chain([&class]))
+    }
+
+    /// Whether the held Weapon can be aimed at all (dual-wield can't).
+    pub fn can_aim(&self) -> bool {
+        self.held().stats().ads_fov().is_some()
+    }
+
+    /// Advance sprint-out, aiming and spread recovery. Sprinting holds the Weapon down; aiming
+    /// waits out the sprint-out, a switch and a Reload.
+    pub fn update_stance(&mut self, dt: f32, sprinting: bool, wants_aim: bool) {
+        if sprinting {
+            self.sprint_out = self.held().stats().handling().sprint_out_secs;
+        } else {
+            self.sprint_out = (self.sprint_out - dt).max(0.0);
+        }
+        let aiming = wants_aim
+            && self.can_aim()
+            && !sprinting
+            && self.sprint_out <= 0.0
+            && self.swap.is_none()
+            && self.reload.is_none();
+        let target = if aiming { 1.0 } else { 0.0 };
+        self.aim = move_towards(self.aim, target, dt / ADS_SECS);
+        self.bloom = (self.bloom - dt / SPREAD_RECOVERY_SECS).max(0.0);
+    }
+
+    /// The held Weapon's current spread in degrees: the bloomed hip spread, narrowing to the
+    /// aimed spread as the sights come up.
+    pub fn spread(&self) -> f32 {
+        let stats = self.held().stats();
+        let (fresh, full) = stats.hip_spread();
+        let hip = fresh + (full - fresh) * self.bloom;
+        hip + (stats.aimed_spread() - hip) * self.aim
+    }
+
+    /// The factor aiming puts on the FOV now.
+    pub fn fov_factor(&self) -> f32 {
+        let ads = self.held().stats().ads_fov().unwrap_or(1.0);
+        1.0 + (ads - 1.0) * self.aim
     }
 
     pub fn fire_interval(&self, player: &[Modifier]) -> f32 {
@@ -156,6 +217,8 @@ impl Loadout {
         self.swap = Some(Swap::between(from, self.held().id));
         self.reload = None;
         self.burst_left = 0;
+        self.aim = 0.0;
+        self.bloom = 0.0;
     }
 
     /// Advance the clocks that don't depend on any stat.
@@ -210,7 +273,10 @@ impl Loadout {
                 self.burst_left > 0
             }
         };
-        let ready = self.swap.is_none() && self.reload.is_none() && self.since_shot >= self.fire_interval(player);
+        let ready = self.swap.is_none()
+            && self.reload.is_none()
+            && self.sprint_out <= 0.0
+            && self.since_shot >= self.fire_interval(player);
         if !wants || !ready {
             return false;
         }
@@ -221,8 +287,13 @@ impl Loadout {
         self.held_mut().magazine -= 1;
         self.since_shot = 0.0;
         self.burst_left = self.burst_left.saturating_sub(1);
+        self.bloom = (self.bloom + SPREAD_BLOOM_PER_SHOT).min(1.0);
         true
     }
+}
+
+fn move_towards(from: f32, to: f32, step: f32) -> f32 {
+    if from < to { (from + step).min(to) } else { (from - step).max(to) }
 }
 
 #[derive(Component, Default)]
@@ -248,7 +319,7 @@ impl Plugin for WeaponPlugin {
             .add_systems(Update, spawn_view_model)
             .add_systems(
                 Update,
-                (switch_weapons, reload, fire, knife, animate_view_model)
+                (switch_weapons, reload, aim, fire, knife, animate_view_model)
                     .chain()
                     .run_if(in_state(Pause::Running)),
             );
@@ -316,22 +387,32 @@ fn reload(
     loadout.advance_reload(time.delta_secs(), &modifiers.0);
 }
 
+/// Right mouse aims down the sights.
+fn aim(
+    player: Single<(&mut Loadout, &Locomotion), With<Player>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    time: Res<Time>,
+) {
+    let (mut loadout, locomotion) = player.into_inner();
+    loadout.update_stance(time.delta_secs(), locomotion.sprinting, mouse.pressed(MouseButton::Right));
+}
+
 fn fire(
-    player: Single<(Entity, &mut Loadout, &Modifiers, &Locomotion), With<Player>>,
+    player: Single<(Entity, &mut Loadout, &Modifiers), With<Player>>,
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
     mut view_model: Single<&mut ViewModel>,
     mouse: Res<ButtonInput<MouseButton>>,
     spatial: SpatialQuery,
     hit_areas: Query<(&HitArea, &ChildOf)>,
+    zombies: Query<(Entity, &GlobalTransform), (With<Zombie>, Without<Dying>)>,
     mut damage: MessageWriter<DamageZombie>,
     mut shots: MessageWriter<ShotFired>,
 ) {
-    let (entity, mut loadout, modifiers, locomotion) = player.into_inner();
+    let (entity, mut loadout, modifiers) = player.into_inner();
     let entries = &modifiers.0;
-    if locomotion.sprinting {
-        return;
-    }
     let (pressed, just_pressed) = (mouse.pressed(MouseButton::Left), mouse.just_pressed(MouseButton::Left));
+    // Spread is read before the shot blooms it.
+    let spread = loadout.spread();
     if !loadout.try_fire(pressed, just_pressed, entries) {
         // Pulling the trigger on an empty Magazine starts a Reload.
         if just_pressed && loadout.held().magazine == 0 {
@@ -342,22 +423,62 @@ fn fire(
     view_model.kick = 1.0;
     shots.write(ShotFired);
 
-    if let Some(hit) = spatial.cast_ray(
-        camera.translation(),
-        camera.forward(),
-        HITSCAN_RANGE,
-        true,
-        &attack_filter(entity),
-    ) && let Some((zombie, zone)) = zombie_for(hit.entity, &hit_areas)
-    {
-        // Pellets, falloff and the other zones' multipliers arrive with the combat model.
-        let multiplier = if zone == HitZone::Head { loadout.held().stats().headshot } else { 1.0 };
-        damage.write(DamageZombie {
-            zombie,
-            damage: loadout.damage(entries) * multiplier,
-            zone,
-            attack: Attack::Bullet,
+    let stats = loadout.held().stats();
+    let filter = attack_filter(entity);
+    // The Thundergun has no damage per bullet; its scripted blast arrives with its own slice.
+    let pellets = if stats.damage_max > 0.0 { stats.pellets } else { 0 };
+    for _ in 0..pellets {
+        let direction = spread_direction(camera.forward(), spread, rand::random(), rand::random());
+        if let Some(splash) = stats.splash {
+            // Explosives burst where they land. They fly as hitscan until projectiles arrive.
+            let Some(hit) = spatial.cast_ray(camera.translation(), direction, HITSCAN_RANGE, true, &filter) else {
+                continue;
+            };
+            if let Some((zombie, zone)) = zombie_for(hit.entity, &hit_areas) {
+                damage.write(DamageZombie {
+                    zombie,
+                    damage: loadout.damage_at(hit.distance, entries),
+                    zone,
+                    attack: Attack::Bullet,
+                });
+            }
+            let impact = camera.translation() + *direction * hit.distance;
+            for (zombie, transform) in &zombies {
+                if let Some(base) = splash.damage(transform.translation().distance(impact)) {
+                    damage.write(DamageZombie {
+                        zombie,
+                        damage: loadout.resolve(Stat::Damage, base, entries),
+                        zone: HitZone::Torso,
+                        attack: Attack::Bullet,
+                    });
+                }
+            }
+            continue;
+        }
+
+        // Everything the bullet's line crosses, nearest first.
+        let mut crossed = Vec::new();
+        spatial.ray_hits_callback(camera.translation(), direction, HITSCAN_RANGE, true, &filter, |hit| {
+            crossed.push(hit);
+            true
         });
+        crossed.sort_by(|a, b| a.distance.total_cmp(&b.distance));
+        let crossings = crossed.iter().map(|hit| match zombie_for(hit.entity, &hit_areas) {
+            Some((zombie, zone)) => Crossing::Zombie {
+                zombie,
+                zone,
+                distance: hit.distance,
+            },
+            None => Crossing::World,
+        });
+        for hit in pierce(crossings, stats.penetration.extra_zombies()) {
+            damage.write(DamageZombie {
+                zombie: hit.zombie,
+                damage: hit_damage(stats, loadout.damage_at(hit.distance, entries), &hit),
+                zone: hit.zone,
+                attack: Attack::Bullet,
+            });
+        }
     }
 
     // Like the real thing: firing the last bullet starts a Reload.
@@ -445,7 +566,6 @@ fn animate_view_model(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modifier::{Effect, Source};
 
     const NONE: &[Modifier] = &[];
 
@@ -461,7 +581,7 @@ mod tests {
         let held = loadout.held();
         assert_eq!(held.id, WeaponId::M1911);
         assert_eq!((held.magazine, held.reserve), (8, 32));
-        assert_eq!(loadout.damage(NONE), 20.0);
+        assert_eq!(loadout.damage_at(0.0, NONE), 20.0);
         assert!(loadout.slot(1).is_none());
     }
 
@@ -626,5 +746,101 @@ mod tests {
         let mut loadout = Loadout::new(WeaponId::M1911);
         loadout.held_mut().magazine = 0;
         assert!(!loadout.try_fire(true, true, NONE));
+    }
+
+    #[test]
+    fn sprint_out_holds_fire_after_a_sprint() {
+        let mut pistol = Loadout::new(WeaponId::M1911);
+        pistol.update_stance(0.1, true, false);
+        assert!(!pistol.try_fire(true, true, NONE), "no firing mid-sprint");
+        pistol.update_stance(0.25, false, false);
+        assert!(!pistol.try_fire(true, true, NONE), "0.25 s into a 0.3 s sprint-out");
+        pistol.update_stance(0.06, false, false);
+        assert!(pistol.try_fire(true, true, NONE));
+
+        // LMGs take 0.45 s.
+        let mut lmg = Loadout::new(WeaponId::Rpk);
+        lmg.update_stance(0.1, true, false);
+        lmg.update_stance(0.4, false, false);
+        assert!(!lmg.try_fire(true, true, NONE));
+        lmg.update_stance(0.06, false, false);
+        assert!(lmg.try_fire(true, true, NONE));
+    }
+
+    #[test]
+    fn aiming_narrows_the_fov_and_tightens_the_spread() {
+        let mut smg = Loadout::new(WeaponId::Mp40);
+        assert_eq!((smg.fov_factor(), smg.spread()), (1.0, 2.0));
+        smg.update_stance(1.0, false, true);
+        assert_eq!(smg.aim, 1.0);
+        assert!((smg.fov_factor() - 0.77).abs() < 1e-5);
+        assert_eq!(smg.spread(), 0.0);
+
+        let mut sniper = Loadout::new(WeaponId::Dragunov);
+        sniper.update_stance(1.0, false, true);
+        assert!((sniper.fov_factor() - 0.46).abs() < 1e-5);
+
+        // The G11 has a scope; the Olympia still spreads aimed.
+        let mut g11 = Loadout::new(WeaponId::G11);
+        g11.update_stance(1.0, false, true);
+        assert!((g11.fov_factor() - 0.46).abs() < 1e-5);
+        let mut olympia = Loadout::new(WeaponId::Olympia);
+        olympia.update_stance(1.0, false, true);
+        assert_eq!(olympia.spread(), 5.5);
+    }
+
+    #[test]
+    fn some_weapons_cant_aim_or_zoom() {
+        let mut dual = Loadout::new(WeaponId::Cz75DualWield);
+        dual.update_stance(1.0, false, true);
+        assert_eq!((dual.aim, dual.fov_factor(), dual.spread()), (0.0, 1.0, 4.0));
+
+        // Pistols aim without zooming.
+        let mut pistol = Loadout::new(WeaponId::M1911);
+        pistol.update_stance(1.0, false, true);
+        assert_eq!((pistol.aim, pistol.fov_factor(), pistol.spread()), (1.0, 1.0, 0.0));
+    }
+
+    #[test]
+    fn sprinting_and_reloading_drop_the_sights() {
+        let mut smg = Loadout::new(WeaponId::Mp40);
+        smg.update_stance(1.0, false, true);
+        smg.update_stance(1.0, true, true);
+        assert_eq!(smg.aim, 0.0);
+
+        let mut smg = Loadout::new(WeaponId::Mp40);
+        smg.held_mut().magazine = 10;
+        smg.start_reload(NONE);
+        smg.update_stance(1.0, false, true);
+        assert_eq!(smg.aim, 0.0);
+    }
+
+    #[test]
+    fn shots_bloom_the_hip_spread_and_it_settles() {
+        let mut smg = Loadout::new(WeaponId::Mp40);
+        let interval = smg.fire_interval(NONE);
+        for _ in 0..10 {
+            smg.try_fire(true, false, NONE);
+            run(&mut smg, interval, NONE);
+        }
+        assert_eq!(smg.spread(), 5.0, "fully bloomed");
+        smg.update_stance(SPREAD_RECOVERY_SECS, false, false);
+        assert_eq!(smg.spread(), 2.0);
+    }
+
+    #[test]
+    fn move_speed_goes_through_the_seam_by_class() {
+        let lmg = Loadout::new(WeaponId::Rpk);
+        assert!((lmg.move_speed(10.0, NONE) - 8.5).abs() < 1e-5);
+        assert_eq!(Loadout::new(WeaponId::Mp40).move_speed(10.0, NONE), 10.0);
+
+        // Another source multiplies with the class factor.
+        let quicker = [Modifier {
+            stat: Stat::MoveSpeed,
+            source: Source("test"),
+            effect: Effect::Mult(1.2),
+        }];
+        let rifle = Loadout::new(WeaponId::M14);
+        assert!((rifle.move_speed(10.0, &quicker) - 10.0 * 0.95 * 1.2).abs() < 1e-4);
     }
 }
