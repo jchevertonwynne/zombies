@@ -6,30 +6,53 @@
 mod boon;
 mod screen;
 
+use bevy::input::common_conditions::input_just_pressed;
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
 
+use crate::buy::Purchased;
 use crate::last_stand::LastStand;
 use crate::mode::Mode;
 use crate::modifier::Modifiers;
-use crate::mystery_box::TeddyBear;
+use crate::mystery_box::{MysteryBox, TeddyBear};
+use crate::perk::{Perk, PerkMachine};
 use crate::player::Player;
 use crate::points::BonusPoints;
 use crate::power::Power;
+use crate::power_up::{DropPowerUp, GivePowerUp, PowerUp, PowerUpTaken};
 use crate::records::{RecordExtra, RecordExtras};
 use crate::round::{IntermissionHold, Round, RoundEnded};
 use crate::state::{Freeze, GameState, Pause};
 use crate::tuning::*;
+use crate::weapon::Loadout;
 use crate::zombie::ZombieKilled;
 use boon::{
-    BLOOD_MONEY, BOONS, BoonDef, HeldBoons, RunFacts, TEDDYS_TITHE, blood_money_points, draw_offer,
-    is_boon_source, teddys_tithe_points,
+    BLOOD_MONEY, BOONS, BOUNTY, BUTCHERS_BILL, BoonDef, HeldBoons, LUCKY_STRIKE, RunFacts,
+    TEDDYS_TITHE, WAR_BONDS, blood_money_points, bounty_points, butchers_bill_drops, draw_offer,
+    is_boon_source, lucky_strike_gift, teddys_tithe_points, war_bonds_points,
 };
 use screen::OfferCard;
 
 /// Seconds left before the Boon Offer opens, counted from the Round's last kill.
 #[derive(Resource, Default)]
 struct PendingOffer(Option<f32>);
+
+/// What the Player has bought this Run that Requirements ask about, from the Purchased messages
+/// Classic sends.
+#[derive(Resource, Default)]
+struct Bought {
+    from_box: bool,
+    quick_revive: bool,
+}
+
+/// Power-ups Lucky Strike has given whose pickup hasn't come back yet, so a gift never rolls for
+/// another.
+#[derive(Resource, Default)]
+struct Gifts(Vec<PowerUp>);
+
+/// Debug: every Boon counts as Unlocked, toggled with F8, until the Armory saves Unlocks.
+#[derive(Resource, Default)]
+struct UnlockAll(bool);
 
 /// The Boon Offer on screen. Quitting the Run loses it.
 #[derive(Resource)]
@@ -47,6 +70,9 @@ impl Plugin for GauntletPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HeldBoons>()
             .init_resource::<PendingOffer>()
+            .init_resource::<Bought>()
+            .init_resource::<Gifts>()
+            .init_resource::<UnlockAll>()
             .add_systems(
                 OnEnter(GameState::Playing),
                 (reset, screen::spawn_held_column).chain().run_if(gauntlet),
@@ -57,12 +83,20 @@ impl Plugin for GauntletPlugin {
                     schedule_offer,
                     open_offer.run_if(in_state(Pause::Running)),
                     apply_boons,
+                    track_purchases,
                     blood_money,
                     teddys_tithe,
+                    (war_bonds, bounty, butchers_bill, lucky_strike),
                     (record_boons, screen::refresh_held_column)
                         .run_if(resource_changed::<HeldBoons>),
                 )
                     .run_if(in_state(GameState::Playing))
+                    .run_if(gauntlet),
+            )
+            .add_systems(
+                Update,
+                toggle_unlock_all
+                    .run_if(input_just_pressed(KeyCode::F8))
                     .run_if(gauntlet),
             )
             .add_systems(OnEnter(Pause::Frozen), screen::spawn_offer.run_if(gauntlet))
@@ -83,6 +117,8 @@ fn gauntlet(mode: Res<Mode>) -> bool {
 fn reset(mut commands: Commands) {
     commands.insert_resource(HeldBoons::default());
     commands.insert_resource(PendingOffer::default());
+    commands.insert_resource(Bought::default());
+    commands.insert_resource(Gifts::default());
     commands.remove_resource::<Offer>();
 }
 
@@ -103,8 +139,10 @@ fn schedule_offer(
 fn open_offer(
     mut commands: Commands,
     mut pending: ResMut<PendingOffer>,
-    player: Query<Has<LastStand>, With<Player>>,
+    player: Query<(Has<LastStand>, &Loadout), With<Player>>,
     held: Res<HeldBoons>,
+    bought: Res<Bought>,
+    unlock_all: Res<UnlockAll>,
     power: Option<Res<Power>>,
     round: Res<Round>,
     time: Res<Time>,
@@ -115,7 +153,10 @@ fn open_offer(
         return;
     };
     *left -= time.delta_secs();
-    if *left > 0.0 || player.single().unwrap_or(false) {
+    let Ok((last_stand, loadout)) = player.single() else {
+        return;
+    };
+    if *left > 0.0 || last_stand {
         return;
     }
     pending.0 = None;
@@ -123,6 +164,11 @@ fn open_offer(
         power_on: power.is_some_and(|power| power.is_on()),
         // No Pacts can be held until they arrive.
         held_pacts: Vec::new(),
+        used_box: bought.from_box,
+        bought_quick_revive: bought.quick_revive,
+        holds_upgraded: loadout.weapons().any(|weapon| weapon.upgraded),
+        holds_ammo_mod: loadout.weapons().any(|weapon| !weapon.ammo_mods.is_empty()),
+        unlock_all: unlock_all.0,
     };
     let choices = draw_offer(BOONS, &held, &run, |total| rand::random_range(0.0..total));
     if choices.is_empty() {
@@ -209,6 +255,99 @@ fn teddys_tithe(
             bonus.write(BonusPoints(points));
         }
     }
+}
+
+/// Notes the purchases Requirements ask about: anything from a Mystery Box, and Quick Revive.
+fn track_purchases(
+    mut purchases: MessageReader<Purchased>,
+    boxes: Query<(), With<MysteryBox>>,
+    machines: Query<&PerkMachine>,
+    mut bought: ResMut<Bought>,
+) {
+    for Purchased(entity) in purchases.read() {
+        if boxes.contains(*entity) {
+            bought.from_box = true;
+        }
+        if machines
+            .get(*entity)
+            .is_ok_and(|machine| machine.perk == Perk::QuickRevive)
+        {
+            bought.quick_revive = true;
+        }
+    }
+}
+
+/// War Bonds: each Round's end pays Points by its number.
+fn war_bonds(
+    mut ended: MessageReader<RoundEnded>,
+    held: Res<HeldBoons>,
+    round: Res<Round>,
+    mut bonus: MessageWriter<BonusPoints>,
+) {
+    let stacks = held.stacks(WAR_BONDS);
+    for _ in ended.read() {
+        let points = war_bonds_points(round.number, stacks);
+        if points > 0 {
+            bonus.write(BonusPoints(points));
+        }
+    }
+}
+
+/// Bounty: a Trap's kill pays Points.
+fn bounty(
+    mut kills: MessageReader<ZombieKilled>,
+    held: Res<HeldBoons>,
+    mut bonus: MessageWriter<BonusPoints>,
+) {
+    let stacks = held.stacks(BOUNTY);
+    for kill in kills.read() {
+        let points = bounty_points(kill.attack, stacks);
+        if points > 0 {
+            bonus.write(BonusPoints(points));
+        }
+    }
+}
+
+/// Butcher's Bill: a Knife kill may drop a Power-up where it fell, outside the per-Round max.
+fn butchers_bill(
+    mut kills: MessageReader<ZombieKilled>,
+    held: Res<HeldBoons>,
+    mut drops: MessageWriter<DropPowerUp>,
+) {
+    let stacks = held.stacks(BUTCHERS_BILL);
+    for kill in kills.read() {
+        if stacks > 0 && butchers_bill_drops(kill.attack, stacks, rand::random()) {
+            drops.write(DropPowerUp { at: kill.at });
+        }
+    }
+}
+
+/// Lucky Strike: picking up a Power-up may also give a different one. The gift's own pickup
+/// doesn't roll again.
+fn lucky_strike(
+    mut taken: MessageReader<PowerUpTaken>,
+    held: Res<HeldBoons>,
+    mut gifts: ResMut<Gifts>,
+    mut give: MessageWriter<GivePowerUp>,
+) {
+    let stacks = held.stacks(LUCKY_STRIKE);
+    for PowerUpTaken(power_up) in taken.read() {
+        if let Some(i) = gifts.0.iter().position(|gift| gift == power_up) {
+            gifts.0.remove(i);
+            continue;
+        }
+        if stacks == 0 {
+            continue;
+        }
+        if let Some(gift) = lucky_strike_gift(*power_up, stacks, rand::random(), rand::random()) {
+            gifts.0.push(gift);
+            give.write(GivePowerUp(gift));
+        }
+    }
+}
+
+fn toggle_unlock_all(mut unlock_all: ResMut<UnlockAll>) {
+    unlock_all.0 = !unlock_all.0;
 }
 
 /// The held Boons go on the Run Record in pick order, with their Stacks.

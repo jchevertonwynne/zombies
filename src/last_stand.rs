@@ -1,4 +1,4 @@
-//! The Down and the Last Stand. Every Down takes every Perk. Holding Quick Revive, a Down starts
+//! The Down and the Last Stand. Every Down takes every Perk (unless a stat entry keeps some). Holding Quick Revive, a Down starts
 //! a Last Stand: the Player crawls with Mustang & Sally and can't be hurt, then Self-Revives.
 //! Without it, the Run is over.
 
@@ -6,7 +6,7 @@ use bevy::prelude::*;
 
 use crate::buy::buy;
 use crate::modifier::Modifiers;
-use crate::perk::{Drinking, Perk, Perks, drink};
+use crate::perk::{Drinking, Perk, Perks, drink, kept_on_down};
 use crate::player::{Health, Player, PlayerCamera, take_hits};
 use crate::state::{GameState, Pause};
 use crate::tuning::*;
@@ -99,7 +99,8 @@ impl Plugin for LastStandPlugin {
     }
 }
 
-/// Health at zero is a Down. It takes every Perk, and a Perk mid-drink with its Points.
+/// Health at zero is a Down. It takes every Perk (but any the Player's stat entries say it leaves),
+/// and a Perk mid-drink with its Points.
 pub fn go_down(
     mut commands: Commands,
     player: Single<
@@ -114,7 +115,8 @@ pub fn go_down(
         return;
     }
     let outcome = down_outcome(&perks);
-    perks.lose_all(&mut modifiers);
+    let keep = kept_on_down(&modifiers.0);
+    perks.lose_on_down(keep, &mut modifiers);
     commands.entity(entity).remove::<Drinking>();
     downs.write(Down { outcome });
     match outcome {
@@ -180,7 +182,7 @@ mod tests {
         let mut perks = Perks(Perk::ALL.to_vec());
         let mut modifiers = Modifiers(Perk::ALL.iter().flat_map(|perk| perk.modifiers()).copied().collect());
         assert_eq!(down_outcome(&perks), DownOutcome::LastStand);
-        perks.lose_all(&mut modifiers);
+        perks.lose_on_down(0, &mut modifiers);
         assert!(perks.0.is_empty());
         assert!(modifiers.0.is_empty());
         // So the next Down, with no Quick Revive bought since, ends the Run.

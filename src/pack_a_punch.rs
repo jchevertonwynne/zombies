@@ -9,10 +9,11 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
-use crate::ammo_mod::repack_price;
+use crate::ammo_mod::{ammo_mod_slots, repack_price};
 use crate::arsenal::WeaponId;
 use crate::buy::{Buyable, Purchased, Refused};
 use crate::layers::GameLayer;
+use crate::modifier::{Modifier, Modifiers, Stat, resolve_points};
 use crate::perk::Drinking;
 use crate::player::Player;
 use crate::power::Power;
@@ -89,6 +90,12 @@ pub fn machine_prompt(power_on: bool, inside: Option<Stage>, held: Held, hands_f
     }
 }
 
+/// What the machine charges for a Pack-a-Punch or a Repack whose Classic price is `base`, after
+/// the Player's stat entries.
+pub fn machine_price(base: u64, player: &[Modifier]) -> u64 {
+    resolve_points(Stat::PackAPunchPrice, base, player)
+}
+
 /// A Weapon inside the machine, already in its Upgraded form.
 struct Inside {
     weapon: WeaponCopy,
@@ -113,10 +120,11 @@ impl PackAPunch {
     }
 
     /// Take in a Weapon and start working on it. It comes out Upgraded, or, if it was already,
-    /// Repacked with an Ammo Mod picked by `roll` in [0, 1); either way with full ammo.
-    pub fn insert(&mut self, weapon: WeaponCopy, roll: f32) {
+    /// Repacked with an Ammo Mod picked by `roll` in [0, 1) (room allowing, of `slots`); either
+    /// way with full ammo.
+    pub fn insert(&mut self, weapon: WeaponCopy, roll: f32, slots: usize) {
         debug_assert!(self.inside.is_none(), "one Weapon at a time");
-        let weapon = if weapon.upgraded { weapon.repack(roll) } else { weapon.upgrade() };
+        let weapon = if weapon.upgraded { weapon.repack(roll, slots) } else { weapon.upgrade() };
         self.inside = Some(Inside { weapon, elapsed: 0.0 });
     }
 
@@ -210,16 +218,18 @@ fn spawn_machine(
 fn use_machine(
     mut purchases: MessageReader<Purchased>,
     mut machines: Query<&mut PackAPunch>,
-    mut loadout: Single<&mut Loadout, With<Player>>,
+    player: Single<(&mut Loadout, &Modifiers), With<Player>>,
 ) {
+    let (mut loadout, modifiers) = player.into_inner();
+    let slots = ammo_mod_slots(&modifiers.0);
     for Purchased(entity) in purchases.read() {
         let Ok(mut machine) = machines.get_mut(*entity) else { continue };
         match machine.stage() {
             None => {
-                if workable(loadout.held())
+                if workable(loadout.held(), slots)
                     && let Some(weapon) = loadout.take_held()
                 {
-                    machine.insert(weapon, rand::random());
+                    machine.insert(weapon, rand::random(), slots);
                 }
             }
             Some(Stage::Ready) => {
@@ -232,9 +242,10 @@ fn use_machine(
     }
 }
 
-/// Whether the machine has work for this Weapon: an upgrade, or a tap Repack.
-fn workable(weapon: &WeaponCopy) -> bool {
-    !weapon.upgraded || weapon.ammo_mods.has_room()
+/// Whether the machine has work for this Weapon: an upgrade, or a tap Repack while it has room
+/// for another of its `slots` Ammo Mods.
+fn workable(weapon: &WeaponCopy, slots: usize) -> bool {
+    !weapon.upgraded || weapon.ammo_mods.has_room(slots)
 }
 
 fn run_machine(mut machines: Query<&mut PackAPunch>, time: Res<Time>) {
@@ -247,16 +258,18 @@ fn run_machine(mut machines: Query<&mut PackAPunch>, time: Res<Time>) {
 fn prompt_machine(
     mut commands: Commands,
     mut machines: Query<(Entity, &PackAPunch, &Transform, Option<&mut Buyable>, Has<Refused>)>,
-    player: Single<(&Loadout, Has<Drinking>), With<Player>>,
+    player: Single<(&Loadout, &Modifiers, Has<Drinking>), With<Player>>,
     power: Res<Power>,
 ) {
-    let (loadout, drinking) = *player;
+    let (loadout, modifiers, drinking) = *player;
     let copy = loadout.held();
     let held = Held {
         upgraded: copy.upgraded,
-        ammo_mod_room: copy.ammo_mods.has_room(),
+        ammo_mod_room: copy.ammo_mods.has_room(ammo_mod_slots(&modifiers.0)),
         spare: loadout.has_spare(),
     };
+    let upgrade_price = machine_price(PAP_PRICE, &modifiers.0);
+    let repack_cost = machine_price(repack_price(copy.repacks), &modifiers.0);
     let repack = "Press F to Repack your Weapon";
     for (entity, machine, transform, buyable, refused) in &mut machines {
         let want = machine_prompt(power.is_on(), machine.stage(), held, !drinking);
@@ -268,10 +281,10 @@ fn prompt_machine(
                 continue;
             }
             MachinePrompt::NeedsPower => ("You must turn on the Power first".to_string(), None, true),
-            MachinePrompt::Upgrade => ("Press F to Pack-a-Punch your Weapon".to_string(), Some(PAP_PRICE), false),
-            MachinePrompt::OnlyWeapon => ("Press F to Pack-a-Punch your Weapon".to_string(), Some(PAP_PRICE), true),
-            MachinePrompt::Repack => (repack.to_string(), Some(repack_price(copy.repacks)), false),
-            MachinePrompt::RepackOnlyWeapon => (repack.to_string(), Some(repack_price(copy.repacks)), true),
+            MachinePrompt::Upgrade => ("Press F to Pack-a-Punch your Weapon".to_string(), Some(upgrade_price), false),
+            MachinePrompt::OnlyWeapon => ("Press F to Pack-a-Punch your Weapon".to_string(), Some(upgrade_price), true),
+            MachinePrompt::Repack => (repack.to_string(), Some(repack_cost), false),
+            MachinePrompt::RepackOnlyWeapon => (repack.to_string(), Some(repack_cost), true),
             MachinePrompt::Take => {
                 let name = machine.inside.as_ref().map_or("", |inside| inside.weapon.stats().name);
                 (format!("Press F to take {name}"), None, false)
@@ -411,7 +424,7 @@ mod tests {
 
     fn machine_with_m14() -> PackAPunch {
         let mut machine = PackAPunch::default();
-        machine.insert(WeaponCopy::new(WeaponId::M14), 0.0);
+        machine.insert(WeaponCopy::new(WeaponId::M14), 0.0, MAX_AMMO_MODS);
         machine
     }
 
@@ -491,7 +504,7 @@ mod tests {
         let mut machine = PackAPunch::default();
         let mut mnesia = WeaponCopy::new(WeaponId::M14).upgrade();
         mnesia.magazine = 0;
-        machine.insert(mnesia, 0.0);
+        machine.insert(mnesia, 0.0, MAX_AMMO_MODS);
         assert_eq!(machine.stage(), Some(Stage::Processing), "the same flow as the upgrade");
         machine.advance(PAP_PROCESS_SECS);
         let once = machine.take().expect("ready to take");
@@ -499,18 +512,36 @@ mod tests {
         assert_eq!((once.repacks, once.magazine), (1, 16));
         assert_eq!(repack_price(once.repacks), 3500);
 
-        let twice = once.repack(0.99);
+        let twice = once.repack(0.99, MAX_AMMO_MODS);
         assert_eq!(twice.ammo_mods.len(), 2);
-        assert!(!twice.ammo_mods.has_room());
-        assert!(!workable(&twice), "no third Ammo Mod");
-        let unchanged = twice.repack(0.5);
+        assert!(!twice.ammo_mods.has_room(MAX_AMMO_MODS));
+        assert!(!workable(&twice, MAX_AMMO_MODS), "no third Ammo Mod");
+        let unchanged = twice.repack(0.5, MAX_AMMO_MODS);
         assert_eq!((unchanged.ammo_mods.len(), unchanged.repacks), (2, 2));
+
+        // With a third slot, there's room for one more.
+        assert!(workable(&unchanged, 3));
+        let thrice = unchanged.repack(0.5, 3);
+        assert_eq!((thrice.ammo_mods.len(), thrice.repacks), (3, 3));
+    }
+
+    #[test]
+    fn price_entries_rewrite_the_upgrade_and_repack_prices() {
+        use crate::modifier::{Effect, Source};
+        assert_eq!(machine_price(PAP_PRICE, &[]), 5000);
+        let cheaper = [Modifier {
+            stat: Stat::PackAPunchPrice,
+            source: Source("test"),
+            effect: Effect::Reduction(0.9, 2),
+        }];
+        assert_eq!(machine_price(PAP_PRICE, &cheaper), 4050);
+        assert_eq!(machine_price(repack_price(1), &cheaper), 2835);
     }
 
     #[test]
     fn ammo_mods_stay_with_their_copy() {
         let mut loadout = Loadout::new(WeaponId::M14);
-        loadout.give_copy(WeaponCopy::new(WeaponId::Mp40).upgrade().repack(0.0));
+        loadout.give_copy(WeaponCopy::new(WeaponId::Mp40).upgrade().repack(0.0, MAX_AMMO_MODS));
         assert_eq!(loadout.held().ammo_mods.len(), 1);
         // Replacing the copy with a fresh one loses them.
         loadout.give(WeaponId::Mp40);

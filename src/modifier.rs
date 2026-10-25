@@ -45,6 +45,28 @@ pub enum Stat {
     PowerUpDuration,
     /// The most Power-ups dropped a Round.
     PowerUpsPerRound,
+    /// The chance a Box spin is free (base 0).
+    BoxFreeSpinChance,
+    /// The chance a Box Weapon comes out Upgraded (base 0).
+    BoxUpgradeChance,
+    /// The price of Pack-a-Punch and of a Repack.
+    PackAPunchPrice,
+    /// Perks a Down leaves, earliest bought first (base 0).
+    PerksKeptOnDown,
+    /// Solo Quick Revive buys before its machine leaves.
+    QuickReviveBuys,
+    /// The fraction of its max Health a Zombie loses for each Plank it tears off (base 0).
+    PlankTearDamage,
+    /// Explosive Equipment's damage: frags, Claymores and the Monkey Bomb.
+    EquipmentDamage,
+    /// Explosive Equipment's blast radius.
+    EquipmentRadius,
+    /// Weapon slots the Player carries.
+    WeaponSlots,
+    /// Zombies past the first a bullet can pass through.
+    Penetration,
+    /// Ammo Mods an Upgraded Weapon can hold.
+    AmmoModSlots,
 }
 
 /// Where an entry comes from. Each Perk, Pack-a-Punch, Attachment and so on is its own source:
@@ -53,7 +75,6 @@ pub enum Stat {
 pub struct Source(pub &'static str);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[allow(dead_code, reason = "chances arrive with the Rare Boons")]
 pub enum Effect {
     /// Added to the base before any multiplier.
     Flat(f32),
