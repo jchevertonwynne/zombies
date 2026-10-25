@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use crate::ammo_mod::AmmoMods;
 use crate::arsenal::{Splash, WeaponClass, WeaponId, WeaponStats};
 use crate::equipment::Pull;
-use crate::explosive::{Explosion, in_sight, world_filter};
+use crate::explosive::{Explosion, Explosive, in_sight, makes_crawlers, world_filter};
 use crate::layers::GameLayer;
 use crate::player::Player;
 use crate::state::{InRun, Pause};
@@ -37,23 +37,17 @@ pub fn is_wonder(class: WeaponClass) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Blast {
     Kill,
-    /// Knocked down for `THUNDERGUN_KNOCKDOWN_DAMAGE`. `gib` is for the Crawler rule.
-    KnockDown {
-        // Crawlers arrive in their own slice, which reads this.
-        #[allow(dead_code)]
-        gib: bool,
-    },
+    /// Knocked down for `THUNDERGUN_KNOCKDOWN_DAMAGE`.
+    KnockDown,
 }
 
-/// The Thundergun's distance bands: killed under 12 m, knocked down and gibbed to 23 m, knocked
-/// down to 30 m, and untouched beyond.
+/// The Thundergun's distance bands: killed under 12 m, knocked down to 30 m, and untouched
+/// beyond. Its 12–23 m "gib" is only a look: the Thundergun never makes Crawlers.
 pub fn thundergun_blast(distance: f32) -> Option<Blast> {
     if distance < THUNDERGUN_KILL_RANGE {
         Some(Blast::Kill)
-    } else if distance <= THUNDERGUN_GIB_RANGE {
-        Some(Blast::KnockDown { gib: true })
     } else if distance <= THUNDERGUN_RANGE {
-        Some(Blast::KnockDown { gib: false })
+        Some(Blast::KnockDown)
     } else {
         None
     }
@@ -159,7 +153,7 @@ fn fire_wonders(
                 }
                 let amount = match blast {
                     Blast::Kill => f32::MAX,
-                    Blast::KnockDown { .. } => {
+                    Blast::KnockDown => {
                         // Flung straight away from the Player.
                         let away = (centre - shot.origin).with_y(0.0).normalize_or(shot.direction.with_y(0.0));
                         knock_downs.write(KnockDown {
@@ -263,6 +257,8 @@ fn burn_bolts(
                 splash: bolt.splash,
                 hurts_player: true,
                 ammo_mods: AmmoMods::NONE,
+                // Only the Crossbow and its Awful Lawton fire bolts.
+                crawlers: makes_crawlers(Explosive::Weapon(WeaponId::Crossbow)),
             });
             commands.entity(entity).despawn();
             continue;
@@ -306,16 +302,9 @@ mod tests {
     }
 
     #[test]
-    fn the_thundergun_knocks_down_and_gibs_from_12_to_23_m() {
-        for distance in [12.0, 17.5, 23.0] {
-            assert_eq!(thundergun_blast(distance), Some(Blast::KnockDown { gib: true }), "{distance}");
-        }
-    }
-
-    #[test]
-    fn the_thundergun_only_knocks_down_from_23_to_30_m() {
-        for distance in [23.1, 27.0, 30.0] {
-            assert_eq!(thundergun_blast(distance), Some(Blast::KnockDown { gib: false }), "{distance}");
+    fn the_thundergun_knocks_down_from_12_to_30_m() {
+        for distance in [12.0, 17.5, 23.0, 27.0, 30.0] {
+            assert_eq!(thundergun_blast(distance), Some(Blast::KnockDown), "{distance}");
         }
         assert_eq!(thundergun_blast(30.1), None);
     }

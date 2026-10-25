@@ -1058,9 +1058,8 @@ pub const PROJECTILE_LIFETIME_SECS: f32 = 5.0;
 pub const THUNDERGUN_RANGE: f32 = 30.0;
 pub const THUNDERGUN_RADIUS: f32 = 4.6;
 /// Under this distance the blast kills outright; beyond it, it knocks down for
-/// `THUNDERGUN_KNOCKDOWN_DAMAGE`, gibbing out to `THUNDERGUN_GIB_RANGE`.
+/// `THUNDERGUN_KNOCKDOWN_DAMAGE`. It never makes Crawlers.
 pub const THUNDERGUN_KILL_RANGE: f32 = 12.0;
-pub const THUNDERGUN_GIB_RANGE: f32 = 23.0;
 pub const THUNDERGUN_KNOCKDOWN_DAMAGE: f32 = 30.0;
 /// How long a knocked-down Zombie lies before it gets up (approx).
 pub const THUNDERGUN_KNOCKDOWN_SECS: f32 = 1.5;
@@ -1105,6 +1104,21 @@ pub const ZOMBIE_HIT_COOLDOWN_SECS: f32 = 0.4;
 pub const ZOMBIE_SWIPE_DAMAGE: f32 = 60.0;
 pub const ZOMBIE_FALL_SECS: f32 = 0.4;
 pub const ZOMBIE_CORPSE_SECS: f32 = 2.0;
+
+// Crawlers
+/// An explosive hit a normal Zombie survives, of at least this share of its pre-hit health, has
+/// a `CRAWLER_GIB_CHANCE` chance of blowing its legs off.
+pub const CRAWLER_GIB_MIN_FRACTION: f32 = 0.1;
+pub const CRAWLER_GIB_CHANCE: f64 = 0.5;
+pub const CRAWLER_SPEED: f32 = 1.0;
+/// A Crawler's body is a ball this big, so it's about 0.6 m tall and the Player can jump over it.
+pub const CRAWLER_RADIUS: f32 = 0.3;
+/// The length of a Crawler's lying body between its rounded ends.
+pub const CRAWLER_BODY_LENGTH: f32 = 0.6;
+/// A Crawler never tears Planks: it waits for an open Barrier, then climbs in over this long.
+pub const CRAWLER_VAULT_SECS: f32 = 2.0;
+/// Waiting this long at a planked Barrier counts as stuck.
+pub const CRAWLER_PLANKED_STUCK_SECS: f32 = 10.0;
 
 // Navigation and spawning
 /// Seconds between a Zombie's re-plans, or `ZOMBIE_REPATH_FAR_SECS` beyond `ZOMBIE_REPATH_FAR_DIST` of the Player.

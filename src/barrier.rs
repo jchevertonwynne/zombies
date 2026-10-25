@@ -120,18 +120,28 @@ pub enum SpotAction {
     Tear,
     /// Climb in: no Planks are left.
     Vault,
+    /// Wait for the Barrier to open, as a Crawler does.
+    Wait,
 }
 
 /// What a Zombie at an attack spot does when its next action comes round: it swipes at a Player
-/// it can reach, planked or not, and otherwise tears a Plank, or vaults once none are left.
-pub fn spot_action(player_in_reach: bool, planks: u8) -> SpotAction {
-    if player_in_reach {
-        SpotAction::Swipe
-    } else if planks > 0 {
-        SpotAction::Tear
-    } else {
+/// it can reach, planked or not, and otherwise tears a Plank, or vaults once none are left. A
+/// Crawler never swipes or tears: it waits until the Barrier is open, then vaults.
+pub fn spot_action(player_in_reach: bool, planks: u8, crawler: bool) -> SpotAction {
+    if planks == 0 && (crawler || !player_in_reach) {
         SpotAction::Vault
+    } else if crawler {
+        SpotAction::Wait
+    } else if player_in_reach {
+        SpotAction::Swipe
+    } else {
+        SpotAction::Tear
     }
+}
+
+/// How long climbing in takes: `ZOMBIE_VAULT_SECS`, or `CRAWLER_VAULT_SECS` for a Crawler.
+pub fn vault_secs(crawler: bool) -> f32 {
+    if crawler { CRAWLER_VAULT_SECS } else { ZOMBIE_VAULT_SECS }
 }
 
 /// The Player holding the Use key at a Barrier.
@@ -380,17 +390,14 @@ fn enter_through_windows(
                 let in_reach =
                     !last_stand && reach_through(player.translation, transform.translation, centre);
                 let planks = barriers.planks(barrier);
+                let action = spot_action(in_reach, planks, zombie.is_crawler());
                 // An open window is climbed at once, unless there's a Player to swipe at first.
-                let next = if planks == 0 && !in_reach {
-                    0.0
-                } else {
-                    next - dt
-                };
+                let next = if action == SpotAction::Vault { 0.0 } else { next - dt };
                 if next > 0.0 {
                     entering.stage = Stage::AtSpot { spot, next };
                     continue;
                 }
-                match spot_action(in_reach, planks) {
+                match action {
                     SpotAction::Swipe => {
                         if rand::random_bool(BARRIER_SWIPE_CHANCE) {
                             hits.write(PlayerHit {
@@ -404,6 +411,7 @@ fn enter_through_windows(
                             at: centre + Vec3::Y * 1.2,
                         });
                     }
+                    SpotAction::Wait => {}
                     SpotAction::Vault => {
                         taken.retain(|&claim| claim != (barrier, spot));
                         entering.stage = Stage::Vaulting {
@@ -421,7 +429,7 @@ fn enter_through_windows(
             }
             Stage::Vaulting { elapsed, from, to } => {
                 let elapsed = elapsed + dt;
-                let t = (elapsed / ZOMBIE_VAULT_SECS).min(1.0);
+                let t = (elapsed / vault_secs(zombie.is_crawler())).min(1.0);
                 transform.translation =
                     from.lerp(to, t) + Vec3::Y * VAULT_ARC * (t * std::f32::consts::PI).sin();
                 face(&mut transform, -out);
@@ -696,10 +704,25 @@ mod tests {
 
     #[test]
     fn a_zombie_at_a_window_swipes_planked_or_not_then_tears_then_vaults() {
-        assert_eq!(spot_action(true, 6), SpotAction::Swipe);
-        assert_eq!(spot_action(true, 0), SpotAction::Swipe);
-        assert_eq!(spot_action(false, 1), SpotAction::Tear);
-        assert_eq!(spot_action(false, 0), SpotAction::Vault);
+        assert_eq!(spot_action(true, 6, false), SpotAction::Swipe);
+        assert_eq!(spot_action(true, 0, false), SpotAction::Swipe);
+        assert_eq!(spot_action(false, 1, false), SpotAction::Tear);
+        assert_eq!(spot_action(false, 0, false), SpotAction::Vault);
+    }
+
+    #[test]
+    fn a_crawler_never_tears_or_reaches_through_and_waits_for_an_open_barrier() {
+        for in_reach in [false, true] {
+            assert_eq!(spot_action(in_reach, 6, true), SpotAction::Wait);
+            assert_eq!(spot_action(in_reach, 1, true), SpotAction::Wait);
+            assert_eq!(spot_action(in_reach, 0, true), SpotAction::Vault);
+        }
+    }
+
+    #[test]
+    fn a_crawler_takes_two_seconds_to_vault() {
+        assert_eq!(vault_secs(true), 2.0);
+        assert_eq!(vault_secs(false), ZOMBIE_VAULT_SECS);
     }
 
     #[test]

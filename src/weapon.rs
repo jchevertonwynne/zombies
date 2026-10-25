@@ -6,7 +6,7 @@ use crate::ammo_mod::{AmmoModHit, AmmoMods, glint_colour, pick_ammo_mod};
 use crate::arsenal::{Burn, FireMode, Splash, WeaponClass, WeaponId, WeaponStats};
 use crate::burn::Ignite;
 use crate::combat::{Crossing, hit_damage, pierce, spread_direction};
-use crate::explosive::{Explosion, Launched, flight};
+use crate::explosive::{Explosion, Explosive, Launched, flight, makes_crawlers};
 use crate::layers::GameLayer;
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve, resolve_count};
 use crate::perk::{Drinking, hands_free};
@@ -660,6 +660,7 @@ fn fire(
                 impact_headshot: stats.zone_multiplier(HitZone::Head),
                 splash,
                 ammo_mods,
+                crawlers: makes_crawlers(Explosive::Weapon(stats.id)),
             });
             continue;
         }
@@ -685,6 +686,7 @@ fn fire(
                 splash,
                 hurts_player: true,
                 ammo_mods,
+                crawlers: makes_crawlers(Explosive::Weapon(stats.id)),
             });
             continue;
         }

@@ -11,7 +11,7 @@ use crate::layers::GameLayer;
 use crate::player::{Health, Player, PlayerHit};
 use crate::state::{InRun, Pause};
 use crate::tuning::*;
-use crate::zombie::{Attack, DamageZombie, Dying, HitArea, HitZone, Zombie};
+use crate::zombie::{Attack, DamageZombie, Dying, Gibbed, HitArea, HitZone, Zombie, blows_legs_off};
 
 /// A blast going off. Every explosive, from a frag to a launcher's rocket, sends one.
 #[derive(Message, Debug, Clone, Copy)]
@@ -25,6 +25,35 @@ pub struct Explosion {
     /// The Ammo Mods of the Weapon that fired it, which each Zombie it hurts rolls. None for
     /// Equipment.
     pub ammo_mods: AmmoMods,
+    /// Whether the blast can blow a Zombie's legs off, making a Crawler. Classic explosives set
+    /// it from `makes_crawlers`; anything else that may (Scorched Earth) just sends it set.
+    pub crawlers: bool,
+}
+
+/// Where a blast came from, for the Crawler rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Explosive {
+    Frag,
+    Claymore,
+    MonkeyBomb,
+    // Underbarrels arrive in their own slice, which sends this.
+    #[allow(dead_code)]
+    GrenadeLauncher,
+    /// A Weapon's own splash: a launcher's, the Ray Gun's, a Crossbow bolt's, Mustang & Sally's…
+    /// An Upgraded Weapon keeps its base's id, so the Awful Lawton is the Crossbow here.
+    Weapon(WeaponId),
+}
+
+/// The set of explosives that can make Crawlers: frags, Claymores, the Monkey Bomb, launchers,
+/// the Grenade Launcher, Ray Gun splash, and the Crossbow and its Awful Lawton. Everything else
+/// never does.
+pub fn makes_crawlers(explosive: Explosive) -> bool {
+    match explosive {
+        Explosive::Frag | Explosive::Claymore | Explosive::MonkeyBomb | Explosive::GrenadeLauncher => true,
+        Explosive::Weapon(id) => {
+            matches!(id, WeaponId::M72Law | WeaponId::ChinaLake | WeaponId::RayGun | WeaponId::Crossbow)
+        }
+    }
 }
 
 /// What the Player takes from their own explosive: a flat `SELF_EXPLOSIVE_DAMAGE` while their
@@ -72,6 +101,8 @@ pub struct Launched {
     pub splash: Splash,
     /// The launcher's Ammo Mods, rolled by its impact and its blast.
     pub ammo_mods: AmmoMods,
+    /// Whether its blast can make Crawlers.
+    pub crawlers: bool,
 }
 
 /// A launcher's projectile in flight. It bursts on the first thing it touches.
@@ -83,6 +114,7 @@ struct Projectile {
     impact_headshot: f32,
     splash: Splash,
     ammo_mods: AmmoMods,
+    crawlers: bool,
     life: f32,
 }
 
@@ -168,6 +200,7 @@ fn launch(mut commands: Commands, mut launched: MessageReader<Launched>, assets:
                 impact_headshot: shot.impact_headshot,
                 splash: shot.splash,
                 ammo_mods: shot.ammo_mods,
+                crawlers: shot.crawlers,
                 life: PROJECTILE_LIFETIME_SECS,
             },
             Mesh3d(assets.projectile.clone()),
@@ -226,6 +259,7 @@ fn fly(
                 splash: projectile.splash,
                 hurts_player: true,
                 ammo_mods: projectile.ammo_mods,
+                crawlers: projectile.crawlers,
             });
             commands.entity(entity).despawn();
             continue;
@@ -239,43 +273,58 @@ fn fly(
     }
 }
 
-/// Every blast hurts the Zombies in sight within its radius, and the Player if it's theirs.
+/// Every blast hurts the Zombies in sight within its radius, and the Player if it's theirs. One
+/// that can make Crawlers may blow the legs off a Zombie it doesn't kill.
 fn explode(
     mut commands: Commands,
     mut explosions: MessageReader<Explosion>,
     spatial: SpatialQuery,
-    zombies: Query<(Entity, &GlobalTransform), (With<Zombie>, Without<Dying>)>,
+    zombies: Query<(Entity, &Zombie, &GlobalTransform), Without<Dying>>,
     player: Single<(&Transform, &Health), With<Player>>,
     mut damage: MessageWriter<DamageZombie>,
     mut ammo_mod_hits: MessageWriter<AmmoModHit>,
+    mut gibbed: MessageWriter<Gibbed>,
     mut player_hits: MessageWriter<PlayerHit>,
     assets: Res<ExplosiveAssets>,
 ) {
     let (player_transform, health) = *player;
     // Several blasts in one frame each see the Health the last one left.
     let mut health_left = health.current;
+    // Likewise each Zombie's, and whether it has already lost its legs.
+    let mut blasted: Vec<(Entity, f32, bool)> = Vec::new();
     for explosion in explosions.read() {
         let splash = explosion.splash;
-        for (zombie, transform) in &zombies {
+        for (zombie, body, transform) in &zombies {
             let centre = transform.translation();
             let Some(amount) = splash.damage(centre.distance(explosion.at)) else {
                 continue;
             };
-            if in_sight(&spatial, explosion.at, centre) {
-                damage.write(DamageZombie {
+            if !in_sight(&spatial, explosion.at, centre) {
+                continue;
+            }
+            damage.write(DamageZombie {
+                zombie,
+                damage: amount,
+                zone: HitZone::Torso,
+                attack: Attack::Bullet,
+            });
+            if !explosion.ammo_mods.is_empty() {
+                ammo_mod_hits.write(AmmoModHit {
                     zombie,
                     damage: amount,
-                    zone: HitZone::Torso,
-                    attack: Attack::Bullet,
+                    ammo_mods: explosion.ammo_mods,
                 });
-                if !explosion.ammo_mods.is_empty() {
-                    ammo_mod_hits.write(AmmoModHit {
-                        zombie,
-                        damage: amount,
-                        ammo_mods: explosion.ammo_mods,
-                    });
-                }
             }
+            let i = blasted.iter().position(|&(e, ..)| e == zombie).unwrap_or_else(|| {
+                blasted.push((zombie, body.health(), body.is_crawler()));
+                blasted.len() - 1
+            });
+            let (_, before, crawler) = blasted[i];
+            if explosion.crawlers && blows_legs_off(!crawler, before, amount, rand::random()) {
+                gibbed.write(Gibbed { zombie });
+                blasted[i].2 = true;
+            }
+            blasted[i].1 = before - amount;
         }
 
         let centre = player_transform.translation;
@@ -363,6 +412,22 @@ mod tests {
         assert!(close(MONKEY_BOMB_SPLASH.damage(1.25).unwrap(), 2725.0));
         assert!(close(MONKEY_BOMB_SPLASH.damage(2.5).unwrap(), 450.0));
         assert_eq!(MONKEY_BOMB_SPLASH.damage(2.6), None);
+    }
+
+    #[test]
+    fn the_crawler_explosives_are_a_set_and_nothing_else_makes_crawlers() {
+        for explosive in [Explosive::Frag, Explosive::Claymore, Explosive::MonkeyBomb, Explosive::GrenadeLauncher] {
+            assert!(makes_crawlers(explosive), "{explosive:?}");
+        }
+        // Launchers, Ray Gun splash and the Crossbow (the Awful Lawton keeps its id).
+        let weapons: Vec<_> = crate::tuning::WEAPONS
+            .iter()
+            .map(|row| row.id)
+            .filter(|&id| makes_crawlers(Explosive::Weapon(id)))
+            .collect();
+        assert_eq!(weapons, [WeaponId::M72Law, WeaponId::ChinaLake, WeaponId::RayGun, WeaponId::Crossbow]);
+        // Mustang & Sally fire grenades, but aren't on the list.
+        assert!(!makes_crawlers(Explosive::Weapon(WeaponId::M1911)));
     }
 
     #[test]
