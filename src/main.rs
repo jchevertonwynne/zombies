@@ -4,6 +4,7 @@
 mod audio;
 mod debug;
 mod hud;
+mod hud_prototype;
 mod layers;
 mod map;
 mod player;
@@ -40,6 +41,7 @@ fn main() {
             hud::HudPlugin,
             audio::AudioPlugin,
             debug::DebugPlugin,
+            hud_prototype::HudPrototypePlugin,
         ))
         .run();
 }

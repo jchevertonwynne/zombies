@@ -38,7 +38,8 @@ impl Plugin for HudPlugin {
             .add_systems(OnEnter(GameState::GameOver), spawn_game_over_screen)
             .add_systems(
                 Update,
-                (damage_tint, round_text, points_text, ammo_text, spawn_popups, animate_popups)
+                // PROTOTYPE branch: Round, Points and ammo are drawn by hud_prototype.
+                damage_tint
                     .run_if(in_state(GameState::Playing)),
             )
             .add_systems(Update, restart.run_if(in_state(GameState::GameOver)));
@@ -92,45 +93,6 @@ fn spawn_hud(mut commands: Commands) {
             }
         });
 
-    commands.spawn((
-        InRun,
-        RoundText,
-        text("1", 96.0, ROUND_RED),
-        Node {
-            position_type: PositionType::Absolute,
-            left: px(32.0),
-            bottom: px(16.0),
-            ..default()
-        },
-    ));
-
-    commands
-        .spawn((
-            InRun,
-            Node {
-                position_type: PositionType::Absolute,
-                right: px(32.0),
-                bottom: px(24.0),
-                flex_direction: FlexDirection::Column,
-                align_items: AlignItems::FlexEnd,
-                row_gap: px(4.0),
-                ..default()
-            },
-        ))
-        .with_children(|column| {
-            column.spawn((
-                PopupColumn,
-                Node {
-                    flex_direction: FlexDirection::Column,
-                    align_items: AlignItems::FlexEnd,
-                    height: px(120.0),
-                    justify_content: JustifyContent::FlexEnd,
-                    ..default()
-                },
-            ));
-            column.spawn((PointsText, text("0", 36.0, Color::srgb(1.0, 0.9, 0.5))));
-            column.spawn((AmmoText, text("", 28.0, Color::WHITE)));
-        });
 }
 
 fn damage_tint(
