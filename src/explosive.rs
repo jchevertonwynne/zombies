@@ -5,6 +5,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+use crate::ammo_mod::{AmmoModHit, AmmoMods};
 use crate::arsenal::{Splash, WeaponId};
 use crate::layers::GameLayer;
 use crate::player::{Health, Player, PlayerHit};
@@ -21,6 +22,9 @@ pub struct Explosion {
     /// Whether the blast hurts the Player. Their own frags, launchers and Monkey Bombs do;
     /// Claymores never do.
     pub hurts_player: bool,
+    /// The Ammo Mods of the Weapon that fired it, which each Zombie it hurts rolls. None for
+    /// Equipment.
+    pub ammo_mods: AmmoMods,
 }
 
 /// What the Player takes from their own explosive: a flat `SELF_EXPLOSIVE_DAMAGE` while their
@@ -66,6 +70,8 @@ pub struct Launched {
     pub impact: f32,
     pub impact_headshot: f32,
     pub splash: Splash,
+    /// The launcher's Ammo Mods, rolled by its impact and its blast.
+    pub ammo_mods: AmmoMods,
 }
 
 /// A launcher's projectile in flight. It bursts on the first thing it touches.
@@ -76,6 +82,7 @@ struct Projectile {
     impact: f32,
     impact_headshot: f32,
     splash: Splash,
+    ammo_mods: AmmoMods,
     life: f32,
 }
 
@@ -160,6 +167,7 @@ fn launch(mut commands: Commands, mut launched: MessageReader<Launched>, assets:
                 impact: shot.impact,
                 impact_headshot: shot.impact_headshot,
                 splash: shot.splash,
+                ammo_mods: shot.ammo_mods,
                 life: PROJECTILE_LIFETIME_SECS,
             },
             Mesh3d(assets.projectile.clone()),
@@ -176,6 +184,7 @@ fn fly(
     spatial: SpatialQuery,
     hit_areas: Query<(&HitArea, &ChildOf)>,
     mut damage: MessageWriter<DamageZombie>,
+    mut ammo_mod_hits: MessageWriter<AmmoModHit>,
     mut explosions: MessageWriter<Explosion>,
     time: Res<Time>,
 ) {
@@ -190,12 +199,20 @@ fn fly(
                 .map(|hit| {
                     if let Ok((area, parent)) = hit_areas.get(hit.entity) {
                         let multiplier = if area.0 == HitZone::Head { projectile.impact_headshot } else { 1.0 };
+                        let (zombie, amount) = (parent.parent(), projectile.impact * multiplier);
                         damage.write(DamageZombie {
-                            zombie: parent.parent(),
-                            damage: projectile.impact * multiplier,
+                            zombie,
+                            damage: amount,
                             zone: area.0,
                             attack: Attack::Bullet,
                         });
+                        if !projectile.ammo_mods.is_empty() {
+                            ammo_mod_hits.write(AmmoModHit {
+                                zombie,
+                                damage: amount,
+                                ammo_mods: projectile.ammo_mods,
+                            });
+                        }
                     }
                     // Burst just short of the surface, so the world doesn't block its own blast.
                     transform.translation + *direction * (hit.distance - 0.1).max(0.0)
@@ -208,6 +225,7 @@ fn fly(
                 at,
                 splash: projectile.splash,
                 hurts_player: true,
+                ammo_mods: projectile.ammo_mods,
             });
             commands.entity(entity).despawn();
             continue;
@@ -229,6 +247,7 @@ fn explode(
     zombies: Query<(Entity, &GlobalTransform), (With<Zombie>, Without<Dying>)>,
     player: Single<(&Transform, &Health), With<Player>>,
     mut damage: MessageWriter<DamageZombie>,
+    mut ammo_mod_hits: MessageWriter<AmmoModHit>,
     mut player_hits: MessageWriter<PlayerHit>,
     assets: Res<ExplosiveAssets>,
 ) {
@@ -249,6 +268,13 @@ fn explode(
                     zone: HitZone::Torso,
                     attack: Attack::Bullet,
                 });
+                if !explosion.ammo_mods.is_empty() {
+                    ammo_mod_hits.write(AmmoModHit {
+                        zombie,
+                        damage: amount,
+                        ammo_mods: explosion.ammo_mods,
+                    });
+                }
             }
         }
 

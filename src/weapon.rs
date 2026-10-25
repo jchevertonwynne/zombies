@@ -2,6 +2,7 @@ use avian3d::prelude::*;
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
 
+use crate::ammo_mod::{AmmoModHit, AmmoMods, glint_colour, pick_ammo_mod};
 use crate::arsenal::{Burn, FireMode, Splash, WeaponClass, WeaponId, WeaponStats};
 use crate::burn::Ignite;
 use crate::combat::{Crossing, hit_damage, pierce, spread_direction};
@@ -22,6 +23,10 @@ pub struct WeaponCopy {
     pub magazine: u32,
     pub reserve: u32,
     pub modifiers: Vec<Modifier>,
+    /// The Ammo Mods its tap Repacks added.
+    pub ammo_mods: AmmoMods,
+    /// Repacks of this copy so far, of either kind; each costs more than the last.
+    pub repacks: u32,
 }
 
 impl WeaponCopy {
@@ -34,6 +39,8 @@ impl WeaponCopy {
             magazine: stats.magazine,
             reserve: stats.starting_reserve(),
             modifiers: Vec::new(),
+            ammo_mods: AmmoMods::NONE,
+            repacks: 0,
         }
     }
 
@@ -53,6 +60,22 @@ impl WeaponCopy {
             ..self
         }
     }
+
+    /// Its tap Repack: a random Ammo Mod it lacks, picked by `roll` in [0, 1), and full ammo, as
+    /// out of the upgrade. A copy with no room for another Ammo Mod comes back unchanged.
+    pub fn repack(self, roll: f32) -> Self {
+        let Some(ammo_mod) = pick_ammo_mod(self.ammo_mods, roll).filter(|_| self.ammo_mods.has_room()) else {
+            return self;
+        };
+        let stats = self.stats();
+        Self {
+            ammo_mods: self.ammo_mods.with(ammo_mod),
+            repacks: self.repacks.saturating_add(1),
+            magazine: stats.magazine,
+            reserve: stats.reserve_max,
+            ..self
+        }
+    }
 }
 
 /// A Reload in progress. The time it takes is resolved every frame, so only progress is kept.
@@ -66,7 +89,7 @@ pub struct Reload {
 pub struct Swap {
     pub from: &'static WeaponStats,
     /// The glint on the Weapon being put away.
-    pub from_glint: Option<Color>,
+    pub from_glint: Option<AmmoMods>,
     pub elapsed: f32,
     pub drop_secs: f32,
     pub raise_secs: f32,
@@ -74,7 +97,7 @@ pub struct Swap {
 
 impl Swap {
     fn between(from: &WeaponCopy, to: &'static WeaponStats) -> Self {
-        let (from_glint, from) = (glint_colour(from), from.stats());
+        let (from_glint, from) = (glint_of(from), from.stats());
         Self {
             from,
             from_glint,
@@ -416,10 +439,10 @@ struct ViewModel {
 /// The purple of an Upgraded Weapon: its name on the HUD, and its plain glint.
 pub const UPGRADED_PURPLE: Color = Color::srgb(0.62, 0.2, 1.0);
 
-/// The colour of a Weapon copy's glint, or `None` if it doesn't glint. Plain purple for every
-/// Upgraded Weapon until Ammo Mods colour it.
-pub fn glint_colour(copy: &WeaponCopy) -> Option<Color> {
-    copy.upgraded.then_some(UPGRADED_PURPLE)
+/// What colours a Weapon copy's glint: its Ammo Mods (maybe none), or `None` if it doesn't glint
+/// because it isn't Upgraded.
+pub fn glint_of(copy: &WeaponCopy) -> Option<AmmoMods> {
+    copy.upgraded.then_some(copy.ammo_mods)
 }
 
 /// The band of light sweeping along an Upgraded Weapon's model, a child of the view model.
@@ -428,6 +451,8 @@ struct Glint {
     material: Handle<StandardMaterial>,
     colour: Color,
     sweep: f32,
+    /// Sweeps so far, so two Ammo Mods take turns.
+    pass: u32,
 }
 
 pub struct WeaponPlugin;
@@ -475,6 +500,7 @@ fn spawn_view_model(
                     material: glint.clone(),
                     colour: UPGRADED_PURPLE,
                     sweep: 0.0,
+                    pass: 0,
                 },
                 // A thin band just proud of the model's sides.
                 Mesh3d(meshes.add(Cuboid::new(0.066, 0.106, 0.04))),
@@ -543,6 +569,7 @@ fn fire(
     spatial: SpatialQuery,
     hit_areas: Query<(&HitArea, &ChildOf)>,
     mut damage: MessageWriter<DamageZombie>,
+    mut ammo_mod_hits: MessageWriter<AmmoModHit>,
     mut ignite: MessageWriter<Ignite>,
     mut shots: MessageWriter<ShotFired>,
     mut launched: MessageWriter<Launched>,
@@ -564,6 +591,13 @@ fn fire(
     shots.write(ShotFired);
 
     let stats = loadout.held().stats();
+    // Every damage event from this Weapon rolls its Ammo Mods.
+    let ammo_mods = loadout.held().ammo_mods;
+    let mut roll = |zombie, damage| {
+        if !ammo_mods.is_empty() {
+            ammo_mod_hits.write(AmmoModHit { zombie, damage, ammo_mods });
+        }
+    };
     // Incendiary Weapons set every Zombie they hit alight.
     let burn = stats.burn.map(|burn| Burn {
         damage: loadout.resolve(Stat::Damage, burn.damage, entries),
@@ -589,6 +623,7 @@ fn fire(
                 impact: loadout.damage_at(0.0, entries),
                 impact_headshot: stats.zone_multiplier(HitZone::Head),
                 splash,
+                ammo_mods,
             });
             continue;
         }
@@ -598,12 +633,14 @@ fn fire(
                 continue;
             };
             if let Some((zombie, zone)) = zombie_for(hit.entity, &hit_areas) {
+                let amount = loadout.damage_at(hit.distance, entries);
                 damage.write(DamageZombie {
                     zombie,
-                    damage: loadout.damage_at(hit.distance, entries),
+                    damage: amount,
                     zone,
                     attack: Attack::Bullet,
                 });
+                roll(zombie, amount);
             }
             // Burst just short of the surface, so the world doesn't block its own blast.
             let impact = camera.translation() + *direction * (hit.distance - 0.1).max(0.0);
@@ -611,6 +648,7 @@ fn fire(
                 at: impact,
                 splash,
                 hurts_player: true,
+                ammo_mods,
             });
             continue;
         }
@@ -631,12 +669,14 @@ fn fire(
             None => Crossing::World,
         });
         for hit in pierce(crossings, stats.penetration.extra_zombies()) {
+            let amount = hit_damage(stats, loadout.damage_at(hit.distance, entries), &hit);
             damage.write(DamageZombie {
                 zombie: hit.zombie,
-                damage: hit_damage(stats, loadout.damage_at(hit.distance, entries), &hit),
+                damage: amount,
                 zone: hit.zone,
                 attack: Attack::Bullet,
             });
+            roll(hit.zombie, amount);
             if let Some(burn) = burn {
                 ignite.write(Ignite { zombie: hit.zombie, burn });
             }
@@ -708,14 +748,14 @@ fn animate_view_model(
 
     // Dip the gun out of view while reloading; drop the old gun and raise the new one on a switch.
     let mut class = loadout.held().stats().class;
-    let mut colour = glint_colour(loadout.held());
+    let mut shown = glint_of(loadout.held());
     let dip = if drinking {
         // Out of sight while the Perk is drunk.
         0.6
     } else if let Some(swap) = &loadout.swap {
         if swap.elapsed < swap.drop_secs {
             class = swap.from.class;
-            colour = swap.from_glint;
+            shown = swap.from_glint;
             swap.elapsed / swap.drop_secs * 0.4
         } else {
             (1.0 - (swap.elapsed - swap.drop_secs) / swap.raise_secs) * 0.4
@@ -733,8 +773,9 @@ fn animate_view_model(
 
     // The glint sweeps from the back of the model to the muzzle, over and over.
     let (ref mut glint, ref mut glint_transform, ref mut visibility) = *glint;
-    visibility.set_if_neq(if colour.is_some() { Visibility::Inherited } else { Visibility::Hidden });
-    if let Some(colour) = colour {
+    visibility.set_if_neq(if shown.is_some() { Visibility::Inherited } else { Visibility::Hidden });
+    if let Some(ammo_mods) = shown {
+        let colour = glint_colour(ammo_mods, glint.pass, UPGRADED_PURPLE);
         if glint.colour != colour
             && let Some(mut material) = materials.get_mut(&glint.material)
         {
@@ -742,7 +783,9 @@ fn animate_view_model(
             material.emissive = LinearRgba::from(colour) * 8.0;
             glint.colour = colour;
         }
-        glint.sweep = (glint.sweep + time.delta_secs() / GLINT_SWEEP_SECS).fract();
+        let swept = glint.sweep + time.delta_secs() / GLINT_SWEEP_SECS;
+        glint.pass = glint.pass.wrapping_add(swept as u32);
+        glint.sweep = swept.fract();
         glint_transform.translation.z = 0.15 - 0.3 * glint.sweep;
     }
 }

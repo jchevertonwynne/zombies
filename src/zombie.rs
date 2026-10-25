@@ -44,6 +44,18 @@ pub enum Attack {
     Knife,
     /// Burn damage over time, from fire.
     Burn,
+    /// An Ammo Mod's own damage, Paid or Unpaid by the Ammo Mod. It never rolls Ammo Mods.
+    AmmoMod(Pay),
+}
+
+impl Attack {
+    /// Whether a kill by this attack pays kill Points.
+    pub fn pay(self) -> Pay {
+        match self {
+            Attack::AmmoMod(pay) => pay,
+            Attack::Bullet | Attack::Knife | Attack::Burn => Pay::Paid,
+        }
+    }
 }
 
 /// Whether a hit counts as a Headshot: a bullet to the head. A Knife kill pays as a Knife kill wherever it lands.
@@ -55,8 +67,6 @@ pub fn is_headshot(zone: HitZone, attack: Attack) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pay {
     Paid,
-    // Traps, the Teleporter, the Nuke and the other Unpaid sources arrive in later slices.
-    #[allow(dead_code)]
     Unpaid,
 }
 
@@ -130,6 +140,11 @@ pub struct Zombie {
 }
 
 impl Zombie {
+    /// Health left; at or below 0 once killed.
+    pub fn health(&self) -> f32 {
+        self.health
+    }
+
     /// Switches to Sprinter, as the last Zombie of an early Round does.
     pub fn sprint(&mut self) {
         self.tier = SpeedTier::Sprinter;
@@ -560,7 +575,7 @@ fn attack(
     }
 }
 
-fn apply_damage(
+pub fn apply_damage(
     mut commands: Commands,
     mut requests: MessageReader<DamageZombie>,
     mut zombies: Query<(&mut Zombie, &Children), Without<Dying>>,
@@ -585,9 +600,8 @@ fn apply_damage(
             continue;
         }
 
-        // Every kill the Player's own attacks make is Paid; Unpaid sources come with later systems.
         kills.write(ZombieKilled {
-            pay: Pay::Paid,
+            pay: request.attack.pay(),
             headshot: is_headshot(request.zone, request.attack),
             zone: request.zone,
             attack: request.attack,

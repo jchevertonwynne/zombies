@@ -12,15 +12,15 @@ pub fn points_for(_hit: ZombieHit) -> u64 {
 }
 
 /// Kill Points for a kill: by hit zone, a flat amount for the Knife, nothing if Unpaid. A Burn
-/// kill pays by the zone it's dealt to, the torso.
+/// kill pays by the zone it's dealt to, the torso, and so does a Paid Ammo Mod kill.
 pub fn kill_points(kill: &ZombieKilled) -> u64 {
     match (kill.pay, kill.attack, kill.zone) {
         (Pay::Unpaid, _, _) => 0,
         (Pay::Paid, Attack::Knife, _) => POINTS_KNIFE_KILL,
-        (Pay::Paid, Attack::Bullet | Attack::Burn, HitZone::Limb) => POINTS_LIMB_KILL,
-        (Pay::Paid, Attack::Bullet | Attack::Burn, HitZone::Torso) => POINTS_TORSO_KILL,
-        (Pay::Paid, Attack::Bullet | Attack::Burn, HitZone::Neck) => POINTS_NECK_KILL,
-        (Pay::Paid, Attack::Bullet | Attack::Burn, HitZone::Head) => POINTS_HEADSHOT_KILL,
+        (Pay::Paid, Attack::Bullet | Attack::Burn | Attack::AmmoMod(_), HitZone::Limb) => POINTS_LIMB_KILL,
+        (Pay::Paid, Attack::Bullet | Attack::Burn | Attack::AmmoMod(_), HitZone::Torso) => POINTS_TORSO_KILL,
+        (Pay::Paid, Attack::Bullet | Attack::Burn | Attack::AmmoMod(_), HitZone::Neck) => POINTS_NECK_KILL,
+        (Pay::Paid, Attack::Bullet | Attack::Burn | Attack::AmmoMod(_), HitZone::Head) => POINTS_HEADSHOT_KILL,
     }
 }
 
