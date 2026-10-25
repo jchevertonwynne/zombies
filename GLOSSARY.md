@@ -70,7 +70,7 @@ _Avoid_: grenade (when meaning the slot)
 
 **Points**: Currency the Player earns by damaging and killing Zombies and spends on Doors and other buys. Not the same as score.
 
-**Buyable**: Anything in the Map the Player spends Points on with the Use key: a Door, Wall Weapon, Mystery Box, Perk Machine, Pack-a-Punch or Trap. The Power Switch is used but not bought, so it is not a Buyable.
+**Buyable**: Anything in the Map the Player spends Points on with the Use key: a Door, Wall Weapon, Mystery Box, Perk Machine, Pack-a-Punch, Trap or Teleporter Pad. The Power Switch is used but not bought, so it is not a Buyable.
 _Avoid_: purchasable, trigger
 
 **Use key**: The single key the Player presses to buy a Buyable or flip the Power Switch, or holds to put Planks back on a Barrier.
@@ -79,6 +79,9 @@ _Avoid_: purchasable, trigger
 
 **Points Earned**: All the Points gained during a Run, before any spending.
 _Avoid_: score
+
+**Unpaid Kill**: A kill made by the Map or an effect rather than the Player's own attack, such as a Trap, the Teleporter or a Nuke. It pays no kill Points and drops no Power-up, but still counts toward the Round and the Run Record's Kills.
+_Avoid_: free kill, trap kill
 
 **Power-up**: A temporary pickup dropped by a dying Zombie that gives an instant or timed effect.
 _Avoid_: drop, pickup, perk
