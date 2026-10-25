@@ -489,7 +489,8 @@ fn text(value: impl Into<String>, size: f32, color: Color) -> impl Bundle {
     )
 }
 
-fn at(left: Option<f32>, right: Option<f32>, top: Option<f32>, bottom: Option<f32>) -> Node {
+/// Absolutely positions `base`.
+fn at(base: Node, left: Option<f32>, right: Option<f32>, top: Option<f32>, bottom: Option<f32>) -> Node {
     let val = |v: Option<f32>| v.map_or(Val::Auto, px);
     Node {
         position_type: PositionType::Absolute,
@@ -497,7 +498,7 @@ fn at(left: Option<f32>, right: Option<f32>, top: Option<f32>, bottom: Option<f3
         right: val(right),
         top: val(top),
         bottom: val(bottom),
-        ..default()
+        ..base
     }
 }
 
@@ -607,7 +608,7 @@ fn popups(ui: &mut ChildSpawnerCommands, view: &View, drift_left: bool) {
         let t = popup.age / POPUP_SECS;
         let x = 20.0 + t * 80.0;
         let y = (i % 4) as f32 * 18.0 + t * 20.0;
-        let mut node = at(None, None, None, Some(y));
+        let mut node = at(Node::default(), None, None, None, Some(y));
         if drift_left {
             node.right = px(x);
         } else {
@@ -680,7 +681,7 @@ fn label(ui: &mut ChildSpawnerCommands, view: &View) {
 
 fn variant_a(ui: &mut ChildSpawnerCommands, view: &View, elapsed: f32) {
     // Bottom-left: Perks above the Round.
-    ui.spawn((at(Some(32.0), None, None, Some(16.0)), column(8.0, AlignItems::FlexStart)))
+    ui.spawn(at(column(8.0, AlignItems::FlexStart), Some(32.0), None, None, Some(16.0)))
         .with_children(|left| {
             left.spawn(row(6.0)).with_children(|perks| {
                 for perk in &view.mock.perks {
@@ -692,7 +693,7 @@ fn variant_a(ui: &mut ChildSpawnerCommands, view: &View, elapsed: f32) {
         });
 
     // Bottom-right: Points with popups drifting left, then weapon and ammo.
-    ui.spawn((at(None, Some(32.0), None, Some(24.0)), column(4.0, AlignItems::FlexEnd)))
+    ui.spawn(at(column(4.0, AlignItems::FlexEnd), None, Some(32.0), None, Some(24.0)))
         .with_children(|right| {
             right
                 .spawn(Node {
@@ -761,7 +762,7 @@ fn variant_a(ui: &mut ChildSpawnerCommands, view: &View, elapsed: f32) {
 
     // Gauntlet: the full left-edge held column from "Boon offer screen".
     if !view.mock.boons.is_empty() || !view.mock.pacts.is_empty() {
-        ui.spawn((at(Some(12.0), None, Some(120.0), None), column(1.0, AlignItems::FlexStart)))
+        ui.spawn(at(column(1.0, AlignItems::FlexStart), Some(12.0), None, Some(120.0), None))
             .with_children(|col| boon_full_list(col, view, 15.0));
     }
 }
@@ -772,11 +773,13 @@ fn variant_b(ui: &mut ChildSpawnerCommands, view: &View, elapsed: f32) {
     let _ = elapsed;
     // Top-left status panel.
     ui.spawn((
-        at(Some(16.0), None, Some(16.0), None),
-        Node {
+        at(
+            Node {
             padding: UiRect::all(px(10.0)),
             ..column(4.0, AlignItems::FlexStart)
-        },
+            },
+            Some(16.0), None, Some(16.0), None,
+        ),
         BackgroundColor(PANEL),
     ))
     .with_children(|panel| {
@@ -895,12 +898,14 @@ fn variant_b(ui: &mut ChildSpawnerCommands, view: &View, elapsed: f32) {
 
     // Right: weapon card.
     ui.spawn((
-        at(None, Some(16.0), None, Some(16.0)),
-        Node {
+        at(
+            Node {
             padding: UiRect::all(px(10.0)),
             min_width: px(220.0),
             ..column(2.0, AlignItems::FlexEnd)
-        },
+            },
+            None, Some(16.0), None, Some(16.0),
+        ),
         BackgroundColor(PANEL),
     ))
     .with_children(|card| {
@@ -1005,13 +1010,15 @@ fn variant_c(ui: &mut ChildSpawnerCommands, view: &View, elapsed: f32) {
     let points_alpha = fade(mock.since_points_change, view.tab);
     if points_alpha > 0.0 {
         ui.spawn((
-            at(None, Some(32.0), None, Some(32.0)),
-            Node {
+            at(
+                Node {
                 width: px(240.0),
                 height: px(40.0),
                 justify_content: JustifyContent::FlexEnd,
                 ..default()
-            },
+                },
+                None, Some(32.0), None, Some(32.0),
+            ),
         ))
         .with_children(|points| {
             popups(points, view, true);
@@ -1022,7 +1029,7 @@ fn variant_c(ui: &mut ChildSpawnerCommands, view: &View, elapsed: f32) {
     // Perks bottom-left after a buy, or on Tab.
     let perk_alpha = fade(mock.since_perk_bought, view.tab);
     if perk_alpha > 0.0 {
-        ui.spawn((at(Some(32.0), None, None, Some(32.0)), row(6.0)))
+        ui.spawn(at(row(6.0), Some(32.0), None, None, Some(32.0)))
             .with_children(|perks| {
                 for perk in &mock.perks {
                     let perk = &PERKS[*perk];
@@ -1090,14 +1097,16 @@ fn variant_c(ui: &mut ChildSpawnerCommands, view: &View, elapsed: f32) {
     // Gauntlet: held Boons on Tab only, as a right-hand sheet.
     if view.tab && (!mock.boons.is_empty() || !mock.pacts.is_empty()) {
         ui.spawn((
-            at(None, Some(0.0), Some(0.0), None),
-            Node {
+            at(
+                Node {
                 height: percent(100.0),
                 width: px(280.0),
                 padding: UiRect::all(px(16.0)),
                 flex_wrap: FlexWrap::Wrap,
                 ..column(2.0, AlignItems::FlexStart)
-            },
+                },
+                None, Some(0.0), Some(0.0), None,
+            ),
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
         ))
         .with_children(|sheet| {
