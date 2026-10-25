@@ -7,16 +7,13 @@ use bevy::ui_widgets::Button;
 
 use super::Offer;
 use super::boon::{HeldBoons, effect_line, stack_line};
-use crate::hud::{full_screen, text};
+use crate::hud::{BOTTOM_LEFT_HEIGHT_PX, full_screen, text};
 use crate::state::{InRun, Pause};
 
 const GREY: Color = Color::srgb(0.65, 0.65, 0.65);
 const NEW_GREEN: Color = Color::srgb(0.45, 0.9, 0.45);
 const CARD_IDLE: Color = Color::srgba(0.07, 0.07, 0.09, 0.95);
 const CARD_HOVER: Color = Color::srgba(0.22, 0.22, 0.26, 0.97);
-/// The Held column wraps into a second column this far above the bottom of the screen, where the
-/// Perk icons sit over the Round counter.
-const HELD_COLUMN_BOTTOM_PX: f32 = 200.0;
 
 /// One of the Offer's cards: its place in the Offer.
 #[derive(Component)]
@@ -131,7 +128,9 @@ pub fn spawn_held_column(mut commands: Commands) {
             position_type: PositionType::Absolute,
             left: px(16.0),
             top: px(16.0),
-            bottom: px(HELD_COLUMN_BOTTOM_PX),
+            // It wraps into a second column above the HUD's bottom-left corner, where the Perk icons
+            // sit over the Round counter.
+            bottom: px(BOTTOM_LEFT_HEIGHT_PX),
             flex_direction: FlexDirection::Column,
             flex_wrap: FlexWrap::Wrap,
             align_content: AlignContent::FlexStart,

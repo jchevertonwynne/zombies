@@ -1407,6 +1407,18 @@ pub const NUKE_DELAY_SECS: std::ops::RangeInclusive<f32> = 0.1..=0.7;
 /// A Fire Sale Box's price.
 pub const FIRE_SALE_BOX_PRICE: u64 = 10;
 
+// HUD
+/// The Round counter shows chalk tallies up to this Round, then numerals.
+pub const ROUND_TALLY_MAX: u32 = 5;
+/// How long a ±N Points popup lasts.
+pub const HUD_POPUP_SECS: f32 = 1.2;
+/// The Reload hint shows once the Magazine is down to this fraction of its size.
+pub const LOW_MAGAZINE_FRACTION: f32 = 0.25;
+/// A timed Power-up's bar blinks for its last this many seconds, at `POWER_UP_BLINK_INTERVAL_SECS`.
+pub const POWER_UP_BLINK_SECS: f32 = 5.0;
+/// An instant Power-up's name shows this long.
+pub const INSTANT_POWER_UP_BANNER_SECS: f32 = 2.0;
+
 // Settings
 /// Sensitivity runs 1–10; the default plays exactly like `MOUSE_SENSITIVITY` and the rest scale it.
 pub const SENSITIVITY_MIN: u8 = 1;

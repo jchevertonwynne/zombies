@@ -13,7 +13,6 @@ use crate::audio::cues::Cue;
 use crate::barrier::Barriers;
 use crate::door::Door;
 use crate::equipment::Equipment;
-use crate::hud::text;
 use crate::last_stand::LastStand;
 use crate::map::BOX_LOCATIONS;
 use crate::mystery_box::{BoxAssets, BoxRun, BoxState, MysteryBox, spawn_box};
@@ -71,7 +70,7 @@ impl PowerUp {
         }
     }
 
-    fn colour(self) -> Color {
+    pub fn colour(self) -> Color {
         match self {
             PowerUp::MaxAmmo => Color::srgb(0.3, 0.9, 0.3),
             PowerUp::InstaKill => Color::srgb(0.9, 0.9, 0.9),
@@ -253,16 +252,6 @@ pub fn reachable_zones(from: ZoneId, joins: &[(ZoneId, ZoneId)]) -> ZoneSet {
     reached
 }
 
-/// The countdown line for the timed Power-ups that are on.
-pub fn countdown(active: &ActivePowerUps) -> String {
-    ActivePowerUps::TIMED
-        .iter()
-        .filter(|&&power_up| active.active(power_up))
-        .map(|&power_up| format!("{} {}", power_up.name().to_uppercase(), active.left(power_up).ceil() as u32))
-        .collect::<Vec<_>>()
-        .join("     ")
-}
-
 /// A Power-up was taken.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct PowerUpTaken(pub PowerUp);
@@ -296,8 +285,6 @@ struct Nuked {
 #[derive(Component)]
 struct FireSaleBox;
 
-#[derive(Component)]
-struct CountdownText;
 
 #[derive(Resource)]
 struct PowerUpAssets {
@@ -334,10 +321,10 @@ impl Plugin for PowerUpPlugin {
             .init_resource::<PowerUpAssets>()
             .add_message::<PowerUpTaken>()
             .add_message::<DropPowerUp>()
-            .add_systems(OnEnter(GameState::Playing), (reset, spawn_countdown))
+            .add_systems(OnEnter(GameState::Playing), reset)
             .add_systems(
                 Update,
-                (tick_timers, drop_power_ups, age_drops, pick_up, nuke, fire_sale, show_countdown)
+                (tick_timers, drop_power_ups, age_drops, pick_up, nuke, fire_sale)
                     .chain()
                     .run_if(in_state(Pause::Running)),
             );
@@ -562,29 +549,6 @@ fn fire_sale(
     }
 }
 
-/// A plain countdown for the timed Power-ups, bottom centre. The HUD slice styles it.
-fn spawn_countdown(mut commands: Commands) {
-    commands
-        .spawn((
-            InRun,
-            Node {
-                position_type: PositionType::Absolute,
-                width: percent(100.0),
-                bottom: px(24.0),
-                justify_content: JustifyContent::Center,
-                ..default()
-            },
-        ))
-        .with_child((CountdownText, text("", 24.0, Color::srgb(0.6, 1.0, 0.6))));
-}
-
-fn show_countdown(active: Res<ActivePowerUps>, mut line: Single<&mut Text, With<CountdownText>>) {
-    let wanted = countdown(&active);
-    if line.0 != wanted {
-        line.0 = wanted;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -723,16 +687,6 @@ mod tests {
         // Instant Power-ups have no timer.
         active.start(PowerUp::Nuke);
         assert!(!active.active(PowerUp::Nuke));
-    }
-
-    #[test]
-    fn the_countdown_lists_what_is_on() {
-        let mut active = ActivePowerUps::default();
-        assert_eq!(countdown(&active), "");
-        active.start(PowerUp::DoublePoints);
-        active.tick(0.5);
-        active.start(PowerUp::FireSale);
-        assert_eq!(countdown(&active), "DOUBLE POINTS 30     FIRE SALE 30");
     }
 
     #[test]

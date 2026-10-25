@@ -8,7 +8,6 @@ use crate::ammo_mod::AmmoMods;
 use crate::barrier::Entering;
 use crate::buy::{Buyable, Purchased, Refused};
 use crate::explosive::{Explosion, Explosive, in_sight, makes_crawlers, world_filter};
-use crate::hud::text;
 use crate::layers::GameLayer;
 use crate::player::{Player, PlayerCamera};
 use crate::round::{Round, RoundStarted};
@@ -222,9 +221,6 @@ struct Claymore {
     countdown: Option<f32>,
 }
 
-#[derive(Component)]
-struct EquipmentText;
-
 #[derive(Resource)]
 struct EquipmentAssets {
     frag: Handle<Mesh>,
@@ -251,7 +247,7 @@ pub struct EquipmentPlugin;
 impl Plugin for EquipmentPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, load_assets)
-            .add_systems(OnEnter(GameState::Playing), (spawn_walls, spawn_text))
+            .add_systems(OnEnter(GameState::Playing), spawn_walls)
             .add_systems(
                 Update,
                 (
@@ -259,7 +255,6 @@ impl Plugin for EquipmentPlugin {
                     (buy_walls, price_walls).chain(),
                     (throw_frags, throw_monkey_bombs, plant_claymores),
                     (burn_frags, land_monkey_bombs, lure_zombies, trigger_claymores),
-                    equipment_text,
                 )
                     .chain()
                     .run_if(in_state(Pause::Running)),
@@ -320,44 +315,6 @@ fn spawn_walls(
             MeshMaterial3d(chalk.clone()),
             Transform::from_translation(centre + normal * 0.01).with_rotation(Quat::from_rotation_arc(Vec3::Z, normal)),
         ));
-    }
-}
-
-fn spawn_text(mut commands: Commands) {
-    commands.spawn((
-        InRun,
-        EquipmentText,
-        text("", 22.0, Color::WHITE),
-        Node {
-            position_type: PositionType::Absolute,
-            // Above the Round number.
-            left: px(32.0),
-            bottom: px(124.0),
-            ..default()
-        },
-    ));
-}
-
-fn equipment_text(
-    player: Single<(&Equipment, &Knife), With<Player>>,
-    mut text: Single<&mut Text, With<EquipmentText>>,
-) {
-    let (equipment, knife) = *player;
-    let mut line = format!("Frags {}", equipment.frags);
-    if equipment.cooking.is_some() {
-        line.push_str(" (cooking)");
-    }
-    if equipment.monkey_bombs_owned {
-        line.push_str(&format!("   Monkey Bombs {}", equipment.monkey_bombs));
-    }
-    if equipment.claymores_owned {
-        line.push_str(&format!("   Claymores {}", equipment.claymores));
-    }
-    if knife.bowie {
-        line.push_str("   Bowie Knife");
-    }
-    if text.0 != line {
-        text.0 = line;
     }
 }
 
