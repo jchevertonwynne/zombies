@@ -10,11 +10,13 @@ use bevy::prelude::*;
 use rand::seq::SliceRandom;
 use rand::{Rng, RngExt};
 
-use crate::arsenal::{Availability, WeaponClass, WeaponId};
+use crate::arsenal::{Availability, WeaponId};
 use crate::buy::{Buyable, Purchased};
+use crate::equipment::Equipment;
 use crate::layers::GameLayer;
 use crate::map::BOX_LOCATIONS;
 use crate::modifier::Modifiers;
+use crate::pack_a_punch::PackAPunch;
 use crate::player::Player;
 use crate::points::Points;
 use crate::state::{GameState, InRun, Pause};
@@ -32,16 +34,18 @@ const TEDDY_FLY_SPEED: f32 = 3.0;
 const PRIZE_LOW: f32 = 0.45;
 const PRIZE_HIGH: f32 = 1.0;
 
-/// What the Box can give. Equipment such as the Monkey Bomb joins as its own kind of prize.
+/// What the Box can give: a Box Weapon, or the Monkey Bomb, which fills the Tactical slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Prize {
     Weapon(WeaponId),
+    MonkeyBomb,
 }
 
 impl Prize {
     pub fn name(self) -> &'static str {
         match self {
             Prize::Weapon(id) => id.stats().name,
+            Prize::MonkeyBomb => "Monkey Bomb",
         }
     }
 }
@@ -190,18 +194,10 @@ pub fn teddy_chance(pulls: u32, first_location: bool) -> f64 {
     }
 }
 
-/// Whether the Box serves this Weapon yet. The special Box Weapons (Ray Gun, Thundergun,
-/// Crossbow, Ballistic Knife) join once they fire like their BO1 selves.
-fn served(id: WeaponId) -> bool {
-    !matches!(
-        id.stats().class,
-        WeaponClass::RayGun | WeaponClass::Thundergun | WeaponClass::Crossbow | WeaponClass::BallisticKnife
-    )
-}
-
 /// What a spin can give, each at weight 1. It skips any Weapon the Player holds (an Upgraded copy
-/// is still its base Weapon) and any limited Weapon already in play elsewhere, like in another Box.
-pub fn box_pool(held: &[WeaponId], in_play: &[WeaponId]) -> Vec<Prize> {
+/// is still its base Weapon), any limited Weapon already in play elsewhere (in another Box or in
+/// Pack-a-Punch), and the Monkey Bomb unless `monkey_bomb` says it may come up.
+pub fn box_pool(held: &[WeaponId], in_play: &[WeaponId], monkey_bomb: bool) -> Vec<Prize> {
     crate::tuning::WEAPONS
         .iter()
         .filter(|row| match row.availability {
@@ -210,8 +206,9 @@ pub fn box_pool(held: &[WeaponId], in_play: &[WeaponId]) -> Vec<Prize> {
             Availability::Start | Availability::Wall(_) => false,
         })
         .map(|row| row.id)
-        .filter(|&id| served(id) && !held.contains(&id))
+        .filter(|id| !held.contains(id))
         .map(Prize::Weapon)
+        .chain(monkey_bomb.then_some(Prize::MonkeyBomb))
         .collect()
 }
 
@@ -372,10 +369,10 @@ fn spawn_boxes(mut commands: Commands, assets: Res<BoxAssets>, mut run: ResMut<B
 fn buy_boxes(
     mut purchases: MessageReader<Purchased>,
     mut boxes: Query<&mut MysteryBox>,
-    player: Single<(&mut Loadout, &Modifiers), With<Player>>,
+    player: Single<(&mut Loadout, &Modifiers, &mut Equipment), With<Player>>,
     mut run: ResMut<BoxRun>,
 ) {
-    let (mut loadout, modifiers) = player.into_inner();
+    let (mut loadout, modifiers, mut equipment) = player.into_inner();
     for Purchased(entity) in purchases.read() {
         let Ok(mut mystery_box) = boxes.get_mut(*entity) else { continue };
         match mystery_box.state {
@@ -393,6 +390,7 @@ fn buy_boxes(
                         // Into the empty slot, or in place of the Weapon in hand.
                         None => loadout.give(id),
                     },
+                    Prize::MonkeyBomb => equipment.take_monkey_bombs(),
                 }
                 if counts {
                     run.pulls = run.pulls.saturating_add(1);
@@ -409,20 +407,28 @@ fn run_boxes(
     mut commands: Commands,
     time: Res<Time>,
     mut boxes: Query<(Entity, &mut MysteryBox, &mut Transform, &mut Visibility)>,
-    loadout: Single<&Loadout, With<Player>>,
+    player: Single<(&Loadout, &Equipment), With<Player>>,
+    pack_a_punch: Query<&PackAPunch>,
     mut points: ResMut<Points>,
     mut run: ResMut<BoxRun>,
 ) {
     let dt = time.delta_secs();
+    let (loadout, equipment) = *player;
     let held: Vec<WeaponId> = (0..2).filter_map(|slot| loadout.slot(slot)).map(|weapon| weapon.id).collect();
-    // A Weapon waiting in a Box is in play.
+    // A Weapon waiting in a Box or inside Pack-a-Punch is in play.
     let mut in_play: Vec<WeaponId> = boxes
         .iter()
         .filter_map(|(_, mystery_box, ..)| match mystery_box.state {
             BoxState::Offering { prize: Prize::Weapon(id), .. } => Some(id),
             _ => None,
         })
+        .chain(pack_a_punch.iter().filter_map(PackAPunch::inside))
         .collect();
+    // The Monkey Bomb comes up only while none are left, and from one Box at a time.
+    let mut monkey_bomb = equipment.monkey_bomb_in_pool()
+        && !boxes.iter().any(|(_, mystery_box, ..)| {
+            matches!(mystery_box.state, BoxState::Offering { prize: Prize::MonkeyBomb, .. })
+        });
     let rng = &mut rand::rng();
     for (entity, mut mystery_box, mut transform, mut visibility) in &mut boxes {
         mystery_box.state = match mystery_box.state {
@@ -433,10 +439,12 @@ fn run_boxes(
                     BoxState::Spinning { elapsed, paid, teddy }
                 } else {
                     let chance = if teddy { teddy_chance(run.pulls, run.moves == 0) } else { 0.0 };
-                    match roll_spin(chance, &box_pool(&held, &in_play), rng) {
+                    match roll_spin(chance, &box_pool(&held, &in_play, monkey_bomb), rng) {
                         Spin::Prize(prize) => {
-                            let Prize::Weapon(id) = prize;
-                            in_play.push(id);
+                            match prize {
+                                Prize::Weapon(id) => in_play.push(id),
+                                Prize::MonkeyBomb => monkey_bomb = false,
+                            }
                             BoxState::Offering {
                                 prize,
                                 left: BOX_PICKUP_SECS,
@@ -556,10 +564,13 @@ fn animate_boxes(
                 elapsed * 6.0,
                 (spin_step(elapsed) as usize * 7) % palette,
             )),
-            BoxState::Offering { prize: Prize::Weapon(id), left, .. } => Some((
+            BoxState::Offering { prize, left, .. } => Some((
                 PRIZE_LOW.lerp(PRIZE_HIGH, left / BOX_PICKUP_SECS),
                 0.0,
-                id as usize % palette,
+                match prize {
+                    Prize::Weapon(id) => id as usize % palette,
+                    Prize::MonkeyBomb => palette - 1,
+                },
             )),
             _ => None,
         };
@@ -663,7 +674,7 @@ mod tests {
 
     #[test]
     fn a_spin_with_no_teddy_chance_always_gives_a_prize() {
-        let pool = box_pool(&[], &[]);
+        let pool = box_pool(&[], &[], true);
         let rng = &mut StdRng::seed_from_u64(1);
         for _ in 0..200 {
             assert!(matches!(roll_spin(0.0, &pool, rng), Spin::Prize(prize) if pool.contains(&prize)));
@@ -679,38 +690,59 @@ mod tests {
     }
 
     fn weapons(pool: &[Prize]) -> Vec<WeaponId> {
-        pool.iter().map(|&Prize::Weapon(id)| id).collect()
+        pool.iter()
+            .filter_map(|prize| match prize {
+                Prize::Weapon(id) => Some(*id),
+                Prize::MonkeyBomb => None,
+            })
+            .collect()
     }
 
+    const LIMITED: [WeaponId; 3] = [WeaponId::Thundergun, WeaponId::Crossbow, WeaponId::BallisticKnife];
+
     #[test]
-    fn the_pool_holds_the_ordinary_box_weapons_only() {
-        let pool = weapons(&box_pool(&[], &[]));
-        assert_eq!(pool.len(), 18);
+    fn the_pool_holds_kinos_23_box_weapons() {
+        let pool = box_pool(&[], &[], true);
+        assert_eq!(pool.len(), 23);
+        assert!(pool.contains(&Prize::MonkeyBomb));
+        let pool = weapons(&pool);
         for id in [WeaponId::M1911, WeaponId::M14, WeaponId::Olympia, WeaponId::Mp40, WeaponId::TrenchGun, WeaponId::Ak74u] {
             assert!(!pool.contains(&id), "{id:?} is never in the Box");
         }
-        assert!(pool.contains(&WeaponId::Galil));
-        assert!(pool.contains(&WeaponId::ChinaLake));
+        for id in [WeaponId::Galil, WeaponId::ChinaLake, WeaponId::RayGun].into_iter().chain(LIMITED) {
+            assert!(pool.contains(&id), "{id:?}");
+        }
+    }
+
+    #[test]
+    fn the_pool_skips_the_monkey_bomb_while_any_are_left() {
+        let pool = box_pool(&[], &[], false);
+        assert!(!pool.contains(&Prize::MonkeyBomb));
+        assert_eq!(pool.len(), 22);
     }
 
     #[test]
     fn the_pool_skips_weapons_the_player_holds() {
-        let pool = weapons(&box_pool(&[WeaponId::M1911, WeaponId::Hk21], &[]));
+        let pool = weapons(&box_pool(&[WeaponId::M1911, WeaponId::Hk21], &[], false));
         assert!(!pool.contains(&WeaponId::Hk21));
-        assert_eq!(pool.len(), 17);
-        let pool = weapons(&box_pool(&[WeaponId::Spas12, WeaponId::Python], &[]));
-        assert!(!pool.contains(&WeaponId::Spas12) && !pool.contains(&WeaponId::Python));
-        assert_eq!(pool.len(), 16);
+        assert_eq!(pool.len(), 21);
+        let pool = weapons(&box_pool(&[WeaponId::Spas12, WeaponId::Thundergun], &[], false));
+        assert!(!pool.contains(&WeaponId::Spas12) && !pool.contains(&WeaponId::Thundergun));
+        assert_eq!(pool.len(), 20);
     }
 
     #[test]
     fn the_pool_skips_a_limited_weapon_already_in_play() {
-        // The limited Weapons wait for their own slice, but the rule is already in place.
-        let limited = WeaponId::Thundergun;
-        assert_eq!(limited.stats().availability, Availability::LimitedBox);
-        assert!(!weapons(&box_pool(&[], &[limited])).contains(&limited));
+        // Waiting in another Box or inside Pack-a-Punch: either way it's in play.
+        for limited in LIMITED {
+            assert_eq!(limited.stats().availability, Availability::LimitedBox);
+            let pool = weapons(&box_pool(&[], &[limited], false));
+            assert!(!pool.contains(&limited), "{limited:?}");
+            assert_eq!(pool.len(), 21, "only {limited:?} is skipped");
+        }
         // An ordinary Box Weapon in another Box can still come up.
-        assert!(weapons(&box_pool(&[], &[WeaponId::Galil])).contains(&WeaponId::Galil));
+        assert!(weapons(&box_pool(&[], &[WeaponId::Galil], false)).contains(&WeaponId::Galil));
+        assert!(weapons(&box_pool(&[], &[WeaponId::RayGun], false)).contains(&WeaponId::RayGun));
     }
 
     #[test]

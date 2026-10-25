@@ -107,8 +107,6 @@ impl Equipment {
     }
 
     /// Whether the Mystery Box may offer the Monkey Bomb: it's skipped while any are left.
-    // The Mystery Box calls this when it builds its pool.
-    #[allow(dead_code)]
     pub fn monkey_bomb_in_pool(&self) -> bool {
         self.monkey_bombs == 0
     }
@@ -193,6 +191,14 @@ pub fn lured<Z>(candidates: impl IntoIterator<Item = LureCandidate<Z>>) -> Vec<Z
         .collect();
     near.sort_by(|a, b| a.distance.total_cmp(&b.distance));
     near.into_iter().take(MONKEY_BOMB_LURE_MAX).map(|c| c.zombie).collect()
+}
+
+/// Anything else that pulls Zombies like a landed Monkey Bomb, such as the Awful Lawton's bolt.
+/// Its owner keeps `at` (on the floor) and `left` (the fuse) up to date.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct Pull {
+    pub at: Vec3,
+    pub left: f32,
 }
 
 /// A thrown frag, burning down its fuse.
@@ -568,15 +574,18 @@ fn land_monkey_bombs(
     }
 }
 
-/// Every landed Monkey Bomb pulls the Zombies near it, the first to land getting first pick.
+/// Every landed Monkey Bomb (and every other Pull) draws the Zombies near it, the first to land getting
+/// first pick.
 fn lure_zombies(
     mut commands: Commands,
     bombs: Query<(&MonkeyBomb, &Transform)>,
+    pulls: Query<&Pull>,
     zombies: Query<(Entity, &Transform, Option<&Lured>), (With<Zombie>, Without<Dying>)>,
 ) {
     let mut active: Vec<_> = bombs
         .iter()
         .filter_map(|(bomb, transform)| bomb.fuse.map(|fuse| (fuse, transform.translation)))
+        .chain(pulls.iter().map(|pull| (pull.left, pull.at)))
         .collect();
     // The least fuse left landed first.
     active.sort_by(|a, b| a.0.total_cmp(&b.0));

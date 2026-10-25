@@ -965,7 +965,7 @@ pub const UPGRADED_WEAPONS: [WeaponStats; 28] = [
         ..base(WeaponId::Thundergun)
     },
     WeaponStats {
-        // The 4 s fuse and the Monkey Bomb pull arrive with projectiles.
+        // Its 4 s fuse and Monkey Bomb pull are the bolt's (`AWFUL_LAWTON_FUSE_SECS`).
         name: "Awful Lawton",
         splash: Some(Splash {
             max: 2500.0,
@@ -1051,6 +1051,33 @@ pub const LAW_ROCKET_SPEED: f32 = 60.0;
 pub const CHINA_LAKE_GRENADE_SPEED: f32 = 30.0;
 /// A projectile that hits nothing bursts in the air after this long.
 pub const PROJECTILE_LIFETIME_SECS: f32 = 5.0;
+
+// Special Box Weapons
+/// The Thundergun's blast hits every Zombie in sight inside a cylinder this long and this wide
+/// (radius) along the Player's aim.
+pub const THUNDERGUN_RANGE: f32 = 30.0;
+pub const THUNDERGUN_RADIUS: f32 = 4.6;
+/// Under this distance the blast kills outright; beyond it, it knocks down for
+/// `THUNDERGUN_KNOCKDOWN_DAMAGE`, gibbing out to `THUNDERGUN_GIB_RANGE`.
+pub const THUNDERGUN_KILL_RANGE: f32 = 12.0;
+pub const THUNDERGUN_GIB_RANGE: f32 = 23.0;
+pub const THUNDERGUN_KNOCKDOWN_DAMAGE: f32 = 30.0;
+/// How long a knocked-down Zombie lies before it gets up (approx).
+pub const THUNDERGUN_KNOCKDOWN_SECS: f32 = 1.5;
+/// How fast the blast flings a Zombie it knocks down, slowing to a stop as it lies (approx).
+pub const THUNDERGUN_FLING_SPEED: f32 = 8.0;
+/// The Crossbow's bolt explodes this long after it sticks; the Awful Lawton's waits longer and
+/// pulls Zombies like a Monkey Bomb meanwhile.
+pub const CROSSBOW_FUSE_SECS: f32 = 1.5;
+pub const AWFUL_LAWTON_FUSE_SECS: f32 = 4.0;
+/// The Knife's melee damage while the Ballistic Knife (or the Krauss Refibrillator) is in hand,
+/// without and with the Bowie Knife.
+pub const BALLISTIC_KNIFE_MELEE_DAMAGE: f32 = 500.0;
+pub const BALLISTIC_KNIFE_BOWIE_MELEE_DAMAGE: f32 = 1000.0;
+pub const KRAUSS_MELEE_DAMAGE: f32 = 1000.0;
+pub const KRAUSS_BOWIE_MELEE_DAMAGE: f32 = 1500.0;
+/// How close the Player walks to a stuck blade to pick it back up (approx).
+pub const BALLISTIC_KNIFE_PICKUP_RANGE: f32 = 1.5;
 
 // Zombie
 pub const ZOMBIE_RADIUS: f32 = 0.35;
