@@ -1,9 +1,11 @@
-//! Gauntlet: Classic with a Boon Offer after every Round. It's layered on top of Classic and
+//! Gauntlet: Classic with a Boon Offer after every Round, and a Pact Offer in its place every
+//! fifth Round. It's layered on top of Classic and
 //! reaches it only through seams (ADR 0002): stat-modifier entries on the Player, messages Classic
 //! already sends, Classic state it reads, and the `Freeze` and `IntermissionHold` it holds. Every
 //! system here runs only when `Mode == Gauntlet`.
 
 mod boon;
+mod pact;
 mod screen;
 
 use bevy::input::common_conditions::input_just_pressed;
@@ -11,6 +13,7 @@ use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
 
 use crate::buy::Purchased;
+use crate::explosive::Explosion;
 use crate::last_stand::LastStand;
 use crate::mode::Mode;
 use crate::modifier::Modifiers;
@@ -25,13 +28,17 @@ use crate::round::{IntermissionHold, Round, RoundEnded};
 use crate::state::{Freeze, GameState, Pause};
 use crate::tuning::*;
 use crate::weapon::Loadout;
-use crate::zombie::ZombieKilled;
+use crate::zombie::{DamageZombie, Dying, HitZone, KillDamage, Zombie, ZombieKilled};
 use boon::{
     BLOOD_MONEY, BOONS, BOUNTY, BUTCHERS_BILL, BoonDef, HeldBoons, LUCKY_STRIKE, RunFacts,
     TEDDYS_TITHE, WAR_BONDS, blood_money_points, bounty_points, butchers_bill_drops, draw_offer,
     is_boon_source, lucky_strike_gift, teddys_tithe_points, war_bonds_points,
 };
-use screen::OfferCard;
+use pact::{
+    HeldPacts, OVERKILL, PACTS, PactDef, SCORCHED_EARTH, draw_pact_offer, is_pact_round,
+    is_pact_source, overkill_target, scorched_earth_blast,
+};
+use screen::{OfferCard, SkipButton};
 
 /// Seconds left before the Boon Offer opens, counted from the Round's last kill.
 #[derive(Resource, Default)]
@@ -50,14 +57,31 @@ struct Bought {
 #[derive(Resource, Default)]
 struct Gifts(Vec<PowerUp>);
 
-/// Debug: every Boon counts as Unlocked, toggled with F9, until the Armory saves Unlocks.
+/// Debug: every Boon and Pact counts as Unlocked, toggled with F9, until the Armory saves Unlocks.
 #[derive(Resource, Default)]
 struct UnlockAll(bool);
 
-/// The Boon Offer on screen. Quitting the Run loses it.
+/// What an Offer's cards hold.
+enum Choices {
+    /// A Boon Offer: one must be picked.
+    Boons(Vec<&'static BoonDef>),
+    /// A Pact Offer: one may be picked, or the Offer skipped.
+    Pacts(Vec<&'static PactDef>),
+}
+
+impl Choices {
+    fn is_empty(&self) -> bool {
+        match self {
+            Choices::Boons(boons) => boons.is_empty(),
+            Choices::Pacts(pacts) => pacts.is_empty(),
+        }
+    }
+}
+
+/// The Boon or Pact Offer on screen. Quitting the Run loses it.
 #[derive(Resource)]
 struct Offer {
-    choices: Vec<&'static BoonDef>,
+    choices: Choices,
     /// The Round just completed.
     round: u32,
     /// When the cards last appeared, in real seconds, for the input lockout.
@@ -69,6 +93,7 @@ pub struct GauntletPlugin;
 impl Plugin for GauntletPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HeldBoons>()
+            .init_resource::<HeldPacts>()
             .init_resource::<PendingOffer>()
             .init_resource::<Bought>()
             .init_resource::<Gifts>()
@@ -82,13 +107,13 @@ impl Plugin for GauntletPlugin {
                 (
                     schedule_offer,
                     open_offer.run_if(in_state(Pause::Running)),
-                    apply_boons,
+                    apply_entries,
                     track_purchases,
                     blood_money,
                     teddys_tithe,
                     (war_bonds, bounty, butchers_bill, lucky_strike),
-                    (record_boons, screen::refresh_held_column)
-                        .run_if(resource_changed::<HeldBoons>),
+                    (scorched_earth, overkill),
+                    (record_picks, screen::refresh_held_column).run_if(picks_changed),
                 )
                     .run_if(in_state(GameState::Playing))
                     .run_if(gauntlet),
@@ -114,8 +139,14 @@ fn gauntlet(mode: Res<Mode>) -> bool {
     *mode == Mode::Gauntlet
 }
 
+/// A Boon or a Pact was just taken (or the Run began).
+fn picks_changed(held: Res<HeldBoons>, pacts: Res<HeldPacts>) -> bool {
+    held.is_changed() || pacts.is_changed()
+}
+
 fn reset(mut commands: Commands) {
     commands.insert_resource(HeldBoons::default());
+    commands.insert_resource(HeldPacts::default());
     commands.insert_resource(PendingOffer::default());
     commands.insert_resource(Bought::default());
     commands.insert_resource(Gifts::default());
@@ -135,12 +166,14 @@ fn schedule_offer(
 }
 
 /// Opens the Offer once its delay is up, freezing the world. A Round that ended in Last Stand
-/// waits for the Self-Revive. With no eligible Boon there's no Offer, and the Intermission starts.
+/// waits for the Self-Revive. Every fifth Round it's a Pact Offer, unless no Pact is left to
+/// offer. With no eligible Boon there's no Offer, and the Intermission starts.
 fn open_offer(
     mut commands: Commands,
     mut pending: ResMut<PendingOffer>,
     player: Query<(Has<LastStand>, &Loadout), With<Player>>,
     held: Res<HeldBoons>,
+    pacts: Res<HeldPacts>,
     bought: Res<Bought>,
     unlock_all: Res<UnlockAll>,
     power: Option<Res<Power>>,
@@ -162,15 +195,24 @@ fn open_offer(
     pending.0 = None;
     let run = RunFacts {
         power_on: power.is_some_and(|power| power.is_on()),
-        // No Pacts can be held until they arrive.
-        held_pacts: Vec::new(),
+        held_pacts: pacts.ids(),
         used_box: bought.from_box,
         bought_quick_revive: bought.quick_revive,
         holds_upgraded: loadout.weapons().any(|weapon| weapon.upgraded),
         holds_ammo_mod: loadout.weapons().any(|weapon| !weapon.ammo_mods.is_empty()),
         unlock_all: unlock_all.0,
     };
-    let choices = draw_offer(BOONS, &held, &run, |total| rand::random_range(0.0..total));
+    let roll = |total| rand::random_range(0.0..total);
+    let pact_choices = if is_pact_round(round.number) {
+        draw_pact_offer(PACTS, &pacts, &run, roll)
+    } else {
+        Vec::new()
+    };
+    let choices = if pact_choices.is_empty() {
+        Choices::Boons(draw_offer(BOONS, &held, &run, roll))
+    } else {
+        Choices::Pacts(pact_choices)
+    };
     if choices.is_empty() {
         hold.0 = false;
         return;
@@ -183,49 +225,116 @@ fn open_offer(
     freeze.0 = true;
 }
 
-/// A click on a card, once the input lockout is over, takes that Boon. The world runs again and
-/// the Intermission starts.
+/// A click on a card, once the input lockout is over, takes that Boon or Pact; on a Pact Offer's
+/// Skip button, it takes nothing. The world runs again and the Intermission starts.
 fn pick(
     activate: On<Activate>,
     mut commands: Commands,
     cards: Query<&OfferCard>,
+    skips: Query<(), With<SkipButton>>,
     offer: Option<Res<Offer>>,
     real: Res<Time<Real>>,
     mut held: ResMut<HeldBoons>,
+    mut pacts: ResMut<HeldPacts>,
     mut freeze: ResMut<Freeze>,
     mut hold: ResMut<IntermissionHold>,
 ) {
-    let (Ok(OfferCard(index)), Some(offer)) = (cards.get(activate.entity), offer) else {
+    let Some(offer) = offer else {
         return;
     };
+    let card = cards.get(activate.entity).ok();
+    let skip = skips.contains(activate.entity) && matches!(offer.choices, Choices::Pacts(_));
+    if card.is_none() && !skip {
+        return;
+    }
     if real.elapsed_secs() - offer.shown_at < BOON_OFFER_INPUT_LOCKOUT_SECS {
         return;
     }
-    let Some(&boon) = offer.choices.get(*index) else {
-        return;
-    };
-    held.add(boon);
+    if let Some(OfferCard(index)) = card {
+        match &offer.choices {
+            Choices::Boons(boons) => {
+                let Some(&boon) = boons.get(*index) else {
+                    return;
+                };
+                held.add(boon);
+            }
+            Choices::Pacts(choices) => {
+                let Some(&pact) = choices.get(*index) else {
+                    return;
+                };
+                pacts.add(pact);
+            }
+        }
+    }
     commands.remove_resource::<Offer>();
     freeze.0 = false;
     hold.0 = false;
 }
 
-/// Keeps the Player's Boon entries in step with the Boons held. A Down takes only Perk entries,
-/// so these survive it.
-fn apply_boons(held: Res<HeldBoons>, mut player: Query<&mut Modifiers, With<Player>>) {
+/// Keeps the Player's Boon and Pact entries in step with the Boons and Pacts held. A Down takes
+/// only Perk entries, so these survive it, and a Pact's Drawback lasts the Run.
+fn apply_entries(
+    held: Res<HeldBoons>,
+    pacts: Res<HeldPacts>,
+    mut player: Query<&mut Modifiers, With<Player>>,
+) {
     let Ok(mut modifiers) = player.single_mut() else {
         return;
     };
-    let wanted = held.modifiers();
+    let ours = |source| is_boon_source(source) || is_pact_source(source);
+    let mut wanted = held.modifiers();
+    wanted.extend(pacts.modifiers());
     let current: Vec<_> = modifiers
         .0
         .iter()
-        .filter(|entry| is_boon_source(entry.source))
+        .filter(|entry| ours(entry.source))
         .copied()
         .collect();
     if current != wanted {
-        modifiers.0.retain(|entry| !is_boon_source(entry.source));
+        modifiers.0.retain(|entry| !ours(entry.source));
         modifiers.0.extend(wanted);
+    }
+}
+
+/// Scorched Earth: every Zombie killed by a hit explodes, never hurting the Player.
+fn scorched_earth(
+    mut kills: MessageReader<KillDamage>,
+    pacts: Res<HeldPacts>,
+    mut explosions: MessageWriter<Explosion>,
+) {
+    let held = pacts.holds(SCORCHED_EARTH.id);
+    for kill in kills.read() {
+        if held {
+            explosions.write(scorched_earth_blast(kill.at, kill.max_health));
+        }
+    }
+}
+
+/// Overkill: a kill's damage beyond what it took carries to the nearest Zombie, by the same
+/// attack.
+fn overkill(
+    mut kills: MessageReader<KillDamage>,
+    pacts: Res<HeldPacts>,
+    zombies: Query<(Entity, &GlobalTransform), (With<Zombie>, Without<Dying>)>,
+    mut damage: MessageWriter<DamageZombie>,
+) {
+    let held = pacts.holds(OVERKILL.id);
+    for kill in kills.read() {
+        if !held {
+            continue;
+        }
+        let others = zombies
+            .iter()
+            .filter(|(zombie, _)| *zombie != kill.zombie)
+            .map(|(zombie, transform)| (zombie, transform.translation()));
+        if let Some(zombie) = overkill_target(kill.at, kill.overflow, others) {
+            damage.write(DamageZombie {
+                zombie,
+                damage: kill.overflow,
+                zone: HitZone::Torso,
+                attack: kill.attack,
+            });
+        }
     }
 }
 
@@ -353,14 +462,15 @@ fn toggle_unlock_all(mut unlock_all: ResMut<UnlockAll>) {
     unlock_all.0 = !unlock_all.0;
 }
 
-/// The held Boons go on the Run Record in pick order, with their Stacks.
-fn record_boons(held: Res<HeldBoons>, mut extras: ResMut<RecordExtras>) {
-    extras.0 = held
-        .0
-        .iter()
-        .map(|&(boon, stacks)| RecordExtra {
-            id: boon.id.to_string(),
-            count: stacks,
-        })
-        .collect();
+/// The held Boons go on the Run Record in pick order, with their Stacks, then the Pacts.
+fn record_picks(held: Res<HeldBoons>, pacts: Res<HeldPacts>, mut extras: ResMut<RecordExtras>) {
+    let boons = held.0.iter().map(|&(boon, stacks)| RecordExtra {
+        id: boon.id.to_string(),
+        count: stacks,
+    });
+    let pacts = pacts.0.iter().map(|pact| RecordExtra {
+        id: pact.id().to_string(),
+        count: 1,
+    });
+    extras.0 = boons.chain(pacts).collect();
 }

@@ -11,11 +11,11 @@ use rand::seq::SliceRandom;
 use rand::{Rng, RngExt};
 
 use crate::arsenal::{Availability, WeaponId};
-use crate::buy::{Buyable, Purchased};
+use crate::buy::{Buyable, Purchased, charged};
 use crate::equipment::Equipment;
 use crate::layers::GameLayer;
 use crate::map::BOX_LOCATIONS;
-use crate::modifier::{Modifier, Modifiers, Stat, resolve};
+use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_points};
 use crate::pack_a_punch::PackAPunch;
 use crate::player::Player;
 use crate::points::Points;
@@ -62,6 +62,16 @@ impl Prize {
 /// the Player's stat entries give (none in Classic).
 pub fn free_spin(player: &[Modifier], roll: f64) -> bool {
     roll < f64::from(resolve(Stat::BoxFreeSpinChance, 0.0, player))
+}
+
+/// A spin's price after the Player's stat entries, from the price its owner set.
+pub fn box_price(price: u64, player: &[Modifier]) -> u64 {
+    resolve_points(Stat::BoxPrice, price, player)
+}
+
+/// A spin's Teddy chance after the Player's stat entries, from the Teddy table's. Never above 1.
+pub fn teddy_chance_for(chance: f64, player: &[Modifier]) -> f64 {
+    (chance * f64::from(resolve(Stat::TeddyChance, 1.0, player))).clamp(0.0, 1.0)
 }
 
 /// Whether a Prize comes out Upgraded: only a Weapon can, on a `roll` in [0, 1) under the chance
@@ -408,7 +418,8 @@ fn buy_boxes(
         let Ok(mut mystery_box) = boxes.get_mut(*entity) else { continue };
         match mystery_box.state {
             BoxState::Idle => {
-                let mut paid = mystery_box.price;
+                // What the purchase flow charged, so a refund gives it all back.
+                let mut paid = charged(Some(box_price(mystery_box.price, &modifiers.0)), &modifiers.0).unwrap_or(0);
                 if free_spin(&modifiers.0, rand::random()) {
                     points.refund(paid);
                     paid = 0;
@@ -476,7 +487,11 @@ fn run_boxes(
                 if elapsed < BOX_SPIN_SECS {
                     BoxState::Spinning { elapsed, paid, teddy }
                 } else {
-                    let chance = if teddy { teddy_chance(run.pulls, run.moves == 0) } else { 0.0 };
+                    let chance = if teddy {
+                        teddy_chance_for(teddy_chance(run.pulls, run.moves == 0), &modifiers.0)
+                    } else {
+                        0.0
+                    };
                     match roll_spin(chance, &box_pool(&held, &in_play, monkey_bomb), rng) {
                         Spin::Prize(prize) => {
                             match prize {
@@ -549,10 +564,17 @@ fn run_boxes(
 }
 
 /// Each Box owns its Buyable: a spin while idle, the Prize while one waits, and nothing otherwise.
-fn price_boxes(mut commands: Commands, mut boxes: Query<(Entity, &MysteryBox, &Transform, Option<&mut Buyable>)>) {
+fn price_boxes(
+    mut commands: Commands,
+    mut boxes: Query<(Entity, &MysteryBox, &Transform, Option<&mut Buyable>)>,
+    player: Query<&Modifiers, With<Player>>,
+) {
+    let entries: Vec<Modifier> = player.iter().flat_map(|modifiers| modifiers.0.iter().copied()).collect();
     for (entity, mystery_box, transform, buyable) in &mut boxes {
         let offer = match mystery_box.state {
-            BoxState::Idle => Some(("Press F for Random Weapon".to_string(), Some(mystery_box.price))),
+            BoxState::Idle => {
+                Some(("Press F for Random Weapon".to_string(), Some(box_price(mystery_box.price, &entries))))
+            }
             BoxState::Offering { prize, upgraded, .. } => {
                 Some((format!("Press F to take {}", prize.shown_name(upgraded)), None))
             }
@@ -712,6 +734,19 @@ mod tests {
         assert_eq!(ray_gun.shown_name(true), "Porter's X2 Ray Gun");
         assert_eq!(ray_gun.shown_name(false), "Ray Gun");
         assert_eq!(Prize::MonkeyBomb.shown_name(true), "Monkey Bomb");
+    }
+
+    #[test]
+    fn price_and_teddy_entries_change_the_spin() {
+        let double = |stat| {
+            [Modifier { stat, source: crate::modifier::Source("test"), effect: crate::modifier::Effect::Mult(2.0) }]
+        };
+        assert_eq!(box_price(BOX_PRICE, &[]), BOX_PRICE);
+        assert_eq!(box_price(BOX_PRICE, &double(Stat::BoxPrice)), 2 * BOX_PRICE);
+        let teddy = double(Stat::TeddyChance);
+        assert!((teddy_chance_for(BOX_TEDDY_CHANCE_EARLY, &teddy) - 2.0 * BOX_TEDDY_CHANCE_EARLY).abs() < 1e-6);
+        assert_eq!(teddy_chance_for(0.0, &teddy), 0.0, "the free pulls stay free");
+        assert_eq!(teddy_chance_for(1.0, &teddy), 1.0, "never above certain");
     }
 
     #[test]

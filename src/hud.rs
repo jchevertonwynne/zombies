@@ -10,7 +10,7 @@ use bevy::prelude::*;
 
 use crate::ammo_mod::AmmoMod;
 use crate::attachment::Underbarrel;
-use crate::buy::{Buyable, CantAfford, Focus, HoldBuy, can_afford};
+use crate::buy::{Buyable, CantAfford, Focus, HoldBuy, can_afford, charged};
 use crate::equipment::Equipment;
 use crate::last_stand::LastStand;
 use crate::modifier::Modifiers;
@@ -712,6 +712,7 @@ fn equipment_text(
 fn prompt_text(
     focus: Res<Focus>,
     buyables: Query<(&Buyable, Option<&HoldBuy>)>,
+    player: Single<&Modifiers, With<Player>>,
     points: Res<Points>,
     prompt: Single<(&mut Text, &mut Visibility), With<PromptText>>,
     cost: Single<(&mut TextSpan, &mut TextColor), (With<PromptCost>, Without<PromptHoldCost>)>,
@@ -728,7 +729,7 @@ fn prompt_text(
         text.0.clone_from(&buyable.prompt);
     }
     let (mut span, mut color) = cost.into_inner();
-    set_price(&mut span, &mut color, buyable.price, points.balance);
+    set_price(&mut span, &mut color, charged(buyable.price, &player.0), points.balance);
     let (mut hold_span, mut hold_color) = hold_cost.into_inner();
     match hold.filter(|hold| hold.tap) {
         Some(hold) => {
@@ -736,7 +737,7 @@ fn prompt_text(
             if hold_line.0 != line {
                 hold_line.0 = line;
             }
-            set_price(&mut hold_span, &mut hold_color, hold.price, points.balance);
+            set_price(&mut hold_span, &mut hold_color, charged(hold.price, &player.0), points.balance);
         }
         None => {
             hold_line.0.clear();

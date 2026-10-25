@@ -10,8 +10,9 @@ use crate::equipment::Equipment;
 use crate::last_stand::LastStand;
 use crate::layers::GameLayer;
 use crate::map::PLAYER_START;
-use crate::modifier::{Modifiers, Stat, resolve};
+use crate::modifier::{Modifier, Modifiers, Stat, resolve};
 use crate::perk::Drinking;
+use crate::round::{Round, RoundPhase};
 use crate::settings::Settings;
 use crate::state::{GameState, InRun, Pause};
 use crate::tuning::*;
@@ -207,7 +208,7 @@ fn move_player(
         && !last_stand;
     locomotion.sprinting = wants_sprint && !locomotion.winded;
     if locomotion.sprinting {
-        locomotion.stamina -= dt;
+        locomotion.stamina -= dt * resolve(Stat::SprintDrain, 1.0, &modifiers.0);
         if locomotion.stamina <= 0.0 {
             locomotion.stamina = 0.0;
             locomotion.winded = true;
@@ -276,6 +277,7 @@ pub fn take_hits(mut hits: MessageReader<PlayerHit>, player: Single<(&mut Health
 /// Health stays empty through a Last Stand; the Self-Revive refills it.
 fn regenerate(
     player: Single<(&mut Health, &Modifiers), (With<Player>, Without<LastStand>)>,
+    round: Option<Res<Round>>,
     time: Res<Time>,
 ) {
     let (mut health, modifiers) = player.into_inner();
@@ -283,9 +285,17 @@ fn regenerate(
     let dt = time.delta_secs();
     health.since_hit += dt;
     if health.since_hit >= resolve(Stat::HealthRegenDelay, HEALTH_REGEN_DELAY_SECS, &modifiers.0) {
-        let rate = health.max / HEALTH_REGEN_FULL_SECS;
+        let in_round = round.is_some_and(|round| round.phase == RoundPhase::Active);
+        let rate = regen_rate(health.max, in_round, &modifiers.0);
         health.current = (health.current + rate * dt).min(health.max);
     }
+}
+
+/// Health regenerated per second once the regen delay is up: a full bar in
+/// `HEALTH_REGEN_FULL_SECS`, slowed while a Round is on by the Player's `Stat::RoundRegen` entries.
+pub fn regen_rate(max: f32, in_round: bool, player: &[Modifier]) -> f32 {
+    let rate = max / HEALTH_REGEN_FULL_SECS;
+    if in_round { resolve(Stat::RoundRegen, rate, player).max(0.0) } else { rate }
 }
 
 impl Health {
@@ -318,6 +328,16 @@ mod tests {
         let mut h = health(100.0, 100.0);
         h.set_max(160.0);
         assert_eq!((h.current, h.max), (100.0, 160.0));
+    }
+
+    #[test]
+    fn a_round_regen_entry_holds_health_back_until_the_intermission() {
+        use crate::modifier::{Effect, Source};
+        let none = [Modifier { stat: Stat::RoundRegen, source: Source("A"), effect: Effect::Mult(0.0) }];
+        let full = PLAYER_MAX_HEALTH / HEALTH_REGEN_FULL_SECS;
+        assert_eq!(regen_rate(PLAYER_MAX_HEALTH, true, &[]), full);
+        assert_eq!(regen_rate(PLAYER_MAX_HEALTH, true, &none), 0.0);
+        assert_eq!(regen_rate(PLAYER_MAX_HEALTH, false, &none), full);
     }
 
     #[test]

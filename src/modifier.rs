@@ -81,6 +81,39 @@ pub enum Stat {
     Penetration,
     /// Ammo Mods an Upgraded Weapon can hold.
     AmmoModSlots,
+    /// Every price the purchase flow charges, on top of whatever its owner set.
+    Price,
+    /// Extra multiples of every Points award, added to Double Points' own (base 0).
+    PointsRate,
+    /// Zombies in a Round's Horde.
+    HordeSize,
+    /// The most normal Zombies in play at once.
+    AliveCap,
+    /// How fast Zombies move.
+    ZombieSpeed,
+    /// The chance a Zombie spawns a Sprinter whatever the Round rolls (base 0).
+    SprinterChance,
+    /// Seconds of sprint used up per second of sprinting (base 1; 0 is unlimited sprint).
+    SprintDrain,
+    /// How much of its usual rate Health regenerates at while a Round is on (base 1). The
+    /// Intermission always regenerates in full.
+    RoundRegen,
+    /// Last Stands a Down can start without Quick Revive, each used once a Run (base 0).
+    SelfRevives,
+    /// A Mystery Box spin's price.
+    BoxPrice,
+    /// A factor on the Teddy table's chance that a Box spin gives a Teddy Bear (base 1).
+    TeddyChance,
+    /// A Trap's price.
+    TrapPrice,
+    /// The chance a Knife hit kills outright (base 0).
+    KnifeKillChance,
+    /// Whether Weapons fire straight from Reserve Ammo with no Reloads (base 0; 1 or more is on).
+    ReserveFeed,
+    /// Whether Max Ammo is in the Power-up bag (base 1; below 1 it's left out).
+    MaxAmmoInBag,
+    /// A factor on the chance any eligible kill drops a Power-up (base 1).
+    PowerUpDropChance,
 }
 
 /// Where an entry comes from. Each Perk, Pack-a-Punch, Attachment and so on is its own source:

@@ -8,6 +8,7 @@ use crate::hellhound::{
     hellhound_spawn_gap, mixed_hound_chance, spawn_hellhound,
 };
 use crate::map::{SpawnKind, SpawnPoint};
+use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_count};
 use crate::player::Player;
 use crate::power_up::{DropPowerUp, PowerUp};
 use crate::state::{GameState, Pause};
@@ -73,6 +74,16 @@ pub fn speed_tier(roll: u32) -> SpeedTier {
     }
 }
 
+/// A new Zombie's Speed Tier after the Player's stat entries: a Sprinter, whatever the Round
+/// rolled, on a `roll` in `[0, 1)` under their `Stat::SprinterChance`.
+pub fn spawn_tier(rolled: SpeedTier, player: &[Modifier], roll: f64) -> SpeedTier {
+    if roll < f64::from(resolve(Stat::SprinterChance, 0.0, player)) {
+        SpeedTier::Sprinter
+    } else {
+        rolled
+    }
+}
+
 /// The Spawn Points a new Zombie picks from, uniformly: every one in an Active Zone, with no
 /// line-of-sight exclusion. Hellhound Spawn Points are picked by `hellhound_spawn_candidates`.
 pub fn spawn_candidates<T>(points: impl IntoIterator<Item = (ZoneId, T)>, active: ZoneSet) -> Vec<T> {
@@ -105,13 +116,15 @@ pub struct Round {
 }
 
 impl Round {
-    /// Round `number` begins, Hellhound Round or not by the Run's `schedule`.
-    fn begin(number: u32, mut schedule: HellhoundSchedule) -> Self {
+    /// Round `number` begins, Hellhound Round or not by the Run's `schedule`. Its Horde follows
+    /// the Player's stat entries.
+    fn begin(number: u32, mut schedule: HellhoundSchedule, player: &[Modifier]) -> Self {
         let hellhound = schedule.begin(number, rand::random_range(HELLHOUND_ROUND_GAPS));
-        let (left_to_spawn, spawn_timer) = match hellhound {
+        let (horde, spawn_timer) = match hellhound {
             Some(count) => (hellhound_horde(count), HELLHOUND_FIRST_SPAWN_SECS),
             None => (horde_size(number), 0.0),
         };
+        let left_to_spawn = resolve_count(Stat::HordeSize, horde, player);
         Self {
             number,
             phase: RoundPhase::Active,
@@ -161,7 +174,7 @@ impl Plugin for RoundPlugin {
 
 fn start_first_round(mut commands: Commands, mut started: MessageWriter<RoundStarted>) {
     let schedule = HellhoundSchedule::new(rand::random_range(HELLHOUND_FIRST_ROUNDS));
-    commands.insert_resource(Round::begin(1, schedule));
+    commands.insert_resource(Round::begin(1, schedule, &[]));
     commands.insert_resource(IntermissionHold::default());
     started.write(RoundStarted);
 }
@@ -182,7 +195,7 @@ fn spawn_horde(
     mut round: ResMut<Round>,
     alive: Query<&Zombie, Without<Dying>>,
     spawn_points: Query<(&Transform, &SpawnPoint)>,
-    player: Single<&Transform, With<Player>>,
+    player: Single<(&Transform, &Modifiers), With<Player>>,
     active: Res<ActiveZones>,
     assets: ZombieAssetsParam,
     hound_assets: HellhoundAssetsParam,
@@ -192,7 +205,12 @@ fn spawn_horde(
         return;
     }
     round.spawn_timer -= time.delta_secs();
-    let cap = if round.hellhound.is_some() { HELLHOUND_ALIVE_CAP } else { ALIVE_CAP };
+    let (player, modifiers) = *player;
+    let cap = if round.hellhound.is_some() {
+        HELLHOUND_ALIVE_CAP
+    } else {
+        resolve_count(Stat::AliveCap, ALIVE_CAP, &modifiers.0)
+    };
     if round.spawn_timer > 0.0 || alive.iter().count() as u32 >= cap {
         return;
     }
@@ -241,6 +259,7 @@ fn spawn_horde(
     let (point, kind) = points[rand::random_range(0..points.len())];
     let jitter = Vec3::new(rand::random_range(-0.75..0.75), 0.0, rand::random_range(-0.75..0.75));
     let tier = speed_tier(rand::random_range(speed_roll_range(round.number)));
+    let tier = spawn_tier(tier, &modifiers.0, rand::random());
 
     let zombie = spawn_zombie(
         &mut commands,
@@ -300,6 +319,7 @@ fn end_round(
 fn run_intermission(
     mut round: ResMut<Round>,
     hold: Res<IntermissionHold>,
+    player: Query<&Modifiers, With<Player>>,
     mut started: MessageWriter<RoundStarted>,
     time: Res<Time>,
 ) {
@@ -312,7 +332,8 @@ fn run_intermission(
     }
     let left = left - time.delta_secs();
     if left <= 0.0 {
-        *round = Round::begin(round.number.saturating_add(1), round.schedule);
+        let entries: Vec<Modifier> = player.iter().flat_map(|modifiers| modifiers.0.iter().copied()).collect();
+        *round = Round::begin(round.number.saturating_add(1), round.schedule, &entries);
         started.write(RoundStarted);
     } else {
         round.phase = RoundPhase::Intermission(left);
@@ -458,6 +479,25 @@ mod tests {
         for round in [10, 30, 100] {
             assert_eq!(tiers_in(round), [SpeedTier::Sprinter], "round {round}");
         }
+    }
+
+    #[test]
+    fn a_sprinter_chance_entry_makes_sprinters_from_round_one() {
+        use crate::modifier::{Effect, Source};
+        let always = [Modifier { stat: Stat::SprinterChance, source: Source("A"), effect: Effect::Chance(1.0, 1) }];
+        for roll in [0.0, 0.5, 0.999] {
+            assert_eq!(spawn_tier(SpeedTier::Walker, &always, roll), SpeedTier::Sprinter);
+            assert_eq!(spawn_tier(SpeedTier::Walker, &[], roll), SpeedTier::Walker, "Classic keeps the roll");
+        }
+    }
+
+    #[test]
+    fn horde_and_alive_cap_entries_resize_them() {
+        use crate::modifier::{Effect, Source};
+        let bigger = [Modifier { stat: Stat::HordeSize, source: Source("A"), effect: Effect::Mult(1.25) }];
+        assert_eq!(resolve_count(Stat::HordeSize, horde_size(10), &bigger), (horde_size(10) as f32 * 1.25).ceil() as u32);
+        let cap = [Modifier { stat: Stat::AliveCap, source: Source("A"), effect: Effect::Flat(8.0) }];
+        assert_eq!(resolve_count(Stat::AliveCap, ALIVE_CAP, &cap), 32);
     }
 
     #[test]

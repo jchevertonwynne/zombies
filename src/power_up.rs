@@ -149,6 +149,8 @@ pub struct DropMeter {
     pub this_round: u32,
     /// The most drops a Round, resolved from the Player's stat entries.
     pub per_round: u32,
+    /// The chance any eligible kill drops one, resolved from the Player's stat entries.
+    pub chance: f64,
 }
 
 impl Default for DropMeter {
@@ -159,6 +161,7 @@ impl Default for DropMeter {
             armed: false,
             this_round: 0,
             per_round: POWER_UPS_PER_ROUND,
+            chance: POWER_UP_KILL_CHANCE,
         }
     }
 }
@@ -181,7 +184,7 @@ impl DropMeter {
         if !eligible || self.this_round >= self.per_round {
             return false;
         }
-        if !(self.armed || chance < POWER_UP_KILL_CHANCE) || !reachable {
+        if !(self.armed || chance < self.chance) || !reachable {
             return false;
         }
         self.armed = false;
@@ -202,12 +205,15 @@ pub struct BagRules {
     /// How many times the Mystery Box has moved this Run.
     pub box_moves: u32,
     pub fire_sale_active: bool,
+    /// Whether Max Ammo is in the bag at all. It always is in Classic.
+    pub max_ammo: bool,
 }
 
-/// Whether a Power-up may come out of the bag now: Carpenter needs 5 broken Barriers, and Fire
-/// Sale needs the Box to have moved once and no Fire Sale already on.
+/// Whether a Power-up may come out of the bag now: Carpenter needs 5 broken Barriers, Fire Sale
+/// needs the Box to have moved once and no Fire Sale already on, and Max Ammo can be left out.
 pub fn may_drop(power_up: PowerUp, rules: BagRules) -> bool {
     match power_up {
+        PowerUp::MaxAmmo => rules.max_ammo,
         PowerUp::Carpenter => rules.broken_barriers >= CARPENTER_MIN_BROKEN_BARRIERS,
         PowerUp::FireSale => rules.box_moves > 0 && !rules.fire_sale_active,
         _ => true,
@@ -215,7 +221,7 @@ pub fn may_drop(power_up: PowerUp, rules: BagRules) -> bool {
 }
 
 /// The next Power-up from the shuffle bag. A skipped one is used up, and an empty bag is refilled
-/// with all six in a fresh order. Max Ammo is never skipped, so this always ends.
+/// with all six in a fresh order. Insta-Kill is never skipped, so this always ends.
 pub fn next_power_up<R: Rng + ?Sized>(bag: &mut Vec<PowerUp>, rules: BagRules, rng: &mut R) -> PowerUp {
     loop {
         if bag.is_empty() {
@@ -366,6 +372,10 @@ fn resolve_stats(
     if meter.per_round != per_round {
         meter.per_round = per_round;
     }
+    let chance = POWER_UP_KILL_CHANCE * f64::from(resolve(Stat::PowerUpDropChance, 1.0, &player.0));
+    if meter.chance != chance {
+        meter.chance = chance;
+    }
 }
 
 fn tick_timers(mut active: ResMut<ActivePowerUps>, mut points: ResMut<Points>, time: Res<Time>) {
@@ -391,6 +401,7 @@ fn drop_power_ups(
     box_run: Res<BoxRun>,
     active: Res<ActivePowerUps>,
     assets: Res<PowerUpAssets>,
+    player: Single<&Modifiers, With<Player>>,
 ) {
     if rounds.read().count() > 0 {
         meter.new_round();
@@ -406,6 +417,7 @@ fn drop_power_ups(
         broken_barriers: barriers.fully_broken(),
         box_moves: box_run.moves,
         fire_sale_active: active.active(PowerUp::FireSale),
+        max_ammo: resolve(Stat::MaxAmmoInBag, 1.0, &player.0) >= 1.0,
     };
     let rng = &mut rand::rng();
     let mut drops: Vec<(Vec3, Option<PowerUp>)> = requests.read().map(|request| (request.at, request.power_up)).collect();
@@ -596,6 +608,7 @@ mod tests {
             broken_barriers,
             box_moves,
             fire_sale_active,
+            max_ammo: true,
         }
     }
 
@@ -646,6 +659,24 @@ mod tests {
         assert!(!meter.roll(true, 0.031, true));
         assert!(meter.roll(true, 0.029, true));
         assert!(!meter.roll(false, 0.0, true));
+    }
+
+    #[test]
+    fn a_halved_chance_halves_the_kill_chance() {
+        let mut meter = DropMeter { chance: POWER_UP_KILL_CHANCE * 0.5, ..DropMeter::default() };
+        assert!(!meter.roll(true, 0.016, true));
+        assert!(meter.roll(true, 0.014, true));
+    }
+
+    #[test]
+    fn max_ammo_can_leave_the_bag() {
+        let rng = &mut StdRng::seed_from_u64(7);
+        let rules = BagRules { max_ammo: false, ..rules(10, 1, false) };
+        assert!(!may_drop(PowerUp::MaxAmmo, rules));
+        let mut bag = Vec::new();
+        for _ in 0..60 {
+            assert_ne!(next_power_up(&mut bag, rules, rng), PowerUp::MaxAmmo);
+        }
     }
 
     #[test]

@@ -1618,3 +1618,35 @@ pub const BOON_THROUGH_AND_THROUGH_ZOMBIES: u32 = 1;
 pub const BOON_BLACK_MARKET_UPGRADE_CHANCE: f32 = 0.20;
 pub const BOON_DOUBLE_PUNCHED_AMMO_MOD_SLOTS: u32 = 1;
 pub const BOON_LUCKY_STRIKE_CHANCE: f64 = 0.20;
+
+// Pacts (Appendix B): fixed, held once, never scaled by Round
+/// Every this many Rounds, a Pact Offer replaces the Boon Offer.
+pub const PACT_OFFER_EVERY_ROUNDS: u32 = 5;
+/// Distinct Pacts on one Pact Offer, or fewer if fewer are left.
+pub const PACT_OFFER_SIZE: usize = 3;
+pub const PACT_GLASS_JAW_DAMAGE_FACTOR: f32 = 2.0;
+/// Taken off max Health: one swipe Downs without Juggernog.
+pub const PACT_GLASS_JAW_MAX_HEALTH_LOSS: f32 = 40.0;
+/// All Points ×2, added to Double Points' ×2 (×3 during it).
+pub const PACT_GOLD_RUSH_POINTS_FACTOR: f32 = 2.0;
+pub const PACT_GOLD_RUSH_PRICE_FACTOR: f32 = 1.25;
+/// A killed Zombie's blast does this fraction of its max Health.
+pub const PACT_SCORCHED_EARTH_HEALTH_FRACTION: f32 = 0.5;
+pub const PACT_SCORCHED_EARTH_RADIUS_M: f32 = 2.0;
+/// The blast goes off this high above the dead Zombie's feet, about its middle.
+pub const PACT_SCORCHED_EARTH_BLAST_HEIGHT_M: f32 = 1.0;
+pub const PACT_SCORCHED_EARTH_ZOMBIE_SPEED_FACTOR: f32 = 1.2;
+pub const PACT_OPEN_BAR_HORDE_FACTOR: f32 = 1.25;
+/// Self-Revives without Quick Revive, on top of it.
+pub const PACT_UNDYING_SELF_REVIVES: u32 = 2;
+pub const PACT_ARSENAL_BOX_PRICE_FACTOR: f32 = 2.0;
+pub const PACT_ARSENAL_TEDDY_CHANCE_FACTOR: f32 = 2.0;
+/// Pack-a-Punch and Repack prices.
+pub const PACT_OVERCLOCKED_PRICE_FACTOR: f32 = 2.0;
+pub const PACT_COLD_STEEL_RESERVE_FACTOR: f32 = 0.5;
+pub const PACT_LIGHTNING_ROD_DROP_CHANCE_FACTOR: f32 = 0.5;
+/// Damage beyond a kill carries to the nearest Zombie this close.
+pub const PACT_OVERKILL_CARRY_RADIUS_M: f32 = 5.0;
+/// The Alive Cap, up from `ALIVE_CAP`.
+pub const PACT_OVERKILL_ALIVE_CAP: u32 = 32;
+pub const PACT_DEAD_RUN_MOVE_SPEED_FACTOR: f32 = 1.3;

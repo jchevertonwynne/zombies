@@ -1,11 +1,11 @@
 //! The Down and the Last Stand. Every Down takes every Perk (unless a stat entry keeps some). Holding Quick Revive, a Down starts
 //! a Last Stand: the Player crawls with Mustang & Sally and can't be hurt, then Self-Revives.
-//! Without it, the Run is over.
+//! Without it (or a spare Self-Revive a stat entry gives), the Run is over.
 
 use bevy::prelude::*;
 
 use crate::buy::buy;
-use crate::modifier::Modifiers;
+use crate::modifier::{Modifier, Modifiers, Stat, resolve_count};
 use crate::perk::{Drinking, Perk, Perks, drink, kept_on_down};
 use crate::player::{Health, Player, PlayerCamera, take_hits};
 use crate::state::{GameState, Pause};
@@ -30,15 +30,25 @@ pub struct Down {
 #[derive(Message, Debug, Clone, Copy)]
 pub struct SelfRevived;
 
-/// What a Down leads to, given the Perks held at the moment of it: an unused Quick Revive life
-/// means a Last Stand, otherwise Game Over.
-pub fn down_outcome(perks: &Perks) -> DownOutcome {
-    if perks.has(Perk::QuickRevive) {
+/// What a Down leads to, given the Perks held at the moment of it and the spare Self-Revives
+/// left (none in Classic): an unused Quick Revive life means a Last Stand, and so does a spare
+/// once Quick Revive is gone; otherwise Game Over.
+pub fn down_outcome(perks: &Perks, spares_left: u32) -> DownOutcome {
+    if perks.has(Perk::QuickRevive) || spares_left > 0 {
         DownOutcome::LastStand
     } else {
         DownOutcome::GameOver
     }
 }
+
+/// Spare Self-Revives left: the Player's `Stat::SelfRevives` entries, less those used this Run.
+pub fn spares_left(player: &[Modifier], used: u32) -> u32 {
+    resolve_count(Stat::SelfRevives, 0, player).saturating_sub(used)
+}
+
+/// Spare Self-Revives used this Run: Last Stands started without Quick Revive.
+#[derive(Resource, Default)]
+pub struct SparesUsed(pub u32);
 
 /// What the Player holds through a Last Stand: Mustang & Sally, with a full Magazine and
 /// `LAST_STAND_SPARE_MAGAZINES` more in Reserve Ammo.
@@ -89,6 +99,8 @@ impl Plugin for LastStandPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Down>()
             .add_message::<SelfRevived>()
+            .init_resource::<SparesUsed>()
+            .add_systems(OnEnter(GameState::Playing), |mut used: ResMut<SparesUsed>| used.0 = 0)
             .add_systems(
                 Update,
                 // A drink that ends in the frame of a Down is still lost, and nothing can be bought
@@ -109,12 +121,16 @@ pub fn go_down(
     >,
     mut downs: MessageWriter<Down>,
     mut next: ResMut<NextState<GameState>>,
+    mut spares: ResMut<SparesUsed>,
 ) {
     let (entity, mut health, mut perks, mut modifiers, mut loadout) = player.into_inner();
     if health.current > 0.0 {
         return;
     }
-    let outcome = down_outcome(&perks);
+    let outcome = down_outcome(&perks, spares_left(&modifiers.0, spares.0));
+    if outcome == DownOutcome::LastStand && !perks.has(Perk::QuickRevive) {
+        spares.0 = spares.0.saturating_add(1);
+    }
     let keep = kept_on_down(&modifiers.0);
     perks.lose_on_down(keep, &mut modifiers);
     commands.entity(entity).remove::<Drinking>();
@@ -167,26 +183,39 @@ mod tests {
     #[test]
     fn a_down_with_quick_revive_starts_a_last_stand() {
         let perks = Perks(vec![Perk::Juggernog, Perk::QuickRevive]);
-        assert_eq!(down_outcome(&perks), DownOutcome::LastStand);
+        assert_eq!(down_outcome(&perks, 0), DownOutcome::LastStand);
     }
 
     #[test]
     fn a_down_without_a_life_is_game_over() {
-        assert_eq!(down_outcome(&Perks::default()), DownOutcome::GameOver);
+        assert_eq!(down_outcome(&Perks::default(), 0), DownOutcome::GameOver);
         let perks = Perks(vec![Perk::Juggernog, Perk::SpeedCola, Perk::DoubleTap]);
-        assert_eq!(down_outcome(&perks), DownOutcome::GameOver);
+        assert_eq!(down_outcome(&perks, 0), DownOutcome::GameOver);
     }
 
     #[test]
     fn a_down_uses_up_the_life_and_every_perk() {
         let mut perks = Perks(Perk::ALL.to_vec());
         let mut modifiers = Modifiers(Perk::ALL.iter().flat_map(|perk| perk.modifiers()).copied().collect());
-        assert_eq!(down_outcome(&perks), DownOutcome::LastStand);
+        assert_eq!(down_outcome(&perks, 0), DownOutcome::LastStand);
         perks.lose_on_down(0, &mut modifiers);
         assert!(perks.0.is_empty());
         assert!(modifiers.0.is_empty());
         // So the next Down, with no Quick Revive bought since, ends the Run.
-        assert_eq!(down_outcome(&perks), DownOutcome::GameOver);
+        assert_eq!(down_outcome(&perks, 0), DownOutcome::GameOver);
+    }
+
+    #[test]
+    fn spare_self_revives_start_last_stands_without_quick_revive_until_used_up() {
+        use crate::modifier::{Effect, Source};
+        let two = [Modifier { stat: Stat::SelfRevives, source: Source("A"), effect: Effect::Flat(2.0) }];
+        assert_eq!(spares_left(&[], 0), 0);
+        assert_eq!(spares_left(&two, 0), 2);
+        assert_eq!(spares_left(&two, 2), 0);
+        assert_eq!(spares_left(&two, 5), 0);
+        let none = Perks::default();
+        assert_eq!(down_outcome(&none, spares_left(&two, 1)), DownOutcome::LastStand);
+        assert_eq!(down_outcome(&none, spares_left(&two, 2)), DownOutcome::GameOver);
     }
 
     #[test]
