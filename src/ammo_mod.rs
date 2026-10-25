@@ -460,6 +460,10 @@ fn roll_ammo_mods(
             .map(|(entity, _, transform, ..)| (entity, transform.translation))
             .unzip();
         for ammo_mod in fired {
+            // Turned does nothing to a Napalm or a Shrieker.
+            if ammo_mod == AmmoMod::Turned && zombie.special_kind().is_some() {
+                continue;
+            }
             cooldowns.start(ammo_mod, resolve(Stat::AmmoModCooldown, ammo_mod.cooldown_secs(), &player.0));
             let colour = ammo_mod.glint();
             match ammo_mod {
@@ -542,6 +546,9 @@ fn roll_ammo_mods(
                         }
                     }
                     for i in turn_blast_targets(at, &positions) {
+                        if zombies.get(others[i]).is_ok_and(|(_, other, ..)| other.special_kind().is_some()) {
+                            continue;
+                        }
                         kill(&mut damage, others[i], Pay::Unpaid);
                         commands.entity(others[i]).insert(Flung::away(at, positions[i], TURNED_FLING_SPEED, TURNED_FLING_LIFT));
                         spent.push(others[i]);
@@ -646,7 +653,7 @@ fn fire_phantoms(
 fn run_allies(
     mut commands: Commands,
     mut allies: Query<(Entity, &mut TurnedAlly, &mut Route, &mut Transform, &Collider), Without<Zombie>>,
-    zombies: Query<(Entity, &Transform), (With<Zombie>, Without<Dying>, Without<Rising>)>,
+    zombies: Query<(Entity, &Transform, &Zombie), (Without<Dying>, Without<Rising>)>,
     graph: Res<NavGraph>,
     barriers: Res<Barriers>,
     doors: Query<&Door>,
@@ -675,8 +682,11 @@ fn run_allies(
         }
 
         let feet = transform.translation - Vec3::Y * half;
+        // An ally leaves a Napalm or a Shrieker alone.
         let target = zombies
             .iter()
+            .filter(|(_, _, zombie)| zombie.special_kind().is_none())
+            .map(|(zombie, at, _)| (zombie, at))
             .min_by(|(_, a), (_, b)| {
                 a.translation.distance(transform.translation).total_cmp(&b.translation.distance(transform.translation))
             })

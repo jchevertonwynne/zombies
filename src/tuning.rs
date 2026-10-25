@@ -1230,6 +1230,80 @@ pub const HELLHOUND_MIXED_MAX_ALIVE: u32 = 2;
 pub const HELLHOUND_AROUND_MIN_DIST: f32 = 2.0;
 pub const HELLHOUND_AROUND_MAX_DIST: f32 = 5.0;
 
+// Napalm and Shrieker, sharing one special slot
+/// The first Napalm Round is drawn uniformly from these Rounds; after each Napalm's death the next
+/// comes this many Rounds later.
+pub const NAPALM_FIRST_ROUNDS: std::ops::RangeInclusive<u32> = 5..=7;
+pub const NAPALM_ROUND_GAPS: std::ops::RangeInclusive<u32> = 1..=2;
+/// Likewise for the Shrieker.
+pub const SHRIEKER_FIRST_ROUNDS: std::ops::RangeInclusive<u32> = 4..=7;
+pub const SHRIEKER_ROUND_GAPS: std::ops::RangeInclusive<u32> = 1..=3;
+/// A special spawns once this share of the Horde has spawned, drawn uniformly each Round.
+pub const SPECIAL_SPAWN_HORDE_FRACTION: std::ops::RangeInclusive<f64> = 0.25..=0.75;
+/// A special never rises this close to the Player.
+pub const SPECIAL_SPAWN_MIN_DIST: f32 = 5.0;
+pub const NAPALM_RISE_SECS: f32 = 1.5;
+pub const SHRIEKER_RISE_SECS: f32 = 1.0;
+/// Health as a multiple of the Round's Zombie health.
+pub const NAPALM_HEALTH_MULTIPLIER: f32 = 4.0;
+pub const SHRIEKER_HEALTH_MULTIPLIER: f32 = 2.5;
+pub const NAPALM_SWIPE_DAMAGE: f32 = 60.0;
+/// A Napalm self-detonates with the Player within this far horizontally and vertically…
+pub const NAPALM_DETONATE_HORIZONTAL: f32 = 2.3;
+pub const NAPALM_DETONATE_VERTICAL: f32 = 1.3;
+/// …at least this long after it spawned, after this wind-up.
+pub const NAPALM_DETONATE_MIN_AGE_SECS: f32 = 2.0;
+pub const NAPALM_WIND_UP_SECS: f32 = 0.75;
+/// A Napalm's explosion hurts the Player in sight: `NAPALM_BLAST_CLOSE_DAMAGE` under
+/// `NAPALM_BLAST_CLOSE_DIST`, `NAPALM_BLAST_MID_DAMAGE` out to `NAPALM_BLAST_MID_DIST`, then falling
+/// to `NAPALM_BLAST_FAR_DAMAGE` at `NAPALM_BLAST_FAR_DIST`.
+pub const NAPALM_BLAST_CLOSE_DIST: f32 = 2.3;
+pub const NAPALM_BLAST_CLOSE_DAMAGE: f32 = 250.0;
+pub const NAPALM_BLAST_MID_DIST: f32 = 3.8;
+pub const NAPALM_BLAST_MID_DAMAGE: f32 = 100.0;
+pub const NAPALM_BLAST_FAR_DIST: f32 = 10.2;
+pub const NAPALM_BLAST_FAR_DAMAGE: f32 = 50.0;
+/// Shellshock from a Napalm's blast: the longest at its centre, the shortest at its edge.
+pub const NAPALM_SHELLSHOCK_SECS: std::ops::RangeInclusive<f32> = 1.5..=3.0;
+/// The blast kills every Zombie in sight within this.
+pub const NAPALM_KILL_RADIUS: f32 = 6.35;
+/// The heat tint shows within this of a living Napalm.
+pub const NAPALM_HEAT_DIST: f32 = 10.2;
+/// Fire pools: on death, `NAPALM_DEATH_POOL_DAMAGE` to the Player every `NAPALM_POOL_TICK_SECS`
+/// for `NAPALM_DEATH_POOL_SECS`; on spawn, `NAPALM_SPAWN_POOL_DAMAGE` for `NAPALM_SPAWN_POOL_SECS`.
+pub const NAPALM_POOL_RADIUS: f32 = 2.0;
+pub const NAPALM_POOL_TICK_SECS: f32 = 0.5;
+pub const NAPALM_DEATH_POOL_SECS: f32 = 20.0;
+pub const NAPALM_DEATH_POOL_DAMAGE: f32 = 40.0;
+pub const NAPALM_SPAWN_POOL_SECS: f32 = 6.0;
+pub const NAPALM_SPAWN_POOL_DAMAGE: f32 = 10.0;
+/// Zombies walking into a fire pool burn and die, at most this many burning at once…
+pub const NAPALM_POOL_MAX_BURNING: usize = 6;
+/// …after burning this long (invented).
+pub const NAPALM_POOL_BURN_SECS: f32 = 1.0;
+/// A Player's kill of a Napalm pays this on top of its kill Points.
+pub const NAPALM_KILL_BONUS: u64 = 300;
+/// A Shrieker screams with the Player within this far horizontally and vertically, in front of
+/// it (the dot of its facing with the way to the Player at least `SHRIEKER_SCREAM_MIN_DOT`)…
+pub const SHRIEKER_SCREAM_HORIZONTAL: f32 = 7.6;
+pub const SHRIEKER_SCREAM_VERTICAL: f32 = 1.8;
+pub const SHRIEKER_SCREAM_MIN_DOT: f32 = 0.4;
+/// …after this wind-up, then waits this long, drawn uniformly, before the next.
+pub const SHRIEKER_WIND_UP_SECS: f32 = 0.5;
+pub const SHRIEKER_COOLDOWN_SECS: std::ops::RangeInclusive<f32> = 6.0..=10.0;
+/// A scream blurs the Player's view and shakes it.
+pub const SHRIEKER_BLUR_SECS: f32 = 4.0;
+pub const SHRIEKER_SHAKE_SECS: f32 = 3.0;
+/// How far the view shakes at first, in metres (invented).
+pub const SHRIEKER_SHAKE_AMPLITUDE: f32 = 0.05;
+/// The death scream kills every Zombie in sight within this, after a delay drawn uniformly.
+pub const SHRIEKER_DEATH_SCREAM_RADIUS: f32 = 12.2;
+pub const SHRIEKER_DEATH_SCREAM_DELAY_SECS: std::ops::RangeInclusive<f32> = 0.0..=1.0;
+/// A Shrieker pays hit Points on every this-many-th hit only.
+pub const SHRIEKER_HIT_POINTS_EVERY: u32 = 2;
+/// Seconds between a Shrieker's idle gasps, drawn uniformly.
+pub const SHRIEKER_IDLE_SECS: std::ops::RangeInclusive<f32> = 2.0..=4.0;
+
 // Fog
 /// The Player's fog, linear from start to end.
 pub const FOG_START: f32 = 10.0;

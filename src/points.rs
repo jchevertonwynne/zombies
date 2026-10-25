@@ -6,9 +6,9 @@ use crate::state::GameState;
 use crate::tuning::*;
 use crate::zombie::{Attack, HitZone, Pay, ZombieHit, ZombieKilled};
 
-/// Points paid for one hit a Zombie survives.
-pub fn points_for(_hit: ZombieHit) -> u64 {
-    POINTS_PER_HIT
+/// Points paid for one hit a Zombie survives, if the hit pays at all.
+pub fn points_for(hit: ZombieHit) -> u64 {
+    if hit.pays { POINTS_PER_HIT } else { 0 }
 }
 
 /// Kill Points for a kill: by hit zone, a flat amount for the Knife, nothing if Unpaid (a Trap's,
@@ -123,7 +123,8 @@ mod tests {
 
     #[test]
     fn any_non_lethal_hit_pays_ten() {
-        assert_eq!(points_for(ZombieHit), 10);
+        assert_eq!(points_for(ZombieHit { pays: true }), 10);
+        assert_eq!(points_for(ZombieHit { pays: false }), 0);
     }
 
     #[test]

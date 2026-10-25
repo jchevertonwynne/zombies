@@ -48,6 +48,17 @@ fn recipe(cue: Cue) -> Recipe {
         Cue::HoundSpawn => Recipe::Synth(lightning_crack()),
         Cue::HoundBite => Recipe::Synth(snarl_snap()),
         Cue::HoundDeath => Recipe::Synth(yelp()),
+        Cue::Shellshock => Recipe::Synth(ear_ring()),
+        Cue::NapalmRise => Recipe::Synth(rumble_flare()),
+        Cue::NapalmWindup => Recipe::Synth(rising_whoosh(0.75, 0x0a7a_1001)),
+        Cue::NapalmExplode => Recipe::Synth(fireball_boom()),
+        Cue::FireBurn => Recipe::Synth(sizzle()),
+        Cue::ShriekerRise => Recipe::Synth(screech(0.6, 500.0, 1400.0, 0x5e1e_0001)),
+        Cue::ShriekerIdle => Recipe::Synth(gasps()),
+        Cue::ShriekerWindup => Recipe::Synth(rising_whoosh(0.5, 0x5e1e_0002)),
+        Cue::ShriekerScream => Recipe::Synth(screech(1.0, 1800.0, 1500.0, 0x5e1e_0003)),
+        Cue::ShriekerDeath => Recipe::Synth(screech(1.4, 1100.0, 600.0, 0x5e1e_0004)),
+        Cue::ScreamPop => Recipe::Synth(thud(0.12, 140.0)),
         Cue::AnnouncerMaxAmmo => Recipe::Speak("Max Ammo!", None),
         Cue::AnnouncerInstaKill => Recipe::Speak("Insta-Kill!", None),
         Cue::AnnouncerDoublePoints => Recipe::Speak("Double Points!", None),
@@ -375,6 +386,95 @@ fn plank_rebuild() -> Vec<f32> {
                 0.0
             };
             (knock * 0.6 + ding).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
+/// A high ear-ring tone over a muffled hum, for Shellshock.
+fn ear_ring() -> Vec<f32> {
+    let secs = 1.6;
+    samples(secs)
+        .map(|t| {
+            let fade = (t * 30.0).min(1.0) * (1.0 - t / secs);
+            let ring = (TAU * 3200.0 * t).sin() * 0.25;
+            let hum = (TAU * 60.0 * t).sin() * 0.2;
+            (ring + hum) * fade
+        })
+        .collect()
+}
+
+/// A ground rumble swelling into a roaring flare, for a Napalm rising.
+fn rumble_flare() -> Vec<f32> {
+    let mut seed = 0x0a7a_1000;
+    let secs = 1.5;
+    samples(secs)
+        .map(|t| {
+            let rumble = (TAU * 45.0 * t).sin() * (1.0 + 0.5 * noise(&mut seed)) * 0.35;
+            let flare = noise(&mut seed) * (t / secs).powi(2) * 0.6;
+            ((rumble + flare) * (1.0 - (t / secs).powi(8))).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
+/// A breathy whoosh rising in pitch over `secs`, for a wind-up tell.
+fn rising_whoosh(secs: f32, mut seed: u32) -> Vec<f32> {
+    let mut low = 0.0;
+    samples(secs)
+        .map(|t| {
+            let p = t / secs;
+            // A one-pole filter that opens up as it rises.
+            let k = 0.05 + 0.6 * p;
+            low += (noise(&mut seed) - low) * k;
+            let tone = (TAU * (300.0 + 900.0 * p) * t).sin() * 0.15;
+            ((low * 0.7 + tone) * p.sqrt()).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
+/// A deep fireball boom with a long, crackling tail.
+fn fireball_boom() -> Vec<f32> {
+    let mut seed = 0x0a7a_1002;
+    samples(2.0)
+        .map(|t| {
+            let boom = (TAU * 50.0 * t).sin() * (-t * 3.0).exp() * 0.7;
+            let blast = noise(&mut seed) * (-t * 6.0).exp() * 0.6;
+            let crackle = if noise(&mut seed) > 0.97 { noise(&mut seed) * 0.5 } else { 0.0 } * (-t * 1.2).exp();
+            (boom + blast + crackle).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
+/// A short hissing sizzle, for the Player burning.
+fn sizzle() -> Vec<f32> {
+    let mut seed = 0x0a7a_1003;
+    samples(0.4)
+        .map(|t| noise(&mut seed) * (-t * 8.0).exp() * 0.35 * (1.0 + (TAU * 90.0 * t).sin()) / 2.0)
+        .collect()
+}
+
+/// A distorted shriek gliding from `from` Hz to `to` Hz over `secs`.
+fn screech(secs: f32, from: f32, to: f32, mut seed: u32) -> Vec<f32> {
+    let mut phase = 0.0;
+    samples(secs)
+        .map(|t| {
+            let p = t / secs;
+            let freq = from + (to - from) * p;
+            phase += TAU * freq / SAMPLE_RATE as f32;
+            let tone = phase.sin() + 0.5 * (phase * 2.0).sin() + 0.3 * noise(&mut seed);
+            let envelope = (t * 40.0).min(1.0) * (1.0 - p).sqrt();
+            (tone * 1.6).clamp(-1.0, 1.0) * envelope * 0.4
+        })
+        .collect()
+}
+
+/// Ragged, high chattering gasps, for a Shrieker's idle.
+fn gasps() -> Vec<f32> {
+    let mut seed = 0x5e1e_0005;
+    samples(0.7)
+        .map(|t| {
+            let chatter = ((TAU * 9.0 * t).sin().max(0.0)).powi(2);
+            let breath = noise(&mut seed) * 0.4 + (TAU * 900.0 * t).sin() * 0.1;
+            breath * chatter * (1.0 - t / 0.7)
         })
         .collect()
 }

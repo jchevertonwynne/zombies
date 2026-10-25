@@ -34,6 +34,7 @@ mod power_up;
 mod round;
 mod save;
 mod settings;
+mod special;
 mod state;
 mod stats;
 mod trap;
@@ -83,7 +84,7 @@ fn main() {
                 explosive::ExplosivePlugin,
                 wonder::WonderPlugin,
             ),
-            (zombie::ZombiePlugin, hellhound::HellhoundPlugin),
+            (zombie::ZombiePlugin, hellhound::HellhoundPlugin, special::SpecialPlugin),
             round::RoundPlugin,
             points::PointsPlugin,
             stats::StatsPlugin,

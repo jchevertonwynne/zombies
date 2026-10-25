@@ -81,6 +81,19 @@ cues! {
     HoundBite => "hound_bite", Root, Flat, 0.8;
     HoundDeath => "hound_death", Root, Spatial, 0.8;
 
+    // Napalm and Shrieker
+    Shellshock => "shellshock", Root, Flat, 0.8;
+    NapalmRise => "napalm_rise", Root, Spatial, 1.0;
+    NapalmWindup => "napalm_windup", Root, Spatial, 1.0;
+    NapalmExplode => "napalm_explode", Root, Spatial, 1.0;
+    FireBurn => "fire_burn", Root, Flat, 0.6;
+    ShriekerRise => "shrieker_rise", Root, Spatial, 0.9;
+    ShriekerIdle => "shrieker_idle", Root, Spatial, 0.6;
+    ShriekerWindup => "shrieker_windup", Root, Spatial, 1.0;
+    ShriekerScream => "shrieker_scream", Root, Spatial, 1.0;
+    ShriekerDeath => "shrieker_death", Root, Spatial, 1.0;
+    ScreamPop => "scream_pop", Root, Spatial, 0.8;
+
     // Announcer. The Power-up lines play on pickup and the Hellhound line as its Round starts;
     // the Sapper's starts playing when the Sapper exists.
     AnnouncerMaxAmmo => "announcer_max_ammo", Announcer, Flat, 1.0;

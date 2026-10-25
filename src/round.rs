@@ -96,6 +96,8 @@ pub struct Round {
     pub phase: RoundPhase,
     /// Which Hellhound Round this is (1 for the first), if it is one. Its Horde is all hounds.
     pub hellhound: Option<u32>,
+    /// How many Zombies make up this Round's Horde.
+    horde: u32,
     /// Zombies in this Round's Horde that haven't spawned yet.
     left_to_spawn: u32,
     spawn_timer: f32,
@@ -116,6 +118,7 @@ impl Round {
             number,
             phase: RoundPhase::Active,
             hellhound,
+            horde: left_to_spawn,
             left_to_spawn,
             spawn_timer,
             schedule,
@@ -128,7 +131,32 @@ impl Round {
     pub fn hellhound_tier(&self) -> u32 {
         self.schedule.played()
     }
+
+    /// How many Zombies make up this Round's Horde.
+    pub fn horde(&self) -> u32 {
+        self.horde
+    }
+
+    /// How many of the Horde have spawned so far.
+    pub fn horde_spawned(&self) -> u32 {
+        self.horde.saturating_sub(self.left_to_spawn)
+    }
+
+    /// Takes one Zombie from the Horde's left-to-spawn count for something else to spawn in its
+    /// place (a special). False when the Horde has all spawned.
+    pub fn take_from_horde(&mut self) -> bool {
+        if self.left_to_spawn == 0 {
+            return false;
+        }
+        self.left_to_spawn -= 1;
+        true
+    }
 }
+
+/// A Zombie the Round doesn't wait for: if it's alive when the rest of the Horde is dead, the
+/// Round ends anyway and it carries over into the next one. The special slot's Zombies have it.
+#[derive(Component)]
+pub struct CarriesOver;
 
 #[derive(Message)]
 pub struct RoundStarted;
@@ -231,7 +259,7 @@ fn spawn_horde(
     let points = spawn_candidates(
         spawn_points
             .iter()
-            .filter(|(_, point)| point.kind != SpawnKind::Hellhound)
+            .filter(|(_, point)| matches!(point.kind, SpawnKind::Window(_) | SpawnKind::Riser))
             .map(|(t, point)| (point.zone, (t, point.kind))),
         active.0,
     );
@@ -248,7 +276,7 @@ fn spawn_horde(
         point.translation + jitter,
         zombie_health(round.number) as f32,
         tier,
-        kind == SpawnKind::Riser,
+        (kind == SpawnKind::Riser).then_some(ZOMBIE_RISE_SECS),
     );
     // A Zombie outside a window has to get in through its Barrier.
     if let SpawnKind::Window(barrier) = kind {
@@ -259,7 +287,7 @@ fn spawn_horde(
 }
 
 /// In the Rounds listed, the Horde's last Zombie sprints so the Round can't be stalled.
-fn last_zombie_sprints(round: Res<Round>, mut alive: Query<&mut Zombie, Without<Dying>>) {
+fn last_zombie_sprints(round: Res<Round>, mut alive: Query<&mut Zombie, (Without<Dying>, Without<CarriesOver>)>) {
     if round.phase != RoundPhase::Active
         || round.left_to_spawn > 0
         || !LAST_ZOMBIE_SPRINT_ROUNDS.contains(&round.number)
@@ -271,11 +299,11 @@ fn last_zombie_sprints(round: Res<Round>, mut alive: Query<&mut Zombie, Without<
     }
 }
 
-/// The Round ends with its last Zombie. In a Hellhound Round, the last hound drops a Max Ammo,
-/// outside the per-Round cap.
+/// The Round ends with its last Zombie, not counting any that carry over. In a Hellhound Round,
+/// the last hound drops a Max Ammo, outside the per-Round cap.
 fn end_round(
     mut round: ResMut<Round>,
-    alive: Query<(), (With<Zombie>, Without<Dying>)>,
+    alive: Query<(), (With<Zombie>, Without<Dying>, Without<CarriesOver>)>,
     mut kills: MessageReader<ZombieKilled>,
     mut ended: MessageWriter<RoundEnded>,
     mut drops: MessageWriter<DropPowerUp>,

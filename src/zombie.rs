@@ -11,6 +11,8 @@ use crate::hellhound::{HellhoundBite, Telegraph};
 use crate::nav::{NavGraph, Route, repath_interval};
 use crate::player::{Player, PlayerHit};
 use crate::power_up::{ActivePowerUps, PowerUp};
+use crate::round::CarriesOver;
+use crate::special::{SpecialKind, hit_pays};
 use crate::state::{InRun, Pause};
 use crate::tuning::*;
 
@@ -53,6 +55,10 @@ pub enum Attack {
     Nuke,
     /// An Ammo Mod's own damage, Paid or Unpaid by the Ammo Mod. It never rolls Ammo Mods.
     AmmoMod(Pay),
+    /// A Napalm Zombie's explosion or its fire. Its kills are Unpaid.
+    Napalm,
+    /// A Shrieker's death scream. Its kills are Unpaid.
+    Scream,
 }
 
 impl Attack {
@@ -61,7 +67,7 @@ impl Attack {
         match self {
             Attack::AmmoMod(pay) => pay,
             Attack::Bullet | Attack::Knife | Attack::Burn => Pay::Paid,
-            Attack::Trap | Attack::Nuke => Pay::Unpaid,
+            Attack::Trap | Attack::Nuke | Attack::Napalm | Attack::Scream => Pay::Unpaid,
         }
     }
 }
@@ -84,6 +90,12 @@ pub fn dealt_damage(damage: f32, insta_kill: bool) -> f32 {
     if insta_kill && damage > 0.0 { f32::INFINITY } else { damage }
 }
 
+/// The damage a hit really does to a Zombie Insta-Kill can't kill outright (the Napalm): twice
+/// the damage while Insta-Kill is on.
+pub fn doubled_damage(damage: f32, insta_kill: bool) -> f32 {
+    if insta_kill { damage * 2.0 } else { damage }
+}
+
 /// Request to damage a Zombie, written by the Player's attacks.
 #[derive(Message)]
 pub struct DamageZombie {
@@ -103,7 +115,10 @@ pub struct KnockDown {
 
 /// A Zombie took damage and survived.
 #[derive(Message, Debug, Clone, Copy)]
-pub struct ZombieHit;
+pub struct ZombieHit {
+    /// Whether the hit pays hit Points: a Napalm's never do, a Shrieker's every 2nd.
+    pub pays: bool,
+}
 
 /// An explosion blew a Zombie's legs off: it becomes a Crawler.
 #[derive(Message, Debug, Clone, Copy)]
@@ -188,6 +203,10 @@ pub struct Zombie {
     planked_wait: f32,
     /// A Hellhound: fast, low, bites, and never uses Barriers.
     hellhound: bool,
+    /// A Napalm or a Shrieker, from the special slot.
+    special: Option<SpecialKind>,
+    /// Hits it has survived, for a Shrieker's every-2nd-hit Points.
+    hits: u32,
 }
 
 impl Zombie {
@@ -202,6 +221,8 @@ impl Zombie {
             crawler: false,
             planked_wait: 0.0,
             hellhound: false,
+            special: None,
+            hits: 0,
         }
     }
 
@@ -210,6 +231,18 @@ impl Zombie {
         Self {
             hellhound: true,
             ..Self::new(health, SpeedTier::Sprinter, at)
+        }
+    }
+
+    /// A Napalm (a Walker) or a Shrieker (a Sprinter) with `health`, its centre at `at`.
+    pub fn special(kind: SpecialKind, health: f32, at: Vec3) -> Self {
+        let tier = match kind {
+            SpecialKind::Napalm => SpeedTier::Walker,
+            SpecialKind::Shrieker => SpeedTier::Sprinter,
+        };
+        Self {
+            special: Some(kind),
+            ..Self::new(health, tier, at)
         }
     }
 
@@ -231,9 +264,9 @@ impl Zombie {
     }
 
     /// Switches to Sprinter, as the last Zombie of an early Round does. A Crawler never sprints,
-    /// and a Hellhound already runs at its own speed.
+    /// a Hellhound already runs at its own speed, and a Napalm only ever walks.
     pub fn sprint(&mut self) {
-        if !self.crawler {
+        if !self.crawler && self.special != Some(SpecialKind::Napalm) {
             self.tier = SpeedTier::Sprinter;
         }
     }
@@ -244,6 +277,17 @@ impl Zombie {
 
     pub fn is_hellhound(&self) -> bool {
         self.hellhound
+    }
+
+    /// Which special it is, if it's a Napalm or a Shrieker.
+    pub fn special_kind(&self) -> Option<SpecialKind> {
+        self.special
+    }
+
+    /// Whether it's a normal Zombie, the only kind that can lose its legs: not already a Crawler,
+    /// a Hellhound or a special.
+    pub fn is_normal(&self) -> bool {
+        !self.crawler && !self.hellhound && self.special.is_none()
     }
 
     /// From its centre down to its feet.
@@ -267,6 +311,8 @@ impl Zombie {
                 HELLHOUND_BITE_DAMAGE,
                 HELLHOUND_BITE_SECS - HELLHOUND_BITE_WIND_UP_SECS,
             )
+        } else if self.special == Some(SpecialKind::Napalm) {
+            (ZOMBIE_REACH, ZOMBIE_WIND_UP_SECS, NAPALM_SWIPE_DAMAGE, ZOMBIE_HIT_COOLDOWN_SECS)
         } else {
             (ZOMBIE_REACH, ZOMBIE_WIND_UP_SECS, ZOMBIE_SWIPE_DAMAGE, ZOMBIE_HIT_COOLDOWN_SECS)
         }
@@ -298,12 +344,23 @@ pub struct Rising {
     /// Its height when it spawned, and once fully up.
     buried: f32,
     standing: f32,
+    /// How long it takes to climb out.
+    secs: f32,
 }
 
 /// A killed Zombie falling over before it disappears.
 #[derive(Component, Default)]
 pub struct Dying {
     elapsed: f32,
+    /// The attack that killed it, when it was killed rather than falling as a Turned ally.
+    killed_by: Option<Attack>,
+}
+
+impl Dying {
+    /// The attack that killed it.
+    pub fn killed_by(&self) -> Option<Attack> {
+        self.killed_by
+    }
 }
 
 #[derive(Resource)]
@@ -377,14 +434,14 @@ fn body_half_height() -> f32 {
 }
 
 /// Spawns a Zombie standing on the floor at `at`, or, for a Riser, buried under it and about to
-/// climb out.
+/// climb out over `rise` seconds.
 pub fn spawn_zombie(
     commands: &mut Commands,
     assets: &ZombieAssetsParam,
     at: Vec3,
     health: f32,
     tier: SpeedTier,
-    rises: bool,
+    rise: Option<f32>,
 ) -> Entity {
     let assets = &assets.0;
     let half = body_half_height();
@@ -393,14 +450,15 @@ pub fn spawn_zombie(
     let standing = at.y + half + 0.02;
     // A Riser starts with the top of its head below the floor.
     let buried = standing - (half + head_offset + ZOMBIE_HEAD_RADIUS + 0.05);
-    let centre = Vec3::new(at.x, if rises { buried } else { standing }, at.z);
+    let centre = Vec3::new(at.x, if rise.is_some() { buried } else { standing }, at.z);
 
     let mut zombie = commands.spawn_empty();
-    if rises {
+    if let Some(secs) = rise {
         zombie.insert(Rising {
             elapsed: 0.0,
             buried,
             standing,
+            secs,
         });
     }
     zombie
@@ -707,11 +765,11 @@ fn chase(
     }
 }
 
-/// Risers climb out of the ground over `ZOMBIE_RISE_SECS`.
+/// Risers climb out of the ground over their rise time: `ZOMBIE_RISE_SECS`, or a special's own.
 fn rise(mut commands: Commands, mut risers: Query<(Entity, &mut Rising, &mut Transform), Without<Dying>>, time: Res<Time>) {
     for (entity, mut rising, mut transform) in &mut risers {
         rising.elapsed += time.delta_secs();
-        let t = (rising.elapsed / ZOMBIE_RISE_SECS).min(1.0);
+        let t = (rising.elapsed / rising.secs).min(1.0);
         transform.translation.y = rising.buried.lerp(rising.standing, t);
         if t >= 1.0 {
             commands.entity(entity).remove::<Rising>();
@@ -722,12 +780,13 @@ fn rise(mut commands: Commands, mut risers: Query<(Entity, &mut Rising, &mut Tra
 /// A Zombie that's stuck, or lost far from the Player, is quietly removed and sent back into the
 /// Horde, so a Round never stalls. A Zombie outside a window is waiting on its Planks, not
 /// stuck, so its clock only starts once it's in. A Crawler can't tear them, though, so for it
-/// waiting at a planked Barrier too long is stuck.
+/// waiting at a planked Barrier too long is stuck. A Zombie that carries over between Rounds is
+/// never cleaned up here: its own module moves it instead.
 fn clean_up_stuck(
     mut commands: Commands,
     mut zombies: Query<
         (Entity, &mut Zombie, &Transform, Option<&Entering>),
-        (Without<Dying>, Without<Rising>, Without<Telegraph>),
+        (Without<Dying>, Without<Rising>, Without<Telegraph>, Without<CarriesOver>),
     >,
     player: Single<&Transform, (With<Player>, Without<Zombie>)>,
     barriers: Res<Barriers>,
@@ -873,7 +932,7 @@ fn become_crawler(
         let Ok((mut zombie, mut transform)) = zombies.get_mut(entity) else {
             continue;
         };
-        if zombie.crawler || zombie.hellhound {
+        if !zombie.is_normal() {
             continue;
         }
         zombie.crawler = true;
@@ -887,7 +946,7 @@ fn become_crawler(
     }
 }
 
-/// A hound in its lightning strike can't be hurt.
+/// A hound in its lightning strike can't be hurt. Insta-Kill only doubles a Napalm's damage.
 pub fn apply_damage(
     mut commands: Commands,
     mut requests: MessageReader<DamageZombie>,
@@ -906,11 +965,18 @@ pub fn apply_damage(
         if zombie.health <= 0.0 {
             continue;
         }
-        zombie.health -= dealt_damage(request.damage, insta_kill);
+        zombie.health -= if zombie.special == Some(SpecialKind::Napalm) {
+            doubled_damage(request.damage, insta_kill)
+        } else {
+            dealt_damage(request.damage, insta_kill)
+        };
         if zombie.health > 0.0 {
             // A Burn's ticks pay no hit Points.
             if request.attack != Attack::Burn {
-                hits.write(ZombieHit);
+                zombie.hits = zombie.hits.saturating_add(1);
+                hits.write(ZombieHit {
+                    pays: hit_pays(zombie.special, zombie.hits),
+                });
             }
             continue;
         }
@@ -924,7 +990,10 @@ pub fn apply_damage(
         });
         commands
             .entity(request.zombie)
-            .insert(Dying::default())
+            .insert(Dying {
+                elapsed: 0.0,
+                killed_by: Some(request.attack),
+            })
             .remove::<(Collider, CollisionLayers)>();
         for child in children.iter() {
             if hit_areas.contains(child) {
@@ -1089,6 +1158,31 @@ mod tests {
         for attack in [Attack::Bullet, Attack::Knife, Attack::Burn] {
             assert_eq!(attack.pay(), Pay::Paid);
         }
+    }
+
+    #[test]
+    fn napalm_and_death_scream_kills_are_unpaid() {
+        assert_eq!(Attack::Napalm.pay(), Pay::Unpaid);
+        assert_eq!(Attack::Scream.pay(), Pay::Unpaid);
+    }
+
+    #[test]
+    fn insta_kill_only_doubles_a_napalms_damage() {
+        assert_eq!(doubled_damage(100.0, true), 200.0);
+        assert_eq!(doubled_damage(100.0, false), 100.0);
+    }
+
+    #[test]
+    fn specials_are_never_normal_and_a_napalm_never_sprints() {
+        let mut napalm = Zombie::special(SpecialKind::Napalm, 600.0, Vec3::ZERO);
+        assert_eq!(napalm.speed(), ZOMBIE_WALK_SPEED);
+        napalm.sprint();
+        assert_eq!(napalm.speed(), ZOMBIE_WALK_SPEED);
+        assert!(!napalm.is_normal());
+        let shrieker = Zombie::special(SpecialKind::Shrieker, 375.0, Vec3::ZERO);
+        assert_eq!(shrieker.speed(), ZOMBIE_SPRINT_SPEED);
+        assert!(!shrieker.is_normal());
+        assert!(Zombie::new(150.0, SpeedTier::Walker, Vec3::ZERO).is_normal());
     }
 
     #[test]

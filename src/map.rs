@@ -142,6 +142,22 @@ const HELLHOUND_SPAWNS: [(ZoneId, Vec3); 21] = [
     (ZoneId::Yard, Vec3::new(10.0, 0.0, -12.0)),
 ];
 
+/// The Special Spawn Points, where a Napalm or a Shrieker rises: the Zone each serves and where it
+/// stands on the floor. One or two in each of the Start Room, West Hall, East Hall, Dining Room,
+/// Power Room and the Yard, on the open spots the hounds use.
+const SPECIAL_SPAWNS: [(ZoneId, Vec3); 10] = [
+    (ZoneId::StartRoom, Vec3::new(-11.0, 0.0, 20.0)),
+    (ZoneId::StartRoom, Vec3::new(11.0, 0.0, 20.0)),
+    (ZoneId::WestHall, Vec3::new(-21.0, 0.0, 4.0)),
+    (ZoneId::WestHall, Vec3::new(-21.0, 0.0, -9.0)),
+    (ZoneId::EastHall, Vec3::new(20.0, 0.0, 4.0)),
+    (ZoneId::EastHall, Vec3::new(20.0, 0.0, -8.0)),
+    (ZoneId::DiningRoom, Vec3::new(-20.0, 0.0, -20.0)),
+    (ZoneId::PowerRoom, Vec3::new(18.0, 0.0, -20.0)),
+    (ZoneId::Yard, Vec3::new(-9.0, 0.0, 0.0)),
+    (ZoneId::Yard, Vec3::new(9.0, 0.0, 9.0)),
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpawnKind {
     /// Outside a window. The Zombie has to get in through that window's Barrier.
@@ -150,6 +166,8 @@ pub enum SpawnKind {
     Riser,
     /// Inside a Zone, where a Hellhound arrives in a lightning strike. Only hounds use these.
     Hellhound,
+    /// Inside a Zone, where a Napalm or a Shrieker rises. Only they use these.
+    Special,
 }
 
 /// A fixed place in the Map where Zombies enter play, in the Zone it serves.
@@ -447,7 +465,8 @@ fn spawn_map(
             ));
     }
 
-    // Spawn Points: one outside each window, the Yard's Risers, and the Hellhound Spawn Points.
+    // Spawn Points: one outside each window, the Yard's Risers, and the Hellhound and Special
+    // Spawn Points.
     for (i, (zone, ..)) in WINDOWS.iter().enumerate() {
         let barrier = BarrierId(i as u8);
         commands.spawn((
@@ -475,6 +494,16 @@ fn spawn_map(
             SpawnPoint {
                 zone,
                 kind: SpawnKind::Hellhound,
+            },
+            Transform::from_translation(at),
+        ));
+    }
+    for (zone, at) in SPECIAL_SPAWNS {
+        commands.spawn((
+            InRun,
+            SpawnPoint {
+                zone,
+                kind: SpawnKind::Special,
             },
             Transform::from_translation(at),
         ));
@@ -549,5 +578,18 @@ mod tests {
         for zone in ZoneId::ALL {
             assert!(HELLHOUND_SPAWNS.iter().any(|(z, _)| *z == zone), "{} has no Hellhound Spawn Point", zone.name());
         }
+    }
+
+    #[test]
+    fn special_spawn_points_stand_in_their_zones_one_or_two_each() {
+        use ZoneId::*;
+        for (zone, at) in SPECIAL_SPAWNS {
+            assert_eq!(crate::nav::zone_at(at + Vec3::Y * 0.5), Some(zone), "{at} is outside {}", zone.name());
+        }
+        for zone in [StartRoom, WestHall, EastHall, DiningRoom, PowerRoom, Yard] {
+            let count = SPECIAL_SPAWNS.iter().filter(|(z, _)| *z == zone).count();
+            assert!((1..=2).contains(&count), "{} has {count} Special Spawn Points", zone.name());
+        }
+        assert!(!SPECIAL_SPAWNS.iter().any(|(z, _)| *z == Balcony));
     }
 }

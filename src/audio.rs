@@ -14,6 +14,7 @@ use crate::hellhound::{HellhoundBite, Telegraph};
 use crate::player::PlayerCamera;
 use crate::power_up::PowerUpTaken;
 use crate::round::{Round, RoundStarted};
+use crate::special::SpecialCue;
 use crate::weapon::ShotFired;
 use crate::zombie::{Dying, Zombie, ZombieHit, ZombieKilled};
 use cues::{AUDIO_DIR, Cue, Mix};
@@ -58,7 +59,7 @@ impl Plugin for AudioPlugin {
         }
 
         app.add_systems(Startup, load_sounds)
-            .add_systems(Update, (add_listener, play_sounds, play_hound_sounds));
+            .add_systems(Update, (add_listener, play_sounds, play_hound_sounds, play_special_sounds));
     }
 }
 
@@ -185,5 +186,12 @@ fn play_hound_sounds(
         if zombie.is_hellhound() {
             sounds.play(&mut commands, Cue::HoundDeath, Some(at.translation));
         }
+    }
+}
+
+/// The Napalm's and the Shrieker's sounds, as their module asks for them.
+fn play_special_sounds(mut commands: Commands, mut sounds: ResMut<Sounds>, mut cues: MessageReader<SpecialCue>) {
+    for cue in cues.read() {
+        sounds.play(&mut commands, cue.cue, cue.at);
     }
 }
