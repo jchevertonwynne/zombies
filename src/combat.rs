@@ -3,7 +3,8 @@
 
 use bevy::math::{Dir3, Vec3};
 
-use crate::arsenal::{WeaponStats, penetration_factor};
+use crate::arsenal::WeaponStats;
+use crate::tuning::PENETRATION_DAMAGE_FACTOR;
 use crate::zombie::HitZone;
 
 /// Something a bullet's line crossed, nearest first: a Zombie's hit area, or the world.
@@ -47,10 +48,29 @@ pub fn pierce<Z: PartialEq + Copy>(crossings: impl IntoIterator<Item = Crossing<
     hits
 }
 
+/// What the sights add to a bullet: an aimed optic's Headshot factor, extra Zombies passed, and
+/// the damage kept through each Zombie passed.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Sights {
+    pub headshot: f32,
+    pub extra_pierce: u32,
+    pub pierce_damage: f32,
+}
+
+impl Sights {
+    /// A bullet with no optic's help.
+    pub const PLAIN: Sights = Sights {
+        headshot: 1.0,
+        extra_pierce: 0,
+        pierce_damage: PENETRATION_DAMAGE_FACTOR,
+    };
+}
+
 /// Damage for one bullet hit: the (already resolved) damage at its range, times the Weapon's
-/// multiplier for the hit zone, times the penetration factor.
-pub fn hit_damage<Z>(stats: &WeaponStats, damage_at_range: f32, hit: &BulletHit<Z>) -> f32 {
-    damage_at_range * stats.zone_multiplier(hit.zone) * penetration_factor(hit.passed)
+/// multiplier for the hit zone (and the sights' on a Headshot), times the penetration factor.
+pub fn hit_damage<Z>(stats: &WeaponStats, damage_at_range: f32, hit: &BulletHit<Z>, sights: Sights) -> f32 {
+    let optic = if hit.zone == HitZone::Head { sights.headshot } else { 1.0 };
+    damage_at_range * stats.zone_multiplier(hit.zone) * optic * sights.pierce_damage.powi(hit.passed as i32)
 }
 
 /// A bullet's direction within a cone of `spread_degrees` around `forward`. `u` and `v` are
@@ -126,10 +146,10 @@ mod tests {
     #[test]
     fn hit_damage_combines_zone_and_penetration() {
         let m1911 = WeaponId::M1911.stats();
-        assert!(close(hit_damage(m1911, 20.0, &hit(HitZone::Head, 0)), 70.0));
-        assert!(close(hit_damage(m1911, 20.0, &hit(HitZone::Head, 1)), 52.5));
+        assert!(close(hit_damage(m1911, 20.0, &hit(HitZone::Head, 0), Sights::PLAIN), 70.0));
+        assert!(close(hit_damage(m1911, 20.0, &hit(HitZone::Head, 1), Sights::PLAIN), 52.5));
         let l96 = WeaponId::L96a1.stats();
-        assert!(close(hit_damage(l96, 500.0, &hit(HitZone::Torso, 2)), 500.0 * 1.5 * 0.5625));
+        assert!(close(hit_damage(l96, 500.0, &hit(HitZone::Torso, 2), Sights::PLAIN), 500.0 * 1.5 * 0.5625));
     }
 
     #[test]
@@ -156,11 +176,29 @@ mod tests {
     fn penetration_damage_falls_by_a_quarter_per_zombie_passed() {
         let m14 = WeaponId::M14.stats();
         let line: Vec<_> = (0..5).map(|i| zombie(i, 1.0)).collect();
-        let damage: Vec<_> = pierce(line, 4).iter().map(|hit| hit_damage(m14, 100.0, hit)).collect();
+        let damage: Vec<_> = pierce(line, 4).iter().map(|hit| hit_damage(m14, 100.0, hit, Sights::PLAIN)).collect();
         let expected = [100.0, 75.0, 56.25, 42.1875, 31.640625];
         for (got, want) in damage.iter().zip(expected) {
             assert!(close(*got, want), "{got} != {want}");
         }
+    }
+
+    #[test]
+    fn an_aimed_optic_adds_to_headshots_and_pierces_at_full_damage() {
+        let mnesia = WeaponId::M14.upgraded();
+        let red_dot = Sights {
+            headshot: 1.5,
+            ..Sights::PLAIN
+        };
+        // ×6 for Mnesia's Headshot, then ×1.5 on top.
+        assert!(close(hit_damage(mnesia, 100.0, &hit(HitZone::Head, 0), red_dot), 900.0));
+        assert!(close(hit_damage(mnesia, 100.0, &hit(HitZone::Limb, 0), red_dot), 100.0));
+        let acog = Sights {
+            extra_pierce: 2,
+            pierce_damage: 1.0,
+            ..Sights::PLAIN
+        };
+        assert!(close(hit_damage(mnesia, 100.0, &hit(HitZone::Limb, 6), acog), 100.0));
     }
 
     #[test]

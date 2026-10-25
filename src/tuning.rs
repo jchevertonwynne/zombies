@@ -1229,6 +1229,83 @@ pub const REPACK_AMMO_MOD_PRICE: u64 = 2500;
 pub const REPACK_PRICE_STEP: u64 = 1000;
 /// Ammo Mods one Weapon can hold.
 pub const MAX_AMMO_MODS: usize = 2;
+/// A hold Repack: a random Attachment in a free mount.
+pub const REPACK_ATTACHMENT_PRICE: u64 = 2000;
+/// How long the Use key is held to buy the hold half of a Buyable, like a Repack's Attachment
+/// (approx). A shorter press is a tap.
+pub const HOLD_BUY_SECS: f32 = 0.6;
+
+// Attachments (Appendix A4). Each is its own modifier source on the Weapon copy.
+/// Red Dot Sight: aimed Headshots, on top of the Headshot multiplier.
+pub const RED_DOT_HEADSHOT_MULT: f32 = 1.5;
+/// ACOG Sight: aimed shots pass this many more Zombies, keeping full damage through each.
+pub const ACOG_EXTRA_PIERCE: f32 = 2.0;
+pub const ACOG_PIERCE_DAMAGE_FACTOR: f32 = 1.0;
+/// ACOG Sight: the factor on the aimed FOV.
+pub const ACOG_ADS_FOV_MULT: f32 = 0.55;
+pub const RAPID_FIRE_INTERVAL_MULT: f32 = 0.8;
+pub const EXTENDED_MAG_MAGAZINE_MULT: f32 = 1.5;
+pub const EXTENDED_MAG_RESERVE_MULT: f32 = 1.25;
+/// Dual Mag: every second Reload takes this, flat; Speed Cola doesn't shorten it.
+pub const DUAL_MAG_RELOAD_SECS: f32 = 0.4;
+pub const GRIP_HIP_SPREAD_MULT: f32 = 0.6;
+/// Seconds to bring the Underbarrel up, or back to the main gun.
+pub const UNDERBARREL_TOGGLE_SECS: f32 = 0.5;
+/// The Grenade Launcher's grenade speed (approx, as the China Lake's).
+pub const GRENADE_LAUNCHER_SPEED: f32 = 30.0;
+/// The Flamethrower's cone: its reach, and its half-angle in degrees (approx).
+pub const FLAMETHROWER_RANGE: f32 = 6.0;
+pub const FLAMETHROWER_CONE_DEGREES: f32 = 15.0;
+/// Flamethrower ticks a second. Its tank and reserve are counted in ticks: 10 s and 30 s.
+pub const FLAMETHROWER_TICKS_PER_SEC: f32 = 10.0;
+/// Seconds of tank refilled from the reserve per second the Flamethrower isn't firing.
+pub const FLAMETHROWER_RECHARGE_RATE: f32 = 1.0;
+/// The Burn the Flamethrower leaves on every Zombie it touches (approx, as the Hades').
+pub const FLAMETHROWER_BURN: Burn = HADES_BURN;
+
+/// The Underbarrels as Weapon rows, so they fire, fall off and reload by the same rules. An
+/// Underbarrel row's `id` is never read; each borrows the base Weapon nearest it.
+pub const MASTERKEY: WeaponStats = WeaponStats {
+    name: "Masterkey",
+    damage_max: 240.0,
+    damage_min: 240.0,
+    magazine: 6,
+    reserve_max: 30,
+    // Two shells at a time, as Gut Shot.
+    reload: shells(0.9, 0.3, 0.95),
+    penetration: Penetration::Small,
+    ..base(WeaponId::TrenchGun)
+};
+pub const GRENADE_LAUNCHER: WeaponStats = WeaponStats {
+    name: "Grenade Launcher",
+    damage_max: 1000.0,
+    damage_min: 1000.0,
+    splash: Some(Splash {
+        max: 1000.0,
+        min: 75.0,
+        radius: 5.0,
+    }),
+    magazine: 1,
+    reserve_max: 5,
+    reserve_start: None,
+    reload: reload(2.0, 2.0), // approx
+    ..base(WeaponId::ChinaLake)
+};
+pub const FLAMETHROWER: WeaponStats = WeaponStats {
+    name: "Flamethrower",
+    fire: FireMode::Auto,
+    damage_max: 100.0,
+    damage_min: 100.0,
+    pellets: 1,
+    splash: None,
+    burn: Some(FLAMETHROWER_BURN),
+    magazine: (10.0 * FLAMETHROWER_TICKS_PER_SEC) as u32,
+    reserve_max: (30.0 * FLAMETHROWER_TICKS_PER_SEC) as u32,
+    reserve_start: None,
+    fire_interval: 1.0 / FLAMETHROWER_TICKS_PER_SEC,
+    falloff: Some(Falloff::NONE),
+    ..base(WeaponId::ChinaLake)
+};
 
 // Ammo Mods: chance per damage event, and the cooldown a trigger starts.
 pub const BLAST_FURNACE_CHANCE: f32 = 0.15;

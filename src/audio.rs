@@ -9,7 +9,7 @@ use bevy::audio::Volume;
 use bevy::prelude::*;
 
 use crate::barrier::{PlankRebuilt, PlankTorn};
-use crate::buy::{BuyRefused, CantAfford, Purchased};
+use crate::buy::{BuyRefused, CantAfford, HoldPurchased, Purchased};
 use crate::player::PlayerCamera;
 use crate::round::RoundStarted;
 use crate::weapon::ShotFired;
@@ -121,6 +121,7 @@ fn play_sounds(
     mut kills: MessageReader<ZombieKilled>,
     mut rounds: MessageReader<RoundStarted>,
     mut purchases: MessageReader<Purchased>,
+    mut holds: MessageReader<HoldPurchased>,
     mut cant_afford: MessageReader<CantAfford>,
     mut refusals: MessageReader<BuyRefused>,
     mut torn: MessageReader<PlankTorn>,
@@ -138,7 +139,7 @@ fn play_sounds(
     for _ in rounds.read() {
         sounds.play(&mut commands, Cue::RoundStart, None);
     }
-    for _ in purchases.read() {
+    for _ in 0..purchases.read().count() + holds.read().count() {
         sounds.play(&mut commands, Cue::Buy, None);
     }
     for plank in torn.read() {
