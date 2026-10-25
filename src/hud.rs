@@ -6,7 +6,7 @@ use crate::points::{Points, PointsAwarded};
 use crate::round::{Round, RoundPhase};
 use crate::state::{GameState, InRun};
 use crate::tuning::CANT_AFFORD_FLASH_SECS;
-use crate::weapon::Loadout;
+use crate::weapon::{Loadout, UPGRADED_PURPLE};
 
 pub const ROUND_RED: Color = Color::srgb(0.7, 0.05, 0.02);
 const POPUP_SECS: f32 = 0.8;
@@ -22,8 +22,12 @@ struct RoundText;
 #[derive(Component)]
 struct PointsText;
 
+/// The held Weapon's name. Its one child span holds the ammo.
 #[derive(Component)]
 struct AmmoText;
+
+#[derive(Component)]
+struct AmmoCount;
 
 /// The Prompt under the crosshair. Its one child span holds the price.
 #[derive(Component)]
@@ -182,7 +186,9 @@ fn spawn_hud(mut commands: Commands) {
                 },
             ));
             column.spawn((PointsText, text("0", 36.0, POINTS_GOLD)));
-            column.spawn((AmmoText, text("", 28.0, Color::WHITE)));
+            column
+                .spawn((AmmoText, text("", 28.0, Color::WHITE)))
+                .with_child((AmmoCount, TextSpan::default(), TextColor(Color::WHITE)));
         });
 }
 
@@ -251,13 +257,24 @@ fn prompt_text(
     color.0 = if can_afford(points.balance, buyable.price) { Color::WHITE } else { CANT_AFFORD_RED };
 }
 
-fn ammo_text(loadout: Single<&Loadout, With<Player>>, mut text: Single<&mut Text, With<AmmoText>>) {
+/// The Weapon in hand and its ammo. An Upgraded Weapon's name shows in purple.
+fn ammo_text(
+    loadout: Single<&Loadout, With<Player>>,
+    name: Single<(&mut Text, &mut TextColor), With<AmmoText>>,
+    mut count: Single<&mut TextSpan, With<AmmoCount>>,
+) {
+    let (mut text, mut color) = name.into_inner();
     let weapon = loadout.held();
-    let (name, reserve) = (weapon.stats().name, weapon.reserve);
-    text.0 = if loadout.reload.is_some() {
-        format!("{name}  RELOADING  {reserve}")
+    color.set_if_neq(TextColor(if weapon.upgraded { UPGRADED_PURPLE } else { Color::WHITE }));
+    let name = weapon.stats().name;
+    if text.0 != name {
+        text.0 = name.to_string();
+    }
+    let reserve = weapon.reserve;
+    count.0 = if loadout.reload.is_some() {
+        format!("  RELOADING  {reserve}")
     } else {
-        format!("{name}  {} / {reserve}", weapon.magazine)
+        format!("  {} / {reserve}", weapon.magazine)
     };
 }
 

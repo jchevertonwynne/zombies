@@ -11,15 +11,16 @@ pub fn points_for(_hit: ZombieHit) -> u64 {
     POINTS_PER_HIT
 }
 
-/// Kill Points for a kill: by hit zone, a flat amount for the Knife, nothing if Unpaid.
+/// Kill Points for a kill: by hit zone, a flat amount for the Knife, nothing if Unpaid. A Burn
+/// kill pays by the zone it's dealt to, the torso.
 pub fn kill_points(kill: &ZombieKilled) -> u64 {
     match (kill.pay, kill.attack, kill.zone) {
         (Pay::Unpaid, _, _) => 0,
         (Pay::Paid, Attack::Knife, _) => POINTS_KNIFE_KILL,
-        (Pay::Paid, Attack::Bullet, HitZone::Limb) => POINTS_LIMB_KILL,
-        (Pay::Paid, Attack::Bullet, HitZone::Torso) => POINTS_TORSO_KILL,
-        (Pay::Paid, Attack::Bullet, HitZone::Neck) => POINTS_NECK_KILL,
-        (Pay::Paid, Attack::Bullet, HitZone::Head) => POINTS_HEADSHOT_KILL,
+        (Pay::Paid, Attack::Bullet | Attack::Burn, HitZone::Limb) => POINTS_LIMB_KILL,
+        (Pay::Paid, Attack::Bullet | Attack::Burn, HitZone::Torso) => POINTS_TORSO_KILL,
+        (Pay::Paid, Attack::Bullet | Attack::Burn, HitZone::Neck) => POINTS_NECK_KILL,
+        (Pay::Paid, Attack::Bullet | Attack::Burn, HitZone::Head) => POINTS_HEADSHOT_KILL,
     }
 }
 
@@ -117,6 +118,13 @@ mod tests {
         for zone in [HitZone::Limb, HitZone::Torso, HitZone::Neck, HitZone::Head] {
             assert_eq!(kill_points(&kill(Pay::Paid, zone, Attack::Knife)), 130);
         }
+    }
+
+    #[test]
+    fn burn_kills_are_paid_torso_kills_and_never_headshots() {
+        let burn = kill(Pay::Paid, HitZone::Torso, Attack::Burn);
+        assert_eq!(kill_points(&burn), 60);
+        assert!(!kill(Pay::Paid, HitZone::Head, Attack::Burn).headshot);
     }
 
     #[test]

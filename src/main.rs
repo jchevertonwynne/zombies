@@ -4,6 +4,7 @@
 mod arsenal;
 mod audio;
 mod buy;
+mod burn;
 mod combat;
 mod debug;
 mod door;
@@ -16,6 +17,7 @@ mod map;
 mod menu;
 mod modifier;
 mod mode;
+mod pack_a_punch;
 mod perk;
 mod mystery_box;
 mod nav;
@@ -82,6 +84,12 @@ fn main() {
             audio::AudioPlugin,
             debug::DebugPlugin,
         ))
-        .add_plugins((power::PowerPlugin, perk::PerkPlugin, last_stand::LastStandPlugin))
+        .add_plugins((
+            power::PowerPlugin,
+            perk::PerkPlugin,
+            last_stand::LastStandPlugin,
+            pack_a_punch::PackAPunchPlugin,
+            burn::BurnPlugin,
+        ))
         .run();
 }

@@ -2,7 +2,8 @@
 //! module (Appendix A1); this module holds their shape.
 
 use crate::tuning::{
-    PENETRATION_DAMAGE_FACTOR, PENETRATION_LARGE, PENETRATION_MEDIUM, PENETRATION_SMALL, WEAPON_HANDLING, WEAPONS,
+    PENETRATION_DAMAGE_FACTOR, PENETRATION_LARGE, PENETRATION_MEDIUM, PENETRATION_SMALL, UPGRADED_WEAPONS,
+    WEAPON_HANDLING, WEAPONS,
 };
 use crate::zombie::HitZone;
 
@@ -37,14 +38,20 @@ pub enum WeaponId {
     Thundergun,
     Crossbow,
     BallisticKnife,
-    // Upgraded Weapons (Appendix A3).
-    MustangAndSally,
 }
 
 impl WeaponId {
     pub fn stats(self) -> &'static WeaponStats {
         let row = &WEAPONS[self as usize];
         debug_assert_eq!(row.id, self, "the Weapon table is out of order");
+        row
+    }
+
+    /// Its hand-written Pack-a-Punch form (Appendix A3). Every Weapon here has one: Equipment, the
+    /// Monkey Bomb, the Knife and the Bowie aren't Weapons in this table.
+    pub fn upgraded(self) -> &'static WeaponStats {
+        let row = &UPGRADED_WEAPONS[self as usize];
+        debug_assert_eq!(row.id, self, "the upgraded Weapon table is out of order");
         row
     }
 }
@@ -144,9 +151,6 @@ pub enum Availability {
     Box,
     /// A Box Weapon of which at most one can be in play.
     LimitedBox,
-    /// An Upgraded Weapon: never on a wall or in the Box. Mustang & Sally also comes with the
-    /// Last Stand.
-    Upgraded,
 }
 
 /// How many extra Zombies a bullet passes through.
@@ -240,8 +244,16 @@ impl Splash {
     }
 }
 
-/// One row of the Weapon table.
-#[derive(Debug)]
+/// Burn damage over time: `damage` every `tick_secs`, for `secs` after the last ignition.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Burn {
+    pub damage: f32,
+    pub tick_secs: f32,
+    pub secs: f32,
+}
+
+/// One row of the Weapon table. Upgraded rows keep their base Weapon's `id`.
+#[derive(Debug, Clone, Copy)]
 pub struct WeaponStats {
     pub id: WeaponId,
     pub name: &'static str,
@@ -254,6 +266,8 @@ pub struct WeaponStats {
     /// Pellets per shot: 8 for shotguns, otherwise 1.
     pub pellets: u32,
     pub splash: Option<Splash>,
+    /// Burn each hit sets on the Zombie, if any.
+    pub burn: Option<Burn>,
     /// Bullets a full Magazine holds. Dual-wield counts both guns.
     pub magazine: u32,
     /// The most Reserve Ammo the Weapon carries.
@@ -327,7 +341,7 @@ mod tests {
         for (i, row) in WEAPONS.iter().enumerate() {
             assert_eq!(row.id as usize, i, "{} is out of place", row.name);
         }
-        assert_eq!(WEAPONS.len(), WeaponId::MustangAndSally as usize + 1);
+        assert_eq!(WEAPONS.len(), WeaponId::BallisticKnife as usize + 1);
         for (i, row) in WEAPON_HANDLING.iter().enumerate() {
             assert_eq!(row.class as usize, i);
         }

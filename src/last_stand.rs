@@ -45,6 +45,7 @@ pub fn down_outcome(perks: &Perks) -> DownOutcome {
 pub fn last_stand_loadout() -> Loadout {
     let mut loadout = Loadout::new(LAST_STAND_WEAPON);
     let weapon: &mut WeaponCopy = loadout.held_mut();
+    *weapon = WeaponCopy::new(LAST_STAND_WEAPON).upgrade();
     weapon.reserve = weapon.stats().magazine * LAST_STAND_SPARE_MAGAZINES;
     loadout.raise();
     loadout
@@ -190,7 +191,7 @@ mod tests {
     fn the_last_stand_hands_over_mustang_and_sally_with_two_spare_magazines() {
         let loadout = last_stand_loadout();
         let held = loadout.held();
-        assert_eq!(held.id, WeaponId::MustangAndSally);
+        assert_eq!(held.stats().name, "Mustang & Sally");
         assert_eq!((held.magazine, held.reserve), (12, 24));
         assert!(loadout.slot(1).is_none());
     }
@@ -204,7 +205,7 @@ mod tests {
         loadout.start_reload(none);
 
         let mut stand = LastStand::begin(&mut loadout);
-        assert_eq!(loadout.held().id, WeaponId::MustangAndSally);
+        assert_eq!(loadout.held().stats().name, "Mustang & Sally");
         loadout.held_mut().magazine = 0;
 
         stand.self_revive(&mut loadout);
