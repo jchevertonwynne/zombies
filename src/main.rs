@@ -4,6 +4,7 @@
 mod arsenal;
 mod audio;
 mod buy;
+mod combat;
 mod debug;
 mod door;
 mod hud;
