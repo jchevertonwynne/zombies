@@ -111,9 +111,9 @@ _Avoid_: bleed out, downed state
 
 **Game Over**: The end of a Run, triggered by a Down without Quick Revive. It shows the Round reached and the Run Record.
 
-**Run Record**: The saved summary of one finished Run: Map, date, Round reached, Kills, Headshots, Downs, Points Earned and time survived.
+**Run Record**: The saved summary of one finished Run: Map, Mode, date, Round reached, Kills, Headshots, Downs, Points Earned and time survived. A Gauntlet Run Record also lists the Boons held at the end, in the order they were picked.
 
-**Records**: The best ten Run Records for a Map, ranked by Round reached and then by shorter time survived.
+**Records**: The best ten Run Records for a Map and Mode, ranked by Round reached and then by shorter time survived.
 _Avoid_: high scores, leaderboard
 
 **Lifetime Stats**: Running totals across every Run the Player has finished.
@@ -140,9 +140,12 @@ _Avoid_: perk-a-cola, buff
 **Trap**: A Buyable hazard across a doorway that, once switched on, kills every Zombie that walks into it for a short time and can Down the Player too. It then needs a cooldown before it can be bought again.
 _Avoid_: electric fence, zapper
 
-**Classic**: The faithful mode, played as the original games played it.
+**Mode**: The ruleset a Run is played under: Classic or Gauntlet. Every Run has exactly one Mode, chosen before it starts and fixed for the whole Run.
+_Avoid_: game type, difficulty
 
-**Gauntlet**: The mode that plays like Classic but offers a Boon after every Round.
+**Classic**: The faithful Mode, played as the original games played it.
+
+**Gauntlet**: The Mode that plays exactly like Classic but offers a Boon after every Round.
 _Avoid_: roguelite mode
 
 **Boon**: A lasting upgrade the Player picks from an offer after completing a Round in Gauntlet. Boons are picked, never bought, and unlike Perks they survive a Down.
