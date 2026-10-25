@@ -242,6 +242,15 @@ impl Loadout {
         self.begin_swap(from);
     }
 
+    /// Bring the held Weapon up from empty hands, as at the start and end of a Last Stand: just
+    /// its raise, with nothing to put away first.
+    pub fn raise(&mut self) {
+        self.begin_swap(self.held().id);
+        if let Some(swap) = &mut self.swap {
+            swap.drop_secs = 0.0;
+        }
+    }
+
     fn begin_swap(&mut self, from: WeaponId) {
         self.swap = Some(Swap::between(from, self.held().id));
         self.reload = None;

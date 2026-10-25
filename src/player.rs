@@ -6,6 +6,7 @@ use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
 
+use crate::last_stand::LastStand;
 use crate::layers::GameLayer;
 use crate::map::PLAYER_START;
 use crate::modifier::{Modifiers, Stat, resolve};
@@ -169,7 +170,16 @@ fn look(
 
 fn move_player(
     player: Single<
-        (Entity, &mut Transform, &mut Locomotion, &Collider, &Loadout, &Modifiers, Has<Drinking>),
+        (
+            Entity,
+            &mut Transform,
+            &mut Locomotion,
+            &Collider,
+            &Loadout,
+            &Modifiers,
+            Has<Drinking>,
+            Has<LastStand>,
+        ),
         With<Player>,
     >,
     input: Res<ButtonInput<KeyCode>>,
@@ -177,7 +187,8 @@ fn move_player(
     move_and_slide: MoveAndSlide,
     time: Res<Time>,
 ) {
-    let (entity, mut transform, mut locomotion, collider, loadout, modifiers, drinking) = player.into_inner();
+    let (entity, mut transform, mut locomotion, collider, loadout, modifiers, drinking, last_stand) =
+        player.into_inner();
     let dt = time.delta_secs();
 
     let forward = input.pressed(KeyCode::KeyW) as i8 - input.pressed(KeyCode::KeyS) as i8;
@@ -185,10 +196,14 @@ fn move_player(
     let wish = Vec2::new(right as f32, forward as f32).normalize_or_zero();
 
     // Sprinting only makes sense running forwards on the ground, and it runs out. Aiming stops it,
-    // and there's no sprinting with a Perk in hand.
+    // and there's no sprinting with a Perk in hand or in Last Stand.
     let aiming = mouse.pressed(MouseButton::Right) && loadout.can_aim();
-    let wants_sprint =
-        input.pressed(KeyCode::ShiftLeft) && forward > 0 && locomotion.grounded && !aiming && !drinking;
+    let wants_sprint = input.pressed(KeyCode::ShiftLeft)
+        && forward > 0
+        && locomotion.grounded
+        && !aiming
+        && !drinking
+        && !last_stand;
     locomotion.sprinting = wants_sprint && !locomotion.winded;
     if locomotion.sprinting {
         locomotion.stamina -= dt;
@@ -203,14 +218,21 @@ fn move_player(
             locomotion.winded = false;
         }
     }
-    let base = if locomotion.sprinting { PLAYER_SPRINT_SPEED } else { PLAYER_WALK_SPEED };
+    let base = if last_stand {
+        PLAYER_WALK_SPEED * LAST_STAND_CRAWL_MULT
+    } else if locomotion.sprinting {
+        PLAYER_SPRINT_SPEED
+    } else {
+        PLAYER_WALK_SPEED
+    };
     let speed = loadout.move_speed(base, &modifiers.0);
 
     let wish_world = transform.rotation * Vec3::new(wish.x, 0.0, -wish.y) * speed;
     let horizontal = Vec3::new(locomotion.velocity.x, 0.0, locomotion.velocity.z);
     let horizontal = horizontal.move_towards(wish_world, PLAYER_ACCELERATION * dt);
     let mut vertical = locomotion.velocity.y - GRAVITY * dt;
-    if locomotion.grounded && input.pressed(KeyCode::Space) {
+    // No jumping from a crawl.
+    if locomotion.grounded && input.pressed(KeyCode::Space) && !last_stand {
         vertical = PLAYER_JUMP_SPEED;
     }
     let velocity = horizontal + Vec3::Y * vertical;
@@ -237,21 +259,24 @@ fn move_player(
     locomotion.grounded = grounded;
 }
 
-fn take_hits(
-    mut hits: MessageReader<PlayerHit>,
-    mut health: Single<&mut Health, With<Player>>,
-    mut next: ResMut<NextState<GameState>>,
-) {
+/// Zombie swipes take Health. Nothing hurts the Player in Last Stand. Reaching zero is a Down,
+/// which the Last Stand module handles.
+pub fn take_hits(mut hits: MessageReader<PlayerHit>, player: Single<(&mut Health, Has<LastStand>), With<Player>>) {
+    let (mut health, last_stand) = player.into_inner();
     for hit in hits.read() {
+        if last_stand {
+            continue;
+        }
         health.current -= hit.damage;
         health.since_hit = 0.0;
     }
-    if health.current <= 0.0 {
-        next.set(GameState::GameOver);
-    }
 }
 
-fn regenerate(player: Single<(&mut Health, &Modifiers), With<Player>>, time: Res<Time>) {
+/// Health stays empty through a Last Stand; the Self-Revive refills it.
+fn regenerate(
+    player: Single<(&mut Health, &Modifiers), (With<Player>, Without<LastStand>)>,
+    time: Res<Time>,
+) {
     let (mut health, modifiers) = player.into_inner();
     health.set_max(resolve(Stat::MaxHealth, PLAYER_MAX_HEALTH, &modifiers.0));
     let dt = time.delta_secs();

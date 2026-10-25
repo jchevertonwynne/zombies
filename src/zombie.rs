@@ -3,6 +3,7 @@ use std::f32::consts::FRAC_PI_2;
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+use crate::last_stand::LastStand;
 use crate::layers::GameLayer;
 use crate::player::{Player, PlayerHit};
 use crate::state::{InRun, Pause};
@@ -252,27 +253,54 @@ fn horizontal(v: Vec3) -> Vec3 {
     Vec3::new(v.x, 0.0, v.z)
 }
 
+/// Which way a Zombie walks along the line to the Player.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Heading {
+    Toward,
+    Away,
+    Stay,
+}
+
+/// Where a Zombie heads, `distance` (horizontal) from the Player. It plants its feet while
+/// swinging, so the Player can back out of reach. While the Player is in Last Stand, Zombies walk
+/// away until they're about `LAST_STAND_ZOMBIE_RETREAT_DISTANCE` off.
+pub fn heading(distance: f32, swinging: bool, last_stand: bool) -> Heading {
+    if last_stand {
+        if distance < LAST_STAND_ZOMBIE_RETREAT_DISTANCE { Heading::Away } else { Heading::Stay }
+    } else if swinging || distance <= ZOMBIE_REACH * 0.8 {
+        Heading::Stay
+    } else {
+        Heading::Toward
+    }
+}
+
 fn chase(
     mut zombies: Query<(Entity, &Zombie, &mut Transform, &Collider), Without<Dying>>,
-    player: Single<&Transform, (With<Player>, Without<Zombie>)>,
+    player: Single<(&Transform, Has<LastStand>), (With<Player>, Without<Zombie>)>,
     move_and_slide: MoveAndSlide,
     time: Res<Time>,
 ) {
+    let (player, last_stand) = *player;
     let target = player.translation;
     let filter_mask = [GameLayer::World, GameLayer::Zombie, GameLayer::Player];
 
     for (entity, zombie, mut transform, collider) in &mut zombies {
         let to_player = horizontal(target - transform.translation);
-        if to_player.length_squared() > 1e-4 {
-            transform.rotation = Quat::from_rotation_y(f32::atan2(-to_player.x, -to_player.z));
+        let direction = match heading(to_player.length(), zombie.wind_up.is_some(), last_stand) {
+            Heading::Toward => to_player,
+            Heading::Away => -to_player,
+            Heading::Stay => {
+                if to_player.length_squared() > 1e-4 {
+                    transform.rotation = Quat::from_rotation_y(f32::atan2(-to_player.x, -to_player.z));
+                }
+                continue;
+            }
+        };
+        if direction.length_squared() > 1e-4 {
+            transform.rotation = Quat::from_rotation_y(f32::atan2(-direction.x, -direction.z));
         }
 
-        // Plant feet while swinging, so the Player can back out of reach.
-        if zombie.wind_up.is_some() || to_player.length() <= ZOMBIE_REACH * 0.8 {
-            continue;
-        }
-
-        let velocity = to_player.normalize_or_zero() * zombie.tier.speed();
+        let velocity = direction.normalize_or_zero() * zombie.tier.speed();
         let out = move_and_slide.move_and_slide(
             collider,
             transform.translation,
@@ -289,12 +317,18 @@ fn chase(
 
 fn attack(
     mut zombies: Query<(&mut Zombie, &Transform), Without<Dying>>,
-    player: Single<&Transform, With<Player>>,
+    player: Single<(&Transform, Has<LastStand>), With<Player>>,
     mut hits: MessageWriter<PlayerHit>,
     time: Res<Time>,
 ) {
+    let (player, last_stand) = *player;
     let dt = time.delta_secs();
     for (mut zombie, transform) in &mut zombies {
+        // Zombies leave a Player in Last Stand alone.
+        if last_stand {
+            zombie.wind_up = None;
+            continue;
+        }
         let in_reach = horizontal(player.translation - transform.translation).length() <= ZOMBIE_REACH;
         zombie.attack_cooldown = (zombie.attack_cooldown - dt).max(0.0);
 
@@ -379,5 +413,29 @@ fn fall_over(
         if dying.elapsed >= ZOMBIE_FALL_SECS + ZOMBIE_CORPSE_SECS {
             commands.entity(entity).despawn();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zombies_walk_up_to_the_player_and_stop_in_reach() {
+        assert_eq!(heading(10.0, false, false), Heading::Toward);
+        assert_eq!(heading(ZOMBIE_REACH * 0.5, false, false), Heading::Stay);
+    }
+
+    #[test]
+    fn a_swinging_zombie_plants_its_feet() {
+        assert_eq!(heading(10.0, true, false), Heading::Stay);
+    }
+
+    #[test]
+    fn zombies_back_off_to_about_15_m_from_a_player_in_last_stand() {
+        assert_eq!(heading(0.5, false, true), Heading::Away);
+        assert_eq!(heading(14.9, true, true), Heading::Away);
+        assert_eq!(heading(15.0, false, true), Heading::Stay);
+        assert_eq!(heading(40.0, false, true), Heading::Stay);
     }
 }

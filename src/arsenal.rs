@@ -37,6 +37,8 @@ pub enum WeaponId {
     Thundergun,
     Crossbow,
     BallisticKnife,
+    // Upgraded Weapons (Appendix A3).
+    MustangAndSally,
 }
 
 impl WeaponId {
@@ -142,6 +144,9 @@ pub enum Availability {
     Box,
     /// A Box Weapon of which at most one can be in play.
     LimitedBox,
+    /// An Upgraded Weapon: never on a wall or in the Box. Mustang & Sally also comes with the
+    /// Last Stand.
+    Upgraded,
 }
 
 /// How many extra Zombies a bullet passes through.
@@ -322,7 +327,7 @@ mod tests {
         for (i, row) in WEAPONS.iter().enumerate() {
             assert_eq!(row.id as usize, i, "{} is out of place", row.name);
         }
-        assert_eq!(WEAPONS.len(), WeaponId::BallisticKnife as usize + 1);
+        assert_eq!(WEAPONS.len(), WeaponId::MustangAndSally as usize + 1);
         for (i, row) in WEAPON_HANDLING.iter().enumerate() {
             assert_eq!(row.class as usize, i);
         }

@@ -16,7 +16,7 @@ use crate::round::Round;
 use crate::save::{self, SaveFile};
 use crate::settings::SaveDir;
 use crate::state::GameState;
-use crate::stats::{RunStats, count_final_down};
+use crate::stats::RunStats;
 use crate::tuning::*;
 
 /// The saved summary of one finished Run.
@@ -266,10 +266,7 @@ impl Plugin for RecordsPlugin {
                 OnEnter(GameState::Playing),
                 |mut extras: ResMut<RecordExtras>| extras.0.clear(),
             )
-            .add_systems(
-                OnEnter(GameState::GameOver),
-                record_run.after(count_final_down),
-            )
+            .add_systems(OnEnter(GameState::GameOver), record_run)
             .add_systems(
                 OnTransition {
                     exited: GameState::Playing,
