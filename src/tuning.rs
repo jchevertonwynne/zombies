@@ -1470,6 +1470,47 @@ pub const TRAP_SHOCK_SPEED_MULT: f32 = 0.5;
 pub const TRAP_SAPPER_HEALTH_FRACTION: f32 = 0.2;
 pub const TRAP_SAPPER_STUN_SECS: f32 = 2.0;
 
+// Teleporter
+/// After activating a Pad, the Player has this long to use the Mainframe and Link it.
+pub const TELEPORTER_LINK_SECS: f32 = 30.0;
+pub const TELEPORTER_PRICE: u64 = 1500;
+/// Shared by both Pads, from the end of a trip.
+pub const TELEPORTER_COOLDOWN_SECS: f32 = 5.0;
+/// The Pad charges this long before the Player leaves.
+pub const TELEPORTER_CHARGE_SECS: f32 = 2.0;
+/// The charge kills up to `TELEPORTER_CHARGE_KILL_MAX` Zombies within this of the Pad (300 in).
+pub const TELEPORTER_CHARGE_KILL_RADIUS: f32 = 7.6;
+pub const TELEPORTER_CHARGE_KILL_MAX: usize = 20;
+/// The Player must still be this close to the Pad when the charge ends (176 in), or the Points
+/// are lost.
+pub const TELEPORTER_STAY_RADIUS: f32 = 4.5;
+/// Seconds in the black holding space between the Pad and the Mainframe.
+pub const TELEPORTER_HOLDING_SECS: f32 = 2.0;
+/// On arrival, every Zombie within this of the Mainframe dies (300 in).
+pub const TELEPORTER_ARRIVAL_KILL_RADIUS: f32 = 7.6;
+/// The random aftereffect on arrival, fading out over its last `TELEPORTER_AFTEREFFECT_FADE_SECS`.
+pub const TELEPORTER_AFTEREFFECT_SECS: f32 = 4.0;
+pub const TELEPORTER_AFTEREFFECT_FADE_SECS: f32 = 1.0;
+/// The FOV warp swings the FOV by up to this fraction, this many times a second (invented).
+pub const TELEPORTER_FOV_WARP: f32 = 0.25;
+pub const TELEPORTER_FOV_WARP_HZ: f32 = 1.5;
+/// The arrival drop comes this long after arrival.
+pub const TELEPORTER_DROP_DELAY_SECS: f32 = 2.0;
+/// From this Round, 1 arrival in 6 spawns a Hellhound instead of a Power-up.
+pub const TELEPORTER_HOUND_FROM_ROUND: u32 = 15;
+pub const TELEPORTER_HOUND_CHANCE: f64 = 1.0 / 6.0;
+/// From the Round after this one, each Round past it adds this chance that nothing drops.
+pub const TELEPORTER_NOTHING_AFTER_ROUND: u32 = 15;
+pub const TELEPORTER_NOTHING_CHANCE_PER_ROUND: f64 = 0.05;
+/// Teleporting again within this long, above `TELEPORTER_RETELEPORT_ABOVE_ROUND`, with both Pads
+/// Linked, spawns `TELEPORTER_RETELEPORT_HOUNDS` Hellhounds and gives no Power-up.
+pub const TELEPORTER_RETELEPORT_SECS: f32 = 60.0;
+pub const TELEPORTER_RETELEPORT_ABOVE_ROUND: u32 = 20;
+pub const TELEPORTER_RETELEPORT_HOUNDS: u32 = 4;
+/// A Pad's radius, and how far from its centre it can be used (approx).
+pub const TELEPORTER_PAD_RADIUS: f32 = 1.2;
+pub const TELEPORTER_PAD_USE_RANGE: f32 = 2.5;
+
 // Last Stand
 pub const LAST_STAND_SECS: f32 = 10.0;
 /// The crawl's factor on walk speed.

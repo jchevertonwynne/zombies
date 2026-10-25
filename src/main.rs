@@ -36,6 +36,7 @@ mod save;
 mod settings;
 mod state;
 mod stats;
+mod teleporter;
 mod trap;
 mod tuning;
 mod wall_weapon;
@@ -102,6 +103,7 @@ fn main() {
             pack_a_punch::PackAPunchPlugin,
             burn::BurnPlugin,
             trap::TrapPlugin,
+            teleporter::TeleporterPlugin,
             ammo_mod::AmmoModPlugin,
             power_up::PowerUpPlugin,
         ))

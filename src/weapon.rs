@@ -1079,14 +1079,14 @@ fn resolve_slots(mut player: Single<(&mut Loadout, &Modifiers), With<Player>>) {
 }
 
 /// Kills can put bullets back in the held Weapon's Magazine, through the modifier seam. A Trap's
-/// or a Barrier's kill is the Map's, not the Player's.
+/// a Barrier's or the Teleporter's kill is the Map's, not the Player's.
 fn refill_on_kill(
     mut kills: MessageReader<ZombieKilled>,
     player: Single<(&mut Loadout, &Modifiers), With<Player>>,
 ) {
     let (mut loadout, modifiers) = player.into_inner();
     for kill in kills.read() {
-        if !matches!(kill.attack, Attack::Trap | Attack::Barrier) {
+        if !matches!(kill.attack, Attack::Trap | Attack::Barrier | Attack::Teleporter) {
             loadout.refill_on_kill(&modifiers.0);
         }
     }

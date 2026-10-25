@@ -54,6 +54,8 @@ pub enum Attack {
     Barrier,
     /// The Nuke Power-up. Its kills are Unpaid.
     Nuke,
+    /// The Teleporter's charge at a Pad and its arrival at the Mainframe. The Map's kill, Unpaid.
+    Teleporter,
     /// An Ammo Mod's own damage, Paid or Unpaid by the Ammo Mod. It never rolls Ammo Mods.
     AmmoMod(Pay),
 }
@@ -64,7 +66,7 @@ impl Attack {
         match self {
             Attack::AmmoMod(pay) => pay,
             Attack::Bullet | Attack::Knife | Attack::Burn => Pay::Paid,
-            Attack::Trap | Attack::Barrier | Attack::Nuke => Pay::Unpaid,
+            Attack::Trap | Attack::Barrier | Attack::Nuke | Attack::Teleporter => Pay::Unpaid,
         }
     }
 }
@@ -1086,8 +1088,9 @@ mod tests {
     }
 
     #[test]
-    fn trap_kills_are_unpaid_and_never_headshots() {
+    fn trap_and_teleporter_kills_are_unpaid_and_never_headshots() {
         assert_eq!(Attack::Trap.pay(), Pay::Unpaid);
+        assert_eq!(Attack::Teleporter.pay(), Pay::Unpaid);
         assert!(!is_headshot(HitZone::Head, Attack::Trap));
         for attack in [Attack::Bullet, Attack::Knife, Attack::Burn] {
             assert_eq!(attack.pay(), Pay::Paid);
