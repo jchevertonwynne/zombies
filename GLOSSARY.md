@@ -28,7 +28,25 @@
 
 **Knife**: The Player's melee attack. It's always available and separate from Weapons.
 
-**Points**: Currency the Player earns by damaging and killing Zombies. Not the same as score; Points exist to be spent (later on).
+**Points**: Currency the Player earns by damaging and killing Zombies and spends on Doors and other buys. Not the same as score.
+
+**Points Earned**: All the Points gained during a Run, before any spending.
+_Avoid_: score
+
+**Power-up**: A temporary pickup dropped by a dying Zombie that gives an instant or timed effect.
+_Avoid_: drop, pickup, perk
+
+**Max Ammo**: A Power-up that refills the Reserve Ammo of every Weapon.
+
+**Insta-Kill**: A timed Power-up during which any damage kills a Zombie.
+
+**Double Points**: A timed Power-up during which every Points award is doubled.
+
+**Nuke**: A Power-up that kills every Zombie in play and pays a flat Points bonus in place of kill Points.
+
+**Carpenter**: A Power-up that rebuilds every Barrier and pays a flat Points bonus.
+
+**Fire Sale**: A timed Power-up during which a cheap Mystery Box appears at every Box location.
 
 **Spawn Point**: A fixed place in the Map where Zombies enter play. Most sit just outside one Barrier, and a Zombie that spawns there has to get in through that Barrier. The rest are Risers.
 
@@ -42,6 +60,25 @@
 
 **Active Zone**: The Zone the Player is standing in, or an open Zone next to it. Only Spawn Points in Active Zones send in Zombies.
 
+**Door**: A barrier between two Zones that the Player buys with Points to open for the rest of the Run. Zombies never open Doors.
+_Avoid_: debris, gate
+
+**Power Door**: A Door that cannot be bought and opens on its own when the Power comes on.
+
 **Arena**: An enclosed, open area with no doors or separate rooms.
 
-**Game Over**: The end of a run, triggered when the Player dies. It shows the Round reached.
+**Run**: One game, from Round 1 until Game Over or quitting.
+_Avoid_: game, match
+
+**Down**: The Player's Health reaching zero. A Down ends the Run unless Quick Revive is active.
+
+**Game Over**: The end of a Run, triggered by a Down without Quick Revive. It shows the Round reached and the Run Record.
+
+**Run Record**: The saved summary of one finished Run: Map, date, Round reached, Kills, Headshots, Downs, Points Earned and time survived.
+
+**Records**: The best ten Run Records for a Map, ranked by Round reached and then by shorter time survived.
+_Avoid_: high scores, leaderboard
+
+**Lifetime Stats**: Running totals across every Run the Player has finished.
+
+**Settings**: The Player's saved preferences: sensitivity, volume, field of view and invert-Y.
