@@ -774,6 +774,33 @@ pub const JUGGERNOG_MAX_HEALTH: f32 = 160.0;
 pub const SPEED_COLA_RELOAD_MULT: f32 = 0.5;
 pub const DOUBLE_TAP_FIRE_INTERVAL_MULT: f32 = 0.75;
 
+// Mystery Box
+pub const BOX_PRICE: u64 = 950;
+/// A spin: 40 slowing steps through the pool before the Weapon shows.
+pub const BOX_SPIN_SECS: f32 = 2.85;
+pub const BOX_SPIN_STEPS: u32 = 40;
+/// How long a spun Weapon waits to be taken before it's lost, with no refund.
+pub const BOX_PICKUP_SECS: f32 = 12.0;
+/// After a Weapon is taken or lost, how long until the Box can be spun again.
+pub const BOX_REARM_SECS: f32 = 3.0;
+/// The Teddy table, by completed pulls at this location: none before `FREE`, then the early
+/// chance, then after `LATE` pulls certain at the first location, else the late chance, and the
+/// latest chance from `LATEST` pulls.
+pub const BOX_TEDDY_FREE_PULLS: u32 = 4;
+pub const BOX_TEDDY_LATE_PULLS: u32 = 8;
+pub const BOX_TEDDY_LATEST_PULLS: u32 = 13;
+pub const BOX_TEDDY_CHANCE_EARLY: f64 = 0.15;
+pub const BOX_TEDDY_CHANCE_FIRST_LOCATION: f64 = 1.0;
+pub const BOX_TEDDY_CHANCE_LATE: f64 = 0.30;
+pub const BOX_TEDDY_CHANCE_LATEST: f64 = 0.50;
+/// The Teddy Bear sits this long, then flies up for `BOX_TEDDY_FLY_SECS`.
+pub const BOX_TEDDY_RISE_SECS: f32 = 0.5;
+pub const BOX_TEDDY_FLY_SECS: f32 = 4.0;
+/// Then the Box shakes before it vanishes.
+pub const BOX_SHAKE_SECS: f32 = 5.0;
+/// How long after vanishing the Box reappears at its next location.
+pub const BOX_MOVE_SECS: f32 = 12.0;
+
 
 // Settings
 /// Sensitivity runs 1–10; the default plays exactly like `MOUSE_SENSITIVITY` and the rest scale it.

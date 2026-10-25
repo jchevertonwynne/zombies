@@ -39,6 +39,12 @@ impl Points {
     pub fn spend(&mut self, amount: u64) {
         self.balance = self.balance.saturating_sub(amount);
     }
+
+    /// Gives back Points spent, like a Teddy Bear's refund. It isn't earned, so Points Earned
+    /// stays the same.
+    pub fn refund(&mut self, amount: u64) {
+        self.balance = self.balance.saturating_add(amount);
+    }
 }
 
 /// Points were awarded (for HUD popups).
