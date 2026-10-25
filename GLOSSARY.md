@@ -28,6 +28,20 @@
 
 **Knife**: The Player's melee attack. It's always available and separate from Weapons.
 
+**Weapon Class**: The kind of Weapon, which decides how it fires: for example pistol, SMG, shotgun, sniper rifle or launcher.
+
+**Wall Weapon**: A Weapon bought from its chalk outline on a wall. The same chalk sells ammo for that Weapon.
+_Avoid_: wall buy, chalk gun
+
+**Box Weapon**: A Weapon that can only be got from the Mystery Box.
+
+**Equipment**: Things the Player carries and uses besides their two Weapons and the Knife: Lethals, Tacticals and Claymores. Equipment never counts toward the Weapon limit.
+
+**Lethal**: Equipment thrown to do damage, such as frag grenades.
+_Avoid_: grenade (when meaning the slot)
+
+**Tactical**: Equipment thrown to control Zombies rather than kill them directly, such as the Monkey Bomb.
+
 **Points**: Currency the Player earns by damaging and killing Zombies and spends on Doors and other buys. Not the same as score.
 
 **Buyable**: Anything in the Map the Player spends Points on with the Use key: a Door, Wall Weapon, Mystery Box, Perk Machine or Pack-a-Punch. The Power Switch is used but not bought, so it is not a Buyable.
@@ -80,7 +94,12 @@ _Avoid_: debris, gate
 **Run**: One game, from Round 1 until Game Over or quitting.
 _Avoid_: game, match
 
-**Down**: The Player's Health reaching zero. A Down ends the Run unless Quick Revive is active.
+**Down**: The Player's Health reaching zero. A Down ends the Run unless the Player holds Quick Revive, in which case it starts a Last Stand.
+
+**Last Stand**: The short time after a Down with Quick Revive. The Player crawls with a pistol and cannot be hurt, then gets back up.
+_Avoid_: bleed out, downed state
+
+**Self-Revive**: Getting back up at the end of a Last Stand.
 
 **Game Over**: The end of a Run, triggered by a Down without Quick Revive. It shows the Round reached and the Run Record.
 
@@ -92,3 +111,20 @@ _Avoid_: high scores, leaderboard
 **Lifetime Stats**: Running totals across every Run the Player has finished.
 
 **Settings**: The Player's saved preferences: sensitivity, volume, field of view and invert-Y.
+
+**Perk**: A lasting upgrade the Player buys from a Perk Machine. It lasts until the Player's next Down, which takes away every Perk they hold.
+_Avoid_: perk-a-cola, buff
+
+**Perk Machine**: The machine on the Map that sells one particular Perk.
+
+**Juggernog**: A Perk that raises the Player's maximum Health.
+
+**Speed Cola**: A Perk that makes Reloads faster.
+
+**Double Tap**: A Perk that makes Weapons fire faster.
+
+**Quick Revive**: A Perk that, when playing solo, lets the Player get back up from one Down instead of reaching Game Over.
+
+**Power**: A state of the whole Map that starts off and, once turned on, stays on for the rest of the Run. Most Perk Machines and every Power Door wait for it.
+
+**Power Switch**: The lever that turns Power on. It is free to use.
