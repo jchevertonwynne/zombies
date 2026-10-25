@@ -8,7 +8,8 @@ use bevy::window::{CursorGrabMode, CursorOptions};
 
 use crate::layers::GameLayer;
 use crate::map::PLAYER_START;
-use crate::modifier::Modifiers;
+use crate::modifier::{Modifiers, Stat, resolve};
+use crate::perk::Drinking;
 use crate::settings::Settings;
 use crate::state::{GameState, InRun, Pause};
 use crate::tuning::*;
@@ -167,22 +168,27 @@ fn look(
 }
 
 fn move_player(
-    player: Single<(Entity, &mut Transform, &mut Locomotion, &Collider, &Loadout, &Modifiers), With<Player>>,
+    player: Single<
+        (Entity, &mut Transform, &mut Locomotion, &Collider, &Loadout, &Modifiers, Has<Drinking>),
+        With<Player>,
+    >,
     input: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     move_and_slide: MoveAndSlide,
     time: Res<Time>,
 ) {
-    let (entity, mut transform, mut locomotion, collider, loadout, modifiers) = player.into_inner();
+    let (entity, mut transform, mut locomotion, collider, loadout, modifiers, drinking) = player.into_inner();
     let dt = time.delta_secs();
 
     let forward = input.pressed(KeyCode::KeyW) as i8 - input.pressed(KeyCode::KeyS) as i8;
     let right = input.pressed(KeyCode::KeyD) as i8 - input.pressed(KeyCode::KeyA) as i8;
     let wish = Vec2::new(right as f32, forward as f32).normalize_or_zero();
 
-    // Sprinting only makes sense running forwards on the ground, and it runs out. Aiming stops it.
+    // Sprinting only makes sense running forwards on the ground, and it runs out. Aiming stops it,
+    // and there's no sprinting with a Perk in hand.
     let aiming = mouse.pressed(MouseButton::Right) && loadout.can_aim();
-    let wants_sprint = input.pressed(KeyCode::ShiftLeft) && forward > 0 && locomotion.grounded && !aiming;
+    let wants_sprint =
+        input.pressed(KeyCode::ShiftLeft) && forward > 0 && locomotion.grounded && !aiming && !drinking;
     locomotion.sprinting = wants_sprint && !locomotion.winded;
     if locomotion.sprinting {
         locomotion.stamina -= dt;
@@ -245,7 +251,9 @@ fn take_hits(
     }
 }
 
-fn regenerate(mut health: Single<&mut Health, With<Player>>, time: Res<Time>) {
+fn regenerate(player: Single<(&mut Health, &Modifiers), With<Player>>, time: Res<Time>) {
+    let (mut health, modifiers) = player.into_inner();
+    health.set_max(resolve(Stat::MaxHealth, PLAYER_MAX_HEALTH, &modifiers.0));
     let dt = time.delta_secs();
     health.since_hit += dt;
     if health.since_hit >= HEALTH_REGEN_DELAY_SECS {
@@ -255,7 +263,41 @@ fn regenerate(mut health: Single<&mut Health, With<Player>>, time: Res<Time>) {
 }
 
 impl Health {
+    /// Max Health is re-resolved every frame. Losing max Health (say, Juggernog on a Down) takes
+    /// any Health above the new max with it; gaining it leaves the regen to fill the rest.
+    pub fn set_max(&mut self, max: f32) {
+        self.max = max;
+        self.current = self.current.min(max);
+    }
+
     pub fn fraction(&self) -> f32 {
         (self.current / self.max).clamp(0.0, 1.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn health(current: f32, max: f32) -> Health {
+        Health {
+            current,
+            max,
+            since_hit: 0.0,
+        }
+    }
+
+    #[test]
+    fn raising_max_health_leaves_current_health_to_regen() {
+        let mut h = health(100.0, 100.0);
+        h.set_max(160.0);
+        assert_eq!((h.current, h.max), (100.0, 160.0));
+    }
+
+    #[test]
+    fn lowering_max_health_caps_current_health() {
+        let mut h = health(150.0, 160.0);
+        h.set_max(100.0);
+        assert_eq!((h.current, h.max), (100.0, 100.0));
     }
 }

@@ -761,6 +761,19 @@ pub const CANT_AFFORD_FLASH_SECS: f32 = 0.5;
 /// An ammo buy costs half the Wall Weapon's price, rounded up to a multiple of this.
 pub const AMMO_PRICE_STEP: u64 = 10;
 
+// Power and Perks
+/// How long the Power Switch's lever takes to throw.
+pub const POWER_SWITCH_FLIP_SECS: f32 = 0.3;
+/// How long drinking a Perk takes. The Perk applies at the end.
+pub const PERK_DRINK_SECS: f32 = 2.8;
+pub const PERK_PRICE_JUGGERNOG: u64 = 2500;
+pub const PERK_PRICE_SPEED_COLA: u64 = 3000;
+pub const PERK_PRICE_DOUBLE_TAP: u64 = 2000;
+/// Max Health with Juggernog, up from `PLAYER_MAX_HEALTH`.
+pub const JUGGERNOG_MAX_HEALTH: f32 = 160.0;
+pub const SPEED_COLA_RELOAD_MULT: f32 = 0.5;
+pub const DOUBLE_TAP_FIRE_INTERVAL_MULT: f32 = 0.75;
+
 
 // Settings
 /// Sensitivity runs 1–10; the default plays exactly like `MOUSE_SENSITIVITY` and the rest scale it.

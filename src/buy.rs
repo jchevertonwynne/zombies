@@ -32,8 +32,8 @@ pub struct Purchased(pub Entity);
 #[derive(Message)]
 pub struct CantAfford;
 
-/// Its owner refuses this Buyable for now, like an ammo buy with full ammo. The Prompt still
-/// shows, but the Use key charges nothing and plays the buzzer.
+/// Its owner refuses this Buyable for now, like an ammo buy with full ammo or a Perk machine
+/// before Power. The Prompt still shows, but the Use key charges nothing and plays the buzzer.
 #[derive(Component)]
 pub struct Refused;
 

@@ -17,6 +17,8 @@ pub enum Stat {
     MagazineSize,
     /// The Player's walk and sprint speed.
     MoveSpeed,
+    /// The Player's maximum Health.
+    MaxHealth,
 }
 
 /// Where an entry comes from. Each Perk, Pack-a-Punch, Attachment and so on is its own source:
@@ -27,7 +29,7 @@ pub struct Source(pub &'static str);
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[allow(
     dead_code,
-    reason = "the seam has no entries until Perks and Pack-a-Punch arrive"
+    reason = "reductions and chances arrive with Boons and Pacts"
 )]
 pub enum Effect {
     /// Added to the base before any multiplier.

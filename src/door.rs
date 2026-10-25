@@ -4,6 +4,7 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 
 use crate::buy::{Buyable, Purchased};
+use crate::power::Power;
 use crate::state::Pause;
 
 /// A Door in the Map. While closed it is solid to the Player and to Zombies alike.
@@ -22,7 +23,7 @@ impl Plugin for DoorPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (price_doors, open_bought_doors).run_if(in_state(Pause::Running)),
+            (price_doors, open_bought_doors, open_power_doors).run_if(in_state(Pause::Running)),
         );
     }
 }
@@ -45,13 +46,33 @@ fn open_bought_doors(
     mut doors: Query<(&mut Door, &mut Visibility)>,
 ) {
     for Purchased(entity) in purchases.read() {
-        let Ok((mut door, mut visibility)) = doors.get_mut(*entity) else {
-            continue;
-        };
-        door.open = true;
-        *visibility = Visibility::Hidden;
-        commands
-            .entity(*entity)
-            .remove::<(Buyable, RigidBody, Collider, CollisionLayers)>();
+        if let Ok((mut door, mut visibility)) = doors.get_mut(*entity) {
+            open(&mut commands, *entity, &mut door, &mut visibility);
+        }
     }
+}
+
+/// Power Doors open on their own when the Power comes on.
+fn open_power_doors(
+    mut commands: Commands,
+    power: Res<Power>,
+    mut doors: Query<(Entity, &mut Door, &mut Visibility)>,
+) {
+    if !power.is_on() {
+        return;
+    }
+    for (entity, mut door, mut visibility) in &mut doors {
+        if door.price.is_none() && !door.open {
+            open(&mut commands, entity, &mut door, &mut visibility);
+        }
+    }
+}
+
+/// Opens a Door for the rest of the Run: it vanishes and stops being solid.
+fn open(commands: &mut Commands, entity: Entity, door: &mut Door, visibility: &mut Visibility) {
+    door.open = true;
+    *visibility = Visibility::Hidden;
+    commands
+        .entity(entity)
+        .remove::<(Buyable, RigidBody, Collider, CollisionLayers)>();
 }
