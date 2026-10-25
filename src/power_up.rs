@@ -263,6 +263,10 @@ pub fn reachable_zones(from: ZoneId, joins: &[(ZoneId, ZoneId)]) -> ZoneSet {
 #[derive(Message, Debug, Clone, Copy)]
 pub struct PowerUpTaken(pub PowerUp);
 
+/// Gives the Player a Power-up straight away, as if they'd walked into it.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct GivePowerUp(pub PowerUp);
+
 /// Drops a Power-up at `at`, outside the per-Round cap and needing no threshold: `power_up`, or
 /// the bag's next one if `None`.
 #[derive(Message, Debug, Clone, Copy)]
@@ -330,6 +334,7 @@ impl Plugin for PowerUpPlugin {
             .init_resource::<PowerUpAssets>()
             .add_message::<PowerUpTaken>()
             .add_message::<DropPowerUp>()
+            .add_message::<GivePowerUp>()
             .add_systems(OnEnter(GameState::Playing), reset)
             .add_systems(
                 Update,
@@ -453,10 +458,11 @@ fn age_drops(
     }
 }
 
-/// Walking into a Power-up takes it.
+/// Walking into a Power-up takes it, and so does being given one.
 fn pick_up(
     mut commands: Commands,
     drops: Query<(Entity, &Dropped)>,
+    mut given: MessageReader<GivePowerUp>,
     player: Single<(&Transform, &mut Loadout, &mut Equipment, Has<LastStand>), With<Player>>,
     zombies: Query<Entity, (With<Zombie>, Without<Dying>, Without<Nuked>)>,
     mut active: ResMut<ActivePowerUps>,
@@ -467,13 +473,16 @@ fn pick_up(
 ) {
     let (transform, mut loadout, mut equipment, last_stand) = player.into_inner();
     let feet = transform.translation;
+    let mut takes: Vec<PowerUp> = given.read().map(|GivePowerUp(power_up)| *power_up).collect();
     for (entity, dropped) in &drops {
         let offset = dropped.at - feet;
         if Vec2::new(offset.x, offset.z).length() > POWER_UP_PICKUP_RADIUS || offset.y.abs() > 2.0 {
             continue;
         }
         commands.entity(entity).despawn();
-        let power_up = dropped.power_up;
+        takes.push(dropped.power_up);
+    }
+    for power_up in takes {
         taken.write(PowerUpTaken(power_up));
         active.start(power_up);
         let bonus = match power_up {

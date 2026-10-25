@@ -11,8 +11,10 @@ use crate::arsenal::{
 pub const PLAYER_RADIUS: f32 = 0.35;
 pub const PLAYER_CAPSULE_LENGTH: f32 = 1.1;
 pub const PLAYER_EYE_HEIGHT: f32 = 0.7; // above the capsule centre
-pub const PLAYER_WALK_SPEED: f32 = 5.0;
-pub const PLAYER_SPRINT_SPEED: f32 = 7.5;
+// Faster than BO1 on purpose (playtest): walking just out-paces a Sprinter (5.5), and sprinting
+// clearly escapes one while stamina lasts.
+pub const PLAYER_WALK_SPEED: f32 = 6.5;
+pub const PLAYER_SPRINT_SPEED: f32 = 9.0;
 pub const PLAYER_ACCELERATION: f32 = 60.0;
 pub const PLAYER_JUMP_SPEED: f32 = 5.5;
 pub const GRAVITY: f32 = 18.0;
@@ -32,6 +34,8 @@ pub const SPRINT_RECHARGE_SECS: f32 = 2.0;
 
 // Weapons
 pub const STARTING_WEAPON: WeaponId = WeaponId::M1911;
+/// Weapon slots the Player carries, before any stat entry adds more.
+pub const WEAPON_SLOTS: u32 = 2;
 /// How far a bullet reaches.
 pub const HITSCAN_RANGE: f32 = 100.0;
 
@@ -1303,6 +1307,40 @@ pub const SHRIEKER_DEATH_SCREAM_DELAY_SECS: std::ops::RangeInclusive<f32> = 0.0.
 pub const SHRIEKER_HIT_POINTS_EVERY: u32 = 2;
 /// Seconds between a Shrieker's idle gasps, drawn uniformly.
 pub const SHRIEKER_IDLE_SECS: std::ops::RangeInclusive<f32> = 2.0..=4.0;
+// Nova Crawlers
+/// After Power, this share of normal spawns are Nova Crawlers instead, with at most
+/// `NOVA_CRAWLER_MAX_ALIVE` alive and none on Hellhound Rounds.
+pub const NOVA_CRAWLER_SPAWN_CHANCE: f64 = 0.10;
+pub const NOVA_CRAWLER_MAX_ALIVE: u32 = 6;
+/// A Nova Crawler's health, as a share of a normal Zombie's in the same Round.
+pub const NOVA_CRAWLER_HEALTH_MULT: f32 = 0.75;
+pub const NOVA_CRAWLER_SWIPE_DAMAGE: f32 = 45.0;
+pub const NOVA_CRAWLER_SPEED: f32 = 4.0;
+/// A Nova Crawler's body is a ball this big, so it's about 0.6 m tall.
+pub const NOVA_CRAWLER_RADIUS: f32 = 0.3;
+/// Seconds a Nova Crawler takes to drop from its Vent to the floor; it can be shot meanwhile.
+pub const NOVA_VENT_DROP_SECS: f32 = 1.0;
+/// How far above the floor a Vent opens.
+pub const NOVA_VENT_HEIGHT: f32 = 3.5;
+/// A bullet killing blow bursts a gas cloud this big, lasting this long, that blurs the Player
+/// inside it.
+pub const NOVA_GAS_RADIUS: f32 = 3.2;
+pub const NOVA_GAS_SECS: f32 = 7.0;
+/// How strongly the gas blurs the Player's view while they stand in it (invented).
+pub const NOVA_GAS_BLUR_STRENGTH: f32 = 0.6;
+/// The burst Shellshocks the Player within this distance, for `NOVA_SHELLSHOCK_SECS`, and kills
+/// other Zombies within it (Unpaid).
+pub const NOVA_BLAST_RADIUS: f32 = 2.4;
+pub const NOVA_SHELLSHOCK_SECS: f32 = 2.5;
+
+// Shellshock
+/// The Player moves at this factor of their speed while Shellshocked.
+pub const SHELLSHOCK_SPEED_MULT: f32 = 0.5;
+/// Every other sound plays at this factor of its volume while Shellshocked: the muffled mix
+/// (invented).
+pub const SHELLSHOCK_MUFFLE_GAIN: f32 = 0.3;
+/// How strongly the Shellshock overlay blurs the view (invented).
+pub const SHELLSHOCK_OVERLAY_STRENGTH: f32 = 1.0;
 
 // Fog
 /// The Player's fog, linear from start to end.
@@ -1540,6 +1578,47 @@ pub const TRAP_SHOCK_SPEED_MULT: f32 = 0.5;
 pub const TRAP_SAPPER_HEALTH_FRACTION: f32 = 0.2;
 pub const TRAP_SAPPER_STUN_SECS: f32 = 2.0;
 
+// Teleporter
+/// After activating a Pad, the Player has this long to use the Mainframe and Link it.
+pub const TELEPORTER_LINK_SECS: f32 = 30.0;
+pub const TELEPORTER_PRICE: u64 = 1500;
+/// Shared by both Pads, from the end of a trip.
+pub const TELEPORTER_COOLDOWN_SECS: f32 = 5.0;
+/// The Pad charges this long before the Player leaves.
+pub const TELEPORTER_CHARGE_SECS: f32 = 2.0;
+/// The charge kills up to `TELEPORTER_CHARGE_KILL_MAX` Zombies within this of the Pad (300 in).
+pub const TELEPORTER_CHARGE_KILL_RADIUS: f32 = 7.6;
+pub const TELEPORTER_CHARGE_KILL_MAX: usize = 20;
+/// The Player must still be this close to the Pad when the charge ends (176 in), or the Points
+/// are lost.
+pub const TELEPORTER_STAY_RADIUS: f32 = 4.5;
+/// Seconds in the black holding space between the Pad and the Mainframe.
+pub const TELEPORTER_HOLDING_SECS: f32 = 2.0;
+/// On arrival, every Zombie within this of the Mainframe dies (300 in).
+pub const TELEPORTER_ARRIVAL_KILL_RADIUS: f32 = 7.6;
+/// The random aftereffect on arrival, fading out over its last `TELEPORTER_AFTEREFFECT_FADE_SECS`.
+pub const TELEPORTER_AFTEREFFECT_SECS: f32 = 4.0;
+pub const TELEPORTER_AFTEREFFECT_FADE_SECS: f32 = 1.0;
+/// The FOV warp swings the FOV by up to this fraction, this many times a second (invented).
+pub const TELEPORTER_FOV_WARP: f32 = 0.25;
+pub const TELEPORTER_FOV_WARP_HZ: f32 = 1.5;
+/// The arrival drop comes this long after arrival.
+pub const TELEPORTER_DROP_DELAY_SECS: f32 = 2.0;
+/// From this Round, 1 arrival in 6 spawns a Hellhound instead of a Power-up.
+pub const TELEPORTER_HOUND_FROM_ROUND: u32 = 15;
+pub const TELEPORTER_HOUND_CHANCE: f64 = 1.0 / 6.0;
+/// From the Round after this one, each Round past it adds this chance that nothing drops.
+pub const TELEPORTER_NOTHING_AFTER_ROUND: u32 = 15;
+pub const TELEPORTER_NOTHING_CHANCE_PER_ROUND: f64 = 0.05;
+/// Teleporting again within this long, above `TELEPORTER_RETELEPORT_ABOVE_ROUND`, with both Pads
+/// Linked, spawns `TELEPORTER_RETELEPORT_HOUNDS` Hellhounds and gives no Power-up.
+pub const TELEPORTER_RETELEPORT_SECS: f32 = 60.0;
+pub const TELEPORTER_RETELEPORT_ABOVE_ROUND: u32 = 20;
+pub const TELEPORTER_RETELEPORT_HOUNDS: u32 = 4;
+/// A Pad's radius, and how far from its centre it can be used (approx).
+pub const TELEPORTER_PAD_RADIUS: f32 = 1.2;
+pub const TELEPORTER_PAD_USE_RANGE: f32 = 2.5;
+
 // Last Stand
 pub const LAST_STAND_SECS: f32 = 10.0;
 /// The crawl's factor on walk speed.
@@ -1671,3 +1750,20 @@ pub const BOON_UNION_RATES_CAP_INCREASE: f32 = 1.0;
 pub const BOON_TRENCH_RAIDER_KNIFE_DAMAGE_INCREASE: f32 = 0.50;
 pub const BOON_BANDOLIER_LETHALS_CARRIED: u32 = 1;
 pub const BOON_BANDOLIER_LETHALS_PER_ROUND: u32 = 1;
+pub const BOON_WAR_BONDS_POINTS_PER_ROUND: u64 = 50;
+pub const BOON_LOADED_DICE_FREE_SPIN_CHANCE: f32 = 0.15;
+pub const BOON_FIELD_ENGINEER_PRICE_FACTOR: f32 = 0.9;
+pub const BOON_LIVE_WIRE_COOLDOWN_FACTOR: f32 = 0.85;
+pub const BOON_IRON_STOMACH_PERKS_KEPT: u32 = 1;
+pub const BOON_LAST_RITES_QUICK_REVIVE_BUYS: u32 = 1;
+pub const BOON_BOUNTY_POINTS_PER_TRAP_KILL: u64 = 50;
+/// The fraction of its max Health a Zombie loses for each Plank it tears off.
+pub const BOON_BARBED_WIRE_HEALTH_FRACTION: f32 = 0.10;
+pub const BOON_BUTCHERS_BILL_DROP_CHANCE: f64 = 0.10;
+pub const BOON_SHRAPNEL_DAMAGE_INCREASE: f32 = 0.25;
+pub const BOON_SHRAPNEL_RADIUS_INCREASE: f32 = 0.10;
+pub const BOON_THIRD_HAND_WEAPON_SLOTS: u32 = 1;
+pub const BOON_THROUGH_AND_THROUGH_ZOMBIES: u32 = 1;
+pub const BOON_BLACK_MARKET_UPGRADE_CHANCE: f32 = 0.20;
+pub const BOON_DOUBLE_PUNCHED_AMMO_MOD_SLOTS: u32 = 1;
+pub const BOON_LUCKY_STRIKE_CHANCE: f64 = 0.20;

@@ -49,15 +49,19 @@ fn recipe(cue: Cue) -> Recipe {
         Cue::HoundBite => Recipe::Synth(snarl_snap()),
         Cue::HoundDeath => Recipe::Synth(yelp()),
         Cue::Shellshock => Recipe::Synth(ear_ring()),
+        Cue::NovaVent => Recipe::Synth(vent_bang()),
+        Cue::NovaAttack => Recipe::Synth(screech()),
+        Cue::NovaBurst => Recipe::Synth(wet_pop()),
+        Cue::NovaGas => Recipe::Synth(gas_hiss()),
         Cue::NapalmRise => Recipe::Synth(rumble_flare()),
         Cue::NapalmWindup => Recipe::Synth(rising_whoosh(0.75, 0x0a7a_1001)),
         Cue::NapalmExplode => Recipe::Synth(fireball_boom()),
         Cue::FireBurn => Recipe::Synth(sizzle()),
-        Cue::ShriekerRise => Recipe::Synth(screech(0.6, 500.0, 1400.0, 0x5e1e_0001)),
+        Cue::ShriekerRise => Recipe::Synth(shriek(0.6, 500.0, 1400.0, 0x5e1e_0001)),
         Cue::ShriekerIdle => Recipe::Synth(gasps()),
         Cue::ShriekerWindup => Recipe::Synth(rising_whoosh(0.5, 0x5e1e_0002)),
-        Cue::ShriekerScream => Recipe::Synth(screech(1.0, 1800.0, 1500.0, 0x5e1e_0003)),
-        Cue::ShriekerDeath => Recipe::Synth(screech(1.4, 1100.0, 600.0, 0x5e1e_0004)),
+        Cue::ShriekerScream => Recipe::Synth(shriek(1.0, 1800.0, 1500.0, 0x5e1e_0003)),
+        Cue::ShriekerDeath => Recipe::Synth(shriek(1.4, 1100.0, 600.0, 0x5e1e_0004)),
         Cue::ScreamPop => Recipe::Synth(thud(0.12, 140.0)),
         Cue::AnnouncerMaxAmmo => Recipe::Speak("Max Ammo!", None),
         Cue::AnnouncerInstaKill => Recipe::Speak("Insta-Kill!", None),
@@ -301,6 +305,70 @@ fn yelp() -> Vec<f32> {
         .collect()
 }
 
+/// A high ear-ringing tone over a dull, muffled thump, fading slowly.
+fn ear_ring() -> Vec<f32> {
+    let mut seed = 0x5e11_1000;
+    samples(2.5)
+        .map(|t| {
+            let ring = (TAU * 3_100.0 * t).sin() * (-t * 0.9).exp() * 0.25;
+            let thump = (TAU * 45.0 * t).sin() * (-t * 5.0).exp() * 0.6;
+            let rumble = noise(&mut seed) * (-t * 2.0).exp() * 0.08;
+            (ring + thump + rumble).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
+/// A metal bang, then a scraping rattle as something drops out of a duct.
+fn vent_bang() -> Vec<f32> {
+    let mut seed = 0x7e47_0000;
+    samples(1.0)
+        .map(|t| {
+            let bang = ((TAU * 410.0 * t).sin() + 0.6 * (TAU * 1_130.0 * t).sin()) * (-t * 12.0).exp() * 0.5;
+            let scrape = noise(&mut seed) * (TAU * 23.0 * t).sin().abs() * (-t * 2.5).exp() * 0.3;
+            (bang + scrape).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
+/// A short, rising screech.
+fn screech() -> Vec<f32> {
+    let mut seed = 0x5c4e_0000;
+    let secs = 0.3;
+    samples(secs)
+        .map(|t| {
+            let freq = 1_400.0 + 900.0 * t / secs;
+            let tone = (TAU * freq * t).sin() * (1.0 + 0.4 * noise(&mut seed));
+            tone * (t * 50.0).min(1.0) * (-t * 7.0).exp() * 0.35
+        })
+        .collect()
+}
+
+/// A wet pop, then a hiss of escaping gas.
+fn wet_pop() -> Vec<f32> {
+    let mut seed = 0x9a50_0000;
+    samples(1.2)
+        .map(|t| {
+            let pop = (TAU * (180.0 - 100.0 * t.min(0.1) * 10.0) * t).sin() * (-t * 25.0).exp() * 0.8;
+            let splat = noise(&mut seed) * (-t * 30.0).exp() * 0.4;
+            let hiss = noise(&mut seed) * (t * 8.0).min(1.0) * (-t * 2.0).exp() * 0.3;
+            (pop + splat + hiss).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
+/// A steady low hiss that loops, for a gas cloud.
+fn gas_hiss() -> Vec<f32> {
+    let mut seed = 0x6a50_0000;
+    let mut low = 0.0;
+    samples(2.0)
+        .map(|t| {
+            // Smoothed noise for a darker hiss, with a slow swell.
+            low += (noise(&mut seed) - low) * 0.3;
+            low * 0.35 * (0.85 + 0.15 * (TAU * 0.5 * t).sin())
+        })
+        .collect()
+}
+
 /// Low, descending, wobbling `(frequency, start)` notes over `secs`.
 fn descending_notes(notes: &[(f32, f32)], secs: f32) -> Vec<f32> {
     samples(secs)
@@ -390,19 +458,6 @@ fn plank_rebuild() -> Vec<f32> {
         .collect()
 }
 
-/// A high ear-ring tone over a muffled hum, for Shellshock.
-fn ear_ring() -> Vec<f32> {
-    let secs = 1.6;
-    samples(secs)
-        .map(|t| {
-            let fade = (t * 30.0).min(1.0) * (1.0 - t / secs);
-            let ring = (TAU * 3200.0 * t).sin() * 0.25;
-            let hum = (TAU * 60.0 * t).sin() * 0.2;
-            (ring + hum) * fade
-        })
-        .collect()
-}
-
 /// A ground rumble swelling into a roaring flare, for a Napalm rising.
 fn rumble_flare() -> Vec<f32> {
     let mut seed = 0x0a7a_1000;
@@ -453,7 +508,7 @@ fn sizzle() -> Vec<f32> {
 }
 
 /// A distorted shriek gliding from `from` Hz to `to` Hz over `secs`.
-fn screech(secs: f32, from: f32, to: f32, mut seed: u32) -> Vec<f32> {
+fn shriek(secs: f32, from: f32, to: f32, mut seed: u32) -> Vec<f32> {
     let mut phase = 0.0;
     samples(secs)
         .map(|t| {

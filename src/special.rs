@@ -27,6 +27,7 @@ use crate::nav::Route;
 use crate::player::{Player, PlayerCamera, PlayerHit};
 use crate::points::BonusPoints;
 use crate::round::{CarriesOver, Round, RoundPhase, zombie_health};
+use crate::shellshock::Shellshock;
 use crate::state::{GameState, InRun, Pause};
 use crate::tuning::*;
 use crate::zombie::{
@@ -515,12 +516,12 @@ fn detonate(
 }
 
 /// A Shrieker with the Player in front of it winds up and screams, blurring and shaking their
-/// view, then waits out its cooldown. It gasps every few seconds meanwhile.
+/// view (a Shellshock) and shaking it, then waits out its cooldown. It gasps every few seconds meanwhile.
 fn shriek(
     mut shriekers: Query<(&mut Shrieker, &Transform, Has<Rising>, Has<KnockedDown>), Without<Dying>>,
     player: Single<(&Transform, Has<LastStand>), (With<Player>, Without<Shrieker>)>,
     spatial: SpatialQuery,
-    mut overlays: ResMut<Overlays>,
+    mut shellshocks: MessageWriter<Shellshock>,
     mut shake: ResMut<ScreamShake>,
     mut cues: MessageWriter<SpecialCue>,
     time: Res<Time>,
@@ -555,7 +556,9 @@ fn shriek(
                 });
                 // Stepping out of reach during the wind-up dodges it.
                 if reaches {
-                    overlays.pulse(Overlay::Shellshock, 1.0, SHRIEKER_BLUR_SECS);
+                    shellshocks.write(Shellshock {
+                        secs: SHRIEKER_BLUR_SECS,
+                    });
                     shake.left = shake.left.max(SHRIEKER_SHAKE_SECS);
                 }
             }
@@ -582,7 +585,7 @@ fn special_deaths(
     spatial: SpatialQuery,
     round: Option<Res<Round>>,
     mut slot: ResMut<SpecialSlot>,
-    mut overlays: ResMut<Overlays>,
+    mut shellshocks: MessageWriter<Shellshock>,
     mut damage: MessageWriter<DamageZombie>,
     mut player_hits: MessageWriter<PlayerHit>,
     mut bonus: MessageWriter<BonusPoints>,
@@ -622,10 +625,8 @@ fn special_deaths(
                     && in_sight(&spatial, at, player.translation)
                 {
                     player_hits.write(PlayerHit { damage: amount });
-                    overlays.pulse(Overlay::Shellshock, 1.0, napalm_shellshock_secs(distance));
-                    cues.write(SpecialCue {
-                        cue: Cue::Shellshock,
-                        at: None,
+                    shellshocks.write(Shellshock {
+                        secs: napalm_shellshock_secs(distance),
                     });
                 }
                 cues.write(SpecialCue {

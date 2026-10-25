@@ -11,10 +11,13 @@ use bevy::prelude::*;
 use crate::barrier::{PlankRebuilt, PlankTorn};
 use crate::buy::{BuyRefused, CantAfford, HoldPurchased, Purchased};
 use crate::hellhound::{HellhoundBite, Telegraph};
+use crate::nova::{GasCloud, NovaSwipe, VentDrop};
 use crate::player::PlayerCamera;
 use crate::power_up::PowerUpTaken;
 use crate::round::{Round, RoundStarted};
+use crate::shellshock::{ShellshockStarted, Shellshocked};
 use crate::special::SpecialCue;
+use crate::tuning::SHELLSHOCK_MUFFLE_GAIN;
 use crate::weapon::ShotFired;
 use crate::zombie::{Dying, Zombie, ZombieHit, ZombieKilled};
 use cues::{AUDIO_DIR, Cue, Mix};
@@ -27,9 +30,13 @@ struct Slot {
     last: Option<usize>,
 }
 
-/// Each slot's loaded variants, in `Cue::ALL` order.
+/// Each slot's loaded variants, in `Cue::ALL` order, and whether the mix is muffled by a
+/// Shellshock.
 #[derive(Resource)]
-struct Sounds(Vec<Slot>);
+struct Sounds {
+    slots: Vec<Slot>,
+    muffled: bool,
+}
 
 /// Each slot's files, found by the startup check, waiting to be loaded.
 #[derive(Resource)]
@@ -59,7 +66,15 @@ impl Plugin for AudioPlugin {
         }
 
         app.add_systems(Startup, load_sounds)
-            .add_systems(Update, (add_listener, play_sounds, play_hound_sounds, play_special_sounds));
+            .add_systems(
+                Update,
+                (
+                    add_listener,
+                    muffle,
+                    (play_sounds, play_hound_sounds, play_nova_sounds, play_special_sounds),
+                )
+                    .chain(),
+            );
     }
 }
 
@@ -75,7 +90,7 @@ fn load_sounds(mut commands: Commands, files: Res<SlotFiles>, assets: Res<AssetS
             last: None,
         })
         .collect();
-    commands.insert_resource(Sounds(slots));
+    commands.insert_resource(Sounds { slots, muffled: false });
     commands.remove_resource::<SlotFiles>();
 }
 
@@ -90,17 +105,24 @@ fn add_listener(mut commands: Commands, cameras: Query<Entity, Added<PlayerCamer
 impl Sounds {
     /// The variant of `cue` to play next.
     fn next(&mut self, cue: Cue) -> Handle<AudioSource> {
-        let slot = &mut self.0[cue.index()];
+        let slot = &mut self.slots[cue.index()];
         let pick = slots::pick_variant(slot.variants.len(), slot.last, rand::random());
         slot.last = Some(pick);
         slot.variants[pick].clone()
+    }
+
+    /// A cue's volume: its gain, turned down under a Shellshock's muffle (bar the Shellshock's
+    /// own ring).
+    fn gain(&self, cue: Cue) -> f32 {
+        let gain = cue.spec().gain;
+        if self.muffled && cue != Cue::Shellshock { gain * SHELLSHOCK_MUFFLE_GAIN } else { gain }
     }
 
     /// Plays `cue`. Spatial cues are heard from `at`; without it, they play flat.
     fn play(&mut self, commands: &mut Commands, cue: Cue, at: Option<Vec3>) {
         let player = AudioPlayer::new(self.next(cue));
         let spec = cue.spec();
-        let settings = PlaybackSettings::DESPAWN.with_volume(Volume::Linear(spec.gain));
+        let settings = PlaybackSettings::DESPAWN.with_volume(Volume::Linear(self.gain(cue)));
         match (spec.mix, at) {
             (Mix::Spatial, Some(at)) => {
                 commands.spawn((
@@ -186,6 +208,44 @@ fn play_hound_sounds(
         if zombie.is_hellhound() {
             sounds.play(&mut commands, Cue::HoundDeath, Some(at.translation));
         }
+    }
+}
+
+/// The mix is muffled while the Player is Shellshocked.
+fn muffle(shellshocked: Res<Shellshocked>, mut sounds: ResMut<Sounds>) {
+    let muffled = shellshocked.active();
+    if sounds.muffled != muffled {
+        sounds.muffled = muffled;
+    }
+}
+
+/// A Nova Crawler's Vent drop, its swipes, its gas burst with the cloud's hiss, and the
+/// Shellshock's ring.
+fn play_nova_sounds(
+    mut commands: Commands,
+    mut sounds: ResMut<Sounds>,
+    drops: Query<&Transform, Added<VentDrop>>,
+    clouds: Query<(Entity, &Transform), Added<GasCloud>>,
+    mut swipes: MessageReader<NovaSwipe>,
+    mut shellshocks: MessageReader<ShellshockStarted>,
+) {
+    for at in &drops {
+        sounds.play(&mut commands, Cue::NovaVent, Some(at.translation));
+    }
+    for _ in swipes.read() {
+        sounds.play(&mut commands, Cue::NovaAttack, None);
+    }
+    for (cloud, at) in &clouds {
+        sounds.play(&mut commands, Cue::NovaBurst, Some(at.translation));
+        // The hiss loops for as long as the cloud lasts, and goes with it.
+        let hiss = AudioPlayer::new(sounds.next(Cue::NovaGas));
+        let settings = PlaybackSettings::LOOP
+            .with_volume(Volume::Linear(sounds.gain(Cue::NovaGas)))
+            .with_spatial(true);
+        commands.entity(cloud).with_child((hiss, settings, Transform::default()));
+    }
+    for _ in shellshocks.read() {
+        sounds.play(&mut commands, Cue::Shellshock, None);
     }
 }
 

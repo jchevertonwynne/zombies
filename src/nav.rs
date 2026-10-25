@@ -20,7 +20,7 @@ pub enum Gate {
     Door(ZoneId, ZoneId),
     /// In through a window, from outside only: open when no Planks are left.
     Barrier(BarrierId),
-    /// From the first node to the second only: the drop off the Balcony (and later the Vents).
+    /// From the first node to the second only: the drop off the Balcony and the Vents.
     OneWay,
 }
 
@@ -125,6 +125,11 @@ const NODES: &[(&str, f32, f32, f32)] = &[
     ("w11_out", 8.0, 0.0, -28.0),
     ("w12_in", 20.0, 0.0, -24.5),
     ("w12_out", 20.0, 0.0, -28.0),
+    // Vents, up near the top of their rooms, over the spot a Nova Crawler drops to
+    ("vent_west", -21.0, NOVA_VENT_HEIGHT, 4.0),
+    ("vent_east", 21.0, NOVA_VENT_HEIGHT, 4.0),
+    ("vent_dining", -13.0, NOVA_VENT_HEIGHT, -20.0),
+    ("vent_power", 13.0, NOVA_VENT_HEIGHT, -20.0),
 ];
 
 const fn door(a: ZoneId, b: ZoneId) -> Gate {
@@ -211,6 +216,11 @@ const EDGES: &[(&str, &str, Gate)] = {
         ("power_c", "w12_in", OPEN),
         ("w11_out", "w11_in", barrier(11)),
         ("w12_out", "w12_in", barrier(12)),
+        // The Vent drops
+        ("vent_west", "west_mid", Gate::OneWay),
+        ("vent_east", "east_mid", Gate::OneWay),
+        ("vent_dining", "dining_c", Gate::OneWay),
+        ("vent_power", "power_c", Gate::OneWay),
     ]
 };
 
@@ -219,6 +229,8 @@ pub struct Node {
     pub at: Vec3,
     /// The Zone the node is in, or `None` outside the building.
     pub zone: Option<ZoneId>,
+    /// A Vent: only ever dropped from, so never anyone's nearest node.
+    pub vent: bool,
 }
 
 pub struct Edge {
@@ -241,11 +253,12 @@ impl NavGraph {
     pub fn new() -> Self {
         let nodes: Vec<_> = NODES
             .iter()
-            .map(|&(_, x, y, z)| {
+            .map(|&(name, x, y, z)| {
                 let at = Vec3::new(x, y, z);
                 Node {
                     at,
                     zone: zone_at(at + Vec3::Y * 0.1),
+                    vent: name.starts_with("vent_"),
                 }
             })
             .collect();
@@ -275,6 +288,7 @@ impl NavGraph {
 
     /// The node a Zombie or the Player standing at `feet` belongs to: the closest in the same
     /// Zone (or outside, if they're outside), with height counting extra so floors don't mix.
+    /// Vents are never it.
     pub fn nearest(&self, feet: Vec3) -> usize {
         let zone = zone_at(feet + Vec3::Y * 0.1);
         let cost = |node: &Node| {
@@ -283,7 +297,7 @@ impl NavGraph {
         };
         let pick = |same_zone: bool| {
             (0..self.nodes.len())
-                .filter(|&i| !same_zone || self.nodes[i].zone == zone)
+                .filter(|&i| !self.nodes[i].vent && (!same_zone || self.nodes[i].zone == zone))
                 .min_by(|&a, &b| cost(&self.nodes[a]).total_cmp(&cost(&self.nodes[b])))
         };
         pick(true).or_else(|| pick(false)).expect("the graph has nodes")
@@ -441,7 +455,7 @@ mod tests {
     fn every_edge_names_real_nodes() {
         let graph = NavGraph::new();
         assert_eq!(graph.edges.len(), EDGES.len());
-        assert!((40..=60).contains(&graph.nodes.len()), "about 40 nodes, not {}", graph.nodes.len());
+        assert!((40..=66).contains(&graph.nodes.len()), "about 40 nodes and the Vents, not {}", graph.nodes.len());
     }
 
     #[test]
@@ -477,7 +491,7 @@ mod tests {
     fn with_every_door_bought_every_node_reaches_every_indoor_node() {
         let graph = NavGraph::new();
         for (from, (from_name, ..)) in NODES.iter().enumerate() {
-            for to in (0..graph.nodes.len()).filter(|&to| graph.nodes[to].zone.is_some()) {
+            for to in (0..graph.nodes.len()).filter(|&to| graph.nodes[to].zone.is_some() && !graph.nodes[to].vent) {
                 assert!(
                     graph.plan(from, to, &ALL_DOORS, windows_open).is_some(),
                     "{from_name} to {}",
@@ -550,5 +564,28 @@ mod tests {
         assert_eq!(repath_interval(5.0), ZOMBIE_REPATH_SECS);
         assert_eq!(repath_interval(30.0), ZOMBIE_REPATH_SECS);
         assert_eq!(repath_interval(30.5), ZOMBIE_REPATH_FAR_SECS);
+    }
+
+    #[test]
+    fn every_vent_is_a_one_way_drop_onto_the_spot_below_it() {
+        use crate::map::VENTS;
+        let graph = NavGraph::new();
+        for (zone, floor) in VENTS {
+            let vent = graph.nodes.iter().position(|n| n.vent && n.at == floor + Vec3::Y * NOVA_VENT_HEIGHT).unwrap();
+            assert_eq!(graph.nodes[vent].zone, Some(zone));
+            let edges: Vec<_> = graph.edges.iter().filter(|e| e.from == vent || e.to == vent).collect();
+            assert_eq!(edges.len(), 1, "{}", NODES[vent].0);
+            assert_eq!((edges[0].from, edges[0].gate), (vent, Gate::OneWay));
+            assert_eq!(graph.nodes[edges[0].to].at, floor);
+            // Nothing climbs back up into it.
+            assert!(graph.plan(edges[0].to, vent, &ALL_DOORS, windows_open).is_none());
+        }
+    }
+
+    #[test]
+    fn a_vent_is_never_the_nearest_node() {
+        let graph = NavGraph::new();
+        // Up by the Dining Room's Vent, as a Player mid-jump might be.
+        assert_eq!(NODES[graph.nearest(Vec3::new(-13.0, 3.0, -20.0))].0, "dining_c");
     }
 }

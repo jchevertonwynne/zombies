@@ -9,7 +9,8 @@ use crate::barrier::Entering;
 use crate::buy::{Buyable, Purchased, Refused};
 use crate::explosive::{Explosion, Explosive, in_sight, makes_crawlers, world_filter};
 use crate::layers::GameLayer;
-use crate::modifier::{Modifier, Modifiers, Stat, resolve_count};
+use crate::arsenal::Splash;
+use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_count};
 use crate::player::{Player, PlayerCamera};
 use crate::round::{Round, RoundStarted};
 use crate::state::{GameState, InRun, Pause};
@@ -434,17 +435,30 @@ fn thrown(mesh: &Handle<Mesh>, material: &Handle<StandardMaterial>, camera: &Glo
     )
 }
 
+/// An explosive Equipment's blast after the Player's stat entries: its damage, both ends of the
+/// falloff, and its radius.
+pub fn equipment_splash(base: Splash, player: &[Modifier]) -> Splash {
+    let damage = resolve(Stat::EquipmentDamage, 1.0, player);
+    Splash {
+        max: base.max * damage,
+        min: base.min * damage,
+        radius: resolve(Stat::EquipmentRadius, base.radius, player),
+    }
+}
+
 /// G pulls a frag's pin. Holding G cooks it, and letting go throws it with what's left of the
 /// fuse. Held too long, it goes off in the hand.
 fn throw_frags(
     mut commands: Commands,
-    mut equipment: Single<&mut Equipment, With<Player>>,
+    player: Single<(&mut Equipment, &Modifiers), With<Player>>,
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
     input: Res<ButtonInput<KeyCode>>,
     assets: Res<EquipmentAssets>,
     mut explosions: MessageWriter<Explosion>,
     time: Res<Time>,
 ) {
+    let (mut equipment, modifiers) = player.into_inner();
+    let entries = &modifiers.0;
     let held = input.pressed(KeyCode::KeyG);
     let Some(cooked) = equipment.cooking else {
         if input.just_pressed(KeyCode::KeyG) && equipment.frags > 0 {
@@ -463,7 +477,7 @@ fn throw_frags(
             equipment.cooking = None;
             explosions.write(Explosion {
                 at: camera.translation(),
-                splash: FRAG_SPLASH,
+                splash: equipment_splash(FRAG_SPLASH, entries),
                 hurts_player: true,
                 ammo_mods: AmmoMods::NONE,
                 crawlers: makes_crawlers(Explosive::Frag),
@@ -520,15 +534,17 @@ fn plant_claymores(
 fn burn_frags(
     mut commands: Commands,
     mut frags: Query<(Entity, &mut Frag, &Transform)>,
+    player: Single<&Modifiers, With<Player>>,
     mut explosions: MessageWriter<Explosion>,
     time: Res<Time>,
 ) {
+    let entries = &player.0;
     for (entity, mut frag, transform) in &mut frags {
         frag.fuse -= time.delta_secs();
         if frag.fuse <= 0.0 {
             explosions.write(Explosion {
                 at: transform.translation + Vec3::Y * 0.1,
-                splash: FRAG_SPLASH,
+                splash: equipment_splash(FRAG_SPLASH, entries),
                 hurts_player: true,
                 ammo_mods: AmmoMods::NONE,
                 crawlers: makes_crawlers(Explosive::Frag),
@@ -542,6 +558,7 @@ fn burn_frags(
 fn land_monkey_bombs(
     mut commands: Commands,
     mut bombs: Query<(Entity, &mut MonkeyBomb, &Transform)>,
+    player: Single<&Modifiers, With<Player>>,
     spatial: SpatialQuery,
     mut explosions: MessageWriter<Explosion>,
     time: Res<Time>,
@@ -563,7 +580,7 @@ fn land_monkey_bombs(
             Some(left) if left - dt <= 0.0 => {
                 explosions.write(Explosion {
                     at: transform.translation + Vec3::Y * 0.1,
-                    splash: MONKEY_BOMB_SPLASH,
+                    splash: equipment_splash(MONKEY_BOMB_SPLASH, &player.0),
                     hurts_player: true,
                     ammo_mods: AmmoMods::NONE,
                     crawlers: makes_crawlers(Explosive::MonkeyBomb),
@@ -625,6 +642,7 @@ fn trigger_claymores(
     mut commands: Commands,
     mut claymores: Query<(Entity, &mut Claymore, &Transform)>,
     zombies: Query<&GlobalTransform, (With<Zombie>, Without<Dying>)>,
+    player: Single<&Modifiers, With<Player>>,
     spatial: SpatialQuery,
     mut explosions: MessageWriter<Explosion>,
     time: Res<Time>,
@@ -647,7 +665,7 @@ fn trigger_claymores(
             Some(left) if left - dt <= 0.0 => {
                 explosions.write(Explosion {
                     at: at + Vec3::Y * 0.3,
-                    splash: CLAYMORE_SPLASH,
+                    splash: equipment_splash(CLAYMORE_SPLASH, &player.0),
                     hurts_player: false,
                     ammo_mods: AmmoMods::NONE,
                     crawlers: makes_crawlers(Explosive::Claymore),
@@ -662,6 +680,20 @@ fn trigger_claymores(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn equipment_entries_raise_blast_damage_and_radius() {
+        assert_eq!(equipment_splash(FRAG_SPLASH, &[]), FRAG_SPLASH);
+        let source = crate::modifier::Source("test");
+        let entries = [
+            Modifier { stat: Stat::EquipmentDamage, source, effect: crate::modifier::Effect::Mult(1.25) },
+            Modifier { stat: Stat::EquipmentRadius, source, effect: crate::modifier::Effect::Mult(1.1) },
+        ];
+        let splash = equipment_splash(CLAYMORE_SPLASH, &entries);
+        assert!((splash.max - CLAYMORE_SPLASH.max * 1.25).abs() < 1e-3);
+        assert!((splash.min - CLAYMORE_SPLASH.min * 1.25).abs() < 1e-3);
+        assert!((splash.radius - CLAYMORE_SPLASH.radius * 1.1).abs() < 1e-4);
+    }
 
     #[test]
     fn the_player_starts_with_two_frags_and_nothing_else() {

@@ -81,8 +81,14 @@ cues! {
     HoundBite => "hound_bite", Root, Flat, 0.8;
     HoundDeath => "hound_death", Root, Spatial, 0.8;
 
-    // Napalm and Shrieker
+    // Nova Crawlers, and the Shellshock their gas (and later the Napalm and the Teleporter) gives
     Shellshock => "shellshock", Root, Flat, 0.8;
+    NovaVent => "nova_vent", Root, Spatial, 1.0;
+    NovaAttack => "nova_attack", Root, Flat, 0.7;
+    NovaBurst => "nova_burst", Root, Spatial, 1.0;
+    NovaGas => "nova_gas", Root, Spatial, 0.6;
+
+    // Napalm and Shrieker
     NapalmRise => "napalm_rise", Root, Spatial, 1.0;
     NapalmWindup => "napalm_windup", Root, Spatial, 1.0;
     NapalmExplode => "napalm_explode", Root, Spatial, 1.0;

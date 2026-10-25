@@ -100,9 +100,10 @@ impl WeaponCopy {
     }
 
     /// Its tap Repack: a random Ammo Mod it lacks, picked by `roll` in [0, 1), and full ammo, as
-    /// out of the upgrade. A copy with no room for another Ammo Mod comes back unchanged.
-    pub fn repack(self, roll: f32) -> Self {
-        let Some(ammo_mod) = pick_ammo_mod(self.ammo_mods, roll).filter(|_| self.ammo_mods.has_room()) else {
+    /// out of the upgrade. A copy with no room for another Ammo Mod (of `slots`) comes back
+    /// unchanged.
+    pub fn repack(self, roll: f32, slots: usize) -> Self {
+        let Some(ammo_mod) = pick_ammo_mod(self.ammo_mods, roll).filter(|_| self.ammo_mods.has_room(slots)) else {
             return self;
         };
         Self {
@@ -175,10 +176,11 @@ impl Swap {
     }
 }
 
-/// The Player's two Weapon slots. The held slot is always filled; the Knife is separate.
+/// The Player's Weapon slots: `WEAPON_SLOTS` of them, or as many as the stat entries say. The held
+/// slot is always filled; the Knife is separate.
 #[derive(Component)]
 pub struct Loadout {
-    slots: [Option<WeaponCopy>; 2],
+    slots: Vec<Option<WeaponCopy>>,
     held: usize,
     pub reload: Option<Reload>,
     pub swap: Option<Swap>,
@@ -200,7 +202,10 @@ pub struct Loadout {
 impl Loadout {
     pub fn new(id: WeaponId) -> Self {
         Self {
-            slots: [Some(WeaponCopy::new(id)), None],
+            slots: std::iter::once(Some(WeaponCopy::new(id)))
+                .chain(std::iter::repeat_with(|| None))
+                .take(WEAPON_SLOTS as usize)
+                .collect(),
             held: 0,
             reload: None,
             swap: None,
@@ -224,6 +229,46 @@ impl Loadout {
 
     pub fn slot(&self, slot: usize) -> Option<&WeaponCopy> {
         self.slots.get(slot).and_then(Option::as_ref)
+    }
+
+    /// Every Weapon carried, in slot order.
+    pub fn weapons(&self) -> impl Iterator<Item = &WeaponCopy> {
+        self.slots.iter().flatten()
+    }
+
+    /// How many slots there are, filled or not.
+    pub fn slot_count(&self) -> usize {
+        self.slots.len()
+    }
+
+    /// Grows or shrinks to `count` slots (at least one). Shrinking drops the Weapons in the slots
+    /// that go; if the one in hand goes, the first slot's Weapon comes up.
+    pub fn set_slot_count(&mut self, count: usize) {
+        let count = count.max(1);
+        if count == self.slots.len() {
+            return;
+        }
+        if count > self.slots.len() {
+            self.slots.resize_with(count, || None);
+            return;
+        }
+        // Weapons in the slots that go move into empty slots that stay, while there are any.
+        for from in count..self.slots.len() {
+            if self.slots[from].is_some()
+                && let Some(to) = self.slots[..count].iter().position(Option::is_none)
+            {
+                self.slots.swap(from, to);
+                if self.held == from {
+                    self.held = to;
+                }
+            }
+        }
+        self.slots.truncate(count);
+        // The Weapon in hand went only if every slot that stays is filled, so the first is.
+        if self.held >= count {
+            self.held = 0;
+            self.raise();
+        }
     }
 
     /// The held Weapon's Underbarrel, while it's up instead of the main gun.
@@ -347,6 +392,13 @@ impl Loadout {
         }
     }
 
+    /// Zombies past the first the gun that fires now passes its bullets through: its penetration
+    /// tier, plus any stat entries.
+    pub fn penetration(&self, player: &[Modifier]) -> u32 {
+        let base = self.gun_stats().penetration.extra_zombies();
+        resolve_count(Stat::Penetration, base, self.gun_entries(player))
+    }
+
     /// The held Weapon's damage multiplier for a hit zone. The head's resolves through the seam.
     pub fn zone_multiplier(&self, zone: HitZone, player: &[Modifier]) -> f32 {
         let base = self.held().stats().zone_multiplier(zone);
@@ -458,9 +510,18 @@ impl Loadout {
         true
     }
 
-    /// Switch to the other slot.
+    /// Switch to the next filled slot after the one in hand, wrapping round.
     pub fn cycle(&mut self) -> bool {
-        self.switch_to(1 - self.held)
+        match self.next_filled() {
+            Some(slot) => self.switch_to(slot),
+            None => false,
+        }
+    }
+
+    /// The next filled slot after the one in hand, wrapping round, if there is another.
+    fn next_filled(&self) -> Option<usize> {
+        let count = self.slots.len();
+        (1..count).map(|step| (self.held + step) % count).find(|&slot| self.slots[slot].is_some())
     }
 
     /// Take a new Weapon and bring it up: into the empty slot if there is one, otherwise in
@@ -494,12 +555,11 @@ impl Loadout {
         self.reset_for_swap();
     }
 
-    /// Hand over the Weapon in hand, as Pack-a-Punch takes it, and bring up the other one. Its
+    /// Hand over the Weapon in hand, as Pack-a-Punch takes it, and bring up the next one. Its
     /// slot stays free until something fills it. The held slot is always filled, so the Player
     /// must carry another Weapon.
     pub fn take_held(&mut self) -> Option<WeaponCopy> {
-        let other = 1 - self.held;
-        self.slot(other)?;
+        let other = self.next_filled()?;
         let taken = self.slots[self.held].take().expect("the held slot is always filled");
         self.held = other;
         self.begin_swap(&taken);
@@ -520,7 +580,7 @@ impl Loadout {
 
     /// Whether the Player carries a Weapon besides the one in hand.
     pub fn has_spare(&self) -> bool {
-        self.slot(1 - self.held).is_some()
+        self.next_filled().is_some()
     }
 
     /// Start putting `from` away and bringing up the Weapon now in hand.
@@ -702,7 +762,7 @@ impl Plugin for WeaponPlugin {
                     .chain()
                     .run_if(in_state(Pause::Running)),
             )
-            .add_systems(Update, refill_on_kill.run_if(in_state(Pause::Running)));
+            .add_systems(Update, (resolve_slots, refill_on_kill).run_if(in_state(Pause::Running)));
     }
 }
 
@@ -757,7 +817,7 @@ fn attack_filter(player: Entity) -> SpatialQueryFilter {
     SpatialQueryFilter::from_mask([GameLayer::World, GameLayer::ZombieHitArea]).with_excluded_entities([player])
 }
 
-/// Scroll, Q, or 1/2 switch Weapons.
+/// Scroll, Q, or 1/2 (and 3, with a third slot) switch Weapons.
 fn switch_weapons(
     mut loadout: Single<&mut Loadout, With<Player>>,
     input: Res<ButtonInput<KeyCode>>,
@@ -769,6 +829,8 @@ fn switch_weapons(
         loadout.switch_to(0);
     } else if input.just_pressed(KeyCode::Digit2) {
         loadout.switch_to(1);
+    } else if input.just_pressed(KeyCode::Digit3) {
+        loadout.switch_to(2);
     } else if input.just_pressed(KeyCode::KeyQ) || scroll.delta.y != 0.0 {
         loadout.cycle();
     }
@@ -952,7 +1014,7 @@ fn fire(
             },
             None => Crossing::World,
         });
-        for hit in pierce(crossings, stats.penetration.extra_zombies() + sights.extra_pierce) {
+        for hit in pierce(crossings, loadout.penetration(entries) + sights.extra_pierce) {
             let amount = hit_damage(loadout.zone_multiplier(hit.zone, entries), loadout.damage_at(hit.distance, entries), &hit, sights);
             damage.write(DamageZombie {
                 zombie: hit.zombie,
@@ -1007,15 +1069,24 @@ fn knife(
     }
 }
 
-/// Kills can put bullets back in the held Weapon's Magazine, through the modifier seam. A Trap's
-/// kill is the Map's, not the Player's.
+/// The Player's Weapon slots follow their stat entries.
+fn resolve_slots(mut player: Single<(&mut Loadout, &Modifiers), With<Player>>) {
+    let (ref mut loadout, modifiers) = *player;
+    let count = resolve_count(Stat::WeaponSlots, WEAPON_SLOTS, &modifiers.0) as usize;
+    if loadout.slot_count() != count {
+        loadout.set_slot_count(count);
+    }
+}
+
+/// Kills can put bullets back in the held Weapon's Magazine, through the modifier seam. A Trap's,
+/// a Barrier's, the Teleporter's or a Nova Crawler blast's kill is the Map's, not the Player's.
 fn refill_on_kill(
     mut kills: MessageReader<ZombieKilled>,
     player: Single<(&mut Loadout, &Modifiers), With<Player>>,
 ) {
     let (mut loadout, modifiers) = player.into_inner();
     for kill in kills.read() {
-        if kill.attack != Attack::Trap {
+        if !matches!(kill.attack, Attack::Trap | Attack::Barrier | Attack::Teleporter | Attack::NovaBlast) {
             loadout.refill_on_kill(&modifiers.0);
         }
     }
@@ -1302,6 +1373,85 @@ mod tests {
         assert_eq!(loadout.held().magazine, 8);
         // The Reserve is untouched: the bullet comes from nowhere.
         assert_eq!(loadout.held().reserve, WeaponId::M1911.stats().starting_reserve());
+    }
+
+    #[test]
+    fn an_extra_slot_carries_a_third_weapon_on_key_3() {
+        let mut loadout = Loadout::new(WeaponId::M1911);
+        assert_eq!(loadout.slot_count(), 2);
+        loadout.set_slot_count(3);
+        loadout.give(WeaponId::Mp40);
+        loadout.give(WeaponId::M14);
+        // The third Weapon fills the new slot rather than replacing the one in hand.
+        assert_eq!(loadout.weapons().map(|weapon| weapon.id).collect::<Vec<_>>(), [
+            WeaponId::M1911,
+            WeaponId::Mp40,
+            WeaponId::M14
+        ]);
+        assert_eq!(loadout.held().id, WeaponId::M14);
+        run(&mut loadout, 5.0, NONE);
+        assert!(loadout.switch_to(0));
+        run(&mut loadout, 5.0, NONE);
+        assert!(loadout.switch_to(2));
+        run(&mut loadout, 5.0, NONE);
+        // Cycling wraps round all three.
+        assert!(loadout.cycle());
+        assert_eq!(loadout.held().id, WeaponId::M1911);
+        run(&mut loadout, 5.0, NONE);
+        assert!(loadout.cycle());
+        assert_eq!(loadout.held().id, WeaponId::Mp40);
+    }
+
+    #[test]
+    fn cycling_skips_empty_slots_and_pack_a_punch_takes_from_any() {
+        let mut loadout = Loadout::new(WeaponId::M1911);
+        loadout.set_slot_count(3);
+        loadout.give(WeaponId::Mp40);
+        run(&mut loadout, 5.0, NONE);
+        assert!(loadout.cycle());
+        assert_eq!(loadout.held().id, WeaponId::M1911);
+        assert!(loadout.has_spare());
+        let m1911 = loadout.take_held().unwrap();
+        assert_eq!(m1911.id, WeaponId::M1911);
+        assert_eq!(loadout.held().id, WeaponId::Mp40);
+        assert!(!loadout.has_spare());
+    }
+
+    #[test]
+    fn losing_a_slot_keeps_weapons_while_there_is_room() {
+        let mut loadout = Loadout::new(WeaponId::M1911);
+        loadout.set_slot_count(3);
+        loadout.give(WeaponId::Mp40);
+        loadout.give(WeaponId::M14);
+        run(&mut loadout, 5.0, NONE);
+        // An empty slot that stays takes the Weapon from the slot that goes.
+        let m1911 = loadout.slots[0].take();
+        loadout.set_slot_count(2);
+        assert_eq!(loadout.slot(0).unwrap().id, WeaponId::M14);
+        assert_eq!(loadout.held().id, WeaponId::M14);
+        // With every slot that stays filled, the Weapon in the slot that goes is dropped, and the
+        // first slot's comes up.
+        loadout.slots[0] = m1911;
+        loadout.set_slot_count(3);
+        loadout.give(WeaponId::M14);
+        assert_eq!(loadout.held().id, WeaponId::M14);
+        loadout.set_slot_count(2);
+        assert_eq!(loadout.slot_count(), 2);
+        assert_eq!(loadout.held().id, WeaponId::M1911);
+        assert_eq!(loadout.slot_of(WeaponId::M14), None);
+    }
+
+    #[test]
+    fn penetration_entries_add_zombies_on_top_of_the_tier() {
+        let mp40 = Loadout::new(WeaponId::Mp40);
+        let tier = WeaponId::Mp40.stats().penetration.extra_zombies();
+        assert_eq!(mp40.penetration(NONE), tier);
+        let one = [Modifier {
+            stat: Stat::Penetration,
+            source: Source("test"),
+            effect: Effect::Flat(1.0),
+        }];
+        assert_eq!(mp40.penetration(&one), tier + 1);
     }
 
     #[test]

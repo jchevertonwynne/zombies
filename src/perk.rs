@@ -6,7 +6,7 @@ use bevy::prelude::*;
 
 use crate::buy::{Buyable, Purchased, Refused};
 use crate::layers::GameLayer;
-use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve_points};
+use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve_count, resolve_points};
 use crate::player::Player;
 use crate::power::Power;
 use crate::state::{GameState, InRun, Pause};
@@ -84,9 +84,10 @@ impl Perk {
         }
     }
 
-    /// Whether its machine leaves after `buys` buys. Only solo Quick Revive runs out.
-    pub fn machine_leaves(self, buys: u32) -> bool {
-        self == Perk::QuickRevive && buys >= QUICK_REVIVE_SOLO_BUYS
+    /// Whether its machine leaves after `buys` buys. Only solo Quick Revive runs out, after
+    /// `solo_buys` (see `quick_revive_buys`).
+    pub fn machine_leaves(self, buys: u32, solo_buys: u32) -> bool {
+        self == Perk::QuickRevive && buys >= solo_buys
     }
 
     /// Where its machine stands, against a wall of its Zone, and the way it faces.
@@ -113,6 +114,17 @@ impl Perk {
     }
 }
 
+/// Solo Quick Revive buys before its machine leaves: `QUICK_REVIVE_SOLO_BUYS`, or as many as the
+/// Player's stat entries say.
+pub fn quick_revive_buys(player: &[Modifier]) -> u32 {
+    resolve_count(Stat::QuickReviveBuys, QUICK_REVIVE_SOLO_BUYS, player)
+}
+
+/// Perks a Down leaves the Player, by their stat entries: none in Classic.
+pub fn kept_on_down(player: &[Modifier]) -> usize {
+    resolve_count(Stat::PerksKeptOnDown, 0, player) as usize
+}
+
 /// What a Perk Machine's Prompt shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachinePrompt {
@@ -136,7 +148,7 @@ pub fn machine_prompt(perk: Perk, power_on: bool, owned: bool, drinking: bool) -
     }
 }
 
-/// The Perks the Player holds. A Down takes them all.
+/// The Perks the Player holds, in the order they were bought. A Down takes them all.
 #[derive(Component, Default)]
 pub struct Perks(pub Vec<Perk>);
 
@@ -145,9 +157,21 @@ impl Perks {
         self.0.contains(&perk)
     }
 
-    /// A Down takes every Perk, and with them every entry they put on the Player.
-    pub fn lose_all(&mut self, modifiers: &mut Modifiers) {
-        for perk in self.0.drain(..) {
+    /// A Down takes every Perk but the `keep` earliest bought (see `kept_on_down`), and with them
+    /// every entry they put on the Player. Quick Revive always goes: the Down used its life.
+    pub fn lose_on_down(&mut self, keep: usize, modifiers: &mut Modifiers) {
+        let mut kept = 0;
+        let mut lost = Vec::new();
+        self.0.retain(|&perk| {
+            let stays = perk != Perk::QuickRevive && kept < keep;
+            if stays {
+                kept += 1;
+            } else {
+                lost.push(perk);
+            }
+            stays
+        });
+        for perk in lost {
             modifiers.0.retain(|entry| entry.source != Source(perk.name()));
         }
     }
@@ -278,15 +302,16 @@ fn buy_perks(
     mut commands: Commands,
     mut purchases: MessageReader<Purchased>,
     mut machines: Query<(&mut PerkMachine, &Transform)>,
-    player: Single<(Entity, &mut Loadout), With<Player>>,
+    player: Single<(Entity, &mut Loadout, &Modifiers), With<Player>>,
 ) {
-    let (entity, mut loadout) = player.into_inner();
+    let (entity, mut loadout, modifiers) = player.into_inner();
+    let solo_buys = quick_revive_buys(&modifiers.0);
     for Purchased(bought) in purchases.read() {
         if let Ok((mut machine, transform)) = machines.get_mut(*bought) {
             loadout.reload = None;
             commands.entity(entity).insert(Drinking::new(machine.perk));
             machine.buys = machine.buys.saturating_add(1);
-            if machine.perk.machine_leaves(machine.buys) {
+            if machine.perk.machine_leaves(machine.buys, solo_buys) {
                 commands.entity(*bought).remove::<(Buyable, Refused)>().insert(Leaving {
                     elapsed: 0.0,
                     from: transform.translation,
@@ -536,12 +561,51 @@ mod tests {
 
     #[test]
     fn only_quick_revive_leaves_and_only_after_the_third_buy() {
-        assert!(!Perk::QuickRevive.machine_leaves(1));
-        assert!(!Perk::QuickRevive.machine_leaves(2));
-        assert!(Perk::QuickRevive.machine_leaves(3));
+        let solo = quick_revive_buys(&[]);
+        assert_eq!(solo, 3);
+        assert!(!Perk::QuickRevive.machine_leaves(1, solo));
+        assert!(!Perk::QuickRevive.machine_leaves(2, solo));
+        assert!(Perk::QuickRevive.machine_leaves(3, solo));
         for perk in [Perk::Juggernog, Perk::SpeedCola, Perk::DoubleTap] {
-            assert!(!perk.machine_leaves(100));
+            assert!(!perk.machine_leaves(100, solo));
         }
+    }
+
+    #[test]
+    fn an_extra_buy_entry_keeps_quick_revive_one_buy_longer() {
+        let one = [Modifier {
+            stat: Stat::QuickReviveBuys,
+            source: Source("test"),
+            effect: Effect::Flat(1.0),
+        }];
+        let solo = quick_revive_buys(&one);
+        assert_eq!(solo, 4);
+        assert!(!Perk::QuickRevive.machine_leaves(3, solo));
+        assert!(Perk::QuickRevive.machine_leaves(4, solo));
+    }
+
+    #[test]
+    fn a_down_can_leave_the_earliest_perks_bought_but_never_quick_revive() {
+        let keep_one = [Modifier {
+            stat: Stat::PerksKeptOnDown,
+            source: Source("test"),
+            effect: Effect::Flat(1.0),
+        }];
+        assert_eq!(kept_on_down(&[]), 0);
+        assert_eq!(kept_on_down(&keep_one), 1);
+
+        let bought = [Perk::QuickRevive, Perk::SpeedCola, Perk::Juggernog];
+        let mut perks = Perks(bought.to_vec());
+        let mut modifiers = Modifiers(held(&bought));
+        perks.lose_on_down(kept_on_down(&keep_one), &mut modifiers);
+        assert_eq!(perks.0, [Perk::SpeedCola]);
+        assert_eq!(modifiers.0, Perk::SpeedCola.modifiers());
+
+        let mut perks = Perks(bought.to_vec());
+        let mut modifiers = Modifiers(held(&bought));
+        perks.lose_on_down(5, &mut modifiers);
+        assert_eq!(perks.0, [Perk::SpeedCola, Perk::Juggernog]);
+        assert_eq!(modifiers.0.len(), 2);
     }
 
     #[test]
@@ -564,7 +628,7 @@ mod tests {
         let mut entries = held(&Perk::ALL);
         entries.push(boon);
         let mut modifiers = Modifiers(entries);
-        perks.lose_all(&mut modifiers);
+        perks.lose_on_down(0, &mut modifiers);
         assert!(perks.0.is_empty());
         assert_eq!(modifiers.0, [boon]);
         assert!(close(

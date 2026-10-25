@@ -26,6 +26,7 @@ mod pack_a_punch;
 mod perk;
 mod mystery_box;
 mod nav;
+mod nova;
 mod player;
 mod points;
 mod records;
@@ -35,8 +36,10 @@ mod round;
 mod save;
 mod settings;
 mod special;
+mod shellshock;
 mod state;
 mod stats;
+mod teleporter;
 mod trap;
 mod tuning;
 mod wall_weapon;
@@ -84,7 +87,13 @@ fn main() {
                 explosive::ExplosivePlugin,
                 wonder::WonderPlugin,
             ),
-            (zombie::ZombiePlugin, hellhound::HellhoundPlugin, special::SpecialPlugin),
+            (
+                zombie::ZombiePlugin,
+                hellhound::HellhoundPlugin,
+                nova::NovaPlugin,
+                special::SpecialPlugin,
+                shellshock::ShellshockPlugin,
+            ),
             round::RoundPlugin,
             points::PointsPlugin,
             stats::StatsPlugin,
@@ -103,6 +112,7 @@ fn main() {
             pack_a_punch::PackAPunchPlugin,
             burn::BurnPlugin,
             trap::TrapPlugin,
+            teleporter::TeleporterPlugin,
             ammo_mod::AmmoModPlugin,
             power_up::PowerUpPlugin,
         ))

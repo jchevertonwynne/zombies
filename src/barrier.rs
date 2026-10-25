@@ -10,14 +10,14 @@ use bevy::prelude::*;
 use crate::buy::{Buyable, Focus, Held};
 use crate::last_stand::LastStand;
 use crate::map::{BarrierId, WINDOWS};
-use crate::modifier::{Modifier, Modifiers, Stat, resolve_points};
+use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_points};
 use crate::nav::Route;
 use crate::player::{Player, PlayerHit};
 use crate::points::{Points, PointsAwarded};
-use crate::round::Round;
+use crate::round::{Round, zombie_health};
 use crate::state::{GameState, InRun, Pause};
 use crate::tuning::*;
-use crate::zombie::{Dying, KnockedDown, Zombie};
+use crate::zombie::{Attack, DamageZombie, Dying, HitZone, KnockedDown, Zombie};
 
 /// How far outside the wall a Zombie stands to tear at a window.
 const SPOT_OUT: f32 = 0.75;
@@ -115,6 +115,12 @@ pub fn plank_reward(paid_this_round: u64, rates: PlankRates) -> u64 {
     } else {
         0
     }
+}
+
+/// What tearing one Plank off costs the Zombie that tore it: the fraction of its max Health the
+/// Player's stat entries give (none in Classic). A normal Zombie's max Health is the Round's.
+pub fn plank_tear_damage(round: u32, player: &[Modifier]) -> f32 {
+    resolve(Stat::PlankTearDamage, 0.0, player) * zombie_health(round) as f32
 }
 
 /// Whether a Zombie at a window can swipe the Player through it: the Player is within
@@ -353,13 +359,16 @@ fn enter_through_windows(
     mut commands: Commands,
     // A Zombie knocked down by the Thundergun picks up where it left off once it's back up.
     mut zombies: Query<(Entity, &Zombie, &mut Entering, &mut Transform), (Without<Dying>, Without<KnockedDown>)>,
-    player: Single<(&Transform, Has<LastStand>), (With<Player>, Without<Zombie>)>,
+    player: Single<(&Transform, &Modifiers, Has<LastStand>), (With<Player>, Without<Zombie>)>,
     mut barriers: ResMut<Barriers>,
     mut hits: MessageWriter<PlayerHit>,
     mut torn: MessageWriter<PlankTorn>,
+    mut damage: MessageWriter<DamageZombie>,
+    round: Res<Round>,
     time: Res<Time>,
 ) {
-    let (player, last_stand) = *player;
+    let (player, modifiers, last_stand) = *player;
+    let tear_damage = plank_tear_damage(round.number, &modifiers.0);
     let dt = time.delta_secs();
     let mut taken: Vec<(BarrierId, usize)> = zombies
         .iter()
@@ -426,6 +435,14 @@ fn enter_through_windows(
                         torn.write(PlankTorn {
                             at: centre + Vec3::Y * 1.2,
                         });
+                        if tear_damage > 0.0 {
+                            damage.write(DamageZombie {
+                                zombie: entity,
+                                damage: tear_damage,
+                                zone: HitZone::Torso,
+                                attack: Attack::Barrier,
+                            });
+                        }
                     }
                     SpotAction::Wait => {}
                     SpotAction::Vault => {
@@ -616,6 +633,15 @@ mod tests {
         barriers.restore_all();
         assert_eq!(barriers.fully_broken(), 0);
         assert!((0..13).all(|i| barriers.planks(BarrierId(i)) == 6));
+    }
+
+    #[test]
+    fn a_tear_entry_costs_the_zombie_a_fraction_of_its_max_health() {
+        use crate::modifier::{Effect, Source};
+        assert_eq!(plank_tear_damage(1, &[]), 0.0);
+        let tenth = [Modifier { stat: Stat::PlankTearDamage, source: Source("A"), effect: Effect::Flat(0.1) }];
+        assert!((plank_tear_damage(1, &tenth) - 15.0).abs() < 1e-3);
+        assert!((plank_tear_damage(5, &tenth) - 55.0).abs() < 1e-3);
     }
 
     #[test]
