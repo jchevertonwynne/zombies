@@ -304,7 +304,7 @@ fn door(a: ZoneId, b: ZoneId, price: u64) -> Gap {
     Gap::Door(Some((a, b)), Some(price))
 }
 
-fn spawn_map(
+pub fn spawn_map(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,

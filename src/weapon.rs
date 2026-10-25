@@ -689,6 +689,10 @@ struct Glint {
     pass: u32,
 }
 
+/// Poses the view model from scratch each frame; camera sway adds to the pose after it.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AnimateViewModel;
+
 pub struct WeaponPlugin;
 
 impl Plugin for WeaponPlugin {
@@ -698,7 +702,7 @@ impl Plugin for WeaponPlugin {
             .add_systems(
                 Update,
                 // A Perk drink puts the Weapon away and keeps the Knife out of reach.
-                ((switch_weapons, reload, aim, fire, knife).chain().run_if(hands_free), animate_view_model)
+                ((switch_weapons, reload, aim, fire, knife).chain().run_if(hands_free), animate_view_model.in_set(AnimateViewModel))
                     .chain()
                     .run_if(in_state(Pause::Running)),
             )

@@ -36,6 +36,7 @@ mod save;
 mod settings;
 mod state;
 mod stats;
+mod sway;
 mod trap;
 mod tuning;
 mod wall_weapon;
@@ -92,6 +93,7 @@ fn main() {
         // How the Run looks and sounds, and the debug keys.
         .add_plugins((
             hud::HudPlugin,
+            sway::SwayPlugin,
             audio::AudioPlugin,
             debug::DebugPlugin,
         ))

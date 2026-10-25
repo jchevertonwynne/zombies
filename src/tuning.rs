@@ -18,6 +18,12 @@ pub const PLAYER_SPRINT_SPEED: f32 = 9.0;
 pub const PLAYER_ACCELERATION: f32 = 60.0;
 pub const PLAYER_JUMP_SPEED: f32 = 5.5;
 pub const GRAVITY: f32 = 18.0;
+/// Ground steeper than this (the up-component of its normal below it) is a wall, not floor.
+/// The West Hall ramp is 0.89.
+pub const PLAYER_GROUND_NORMAL_Y: f32 = 0.7;
+/// How far below the Player's feet a step looks for floor to stay on. Covers walking down the
+/// ramp at a sprint (about 7 cm a step) and stops well short of any drop.
+pub const PLAYER_GROUND_PROBE: f32 = 0.1;
 /// Radians of look per pixel of mouse motion at the default sensitivity.
 pub const MOUSE_SENSITIVITY: f32 = 0.0025;
 
@@ -1562,6 +1568,35 @@ pub const FOV_MIN: u8 = 65;
 pub const FOV_MAX: u8 = 110;
 pub const FOV_DEFAULT: u8 = 80;
 pub const FOV_STEP: u8 = 5;
+
+// Camera sway (all approx, tuned by feel). Offsets are in metres, rates per second.
+/// Ground covered by one full stride (two footsteps), which sets the bob's frequency.
+pub const BOB_STRIDE_METRES: f32 = 4.4;
+/// Side-to-side and downward head bob at walk speed, growing to the sprint values at sprint speed.
+pub const BOB_WALK_LATERAL: f32 = 0.02;
+pub const BOB_WALK_VERTICAL: f32 = 0.03;
+pub const BOB_SPRINT_LATERAL: f32 = 0.04;
+pub const BOB_SPRINT_VERTICAL: f32 = 0.055;
+/// The Last Stand crawl's slow sway: one stride per this much ground, at full crawl speed.
+pub const CRAWL_SWAY_STRIDE_METRES: f32 = 1.5;
+pub const CRAWL_SWAY_LATERAL: f32 = 0.05;
+pub const CRAWL_SWAY_VERTICAL: f32 = 0.02;
+/// How quickly the bob eases in and out (starting, stopping, leaving the ground, aiming).
+pub const SWAY_EASE_RATE: f32 = 10.0;
+/// Landing dip: none below the minimum fall speed, then deeper per m/s, up to the max.
+/// The Balcony drop lands at about 12 m/s.
+pub const LANDING_DIP_MIN_SPEED: f32 = 3.0;
+pub const LANDING_DIP_PER_SPEED: f32 = 0.012;
+pub const LANDING_DIP_MAX: f32 = 0.12;
+pub const LANDING_DIP_SECS: f32 = 0.35;
+/// The view model's own bob against the camera, as a share of the head bob.
+pub const WEAPON_BOB_SCALE: f32 = 0.5;
+/// The view model trails mouse look: metres per radian per second of turn, up to the max, and a
+/// matching tilt at the max.
+pub const WEAPON_SWAY_LAG: f32 = 0.006;
+pub const WEAPON_SWAY_LAG_MAX: f32 = 0.03;
+pub const WEAPON_SWAY_TILT_MAX: f32 = 0.08;
+pub const WEAPON_SWAY_EASE_RATE: f32 = 12.0;
 
 // Records
 /// Run Records kept per (Map, Mode).
