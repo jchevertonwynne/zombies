@@ -7,9 +7,10 @@ use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
 
 use crate::layers::GameLayer;
+use crate::modifier::{Modifiers, Stat};
 use crate::state::{GameState, InRun, Pause};
 use crate::tuning::*;
-use crate::weapon::{Knife, Weapon};
+use crate::weapon::{Knife, Loadout};
 
 #[derive(Component)]
 pub struct Player;
@@ -91,7 +92,8 @@ fn spawn_player(mut commands: Commands) {
             },
             Locomotion::default(),
             Visibility::default(),
-            Weapon::pistol(),
+            Loadout::new(STARTING_WEAPON),
+            Modifiers::default(),
             Knife::default(),
             Transform::from_xyz(0.0, half_height + 0.05, 0.0),
             RigidBody::Kinematic,
@@ -144,12 +146,12 @@ fn look(
 }
 
 fn move_player(
-    player: Single<(Entity, &mut Transform, &mut Locomotion, &Collider), With<Player>>,
+    player: Single<(Entity, &mut Transform, &mut Locomotion, &Collider, &Loadout, &Modifiers), With<Player>>,
     input: Res<ButtonInput<KeyCode>>,
     move_and_slide: MoveAndSlide,
     time: Res<Time>,
 ) {
-    let (entity, mut transform, mut locomotion, collider) = player.into_inner();
+    let (entity, mut transform, mut locomotion, collider, loadout, modifiers) = player.into_inner();
     let dt = time.delta_secs();
 
     let forward = input.pressed(KeyCode::KeyW) as i8 - input.pressed(KeyCode::KeyS) as i8;
@@ -172,7 +174,8 @@ fn move_player(
             locomotion.winded = false;
         }
     }
-    let speed = if locomotion.sprinting { PLAYER_SPRINT_SPEED } else { PLAYER_WALK_SPEED };
+    let base = if locomotion.sprinting { PLAYER_SPRINT_SPEED } else { PLAYER_WALK_SPEED };
+    let speed = loadout.resolve(Stat::MoveSpeed, base, &modifiers.0);
 
     let wish_world = transform.rotation * Vec3::new(wish.x, 0.0, -wish.y) * speed;
     let horizontal = Vec3::new(locomotion.velocity.x, 0.0, locomotion.velocity.z);

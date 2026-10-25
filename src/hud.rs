@@ -4,7 +4,7 @@ use crate::player::{Health, Player};
 use crate::points::{Points, PointsAwarded};
 use crate::round::{Round, RoundPhase};
 use crate::state::{GameState, InRun, Pause};
-use crate::weapon::Weapon;
+use crate::weapon::Loadout;
 
 const ROUND_RED: Color = Color::srgb(0.7, 0.05, 0.02);
 const POPUP_SECS: f32 = 0.8;
@@ -173,12 +173,13 @@ fn points_text(points: Res<Points>, mut text: Single<&mut Text, With<PointsText>
     text.0 = with_commas(points.balance);
 }
 
-fn ammo_text(weapon: Single<&Weapon, With<Player>>, mut text: Single<&mut Text, With<AmmoText>>) {
-    let reserve = weapon.reserve.map_or("--".to_string(), |r| r.to_string());
-    text.0 = if weapon.reloading.is_some() {
-        format!("RELOADING  {reserve}")
+fn ammo_text(loadout: Single<&Loadout, With<Player>>, mut text: Single<&mut Text, With<AmmoText>>) {
+    let weapon = loadout.held();
+    let (name, reserve) = (weapon.stats().name, weapon.reserve);
+    text.0 = if loadout.reload.is_some() {
+        format!("{name}  RELOADING  {reserve}")
     } else {
-        format!("{} / {reserve}", weapon.magazine)
+        format!("{name}  {} / {reserve}", weapon.magazine)
     };
 }
 

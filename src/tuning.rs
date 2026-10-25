@@ -2,6 +2,10 @@
 
 use bevy::math::Vec3;
 
+use crate::arsenal::{
+    Availability, FireMode, Handling, Penetration, ReloadTime, Splash, WeaponClass, WeaponId, WeaponStats,
+};
+
 // Player
 pub const PLAYER_RADIUS: f32 = 0.35;
 pub const PLAYER_CAPSULE_LENGTH: f32 = 1.1;
@@ -24,13 +28,492 @@ pub const SPRINT_DURATION_SECS: f32 = 4.0;
 /// Seconds to recharge a fully spent sprint (approx).
 pub const SPRINT_RECHARGE_SECS: f32 = 2.0;
 
-// Weapon (M1911)
-pub const PISTOL_MAGAZINE_SIZE: u32 = 8;
-pub const PISTOL_DAMAGE: f32 = 40.0;
-pub const PISTOL_FIRE_COOLDOWN_SECS: f32 = 0.15;
-pub const PISTOL_RELOAD_SECS: f32 = 1.6;
-pub const PISTOL_RANGE: f32 = 100.0;
-pub const HEADSHOT_MULTIPLIER: f32 = 3.5;
+// Weapons
+pub const STARTING_WEAPON: WeaponId = WeaponId::M1911;
+/// How far a bullet reaches.
+pub const HITSCAN_RANGE: f32 = 100.0;
+
+// Weapon handling by class (Appendix A2, approx), in `WeaponClass` order.
+pub const WEAPON_HANDLING: [Handling; 12] = [
+    handling(WeaponClass::Pistol, 0.55, 0.45),
+    handling(WeaponClass::DualWield, 0.3, 0.3),
+    handling(WeaponClass::Smg, 0.75, 0.5),
+    handling(WeaponClass::Rifle, 0.8, 0.6),
+    handling(WeaponClass::Shotgun, 0.75, 0.6),
+    handling(WeaponClass::Sniper, 1.2, 0.9),
+    handling(WeaponClass::Lmg, 0.95, 0.65),
+    handling(WeaponClass::Launcher, 1.2, 1.05),
+    handling(WeaponClass::RayGun, 0.8, 0.8),
+    handling(WeaponClass::Thundergun, 1.1, 0.83),
+    handling(WeaponClass::Crossbow, 0.9, 0.75),
+    handling(WeaponClass::BallisticKnife, 0.35, 0.35),
+];
+
+const fn handling(class: WeaponClass, raise_secs: f32, drop_secs: f32) -> Handling {
+    Handling {
+        class,
+        raise_secs,
+        drop_secs,
+    }
+}
+
+/// Seconds between shots at a rate of fire.
+const fn rpm(rounds_per_minute: f32) -> f32 {
+    60.0 / rounds_per_minute
+}
+
+const fn reload(tactical: f32, empty: f32) -> ReloadTime {
+    ReloadTime::Magazine { tactical, empty }
+}
+
+const fn shells(start: f32, per_bullet: f32, end: f32) -> ReloadTime {
+    ReloadTime::PerBullet { start, per_bullet, end }
+}
+
+/// Semi-auto pistols and rifles are capped at 625 RPM.
+const SEMI_CAP: f32 = rpm(625.0);
+const SHOTGUN_PELLETS: u32 = 8;
+
+/// The defaults every row starts from.
+const ROW: WeaponStats = WeaponStats {
+    id: WeaponId::M1911,
+    name: "",
+    class: WeaponClass::Pistol,
+    fire: FireMode::Semi,
+    availability: Availability::Box,
+    damage_max: 0.0,
+    damage_min: 0.0,
+    pellets: 1,
+    splash: None,
+    magazine: 0,
+    reserve_max: 0,
+    reserve_start: None,
+    fire_interval: SEMI_CAP,
+    reload: reload(0.0, 0.0),
+    headshot: 1.0,
+    penetration: Penetration::None,
+};
+
+/// Every base Weapon (Appendix A1), in `WeaponId` order. Splash radii are in metres.
+/// Single-shot Weapons with no rate of fire listed can fire again as soon as their Reload ends.
+pub const WEAPONS: [WeaponStats; 28] = [
+    WeaponStats {
+        id: WeaponId::M1911,
+        name: "M1911",
+        availability: Availability::Start,
+        damage_max: 20.0,
+        damage_min: 20.0,
+        magazine: 8,
+        reserve_max: 80,
+        reserve_start: Some(32),
+        reload: reload(1.63, 1.8),
+        headshot: 3.5,
+        penetration: Penetration::Small,
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::Olympia,
+        name: "Olympia",
+        class: WeaponClass::Shotgun,
+        availability: Availability::Wall(500),
+        damage_max: 80.0,
+        damage_min: 80.0,
+        pellets: SHOTGUN_PELLETS,
+        magazine: 2,
+        reserve_max: 38,
+        fire_interval: rpm(212.0),
+        reload: reload(3.3, 3.9),
+        penetration: Penetration::Small,
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::M14,
+        name: "M14",
+        class: WeaponClass::Rifle,
+        availability: Availability::Wall(500),
+        damage_max: 105.0,
+        damage_min: 80.0,
+        magazine: 8,
+        reserve_max: 96,
+        reload: reload(2.4, 3.45),
+        headshot: 3.0,
+        penetration: Penetration::Large,
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::Mp40,
+        name: "MP40",
+        class: WeaponClass::Smg,
+        fire: FireMode::Auto,
+        availability: Availability::Wall(1000),
+        damage_max: 100.0,
+        damage_min: 60.0,
+        magazine: 32,
+        reserve_max: 192,
+        fire_interval: rpm(536.0),
+        reload: reload(2.3, 2.9),
+        headshot: 4.0,
+        penetration: Penetration::Small,
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::TrenchGun,
+        name: "Trench Gun",
+        class: WeaponClass::Shotgun,
+        availability: Availability::Wall(1500),
+        damage_max: 160.0,
+        damage_min: 15.0,
+        pellets: SHOTGUN_PELLETS,
+        magazine: 6,
+        reserve_max: 60,
+        fire_interval: rpm(212.0),
+        reload: shells(0.9, 0.6, 0.95),
+        penetration: Penetration::Medium,
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::Ak74u,
+        name: "AK-74u",
+        class: WeaponClass::Smg,
+        fire: FireMode::Auto,
+        availability: Availability::Wall(1200),
+        damage_max: 120.0,
+        damage_min: 80.0,
+        magazine: 20,
+        reserve_max: 160,
+        fire_interval: rpm(750.0),
+        reload: reload(2.1, 2.8),
+        headshot: 4.0,
+        penetration: Penetration::Small,
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::Cz75,
+        name: "CZ75",
+        damage_max: 150.0,
+        damage_min: 100.0,
+        magazine: 15,
+        reserve_max: 135,
+        reload: reload(1.63, 2.01),
+        headshot: 3.5,
+        penetration: Penetration::Small,
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::Cz75DualWield,
+        name: "CZ75 Dual Wield",
+        class: WeaponClass::DualWield,
+        damage_max: 150.0,
+        damage_min: 100.0,
+        magazine: 24, // 12 + 12
+        reserve_max: 228,
+        reload: reload(1.9, 2.2),
+        headshot: 3.5,
+        penetration: Penetration::Small,
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::Python,
+        name: "Python",
+        damage_max: 1000.0,
+        damage_min: 300.0,
+        magazine: 6,
+        reserve_max: 84,
+        reload: ReloadTime::Revolver {
+            start: 1.6,
+            per_bullet: 0.65,
+            empty: 1.0,
+        },
+        headshot: 3.5,
+        penetration: Penetration::Medium,
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::Spectre,
+        name: "Spectre",
+        class: WeaponClass::Smg,
+        fire: FireMode::Auto,
+        damage_max: 90.0,
+        damage_min: 50.0,
+        magazine: 30,
+        reserve_max: 120,
+        fire_interval: rpm(937.0),
+        reload: reload(2.3, 3.0),
+        headshot: 4.0,
+        penetration: Penetration::Small,
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::G11,
+        name: "G11",
+        class: WeaponClass::Rifle,
+        fire: FireMode::Burst(3),
+        damage_max: 100.0,
+        damage_min: 70.0,
+        magazine: 48,
+        reserve_max: 144,
+        fire_interval: rpm(1250.0), // within a burst
+        reload: reload(2.7, 3.85),
+        headshot: 4.0,
+        penetration: Penetration::Medium,
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::Famas,
+        name: "FAMAS",
+        class: WeaponClass::Rifle,
+        fire: FireMode::Auto,
+        damage_max: 100.0,
+        damage_min: 70.0,
+        magazine: 30,
+        reserve_max: 150,
+        fire_interval: rpm(937.0),
+        reload: reload(2.5, 3.3),
+        headshot: 4.0,
+        penetration: Penetration::Medium,
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::Aug,
+        name: "AUG",
+        class: WeaponClass::Rifle,
+        fire: FireMode::Auto,
+        damage_max: 140.0,
+        damage_min: 90.0,
+        magazine: 30,
+        reserve_max: 270,
+        fire_interval: rpm(937.0),
+        reload: reload(2.6, 3.05),
+        headshot: 4.0,
+        penetration: Penetration::Medium,
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::Commando,
+        name: "Commando",
+        class: WeaponClass::Rifle,
+        fire: FireMode::Auto,
+        damage_max: 150.0,
+        damage_min: 100.0,
+        magazine: 30,
+        reserve_max: 270,
+        fire_interval: rpm(750.0),
+        reload: reload(2.05, 2.55),
+        headshot: 4.0,
+        penetration: Penetration::Medium,
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::Galil,
+        name: "Galil",
+        class: WeaponClass::Rifle,
+        fire: FireMode::Auto,
+        damage_max: 150.0,
+        damage_min: 100.0,
+        magazine: 35,
+        reserve_max: 315,
+        fire_interval: rpm(750.0),
+        reload: reload(2.8, 3.8),
+        headshot: 4.0,
+        penetration: Penetration::Medium,
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::FnFal,
+        name: "FN FAL",
+        class: WeaponClass::Rifle,
+        damage_max: 160.0, // approx
+        damage_min: 130.0, // approx
+        magazine: 20,
+        reserve_max: 180,
+        reload: reload(2.5, 3.1),
+        headshot: 4.0,
+        penetration: Penetration::Medium,
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::Hs10,
+        name: "HS-10",
+        class: WeaponClass::Shotgun,
+        damage_max: 160.0,
+        damage_min: 15.0,
+        pellets: SHOTGUN_PELLETS,
+        magazine: 6,
+        reserve_max: 36,
+        fire_interval: rpm(341.0),
+        reload: shells(1.35, 0.65, 1.0),
+        penetration: Penetration::Small,
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::Spas12,
+        name: "SPAS-12",
+        class: WeaponClass::Shotgun,
+        damage_max: 160.0,
+        damage_min: 15.0,
+        pellets: SHOTGUN_PELLETS,
+        magazine: 8,
+        reserve_max: 32,
+        fire_interval: rpm(312.0),
+        reload: shells(1.5, 0.567, 1.0),
+        penetration: Penetration::Small,
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::Dragunov,
+        name: "Dragunov",
+        class: WeaponClass::Sniper,
+        damage_max: 300.0,
+        damage_min: 300.0,
+        magazine: 10,
+        reserve_max: 40,
+        fire_interval: rpm(234.0),
+        reload: reload(2.95, 3.75),
+        headshot: 10.0,
+        penetration: Penetration::Large,
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::L96a1,
+        name: "L96A1",
+        class: WeaponClass::Sniper,
+        damage_max: 500.0, // approx
+        damage_min: 500.0, // approx
+        magazine: 5,
+        reserve_max: 45,
+        fire_interval: 1.0, // bolt rechamber
+        reload: reload(3.3, 3.5),
+        headshot: 10.0,
+        penetration: Penetration::Large,
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::Rpk,
+        name: "RPK",
+        class: WeaponClass::Lmg,
+        fire: FireMode::Auto,
+        damage_max: 130.0,
+        damage_min: 90.0,
+        magazine: 100,
+        reserve_max: 400,
+        fire_interval: rpm(750.0),
+        reload: reload(4.0, 5.5),
+        headshot: 3.0,
+        penetration: Penetration::Large,
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::Hk21,
+        name: "HK21",
+        class: WeaponClass::Lmg,
+        fire: FireMode::Auto,
+        damage_max: 150.0,
+        damage_min: 110.0,
+        magazine: 125,
+        reserve_max: 500,
+        fire_interval: rpm(536.0),
+        reload: reload(3.75, 4.75),
+        headshot: 3.0,
+        penetration: Penetration::Large,
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::M72Law,
+        name: "M72 LAW",
+        class: WeaponClass::Launcher,
+        damage_max: 2000.0, // approx
+        damage_min: 2000.0, // approx
+        splash: Some(Splash {
+            max: 320.0, // approx
+            min: 100.0, // approx
+            radius: 5.7,
+        }),
+        magazine: 1,
+        reserve_max: 20,
+        fire_interval: 0.0,
+        reload: reload(3.0, 3.0),
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::ChinaLake,
+        name: "China Lake",
+        class: WeaponClass::Launcher,
+        damage_max: 600.0,
+        damage_min: 600.0,
+        splash: Some(Splash {
+            max: 600.0,
+            min: 75.0,
+            radius: 5.0,
+        }),
+        magazine: 2,
+        reserve_max: 20,
+        fire_interval: 2.05, // pump rechamber
+        reload: shells(2.0, 1.0, 0.0),
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::RayGun,
+        name: "Ray Gun",
+        class: WeaponClass::RayGun,
+        damage_max: 1000.0,
+        damage_min: 1000.0,
+        splash: Some(Splash {
+            max: 1500.0,
+            min: 300.0,
+            radius: 1.6,
+        }),
+        magazine: 20,
+        reserve_max: 160,
+        fire_interval: rpm(181.0),
+        reload: reload(3.0, 3.0),
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::Thundergun,
+        name: "Thundergun",
+        class: WeaponClass::Thundergun,
+        availability: Availability::LimitedBox,
+        // Its damage is scripted by distance, not a number per bullet.
+        magazine: 2,
+        reserve_max: 12,
+        fire_interval: 0.95,
+        reload: reload(2.1, 2.0),
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::Crossbow,
+        name: "Crossbow",
+        class: WeaponClass::Crossbow,
+        availability: Availability::LimitedBox,
+        damage_max: 750.0,
+        damage_min: 750.0,
+        // The bolt explodes 1.5 s after it sticks.
+        splash: Some(Splash {
+            max: 400.0,
+            min: 75.0,
+            radius: 5.0,
+        }),
+        magazine: 1,
+        reserve_max: 12,
+        fire_interval: 0.0,
+        reload: reload(2.75, 2.75),
+        ..ROW
+    },
+    WeaponStats {
+        id: WeaponId::BallisticKnife,
+        name: "Ballistic Knife",
+        class: WeaponClass::BallisticKnife,
+        availability: Availability::LimitedBox,
+        damage_max: 500.0,
+        damage_min: 500.0,
+        magazine: 1,
+        reserve_max: 4,
+        fire_interval: 0.0,
+        reload: reload(1.5, 1.5),
+        headshot: 1.5,
+        ..ROW
+    },
+];
 
 // Knife
 pub const KNIFE_DAMAGE: f32 = 150.0;

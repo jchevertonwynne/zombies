@@ -1,11 +1,13 @@
 // Bevy systems routinely take many params and complex query types.
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
+mod arsenal;
 mod audio;
 mod debug;
 mod hud;
 mod layers;
 mod map;
+mod modifier;
 mod player;
 mod points;
 mod round;
