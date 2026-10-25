@@ -6,9 +6,13 @@ mod debug;
 mod hud;
 mod layers;
 mod map;
+mod menu;
+mod mode;
 mod player;
 mod points;
 mod round;
+mod save;
+mod settings;
 mod state;
 mod stats;
 mod tuning;
@@ -32,6 +36,8 @@ fn main() {
         ))
         .add_plugins((
             state::StatePlugin,
+            settings::SettingsPlugin,
+            menu::MenuPlugin,
             map::MapPlugin,
             player::PlayerPlugin,
             weapon::WeaponPlugin,
