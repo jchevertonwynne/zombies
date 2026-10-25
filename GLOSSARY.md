@@ -30,6 +30,13 @@
 
 **Points**: Currency the Player earns by damaging and killing Zombies and spends on Doors and other buys. Not the same as score.
 
+**Buyable**: Anything in the Map the Player spends Points on with the Use key: a Door, Wall Weapon, Mystery Box, Perk Machine or Pack-a-Punch. The Power Switch is used but not bought, so it is not a Buyable.
+_Avoid_: purchasable, trigger
+
+**Use key**: The single key the Player presses to buy a Buyable or flip the Power Switch, or holds to put Planks back on a Barrier.
+
+**Prompt**: The on-screen line saying what the Use key will do here and what it costs.
+
 **Points Earned**: All the Points gained during a Run, before any spending.
 _Avoid_: score
 
