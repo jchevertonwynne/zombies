@@ -12,6 +12,7 @@ use crate::perk::{Drinking, hands_free};
 use crate::player::{Locomotion, Player, PlayerCamera};
 use crate::state::Pause;
 use crate::tuning::*;
+use crate::wonder::{WonderFired, is_wonder};
 use crate::zombie::{Attack, DamageZombie, HitArea, HitZone};
 
 /// One Weapon the Player carries: its ammo and its own modifier entries.
@@ -297,6 +298,18 @@ impl Loadout {
         Some(taken)
     }
 
+    /// Add one bullet to the Reserve Ammo of a carried Weapon, as picking a Ballistic Knife's blade
+    /// back up does. Returns whether it was taken: not if the Weapon isn't carried or is full.
+    pub fn pick_up_bullet(&mut self, id: WeaponId) -> bool {
+        let Some(slot) = self.slot_of(id) else { return false };
+        let weapon = self.slots[slot].as_mut().expect("a filled slot");
+        if weapon.reserve >= weapon.stats().reserve_max {
+            return false;
+        }
+        weapon.reserve += 1;
+        true
+    }
+
     /// Whether the Player carries a Weapon besides the one in hand.
     pub fn has_spare(&self) -> bool {
         self.slot(1 - self.held).is_some()
@@ -398,9 +411,17 @@ pub struct Knife {
     pub bowie: bool,
 }
 
-/// The Knife's melee damage, or the Bowie Knife's once bought.
-pub fn knife_damage(bowie: bool) -> f32 {
-    if bowie { BOWIE_KNIFE_DAMAGE } else { KNIFE_DAMAGE }
+/// The Knife's melee damage, or the Bowie Knife's once bought. With the Ballistic Knife in hand
+/// the melee uses its blade instead: `ballistic` is `Some(upgraded)` then.
+pub fn knife_damage(bowie: bool, ballistic: Option<bool>) -> f32 {
+    match (ballistic, bowie) {
+        (None, false) => KNIFE_DAMAGE,
+        (None, true) => BOWIE_KNIFE_DAMAGE,
+        (Some(false), false) => BALLISTIC_KNIFE_MELEE_DAMAGE,
+        (Some(false), true) => BALLISTIC_KNIFE_BOWIE_MELEE_DAMAGE,
+        (Some(true), false) => KRAUSS_MELEE_DAMAGE,
+        (Some(true), true) => KRAUSS_BOWIE_MELEE_DAMAGE,
+    }
 }
 
 /// The held Weapon went off (for audio and effects).
@@ -547,6 +568,7 @@ fn fire(
     mut shots: MessageWriter<ShotFired>,
     mut launched: MessageWriter<Launched>,
     mut explosions: MessageWriter<Explosion>,
+    mut wonders: MessageWriter<WonderFired>,
 ) {
     let (entity, mut loadout, modifiers) = player.into_inner();
     let entries = &modifiers.0;
@@ -569,9 +591,23 @@ fn fire(
         damage: loadout.resolve(Stat::Damage, burn.damage, entries),
         ..burn
     });
+    // The Thundergun, Crossbow and Ballistic Knife fire their own way.
+    if is_wonder(stats.class) {
+        wonders.write(WonderFired {
+            origin: camera.translation(),
+            direction: spread_direction(camera.forward(), spread, rand::random(), rand::random()),
+            stats,
+            upgraded: loadout.held().upgraded,
+            damage: loadout.damage_at(0.0, entries),
+            splash: stats.splash.map(|splash| Splash {
+                max: loadout.resolve(Stat::Damage, splash.max, entries),
+                min: loadout.resolve(Stat::Damage, splash.min, entries),
+                ..splash
+            }),
+        });
+    }
     let filter = attack_filter(entity);
-    // The Thundergun has no damage per bullet; its scripted blast arrives with its own slice.
-    let pellets = if stats.damage_max > 0.0 { stats.pellets } else { 0 };
+    let pellets = if is_wonder(stats.class) { 0 } else { stats.pellets };
     for _ in 0..pellets {
         let direction = spread_direction(camera.forward(), spread, rand::random(), rand::random());
         // Splash resolves through the seam like any damage: both ends of its falloff.
@@ -650,7 +686,7 @@ fn fire(
 }
 
 fn knife(
-    player: Single<(Entity, &mut Knife), With<Player>>,
+    player: Single<(Entity, &mut Knife, &Loadout), With<Player>>,
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
     input: Res<ButtonInput<KeyCode>>,
     spatial: SpatialQuery,
@@ -658,7 +694,7 @@ fn knife(
     mut damage: MessageWriter<DamageZombie>,
     time: Res<Time>,
 ) {
-    let (entity, mut knife) = player.into_inner();
+    let (entity, mut knife, loadout) = player.into_inner();
     knife.cooldown = (knife.cooldown - time.delta_secs()).max(0.0);
     if !input.just_pressed(KeyCode::KeyV) || knife.cooldown > 0.0 {
         return;
@@ -676,11 +712,17 @@ fn knife(
     {
         damage.write(DamageZombie {
             zombie,
-            damage: knife_damage(knife.bowie),
+            damage: knife_damage(knife.bowie, ballistic_in_hand(loadout)),
             zone,
             attack: Attack::Knife,
         });
     }
+}
+
+/// `Some(upgraded)` while the Ballistic Knife is in hand, whose blade the melee uses.
+fn ballistic_in_hand(loadout: &Loadout) -> Option<bool> {
+    let held = loadout.held();
+    (held.id == WeaponId::BallisticKnife).then_some(held.upgraded)
 }
 
 /// How long the greybox model is for each class, so a switch is easy to see.
@@ -761,8 +803,28 @@ mod tests {
 
     #[test]
     fn the_bowie_knife_does_1000_against_the_knifes_150() {
-        assert_eq!(knife_damage(false), 150.0);
-        assert_eq!(knife_damage(true), 1000.0);
+        assert_eq!(knife_damage(false, None), 150.0);
+        assert_eq!(knife_damage(true, None), 1000.0);
+    }
+
+    #[test]
+    fn the_ballistic_knife_in_hand_stabs_for_500_or_1000_with_the_bowie() {
+        assert_eq!(knife_damage(false, Some(false)), 500.0);
+        assert_eq!(knife_damage(true, Some(false)), 1000.0);
+        // The Krauss Refibrillator: 1000, or 1500 with the Bowie.
+        assert_eq!(knife_damage(false, Some(true)), 1000.0);
+        assert_eq!(knife_damage(true, Some(true)), 1500.0);
+    }
+
+    #[test]
+    fn a_picked_up_blade_adds_a_bullet_until_the_reserve_is_full() {
+        let mut loadout = Loadout::new(WeaponId::M1911);
+        assert!(!loadout.pick_up_bullet(WeaponId::BallisticKnife), "not carried");
+        loadout.give(WeaponId::BallisticKnife);
+        loadout.held_mut().reserve = 3;
+        assert!(loadout.pick_up_bullet(WeaponId::BallisticKnife));
+        assert_eq!(loadout.held().reserve, 4);
+        assert!(!loadout.pick_up_bullet(WeaponId::BallisticKnife), "full at 4");
     }
 
     #[test]

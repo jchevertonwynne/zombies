@@ -92,7 +92,6 @@ pub struct PackAPunch {
 
 impl PackAPunch {
     /// The Weapon inside, if any, so the Box can count it as in play.
-    #[allow(dead_code)]
     pub fn inside(&self) -> Option<WeaponId> {
         self.inside.as_ref().map(|inside| inside.weapon.id)
     }

@@ -34,6 +34,7 @@ mod trap;
 mod tuning;
 mod wall_weapon;
 mod weapon;
+mod wonder;
 mod zombie;
 mod zone;
 
@@ -72,6 +73,7 @@ fn main() {
                 mystery_box::MysteryBoxPlugin,
                 equipment::EquipmentPlugin,
                 explosive::ExplosivePlugin,
+                wonder::WonderPlugin,
             ),
             zombie::ZombiePlugin,
             round::RoundPlugin,

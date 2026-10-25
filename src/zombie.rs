@@ -78,6 +78,14 @@ pub struct DamageZombie {
     pub attack: Attack,
 }
 
+/// Request to knock a Zombie off its feet, as the Thundergun's blast does: it's flung along
+/// `push` and lies there a moment before it gets up.
+#[derive(Message)]
+pub struct KnockDown {
+    pub zombie: Entity,
+    pub push: Vec3,
+}
+
 /// A Zombie took damage and survived.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct ZombieHit;
@@ -149,6 +157,16 @@ impl Zombie {
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
 pub struct Lured(pub Vec3);
 
+/// A knocked-down Zombie, sliding to a stop and lying there until it gets up. It can't move
+/// or attack meanwhile.
+#[derive(Component)]
+pub struct KnockedDown {
+    elapsed: f32,
+    push: Vec3,
+    /// Which way it faced when it went down, so it gets up facing the same way.
+    facing: Quat,
+}
+
 /// One of a Zombie's hit areas. Its parent is the Zombie.
 #[derive(Component)]
 pub struct HitArea(pub HitZone);
@@ -187,11 +205,12 @@ impl Plugin for ZombiePlugin {
             .add_message::<ZombieHit>()
             .add_message::<ZombieKilled>()
             .add_message::<ZombieCleanedUp>()
+            .add_message::<KnockDown>()
             .add_systems(Startup, load_assets)
-            .add_systems(FixedUpdate, chase.run_if(in_state(Pause::Running)))
+            .add_systems(FixedUpdate, (chase, tumble).run_if(in_state(Pause::Running)))
             .add_systems(
                 Update,
-                (rise, attack, apply_damage, fall_over, clean_up_stuck).run_if(in_state(Pause::Running)),
+                (rise, attack, knock_down, apply_damage, fall_over, clean_up_stuck).run_if(in_state(Pause::Running)),
             );
     }
 }
@@ -392,7 +411,7 @@ pub fn heading(distance: f32, swinging: bool, last_stand: bool) -> Heading {
 fn chase(
     mut zombies: Query<
         (Entity, &mut Zombie, &mut Route, &mut Transform, &Collider, Option<&Lured>),
-        (Without<Dying>, Without<Rising>),
+        (Without<Dying>, Without<Rising>, Without<KnockedDown>),
     >,
     player: Single<(&Transform, Has<LastStand>), (With<Player>, Without<Zombie>)>,
     graph: Res<NavGraph>,
@@ -531,7 +550,7 @@ fn clean_up_stuck(
 }
 
 fn attack(
-    mut zombies: Query<(&mut Zombie, &Transform), (Without<Dying>, Without<Rising>)>,
+    mut zombies: Query<(&mut Zombie, &Transform), (Without<Dying>, Without<Rising>, Without<KnockedDown>)>,
     player: Single<(&Transform, Has<LastStand>), With<Player>>,
     mut hits: MessageWriter<PlayerHit>,
     time: Res<Time>,
@@ -565,6 +584,62 @@ fn attack(
                 zombie.wind_up = Some(ZOMBIE_WIND_UP_SECS);
             }
             None => {}
+        }
+    }
+}
+
+/// A knock-down drops any swing in progress. A Riser still climbing out can't be knocked down.
+fn knock_down(
+    mut commands: Commands,
+    mut requests: MessageReader<KnockDown>,
+    mut zombies: Query<(&mut Zombie, &Transform), (Without<Dying>, Without<Rising>, Without<KnockedDown>)>,
+) {
+    for request in requests.read() {
+        let Ok((mut zombie, transform)) = zombies.get_mut(request.zombie) else {
+            continue;
+        };
+        zombie.wind_up = None;
+        commands.entity(request.zombie).insert(KnockedDown {
+            elapsed: 0.0,
+            push: request.push,
+            facing: transform.rotation,
+        });
+    }
+}
+
+/// Knocked-down Zombies slide to a stop, tipped over on their backs, then stand back up.
+fn tumble(
+    mut commands: Commands,
+    mut zombies: Query<(Entity, &mut Zombie, &mut KnockedDown, &mut Transform, &Collider), Without<Dying>>,
+    move_and_slide: MoveAndSlide,
+    time: Res<Time>,
+) {
+    let dt = time.delta_secs();
+    let filter_mask = [GameLayer::World, GameLayer::Zombie, GameLayer::Player];
+    for (entity, mut zombie, mut down, mut transform, collider) in &mut zombies {
+        down.elapsed += dt;
+        let t = (down.elapsed / THUNDERGUN_KNOCKDOWN_SECS).min(1.0);
+        // The fling dies away over the first half; it lies still for the rest.
+        let push = down.push * (1.0 - 2.0 * t).max(0.0);
+        let velocity = push + Vec3::Y * (zombie.fall_speed - GRAVITY * dt);
+        let out = move_and_slide.move_and_slide(
+            collider,
+            transform.translation,
+            down.facing,
+            velocity,
+            time.delta(),
+            &MoveAndSlideConfig::default(),
+            &SpatialQueryFilter::from_mask(filter_mask).with_excluded_entities([entity]),
+            |_| MoveAndSlideHitResponse::Accept,
+        );
+        transform.translation = out.position;
+        zombie.fall_speed = out.projected_velocity.y.min(0.0);
+        // Over quickly, up again at the end.
+        let tilt = (4.0 * t).min(4.0 * (1.0 - t)).min(1.0) * 1.3;
+        transform.rotation = down.facing * Quat::from_rotation_x(tilt);
+        if t >= 1.0 {
+            transform.rotation = down.facing;
+            commands.entity(entity).remove::<KnockedDown>();
         }
     }
 }
