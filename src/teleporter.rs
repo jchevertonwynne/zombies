@@ -9,6 +9,7 @@ use bevy::prelude::*;
 use bevy::render::view::ColorGrading;
 use rand::RngExt;
 
+use crate::shellshock::Shellshock;
 use crate::buy::{Buyable, Purchased, Refused};
 use crate::hellhound::SpawnHellhounds;
 use crate::hud::overlay::{Overlay, Overlays};
@@ -595,6 +596,7 @@ fn run_trips(
     mut zone: ResMut<PlayerZone>,
     mut damage: MessageWriter<DamageZombie>,
     mut overlays: ResMut<Overlays>,
+    mut shellshocks: MessageWriter<Shellshock>,
     round: Option<Res<Round>>,
     time: Res<Time>,
 ) {
@@ -641,8 +643,9 @@ fn run_trips(
             let rng = &mut rand::rng();
             let effect = Aftereffect::ALL[rng.random_range(0..Aftereffect::ALL.len())];
             match effect {
+                // The shared Shellshock: its haze, slow-down, muffle and cue.
                 Aftereffect::ShellshockBlur => {
-                    overlays.pulse(Overlay::Shellshock, 1.0, TELEPORTER_AFTEREFFECT_SECS)
+                    shellshocks.write(Shellshock { secs: TELEPORTER_AFTEREFFECT_SECS });
                 }
                 Aftereffect::FovWarp => {
                     overlays.pulse(Overlay::TeleporterDaze, 1.0, TELEPORTER_AFTEREFFECT_SECS)

@@ -26,6 +26,7 @@ mod pack_a_punch;
 mod perk;
 mod mystery_box;
 mod nav;
+mod nova;
 mod player;
 mod points;
 mod records;
@@ -34,6 +35,7 @@ mod power_up;
 mod round;
 mod save;
 mod settings;
+mod shellshock;
 mod state;
 mod stats;
 mod teleporter;
@@ -84,7 +86,7 @@ fn main() {
                 explosive::ExplosivePlugin,
                 wonder::WonderPlugin,
             ),
-            (zombie::ZombiePlugin, hellhound::HellhoundPlugin),
+            (zombie::ZombiePlugin, hellhound::HellhoundPlugin, nova::NovaPlugin, shellshock::ShellshockPlugin),
             round::RoundPlugin,
             points::PointsPlugin,
             stats::StatsPlugin,

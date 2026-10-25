@@ -9,6 +9,7 @@ use crate::layers::GameLayer;
 use crate::barrier::{Barriers, Entering};
 use crate::hellhound::{HellhoundBite, Telegraph};
 use crate::nav::{NavGraph, Route, repath_interval};
+use crate::nova::{NovaCrawlerKilled, NovaSwipe};
 use crate::player::{Player, PlayerHit};
 use crate::power_up::{ActivePowerUps, PowerUp};
 use crate::state::{InRun, Pause};
@@ -58,6 +59,8 @@ pub enum Attack {
     Teleporter,
     /// An Ammo Mod's own damage, Paid or Unpaid by the Ammo Mod. It never rolls Ammo Mods.
     AmmoMod(Pay),
+    /// A Nova Crawler's gas burst. Its kills are Unpaid.
+    NovaBlast,
 }
 
 impl Attack {
@@ -66,7 +69,7 @@ impl Attack {
         match self {
             Attack::AmmoMod(pay) => pay,
             Attack::Bullet | Attack::Knife | Attack::Burn => Pay::Paid,
-            Attack::Trap | Attack::Barrier | Attack::Nuke | Attack::Teleporter => Pay::Unpaid,
+            Attack::Trap | Attack::Barrier | Attack::Nuke | Attack::Teleporter | Attack::NovaBlast => Pay::Unpaid,
         }
     }
 }
@@ -193,6 +196,8 @@ pub struct Zombie {
     planked_wait: f32,
     /// A Hellhound: fast, low, bites, and never uses Barriers.
     hellhound: bool,
+    /// A Nova Crawler: low and quick, from a Vent, and never a Crawler.
+    nova: bool,
 }
 
 impl Zombie {
@@ -207,6 +212,7 @@ impl Zombie {
             crawler: false,
             planked_wait: 0.0,
             hellhound: false,
+            nova: false,
         }
     }
 
@@ -218,11 +224,21 @@ impl Zombie {
         }
     }
 
-    /// How fast it moves: by its Speed Tier, `CRAWLER_SPEED` once it's a Crawler, or
-    /// `HELLHOUND_SPEED` for a Hellhound.
+    /// A Nova Crawler with `health`, its centre at `at`.
+    pub fn nova_crawler(health: f32, at: Vec3) -> Self {
+        Self {
+            nova: true,
+            ..Self::new(health, SpeedTier::Sprinter, at)
+        }
+    }
+
+    /// How fast it moves: by its Speed Tier, `CRAWLER_SPEED` once it's a Crawler,
+    /// `HELLHOUND_SPEED` for a Hellhound, or `NOVA_CRAWLER_SPEED` for a Nova Crawler.
     pub fn speed(&self) -> f32 {
         if self.hellhound {
             HELLHOUND_SPEED
+        } else if self.nova {
+            NOVA_CRAWLER_SPEED
         } else if self.crawler {
             CRAWLER_SPEED
         } else {
@@ -251,10 +267,22 @@ impl Zombie {
         self.hellhound
     }
 
+    pub fn is_nova_crawler(&self) -> bool {
+        self.nova
+    }
+
+    /// Whether it's a normal Zombie, the only kind an explosion can make a Crawler of: not
+    /// already a Crawler, nor a Special Zombie.
+    pub fn can_lose_legs(&self) -> bool {
+        !self.crawler && !self.hellhound && !self.nova
+    }
+
     /// From its centre down to its feet.
     fn half_height(&self) -> f32 {
         if self.hellhound {
             HELLHOUND_RADIUS
+        } else if self.nova {
+            NOVA_CRAWLER_RADIUS
         } else if self.crawler {
             CRAWLER_RADIUS
         } else {
@@ -263,7 +291,7 @@ impl Zombie {
     }
 
     /// Its attack: reach, wind-up, damage, and the cooldown after one lands. A hound's bites land
-    /// `HELLHOUND_BITE_SECS` apart.
+    /// `HELLHOUND_BITE_SECS` apart; a Nova Crawler's swipes hit for `NOVA_CRAWLER_SWIPE_DAMAGE`.
     fn attack_stats(&self) -> (f32, f32, f32, f32) {
         if self.hellhound {
             (
@@ -272,6 +300,8 @@ impl Zombie {
                 HELLHOUND_BITE_DAMAGE,
                 HELLHOUND_BITE_SECS - HELLHOUND_BITE_WIND_UP_SECS,
             )
+        } else if self.nova {
+            (ZOMBIE_REACH, ZOMBIE_WIND_UP_SECS, NOVA_CRAWLER_SWIPE_DAMAGE, ZOMBIE_HIT_COOLDOWN_SECS)
         } else {
             (ZOMBIE_REACH, ZOMBIE_WIND_UP_SECS, ZOMBIE_SWIPE_DAMAGE, ZOMBIE_HIT_COOLDOWN_SECS)
         }
@@ -296,13 +326,28 @@ pub struct KnockedDown {
 #[derive(Component)]
 pub struct HitArea(pub HitZone);
 
-/// A Riser climbing out of the ground. It can be shot, but can't move or attack until it's up.
+/// A Riser climbing out of the ground, or a Nova Crawler dropping from its Vent. It can be shot,
+/// but can't move or attack until it's in place.
 #[derive(Component)]
 pub struct Rising {
     elapsed: f32,
-    /// Its height when it spawned, and once fully up.
+    /// Its height when it spawned, and once in place.
     buried: f32,
     standing: f32,
+    /// Seconds it takes to get there.
+    secs: f32,
+}
+
+impl Rising {
+    /// Moving its centre from height `from` to `to` over `secs`.
+    pub fn new(from: f32, to: f32, secs: f32) -> Self {
+        Self {
+            elapsed: 0.0,
+            buried: from,
+            standing: to,
+            secs,
+        }
+    }
 }
 
 /// A killed Zombie falling over before it disappears.
@@ -402,11 +447,7 @@ pub fn spawn_zombie(
 
     let mut zombie = commands.spawn_empty();
     if rises {
-        zombie.insert(Rising {
-            elapsed: 0.0,
-            buried,
-            standing,
-        });
+        zombie.insert(Rising::new(buried, standing, ZOMBIE_RISE_SECS));
     }
     zombie
         .insert((
@@ -712,11 +753,11 @@ fn chase(
     }
 }
 
-/// Risers climb out of the ground over `ZOMBIE_RISE_SECS`.
+/// Risers climb out of the ground over `ZOMBIE_RISE_SECS`, and Nova Crawlers drop from their Vents.
 fn rise(mut commands: Commands, mut risers: Query<(Entity, &mut Rising, &mut Transform), Without<Dying>>, time: Res<Time>) {
     for (entity, mut rising, mut transform) in &mut risers {
         rising.elapsed += time.delta_secs();
-        let t = (rising.elapsed / ZOMBIE_RISE_SECS).min(1.0);
+        let t = (rising.elapsed / rising.secs).min(1.0);
         transform.translation.y = rising.buried.lerp(rising.standing, t);
         if t >= 1.0 {
             commands.entity(entity).remove::<Rising>();
@@ -769,6 +810,7 @@ fn attack(
     player: Single<(&Transform, Has<LastStand>), With<Player>>,
     mut hits: MessageWriter<PlayerHit>,
     mut bites: MessageWriter<HellhoundBite>,
+    mut nova_swipes: MessageWriter<NovaSwipe>,
     time: Res<Time>,
 ) {
     let (player, last_stand) = *player;
@@ -793,6 +835,9 @@ fn attack(
                     hits.write(PlayerHit { damage });
                     if zombie.hellhound {
                         bites.write(HellhoundBite);
+                    }
+                    if zombie.nova {
+                        nova_swipes.write(NovaSwipe);
                     }
                     zombie.attack_cooldown = cooldown;
                 }
@@ -878,7 +923,7 @@ fn become_crawler(
         let Ok((mut zombie, mut transform)) = zombies.get_mut(entity) else {
             continue;
         };
-        if zombie.crawler || zombie.hellhound {
+        if !zombie.can_lose_legs() {
             continue;
         }
         zombie.crawler = true;
@@ -892,19 +937,21 @@ fn become_crawler(
     }
 }
 
-/// A hound in its lightning strike can't be hurt.
+/// A hound in its lightning strike can't be hurt. A Nova Crawler's death is also told to the Nova
+/// module, which decides whether it bursts.
 pub fn apply_damage(
     mut commands: Commands,
     mut requests: MessageReader<DamageZombie>,
-    mut zombies: Query<(&mut Zombie, &Children, &Transform), (Without<Dying>, Without<Telegraph>)>,
+    mut zombies: Query<(&mut Zombie, &Children, &Transform, Option<&Rising>), (Without<Dying>, Without<Telegraph>)>,
     hit_areas: Query<(), With<HitArea>>,
     power_ups: Res<ActivePowerUps>,
     mut hits: MessageWriter<ZombieHit>,
     mut kills: MessageWriter<ZombieKilled>,
+    mut nova_kills: MessageWriter<NovaCrawlerKilled>,
 ) {
     let insta_kill = power_ups.active(PowerUp::InstaKill);
     for request in requests.read() {
-        let Ok((mut zombie, children, transform)) = zombies.get_mut(request.zombie) else {
+        let Ok((mut zombie, children, transform, rising)) = zombies.get_mut(request.zombie) else {
             continue;
         };
         // Several hits can land in one frame; only the first lethal one counts.
@@ -920,13 +967,26 @@ pub fn apply_damage(
             continue;
         }
 
+        // One killed mid-drop from a Vent (or mid-rise) dies where it would have landed, so a
+        // Power-up it drops is on the floor.
+        let mut centre = transform.translation;
+        if let Some(rising) = rising {
+            centre.y = rising.standing;
+        }
         kills.write(ZombieKilled {
             pay: request.attack.pay(),
             headshot: is_headshot(request.zone, request.attack),
             zone: request.zone,
             attack: request.attack,
-            at: transform.translation - Vec3::Y * zombie.half_height(),
+            at: centre - Vec3::Y * zombie.half_height(),
         });
+        if zombie.nova {
+            nova_kills.write(NovaCrawlerKilled {
+                zombie: request.zombie,
+                at: transform.translation,
+                attack: request.attack,
+            });
+        }
         commands
             .entity(request.zombie)
             .insert(Dying::default())
@@ -950,9 +1010,9 @@ fn fall_over(
         let after = (dying.elapsed / ZOMBIE_FALL_SECS).min(1.0);
 
         // Tip backwards about the local X axis, sinking so it lies on the floor. A Crawler or a
-        // Hellhound, already low, rolls onto its side.
+        // Hellhound or Nova Crawler, already low, rolls onto its side.
         let step = (after - before) * FRAC_PI_2;
-        if step > 0.0 && (zombie.crawler || zombie.hellhound) {
+        if step > 0.0 && (zombie.crawler || zombie.hellhound || zombie.nova) {
             transform.rotate_local_z(step);
         } else if step > 0.0 {
             transform.rotate_local_x(step);
@@ -1091,6 +1151,8 @@ mod tests {
     fn trap_and_teleporter_kills_are_unpaid_and_never_headshots() {
         assert_eq!(Attack::Trap.pay(), Pay::Unpaid);
         assert_eq!(Attack::Teleporter.pay(), Pay::Unpaid);
+        assert_eq!(Attack::NovaBlast.pay(), Pay::Unpaid);
+        assert!(!is_headshot(HitZone::Head, Attack::NovaBlast));
         assert!(!is_headshot(HitZone::Head, Attack::Trap));
         for attack in [Attack::Bullet, Attack::Knife, Attack::Burn] {
             assert_eq!(attack.pay(), Pay::Paid);
@@ -1133,5 +1195,18 @@ mod tests {
         hound.sprint();
         assert_eq!(hound.speed(), HELLHOUND_SPEED);
         assert!(hound.is_hellhound() && !hound.is_crawler());
+    }
+
+    #[test]
+    fn a_nova_crawler_is_quick_low_swipes_for_45_and_never_crawls() {
+        let mut nova = Zombie::nova_crawler(100.0, Vec3::ZERO);
+        assert_eq!(nova.speed(), NOVA_CRAWLER_SPEED);
+        nova.sprint();
+        assert_eq!(nova.speed(), NOVA_CRAWLER_SPEED, "the last Zombie sprinting doesn't change it");
+        assert_eq!(nova.attack_stats().2, 45.0);
+        assert!((2.0 * nova.half_height() - 0.6).abs() < 0.05, "about 0.6 m tall");
+        assert!(nova.is_nova_crawler() && !nova.is_crawler());
+        assert!(!nova.can_lose_legs(), "it never becomes a Crawler");
+        assert!(Zombie::new(150.0, SpeedTier::Walker, Vec3::ZERO).can_lose_legs());
     }
 }
