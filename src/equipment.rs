@@ -10,6 +10,7 @@ use crate::buy::{Buyable, Purchased, Refused};
 use crate::explosive::{Explosion, Explosive, in_sight, makes_crawlers, world_filter};
 use crate::hud::text;
 use crate::layers::GameLayer;
+use crate::modifier::{Modifier, Modifiers, Stat, resolve_count};
 use crate::player::{Player, PlayerCamera};
 use crate::round::{Round, RoundStarted};
 use crate::state::{GameState, InRun, Pause};
@@ -30,6 +31,32 @@ pub struct Equipment {
     pub monkey_bombs: u32,
     /// Seconds a frag has been cooking in the hand, while G is held.
     pub cooking: Option<f32>,
+    /// The most frags carried and how many a new Round restocks, kept resolved from the Player's
+    /// modifier entries.
+    pub frag_limits: FragLimits,
+}
+
+/// The most frags carried, and how many each new Round restocks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FragLimits {
+    pub max: u32,
+    pub per_round: u32,
+}
+
+impl FragLimits {
+    /// The limits after the Player's entries. With none, 2 a Round up to 4.
+    pub fn resolve(entries: &[Modifier]) -> Self {
+        Self {
+            max: resolve_count(Stat::LethalCapacity, FRAG_MAX, entries),
+            per_round: resolve_count(Stat::LethalRestock, FRAG_PER_ROUND, entries),
+        }
+    }
+}
+
+impl Default for FragLimits {
+    fn default() -> Self {
+        Self::resolve(&[])
+    }
 }
 
 impl Default for Equipment {
@@ -41,13 +68,14 @@ impl Default for Equipment {
             monkey_bombs_owned: false,
             monkey_bombs: 0,
             cooking: None,
+            frag_limits: FragLimits::default(),
         }
     }
 }
 
 /// Frags after a new Round's restock: +2, up to the most carried.
-pub fn frags_after_round(frags: u32) -> u32 {
-    frags.saturating_add(FRAG_PER_ROUND).min(FRAG_MAX).max(frags)
+pub fn frags_after_round(frags: u32, limits: FragLimits) -> u32 {
+    frags.saturating_add(limits.per_round).min(limits.max).max(frags)
 }
 
 /// Claymores after a new Round's restock: back to 2 once the wall is bought, otherwise none.
@@ -85,13 +113,13 @@ impl Equipment {
         if round <= 1 {
             return;
         }
-        self.frags = frags_after_round(self.frags);
+        self.frags = frags_after_round(self.frags, self.frag_limits);
         self.claymores = claymores_after_round(self.claymores_owned, self.claymores);
     }
 
     /// Max Ammo refills every piece of Equipment the Player has.
     pub fn max_ammo(&mut self) {
-        self.frags = self.frags.max(FRAG_MAX);
+        self.frags = self.frags.max(self.frag_limits.max);
         if self.claymores_owned {
             self.claymores = self.claymores.max(CLAYMORE_PER_ROUND);
         }
@@ -142,7 +170,7 @@ impl EquipmentWall {
 /// one-time buy is owned and it shows no Prompt.
 pub fn equipment_offer(wall: EquipmentWall, equipment: &Equipment, bowie: bool) -> Option<(u64, bool)> {
     match wall {
-        EquipmentWall::Frags => Some((wall.price(), equipment.frags >= FRAG_MAX)),
+        EquipmentWall::Frags => Some((wall.price(), equipment.frags >= equipment.frag_limits.max)),
         EquipmentWall::Claymore => (!equipment.claymores_owned).then_some((wall.price(), false)),
         EquipmentWall::BowieKnife => (!bowie).then_some((wall.price(), false)),
     }
@@ -151,7 +179,7 @@ pub fn equipment_offer(wall: EquipmentWall, equipment: &Equipment, bowie: bool) 
 /// Gives what an Equipment wall sells.
 pub fn buy_equipment(wall: EquipmentWall, equipment: &mut Equipment, bowie: &mut bool) {
     match wall {
-        EquipmentWall::Frags => equipment.frags = equipment.frags.max(FRAG_MAX),
+        EquipmentWall::Frags => equipment.frags = equipment.frags.max(equipment.frag_limits.max),
         EquipmentWall::Claymore => {
             equipment.claymores_owned = true;
             equipment.claymores = equipment.claymores.max(CLAYMORE_PER_ROUND);
@@ -255,6 +283,7 @@ impl Plugin for EquipmentPlugin {
             .add_systems(
                 Update,
                 (
+                    resolve_frag_limits,
                     restock,
                     (buy_walls, price_walls).chain(),
                     (throw_frags, throw_monkey_bombs, plant_claymores),
@@ -358,6 +387,15 @@ fn equipment_text(
     }
     if text.0 != line {
         text.0 = line;
+    }
+}
+
+/// The frag limits follow the Player's modifier entries.
+fn resolve_frag_limits(mut player: Single<(&mut Equipment, &Modifiers), With<Player>>) {
+    let (ref mut equipment, modifiers) = *player;
+    let limits = FragLimits::resolve(&modifiers.0);
+    if equipment.frag_limits != limits {
+        equipment.frag_limits = limits;
     }
 }
 
@@ -677,11 +715,30 @@ mod tests {
 
     #[test]
     fn frags_restock_by_two_a_round_up_to_four() {
-        assert_eq!(frags_after_round(0), 2);
-        assert_eq!(frags_after_round(1), 3);
-        assert_eq!(frags_after_round(2), 4);
-        assert_eq!(frags_after_round(3), 4);
-        assert_eq!(frags_after_round(4), 4);
+        let classic = FragLimits::default();
+        assert_eq!(frags_after_round(0, classic), 2);
+        assert_eq!(frags_after_round(1, classic), 3);
+        assert_eq!(frags_after_round(2, classic), 4);
+        assert_eq!(frags_after_round(3, classic), 4);
+        assert_eq!(frags_after_round(4, classic), 4);
+    }
+
+    #[test]
+    fn lethal_entries_raise_the_most_carried_and_the_restock() {
+        use crate::modifier::{Effect, Source};
+        let entries = [Stat::LethalCapacity, Stat::LethalRestock].map(|stat| Modifier {
+            stat,
+            source: Source("A"),
+            effect: Effect::Flat(1.0),
+        });
+        let limits = FragLimits::resolve(&entries);
+        assert_eq!(limits, FragLimits { max: 5, per_round: 3 });
+        assert_eq!(frags_after_round(0, limits), 3);
+        assert_eq!(frags_after_round(4, limits), 5);
+        let mut equipment = Equipment { frags: 0, frag_limits: limits, ..Equipment::default() };
+        let mut bowie = false;
+        buy_equipment(EquipmentWall::Frags, &mut equipment, &mut bowie);
+        assert_eq!(equipment.frags, 5);
     }
 
     #[test]
@@ -739,6 +796,7 @@ mod tests {
             monkey_bombs_owned: true,
             monkey_bombs: 0,
             cooking: None,
+            frag_limits: FragLimits::default(),
         };
         bought.max_ammo();
         assert_eq!((bought.frags, bought.claymores, bought.monkey_bombs), (4, 2, 3));

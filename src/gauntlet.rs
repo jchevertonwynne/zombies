@@ -12,6 +12,7 @@ use bevy::ui_widgets::Activate;
 use crate::last_stand::LastStand;
 use crate::mode::Mode;
 use crate::modifier::Modifiers;
+use crate::mystery_box::TeddyBear;
 use crate::player::Player;
 use crate::points::BonusPoints;
 use crate::power::Power;
@@ -21,8 +22,8 @@ use crate::state::{Freeze, GameState, Pause};
 use crate::tuning::*;
 use crate::zombie::ZombieKilled;
 use boon::{
-    BLOOD_MONEY, BOONS, BoonDef, HeldBoons, RunFacts, blood_money_points, draw_offer,
-    is_boon_source,
+    BLOOD_MONEY, BOONS, BoonDef, HeldBoons, RunFacts, TEDDYS_TITHE, blood_money_points, draw_offer,
+    is_boon_source, teddys_tithe_points,
 };
 use screen::OfferCard;
 
@@ -57,6 +58,7 @@ impl Plugin for GauntletPlugin {
                     open_offer.run_if(in_state(Pause::Running)),
                     apply_boons,
                     blood_money,
+                    teddys_tithe,
                     (record_boons, screen::refresh_held_column)
                         .run_if(resource_changed::<HeldBoons>),
                 )
@@ -119,6 +121,8 @@ fn open_offer(
     pending.0 = None;
     let run = RunFacts {
         power_on: power.is_some_and(|power| power.is_on()),
+        // No Pacts can be held until they arrive.
+        held_pacts: Vec::new(),
     };
     let choices = draw_offer(BOONS, &held, &run, |total| rand::random_range(0.0..total));
     if choices.is_empty() {
@@ -187,6 +191,20 @@ fn blood_money(
     let stacks = held.stacks(BLOOD_MONEY);
     for kill in kills.read() {
         let points = blood_money_points(kill.pay, stacks);
+        if points > 0 {
+            bonus.write(BonusPoints(points));
+        }
+    }
+}
+
+/// Teddy's Tithe: a Teddy Bear pays Points on top of its refund.
+fn teddys_tithe(
+    mut teddies: MessageReader<TeddyBear>,
+    held: Res<HeldBoons>,
+    mut bonus: MessageWriter<BonusPoints>,
+) {
+    let points = teddys_tithe_points(held.stacks(TEDDYS_TITHE));
+    for _ in teddies.read() {
         if points > 0 {
             bonus.write(BonusPoints(points));
         }

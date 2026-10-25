@@ -21,6 +21,30 @@ pub enum Stat {
     MaxHealth,
     /// Seconds an Ammo Mod waits after a trigger.
     AmmoModCooldown,
+    /// The held Weapon's damage multiplier for a hit to the head.
+    HeadshotMultiplier,
+    /// Bullets a kill puts back in the held Weapon's Magazine (base 0).
+    MagazinePerKill,
+    /// Seconds after a hit before Health starts to regenerate.
+    HealthRegenDelay,
+    /// A Perk's price.
+    PerkPrice,
+    /// Seconds a Trap cools down after it runs.
+    TrapCooldown,
+    /// Knife damage, Bowie and Ballistic Knife included.
+    KnifeDamage,
+    /// The most Lethals carried.
+    LethalCapacity,
+    /// Lethals each new Round restocks.
+    LethalRestock,
+    /// Points for putting one Plank back.
+    PlankPoints,
+    /// The Round cap on Plank rebuild Points.
+    PlankPointsCap,
+    /// Extra seconds a timed Power-up lasts (base 0).
+    PowerUpDuration,
+    /// The most Power-ups dropped a Round.
+    PowerUpsPerRound,
 }
 
 /// Where an entry comes from. Each Perk, Pack-a-Punch, Attachment and so on is its own source:
@@ -29,10 +53,7 @@ pub enum Stat {
 pub struct Source(pub &'static str);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[allow(
-    dead_code,
-    reason = "reductions and chances arrive with Boons and Pacts"
-)]
+#[allow(dead_code, reason = "chances arrive with the Rare Boons")]
 pub enum Effect {
     /// Added to the base before any multiplier.
     Flat(f32),
@@ -94,6 +115,15 @@ pub fn resolve_count<'a>(
 ) -> u32 {
     // The small nudge keeps float noise (12.000001) from rounding up a whole bullet.
     (resolve(stat, base as f32, entries) - 1e-4).ceil().max(0.0) as u32
+}
+
+/// A resolved amount of Points, such as a price or an award, rounded to the nearest whole Point.
+pub fn resolve_points<'a>(
+    stat: Stat,
+    base: u64,
+    entries: impl IntoIterator<Item = &'a Modifier>,
+) -> u64 {
+    resolve(stat, base as f32, entries).round().max(0.0) as u64
 }
 
 #[cfg(test)]
@@ -186,5 +216,12 @@ mod tests {
         let entries = [entry(Stat::MagazineSize, "Extended Mag", Effect::Mult(1.5))];
         assert_eq!(resolve_count(Stat::MagazineSize, 8, &entries), 12);
         assert_eq!(resolve_count(Stat::MagazineSize, 15, &entries), 23);
+    }
+
+    #[test]
+    fn prices_round_to_the_nearest_point() {
+        let entries = [entry(Stat::PerkPrice, "A", Effect::Reduction(0.9, 3))];
+        assert_eq!(resolve_points(Stat::PerkPrice, 2000, &entries), 1458);
+        assert_eq!(resolve_points(Stat::PerkPrice, 2500, &[]), 2500);
     }
 }

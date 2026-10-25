@@ -14,7 +14,7 @@ use crate::player::{Locomotion, Player, PlayerCamera};
 use crate::state::Pause;
 use crate::tuning::*;
 use crate::wonder::{WonderFired, is_wonder};
-use crate::zombie::{Attack, DamageZombie, HitArea, HitZone};
+use crate::zombie::{Attack, DamageZombie, HitArea, HitZone, ZombieKilled};
 
 /// One Weapon the Player carries: its ammo and its own modifier entries.
 pub struct WeaponCopy {
@@ -206,6 +206,27 @@ impl Loadout {
     /// Damage per bullet at a distance, after falloff, before the hit zone and penetration.
     pub fn damage_at(&self, distance: f32, player: &[Modifier]) -> f32 {
         self.resolve(Stat::Damage, self.held().stats().damage_at(distance), player)
+    }
+
+    /// The held Weapon's damage multiplier for a hit zone. The head's resolves through the seam.
+    pub fn zone_multiplier(&self, zone: HitZone, player: &[Modifier]) -> f32 {
+        let base = self.held().stats().zone_multiplier(zone);
+        if zone == HitZone::Head { self.resolve(Stat::HeadshotMultiplier, base, player) } else { base }
+    }
+
+    /// A kill puts bullets back in the held Weapon's Magazine, up to a full one, if the Player's
+    /// entries say so. A Reload of a Magazine that fills has nothing left to do, so it ends.
+    pub fn refill_on_kill(&mut self, player: &[Modifier]) {
+        let bullets = resolve_count(Stat::MagazinePerKill, 0, player.iter().chain(&self.held().modifiers));
+        if bullets == 0 {
+            return;
+        }
+        let size = self.magazine_size(player);
+        let weapon = self.held_mut();
+        weapon.magazine = weapon.magazine.saturating_add(bullets).min(size).max(weapon.magazine);
+        if weapon.magazine >= size {
+            self.reload = None;
+        }
     }
 
     /// The Player's move speed from a base: the held Weapon's class factor is one more entry
@@ -495,7 +516,8 @@ impl Plugin for WeaponPlugin {
                 ((switch_weapons, reload, aim, fire, knife).chain().run_if(hands_free), animate_view_model)
                     .chain()
                     .run_if(in_state(Pause::Running)),
-            );
+            )
+            .add_systems(Update, refill_on_kill.run_if(in_state(Pause::Running)));
     }
 }
 
@@ -664,7 +686,7 @@ fn fire(
                 direction,
                 flight,
                 impact: loadout.damage_at(0.0, entries),
-                impact_headshot: stats.zone_multiplier(HitZone::Head),
+                impact_headshot: loadout.zone_multiplier(HitZone::Head, entries),
                 splash,
                 ammo_mods,
                 crawlers: makes_crawlers(Explosive::Weapon(stats.id)),
@@ -714,7 +736,7 @@ fn fire(
             None => Crossing::World,
         });
         for hit in pierce(crossings, stats.penetration.extra_zombies()) {
-            let amount = hit_damage(stats, loadout.damage_at(hit.distance, entries), &hit);
+            let amount = hit_damage(loadout.zone_multiplier(hit.zone, entries), loadout.damage_at(hit.distance, entries), &hit);
             damage.write(DamageZombie {
                 zombie: hit.zombie,
                 damage: amount,
@@ -735,7 +757,7 @@ fn fire(
 }
 
 fn knife(
-    player: Single<(Entity, &mut Knife, &Loadout), With<Player>>,
+    player: Single<(Entity, &mut Knife, &Loadout, &Modifiers), With<Player>>,
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
     input: Res<ButtonInput<KeyCode>>,
     spatial: SpatialQuery,
@@ -743,7 +765,7 @@ fn knife(
     mut damage: MessageWriter<DamageZombie>,
     time: Res<Time>,
 ) {
-    let (entity, mut knife, loadout) = player.into_inner();
+    let (entity, mut knife, loadout, modifiers) = player.into_inner();
     knife.cooldown = (knife.cooldown - time.delta_secs()).max(0.0);
     if !input.just_pressed(KeyCode::KeyV) || knife.cooldown > 0.0 {
         return;
@@ -761,10 +783,24 @@ fn knife(
     {
         damage.write(DamageZombie {
             zombie,
-            damage: knife_damage(knife.bowie, ballistic_in_hand(loadout)),
+            damage: resolve(Stat::KnifeDamage, knife_damage(knife.bowie, ballistic_in_hand(loadout)), &modifiers.0),
             zone,
             attack: Attack::Knife,
         });
+    }
+}
+
+/// Kills can put bullets back in the held Weapon's Magazine, through the modifier seam. A Trap's
+/// kill is the Map's, not the Player's.
+fn refill_on_kill(
+    mut kills: MessageReader<ZombieKilled>,
+    player: Single<(&mut Loadout, &Modifiers), With<Player>>,
+) {
+    let (mut loadout, modifiers) = player.into_inner();
+    for kill in kills.read() {
+        if kill.attack != Attack::Trap {
+            loadout.refill_on_kill(&modifiers.0);
+        }
     }
 }
 
@@ -1015,6 +1051,40 @@ mod tests {
         assert!(loadout.start_reload(&bigger));
         run(&mut loadout, 2.0, &bigger);
         assert_eq!((loadout.held().magazine, loadout.held().reserve), (12, 28));
+    }
+
+    #[test]
+    fn only_the_head_multiplier_resolves_through_the_seam() {
+        let loadout = Loadout::new(WeaponId::M1911);
+        let sharper = [Modifier {
+            stat: Stat::HeadshotMultiplier,
+            source: Source("test"),
+            effect: Effect::Flat(0.5),
+        }];
+        assert_eq!(loadout.zone_multiplier(HitZone::Head, NONE), 3.5);
+        assert_eq!(loadout.zone_multiplier(HitZone::Head, &sharper), 4.0);
+        assert_eq!(loadout.zone_multiplier(HitZone::Torso, &sharper), 1.0);
+    }
+
+    #[test]
+    fn a_kill_puts_bullets_back_only_with_an_entry_and_never_past_full() {
+        let mut loadout = Loadout::new(WeaponId::M1911);
+        loadout.held_mut().magazine = 6;
+        loadout.refill_on_kill(NONE);
+        assert_eq!(loadout.held().magazine, 6);
+
+        let one = [Modifier {
+            stat: Stat::MagazinePerKill,
+            source: Source("test"),
+            effect: Effect::Flat(1.0),
+        }];
+        loadout.refill_on_kill(&one);
+        assert_eq!(loadout.held().magazine, 7);
+        loadout.refill_on_kill(&one);
+        loadout.refill_on_kill(&one);
+        assert_eq!(loadout.held().magazine, 8);
+        // The Reserve is untouched: the bullet comes from nowhere.
+        assert_eq!(loadout.held().reserve, WeaponId::M1911.stats().starting_reserve());
     }
 
     #[test]

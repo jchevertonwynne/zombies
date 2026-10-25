@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use crate::buy::{Buyable, Purchased, Refused};
 use crate::door::Door;
 use crate::last_stand::LastStand;
-use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat};
+use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve};
 use crate::perk::{Perk, Perks};
 use crate::player::{Player, PlayerHit, take_hits};
 use crate::power::Power;
@@ -50,15 +50,15 @@ impl TrapPhase {
         }
     }
 
-    /// Advance the cycle: flip, run, cool down, then idle again.
-    pub fn advance(&mut self, dt: f32) {
+    /// Advance the cycle: flip, run, cool down for `cooldown_secs`, then idle again.
+    pub fn advance(&mut self, dt: f32, cooldown_secs: f32) {
         let mut left = dt;
         loop {
             let (elapsed, length, next) = match self {
                 TrapPhase::Idle => return,
                 TrapPhase::Flipping(elapsed) => (elapsed, TRAP_FLIP_SECS, TrapPhase::Running(0.0)),
                 TrapPhase::Running(elapsed) => (elapsed, TRAP_RUN_SECS, TrapPhase::Cooling(0.0)),
-                TrapPhase::Cooling(elapsed) => (elapsed, TRAP_COOLDOWN_SECS, TrapPhase::Idle),
+                TrapPhase::Cooling(elapsed) => (elapsed, cooldown_secs, TrapPhase::Idle),
             };
             // Time past the end of one phase carries into the next.
             if *elapsed + left < length {
@@ -286,10 +286,12 @@ fn use_switches(
     }
 }
 
-fn run_traps(mut traps: Query<&mut Trap>, time: Res<Time>) {
+/// The cooldown resolves through the modifier seam from the Player's entries.
+fn run_traps(mut traps: Query<&mut Trap>, player: Query<&Modifiers, With<Player>>, time: Res<Time>) {
+    let cooldown = resolve(Stat::TrapCooldown, TRAP_COOLDOWN_SECS, player.iter().flat_map(|modifiers| &modifiers.0));
     for mut trap in &mut traps {
         if trap.phase != TrapPhase::Idle {
-            trap.phase.advance(time.delta_secs());
+            trap.phase.advance(time.delta_secs(), cooldown);
         }
     }
 }
@@ -481,7 +483,7 @@ mod tests {
         let mut phase = TrapPhase::Idle;
         phase.start();
         for &dt in secs {
-            phase.advance(dt);
+            phase.advance(dt, TRAP_COOLDOWN_SECS);
         }
         phase
     }
@@ -510,6 +512,15 @@ mod tests {
         assert!(matches!(after(&[TRAP_FLIP_SECS, TRAP_RUN_SECS, TRAP_COOLDOWN_SECS - 0.1]), TrapPhase::Cooling(_)));
         assert_eq!(after(&[TRAP_FLIP_SECS, TRAP_RUN_SECS, TRAP_COOLDOWN_SECS]), TrapPhase::Idle);
         assert_eq!((TRAP_PRICE, TRAP_FLIP_SECS, TRAP_RUN_SECS, TRAP_COOLDOWN_SECS), (1000, 0.5, 40.0, 60.0));
+    }
+
+    #[test]
+    fn a_shorter_cooldown_idles_the_trap_sooner() {
+        let mut phase = TrapPhase::Cooling(0.0);
+        phase.advance(47.5, 48.0);
+        assert!(matches!(phase, TrapPhase::Cooling(_)));
+        phase.advance(0.5, 48.0);
+        assert_eq!(phase, TrapPhase::Idle);
     }
 
     #[test]

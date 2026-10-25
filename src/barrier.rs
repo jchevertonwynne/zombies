@@ -10,6 +10,7 @@ use bevy::prelude::*;
 use crate::buy::{Buyable, Focus, Held};
 use crate::last_stand::LastStand;
 use crate::map::{BarrierId, WINDOWS};
+use crate::modifier::{Modifier, Modifiers, Stat, resolve_points};
 use crate::nav::Route;
 use crate::player::{Player, PlayerHit};
 use crate::points::{Points, PointsAwarded};
@@ -89,11 +90,28 @@ pub fn rebuild_cap(round: u32) -> u64 {
     (BARRIER_REBUILD_CAP_PER_ROUND.saturating_mul(round as u64)).min(BARRIER_REBUILD_CAP_MAX)
 }
 
+/// What one Plank pays and the Round's cap on rebuild Points, through the modifier seam.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlankRates {
+    pub points: u64,
+    pub cap: u64,
+}
+
+impl PlankRates {
+    /// Round `round`'s rates from the Player's entries. With none, 10 a Plank up to `rebuild_cap`.
+    pub fn resolve(round: u32, entries: &[Modifier]) -> Self {
+        Self {
+            points: resolve_points(Stat::PlankPoints, BARRIER_REBUILD_POINTS, entries),
+            cap: resolve_points(Stat::PlankPointsCap, rebuild_cap(round), entries),
+        }
+    }
+}
+
 /// The Points for putting one Plank back, given the rebuild Points already paid this Round. The
 /// cap is checked before each award, counting the award itself, so the real maximum is 490.
-pub fn plank_reward(paid_this_round: u64, round: u32) -> u64 {
-    if paid_this_round.saturating_add(BARRIER_REBUILD_POINTS) < rebuild_cap(round) {
-        BARRIER_REBUILD_POINTS
+pub fn plank_reward(paid_this_round: u64, rates: PlankRates) -> u64 {
+    if paid_this_round.saturating_add(rates.points) < rates.cap {
+        rates.points
     } else {
         0
     }
@@ -175,12 +193,12 @@ impl Rebuild {
     }
 
     /// The Points for the Plank just put back in Round `round`, counted against that Round's cap.
-    pub fn pay(&mut self, round: u32) -> u64 {
+    pub fn pay(&mut self, round: u32, rates: PlankRates) -> u64 {
         if round != self.paid_round {
             self.paid_round = round;
             self.paid = 0;
         }
-        let reward = plank_reward(self.paid, round);
+        let reward = plank_reward(self.paid, rates);
         self.paid = self.paid.saturating_add(reward);
         reward
     }
@@ -472,6 +490,7 @@ fn rebuild_planks(
     mut barriers: ResMut<Barriers>,
     mut rebuild: ResMut<Rebuild>,
     round: Res<Round>,
+    player: Query<&Modifiers, With<Player>>,
     mut points: ResMut<Points>,
     mut awarded: MessageWriter<PointsAwarded>,
     mut rebuilt: MessageWriter<PlankRebuilt>,
@@ -489,7 +508,8 @@ fn rebuild_planks(
     let Some(barrier) = target else { return };
     barriers.rebuild(barrier);
     rebuilt.write(PlankRebuilt);
-    let reward = rebuild.pay(round.number);
+    let entries = player.iter().next().map_or(&[][..], |modifiers| &modifiers.0[..]);
+    let reward = rebuild.pay(round.number, PlankRates::resolve(round.number, entries));
     if reward > 0 {
         let paid = points.award(reward);
         awarded.write(PointsAwarded(paid));
@@ -607,10 +627,27 @@ mod tests {
         assert_eq!(rebuild_cap(u32::MAX), 500);
     }
 
+    fn classic(round: u32) -> PlankRates {
+        PlankRates::resolve(round, &[])
+    }
+
+    #[test]
+    fn plank_entries_raise_the_points_and_the_cap() {
+        use crate::modifier::{Effect, Source};
+        let entries = [
+            Modifier { stat: Stat::PlankPoints, source: Source("A"), effect: Effect::Flat(10.0) },
+            Modifier { stat: Stat::PlankPointsCap, source: Source("A"), effect: Effect::Mult(2.0) },
+        ];
+        let rates = PlankRates::resolve(4, &entries);
+        assert_eq!(rates, PlankRates { points: 20, cap: 400 });
+        assert_eq!(plank_reward(360, rates), 20);
+        assert_eq!(plank_reward(380, rates), 0);
+    }
+
     /// The Points a Round pays for putting back `planks` Planks.
     fn paid_for(planks: u32, round: u32) -> u64 {
         let mut rebuild = Rebuild::default();
-        (0..planks).map(|_| rebuild.pay(round)).sum()
+        (0..planks).map(|_| rebuild.pay(round, classic(round))).sum()
     }
 
     #[test]
@@ -623,21 +660,21 @@ mod tests {
 
     #[test]
     fn each_plank_pays_ten_until_the_cap() {
-        assert_eq!(plank_reward(0, 1), 10);
-        assert_eq!(plank_reward(30, 1), 10);
-        assert_eq!(plank_reward(40, 1), 0);
-        assert_eq!(plank_reward(480, 20), 10);
-        assert_eq!(plank_reward(490, 20), 0);
+        assert_eq!(plank_reward(0, classic(1)), 10);
+        assert_eq!(plank_reward(30, classic(1)), 10);
+        assert_eq!(plank_reward(40, classic(1)), 0);
+        assert_eq!(plank_reward(480, classic(20)), 10);
+        assert_eq!(plank_reward(490, classic(20)), 0);
         assert_eq!(paid_for(3, 5), 30);
     }
 
     #[test]
     fn the_cap_resets_each_round() {
         let mut rebuild = Rebuild::default();
-        let round_one: u64 = (0..10).map(|_| rebuild.pay(1)).sum();
+        let round_one: u64 = (0..10).map(|_| rebuild.pay(1, classic(1))).sum();
         assert_eq!(round_one, 40);
-        assert_eq!(rebuild.pay(1), 0);
-        assert_eq!(rebuild.pay(2), 10);
+        assert_eq!(rebuild.pay(1, classic(1)), 0);
+        assert_eq!(rebuild.pay(2, classic(2)), 10);
     }
 
     #[test]

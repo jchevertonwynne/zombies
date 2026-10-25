@@ -282,7 +282,7 @@ fn regenerate(
     health.set_max(resolve(Stat::MaxHealth, PLAYER_MAX_HEALTH, &modifiers.0));
     let dt = time.delta_secs();
     health.since_hit += dt;
-    if health.since_hit >= HEALTH_REGEN_DELAY_SECS {
+    if health.since_hit >= resolve(Stat::HealthRegenDelay, HEALTH_REGEN_DELAY_SECS, &modifiers.0) {
         let rate = health.max / HEALTH_REGEN_FULL_SECS;
         health.current = (health.current + rate * dt).min(health.max);
     }
