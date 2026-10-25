@@ -13,6 +13,7 @@ mod door;
 mod equipment;
 mod explosive;
 mod gauntlet;
+mod hellhound;
 mod hud;
 mod last_stand;
 mod layers;
@@ -81,6 +82,7 @@ fn main() {
                 wonder::WonderPlugin,
             ),
             zombie::ZombiePlugin,
+            hellhound::HellhoundPlugin,
             round::RoundPlugin,
             points::PointsPlugin,
             stats::StatsPlugin,

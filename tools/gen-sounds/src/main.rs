@@ -37,6 +37,7 @@ enum Recipe {
 fn recipe(cue: Cue) -> Recipe {
     match cue {
         Cue::RoundStart => Recipe::Synth(round_start()),
+        Cue::HellhoundRoundStart => Recipe::Synth(hellhound_round_start()),
         Cue::GunshotPistol => Recipe::Synth(gunshot()),
         Cue::Hit => Recipe::Synth(thud(0.06, 220.0)),
         Cue::Kill => Recipe::Synth(thud(0.18, 90.0)),
@@ -44,6 +45,9 @@ fn recipe(cue: Cue) -> Recipe {
         Cue::CantAfford => Recipe::Synth(buzzer()),
         Cue::PlankTear => Recipe::Synth(wood_crack()),
         Cue::PlankRebuild => Recipe::Synth(plank_rebuild()),
+        Cue::HoundSpawn => Recipe::Synth(lightning_crack()),
+        Cue::HoundBite => Recipe::Synth(snarl_snap()),
+        Cue::HoundDeath => Recipe::Synth(yelp()),
         Cue::AnnouncerMaxAmmo => Recipe::Speak("Max Ammo!", None),
         Cue::AnnouncerInstaKill => Recipe::Speak("Insta-Kill!", None),
         Cue::AnnouncerDoublePoints => Recipe::Speak("Double Points!", None),
@@ -222,8 +226,73 @@ fn thud(secs: f32, freq: f32) -> Vec<f32> {
 
 /// Three low, descending, wobbling notes.
 fn round_start() -> Vec<f32> {
-    let notes = [(110.0, 0.0), (98.0, 0.45), (73.4, 0.9)];
-    samples(2.4)
+    descending_notes(&[(110.0, 0.0), (98.0, 0.45), (73.4, 0.9)], 2.4)
+}
+
+/// A thunder crack, then a slower, darker `round_start`.
+fn hellhound_round_start() -> Vec<f32> {
+    let mut seed = 0x7e11_d06;
+    let notes = descending_notes(&[(82.4, 0.6), (73.4, 1.2), (55.0, 1.8)], 3.6);
+    samples(3.6)
+        .zip(notes)
+        .map(|(t, note)| {
+            let crack = noise(&mut seed) * (-t * 8.0).exp() * 0.7;
+            let rumble = (TAU * 40.0 * t).sin() * (-t * 1.5).exp() * 0.3 * (1.0 + 0.5 * noise(&mut seed));
+            (crack + rumble + note).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
+/// A sharp, bright crack with a sizzle tail, for a hound's lightning strike.
+fn lightning_crack() -> Vec<f32> {
+    let mut seed = 0x0b01_7000;
+    samples(0.9)
+        .map(|t| {
+            let crack = noise(&mut seed) * (-t * 25.0).exp();
+            let sizzle = noise(&mut seed) * (-t * 4.0).exp() * 0.25 * (TAU * 60.0 * t).sin().abs();
+            let boom = (TAU * 55.0 * t).sin() * (-t * 6.0).exp() * 0.4;
+            (crack * 0.8 + sizzle + boom).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
+/// A short rasping snarl that ends in a snap of jaws.
+fn snarl_snap() -> Vec<f32> {
+    let mut seed = 0x5a4a_1000;
+    samples(0.35)
+        .map(|t| {
+            let snarl = if t < 0.25 {
+                let growl = (TAU * 140.0 * t).sin() * (1.0 + 0.6 * noise(&mut seed));
+                growl * (t * 40.0).min(1.0) * 0.35
+            } else {
+                0.0
+            };
+            let snap = if t >= 0.25 {
+                let local = t - 0.25;
+                noise(&mut seed) * (-local * 80.0).exp() * 0.8
+            } else {
+                0.0
+            };
+            (snarl + snap).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
+/// A high yelp falling away.
+fn yelp() -> Vec<f32> {
+    let secs = 0.5;
+    samples(secs)
+        .map(|t| {
+            let freq = 900.0 - 600.0 * t / secs;
+            let tone = (TAU * freq * t).sin() + 0.3 * (TAU * freq * 2.0 * t).sin();
+            tone * (t * 60.0).min(1.0) * (-t * 6.0).exp() * 0.4
+        })
+        .collect()
+}
+
+/// Low, descending, wobbling `(frequency, start)` notes over `secs`.
+fn descending_notes(notes: &[(f32, f32)], secs: f32) -> Vec<f32> {
+    samples(secs)
         .map(|t| {
             notes
                 .iter()

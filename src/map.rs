@@ -115,12 +115,41 @@ const RISERS: [Vec2; 4] = [
     Vec2::new(11.0, -10.0),
 ];
 
+/// The Hellhound Spawn Points: the Zone each serves and where it stands on the floor. Spread
+/// through every Zone, clear of walls, machines and cover, so a spot 10–25 m from the Player is
+/// almost always open.
+const HELLHOUND_SPAWNS: [(ZoneId, Vec3); 21] = [
+    (ZoneId::StartRoom, Vec3::new(-11.0, 0.0, 20.0)),
+    (ZoneId::StartRoom, Vec3::new(11.0, 0.0, 20.0)),
+    (ZoneId::StartRoom, Vec3::new(-6.0, 0.0, 16.5)),
+    (ZoneId::StartRoom, Vec3::new(6.0, 0.0, 23.0)),
+    (ZoneId::WestHall, Vec3::new(-20.0, 0.0, 20.0)),
+    (ZoneId::WestHall, Vec3::new(-21.0, 0.0, 4.0)),
+    (ZoneId::WestHall, Vec3::new(-21.0, 0.0, -9.0)),
+    (ZoneId::Balcony, Vec3::new(-12.0, STOREY, -8.0)),
+    (ZoneId::Balcony, Vec3::new(-12.0, STOREY, 4.0)),
+    (ZoneId::EastHall, Vec3::new(20.0, 0.0, 20.0)),
+    (ZoneId::EastHall, Vec3::new(20.0, 0.0, 4.0)),
+    (ZoneId::EastHall, Vec3::new(20.0, 0.0, -8.0)),
+    (ZoneId::DiningRoom, Vec3::new(-20.0, 0.0, -20.0)),
+    (ZoneId::DiningRoom, Vec3::new(-8.0, 0.0, -20.0)),
+    (ZoneId::PowerRoom, Vec3::new(6.0, 0.0, -20.0)),
+    (ZoneId::PowerRoom, Vec3::new(18.0, 0.0, -20.0)),
+    (ZoneId::Yard, Vec3::new(-9.0, 0.0, 0.0)),
+    (ZoneId::Yard, Vec3::new(0.0, 0.0, 0.0)),
+    (ZoneId::Yard, Vec3::new(9.0, 0.0, 9.0)),
+    (ZoneId::Yard, Vec3::new(-9.0, 0.0, -10.0)),
+    (ZoneId::Yard, Vec3::new(10.0, 0.0, -12.0)),
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpawnKind {
     /// Outside a window. The Zombie has to get in through that window's Barrier.
     Window(BarrierId),
     /// In open ground: the Zombie climbs up out of the dirt.
     Riser,
+    /// Inside a Zone, where a Hellhound arrives in a lightning strike. Only hounds use these.
+    Hellhound,
 }
 
 /// A fixed place in the Map where Zombies enter play, in the Zone it serves.
@@ -418,7 +447,7 @@ fn spawn_map(
             ));
     }
 
-    // Spawn Points: one outside each window, and the Yard's Risers.
+    // Spawn Points: one outside each window, the Yard's Risers, and the Hellhound Spawn Points.
     for (i, (zone, ..)) in WINDOWS.iter().enumerate() {
         let barrier = BarrierId(i as u8);
         commands.spawn((
@@ -438,6 +467,16 @@ fn spawn_map(
                 kind: SpawnKind::Riser,
             },
             Transform::from_xyz(at.x, 0.0, at.y),
+        ));
+    }
+    for (zone, at) in HELLHOUND_SPAWNS {
+        commands.spawn((
+            InRun,
+            SpawnPoint {
+                zone,
+                kind: SpawnKind::Hellhound,
+            },
+            Transform::from_translation(at),
         ));
     }
 
@@ -499,5 +538,16 @@ mod tests {
             assert!(inside, "a Box Location is outside {}", zone.name());
         }
         assert_eq!(BOX_LOCATIONS[0].0, ZoneId::StartRoom, "every Run starts the Box in the Start Room");
+    }
+
+    #[test]
+    fn every_hellhound_spawn_point_stands_in_its_zone() {
+        for (zone, at) in HELLHOUND_SPAWNS {
+            // Just above the floor, which sits a little inside the Zone.
+            assert_eq!(crate::nav::zone_at(at + Vec3::Y * 0.5), Some(zone), "{at} is outside {}", zone.name());
+        }
+        for zone in ZoneId::ALL {
+            assert!(HELLHOUND_SPAWNS.iter().any(|(z, _)| *z == zone), "{} has no Hellhound Spawn Point", zone.name());
+        }
     }
 }

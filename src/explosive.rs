@@ -290,7 +290,8 @@ fn explode(
     let (player_transform, health) = *player;
     // Several blasts in one frame each see the Health the last one left.
     let mut health_left = health.current;
-    // Likewise each Zombie's, and whether it has already lost its legs.
+    // Likewise each Zombie's, and whether it can't lose its legs: already a Crawler, or a
+    // Hellhound, which is never a normal Zombie.
     let mut blasted: Vec<(Entity, f32, bool)> = Vec::new();
     for explosion in explosions.read() {
         let splash = explosion.splash;
@@ -316,11 +317,11 @@ fn explode(
                 });
             }
             let i = blasted.iter().position(|&(e, ..)| e == zombie).unwrap_or_else(|| {
-                blasted.push((zombie, body.health(), body.is_crawler()));
+                blasted.push((zombie, body.health(), body.is_crawler() || body.is_hellhound()));
                 blasted.len() - 1
             });
-            let (_, before, crawler) = blasted[i];
-            if explosion.crawlers && blows_legs_off(!crawler, before, amount, rand::random()) {
+            let (_, before, not_normal) = blasted[i];
+            if explosion.crawlers && blows_legs_off(!not_normal, before, amount, rand::random()) {
                 gibbed.write(Gibbed { zombie });
                 blasted[i].2 = true;
             }

@@ -267,10 +267,12 @@ pub fn countdown(active: &ActivePowerUps) -> String {
 #[derive(Message, Debug, Clone, Copy)]
 pub struct PowerUpTaken(pub PowerUp);
 
-/// Drops the bag's next Power-up at `at`, outside the per-Round cap and needing no threshold.
+/// Drops a Power-up at `at`, outside the per-Round cap and needing no threshold: `power_up`, or
+/// the bag's next one if `None`.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct DropPowerUp {
     pub at: Vec3,
+    pub power_up: Option<PowerUp>,
 }
 
 /// The shuffle bag, next first.
@@ -391,16 +393,16 @@ fn drop_power_ups(
         fire_sale_active: active.active(PowerUp::FireSale),
     };
     let rng = &mut rand::rng();
-    let mut drops: Vec<Vec3> = requests.read().map(|request| request.at).collect();
+    let mut drops: Vec<(Vec3, Option<PowerUp>)> = requests.read().map(|request| (request.at, request.power_up)).collect();
     for kill in kills.read() {
         // A point just above its feet, so the floor it stood on is inside its Zone.
         let reached = zone_at(kill.at + Vec3::Y * 0.5).is_some_and(|zone| reachable.contains(zone));
         if meter.roll(kill.pay == Pay::Paid, rng.random::<f64>(), reached) {
-            drops.push(kill.at);
+            drops.push((kill.at, None));
         }
     }
-    for at in drops {
-        let power_up = next_power_up(&mut bag.0, rules, rng);
+    for (at, power_up) in drops {
+        let power_up = power_up.unwrap_or_else(|| next_power_up(&mut bag.0, rules, rng));
         let at = at + Vec3::Y * POWER_UP_FLOAT_HEIGHT;
         commands.spawn((
             InRun,

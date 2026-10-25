@@ -1189,6 +1189,57 @@ pub const SPAWN_DELAY_FACTOR: f32 = 0.95;
 pub const SPAWN_DELAY_MIN_SECS: f32 = 0.08;
 pub const INTERMISSION_SECS: f32 = 10.0;
 
+// Hellhounds
+/// The first Hellhound Round is drawn uniformly from these Rounds…
+pub const HELLHOUND_FIRST_ROUNDS: std::ops::RangeInclusive<u32> = 5..=7;
+/// …then each next one comes this many Rounds after the last, drawn uniformly.
+pub const HELLHOUND_ROUND_GAPS: std::ops::RangeInclusive<u32> = 4..=5;
+/// A Hellhound Round's Horde: `HELLHOUND_HORDE_EARLY` for the first `HELLHOUND_HORDE_EARLY_ROUNDS`
+/// Hellhound Rounds, then `HELLHOUND_HORDE`.
+pub const HELLHOUND_HORDE_EARLY: u32 = 6;
+pub const HELLHOUND_HORDE_EARLY_ROUNDS: u32 = 2;
+pub const HELLHOUND_HORDE: u32 = 8;
+pub const HELLHOUND_ALIVE_CAP: u32 = 2;
+/// The wait before a Hellhound Round's first hound.
+pub const HELLHOUND_FIRST_SPAWN_SECS: f32 = 7.0;
+/// Seconds between hounds in Hellhound Round #1, #2, #3 and #4 on.
+pub const HELLHOUND_SPAWN_GAPS_SECS: [f32; 4] = [3.0, 2.5, 2.0, 1.5];
+/// Hounds come in at Hellhound Spawn Points this far from the Player.
+pub const HELLHOUND_SPAWN_MIN_DIST: f32 = 10.0;
+pub const HELLHOUND_SPAWN_MAX_DIST: f32 = 25.0;
+/// The lightning strike before a hound arrives; it can't be hurt, move or bite meanwhile.
+pub const HELLHOUND_TELEGRAPH_SECS: f32 = 1.5;
+/// Hound health in Hellhound Round #1, #2, #3 and #4 on.
+pub const HELLHOUND_HEALTH: [f32; 4] = [400.0, 900.0, 1300.0, 1600.0];
+pub const HELLHOUND_BITE_DAMAGE: f32 = 40.0;
+/// Centre-to-centre distance at which a hound starts (and lands) a bite.
+pub const HELLHOUND_REACH: f32 = 2.5;
+/// Bites land this far apart while the Player stays in reach.
+pub const HELLHOUND_BITE_SECS: f32 = 1.0;
+/// The snap before a bite lands (invented); it's part of `HELLHOUND_BITE_SECS`.
+pub const HELLHOUND_BITE_WIND_UP_SECS: f32 = 0.2;
+/// Invented.
+pub const HELLHOUND_SPEED: f32 = 7.0;
+/// A hound's body is a ball this big, so it stands about 0.7 m tall.
+pub const HELLHOUND_RADIUS: f32 = 0.35;
+/// Mixed hounds: from each listed Round, this share of normal spawns are hounds instead.
+pub const HELLHOUND_MIXED_CHANCE: [(u32, f64); 3] = [(16, 0.01), (21, 0.02), (31, 0.03)];
+/// The most mixed hounds alive at once.
+pub const HELLHOUND_MIXED_MAX_ALIVE: u32 = 2;
+/// Hounds called in around a point (the Teleporter's) land between these distances from it (approx).
+pub const HELLHOUND_AROUND_MIN_DIST: f32 = 2.0;
+pub const HELLHOUND_AROUND_MAX_DIST: f32 = 5.0;
+
+// Fog
+/// The Player's fog, linear from start to end.
+pub const FOG_START: f32 = 10.0;
+pub const FOG_END: f32 = 45.0;
+/// The fog pulls in to this for a Hellhound Round (approx)…
+pub const HELLHOUND_FOG_START: f32 = 3.0;
+pub const HELLHOUND_FOG_END: f32 = 20.0;
+/// …moving at this many metres a second (approx).
+pub const FOG_PULL_SPEED: f32 = 8.0;
+
 // Points
 pub const STARTING_POINTS: u64 = 500;
 /// Paid for each hit a Zombie survives. The killing hit pays kill Points only.
