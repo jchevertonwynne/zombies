@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use bevy::ui_widgets::Button;
 
 use super::Offer;
-use super::boon::{HeldBoons, effect_line, stack_line};
+use super::boon::{HeldBoons, effect_line, requirement_line, stack_line};
 use crate::hud::{full_screen, text};
 use crate::state::{InRun, Pause};
 
@@ -101,12 +101,8 @@ pub fn spawn_offer(
                             body.spawn(text(stack_line(stacks), 16.0, stack_colour));
                             body.spawn(text("EFFECT", 14.0, GREY));
                             body.spawn(text(effect_line(boon, stacks), 22.0, Color::WHITE));
-                            if let Some(requirement) = boon.requirement {
-                                body.spawn(text(
-                                    format!("Requires {}", requirement.label()),
-                                    14.0,
-                                    GREY,
-                                ));
+                            if let Some(requirement) = requirement_line(boon) {
+                                body.spawn(text(requirement, 14.0, GREY));
                             }
                         });
                     });

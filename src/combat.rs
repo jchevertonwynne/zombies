@@ -3,7 +3,7 @@
 
 use bevy::math::{Dir3, Vec3};
 
-use crate::arsenal::{WeaponStats, penetration_factor};
+use crate::arsenal::penetration_factor;
 use crate::zombie::HitZone;
 
 /// Something a bullet's line crossed, nearest first: a Zombie's hit area, or the world.
@@ -47,10 +47,10 @@ pub fn pierce<Z: PartialEq + Copy>(crossings: impl IntoIterator<Item = Crossing<
     hits
 }
 
-/// Damage for one bullet hit: the (already resolved) damage at its range, times the Weapon's
-/// multiplier for the hit zone, times the penetration factor.
-pub fn hit_damage<Z>(stats: &WeaponStats, damage_at_range: f32, hit: &BulletHit<Z>) -> f32 {
-    damage_at_range * stats.zone_multiplier(hit.zone) * penetration_factor(hit.passed)
+/// Damage for one bullet hit: the (already resolved) damage at its range, times the (already
+/// resolved) multiplier for the hit zone, times the penetration factor.
+pub fn hit_damage<Z>(zone_multiplier: f32, damage_at_range: f32, hit: &BulletHit<Z>) -> f32 {
+    damage_at_range * zone_multiplier * penetration_factor(hit.passed)
 }
 
 /// A bullet's direction within a cone of `spread_degrees` around `forward`. `u` and `v` are
@@ -125,10 +125,10 @@ mod tests {
 
     #[test]
     fn hit_damage_combines_zone_and_penetration() {
-        let m1911 = WeaponId::M1911.stats();
+        let m1911 = WeaponId::M1911.stats().zone_multiplier(HitZone::Head);
         assert!(close(hit_damage(m1911, 20.0, &hit(HitZone::Head, 0)), 70.0));
         assert!(close(hit_damage(m1911, 20.0, &hit(HitZone::Head, 1)), 52.5));
-        let l96 = WeaponId::L96a1.stats();
+        let l96 = WeaponId::L96a1.stats().zone_multiplier(HitZone::Torso);
         assert!(close(hit_damage(l96, 500.0, &hit(HitZone::Torso, 2)), 500.0 * 1.5 * 0.5625));
     }
 
@@ -154,7 +154,7 @@ mod tests {
 
     #[test]
     fn penetration_damage_falls_by_a_quarter_per_zombie_passed() {
-        let m14 = WeaponId::M14.stats();
+        let m14 = WeaponId::M14.stats().zone_multiplier(HitZone::Torso);
         let line: Vec<_> = (0..5).map(|i| zombie(i, 1.0)).collect();
         let damage: Vec<_> = pierce(line, 4).iter().map(|hit| hit_damage(m14, 100.0, hit)).collect();
         let expected = [100.0, 75.0, 56.25, 42.1875, 31.640625];

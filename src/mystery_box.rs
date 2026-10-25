@@ -327,9 +327,14 @@ pub fn spawn_box(commands: &mut Commands, assets: &BoxAssets, location: usize, p
 
 pub struct MysteryBoxPlugin;
 
+/// A spin gave a Teddy Bear, and the Box is leaving.
+#[derive(Message)]
+pub struct TeddyBear;
+
 impl Plugin for MysteryBoxPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<BoxAssets>()
+        app.add_message::<TeddyBear>()
+            .init_resource::<BoxAssets>()
             .init_resource::<BoxRun>()
             .add_systems(OnEnter(GameState::Playing), spawn_boxes)
             .add_systems(
@@ -411,6 +416,7 @@ fn run_boxes(
     pack_a_punch: Query<&PackAPunch>,
     mut points: ResMut<Points>,
     mut run: ResMut<BoxRun>,
+    mut teddies: MessageWriter<TeddyBear>,
 ) {
     let dt = time.delta_secs();
     let (loadout, equipment) = *player;
@@ -454,6 +460,7 @@ fn run_boxes(
                         Spin::Teddy => {
                             points.refund(paid);
                             if teddy {
+                                teddies.write(TeddyBear);
                                 run.pulls = 0;
                                 run.moves = run.moves.saturating_add(1);
                                 BoxState::Leaving { elapsed: 0.0 }

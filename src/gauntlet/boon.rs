@@ -42,35 +42,70 @@ impl Rarity {
     }
 }
 
+/// A Pact a Requirement names, by stable ID and display name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PactRef {
+    pub id: &'static str,
+    pub name: &'static str,
+}
+
+// The Pacts the Commons' Requirements name. The Pacts themselves arrive in their own slice.
+pub const ENDLESS_BELT: PactRef = PactRef {
+    id: "endless_belt",
+    name: "Endless Belt",
+};
+pub const OPEN_BAR: PactRef = PactRef {
+    id: "open_bar",
+    name: "Open Bar",
+};
+pub const LIGHTNING_ROD: PactRef = PactRef {
+    id: "lightning_rod",
+    name: "Lightning Rod",
+};
+pub const COLD_STEEL: PactRef = PactRef {
+    id: "cold_steel",
+    name: "Cold Steel",
+};
+
 /// What must hold, when an Offer is drawn, for a Boon to be on it. A held Boon whose Requirement
 /// lapses stays held.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Requirement {
-    #[allow(
-        dead_code,
-        reason = "the Boons that need the Power arrive with the roster"
-    )]
     PowerOn,
+    /// The Pact isn't held. Once it is, the Boon leaves later Offers; Stacks held stay.
+    NotPact(PactRef),
 }
 
 impl Requirement {
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            Requirement::PowerOn => "Power on",
+            Requirement::PowerOn => "Power on".into(),
+            Requirement::NotPact(pact) => format!("not {}", pact.name),
         }
     }
 
     fn holds(self, run: &RunFacts) -> bool {
         match self {
             Requirement::PowerOn => run.power_on,
+            Requirement::NotPact(pact) => !run.held_pacts.contains(&pact.id),
         }
     }
 }
 
+/// A card's Requirement line, or `None` for a Boon without one.
+pub fn requirement_line(boon: &BoonDef) -> Option<String> {
+    (!boon.requirements.is_empty()).then(|| {
+        let labels: Vec<_> = boon.requirements.iter().map(|r| r.label()).collect();
+        format!("Requires {}", labels.join("; "))
+    })
+}
+
 /// The Classic state Requirements are checked against, read when an Offer is drawn.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct RunFacts {
     pub power_on: bool,
+    /// The stable IDs of the Pacts held.
+    pub held_pacts: Vec<&'static str>,
 }
 
 pub struct BoonDef {
@@ -80,7 +115,8 @@ pub struct BoonDef {
     pub rarity: Rarity,
     /// Unlocked from the first launch rather than bought in the Armory.
     pub starts_unlocked: bool,
-    pub requirement: Option<Requirement>,
+    /// All must hold when an Offer is drawn.
+    pub requirements: &'static [Requirement],
     /// One Stack's stat-modifier entries. A Boon whose effect isn't a stat leaves this empty and
     /// has a system of its own.
     pub per_stack: &'static [(Stat, Effect)],
@@ -89,60 +125,253 @@ pub struct BoonDef {
 }
 
 pub const BLOOD_MONEY: &str = "blood_money";
+pub const TEDDYS_TITHE: &str = "teddys_tithe";
 
 /// A per-Stack fraction `x` at `n` Stacks, as a whole percentage.
 fn percent(x: f32, n: u32) -> String {
     format!("{:.0}", f64::from(x) * f64::from(n) * 100.0)
 }
 
+/// A per-Stack factor `r` at `n` Stacks (rⁿ), to two places.
+fn factor(r: f32, n: u32) -> String {
+    format!("{:.2}", f64::from(r).powf(f64::from(n)))
+}
+
+/// "1 bullet", "3 bullets".
+fn plural(n: u64, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
+}
+
+/// A Common Unlocked from the first launch.
+const fn common(
+    id: &'static str,
+    name: &'static str,
+    requirements: &'static [Requirement],
+    per_stack: &'static [(Stat, Effect)],
+    effect: fn(u32) -> String,
+) -> BoonDef {
+    BoonDef {
+        id,
+        name,
+        rarity: Rarity::Common,
+        starts_unlocked: true,
+        requirements,
+        per_stack,
+        effect,
+    }
+}
+
 /// Every Boon.
 pub const BOONS: &[BoonDef] = &[
-    BoonDef {
-        id: BLOOD_MONEY,
-        name: "Blood Money",
-        rarity: Rarity::Common,
-        starts_unlocked: true,
-        requirement: None,
-        per_stack: &[],
-        effect: |n| {
-            let points = BOON_BLOOD_MONEY_POINTS_PER_KILL.saturating_mul(n.into());
-            format!("+{points} Points per kill")
-        },
-    },
-    BoonDef {
-        id: "hollow_points",
-        name: "Hollow Points",
-        rarity: Rarity::Common,
-        starts_unlocked: true,
-        requirement: None,
-        per_stack: &[(
+    common(BLOOD_MONEY, "Blood Money", &[], &[], |n| {
+        let points = BOON_BLOOD_MONEY_POINTS_PER_KILL.saturating_mul(n.into());
+        format!("+{points} Points per kill")
+    }),
+    common(
+        "hollow_points",
+        "Hollow Points",
+        &[],
+        &[(
             Stat::Damage,
             Effect::Mult(1.0 + BOON_HOLLOW_POINTS_DAMAGE_INCREASE),
         )],
-        effect: |n| {
+        |n| {
             format!(
                 "+{}% Weapon damage",
                 percent(BOON_HOLLOW_POINTS_DAMAGE_INCREASE, n)
             )
         },
-    },
-    BoonDef {
-        id: "light_feet",
-        name: "Light Feet",
-        rarity: Rarity::Common,
-        starts_unlocked: true,
-        requirement: None,
-        per_stack: &[(
+    ),
+    common(
+        "marksmans_eye",
+        "Marksman's Eye",
+        &[],
+        &[(
+            Stat::HeadshotMultiplier,
+            Effect::Flat(BOON_MARKSMANS_EYE_HEADSHOT_MULTIPLIER),
+        )],
+        |n| {
+            let added = f64::from(BOON_MARKSMANS_EYE_HEADSHOT_MULTIPLIER) * f64::from(n);
+            format!("+{added:.1}x Headshot multiplier")
+        },
+    ),
+    common(
+        "full_belt",
+        "Full Belt",
+        &[Requirement::NotPact(ENDLESS_BELT)],
+        &[(
+            Stat::MagazineSize,
+            Effect::Mult(1.0 + BOON_FULL_BELT_MAGAZINE_INCREASE),
+        )],
+        |n| {
+            format!(
+                "+{}% Magazine size",
+                percent(BOON_FULL_BELT_MAGAZINE_INCREASE, n)
+            )
+        },
+    ),
+    common(
+        "stripper_clips",
+        "Stripper Clips",
+        &[Requirement::NotPact(ENDLESS_BELT)],
+        &[(
+            Stat::MagazinePerKill,
+            Effect::Flat(BOON_STRIPPER_CLIPS_BULLETS_PER_KILL as f32),
+        )],
+        |n| {
+            let bullets = u64::from(BOON_STRIPPER_CLIPS_BULLETS_PER_KILL.saturating_mul(n));
+            format!(
+                "each kill puts {} back in the Magazine",
+                plural(bullets, "bullet", "bullets")
+            )
+        },
+    ),
+    common(
+        "light_feet",
+        "Light Feet",
+        &[],
+        &[(
             Stat::MoveSpeed,
             Effect::Mult(1.0 + BOON_LIGHT_FEET_MOVE_SPEED_INCREASE),
         )],
-        effect: |n| {
+        |n| {
             format!(
                 "+{}% move speed",
                 percent(BOON_LIGHT_FEET_MOVE_SPEED_INCREASE, n)
             )
         },
-    },
+    ),
+    common(
+        "second_wind",
+        "Second Wind",
+        &[],
+        &[(
+            Stat::HealthRegenDelay,
+            Effect::Reduction(BOON_SECOND_WIND_REGEN_DELAY_FACTOR, 1),
+        )],
+        |n| {
+            format!(
+                "Health regen delay x{}",
+                factor(BOON_SECOND_WIND_REGEN_DELAY_FACTOR, n)
+            )
+        },
+    ),
+    common(TEDDYS_TITHE, "Teddy's Tithe", &[], &[], |n| {
+        format!("a Teddy Bear also pays +{} Points", teddys_tithe_points(n))
+    }),
+    common(
+        "bottomless_cup",
+        "Bottomless Cup",
+        &[Requirement::NotPact(OPEN_BAR)],
+        &[(
+            Stat::PerkPrice,
+            Effect::Reduction(BOON_BOTTOMLESS_CUP_PERK_PRICE_FACTOR, 1),
+        )],
+        |n| {
+            format!(
+                "Perk prices x{}",
+                factor(BOON_BOTTOMLESS_CUP_PERK_PRICE_FACTOR, n)
+            )
+        },
+    ),
+    common(
+        "long_fuse",
+        "Long Fuse",
+        &[],
+        &[(
+            Stat::PowerUpDuration,
+            Effect::Flat(BOON_LONG_FUSE_DURATION_SECS),
+        )],
+        |n| {
+            let secs = f64::from(BOON_LONG_FUSE_DURATION_SECS) * f64::from(n);
+            format!("timed Power-ups last +{secs:.0} s")
+        },
+    ),
+    common(
+        "scrounger",
+        "Scrounger",
+        &[],
+        &[(
+            Stat::PowerUpsPerRound,
+            Effect::Flat(BOON_SCROUNGER_POWER_UPS_PER_ROUND as f32),
+        )],
+        |n| {
+            let extra = BOON_SCROUNGER_POWER_UPS_PER_ROUND.saturating_mul(n);
+            format!("+{extra} to the max Power-ups per Round")
+        },
+    ),
+    common(
+        "short_circuit",
+        "Short Circuit",
+        &[Requirement::PowerOn, Requirement::NotPact(LIGHTNING_ROD)],
+        &[(
+            Stat::TrapCooldown,
+            Effect::Reduction(BOON_SHORT_CIRCUIT_TRAP_COOLDOWN_FACTOR, 1),
+        )],
+        |n| {
+            format!(
+                "Trap cooldown x{}",
+                factor(BOON_SHORT_CIRCUIT_TRAP_COOLDOWN_FACTOR, n)
+            )
+        },
+    ),
+    common(
+        "union_rates",
+        "Union Rates",
+        &[],
+        &[
+            (
+                Stat::PlankPoints,
+                Effect::Flat(BOON_UNION_RATES_POINTS_PER_PLANK as f32),
+            ),
+            (
+                Stat::PlankPointsCap,
+                Effect::Mult(1.0 + BOON_UNION_RATES_CAP_INCREASE),
+            ),
+        ],
+        |n| {
+            let points = BOON_UNION_RATES_POINTS_PER_PLANK.saturating_mul(n.into());
+            let cap = 1.0 + f64::from(BOON_UNION_RATES_CAP_INCREASE) * f64::from(n);
+            format!("+{points} Points per Plank; Round cap x{cap:.0}")
+        },
+    ),
+    common(
+        "trench_raider",
+        "Trench Raider",
+        &[Requirement::NotPact(COLD_STEEL)],
+        &[(
+            Stat::KnifeDamage,
+            Effect::Mult(1.0 + BOON_TRENCH_RAIDER_KNIFE_DAMAGE_INCREASE),
+        )],
+        |n| {
+            format!(
+                "+{}% Knife damage",
+                percent(BOON_TRENCH_RAIDER_KNIFE_DAMAGE_INCREASE, n)
+            )
+        },
+    ),
+    common(
+        "bandolier",
+        "Bandolier",
+        &[],
+        &[
+            (
+                Stat::LethalCapacity,
+                Effect::Flat(BOON_BANDOLIER_LETHALS_CARRIED as f32),
+            ),
+            (
+                Stat::LethalRestock,
+                Effect::Flat(BOON_BANDOLIER_LETHALS_PER_ROUND as f32),
+            ),
+        ],
+        |n| {
+            let lethals = u64::from(BOON_BANDOLIER_LETHALS_CARRIED.saturating_mul(n));
+            format!(
+                "+{} carried and restocked per Round",
+                plural(lethals, "Lethal", "Lethals")
+            )
+        },
+    ),
 ];
 
 /// One Stack's effect at `n` Stacks: flat amounts `n` times over, increases added up within the
@@ -208,8 +437,9 @@ pub fn eligible(boon: &BoonDef, run: &RunFacts) -> bool {
     // Until the Armory saves Unlocks, the Boons Unlocked from the first launch are the only ones.
     boon.starts_unlocked
         && boon
-            .requirement
-            .is_none_or(|requirement| requirement.holds(run))
+            .requirements
+            .iter()
+            .all(|requirement| requirement.holds(run))
 }
 
 /// A weighted draw of up to `size` items without replacement. `roll(total)` gives a number in
@@ -277,10 +507,15 @@ pub fn blood_money_points(pay: Pay, stacks: u32) -> u64 {
     }
 }
 
+/// Teddy's Tithe's Points for a Teddy Bear, on top of the refund.
+pub fn teddys_tithe_points(stacks: u32) -> u64 {
+    BOON_TEDDYS_TITHE_POINTS.saturating_mul(stacks.into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modifier::resolve;
+    use crate::modifier::{resolve, resolve_count, resolve_points};
 
     fn close(a: f64, b: f64) -> bool {
         (a - b).abs() < 1e-9
@@ -294,29 +529,24 @@ mod tests {
         id: &'static str,
         rarity: Rarity,
         starts_unlocked: bool,
-        requirement: Option<Requirement>,
+        requirements: &'static [Requirement],
     ) -> BoonDef {
         BoonDef {
             id,
             name: id,
             rarity,
             starts_unlocked,
-            requirement,
+            requirements,
             per_stack: &[],
             effect: |n| format!("x{n}"),
         }
     }
 
     const TABLE: &[BoonDef] = &[
-        test_boon("common", Rarity::Common, true, None),
-        test_boon("rare", Rarity::Rare, true, None),
-        test_boon(
-            "powered",
-            Rarity::Legendary,
-            true,
-            Some(Requirement::PowerOn),
-        ),
-        test_boon("locked", Rarity::Common, false, None),
+        test_boon("common", Rarity::Common, true, &[]),
+        test_boon("rare", Rarity::Rare, true, &[]),
+        test_boon("powered", Rarity::Legendary, true, &[Requirement::PowerOn]),
+        test_boon("locked", Rarity::Common, false, &[]),
     ];
 
     #[test]
@@ -363,7 +593,10 @@ mod tests {
     fn only_unlocked_boons_whose_requirement_holds_are_offered() {
         let held = HeldBoons::default();
         let ids = |power_on| {
-            let run = RunFacts { power_on };
+            let run = RunFacts {
+                power_on,
+                ..default()
+            };
             let mut ids: Vec<_> = draw_offer(TABLE, &held, &run, |_| 0.0)
                 .into_iter()
                 .map(|boon| boon.id)
@@ -377,7 +610,7 @@ mod tests {
 
     #[test]
     fn no_eligible_boons_means_no_offer() {
-        const LOCKED: &[BoonDef] = &[test_boon("locked", Rarity::Common, false, None)];
+        const LOCKED: &[BoonDef] = &[test_boon("locked", Rarity::Common, false, &[])];
         let offer = draw_offer(LOCKED, &HeldBoons::default(), &RunFacts::default(), |_| 0.0);
         assert!(offer.is_empty());
     }
@@ -484,5 +717,314 @@ mod tests {
                 assert_ne!(a.name, b.name);
             }
         }
+    }
+
+    /// The Player's entries with `n` Stacks of one Boon.
+    fn entries(id: &str, n: u32) -> Vec<Modifier> {
+        let mut held = HeldBoons::default();
+        for _ in 0..n {
+            held.add(named(id));
+        }
+        held.modifiers()
+    }
+
+    /// One stat from a base with `n` Stacks of one Boon.
+    fn with(id: &str, n: u32, stat: Stat, base: f32) -> f32 {
+        resolve(stat, base, &entries(id, n))
+    }
+
+    fn close32(a: f32, b: f32) -> bool {
+        (a - b).abs() < 1e-3
+    }
+
+    #[test]
+    fn hollow_points_adds_ten_percent_weapon_damage_per_stack() {
+        assert!(close32(
+            with("hollow_points", 1, Stat::Damage, 100.0),
+            110.0
+        ));
+        assert!(close32(
+            with("hollow_points", 3, Stat::Damage, 100.0),
+            130.0
+        ));
+    }
+
+    #[test]
+    fn marksmans_eye_adds_half_to_the_headshot_multiplier_per_stack() {
+        let m1911 = 3.5;
+        assert!(close32(
+            with("marksmans_eye", 1, Stat::HeadshotMultiplier, m1911),
+            4.0
+        ));
+        assert!(close32(
+            with("marksmans_eye", 3, Stat::HeadshotMultiplier, m1911),
+            5.0
+        ));
+        // Only the head: a Weapon's damage is untouched.
+        assert!(close32(with("marksmans_eye", 3, Stat::Damage, 20.0), 20.0));
+    }
+
+    #[test]
+    fn full_belt_adds_twenty_percent_magazine_size_per_stack() {
+        let count = |n| resolve_count(Stat::MagazineSize, 8, &entries("full_belt", n));
+        assert_eq!(count(1), 10);
+        assert_eq!(count(3), 13);
+    }
+
+    #[test]
+    fn stripper_clips_puts_a_bullet_back_per_kill_per_stack() {
+        let count = |n| resolve_count(Stat::MagazinePerKill, 0, &entries("stripper_clips", n));
+        assert_eq!(count(0), 0);
+        assert_eq!(count(1), 1);
+        assert_eq!(count(3), 3);
+    }
+
+    #[test]
+    fn light_feet_adds_five_percent_move_speed_per_stack() {
+        assert!(close32(
+            with("light_feet", 1, Stat::MoveSpeed, 100.0),
+            105.0
+        ));
+        assert!(close32(
+            with("light_feet", 3, Stat::MoveSpeed, 100.0),
+            115.0
+        ));
+    }
+
+    #[test]
+    fn second_wind_multiplies_the_regen_delay_per_stack() {
+        let delay = |n| {
+            with(
+                "second_wind",
+                n,
+                Stat::HealthRegenDelay,
+                HEALTH_REGEN_DELAY_SECS,
+            )
+        };
+        assert!(close32(delay(1), 3.0 * 0.85));
+        assert!(close32(delay(3), 3.0 * 0.85_f32.powi(3)));
+    }
+
+    #[test]
+    fn teddys_tithe_pays_five_hundred_per_stack() {
+        assert_eq!(teddys_tithe_points(0), 0);
+        assert_eq!(teddys_tithe_points(1), 500);
+        assert_eq!(teddys_tithe_points(3), 1500);
+    }
+
+    #[test]
+    fn bottomless_cup_multiplies_perk_prices_per_stack() {
+        let price = |n| {
+            resolve_points(
+                Stat::PerkPrice,
+                PERK_PRICE_SPEED_COLA,
+                &entries("bottomless_cup", n),
+            )
+        };
+        assert_eq!(price(1), 2700);
+        assert_eq!(price(3), 2187);
+    }
+
+    #[test]
+    fn long_fuse_adds_ten_seconds_to_timed_power_ups_per_stack() {
+        assert!(close32(
+            with("long_fuse", 1, Stat::PowerUpDuration, 0.0),
+            10.0
+        ));
+        assert!(close32(
+            with("long_fuse", 3, Stat::PowerUpDuration, 0.0),
+            30.0
+        ));
+    }
+
+    #[test]
+    fn scrounger_adds_one_power_up_a_round_per_stack() {
+        // From BO1's 4 a Round.
+        let most = |n| resolve_count(Stat::PowerUpsPerRound, 4, &entries("scrounger", n));
+        assert_eq!(most(1), 5);
+        assert_eq!(most(3), 7);
+    }
+
+    #[test]
+    fn short_circuit_multiplies_the_trap_cooldown_per_stack() {
+        let cooldown = |n| with("short_circuit", n, Stat::TrapCooldown, TRAP_COOLDOWN_SECS);
+        assert!(close32(cooldown(1), 48.0));
+        assert!(close32(cooldown(3), 60.0 * 0.512));
+    }
+
+    #[test]
+    fn union_rates_raises_plank_points_and_the_round_cap_per_stack() {
+        use crate::barrier::{PlankRates, rebuild_cap};
+        let rates = |n, round| PlankRates::resolve(round, &entries("union_rates", n));
+        // (1 + n) × min(50 × round, 500).
+        assert_eq!(
+            rates(1, 4),
+            PlankRates {
+                points: 20,
+                cap: 2 * rebuild_cap(4)
+            }
+        );
+        assert_eq!(
+            rates(3, 4),
+            PlankRates {
+                points: 40,
+                cap: 4 * rebuild_cap(4)
+            }
+        );
+        assert_eq!(rates(3, 20).cap, 2000);
+    }
+
+    #[test]
+    fn trench_raider_adds_fifty_percent_knife_damage_per_stack() {
+        assert!(close32(
+            with("trench_raider", 1, Stat::KnifeDamage, KNIFE_DAMAGE),
+            225.0
+        ));
+        assert!(close32(
+            with("trench_raider", 3, Stat::KnifeDamage, KNIFE_DAMAGE),
+            375.0
+        ));
+        // Weapon damage is another stat.
+        assert!(close32(with("trench_raider", 3, Stat::Damage, 20.0), 20.0));
+    }
+
+    #[test]
+    fn bandolier_adds_a_lethal_carried_and_restocked_per_stack() {
+        use crate::equipment::FragLimits;
+        let limits = |n| FragLimits::resolve(&entries("bandolier", n));
+        assert_eq!(
+            limits(1),
+            FragLimits {
+                max: 5,
+                per_round: 3
+            }
+        );
+        assert_eq!(
+            limits(3),
+            FragLimits {
+                max: 7,
+                per_round: 5
+            }
+        );
+    }
+
+    #[test]
+    fn every_common_from_appendix_b_is_in_the_table() {
+        let ids = [
+            BLOOD_MONEY,
+            "hollow_points",
+            "marksmans_eye",
+            "full_belt",
+            "stripper_clips",
+            "light_feet",
+            "second_wind",
+            TEDDYS_TITHE,
+            "bottomless_cup",
+            "long_fuse",
+            "scrounger",
+            "short_circuit",
+            "union_rates",
+            "trench_raider",
+            "bandolier",
+        ];
+        for id in ids {
+            let boon = named(id);
+            assert_eq!(boon.rarity, Rarity::Common);
+            assert!(boon.starts_unlocked, "{id} is Unlocked from the start");
+            assert_ne!(boon.id, boon.name, "an ID isn't a display name");
+        }
+        let commons = BOONS
+            .iter()
+            .filter(|boon| boon.rarity == Rarity::Common)
+            .count();
+        assert_eq!(commons, 15);
+    }
+
+    #[test]
+    fn short_circuit_needs_the_power_on_and_no_lightning_rod() {
+        let short_circuit = named("short_circuit");
+        let run = |power_on, held_pacts: &[&'static str]| RunFacts {
+            power_on,
+            held_pacts: held_pacts.to_vec(),
+        };
+        assert!(!eligible(short_circuit, &run(false, &[])));
+        assert!(eligible(short_circuit, &run(true, &[])));
+        assert!(!eligible(short_circuit, &run(true, &[LIGHTNING_ROD.id])));
+    }
+
+    #[test]
+    fn a_held_pact_takes_the_boons_it_overrides_off_later_offers() {
+        let offered = |held_pacts: Vec<&'static str>| {
+            let run = RunFacts {
+                power_on: true,
+                held_pacts,
+            };
+            BOONS
+                .iter()
+                .filter(|boon| eligible(boon, &run))
+                .map(|boon| boon.id)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(offered(vec![]).len(), 15);
+        let without = offered(vec![ENDLESS_BELT.id]);
+        assert!(!without.contains(&"full_belt"));
+        assert!(!without.contains(&"stripper_clips"));
+        assert_eq!(without.len(), 13);
+        assert!(!offered(vec![OPEN_BAR.id]).contains(&"bottomless_cup"));
+        assert!(!offered(vec![COLD_STEEL.id]).contains(&"trench_raider"));
+    }
+
+    #[test]
+    fn stacks_already_held_stay_when_a_requirement_lapses() {
+        let mut held = HeldBoons::default();
+        held.add(named("full_belt"));
+        let run = RunFacts {
+            power_on: true,
+            held_pacts: vec![ENDLESS_BELT.id],
+        };
+        let offer = draw_offer(BOONS, &held, &run, |_| 0.0);
+        assert!(offer.iter().all(|boon| boon.id != "full_belt"));
+        assert_eq!(held.stacks("full_belt"), 1);
+        assert_eq!(held.modifiers().len(), 1);
+    }
+
+    #[test]
+    fn cards_show_every_requirement() {
+        assert_eq!(requirement_line(named("hollow_points")), None);
+        assert_eq!(
+            requirement_line(named("short_circuit")).as_deref(),
+            Some("Requires Power on; not Lightning Rod")
+        );
+        assert_eq!(
+            requirement_line(named("full_belt")).as_deref(),
+            Some("Requires not Endless Belt")
+        );
+    }
+
+    #[test]
+    fn effect_lines_read_per_stack() {
+        let line = |id, n| (named(id).effect)(n);
+        assert_eq!(line("marksmans_eye", 3), "+1.5x Headshot multiplier");
+        assert_eq!(
+            line("stripper_clips", 1),
+            "each kill puts 1 bullet back in the Magazine"
+        );
+        assert_eq!(
+            line("stripper_clips", 3),
+            "each kill puts 3 bullets back in the Magazine"
+        );
+        assert_eq!(line("second_wind", 1), "Health regen delay x0.85");
+        assert_eq!(line("bottomless_cup", 3), "Perk prices x0.73");
+        assert_eq!(line(TEDDYS_TITHE, 3), "a Teddy Bear also pays +1500 Points");
+        assert_eq!(line("long_fuse", 3), "timed Power-ups last +30 s");
+        assert_eq!(line("scrounger", 3), "+3 to the max Power-ups per Round");
+        assert_eq!(line("short_circuit", 3), "Trap cooldown x0.51");
+        assert_eq!(line("union_rates", 3), "+30 Points per Plank; Round cap x4");
+        assert_eq!(line("trench_raider", 3), "+150% Knife damage");
+        assert_eq!(
+            line("bandolier", 1),
+            "+1 Lethal carried and restocked per Round"
+        );
+        assert_eq!(line("full_belt", 3), "+60% Magazine size");
     }
 }

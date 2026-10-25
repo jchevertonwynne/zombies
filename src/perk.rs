@@ -6,7 +6,7 @@ use bevy::prelude::*;
 
 use crate::buy::{Buyable, Purchased, Refused};
 use crate::layers::GameLayer;
-use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat};
+use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve_points};
 use crate::player::Player;
 use crate::power::Power;
 use crate::state::{GameState, InRun, Pause};
@@ -331,20 +331,23 @@ pub fn drink(
 /// Machines own their Buyables: a buy, the Power refusal, or no Prompt at all.
 fn prompt_machines(
     mut commands: Commands,
-    machines: Query<(Entity, &PerkMachine, Has<Buyable>, Has<Refused>), Without<Leaving>>,
-    player: Single<(&Perks, Has<Drinking>), With<Player>>,
+    machines: Query<(Entity, &PerkMachine, Option<&Buyable>, Has<Refused>), Without<Leaving>>,
+    player: Single<(&Perks, &Modifiers, Has<Drinking>), With<Player>>,
     power: Res<Power>,
 ) {
-    let (perks, drinking) = *player;
-    for (entity, machine, has_buyable, refused) in &machines {
+    let (perks, modifiers, drinking) = *player;
+    for (entity, machine, buyable, refused) in &machines {
         let perk = machine.perk;
+        let price = resolve_points(Stat::PerkPrice, perk.price(), &modifiers.0);
         let want = machine_prompt(perk, power.is_on(), perks.has(perk), drinking);
-        let current = match (has_buyable, refused) {
-            (false, _) => MachinePrompt::NoPrompt,
-            (true, true) => MachinePrompt::NeedsPower,
-            (true, false) => MachinePrompt::Buy,
+        let current = match (buyable, refused) {
+            (None, _) => MachinePrompt::NoPrompt,
+            (Some(_), true) => MachinePrompt::NeedsPower,
+            (Some(_), false) => MachinePrompt::Buy,
         };
-        if want == current {
+        // A changed price (from the modifier seam) re-offers the buy.
+        let repriced = want == MachinePrompt::Buy && buyable.is_some_and(|buyable| buyable.price != Some(price));
+        if want == current && !repriced {
             continue;
         }
         let mut machine_entity = commands.entity(entity);
@@ -367,7 +370,7 @@ fn prompt_machines(
             MachinePrompt::Buy => {
                 machine_entity.remove::<Refused>().insert(buyable(
                     format!("Press F to buy {}", perk.name()),
-                    Some(perk.price()),
+                    Some(price),
                 ));
             }
         }
