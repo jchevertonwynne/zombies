@@ -49,6 +49,9 @@ pub enum Attack {
     Burn,
     /// An electric Trap's shock. The Map's kill, not the Player's.
     Trap,
+    /// A Plank torn off hurting the Zombie that tore it, when a stat entry says so. The Map's
+    /// kill, not the Player's.
+    Barrier,
     /// The Nuke Power-up. Its kills are Unpaid.
     Nuke,
     /// An Ammo Mod's own damage, Paid or Unpaid by the Ammo Mod. It never rolls Ammo Mods.
@@ -61,7 +64,7 @@ impl Attack {
         match self {
             Attack::AmmoMod(pay) => pay,
             Attack::Bullet | Attack::Knife | Attack::Burn => Pay::Paid,
-            Attack::Trap | Attack::Nuke => Pay::Unpaid,
+            Attack::Trap | Attack::Barrier | Attack::Nuke => Pay::Unpaid,
         }
     }
 }
@@ -908,8 +911,8 @@ pub fn apply_damage(
         }
         zombie.health -= dealt_damage(request.damage, insta_kill);
         if zombie.health > 0.0 {
-            // A Burn's ticks pay no hit Points.
-            if request.attack != Attack::Burn {
+            // A Burn's ticks pay no hit Points, nor does a torn Plank.
+            if !matches!(request.attack, Attack::Burn | Attack::Barrier) {
                 hits.write(ZombieHit);
             }
             continue;

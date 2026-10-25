@@ -17,7 +17,7 @@ use crate::door::Door;
 use crate::explosive::{in_sight, world_filter};
 use crate::layers::GameLayer;
 use crate::hellhound::Telegraph;
-use crate::modifier::{Modifiers, Stat, resolve};
+use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_count};
 use crate::barrier::Barriers;
 use crate::nav::{NavGraph, Route};
 use crate::player::{Player, PlayerCamera};
@@ -127,14 +127,20 @@ impl AmmoMods {
         self.0 == 0
     }
 
-    /// Whether a tap Repack can add another.
-    pub fn has_room(self) -> bool {
-        self.len() < MAX_AMMO_MODS
+    /// Whether a tap Repack can add another, on a Weapon that holds `slots`.
+    pub fn has_room(self, slots: usize) -> bool {
+        self.len() < slots
     }
 
     pub fn iter(self) -> impl Iterator<Item = AmmoMod> {
         AmmoMod::ALL.into_iter().filter(move |ammo_mod| self.contains(*ammo_mod))
     }
+}
+
+/// How many Ammo Mods an Upgraded Weapon holds: `MAX_AMMO_MODS`, or as many as the Player's stat
+/// entries say.
+pub fn ammo_mod_slots(player: &[Modifier]) -> usize {
+    resolve_count(Stat::AmmoModSlots, MAX_AMMO_MODS as u32, player) as usize
 }
 
 /// The price of a tap Repack of a copy already Repacked `repacks` times (of either kind).
@@ -854,11 +860,25 @@ mod tests {
 
     #[test]
     fn a_weapon_holds_at_most_two_ammo_mods() {
-        assert!(AmmoMods::NONE.has_room());
-        assert!(held(&[AmmoMod::Turned]).has_room());
+        let slots = ammo_mod_slots(&[]);
+        assert_eq!(slots, 2);
+        assert!(AmmoMods::NONE.has_room(slots));
+        assert!(held(&[AmmoMod::Turned]).has_room(slots));
         let full = held(&[AmmoMod::Turned, AmmoMod::DeadWire]);
         assert_eq!(full.len(), 2);
-        assert!(!full.has_room());
+        assert!(!full.has_room(slots));
+    }
+
+    #[test]
+    fn a_slot_entry_makes_room_for_a_third_ammo_mod() {
+        let one = [Modifier {
+            stat: Stat::AmmoModSlots,
+            source: crate::modifier::Source("test"),
+            effect: crate::modifier::Effect::Flat(1.0),
+        }];
+        let slots = ammo_mod_slots(&one);
+        assert_eq!(slots, 3);
+        assert!(held(&[AmmoMod::Turned, AmmoMod::DeadWire]).has_room(slots));
     }
 
     #[test]

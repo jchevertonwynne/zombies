@@ -34,6 +34,8 @@ pub const SPRINT_RECHARGE_SECS: f32 = 2.0;
 
 // Weapons
 pub const STARTING_WEAPON: WeaponId = WeaponId::M1911;
+/// Weapon slots the Player carries, before any stat entry adds more.
+pub const WEAPON_SLOTS: u32 = 2;
 /// How far a bullet reaches.
 pub const HITSCAN_RANGE: f32 = 100.0;
 
@@ -1599,3 +1601,20 @@ pub const BOON_UNION_RATES_CAP_INCREASE: f32 = 1.0;
 pub const BOON_TRENCH_RAIDER_KNIFE_DAMAGE_INCREASE: f32 = 0.50;
 pub const BOON_BANDOLIER_LETHALS_CARRIED: u32 = 1;
 pub const BOON_BANDOLIER_LETHALS_PER_ROUND: u32 = 1;
+pub const BOON_WAR_BONDS_POINTS_PER_ROUND: u64 = 50;
+pub const BOON_LOADED_DICE_FREE_SPIN_CHANCE: f32 = 0.15;
+pub const BOON_FIELD_ENGINEER_PRICE_FACTOR: f32 = 0.9;
+pub const BOON_LIVE_WIRE_COOLDOWN_FACTOR: f32 = 0.85;
+pub const BOON_IRON_STOMACH_PERKS_KEPT: u32 = 1;
+pub const BOON_LAST_RITES_QUICK_REVIVE_BUYS: u32 = 1;
+pub const BOON_BOUNTY_POINTS_PER_TRAP_KILL: u64 = 50;
+/// The fraction of its max Health a Zombie loses for each Plank it tears off.
+pub const BOON_BARBED_WIRE_HEALTH_FRACTION: f32 = 0.10;
+pub const BOON_BUTCHERS_BILL_DROP_CHANCE: f64 = 0.10;
+pub const BOON_SHRAPNEL_DAMAGE_INCREASE: f32 = 0.25;
+pub const BOON_SHRAPNEL_RADIUS_INCREASE: f32 = 0.10;
+pub const BOON_THIRD_HAND_WEAPON_SLOTS: u32 = 1;
+pub const BOON_THROUGH_AND_THROUGH_ZOMBIES: u32 = 1;
+pub const BOON_BLACK_MARKET_UPGRADE_CHANCE: f32 = 0.20;
+pub const BOON_DOUBLE_PUNCHED_AMMO_MOD_SLOTS: u32 = 1;
+pub const BOON_LUCKY_STRIKE_CHANCE: f64 = 0.20;

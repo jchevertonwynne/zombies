@@ -15,13 +15,13 @@ use crate::buy::{Buyable, Purchased};
 use crate::equipment::Equipment;
 use crate::layers::GameLayer;
 use crate::map::BOX_LOCATIONS;
-use crate::modifier::Modifiers;
+use crate::modifier::{Modifier, Modifiers, Stat, resolve};
 use crate::pack_a_punch::PackAPunch;
 use crate::player::Player;
 use crate::points::Points;
 use crate::state::{GameState, InRun, Pause};
 use crate::tuning::*;
-use crate::weapon::Loadout;
+use crate::weapon::{Loadout, WeaponCopy};
 
 /// The Box's size: long side, height, depth.
 const BOX_SIZE: Vec3 = Vec3::new(1.6, 0.8, 0.9);
@@ -48,6 +48,26 @@ impl Prize {
             Prize::MonkeyBomb => "Monkey Bomb",
         }
     }
+
+    /// Its name as the Box shows it: an Upgraded Weapon by its Pack-a-Punch name.
+    pub fn shown_name(self, upgraded: bool) -> &'static str {
+        match self {
+            Prize::Weapon(id) if upgraded => id.upgraded().name,
+            _ => self.name(),
+        }
+    }
+}
+
+/// Whether a spin is free, refunded as soon as it's bought: a `roll` in [0, 1) under the chance
+/// the Player's stat entries give (none in Classic).
+pub fn free_spin(player: &[Modifier], roll: f64) -> bool {
+    roll < f64::from(resolve(Stat::BoxFreeSpinChance, 0.0, player))
+}
+
+/// Whether a Prize comes out Upgraded: only a Weapon can, on a `roll` in [0, 1) under the chance
+/// the Player's stat entries give (none in Classic).
+pub fn comes_out_upgraded(prize: Prize, player: &[Modifier], roll: f64) -> bool {
+    matches!(prize, Prize::Weapon(_)) && roll < f64::from(resolve(Stat::BoxUpgradeChance, 0.0, player))
 }
 
 /// How a spin ends.
@@ -65,8 +85,8 @@ pub enum BoxState {
     /// Cycling through the pool. `paid` is refunded on a Teddy; `teddy` is whether this spin can
     /// give one (and counts toward the Teddy table).
     Spinning { elapsed: f32, paid: u64, teddy: bool },
-    /// A Prize waits to be taken.
-    Offering { prize: Prize, left: f32, counts: bool },
+    /// A Prize waits to be taken. An `upgraded` Weapon Prize comes out already Pack-a-Punched.
+    Offering { prize: Prize, left: f32, counts: bool, upgraded: bool },
     /// Waiting to be spun again.
     Rearming { left: f32 },
     /// The Teddy Bear rises and flies off, then the Box shakes.
@@ -374,11 +394,13 @@ fn spawn_boxes(mut commands: Commands, assets: Res<BoxAssets>, mut run: ResMut<B
     spawn_box(&mut commands, &assets, 0, BOX_PRICE, true);
 }
 
-/// A bought Box starts spinning; a bought Prize goes to the Player.
+/// A bought Box starts spinning (refunded at once if the spin is free); a bought Prize goes to
+/// the Player.
 fn buy_boxes(
     mut purchases: MessageReader<Purchased>,
     mut boxes: Query<&mut MysteryBox>,
     player: Single<(&mut Loadout, &Modifiers, &mut Equipment), With<Player>>,
+    mut points: ResMut<Points>,
     mut run: ResMut<BoxRun>,
 ) {
     let (mut loadout, modifiers, mut equipment) = player.into_inner();
@@ -386,17 +408,23 @@ fn buy_boxes(
         let Ok(mut mystery_box) = boxes.get_mut(*entity) else { continue };
         match mystery_box.state {
             BoxState::Idle => {
+                let mut paid = mystery_box.price;
+                if free_spin(&modifiers.0, rand::random()) {
+                    points.refund(paid);
+                    paid = 0;
+                }
                 mystery_box.state = BoxState::Spinning {
                     elapsed: 0.0,
-                    paid: mystery_box.price,
+                    paid,
                     teddy: mystery_box.teddy,
                 };
             }
-            BoxState::Offering { prize, counts, .. } => {
+            BoxState::Offering { prize, counts, upgraded, .. } => {
                 match prize {
                     Prize::Weapon(id) => match loadout.slot_of(id) {
                         Some(slot) => loadout.refill(slot, &modifiers.0),
                         // Into the empty slot, or in place of the Weapon in hand.
+                        None if upgraded => loadout.give_copy(WeaponCopy::new(id).upgrade()),
                         None => loadout.give(id),
                     },
                     Prize::MonkeyBomb => equipment.take_monkey_bombs(),
@@ -416,15 +444,15 @@ fn run_boxes(
     mut commands: Commands,
     time: Res<Time>,
     mut boxes: Query<(Entity, &mut MysteryBox, &mut Transform, &mut Visibility)>,
-    player: Single<(&Loadout, &Equipment), With<Player>>,
+    player: Single<(&Loadout, &Equipment, &Modifiers), With<Player>>,
     pack_a_punch: Query<&PackAPunch>,
     mut points: ResMut<Points>,
     mut run: ResMut<BoxRun>,
     mut teddies: MessageWriter<TeddyBear>,
 ) {
     let dt = time.delta_secs();
-    let (loadout, equipment) = *player;
-    let held: Vec<WeaponId> = (0..2).filter_map(|slot| loadout.slot(slot)).map(|weapon| weapon.id).collect();
+    let (loadout, equipment, modifiers) = *player;
+    let held: Vec<WeaponId> = loadout.weapons().map(|weapon| weapon.id).collect();
     // A Weapon waiting in a Box or inside Pack-a-Punch is in play.
     let mut in_play: Vec<WeaponId> = boxes
         .iter()
@@ -459,6 +487,7 @@ fn run_boxes(
                                 prize,
                                 left: BOX_PICKUP_SECS,
                                 counts: teddy,
+                                upgraded: comes_out_upgraded(prize, &modifiers.0, rng.random()),
                             }
                         }
                         Spin::Teddy => {
@@ -476,10 +505,10 @@ fn run_boxes(
                     }
                 }
             }
-            BoxState::Offering { prize, left, counts } => {
+            BoxState::Offering { prize, left, counts, upgraded } => {
                 let left = left - dt;
                 if left > 0.0 {
-                    BoxState::Offering { prize, left, counts }
+                    BoxState::Offering { prize, left, counts, upgraded }
                 } else {
                     // Lost, with no refund. It still finishes the pull.
                     if counts {
@@ -524,7 +553,9 @@ fn price_boxes(mut commands: Commands, mut boxes: Query<(Entity, &MysteryBox, &T
     for (entity, mystery_box, transform, buyable) in &mut boxes {
         let offer = match mystery_box.state {
             BoxState::Idle => Some(("Press F for Random Weapon".to_string(), Some(mystery_box.price))),
-            BoxState::Offering { prize, .. } => Some((format!("Press F to take {}", prize.name()), None)),
+            BoxState::Offering { prize, upgraded, .. } => {
+                Some((format!("Press F to take {}", prize.shown_name(upgraded)), None))
+            }
             _ => None,
         };
         // The middle of the lid's front edge.
@@ -649,6 +680,39 @@ mod tests {
     use super::*;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
+
+    fn chance(stat: Stat, c: f32) -> [Modifier; 1] {
+        [Modifier {
+            stat,
+            source: crate::modifier::Source("test"),
+            effect: crate::modifier::Effect::Chance(c, 1),
+        }]
+    }
+
+    #[test]
+    fn classic_spins_are_never_free_and_prizes_never_upgraded() {
+        assert!(!free_spin(&[], 0.0));
+        assert!(!comes_out_upgraded(Prize::Weapon(WeaponId::RayGun), &[], 0.0));
+    }
+
+    #[test]
+    fn a_free_spin_entry_frees_spins_by_its_chance() {
+        let entries = chance(Stat::BoxFreeSpinChance, 0.15);
+        assert!(free_spin(&entries, 0.14));
+        assert!(!free_spin(&entries, 0.16));
+    }
+
+    #[test]
+    fn an_upgrade_entry_upgrades_weapons_but_never_the_monkey_bomb() {
+        let entries = chance(Stat::BoxUpgradeChance, 0.2);
+        let ray_gun = Prize::Weapon(WeaponId::RayGun);
+        assert!(comes_out_upgraded(ray_gun, &entries, 0.19));
+        assert!(!comes_out_upgraded(ray_gun, &entries, 0.21));
+        assert!(!comes_out_upgraded(Prize::MonkeyBomb, &entries, 0.0));
+        assert_eq!(ray_gun.shown_name(true), "Porter's X2 Ray Gun");
+        assert_eq!(ray_gun.shown_name(false), "Ray Gun");
+        assert_eq!(Prize::MonkeyBomb.shown_name(true), "Monkey Bomb");
+    }
 
     #[test]
     fn no_teddy_in_the_first_four_pulls_at_a_location() {
