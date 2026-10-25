@@ -26,6 +26,7 @@ mod player;
 mod points;
 mod records;
 mod power;
+mod power_up;
 mod round;
 mod save;
 mod settings;
@@ -96,6 +97,7 @@ fn main() {
             pack_a_punch::PackAPunchPlugin,
             burn::BurnPlugin,
             trap::TrapPlugin,
+            power_up::PowerUpPlugin,
         ))
         .run();
 }

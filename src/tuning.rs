@@ -1307,6 +1307,32 @@ pub const BOX_SHAKE_SECS: f32 = 5.0;
 /// How long after vanishing the Box reappears at its next location.
 pub const BOX_MOVE_SECS: f32 = 12.0;
 
+// Power-ups
+/// A drop is armed once Points Earned passes the threshold: first `START`, then each gap is the
+/// last ×`GROWTH`, counted from the Points Earned when it armed.
+pub const POWER_UP_THRESHOLD_START: f64 = 2000.0;
+pub const POWER_UP_THRESHOLD_GROWTH: f64 = 1.14;
+/// The chance any eligible kill drops one anyway.
+pub const POWER_UP_KILL_CHANCE: f64 = 0.03;
+pub const POWER_UPS_PER_ROUND: u32 = 4;
+/// A Power-up sits solid this long, then blinks for `POWER_UP_BLINK_DROP_SECS` and vanishes.
+pub const POWER_UP_SOLID_SECS: f32 = 15.0;
+pub const POWER_UP_BLINK_DROP_SECS: f32 = 11.5;
+/// How long each blink shows, and hides, the Power-up.
+pub const POWER_UP_BLINK_INTERVAL_SECS: f32 = 0.25;
+/// How close the Player walks to take a Power-up (64 in, roughly), and how high it floats.
+pub const POWER_UP_PICKUP_RADIUS: f32 = 1.6;
+pub const POWER_UP_FLOAT_HEIGHT: f32 = 0.7;
+/// Insta-Kill, Double Points and Fire Sale last this long. Picking one up again restarts it.
+pub const POWER_UP_TIMED_SECS: f32 = 30.0;
+/// Carpenter needs this many fully broken Barriers to come out of the bag.
+pub const CARPENTER_MIN_BROKEN_BARRIERS: usize = 5;
+pub const CARPENTER_POINTS: u64 = 200;
+/// The Nuke kills each Zombie in play after a random delay in this range.
+pub const NUKE_POINTS: u64 = 400;
+pub const NUKE_DELAY_SECS: std::ops::RangeInclusive<f32> = 0.1..=0.7;
+/// A Fire Sale Box's price.
+pub const FIRE_SALE_BOX_PRICE: u64 = 10;
 
 // Settings
 /// Sensitivity runs 1–10; the default plays exactly like `MOUSE_SENSITIVITY` and the rest scale it.

@@ -75,8 +75,8 @@ cues! {
     PlankTear => "plank_tear", Root, Spatial, 0.9;
     PlankRebuild => "plank_rebuild", Root, Flat, 0.6;
 
-    // Announcer. Declared so their lines are rendered and checked; they start playing when
-    // Power-ups, Hellhound Rounds and the Sapper exist.
+    // Announcer. The Power-up lines play on pickup; the rest start playing when Hellhound
+    // Rounds and the Sapper exist.
     AnnouncerMaxAmmo => "announcer_max_ammo", Announcer, Flat, 1.0;
     AnnouncerInstaKill => "announcer_insta_kill", Announcer, Flat, 1.0;
     AnnouncerDoublePoints => "announcer_double_points", Announcer, Flat, 1.0;

@@ -24,18 +24,28 @@ pub fn kill_points(kill: &ZombieKilled) -> u64 {
     }
 }
 
+/// What an award of `amount` really pays: twice as much while Double Points is on.
+pub fn award_amount(amount: u64, double: bool) -> u64 {
+    if double { amount.saturating_mul(2) } else { amount }
+}
+
 #[derive(Resource, Default)]
 pub struct Points {
     /// What the Player can spend.
     pub balance: u64,
     /// Points Earned: everything gained this Run, before spending.
     pub earned: u64,
+    /// Whether Double Points is on, doubling every award. The Power-ups own it.
+    pub double: bool,
 }
 
 impl Points {
-    pub fn award(&mut self, amount: u64) {
+    /// Pays an award, doubled while Double Points is on, and returns what was paid.
+    pub fn award(&mut self, amount: u64) -> u64 {
+        let amount = award_amount(amount, self.double);
         self.balance = self.balance.saturating_add(amount);
         self.earned = self.earned.saturating_add(amount);
+        amount
     }
 
     /// Takes Points for a purchase. The purchase flow checks affordability first.
@@ -63,7 +73,7 @@ impl Plugin for PointsPlugin {
             .add_systems(OnEnter(GameState::Playing), |mut points: ResMut<Points>| {
                 *points = Points {
                     balance: STARTING_POINTS,
-                    earned: 0,
+                    ..default()
                 };
             })
             .add_systems(Update, earn);
@@ -81,8 +91,8 @@ fn earn(
     let earning = last_stand.is_empty();
     let amounts = hits.read().map(|hit| points_for(*hit)).chain(kills.read().map(kill_points));
     for amount in amounts.filter(|&amount| amount > 0 && earning) {
-        points.award(amount);
-        awarded.write(PointsAwarded(amount));
+        let paid = points.award(amount);
+        awarded.write(PointsAwarded(paid));
     }
 }
 
@@ -96,6 +106,7 @@ mod tests {
             headshot: crate::zombie::is_headshot(zone, attack),
             zone,
             attack,
+            at: Vec3::ZERO,
         }
     }
 
@@ -128,9 +139,40 @@ mod tests {
     }
 
     #[test]
+    fn double_points_doubles_every_award() {
+        assert_eq!(award_amount(60, false), 60);
+        assert_eq!(award_amount(60, true), 120);
+        assert_eq!(award_amount(u64::MAX, true), u64::MAX);
+
+        let mut points = Points {
+            double: true,
+            ..Points::default()
+        };
+        assert_eq!(points.award(400), 800);
+        assert_eq!((points.balance, points.earned), (800, 800));
+    }
+
+    #[test]
+    fn nuke_kills_are_unpaid() {
+        assert_eq!(crate::zombie::pay_for(Attack::Nuke), Pay::Unpaid);
+        assert_eq!(kill_points(&kill(Pay::Unpaid, HitZone::Head, Attack::Nuke)), 0);
+    }
+
+    #[test]
+    fn insta_kill_makes_any_damage_lethal_and_kills_still_pay_by_hit_zone() {
+        use crate::zombie::dealt_damage;
+        assert_eq!(dealt_damage(20.0, false), 20.0);
+        assert!(dealt_damage(1.0, true) >= f32::MAX);
+        assert_eq!(dealt_damage(0.0, true), 0.0);
+        // The kill it makes still pays by where it landed.
+        assert_eq!(kill_points(&kill(Pay::Paid, HitZone::Limb, Attack::Bullet)), 50);
+        assert_eq!(kill_points(&kill(Pay::Paid, HitZone::Head, Attack::Bullet)), 100);
+    }
+
+    #[test]
     fn unpaid_kills_pay_nothing() {
         for zone in [HitZone::Limb, HitZone::Torso, HitZone::Neck, HitZone::Head] {
-            for attack in [Attack::Bullet, Attack::Knife, Attack::Trap] {
+            for attack in [Attack::Bullet, Attack::Knife, Attack::Trap, Attack::Nuke] {
                 assert_eq!(kill_points(&kill(Pay::Unpaid, zone, attack)), 0);
             }
         }
