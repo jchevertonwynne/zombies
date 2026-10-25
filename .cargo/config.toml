@@ -13,3 +13,14 @@ target = "x86_64-pc-windows-gnu"
 
 [target.x86_64-pc-windows-gnu]
 linker = "x86_64-w64-mingw32-gcc"
+
+# Cargo sets CARGO_MANIFEST_DIR for `cargo run`, but WSL only passes variables listed in
+# WSLENV on to a Windows .exe. Forwarding it (`/p` translates the path) lets Bevy find
+# `assets/` in the crate root instead of looking beside the .exe.
+[env]
+WSLENV = { value = "CARGO_MANIFEST_DIR/p", force = true }
+
+# gen-sounds writes into `assets/` and calls espeak-ng from WSL, so it runs as a Linux
+# binary. It doesn't depend on Bevy, so no Linux graphics packages are needed.
+[alias]
+gen-sounds = "run -p gen-sounds --target x86_64-unknown-linux-gnu --"

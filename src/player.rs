@@ -8,9 +8,11 @@ use bevy::window::{CursorGrabMode, CursorOptions};
 
 use crate::layers::GameLayer;
 use crate::map::PLAYER_START;
+use crate::modifier::{Modifiers, Stat};
+use crate::settings::Settings;
 use crate::state::{GameState, InRun, Pause};
 use crate::tuning::*;
-use crate::weapon::{Knife, Weapon};
+use crate::weapon::{Knife, Loadout};
 
 #[derive(Component)]
 pub struct Player;
@@ -63,6 +65,8 @@ impl Plugin for PlayerPlugin {
             .add_systems(OnEnter(GameState::Playing), spawn_player)
             .add_systems(OnEnter(Pause::Running), grab_cursor)
             .add_systems(OnExit(Pause::Running), release_cursor)
+            // Settings apply immediately, even from Pause.
+            .add_systems(Update, apply_fov.run_if(resource_changed::<Settings>))
             .add_systems(FixedUpdate, move_player.run_if(in_state(Pause::Running)))
             .add_systems(
                 Update,
@@ -78,7 +82,7 @@ impl Plugin for PlayerPlugin {
     }
 }
 
-fn spawn_player(mut commands: Commands) {
+fn spawn_player(mut commands: Commands, settings: Res<Settings>) {
     let half_height = PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0;
     commands
         .spawn((
@@ -92,7 +96,8 @@ fn spawn_player(mut commands: Commands) {
             },
             Locomotion::default(),
             Visibility::default(),
-            Weapon::pistol(),
+            Loadout::new(STARTING_WEAPON),
+            Modifiers::default(),
             Knife::default(),
             Transform::from_translation(PLAYER_START + Vec3::Y * (half_height + 0.05)),
             RigidBody::Kinematic,
@@ -105,7 +110,7 @@ fn spawn_player(mut commands: Commands) {
             PlayerCamera,
             Camera3d::default(),
             Projection::Perspective(PerspectiveProjection {
-                fov: 75.0_f32.to_radians(),
+                fov: settings.fov_radians(),
                 ..default()
             }),
             DistanceFog {
@@ -130,12 +135,21 @@ fn release_cursor(mut cursor: Single<&mut CursorOptions>) {
     cursor.grab_mode = CursorGrabMode::None;
 }
 
+fn apply_fov(settings: Res<Settings>, mut cameras: Query<&mut Projection, With<PlayerCamera>>) {
+    for mut projection in &mut cameras {
+        if let Projection::Perspective(perspective) = &mut *projection {
+            perspective.fov = settings.fov_radians();
+        }
+    }
+}
+
 fn look(
     mouse: Res<AccumulatedMouseMotion>,
+    settings: Res<Settings>,
     mut player: Single<&mut Transform, With<Player>>,
     mut camera: Single<&mut Transform, (With<PlayerCamera>, Without<Player>)>,
 ) {
-    let delta = mouse.delta * MOUSE_SENSITIVITY;
+    let delta = settings.look_delta(mouse.delta);
     player.rotate_y(-delta.x);
 
     const PITCH_LIMIT: f32 = FRAC_PI_2 - 0.01;
@@ -145,12 +159,12 @@ fn look(
 }
 
 fn move_player(
-    player: Single<(Entity, &mut Transform, &mut Locomotion, &Collider), With<Player>>,
+    player: Single<(Entity, &mut Transform, &mut Locomotion, &Collider, &Loadout, &Modifiers), With<Player>>,
     input: Res<ButtonInput<KeyCode>>,
     move_and_slide: MoveAndSlide,
     time: Res<Time>,
 ) {
-    let (entity, mut transform, mut locomotion, collider) = player.into_inner();
+    let (entity, mut transform, mut locomotion, collider, loadout, modifiers) = player.into_inner();
     let dt = time.delta_secs();
 
     let forward = input.pressed(KeyCode::KeyW) as i8 - input.pressed(KeyCode::KeyS) as i8;
@@ -173,7 +187,8 @@ fn move_player(
             locomotion.winded = false;
         }
     }
-    let speed = if locomotion.sprinting { PLAYER_SPRINT_SPEED } else { PLAYER_WALK_SPEED };
+    let base = if locomotion.sprinting { PLAYER_SPRINT_SPEED } else { PLAYER_WALK_SPEED };
+    let speed = loadout.resolve(Stat::MoveSpeed, base, &modifiers.0);
 
     let wish_world = transform.rotation * Vec3::new(wish.x, 0.0, -wish.y) * speed;
     let horizontal = Vec3::new(locomotion.velocity.x, 0.0, locomotion.velocity.z);

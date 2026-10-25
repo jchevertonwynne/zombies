@@ -4,11 +4,11 @@ use crate::buy::{Buyable, CantAfford, Focus, can_afford};
 use crate::player::{Health, Player};
 use crate::points::{Points, PointsAwarded};
 use crate::round::{Round, RoundPhase};
-use crate::state::{GameState, InRun, Pause};
+use crate::state::{GameState, InRun};
 use crate::tuning::CANT_AFFORD_FLASH_SECS;
-use crate::weapon::Weapon;
+use crate::weapon::Loadout;
 
-const ROUND_RED: Color = Color::srgb(0.7, 0.05, 0.02);
+pub const ROUND_RED: Color = Color::srgb(0.7, 0.05, 0.02);
 const POPUP_SECS: f32 = 0.8;
 const POINTS_GOLD: Color = Color::srgb(1.0, 0.9, 0.5);
 const CANT_AFFORD_RED: Color = Color::srgb(1.0, 0.15, 0.1);
@@ -50,7 +50,6 @@ impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PointsFlash>()
             .add_systems(OnEnter(GameState::Playing), spawn_hud)
-            .add_systems(OnEnter(Pause::Paused), spawn_pause_screen)
             .add_systems(OnEnter(GameState::GameOver), spawn_game_over_screen)
             .add_systems(
                 Update,
@@ -84,7 +83,7 @@ pub fn with_commas(n: u64) -> String {
     out
 }
 
-fn text(value: impl Into<String>, size: f32, color: Color) -> impl Bundle {
+pub fn text(value: impl Into<String>, size: f32, color: Color) -> impl Bundle {
     (
         Text::new(value),
         TextFont {
@@ -95,7 +94,7 @@ fn text(value: impl Into<String>, size: f32, color: Color) -> impl Bundle {
     )
 }
 
-fn full_screen() -> Node {
+pub fn full_screen() -> Node {
     Node {
         position_type: PositionType::Absolute,
         width: percent(100.0),
@@ -254,12 +253,13 @@ fn prompt_text(
     color.0 = if can_afford(points.balance, buyable.price) { Color::WHITE } else { CANT_AFFORD_RED };
 }
 
-fn ammo_text(weapon: Single<&Weapon, With<Player>>, mut text: Single<&mut Text, With<AmmoText>>) {
-    let reserve = weapon.reserve.map_or("--".to_string(), |r| r.to_string());
-    text.0 = if weapon.reloading.is_some() {
-        format!("RELOADING  {reserve}")
+fn ammo_text(loadout: Single<&Loadout, With<Player>>, mut text: Single<&mut Text, With<AmmoText>>) {
+    let weapon = loadout.held();
+    let (name, reserve) = (weapon.stats().name, weapon.reserve);
+    text.0 = if loadout.reload.is_some() {
+        format!("{name}  RELOADING  {reserve}")
     } else {
-        format!("{} / {reserve}", weapon.magazine)
+        format!("{name}  {} / {reserve}", weapon.magazine)
     };
 }
 
@@ -291,7 +291,7 @@ fn animate_popups(
     }
 }
 
-fn overlay(commands: &mut Commands, lines: &[(&str, f32, Color)]) -> Entity {
+pub fn overlay(commands: &mut Commands, lines: &[(&str, f32, Color)]) -> Entity {
     commands
         .spawn((
             Node {
@@ -310,17 +310,6 @@ fn overlay(commands: &mut Commands, lines: &[(&str, f32, Color)]) -> Entity {
             }
         })
         .id()
-}
-
-fn spawn_pause_screen(mut commands: Commands) {
-    let screen = overlay(
-        &mut commands,
-        &[
-            ("PAUSED", 64.0, Color::WHITE),
-            ("Esc to resume", 24.0, Color::srgb(0.7, 0.7, 0.7)),
-        ],
-    );
-    commands.entity(screen).insert(DespawnOnExit(Pause::Paused));
 }
 
 fn spawn_game_over_screen(mut commands: Commands, round: Res<Round>) {

@@ -1,6 +1,7 @@
 // Bevy systems routinely take many params and complex query types.
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
+mod arsenal;
 mod audio;
 mod buy;
 mod debug;
@@ -8,9 +9,14 @@ mod door;
 mod hud;
 mod layers;
 mod map;
+mod menu;
+mod modifier;
+mod mode;
 mod player;
 mod points;
 mod round;
+mod save;
+mod settings;
 mod state;
 mod stats;
 mod tuning;
@@ -35,6 +41,11 @@ fn main() {
         ))
         .add_plugins((
             state::StatePlugin,
+            settings::SettingsPlugin,
+            menu::MenuPlugin,
+        ))
+        // The Map and everything played on it.
+        .add_plugins((
             map::MapPlugin,
             zone::ZonePlugin,
             door::DoorPlugin,
