@@ -13,6 +13,7 @@ mod map;
 mod menu;
 mod modifier;
 mod mode;
+mod mystery_box;
 mod player;
 mod points;
 mod records;
@@ -56,11 +57,15 @@ fn main() {
             player::PlayerPlugin,
             weapon::WeaponPlugin,
             wall_weapon::WallWeaponPlugin,
+            mystery_box::MysteryBoxPlugin,
             zombie::ZombiePlugin,
             round::RoundPlugin,
             points::PointsPlugin,
             stats::StatsPlugin,
             records::RecordsPlugin,
+        ))
+        // How the Run looks and sounds, and the debug keys.
+        .add_plugins((
             hud::HudPlugin,
             audio::AudioPlugin,
             debug::DebugPlugin,

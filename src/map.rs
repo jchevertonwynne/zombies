@@ -59,6 +59,19 @@ const WALL_WEAPONS: [(WeaponId, ZoneId, Vec2, Vec2); 5] = [
     (WeaponId::Ak74u, ZoneId::Yard, Vec2::new(11.0, -13.8), Vec2::Y),
 ];
 
+/// The Box Locations, in order: the Zone, where the Box's centre sits on the floor (x, z), and
+/// which way its front faces (where the Player stands). Every Run starts the Box at the first.
+pub const BOX_LOCATIONS: [(ZoneId, Vec2, Vec2); 4] = [
+    // Against the back wall, behind the Player at the start.
+    (ZoneId::StartRoom, Vec2::new(0.0, 25.35), Vec2::NEG_Y),
+    // On the wall to the Yard, south of the Trench Gun.
+    (ZoneId::EastHall, Vec2::new(14.65, -6.0), Vec2::X),
+    // On the north wall, between the West Hall and Yard Doors.
+    (ZoneId::DiningRoom, Vec2::new(-13.5, -14.65), Vec2::NEG_Y),
+    // Against the East Hall wall.
+    (ZoneId::Yard, Vec2::new(13.35, -2.0), Vec2::NEG_X),
+];
+
 /// A fixed place in the Map where Zombies enter play, in the Zone it serves.
 #[derive(Component)]
 pub struct SpawnPoint(pub ZoneId);
@@ -379,5 +392,15 @@ mod tests {
             assert!(inside, "{weapon:?} is outside {}", zone.name());
             assert!(wall_price(weapon).is_some(), "{weapon:?} is not a Wall Weapon");
         }
+    }
+
+    #[test]
+    fn every_box_location_sits_in_its_zone() {
+        for (zone, at, _) in BOX_LOCATIONS {
+            let (lo, hi) = zone.volume();
+            let inside = (lo.x..=hi.x).contains(&at.x) && (lo.z..=hi.z).contains(&at.y);
+            assert!(inside, "a Box Location is outside {}", zone.name());
+        }
+        assert_eq!(BOX_LOCATIONS[0].0, ZoneId::StartRoom, "every Run starts the Box in the Start Room");
     }
 }
