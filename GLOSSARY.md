@@ -131,3 +131,11 @@ _Avoid_: perk-a-cola, buff
 
 **Trap**: A Buyable hazard across a doorway that, once switched on, kills every Zombie that walks into it for a short time and can Down the Player too. It then needs a cooldown before it can be bought again.
 _Avoid_: electric fence, zapper
+
+**Classic**: The faithful mode, played as the original games played it.
+
+**Gauntlet**: The mode that plays like Classic but offers a Boon after every Round.
+_Avoid_: roguelite mode
+
+**Boon**: A lasting upgrade the Player picks from an offer after completing a Round in Gauntlet. Boons are picked, never bought, and unlike Perks they survive a Down.
+_Avoid_: skill, buff, upgrade
