@@ -42,6 +42,8 @@ fn recipe(cue: Cue) -> Recipe {
         Cue::Kill => Recipe::Synth(thud(0.18, 90.0)),
         Cue::Buy => Recipe::Synth(buy()),
         Cue::CantAfford => Recipe::Synth(buzzer()),
+        Cue::PlankTear => Recipe::Synth(wood_crack()),
+        Cue::PlankRebuild => Recipe::Synth(plank_rebuild()),
         Cue::AnnouncerMaxAmmo => Recipe::Speak("Max Ammo!", None),
         Cue::AnnouncerInstaKill => Recipe::Speak("Insta-Kill!", None),
         Cue::AnnouncerDoublePoints => Recipe::Speak("Double Points!", None),
@@ -275,6 +277,35 @@ fn buzzer() -> Vec<f32> {
             let square = if (TAU * 110.0 * t).sin() >= 0.0 { 1.0 } else { -1.0 };
             let envelope = (t * 200.0).min(1.0) * (1.0 - t / 0.35);
             square * envelope * 0.35
+        })
+        .collect()
+}
+
+/// A sharp splintering crack with a hollow knock under it, for a Plank torn off.
+fn wood_crack() -> Vec<f32> {
+    let mut seed = 0x5eed_c0de;
+    samples(0.45)
+        .map(|t| {
+            let splinter = noise(&mut seed) * (-t * 18.0).exp() * (1.0 + (TAU * 37.0 * t).sin());
+            let knock = (TAU * 180.0 * t).sin() * (-t * 25.0).exp();
+            (splinter * 0.5 + knock * 0.5).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
+/// A wooden knock, then a small ding, for a Plank put back.
+fn plank_rebuild() -> Vec<f32> {
+    let mut seed = 0x0dd_ba11;
+    samples(0.5)
+        .map(|t| {
+            let knock = ((TAU * 150.0 * t).sin() * 0.7 + noise(&mut seed) * 0.3) * (-t * 30.0).exp();
+            let ding = if t >= 0.15 {
+                let local = t - 0.15;
+                (TAU * 1760.0 * local).sin() * (local * 300.0).min(1.0) * (-local * 10.0).exp() * 0.25
+            } else {
+                0.0
+            };
+            (knock * 0.6 + ding).clamp(-1.0, 1.0)
         })
         .collect()
 }

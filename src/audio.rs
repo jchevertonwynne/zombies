@@ -8,6 +8,7 @@ use bevy::asset::io::file::FileAssetReader;
 use bevy::audio::Volume;
 use bevy::prelude::*;
 
+use crate::barrier::{PlankRebuilt, PlankTorn};
 use crate::buy::{BuyRefused, CantAfford, Purchased};
 use crate::player::PlayerCamera;
 use crate::round::RoundStarted;
@@ -122,6 +123,8 @@ fn play_sounds(
     mut purchases: MessageReader<Purchased>,
     mut cant_afford: MessageReader<CantAfford>,
     mut refusals: MessageReader<BuyRefused>,
+    mut torn: MessageReader<PlankTorn>,
+    mut rebuilt: MessageReader<PlankRebuilt>,
 ) {
     for _ in shots.read() {
         sounds.play(&mut commands, Cue::GunshotPistol, None);
@@ -137,6 +140,12 @@ fn play_sounds(
     }
     for _ in purchases.read() {
         sounds.play(&mut commands, Cue::Buy, None);
+    }
+    for plank in torn.read() {
+        sounds.play(&mut commands, Cue::PlankTear, Some(plank.at));
+    }
+    for _ in rebuilt.read() {
+        sounds.play(&mut commands, Cue::PlankRebuild, None);
     }
     // Not affording a buy and a refused buy share the buzzer.
     for _ in 0..cant_afford.read().count() + refusals.read().count() {

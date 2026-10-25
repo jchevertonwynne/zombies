@@ -1099,6 +1099,29 @@ pub const ZOMBIE_CLEANUP_DIST: f32 = 40.0;
 pub const ZOMBIE_CLEANUP_SECS: f32 = 10.0;
 /// Moving this far counts as progress for the stuck rule.
 pub const ZOMBIE_PROGRESS_DIST: f32 = 1.0;
+/// Seconds a Zombie takes to climb in through a Barrier with no Planks left. It can be shot
+/// meanwhile, and a vault that has started always completes.
+pub const ZOMBIE_VAULT_SECS: f32 = 1.0;
+
+// Barriers
+/// Planks on every Barrier. They never repair themselves.
+pub const BARRIER_PLANKS: u8 = 6;
+/// Places outside each window a Zombie can tear at it from; extra Zombies wait outside.
+pub const BARRIER_ATTACK_SPOTS: usize = 3;
+/// Each attack spot tears one Plank this often, independently of the others.
+pub const ZOMBIE_PLANK_TEAR_SECS: f32 = 1.5;
+/// A reach-through swipe hits for `ZOMBIE_SWIPE_DAMAGE` with this chance per swing, planked or not.
+pub const BARRIER_SWIPE_CHANCE: f64 = 0.5;
+/// A Zombie at a window can swipe the Player only within this distance of the Zombie (90 in)…
+pub const BARRIER_SWIPE_PLAYER_DIST: f32 = 2.3;
+/// …and this distance of the Barrier (51 in).
+pub const BARRIER_SWIPE_WINDOW_DIST: f32 = 1.3;
+/// Holding Use puts one Plank back per `BARRIER_REBUILD_SECS`, paying `BARRIER_REBUILD_POINTS`.
+pub const BARRIER_REBUILD_SECS: f32 = 1.0;
+pub const BARRIER_REBUILD_POINTS: u64 = 10;
+/// The Round cap on rebuild Points: `min(BARRIER_REBUILD_CAP_PER_ROUND × round, BARRIER_REBUILD_CAP_MAX)`.
+pub const BARRIER_REBUILD_CAP_PER_ROUND: u64 = 50;
+pub const BARRIER_REBUILD_CAP_MAX: u64 = 500;
 
 // Rounds
 pub const ZOMBIE_HEALTH_START: u64 = 150;

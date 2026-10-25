@@ -3,6 +3,7 @@
 use bevy::prelude::*;
 use pathfinding::prelude::astar;
 
+use crate::barrier::Barriers;
 use crate::debug::DebugView;
 use crate::door::Door;
 use crate::map::BarrierId;
@@ -31,18 +32,14 @@ impl Gate {
 }
 
 /// Whether a Zombie can walk an edge with this gate right now. `open_doors` lists the joins of
-/// the bought Doors; `barrier_open` says whether a Barrier has lost all its Planks.
+/// the bought Doors; `barrier_open` says whether a Barrier has lost all its Planks (see
+/// `Barriers::is_open`).
 pub fn passable(gate: Gate, open_doors: &[(ZoneId, ZoneId)], barrier_open: impl Fn(BarrierId) -> bool) -> bool {
     match gate {
         Gate::Open | Gate::OneWay => true,
         Gate::Door(a, b) => open_doors.iter().any(|&join| join == (a, b) || join == (b, a)),
         Gate::Barrier(barrier) => barrier_open(barrier),
     }
-}
-
-/// Until the Barriers slice adds Planks, every window stands open.
-pub fn windows_open(_: BarrierId) -> bool {
-    true
 }
 
 /// Seconds until a Zombie this far from the Player plans its route again.
@@ -345,12 +342,13 @@ impl Plugin for NavPlugin {
     }
 }
 
-/// F1 view: open edges grey, shut Doors red, open Doors green, Barriers yellow, one-way edges
-/// as blue arrows; each Zombie's route in orange.
+/// F1 view: open edges grey, shut Doors red, open Doors green, planked Barriers yellow, open
+/// Barriers as green arrows, one-way edges as blue arrows; each Zombie's route in orange.
 fn draw_graph(
     mut gizmos: Gizmos<NavGizmos>,
     graph: Res<NavGraph>,
     doors: Query<&Door>,
+    barriers: Res<Barriers>,
     routes: Query<(&Transform, &Route)>,
 ) {
     let open_doors: Vec<_> = doors.iter().filter(|door| door.open).filter_map(|door| door.joins).collect();
@@ -362,7 +360,9 @@ fn draw_graph(
         let (a, b) = (graph.nodes[edge.from].at + lift, graph.nodes[edge.to].at + lift);
         let colour = match edge.gate {
             Gate::Open => Color::srgb(0.7, 0.7, 0.7),
-            Gate::Door(..) if passable(edge.gate, &open_doors, windows_open) => Color::srgb(0.2, 1.0, 0.3),
+            Gate::Door(..) | Gate::Barrier(_) if passable(edge.gate, &open_doors, |b| barriers.is_open(b)) => {
+                Color::srgb(0.2, 1.0, 0.3)
+            }
             Gate::Door(..) => Color::srgb(1.0, 0.2, 0.2),
             Gate::Barrier(_) => Color::srgb(1.0, 0.9, 0.2),
             Gate::OneWay => Color::srgb(0.3, 0.6, 1.0),
@@ -388,6 +388,11 @@ mod tests {
     use super::*;
     use crate::map::{WINDOWS, window_spawn};
     use ZoneId::*;
+
+    /// Every window stripped of its Planks.
+    fn windows_open(_: BarrierId) -> bool {
+        true
+    }
 
     fn node(name: &str) -> usize {
         NODES.iter().position(|(n, ..)| *n == name).unwrap()
@@ -427,7 +432,7 @@ mod tests {
     #[test]
     fn a_barrier_edge_follows_its_barrier() {
         let gate = Gate::Barrier(BarrierId(3));
-        assert!(passable(gate, &[], windows_open), "every window is open until Barriers arrive");
+        assert!(passable(gate, &[], windows_open));
         assert!(!passable(gate, &[], |b| b != BarrierId(3)));
         assert!(passable(gate, &[], |b| b == BarrierId(3)));
     }

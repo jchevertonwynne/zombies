@@ -38,6 +38,11 @@ pub struct CantAfford;
 #[derive(Component)]
 pub struct Refused;
 
+/// A Buyable used by holding the Use key, like a Barrier's Planks. Pressing Use on it isn't a
+/// purchase, so the purchase flow leaves it alone; its owner reads `Focus` and the held key.
+#[derive(Component)]
+pub struct Held;
+
 /// The Player tried to buy something its owner refuses.
 #[derive(Message)]
 pub struct BuyRefused;
@@ -169,7 +174,7 @@ fn focus(
 pub fn buy(
     input: Res<ButtonInput<KeyCode>>,
     focus: Res<Focus>,
-    buyables: Query<(&Buyable, Has<Refused>)>,
+    buyables: Query<(&Buyable, Has<Refused>), Without<Held>>,
     down: Single<Has<LastStand>, With<Player>>,
     pause: Res<State<Pause>>,
     mut points: ResMut<Points>,
