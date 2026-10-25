@@ -35,6 +35,14 @@ _Avoid_: wall buy, chalk gun
 
 **Box Weapon**: A Weapon that can only be got from the Mystery Box.
 
+**Mystery Box**: A Buyable that sells a random Box Weapon for a fixed price. It sits at one Box Location at a time and moves when it gives a Teddy Bear.
+_Avoid_: chest, magic box, random box
+
+**Box Location**: One of the fixed places on a Map where the Mystery Box can sit. Every Run starts it at the same one.
+
+**Teddy Bear**: The spin result that gives no Weapon, refunds the price and sends the Mystery Box to another Box Location.
+_Avoid_: joker, bear
+
 **Equipment**: Things the Player carries and uses besides their two Weapons and the Knife: Lethals, Tacticals and Claymores. Equipment never counts toward the Weapon limit.
 
 **Lethal**: Equipment thrown to do damage, such as frag grenades.
