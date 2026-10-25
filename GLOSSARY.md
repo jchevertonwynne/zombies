@@ -44,7 +44,7 @@ _Avoid_: grenade (when meaning the slot)
 
 **Points**: Currency the Player earns by damaging and killing Zombies and spends on Doors and other buys. Not the same as score.
 
-**Buyable**: Anything in the Map the Player spends Points on with the Use key: a Door, Wall Weapon, Mystery Box, Perk Machine or Pack-a-Punch. The Power Switch is used but not bought, so it is not a Buyable.
+**Buyable**: Anything in the Map the Player spends Points on with the Use key: a Door, Wall Weapon, Mystery Box, Perk Machine, Pack-a-Punch or Trap. The Power Switch is used but not bought, so it is not a Buyable.
 _Avoid_: purchasable, trigger
 
 **Use key**: The single key the Player presses to buy a Buyable or flip the Power Switch, or holds to put Planks back on a Barrier.
@@ -125,6 +125,9 @@ _Avoid_: perk-a-cola, buff
 
 **Quick Revive**: A Perk that, when playing solo, lets the Player get back up from one Down instead of reaching Game Over.
 
-**Power**: A state of the whole Map that starts off and, once turned on, stays on for the rest of the Run. Most Perk Machines and every Power Door wait for it.
+**Power**: A state of the whole Map that starts off and, once turned on, stays on for the rest of the Run. Most Perk Machines, every Power Door and every Trap wait for it.
 
 **Power Switch**: The lever that turns Power on. It is free to use.
+
+**Trap**: A Buyable hazard across a doorway that, once switched on, kills every Zombie that walks into it for a short time and can Down the Player too. It then needs a cooldown before it can be bought again.
+_Avoid_: electric fence, zapper
