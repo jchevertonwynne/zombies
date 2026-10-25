@@ -47,6 +47,19 @@ pub enum Attack {
     Burn,
     /// An electric Trap's shock. The Map's kill, not the Player's.
     Trap,
+    /// An Ammo Mod's own damage, Paid or Unpaid by the Ammo Mod. It never rolls Ammo Mods.
+    AmmoMod(Pay),
+}
+
+impl Attack {
+    /// Whether a kill by this attack pays kill Points.
+    pub fn pay(self) -> Pay {
+        match self {
+            Attack::AmmoMod(pay) => pay,
+            Attack::Bullet | Attack::Knife | Attack::Burn => Pay::Paid,
+            Attack::Trap => Pay::Unpaid,
+        }
+    }
 }
 
 /// Whether a hit counts as a Headshot: a bullet to the head. A Knife kill pays as a Knife kill wherever it lands.
@@ -58,16 +71,7 @@ pub fn is_headshot(zone: HitZone, attack: Attack) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pay {
     Paid,
-    // The Teleporter, the Nuke and the other Unpaid sources arrive in later slices.
     Unpaid,
-}
-
-/// Whether a kill by this attack pays: the Player's own attacks do, a Trap's never does.
-pub fn pay_for(attack: Attack) -> Pay {
-    match attack {
-        Attack::Bullet | Attack::Knife | Attack::Burn => Pay::Paid,
-        Attack::Trap => Pay::Unpaid,
-    }
 }
 
 /// Request to damage a Zombie, written by the Player's attacks.
@@ -151,6 +155,11 @@ impl Zombie {
     /// How fast it moves, by its Speed Tier.
     pub fn speed(&self) -> f32 {
         self.tier.speed()
+    }
+
+    /// Health left; at or below 0 once killed.
+    pub fn health(&self) -> f32 {
+        self.health
     }
 
     /// Switches to Sprinter, as the last Zombie of an early Round does.
@@ -669,7 +678,7 @@ fn tumble(
     }
 }
 
-fn apply_damage(
+pub fn apply_damage(
     mut commands: Commands,
     mut requests: MessageReader<DamageZombie>,
     mut zombies: Query<(&mut Zombie, &Children), Without<Dying>>,
@@ -695,7 +704,7 @@ fn apply_damage(
         }
 
         kills.write(ZombieKilled {
-            pay: pay_for(request.attack),
+            pay: request.attack.pay(),
             headshot: is_headshot(request.zone, request.attack),
             zone: request.zone,
             attack: request.attack,
@@ -797,10 +806,10 @@ mod tests {
 
     #[test]
     fn trap_kills_are_unpaid_and_never_headshots() {
-        assert_eq!(pay_for(Attack::Trap), Pay::Unpaid);
+        assert_eq!(Attack::Trap.pay(), Pay::Unpaid);
         assert!(!is_headshot(HitZone::Head, Attack::Trap));
         for attack in [Attack::Bullet, Attack::Knife, Attack::Burn] {
-            assert_eq!(pay_for(attack), Pay::Paid);
+            assert_eq!(attack.pay(), Pay::Paid);
         }
     }
 

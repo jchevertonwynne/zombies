@@ -4,6 +4,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+use crate::ammo_mod::AmmoMods;
 use crate::barrier::Entering;
 use crate::buy::{Buyable, Purchased, Refused};
 use crate::explosive::{Explosion, in_sight, world_filter};
@@ -471,6 +472,7 @@ fn throw_frags(
                 at: camera.translation(),
                 splash: FRAG_SPLASH,
                 hurts_player: true,
+                ammo_mods: AmmoMods::NONE,
             });
         }
     }
@@ -534,6 +536,7 @@ fn burn_frags(
                 at: transform.translation + Vec3::Y * 0.1,
                 splash: FRAG_SPLASH,
                 hurts_player: true,
+                ammo_mods: AmmoMods::NONE,
             });
             commands.entity(entity).despawn();
         }
@@ -567,6 +570,7 @@ fn land_monkey_bombs(
                     at: transform.translation + Vec3::Y * 0.1,
                     splash: MONKEY_BOMB_SPLASH,
                     hurts_player: true,
+                    ammo_mods: AmmoMods::NONE,
                 });
                 commands.entity(entity).despawn();
             }
@@ -649,6 +653,7 @@ fn trigger_claymores(
                     at: at + Vec3::Y * 0.3,
                     splash: CLAYMORE_SPLASH,
                     hurts_player: false,
+                    ammo_mods: AmmoMods::NONE,
                 });
                 commands.entity(entity).despawn();
             }

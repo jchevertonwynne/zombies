@@ -12,7 +12,7 @@ pub fn points_for(_hit: ZombieHit) -> u64 {
 }
 
 /// Kill Points for a kill: by hit zone, a flat amount for the Knife, nothing if Unpaid (a Trap's,
-/// say). A Burn kill pays by the zone it's dealt to, the torso.
+/// say). A Burn kill pays by the zone it's dealt to, the torso, and so does a Paid Ammo Mod kill.
 pub fn kill_points(kill: &ZombieKilled) -> u64 {
     match (kill.pay, kill.attack, kill.zone) {
         (Pay::Unpaid, _, _) => 0,

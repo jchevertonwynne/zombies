@@ -19,6 +19,8 @@ pub enum Stat {
     MoveSpeed,
     /// The Player's maximum Health.
     MaxHealth,
+    /// Seconds an Ammo Mod waits after a trigger.
+    AmmoModCooldown,
 }
 
 /// Where an entry comes from. Each Perk, Pack-a-Punch, Attachment and so on is its own source:

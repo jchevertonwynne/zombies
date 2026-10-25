@@ -5,6 +5,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+use crate::ammo_mod::AmmoMods;
 use crate::arsenal::{Splash, WeaponClass, WeaponId, WeaponStats};
 use crate::equipment::Pull;
 use crate::explosive::{Explosion, in_sight, world_filter};
@@ -261,6 +262,7 @@ fn burn_bolts(
                 at: transform.translation,
                 splash: bolt.splash,
                 hurts_player: true,
+                ammo_mods: AmmoMods::NONE,
             });
             commands.entity(entity).despawn();
             continue;

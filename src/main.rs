@@ -1,6 +1,7 @@
 // Bevy systems routinely take many params and complex query types.
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
+mod ammo_mod;
 mod arsenal;
 mod audio;
 mod barrier;
@@ -96,6 +97,7 @@ fn main() {
             pack_a_punch::PackAPunchPlugin,
             burn::BurnPlugin,
             trap::TrapPlugin,
+            ammo_mod::AmmoModPlugin,
         ))
         .run();
 }

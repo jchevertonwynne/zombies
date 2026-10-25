@@ -1222,6 +1222,65 @@ pub const PAP_PICKUP_SECS: f32 = 15.0;
 /// Seconds for the glint band to sweep once along an Upgraded Weapon.
 pub const GLINT_SWEEP_SECS: f32 = 1.2;
 
+// Repack
+/// A tap Repack: a random Ammo Mod the Upgraded Weapon lacks.
+pub const REPACK_AMMO_MOD_PRICE: u64 = 2500;
+/// Each earlier Repack of the same copy adds this to the price.
+pub const REPACK_PRICE_STEP: u64 = 1000;
+/// Ammo Mods one Weapon can hold.
+pub const MAX_AMMO_MODS: usize = 2;
+
+// Ammo Mods: chance per damage event, and the cooldown a trigger starts.
+pub const BLAST_FURNACE_CHANCE: f32 = 0.15;
+pub const BLAST_FURNACE_COOLDOWN_SECS: f32 = 15.0;
+pub const DEAD_WIRE_CHANCE: f32 = 0.20;
+pub const DEAD_WIRE_COOLDOWN_SECS: f32 = 5.0;
+pub const FIREWORKS_CHANCE: f32 = 0.10;
+pub const FIREWORKS_COOLDOWN_SECS: f32 = 20.0;
+pub const THUNDER_WALL_CHANCE: f32 = 0.25;
+pub const THUNDER_WALL_COOLDOWN_SECS: f32 = 10.0;
+pub const TURNED_CHANCE: f32 = 0.15;
+pub const TURNED_COOLDOWN_SECS: f32 = 15.0;
+/// Blast Furnace sets alight everything within this of the shot Zombie (120 in). Each burns for
+/// `1 / BLAST_FURNACE_BURN_TICKS` of its health a tick and dies on the last.
+pub const BLAST_FURNACE_RADIUS: f32 = 3.05;
+pub const BLAST_FURNACE_BURN_TICKS: u32 = 6;
+pub const BLAST_FURNACE_TICK_SECS: f32 = 0.5;
+/// Dead Wire's jump radii by depth (100, 80, 60, 40, 20 in); the chain stops after the last.
+pub const DEAD_WIRE_JUMP_RADII: [f32; 5] = [2.54, 2.03, 1.52, 1.02, 0.51];
+/// Zombies one chain can hit, the shot one included.
+pub const DEAD_WIRE_MAX_ZOMBIES: usize = 9;
+/// Each Zombie hit takes its health plus this.
+pub const DEAD_WIRE_EXTRA_DAMAGE: f32 = 666.0;
+/// A Zombie deeper than the first jump is hit after a random delay in this range, times its depth.
+pub const DEAD_WIRE_DELAY_MIN_SECS: f32 = 0.2;
+pub const DEAD_WIRE_DELAY_MAX_SECS: f32 = 0.6;
+/// The Fireworks phantom gun rises this far (56 in) over the rise, then fires its shots at
+/// random Zombies within range, then sinks back over the rise.
+pub const FIREWORKS_RISE: f32 = 1.42;
+pub const FIREWORKS_RISE_SECS: f32 = 0.5;
+pub const FIREWORKS_SHOTS: u32 = 10;
+pub const FIREWORKS_SHOT_SECS: f32 = 0.1;
+pub const FIREWORKS_RANGE: f32 = 15.2;
+/// Candidates a shot checks for line of sight; past these it fires at the next one regardless.
+pub const FIREWORKS_SIGHT_CHECKS: usize = 3;
+/// Thunder Wall kills and flings up to this many, the shot Zombie included, within its radius
+/// (180 in) and in front of the Player.
+pub const THUNDER_WALL_RADIUS: f32 = 4.6;
+pub const THUNDER_WALL_MAX_ZOMBIES: usize = 6;
+/// How hard a Thunder Wall flings a body away, and its upward lift (approx).
+pub const THUNDER_WALL_FLING_SPEED: f32 = 10.0;
+pub const THUNDER_WALL_FLING_LIFT: f32 = 5.0;
+/// The turn kills up to this many other Zombies within its radius (90 in), flinging them.
+pub const TURNED_BLAST_RADIUS: f32 = 2.3;
+pub const TURNED_BLAST_MAX_ZOMBIES: usize = 3;
+pub const TURNED_FLING_SPEED: f32 = 6.0;
+pub const TURNED_FLING_LIFT: f32 = 2.0;
+/// A Turned ally dies after this long or this many kills, its last swing finishing first.
+pub const TURNED_LIFETIME_SECS: f32 = 20.0;
+pub const TURNED_MAX_KILLS: u32 = 12;
+pub const TURNED_LAST_SWING_SECS: f32 = 0.5;
+
 // Power and Perks
 /// How long the Power Switch's lever takes to throw.
 pub const POWER_SWITCH_FLIP_SECS: f32 = 0.3;
