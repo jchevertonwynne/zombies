@@ -678,6 +678,67 @@ pub const KNIFE_DAMAGE: f32 = 150.0;
 pub const KNIFE_RANGE: f32 = 1.6;
 pub const KNIFE_RADIUS: f32 = 0.3;
 pub const KNIFE_COOLDOWN_SECS: f32 = 0.6;
+/// The Bowie Knife's melee damage, in place of the Knife's.
+pub const BOWIE_KNIFE_DAMAGE: f32 = 1000.0;
+
+// Equipment
+/// Frags the Player starts a Run with.
+pub const FRAG_START: u32 = 2;
+/// Frags given at the start of each Round after the first, up to the most carried.
+pub const FRAG_PER_ROUND: u32 = 2;
+pub const FRAG_MAX: u32 = 4;
+/// Seconds from pulling the pin to the blast; cooking spends it in the hand.
+pub const FRAG_FUSE_SECS: f32 = 3.5;
+pub const FRAG_SPLASH: Splash = Splash {
+    max: 300.0, // approx
+    min: 75.0,  // approx
+    radius: inches(256.0), // approx
+};
+/// Claymores a bought Claymore wall gives, and refills to every Round.
+pub const CLAYMORE_PER_ROUND: u32 = 2;
+/// A Zombie this close (96 in), inside the front cone and in sight, sets a Claymore off.
+pub const CLAYMORE_TRIGGER_RANGE: f32 = 2.4;
+/// The whole width of a Claymore's front cone, in degrees.
+pub const CLAYMORE_TRIGGER_CONE_DEGREES: f32 = 70.0;
+/// Seconds from a Claymore being set off to its blast.
+pub const CLAYMORE_DELAY_SECS: f32 = 0.4;
+pub const CLAYMORE_SPLASH: Splash = Splash {
+    max: 200.0,
+    min: 50.0,
+    radius: 5.0,
+};
+/// Taking the Monkey Bomb from the Mystery Box fills the Tactical slot to this. It never refills by Round.
+pub const MONKEY_BOMB_CARRY: u32 = 3;
+/// Seconds from a Monkey Bomb landing to its blast.
+pub const MONKEY_BOMB_FUSE_SECS: f32 = 8.0;
+/// The most Zombies one Monkey Bomb pulls, and how far away they can be.
+pub const MONKEY_BOMB_LURE_MAX: usize = 96;
+pub const MONKEY_BOMB_LURE_RANGE: f32 = 39.0;
+pub const MONKEY_BOMB_SPLASH: Splash = Splash {
+    max: 5000.0,
+    min: 450.0,
+    radius: 2.5,
+};
+/// A thrown Monkey Bomb that never lands (out of the Map) is cleaned up after this long.
+pub const MONKEY_BOMB_LOST_SECS: f32 = 10.0;
+/// How fast Equipment leaves the hand, and the upward lift added to the throw (approx).
+pub const EQUIPMENT_THROW_SPEED: f32 = 14.0;
+pub const EQUIPMENT_THROW_LIFT: f32 = 3.0;
+/// The radius of a thrown frag or Monkey Bomb's collider.
+pub const THROWN_RADIUS: f32 = 0.08;
+/// How much of its speed a thrown frag or Monkey Bomb keeps off a bounce (approx).
+pub const THROWN_RESTITUTION: f32 = 0.3;
+/// The Player's own explosive costs this flat amount while their Health is above it, and full
+/// damage at or below it.
+pub const SELF_EXPLOSIVE_DAMAGE: f32 = 75.0;
+
+// Projectiles
+/// The M72 LAW's rocket flies straight at this speed (approx).
+pub const LAW_ROCKET_SPEED: f32 = 60.0;
+/// The China Lake's grenade leaves at this speed and drops under gravity (approx).
+pub const CHINA_LAKE_GRENADE_SPEED: f32 = 30.0;
+/// A projectile that hits nothing bursts in the air after this long.
+pub const PROJECTILE_LIFETIME_SECS: f32 = 5.0;
 
 // Zombie
 pub const ZOMBIE_RADIUS: f32 = 0.35;
@@ -760,6 +821,11 @@ pub const DOOR_USE_RANGE: f32 = USE_RANGE + 1.2;
 pub const CANT_AFFORD_FLASH_SECS: f32 = 0.5;
 /// An ammo buy costs half the Wall Weapon's price, rounded up to a multiple of this.
 pub const AMMO_PRICE_STEP: u64 = 10;
+/// The Dining Room's frag wall, which fills the Lethal slot to the most carried.
+pub const FRAG_WALL_PRICE: u64 = 250;
+/// The Power Room's Claymore wall and the Balcony's Bowie Knife are one-time buys.
+pub const CLAYMORE_WALL_PRICE: u64 = 1000;
+pub const BOWIE_KNIFE_WALL_PRICE: u64 = 3000;
 
 
 // Settings

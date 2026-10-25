@@ -3,6 +3,7 @@ use bevy::input::common_conditions::input_just_pressed;
 use bevy::prelude::*;
 
 use crate::arsenal::WeaponId;
+use crate::equipment::Equipment;
 use crate::player::Player;
 use crate::state::Pause;
 use crate::weapon::Loadout;
@@ -14,7 +15,8 @@ const GRANTED_WEAPON: WeaponId = WeaponId::Mp40;
 #[derive(Resource, Default)]
 pub struct DebugView(pub bool);
 
-/// F1 toggles the debug view. F2 grants a second Weapon.
+/// F1 toggles the debug view. F2 grants a second Weapon. F3 grants Monkey Bombs, as the
+/// Mystery Box would.
 pub struct DebugPlugin;
 
 impl Plugin for DebugPlugin {
@@ -30,6 +32,12 @@ impl Plugin for DebugPlugin {
                 grant_weapon
                     .run_if(in_state(Pause::Running))
                     .run_if(input_just_pressed(KeyCode::F2)),
+            )
+            .add_systems(
+                Update,
+                grant_monkey_bombs
+                    .run_if(in_state(Pause::Running))
+                    .run_if(input_just_pressed(KeyCode::F3)),
             );
     }
 }
@@ -41,4 +49,8 @@ fn toggle(mut view: ResMut<DebugView>, mut store: ResMut<GizmoConfigStore>) {
 
 fn grant_weapon(mut loadout: Single<&mut Loadout, With<Player>>) {
     loadout.give(GRANTED_WEAPON);
+}
+
+fn grant_monkey_bombs(mut equipment: Single<&mut Equipment, With<Player>>) {
+    equipment.take_monkey_bombs();
 }

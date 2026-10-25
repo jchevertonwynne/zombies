@@ -93,6 +93,10 @@ impl Zombie {
     }
 }
 
+/// A Zombie pulled by a Monkey Bomb: it heads for this point instead of the Player.
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct Lured(pub Vec3);
+
 /// One of a Zombie's hit areas. Its parent is the Zombie.
 #[derive(Component)]
 pub struct HitArea(pub HitZone);
@@ -252,27 +256,28 @@ fn horizontal(v: Vec3) -> Vec3 {
     Vec3::new(v.x, 0.0, v.z)
 }
 
+/// Each Zombie heads for the Player, or for the Monkey Bomb pulling it.
 fn chase(
-    mut zombies: Query<(Entity, &Zombie, &mut Transform, &Collider), Without<Dying>>,
+    mut zombies: Query<(Entity, &Zombie, &mut Transform, &Collider, Option<&Lured>), Without<Dying>>,
     player: Single<&Transform, (With<Player>, Without<Zombie>)>,
     move_and_slide: MoveAndSlide,
     time: Res<Time>,
 ) {
-    let target = player.translation;
     let filter_mask = [GameLayer::World, GameLayer::Zombie, GameLayer::Player];
 
-    for (entity, zombie, mut transform, collider) in &mut zombies {
-        let to_player = horizontal(target - transform.translation);
-        if to_player.length_squared() > 1e-4 {
-            transform.rotation = Quat::from_rotation_y(f32::atan2(-to_player.x, -to_player.z));
+    for (entity, zombie, mut transform, collider, lured) in &mut zombies {
+        let target = lured.map_or(player.translation, |lure| lure.0);
+        let to_target = horizontal(target - transform.translation);
+        if to_target.length_squared() > 1e-4 {
+            transform.rotation = Quat::from_rotation_y(f32::atan2(-to_target.x, -to_target.z));
         }
 
         // Plant feet while swinging, so the Player can back out of reach.
-        if zombie.wind_up.is_some() || to_player.length() <= ZOMBIE_REACH * 0.8 {
+        if zombie.wind_up.is_some() || to_target.length() <= ZOMBIE_REACH * 0.8 {
             continue;
         }
 
-        let velocity = to_player.normalize_or_zero() * zombie.tier.speed();
+        let velocity = to_target.normalize_or_zero() * zombie.tier.speed();
         let out = move_and_slide.move_and_slide(
             collider,
             transform.translation,

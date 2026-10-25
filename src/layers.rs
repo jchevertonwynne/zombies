@@ -8,4 +8,6 @@ pub enum GameLayer {
     Zombie,
     /// A Zombie's limb, torso, neck and head areas, which attacks hit instead of its body capsule.
     ZombieHitArea,
+    /// Thrown Equipment, which bounces off the world and passes through everyone.
+    Thrown,
 }
