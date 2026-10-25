@@ -8,7 +8,9 @@ use crate::hellhound::{
     hellhound_spawn_gap, mixed_hound_chance, spawn_hellhound,
 };
 use crate::map::{SpawnKind, SpawnPoint};
+use crate::nova::{NovaAssetsParam, nova_crawler_entry, nova_crawler_health, spawn_nova_crawler, spawns_nova_crawler};
 use crate::player::Player;
+use crate::power::Power;
 use crate::power_up::{DropPowerUp, PowerUp};
 use crate::state::{GameState, Pause};
 use crate::tuning::*;
@@ -175,8 +177,8 @@ fn requeue_cleaned_up(mut round: ResMut<Round>, mut cleaned: MessageReader<Zombi
     }
 }
 
-/// Spawns the Horde: normal Zombies, a few of them hounds from Round 16, or all hounds in a
-/// Hellhound Round.
+/// Spawns the Horde: normal Zombies, a few of them hounds from Round 16 and Nova Crawlers after
+/// Power, or all hounds in a Hellhound Round.
 fn spawn_horde(
     mut commands: Commands,
     mut round: ResMut<Round>,
@@ -186,6 +188,8 @@ fn spawn_horde(
     active: Res<ActiveZones>,
     assets: ZombieAssetsParam,
     hound_assets: HellhoundAssetsParam,
+    nova_assets: NovaAssetsParam,
+    power: Res<Power>,
     time: Res<Time>,
 ) {
     if round.phase != RoundPhase::Active || round.left_to_spawn == 0 {
@@ -228,10 +232,29 @@ fn spawn_horde(
         }
     }
 
+    // Nova Crawlers: after Power, a few normal spawns drop from Vents (or rise in the Yard) instead.
+    let novas_alive = alive.iter().filter(|zombie| zombie.is_nova_crawler()).count() as u32;
+    if spawns_nova_crawler(power.is_on(), round.hellhound.is_some(), novas_alive, rand::random()) {
+        let points = spawn_candidates(
+            spawn_points
+                .iter()
+                .filter(|(_, point)| nova_crawler_entry(point.kind))
+                .map(|(t, point)| (point.zone, (t.translation, point.kind))),
+            active.0,
+        );
+        if !points.is_empty() {
+            let (at, kind) = points[rand::random_range(0..points.len())];
+            spawn_nova_crawler(&mut commands, &nova_assets, kind, at, nova_crawler_health(round.number));
+            round.left_to_spawn -= 1;
+            round.spawn_timer = spawn_delay(round.number);
+            return;
+        }
+    }
+
     let points = spawn_candidates(
         spawn_points
             .iter()
-            .filter(|(_, point)| point.kind != SpawnKind::Hellhound)
+            .filter(|(_, point)| matches!(point.kind, SpawnKind::Window(_) | SpawnKind::Riser))
             .map(|(t, point)| (point.zone, (t, point.kind))),
         active.0,
     );

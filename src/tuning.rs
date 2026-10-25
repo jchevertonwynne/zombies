@@ -1230,6 +1230,41 @@ pub const HELLHOUND_MIXED_MAX_ALIVE: u32 = 2;
 pub const HELLHOUND_AROUND_MIN_DIST: f32 = 2.0;
 pub const HELLHOUND_AROUND_MAX_DIST: f32 = 5.0;
 
+// Nova Crawlers
+/// After Power, this share of normal spawns are Nova Crawlers instead, with at most
+/// `NOVA_CRAWLER_MAX_ALIVE` alive and none on Hellhound Rounds.
+pub const NOVA_CRAWLER_SPAWN_CHANCE: f64 = 0.10;
+pub const NOVA_CRAWLER_MAX_ALIVE: u32 = 6;
+/// A Nova Crawler's health, as a share of a normal Zombie's in the same Round.
+pub const NOVA_CRAWLER_HEALTH_MULT: f32 = 0.75;
+pub const NOVA_CRAWLER_SWIPE_DAMAGE: f32 = 45.0;
+pub const NOVA_CRAWLER_SPEED: f32 = 4.0;
+/// A Nova Crawler's body is a ball this big, so it's about 0.6 m tall.
+pub const NOVA_CRAWLER_RADIUS: f32 = 0.3;
+/// Seconds a Nova Crawler takes to drop from its Vent to the floor; it can be shot meanwhile.
+pub const NOVA_VENT_DROP_SECS: f32 = 1.0;
+/// How far above the floor a Vent opens.
+pub const NOVA_VENT_HEIGHT: f32 = 3.5;
+/// A bullet killing blow bursts a gas cloud this big, lasting this long, that blurs the Player
+/// inside it.
+pub const NOVA_GAS_RADIUS: f32 = 3.2;
+pub const NOVA_GAS_SECS: f32 = 7.0;
+/// How strongly the gas blurs the Player's view while they stand in it (invented).
+pub const NOVA_GAS_BLUR_STRENGTH: f32 = 0.6;
+/// The burst Shellshocks the Player within this distance, for `NOVA_SHELLSHOCK_SECS`, and kills
+/// other Zombies within it (Unpaid).
+pub const NOVA_BLAST_RADIUS: f32 = 2.4;
+pub const NOVA_SHELLSHOCK_SECS: f32 = 2.5;
+
+// Shellshock
+/// The Player moves at this factor of their speed while Shellshocked.
+pub const SHELLSHOCK_SPEED_MULT: f32 = 0.5;
+/// Every other sound plays at this factor of its volume while Shellshocked: the muffled mix
+/// (invented).
+pub const SHELLSHOCK_MUFFLE_GAIN: f32 = 0.3;
+/// How strongly the Shellshock overlay blurs the view (invented).
+pub const SHELLSHOCK_OVERLAY_STRENGTH: f32 = 1.0;
+
 // Fog
 /// The Player's fog, linear from start to end.
 pub const FOG_START: f32 = 10.0;

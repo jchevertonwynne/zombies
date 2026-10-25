@@ -142,6 +142,15 @@ const HELLHOUND_SPAWNS: [(ZoneId, Vec3); 21] = [
     (ZoneId::Yard, Vec3::new(10.0, 0.0, -12.0)),
 ];
 
+/// The Vents Nova Crawlers drop from: the Zone each is in, and the spot on the floor below it.
+/// Each opens `NOVA_VENT_HEIGHT` up, at the top of a one-way path-node edge down to that spot.
+pub const VENTS: [(ZoneId, Vec3); 4] = [
+    (ZoneId::WestHall, Vec3::new(-21.0, 0.0, 4.0)),
+    (ZoneId::EastHall, Vec3::new(21.0, 0.0, 4.0)),
+    (ZoneId::DiningRoom, Vec3::new(-13.0, 0.0, -20.0)),
+    (ZoneId::PowerRoom, Vec3::new(13.0, 0.0, -20.0)),
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpawnKind {
     /// Outside a window. The Zombie has to get in through that window's Barrier.
@@ -150,6 +159,8 @@ pub enum SpawnKind {
     Riser,
     /// Inside a Zone, where a Hellhound arrives in a lightning strike. Only hounds use these.
     Hellhound,
+    /// On the floor under a Vent, which a Nova Crawler drops from. Only Nova Crawlers use these.
+    Vent,
 }
 
 /// A fixed place in the Map where Zombies enter play, in the Zone it serves.
@@ -447,7 +458,8 @@ fn spawn_map(
             ));
     }
 
-    // Spawn Points: one outside each window, the Yard's Risers, and the Hellhound Spawn Points.
+    // Spawn Points: one outside each window, the Yard's Risers, the Hellhound Spawn Points, and
+    // under each Vent, with the Vent itself: a dark duct opening up near the top of the room.
     for (i, (zone, ..)) in WINDOWS.iter().enumerate() {
         let barrier = BarrierId(i as u8);
         commands.spawn((
@@ -477,6 +489,24 @@ fn spawn_map(
                 kind: SpawnKind::Hellhound,
             },
             Transform::from_translation(at),
+        ));
+    }
+    let vent_mesh = meshes.add(Cuboid::new(1.2, 0.3, 1.2));
+    let vent_mat = materials.add(Color::srgb(0.08, 0.08, 0.09));
+    for (zone, at) in VENTS {
+        commands.spawn((
+            InRun,
+            SpawnPoint {
+                zone,
+                kind: SpawnKind::Vent,
+            },
+            Transform::from_translation(at),
+        ));
+        commands.spawn((
+            InRun,
+            Mesh3d(vent_mesh.clone()),
+            MeshMaterial3d(vent_mat.clone()),
+            Transform::from_translation(at + Vec3::Y * (NOVA_VENT_HEIGHT + 0.15)),
         ));
     }
 
@@ -548,6 +578,17 @@ mod tests {
         }
         for zone in ZoneId::ALL {
             assert!(HELLHOUND_SPAWNS.iter().any(|(z, _)| *z == zone), "{} has no Hellhound Spawn Point", zone.name());
+        }
+    }
+
+    #[test]
+    fn vents_open_over_the_floor_of_four_indoor_zones() {
+        use ZoneId::*;
+        let zones: Vec<_> = VENTS.iter().map(|(zone, _)| *zone).collect();
+        assert_eq!(zones, [WestHall, EastHall, DiningRoom, PowerRoom]);
+        for (zone, at) in VENTS {
+            assert_eq!(crate::nav::zone_at(at + Vec3::Y * 0.1), Some(zone), "under the Vent");
+            assert_eq!(crate::nav::zone_at(at + Vec3::Y * NOVA_VENT_HEIGHT), Some(zone), "the Vent");
         }
     }
 }
