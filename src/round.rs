@@ -2,11 +2,11 @@ use std::ops::RangeInclusive;
 
 use bevy::prelude::*;
 
-use crate::map::SpawnPoint;
+use crate::map::{SpawnKind, SpawnPoint};
 use crate::state::{GameState, Pause};
 use crate::tuning::*;
-use crate::zombie::{Dying, SpeedTier, Zombie, ZombieAssetsParam, spawn_zombie};
-use crate::zone::ActiveZones;
+use crate::zombie::{Dying, SpeedTier, Zombie, ZombieAssetsParam, ZombieCleanedUp, spawn_zombie};
+use crate::zone::{ActiveZones, ZoneId, ZoneSet};
 
 /// Zombie health for a Round, built Round by Round as BO1 does: +100 a Round through Round 9,
 /// then +10% (floored) a Round, with no cap. Converted to `f32` only at spawn.
@@ -66,6 +66,16 @@ pub fn speed_tier(roll: u32) -> SpeedTier {
     }
 }
 
+/// The Spawn Points a new Zombie picks from, uniformly: every one in an Active Zone, with no
+/// line-of-sight exclusion.
+pub fn spawn_candidates<T>(points: impl IntoIterator<Item = (ZoneId, T)>, active: ZoneSet) -> Vec<T> {
+    points
+        .into_iter()
+        .filter(|(zone, _)| active.contains(*zone))
+        .map(|(_, point)| point)
+        .collect()
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum RoundPhase {
     Active,
@@ -104,7 +114,7 @@ impl Plugin for RoundPlugin {
             .add_systems(OnEnter(GameState::Playing), start_first_round)
             .add_systems(
                 Update,
-                (spawn_horde, last_zombie_sprints, end_round, run_intermission)
+                (requeue_cleaned_up, spawn_horde, last_zombie_sprints, end_round, run_intermission)
                     .chain()
                     .run_if(in_state(Pause::Running)),
             );
@@ -114,6 +124,15 @@ impl Plugin for RoundPlugin {
 fn start_first_round(mut commands: Commands, mut started: MessageWriter<RoundStarted>) {
     commands.insert_resource(Round::begin(1));
     started.write(RoundStarted);
+}
+
+/// A cleaned-up Zombie goes back into the Horde's left-to-spawn count; its replacement rolls a
+/// fresh Speed Tier when it spawns.
+fn requeue_cleaned_up(mut round: ResMut<Round>, mut cleaned: MessageReader<ZombieCleanedUp>) {
+    let count = cleaned.read().count() as u32;
+    if count > 0 {
+        round.left_to_spawn = round.left_to_spawn.saturating_add(count);
+    }
 }
 
 fn spawn_horde(
@@ -133,17 +152,12 @@ fn spawn_horde(
         return;
     }
 
-    // Only Spawn Points in Active Zones send in Zombies.
-    let points: Vec<_> = spawn_points
-        .iter()
-        .filter(|(_, point)| active.0.contains(point.0))
-        .map(|(transform, _)| transform)
-        .collect();
+    let points = spawn_candidates(spawn_points.iter().map(|(t, point)| (point.zone, (t, point.kind))), active.0);
     if points.is_empty() {
         return;
     }
-    let point = points[rand::random_range(0..points.len())];
-    let jitter = Vec3::new(rand::random_range(-1.0..1.0), 0.0, rand::random_range(-1.0..1.0));
+    let (point, kind) = points[rand::random_range(0..points.len())];
+    let jitter = Vec3::new(rand::random_range(-0.75..0.75), 0.0, rand::random_range(-0.75..0.75));
     let tier = speed_tier(rand::random_range(speed_roll_range(round.number)));
 
     spawn_zombie(
@@ -152,6 +166,7 @@ fn spawn_horde(
         point.translation + jitter,
         zombie_health(round.number) as f32,
         tier,
+        kind == SpawnKind::Riser,
     );
     round.left_to_spawn -= 1;
     round.spawn_timer = spawn_delay(round.number);
@@ -196,6 +211,15 @@ fn run_intermission(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zombies_spawn_only_in_active_zones() {
+        use ZoneId::*;
+        let points = [(StartRoom, 0), (StartRoom, 1), (WestHall, 2), (Yard, 3), (Balcony, 4)];
+        let active = ZoneSet::from_iter([StartRoom, Yard]);
+        assert_eq!(spawn_candidates(points, active), vec![0, 1, 3]);
+        assert!(spawn_candidates(points, ZoneSet::from_iter([DiningRoom])).is_empty());
+    }
 
     #[test]
     fn health_follows_the_bo1_table() {

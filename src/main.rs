@@ -15,6 +15,7 @@ mod modifier;
 mod mode;
 mod perk;
 mod mystery_box;
+mod nav;
 mod player;
 mod points;
 mod records;
@@ -54,6 +55,7 @@ fn main() {
         .add_plugins((
             map::MapPlugin,
             zone::ZonePlugin,
+            nav::NavPlugin,
             door::DoorPlugin,
             buy::BuyPlugin,
             player::PlayerPlugin,
