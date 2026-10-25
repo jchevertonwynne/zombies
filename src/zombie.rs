@@ -134,6 +134,10 @@ impl Zombie {
     }
 }
 
+/// A Zombie pulled by a Monkey Bomb: it heads for this point instead of the Player.
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct Lured(pub Vec3);
+
 /// One of a Zombie's hit areas. Its parent is the Zombie.
 #[derive(Component)]
 pub struct HitArea(pub HitZone);
@@ -371,11 +375,14 @@ pub fn heading(distance: f32, swinging: bool, last_stand: bool) -> Heading {
     }
 }
 
-/// Zombies find the Player anywhere on the Map: they re-plan a route over the path-node graph
+/// Zombies find the Player (or the Monkey Bomb pulling them) anywhere on the Map: they re-plan a route over the path-node graph
 /// every so often, steer straight at the Player when there's a clear walk or they share a node
 /// area, and move under gravity with grounded move-and-slide.
 fn chase(
-    mut zombies: Query<(Entity, &mut Zombie, &mut Route, &mut Transform, &Collider), (Without<Dying>, Without<Rising>)>,
+    mut zombies: Query<
+        (Entity, &mut Zombie, &mut Route, &mut Transform, &Collider, Option<&Lured>),
+        (Without<Dying>, Without<Rising>),
+    >,
     player: Single<(&Transform, Has<LastStand>), (With<Player>, Without<Zombie>)>,
     graph: Res<NavGraph>,
     doors: Query<&Door>,
@@ -389,23 +396,26 @@ fn chase(
     let open_doors: Vec<_> = doors.iter().filter(|door| door.open).filter_map(|door| door.joins).collect();
     let probe = Collider::sphere(ZOMBIE_RADIUS * 0.8);
     let filter_mask = [GameLayer::World, GameLayer::Zombie, GameLayer::Player];
-    let positions: Vec<_> = zombies.iter().map(|(entity, _, _, transform, _)| (entity, transform.translation)).collect();
+    let positions: Vec<_> = zombies.iter().map(|(entity, _, _, transform, _, _)| (entity, transform.translation)).collect();
 
-    for (entity, mut zombie, mut route, mut transform, collider) in &mut zombies {
+    for (entity, mut zombie, mut route, mut transform, collider, lured) in &mut zombies {
         let feet = transform.translation - Vec3::Y * half;
-        let rise = player_feet.y - feet.y;
+        // A Monkey Bomb's pull beats everything, even a Player in Last Stand.
+        let target_feet = lured.map_or(player_feet, |lure| lure.0);
+        let last_stand = last_stand && lured.is_none();
+        let rise = target_feet.y - feet.y;
 
         route.repath_in -= dt;
         if route.repath_in <= 0.0 {
-            route.repath_in = repath_interval(feet.distance(player_feet));
+            route.repath_in = repath_interval(feet.distance(target_feet));
             let from = graph.nearest(feet);
-            let to = graph.nearest(player_feet);
+            let to = graph.nearest(target_feet);
             let level = rise.abs() <= ZOMBIE_DIRECT_MAX_RISE;
-            let target = player_feet + Vec3::Y * half;
+            let target = target_feet + Vec3::Y * half;
             let spatial = &move_and_slide.spatial_query;
             route.waypoints.clear();
             if !(level && (from == to || clear_walk(spatial, &probe, transform.translation, target))) {
-                // No route at all (the drop is one-way) leaves it steering straight at the Player
+                // No route at all (the drop is one-way) leaves it steering straight at its target
                 // until the stuck rule replaces it.
                 let path = graph.plan(from, to, &open_doors, windows_open).unwrap_or_default();
                 route.waypoints = path.into_iter().map(|i| graph.nodes[i].at).collect();
@@ -428,9 +438,9 @@ fn chase(
         {
             route.waypoints.remove(0);
         }
-        let goal = route.waypoints.first().copied().unwrap_or(player_feet);
+        let goal = route.waypoints.first().copied().unwrap_or(target_feet);
 
-        let to_player = horizontal(player_feet - feet);
+        let to_player = horizontal(target_feet - feet);
         // Same floor only: a Zombie under the Balcony never stops to swing at the Player on it.
         let reach_distance = if rise.abs() < 1.5 { to_player.length() } else { f32::INFINITY };
         let head = heading(reach_distance, zombie.wind_up.is_some(), last_stand);

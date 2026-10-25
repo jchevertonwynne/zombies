@@ -11,4 +11,6 @@ pub enum GameLayer {
     /// The open gap of a window in an outer wall: solid to the Player only, so Zombies climb in and
     /// bullets fly out, but the Player never leaves the Map.
     Window,
+    /// Thrown Equipment, which bounces off the world and passes through everyone.
+    Thrown,
 }

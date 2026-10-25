@@ -2,15 +2,16 @@ use avian3d::prelude::*;
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
 
-use crate::arsenal::{FireMode, WeaponClass, WeaponId, WeaponStats};
+use crate::arsenal::{FireMode, Splash, WeaponClass, WeaponId, WeaponStats};
 use crate::combat::{Crossing, hit_damage, pierce, spread_direction};
+use crate::explosive::{Explosion, Launched, flight};
 use crate::layers::GameLayer;
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve, resolve_count};
 use crate::perk::{Drinking, hands_free};
 use crate::player::{Locomotion, Player, PlayerCamera};
 use crate::state::Pause;
 use crate::tuning::*;
-use crate::zombie::{Attack, DamageZombie, Dying, HitArea, HitZone, Zombie};
+use crate::zombie::{Attack, DamageZombie, HitArea, HitZone};
 
 /// One Weapon the Player carries: its ammo and its own modifier entries.
 pub struct WeaponCopy {
@@ -337,6 +338,13 @@ fn move_towards(from: f32, to: f32, step: f32) -> f32 {
 #[derive(Component, Default)]
 pub struct Knife {
     cooldown: f32,
+    /// The Bowie Knife, bought once from the wall, replaces the Knife's damage.
+    pub bowie: bool,
+}
+
+/// The Knife's melee damage, or the Bowie Knife's once bought.
+pub fn knife_damage(bowie: bool) -> f32 {
+    if bowie { BOWIE_KNIFE_DAMAGE } else { KNIFE_DAMAGE }
 }
 
 /// The held Weapon went off (for audio and effects).
@@ -443,9 +451,10 @@ fn fire(
     mouse: Res<ButtonInput<MouseButton>>,
     spatial: SpatialQuery,
     hit_areas: Query<(&HitArea, &ChildOf)>,
-    zombies: Query<(Entity, &GlobalTransform), (With<Zombie>, Without<Dying>)>,
     mut damage: MessageWriter<DamageZombie>,
     mut shots: MessageWriter<ShotFired>,
+    mut launched: MessageWriter<Launched>,
+    mut explosions: MessageWriter<Explosion>,
 ) {
     let (entity, mut loadout, modifiers) = player.into_inner();
     let entries = &modifiers.0;
@@ -468,8 +477,26 @@ fn fire(
     let pellets = if stats.damage_max > 0.0 { stats.pellets } else { 0 };
     for _ in 0..pellets {
         let direction = spread_direction(camera.forward(), spread, rand::random(), rand::random());
-        if let Some(splash) = stats.splash {
-            // Explosives burst where they land. They fly as hitscan until projectiles arrive.
+        // Splash resolves through the seam like any damage: both ends of its falloff.
+        let splash = stats.splash.map(|splash| Splash {
+            max: loadout.resolve(Stat::Damage, splash.max, entries),
+            min: loadout.resolve(Stat::Damage, splash.min, entries),
+            ..splash
+        });
+        if let (Some(flight), Some(splash)) = (flight(stats.id), splash) {
+            // Launchers fire a real projectile, which bursts on the first thing it touches.
+            launched.write(Launched {
+                origin: camera.translation() + *direction * 0.5,
+                direction,
+                flight,
+                impact: loadout.damage_at(0.0, entries),
+                impact_headshot: stats.zone_multiplier(HitZone::Head),
+                splash,
+            });
+            continue;
+        }
+        if let Some(splash) = splash {
+            // The other explosives burst where their hitscan line lands.
             let Some(hit) = spatial.cast_ray(camera.translation(), direction, HITSCAN_RANGE, true, &filter) else {
                 continue;
             };
@@ -481,17 +508,13 @@ fn fire(
                     attack: Attack::Bullet,
                 });
             }
-            let impact = camera.translation() + *direction * hit.distance;
-            for (zombie, transform) in &zombies {
-                if let Some(base) = splash.damage(transform.translation().distance(impact)) {
-                    damage.write(DamageZombie {
-                        zombie,
-                        damage: loadout.resolve(Stat::Damage, base, entries),
-                        zone: HitZone::Torso,
-                        attack: Attack::Bullet,
-                    });
-                }
-            }
+            // Burst just short of the surface, so the world doesn't block its own blast.
+            let impact = camera.translation() + *direction * (hit.distance - 0.1).max(0.0);
+            explosions.write(Explosion {
+                at: impact,
+                splash,
+                hurts_player: true,
+            });
             continue;
         }
 
@@ -553,7 +576,7 @@ fn knife(
     {
         damage.write(DamageZombie {
             zombie,
-            damage: KNIFE_DAMAGE,
+            damage: knife_damage(knife.bowie),
             zone,
             attack: Attack::Knife,
         });
@@ -615,6 +638,12 @@ mod tests {
     fn run(loadout: &mut Loadout, secs: f32, player: &[Modifier]) {
         loadout.tick(secs);
         loadout.advance_reload(secs, player);
+    }
+
+    #[test]
+    fn the_bowie_knife_does_1000_against_the_knifes_150() {
+        assert_eq!(knife_damage(false), 150.0);
+        assert_eq!(knife_damage(true), 1000.0);
     }
 
     #[test]

@@ -6,6 +6,7 @@ use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
 
+use crate::equipment::Equipment;
 use crate::last_stand::LastStand;
 use crate::layers::GameLayer;
 use crate::map::PLAYER_START;
@@ -100,7 +101,7 @@ fn spawn_player(mut commands: Commands, settings: Res<Settings>) {
             Visibility::default(),
             Loadout::new(STARTING_WEAPON),
             Modifiers::default(),
-            Knife::default(),
+            (Knife::default(), Equipment::default()),
             Transform::from_translation(PLAYER_START + Vec3::Y * (half_height + 0.05)),
             RigidBody::Kinematic,
             CustomPositionIntegration,

@@ -7,6 +7,8 @@ mod buy;
 mod combat;
 mod debug;
 mod door;
+mod equipment;
+mod explosive;
 mod hud;
 mod last_stand;
 mod layers;
@@ -61,8 +63,13 @@ fn main() {
             buy::BuyPlugin,
             player::PlayerPlugin,
             weapon::WeaponPlugin,
-            wall_weapon::WallWeaponPlugin,
-            mystery_box::MysteryBoxPlugin,
+            // Buying and carrying beyond the starting Weapon.
+            (
+                wall_weapon::WallWeaponPlugin,
+                mystery_box::MysteryBoxPlugin,
+                equipment::EquipmentPlugin,
+                explosive::ExplosivePlugin,
+            ),
             zombie::ZombiePlugin,
             round::RoundPlugin,
             points::PointsPlugin,
