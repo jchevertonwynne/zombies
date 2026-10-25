@@ -50,7 +50,7 @@ struct Bought {
 #[derive(Resource, Default)]
 struct Gifts(Vec<PowerUp>);
 
-/// Debug: every Boon counts as Unlocked, toggled with F8, until the Armory saves Unlocks.
+/// Debug: every Boon counts as Unlocked, toggled with F9, until the Armory saves Unlocks.
 #[derive(Resource, Default)]
 struct UnlockAll(bool);
 
@@ -96,7 +96,7 @@ impl Plugin for GauntletPlugin {
             .add_systems(
                 Update,
                 toggle_unlock_all
-                    .run_if(input_just_pressed(KeyCode::F8))
+                    .run_if(input_just_pressed(KeyCode::F9))
                     .run_if(gauntlet),
             )
             .add_systems(OnEnter(Pause::Frozen), screen::spawn_offer.run_if(gauntlet))
@@ -317,7 +317,10 @@ fn butchers_bill(
     let stacks = held.stacks(BUTCHERS_BILL);
     for kill in kills.read() {
         if stacks > 0 && butchers_bill_drops(kill.attack, stacks, rand::random()) {
-            drops.write(DropPowerUp { at: kill.at });
+            drops.write(DropPowerUp {
+                at: kill.at,
+                power_up: None,
+            });
         }
     }
 }

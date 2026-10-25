@@ -7,6 +7,7 @@ use crate::door::Door;
 use crate::last_stand::LastStand;
 use crate::layers::GameLayer;
 use crate::barrier::{Barriers, Entering};
+use crate::hellhound::{HellhoundBite, Telegraph};
 use crate::nav::{NavGraph, Route, repath_interval};
 use crate::player::{Player, PlayerHit};
 use crate::power_up::{ActivePowerUps, PowerUp};
@@ -188,6 +189,8 @@ pub struct Zombie {
     crawler: bool,
     /// Seconds a Crawler has waited at a planked Barrier.
     planked_wait: f32,
+    /// A Hellhound: fast, low, bites, and never uses Barriers.
+    hellhound: bool,
 }
 
 impl Zombie {
@@ -201,12 +204,28 @@ impl Zombie {
             stuck: StuckWatch::new(at),
             crawler: false,
             planked_wait: 0.0,
+            hellhound: false,
         }
     }
 
-    /// How fast it moves: by its Speed Tier, or `CRAWLER_SPEED` once it's a Crawler.
+    /// A Hellhound with `health`, its centre at `at`.
+    pub fn hellhound(health: f32, at: Vec3) -> Self {
+        Self {
+            hellhound: true,
+            ..Self::new(health, SpeedTier::Sprinter, at)
+        }
+    }
+
+    /// How fast it moves: by its Speed Tier, `CRAWLER_SPEED` once it's a Crawler, or
+    /// `HELLHOUND_SPEED` for a Hellhound.
     pub fn speed(&self) -> f32 {
-        if self.crawler { CRAWLER_SPEED } else { self.tier.speed() }
+        if self.hellhound {
+            HELLHOUND_SPEED
+        } else if self.crawler {
+            CRAWLER_SPEED
+        } else {
+            self.tier.speed()
+        }
     }
 
     /// Health left; at or below 0 once killed.
@@ -214,7 +233,8 @@ impl Zombie {
         self.health
     }
 
-    /// Switches to Sprinter, as the last Zombie of an early Round does. A Crawler never sprints.
+    /// Switches to Sprinter, as the last Zombie of an early Round does. A Crawler never sprints,
+    /// and a Hellhound already runs at its own speed.
     pub fn sprint(&mut self) {
         if !self.crawler {
             self.tier = SpeedTier::Sprinter;
@@ -225,9 +245,34 @@ impl Zombie {
         self.crawler
     }
 
+    pub fn is_hellhound(&self) -> bool {
+        self.hellhound
+    }
+
     /// From its centre down to its feet.
     fn half_height(&self) -> f32 {
-        if self.crawler { CRAWLER_RADIUS } else { body_half_height() }
+        if self.hellhound {
+            HELLHOUND_RADIUS
+        } else if self.crawler {
+            CRAWLER_RADIUS
+        } else {
+            body_half_height()
+        }
+    }
+
+    /// Its attack: reach, wind-up, damage, and the cooldown after one lands. A hound's bites land
+    /// `HELLHOUND_BITE_SECS` apart.
+    fn attack_stats(&self) -> (f32, f32, f32, f32) {
+        if self.hellhound {
+            (
+                HELLHOUND_REACH,
+                HELLHOUND_BITE_WIND_UP_SECS,
+                HELLHOUND_BITE_DAMAGE,
+                HELLHOUND_BITE_SECS - HELLHOUND_BITE_WIND_UP_SECS,
+            )
+        } else {
+            (ZOMBIE_REACH, ZOMBIE_WIND_UP_SECS, ZOMBIE_SWIPE_DAMAGE, ZOMBIE_HIT_COOLDOWN_SECS)
+        }
     }
 }
 
@@ -536,13 +581,13 @@ pub enum Heading {
     Stay,
 }
 
-/// Where a Zombie heads, `distance` (horizontal) from the Player. It plants its feet while
-/// swinging, so the Player can back out of reach. While the Player is in Last Stand, Zombies walk
-/// away until they're about `LAST_STAND_ZOMBIE_RETREAT_DISTANCE` off.
-pub fn heading(distance: f32, swinging: bool, last_stand: bool) -> Heading {
+/// Where a Zombie with `reach` heads, `distance` (horizontal) from the Player. It plants its feet
+/// while swinging, so the Player can back out of reach. While the Player is in Last Stand, Zombies
+/// walk away until they're about `LAST_STAND_ZOMBIE_RETREAT_DISTANCE` off.
+pub fn heading(distance: f32, reach: f32, swinging: bool, last_stand: bool) -> Heading {
     if last_stand {
         if distance < LAST_STAND_ZOMBIE_RETREAT_DISTANCE { Heading::Away } else { Heading::Stay }
-    } else if swinging || distance <= ZOMBIE_REACH * 0.8 {
+    } else if swinging || distance <= reach * 0.8 {
         Heading::Stay
     } else {
         Heading::Toward
@@ -555,7 +600,7 @@ pub fn heading(distance: f32, swinging: bool, last_stand: bool) -> Heading {
 fn chase(
     mut zombies: Query<
         (Entity, &mut Zombie, &mut Route, &mut Transform, &Collider, Option<&Lured>),
-        (Without<Dying>, Without<Rising>, Without<KnockedDown>, Without<Entering>),
+        (Without<Dying>, Without<Rising>, Without<KnockedDown>, Without<Entering>, Without<Telegraph>),
     >,
     player: Single<(&Transform, Has<LastStand>), (With<Player>, Without<Zombie>)>,
     graph: Res<NavGraph>,
@@ -618,7 +663,7 @@ fn chase(
         let to_player = horizontal(target_feet - feet);
         // Same floor only: a Zombie under the Balcony never stops to swing at the Player on it.
         let reach_distance = if rise.abs() < 1.5 { to_player.length() } else { f32::INFINITY };
-        let head = heading(reach_distance, zombie.wind_up.is_some(), last_stand);
+        let head = heading(reach_distance, zombie.attack_stats().0, zombie.wind_up.is_some(), last_stand);
         let mut heading = horizontal(goal - feet).normalize_or_zero();
         let neighbours = positions.iter().filter(|(other, _)| *other != entity).map(|(_, at)| *at);
         heading = (heading + separation(transform.translation, neighbours) * ZOMBIE_SEPARATION_WEIGHT).normalize_or_zero();
@@ -683,7 +728,10 @@ fn rise(mut commands: Commands, mut risers: Query<(Entity, &mut Rising, &mut Tra
 /// waiting at a planked Barrier too long is stuck.
 fn clean_up_stuck(
     mut commands: Commands,
-    mut zombies: Query<(Entity, &mut Zombie, &Transform, Option<&Entering>), (Without<Dying>, Without<Rising>)>,
+    mut zombies: Query<
+        (Entity, &mut Zombie, &Transform, Option<&Entering>),
+        (Without<Dying>, Without<Rising>, Without<Telegraph>),
+    >,
     player: Single<&Transform, (With<Player>, Without<Zombie>)>,
     barriers: Res<Barriers>,
     mut cleaned: MessageWriter<ZombieCleanedUp>,
@@ -709,15 +757,16 @@ fn clean_up_stuck(
     }
 }
 
-/// Zombies inside swipe the Player in reach. Those outside a window reach through it instead (see
-/// the Barriers).
+/// Zombies inside swipe the Player in reach, and Hellhounds bite. Those outside a window reach
+/// through it instead (see the Barriers).
 fn attack(
     mut zombies: Query<
         (&mut Zombie, &Transform),
-        (Without<Dying>, Without<Rising>, Without<KnockedDown>, Without<Entering>),
+        (Without<Dying>, Without<Rising>, Without<KnockedDown>, Without<Entering>, Without<Telegraph>),
     >,
     player: Single<(&Transform, Has<LastStand>), With<Player>>,
     mut hits: MessageWriter<PlayerHit>,
+    mut bites: MessageWriter<HellhoundBite>,
     time: Res<Time>,
 ) {
     let (player, last_stand) = *player;
@@ -728,8 +777,9 @@ fn attack(
             zombie.wind_up = None;
             continue;
         }
+        let (reach, wind_up, damage, cooldown) = zombie.attack_stats();
         // Same floor only: a Zombie under the Balcony can't swipe the Player standing on it.
-        let in_reach = horizontal(player.translation - transform.translation).length() <= ZOMBIE_REACH
+        let in_reach = horizontal(player.translation - transform.translation).length() <= reach
             && (player.translation.y - transform.translation.y).abs() < 1.5;
         zombie.attack_cooldown = (zombie.attack_cooldown - dt).max(0.0);
 
@@ -738,26 +788,31 @@ fn attack(
                 zombie.wind_up = None;
                 // A Zombie that lands a swipe is ignored for a moment; other Zombies can still hit.
                 if in_reach {
-                    hits.write(PlayerHit {
-                        damage: ZOMBIE_SWIPE_DAMAGE,
-                    });
-                    zombie.attack_cooldown = ZOMBIE_HIT_COOLDOWN_SECS;
+                    hits.write(PlayerHit { damage });
+                    if zombie.hellhound {
+                        bites.write(HellhoundBite);
+                    }
+                    zombie.attack_cooldown = cooldown;
                 }
             }
             Some(left) => zombie.wind_up = Some(left - dt),
             None if in_reach && zombie.attack_cooldown <= 0.0 => {
-                zombie.wind_up = Some(ZOMBIE_WIND_UP_SECS);
+                zombie.wind_up = Some(wind_up);
             }
             None => {}
         }
     }
 }
 
-/// A knock-down drops any swing in progress. A Riser still climbing out can't be knocked down.
+/// A knock-down drops any swing in progress. A Riser still climbing out, or a hound still in its
+/// lightning, can't be knocked down.
 fn knock_down(
     mut commands: Commands,
     mut requests: MessageReader<KnockDown>,
-    mut zombies: Query<(&mut Zombie, &Transform), (Without<Dying>, Without<Rising>, Without<KnockedDown>)>,
+    mut zombies: Query<
+        (&mut Zombie, &Transform),
+        (Without<Dying>, Without<Rising>, Without<KnockedDown>, Without<Telegraph>),
+    >,
 ) {
     for request in requests.read() {
         let Ok((mut zombie, transform)) = zombies.get_mut(request.zombie) else {
@@ -821,7 +876,7 @@ fn become_crawler(
         let Ok((mut zombie, mut transform)) = zombies.get_mut(entity) else {
             continue;
         };
-        if zombie.crawler {
+        if zombie.crawler || zombie.hellhound {
             continue;
         }
         zombie.crawler = true;
@@ -835,10 +890,11 @@ fn become_crawler(
     }
 }
 
+/// A hound in its lightning strike can't be hurt.
 pub fn apply_damage(
     mut commands: Commands,
     mut requests: MessageReader<DamageZombie>,
-    mut zombies: Query<(&mut Zombie, &Children, &Transform), Without<Dying>>,
+    mut zombies: Query<(&mut Zombie, &Children, &Transform), (Without<Dying>, Without<Telegraph>)>,
     hit_areas: Query<(), With<HitArea>>,
     power_ups: Res<ActivePowerUps>,
     mut hits: MessageWriter<ZombieHit>,
@@ -867,7 +923,7 @@ pub fn apply_damage(
             headshot: is_headshot(request.zone, request.attack),
             zone: request.zone,
             attack: request.attack,
-            at: transform.translation - Vec3::Y * body_half_height(),
+            at: transform.translation - Vec3::Y * zombie.half_height(),
         });
         commands
             .entity(request.zombie)
@@ -891,10 +947,10 @@ fn fall_over(
         dying.elapsed += time.delta_secs();
         let after = (dying.elapsed / ZOMBIE_FALL_SECS).min(1.0);
 
-        // Tip backwards about the local X axis, sinking so it lies on the floor. A Crawler,
-        // already down, rolls onto its side.
+        // Tip backwards about the local X axis, sinking so it lies on the floor. A Crawler or a
+        // Hellhound, already low, rolls onto its side.
         let step = (after - before) * FRAC_PI_2;
-        if step > 0.0 && zombie.crawler {
+        if step > 0.0 && (zombie.crawler || zombie.hellhound) {
             transform.rotate_local_z(step);
         } else if step > 0.0 {
             transform.rotate_local_x(step);
@@ -1040,20 +1096,39 @@ mod tests {
 
     #[test]
     fn zombies_walk_up_to_the_player_and_stop_in_reach() {
-        assert_eq!(heading(10.0, false, false), Heading::Toward);
-        assert_eq!(heading(ZOMBIE_REACH * 0.5, false, false), Heading::Stay);
+        assert_eq!(heading(10.0, ZOMBIE_REACH, false, false), Heading::Toward);
+        assert_eq!(heading(ZOMBIE_REACH * 0.5, ZOMBIE_REACH, false, false), Heading::Stay);
     }
 
     #[test]
     fn a_swinging_zombie_plants_its_feet() {
-        assert_eq!(heading(10.0, true, false), Heading::Stay);
+        assert_eq!(heading(10.0, ZOMBIE_REACH, true, false), Heading::Stay);
     }
 
     #[test]
     fn zombies_back_off_to_about_15_m_from_a_player_in_last_stand() {
-        assert_eq!(heading(0.5, false, true), Heading::Away);
-        assert_eq!(heading(14.9, true, true), Heading::Away);
-        assert_eq!(heading(15.0, false, true), Heading::Stay);
-        assert_eq!(heading(40.0, false, true), Heading::Stay);
+        assert_eq!(heading(0.5, ZOMBIE_REACH, false, true), Heading::Away);
+        assert_eq!(heading(14.9, ZOMBIE_REACH, true, true), Heading::Away);
+        assert_eq!(heading(15.0, ZOMBIE_REACH, false, true), Heading::Stay);
+        assert_eq!(heading(40.0, ZOMBIE_REACH, false, true), Heading::Stay);
+    }
+
+    #[test]
+    fn a_hellhound_stops_further_out_and_bites_a_second_apart() {
+        assert_eq!(heading(2.2, ZOMBIE_REACH, false, false), Heading::Toward);
+        assert_eq!(heading(1.9, HELLHOUND_REACH, false, false), Heading::Stay);
+        let hound = Zombie::hellhound(400.0, Vec3::ZERO);
+        let (reach, wind_up, damage, cooldown) = hound.attack_stats();
+        assert_eq!((reach, damage), (2.5, 40.0));
+        assert!((wind_up + cooldown - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_hellhound_runs_at_its_own_speed_and_never_crawls() {
+        let mut hound = Zombie::hellhound(400.0, Vec3::ZERO);
+        assert_eq!(hound.speed(), HELLHOUND_SPEED);
+        hound.sprint();
+        assert_eq!(hound.speed(), HELLHOUND_SPEED);
+        assert!(hound.is_hellhound() && !hound.is_crawler());
     }
 }

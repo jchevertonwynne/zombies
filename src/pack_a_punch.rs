@@ -3,15 +3,16 @@
 //! `PAP_PICKUP_SECS`. A Weapon not taken in time is lost, with no refund.
 //!
 //! An Upgraded Weapon in hand is Repacked instead, through the same flow: a tap adds a random Ammo
-//! Mod it lacks, at a price that rises with each Repack of that copy. (The hold, for an
-//! Attachment, arrives later.)
+//! Mod it lacks, and holding the Use key adds a random Attachment in a free mount. Each costs more
+//! with every Repack of that copy, of either kind.
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
 use crate::ammo_mod::{ammo_mod_slots, repack_price};
 use crate::arsenal::WeaponId;
-use crate::buy::{Buyable, Purchased, Refused};
+use crate::attachment::attachment_repack_price;
+use crate::buy::{Buyable, HoldBuy, HoldPurchased, Purchased, Refused};
 use crate::layers::GameLayer;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve_points};
 use crate::perk::Drinking;
@@ -47,7 +48,7 @@ pub fn stage(elapsed: f32) -> Stage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MachinePrompt {
     /// Nothing: a Weapon is being worked on, the Player's hands are busy, or the Weapon in hand
-    /// is Upgraded with no room for another Ammo Mod.
+    /// is Upgraded with no room for another Ammo Mod or Attachment.
     NoPrompt,
     /// "You must turn on the Power first", and the Use key does nothing.
     NeedsPower,
@@ -56,10 +57,11 @@ pub enum MachinePrompt {
     /// The upgrade's Prompt, refused with the buzzer: the Weapon in hand is the Player's only
     /// one, and the held slot is always filled.
     OnlyWeapon,
-    /// The tap Repack, for an Ammo Mod, at its rising price.
-    Repack,
+    /// A Repack at its rising prices: the tap for an Ammo Mod, the hold for an Attachment, or
+    /// both, whichever the Weapon has room for.
+    Repack { tap: bool, hold: bool },
     /// The Repack's Prompt, refused with the buzzer, as for `OnlyWeapon`.
-    RepackOnlyWeapon,
+    RepackOnlyWeapon { tap: bool, hold: bool },
     /// Take the Upgraded Weapon, free.
     Take,
 }
@@ -70,6 +72,8 @@ pub struct Held {
     pub upgraded: bool,
     /// Whether it has room for another Ammo Mod.
     pub ammo_mod_room: bool,
+    /// Whether it has a free mount for an Attachment.
+    pub free_mount: bool,
     /// Whether the Player carries another Weapon to bring up while this one is inside.
     pub spare: bool,
 }
@@ -81,11 +85,18 @@ pub fn machine_prompt(power_on: bool, inside: Option<Stage>, held: Held, hands_f
         Some(Stage::Ready) if hands_free => MachinePrompt::Take,
         Some(_) => MachinePrompt::NoPrompt,
         None if !power_on => MachinePrompt::NeedsPower,
-        // The hold half of the Repack, for an Attachment, will offer itself here too.
-        None if !hands_free || (held.upgraded && !held.ammo_mod_room) => MachinePrompt::NoPrompt,
-        None if !held.spare && held.upgraded => MachinePrompt::RepackOnlyWeapon,
+        None if !hands_free => MachinePrompt::NoPrompt,
+        None if held.upgraded => {
+            let (tap, hold) = (held.ammo_mod_room, held.free_mount);
+            if !tap && !hold {
+                MachinePrompt::NoPrompt
+            } else if held.spare {
+                MachinePrompt::Repack { tap, hold }
+            } else {
+                MachinePrompt::RepackOnlyWeapon { tap, hold }
+            }
+        }
         None if !held.spare => MachinePrompt::OnlyWeapon,
-        None if held.upgraded => MachinePrompt::Repack,
         None => MachinePrompt::Upgrade,
     }
 }
@@ -94,6 +105,17 @@ pub fn machine_prompt(power_on: bool, inside: Option<Stage>, held: Held, hands_f
 /// the Player's stat entries.
 pub fn machine_price(base: u64, player: &[Modifier]) -> u64 {
     resolve_points(Stat::PackAPunchPrice, base, player)
+}
+
+/// What the machine does to a Weapon put inside.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Work {
+    Upgrade,
+    /// A tap Repack, its Ammo Mod picked by the roll in [0, 1), room allowing on a Weapon that
+    /// holds the given number of Ammo Mods.
+    AmmoMod(f32, usize),
+    /// A hold Repack, its mount and Attachment picked by the rolls in [0, 1).
+    Attachment(f32, f32),
 }
 
 /// A Weapon inside the machine, already in its Upgraded form.
@@ -119,12 +141,15 @@ impl PackAPunch {
         self.inside.as_ref().map(|inside| stage(inside.elapsed))
     }
 
-    /// Take in a Weapon and start working on it. It comes out Upgraded, or, if it was already,
-    /// Repacked with an Ammo Mod picked by `roll` in [0, 1) (room allowing, of `slots`); either
-    /// way with full ammo.
-    pub fn insert(&mut self, weapon: WeaponCopy, roll: f32, slots: usize) {
+    /// Take in a Weapon and start working on it. It comes out Upgraded, or Repacked with an Ammo
+    /// Mod or an Attachment; either way with full ammo.
+    pub fn insert(&mut self, weapon: WeaponCopy, work: Work) {
         debug_assert!(self.inside.is_none(), "one Weapon at a time");
-        let weapon = if weapon.upgraded { weapon.repack(roll, slots) } else { weapon.upgrade() };
+        let weapon = match work {
+            Work::Upgrade => weapon.upgrade(),
+            Work::AmmoMod(roll, slots) => weapon.repack(roll, slots),
+            Work::Attachment(mount_roll, attachment_roll) => weapon.repack_attachment(mount_roll, attachment_roll),
+        };
         self.inside = Some(Inside { weapon, elapsed: 0.0 });
     }
 
@@ -213,26 +238,34 @@ fn spawn_machine(
     ));
 }
 
-/// A bought upgrade takes the Weapon in hand and brings up the other; a used Ready machine hands
-/// the Upgraded Weapon back.
+/// A bought upgrade or Repack takes the Weapon in hand and brings up the other; a used Ready
+/// machine hands the Upgraded Weapon back.
 fn use_machine(
     mut purchases: MessageReader<Purchased>,
+    mut holds: MessageReader<HoldPurchased>,
     mut machines: Query<&mut PackAPunch>,
     player: Single<(&mut Loadout, &Modifiers), With<Player>>,
 ) {
     let (mut loadout, modifiers) = player.into_inner();
     let slots = ammo_mod_slots(&modifiers.0);
-    for Purchased(entity) in purchases.read() {
-        let Ok(mut machine) = machines.get_mut(*entity) else { continue };
+    let taps = purchases.read().map(|Purchased(entity)| (*entity, false));
+    let held = holds.read().map(|HoldPurchased(entity)| (*entity, true));
+    for (entity, hold) in taps.chain(held).collect::<Vec<_>>() {
+        let Ok(mut machine) = machines.get_mut(entity) else { continue };
         match machine.stage() {
             None => {
-                if workable(loadout.held(), slots)
-                    && let Some(weapon) = loadout.take_held()
-                {
-                    machine.insert(weapon, rand::random(), slots);
+                let copy = loadout.held();
+                let work = match (copy.upgraded, hold) {
+                    (false, false) => Work::Upgrade,
+                    (true, false) if copy.ammo_mods.has_room(slots) => Work::AmmoMod(rand::random(), slots),
+                    (true, true) if copy.has_free_mount() => Work::Attachment(rand::random(), rand::random()),
+                    _ => continue,
+                };
+                if let Some(weapon) = loadout.take_held() {
+                    machine.insert(weapon, work);
                 }
             }
-            Some(Stage::Ready) => {
+            Some(Stage::Ready) if !hold => {
                 if let Some(weapon) = machine.take() {
                     loadout.give_copy(weapon);
                 }
@@ -242,22 +275,24 @@ fn use_machine(
     }
 }
 
-/// Whether the machine has work for this Weapon: an upgrade, or a tap Repack while it has room
-/// for another of its `slots` Ammo Mods.
-fn workable(weapon: &WeaponCopy, slots: usize) -> bool {
-    !weapon.upgraded || weapon.ammo_mods.has_room(slots)
-}
-
 fn run_machine(mut machines: Query<&mut PackAPunch>, time: Res<Time>) {
     for mut machine in &mut machines {
         machine.advance(time.delta_secs());
     }
 }
 
-/// The machine owns its Buyable, so it keeps the Prompt, price and refusal current.
+/// The machine owns its Buyable, so it keeps the Prompt, price and refusal current, and the hold
+/// half of a Repack with them.
 fn prompt_machine(
     mut commands: Commands,
-    mut machines: Query<(Entity, &PackAPunch, &Transform, Option<&mut Buyable>, Has<Refused>)>,
+    mut machines: Query<(
+        Entity,
+        &PackAPunch,
+        &Transform,
+        Option<&mut Buyable>,
+        Option<&mut HoldBuy>,
+        Has<Refused>,
+    )>,
     player: Single<(&Loadout, &Modifiers, Has<Drinking>), With<Player>>,
     power: Res<Power>,
 ) {
@@ -266,30 +301,66 @@ fn prompt_machine(
     let held = Held {
         upgraded: copy.upgraded,
         ammo_mod_room: copy.ammo_mods.has_room(ammo_mod_slots(&modifiers.0)),
+        free_mount: copy.has_free_mount(),
         spare: loadout.has_spare(),
     };
-    let upgrade_price = machine_price(PAP_PRICE, &modifiers.0);
-    let repack_cost = machine_price(repack_price(copy.repacks), &modifiers.0);
-    let repack = "Press F to Repack your Weapon";
-    for (entity, machine, transform, buyable, refused) in &mut machines {
+    let tap_prompt = "Press F to Repack your Weapon".to_string();
+    let hold_prompt = "Hold F to Repack an Attachment".to_string();
+    let price = |base| machine_price(base, &modifiers.0);
+    let upgrade_price = price(PAP_PRICE);
+    let (tap_price, hold_price) = (price(repack_price(copy.repacks)), price(attachment_repack_price(copy.repacks)));
+    for (entity, machine, transform, buyable, hold_buy, refused) in &mut machines {
         let want = machine_prompt(power.is_on(), machine.stage(), held, !drinking);
+        // The hold half, if this Prompt has one, and whether a tap buys alongside it.
+        let mut hold = None;
         let (prompt, price, refuse) = match want {
             MachinePrompt::NoPrompt => {
                 if buyable.is_some() {
-                    commands.entity(entity).remove::<(Buyable, Refused)>();
+                    commands.entity(entity).remove::<(Buyable, HoldBuy, Refused)>();
                 }
                 continue;
             }
             MachinePrompt::NeedsPower => ("You must turn on the Power first".to_string(), None, true),
             MachinePrompt::Upgrade => ("Press F to Pack-a-Punch your Weapon".to_string(), Some(upgrade_price), false),
             MachinePrompt::OnlyWeapon => ("Press F to Pack-a-Punch your Weapon".to_string(), Some(upgrade_price), true),
-            MachinePrompt::Repack => (repack.to_string(), Some(repack_cost), false),
-            MachinePrompt::RepackOnlyWeapon => (repack.to_string(), Some(repack_cost), true),
+            MachinePrompt::Repack { tap, hold: holds } | MachinePrompt::RepackOnlyWeapon { tap, hold: holds } => {
+                let refuse = matches!(want, MachinePrompt::RepackOnlyWeapon { .. });
+                if holds {
+                    hold = Some(tap);
+                }
+                // With only the hold on offer, the Prompt's own line is the hold's.
+                if tap {
+                    (tap_prompt.clone(), Some(tap_price), refuse)
+                } else {
+                    (hold_prompt.clone(), Some(hold_price), refuse)
+                }
+            }
             MachinePrompt::Take => {
                 let name = machine.inside.as_ref().map_or("", |inside| inside.weapon.stats().name);
                 (format!("Press F to take {name}"), None, false)
             }
         };
+        match (hold, hold_buy) {
+            (Some(tap), Some(mut hold_buy)) => {
+                if hold_buy.tap != tap {
+                    hold_buy.tap = tap;
+                }
+                if hold_buy.price != Some(hold_price) {
+                    hold_buy.price = Some(hold_price);
+                }
+            }
+            (Some(tap), None) => {
+                commands.entity(entity).insert(HoldBuy {
+                    prompt: hold_prompt.clone(),
+                    price: Some(hold_price),
+                    tap,
+                });
+            }
+            (None, Some(_)) => {
+                commands.entity(entity).remove::<HoldBuy>();
+            }
+            (None, None) => {}
+        }
         match buyable {
             Some(mut buyable) => {
                 if buyable.prompt != prompt {
@@ -424,7 +495,7 @@ mod tests {
 
     fn machine_with_m14() -> PackAPunch {
         let mut machine = PackAPunch::default();
-        machine.insert(WeaponCopy::new(WeaponId::M14), 0.0, MAX_AMMO_MODS);
+        machine.insert(WeaponCopy::new(WeaponId::M14), Work::Upgrade);
         machine
     }
 
@@ -463,6 +534,7 @@ mod tests {
     const FRESH: Held = Held {
         upgraded: false,
         ammo_mod_room: true,
+        free_mount: true,
         spare: true,
     };
 
@@ -484,6 +556,7 @@ mod tests {
         let full = Held {
             upgraded: true,
             ammo_mod_room: false,
+            free_mount: false,
             ..FRESH
         };
         assert_eq!(machine_prompt(true, None, full, true), MachinePrompt::NoPrompt);
@@ -493,10 +566,51 @@ mod tests {
     #[test]
     fn an_upgraded_weapon_with_room_is_offered_a_repack() {
         let upgraded = Held { upgraded: true, ..FRESH };
-        assert_eq!(machine_prompt(true, None, upgraded, true), MachinePrompt::Repack);
+        let both = MachinePrompt::Repack { tap: true, hold: true };
+        assert_eq!(machine_prompt(true, None, upgraded, true), both);
         assert_eq!(machine_prompt(false, None, upgraded, true), MachinePrompt::NeedsPower);
         let only = Held { spare: false, ..upgraded };
-        assert_eq!(machine_prompt(true, None, only, true), MachinePrompt::RepackOnlyWeapon);
+        assert_eq!(
+            machine_prompt(true, None, only, true),
+            MachinePrompt::RepackOnlyWeapon { tap: true, hold: true }
+        );
+    }
+
+    #[test]
+    fn each_half_of_the_repack_shows_while_the_weapon_has_room_for_it() {
+        let upgraded = Held { upgraded: true, ..FRESH };
+        let no_mods = Held {
+            ammo_mod_room: false,
+            ..upgraded
+        };
+        assert_eq!(machine_prompt(true, None, no_mods, true), MachinePrompt::Repack { tap: false, hold: true });
+        // Mustang & Sally, launchers and the wonder Weapons never have a free mount.
+        let no_mounts = Held {
+            free_mount: false,
+            ..upgraded
+        };
+        assert_eq!(machine_prompt(true, None, no_mounts, true), MachinePrompt::Repack { tap: true, hold: false });
+    }
+
+    #[test]
+    fn a_hold_repack_adds_an_attachment_and_both_kinds_raise_the_price() {
+        let mut machine = PackAPunch::default();
+        let mut mnesia = WeaponCopy::new(WeaponId::M14).upgrade();
+        assert_eq!(attachment_repack_price(mnesia.repacks), 2000);
+        mnesia.magazine = 0;
+        // The Underbarrel mount, then its first Attachment: the Masterkey.
+        machine.insert(mnesia, Work::Attachment(0.7, 0.0));
+        machine.advance(PAP_PROCESS_SECS);
+        let once = machine.take().expect("ready to take");
+        assert_eq!(once.attachments, [crate::attachment::Attachment::Masterkey]);
+        assert_eq!((once.repacks, once.magazine), (1, 16), "full ammo, as out of the upgrade");
+        assert_eq!(once.underbarrel.map(|underbarrel| underbarrel.magazine), Some(6));
+        assert_eq!(attachment_repack_price(once.repacks), 3000);
+
+        // A tap Repack counts too.
+        let twice = once.repack(0.0, MAX_AMMO_MODS);
+        assert_eq!(attachment_repack_price(twice.repacks), 4000);
+        assert_eq!(repack_price(twice.repacks), 4500);
     }
 
     #[test]
@@ -504,7 +618,7 @@ mod tests {
         let mut machine = PackAPunch::default();
         let mut mnesia = WeaponCopy::new(WeaponId::M14).upgrade();
         mnesia.magazine = 0;
-        machine.insert(mnesia, 0.0, MAX_AMMO_MODS);
+        machine.insert(mnesia, Work::AmmoMod(0.0, MAX_AMMO_MODS));
         assert_eq!(machine.stage(), Some(Stage::Processing), "the same flow as the upgrade");
         machine.advance(PAP_PROCESS_SECS);
         let once = machine.take().expect("ready to take");
@@ -514,13 +628,12 @@ mod tests {
 
         let twice = once.repack(0.99, MAX_AMMO_MODS);
         assert_eq!(twice.ammo_mods.len(), 2);
-        assert!(!twice.ammo_mods.has_room(MAX_AMMO_MODS));
-        assert!(!workable(&twice, MAX_AMMO_MODS), "no third Ammo Mod");
+        assert!(!twice.ammo_mods.has_room(MAX_AMMO_MODS), "no third Ammo Mod");
         let unchanged = twice.repack(0.5, MAX_AMMO_MODS);
         assert_eq!((unchanged.ammo_mods.len(), unchanged.repacks), (2, 2));
 
         // With a third slot, there's room for one more.
-        assert!(workable(&unchanged, 3));
+        assert!(unchanged.ammo_mods.has_room(3));
         let thrice = unchanged.repack(0.5, 3);
         assert_eq!((thrice.ammo_mods.len(), thrice.repacks), (3, 3));
     }

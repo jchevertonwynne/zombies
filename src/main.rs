@@ -3,6 +3,7 @@
 
 mod ammo_mod;
 mod arsenal;
+mod attachment;
 mod audio;
 mod barrier;
 mod buy;
@@ -13,6 +14,7 @@ mod door;
 mod equipment;
 mod explosive;
 mod gauntlet;
+mod hellhound;
 mod hud;
 mod last_stand;
 mod layers;
@@ -72,6 +74,7 @@ fn main() {
             buy::BuyPlugin,
             player::PlayerPlugin,
             weapon::WeaponPlugin,
+            attachment::AttachmentPlugin,
             // Buying and carrying beyond the starting Weapon.
             (
                 wall_weapon::WallWeaponPlugin,
@@ -80,7 +83,7 @@ fn main() {
                 explosive::ExplosivePlugin,
                 wonder::WonderPlugin,
             ),
-            zombie::ZombiePlugin,
+            (zombie::ZombiePlugin, hellhound::HellhoundPlugin),
             round::RoundPlugin,
             points::PointsPlugin,
             stats::StatsPlugin,

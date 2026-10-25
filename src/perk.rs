@@ -104,7 +104,7 @@ impl Perk {
         }
     }
 
-    fn colour(self) -> Color {
+    pub fn colour(self) -> Color {
         match self {
             Perk::Juggernog => Color::srgb(0.75, 0.1, 0.1),
             Perk::SpeedCola => Color::srgb(0.1, 0.6, 0.2),

@@ -2,8 +2,7 @@
 //! module (Appendix A1); this module holds their shape.
 
 use crate::tuning::{
-    PENETRATION_DAMAGE_FACTOR, PENETRATION_LARGE, PENETRATION_MEDIUM, PENETRATION_SMALL, UPGRADED_WEAPONS,
-    WEAPON_HANDLING, WEAPONS,
+    PENETRATION_LARGE, PENETRATION_MEDIUM, PENETRATION_SMALL, UPGRADED_WEAPONS, WEAPON_HANDLING, WEAPONS,
 };
 use crate::zombie::HitZone;
 
@@ -172,11 +171,6 @@ impl Penetration {
             Penetration::Large => PENETRATION_LARGE,
         }
     }
-}
-
-/// The damage factor on a bullet that has already passed through `passed` Zombies.
-pub fn penetration_factor(passed: u32) -> f32 {
-    PENETRATION_DAMAGE_FACTOR.powi(passed as i32)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

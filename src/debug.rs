@@ -4,6 +4,7 @@ use bevy::prelude::*;
 
 use crate::arsenal::WeaponId;
 use crate::equipment::Equipment;
+use crate::hud::overlay::{Overlay, Overlays};
 use crate::player::Player;
 use crate::power_up::DropPowerUp;
 use crate::state::Pause;
@@ -26,7 +27,7 @@ pub struct DebugView(pub bool);
 
 /// F1 toggles the debug view. F2 grants the next debug Weapon. F3 grants Monkey Bombs, as the
 /// Mystery Box would. F6 Pack-a-Punches the Weapon in hand. F7 drops the next Power-up from the
-/// bag just ahead of the Player.
+/// bag just ahead of the Player. F8 pulses the next effect overlay.
 pub struct DebugPlugin;
 
 impl Plugin for DebugPlugin {
@@ -60,6 +61,12 @@ impl Plugin for DebugPlugin {
                 drop_power_up
                     .run_if(in_state(Pause::Running))
                     .run_if(input_just_pressed(KeyCode::F7)),
+            )
+            .add_systems(
+                Update,
+                pulse_overlay
+                    .run_if(in_state(Pause::Running))
+                    .run_if(input_just_pressed(KeyCode::F8)),
             );
     }
 }
@@ -88,9 +95,17 @@ fn drop_power_up(player: Single<&Transform, With<Player>>, mut drops: MessageWri
     let feet = player.translation.y - (crate::tuning::PLAYER_RADIUS + crate::tuning::PLAYER_CAPSULE_LENGTH / 2.0);
     drops.write(DropPowerUp {
         at: Vec3::new(player.translation.x + ahead.x, feet, player.translation.z + ahead.z),
+        power_up: None,
     });
 }
 
 fn grant_monkey_bombs(mut equipment: Single<&mut Equipment, With<Player>>) {
     equipment.take_monkey_bombs();
+}
+
+/// Pulses the effect overlays whose sources aren't built yet, one per press, to see each.
+fn pulse_overlay(mut overlays: ResMut<Overlays>, mut next: Local<usize>) {
+    const TRIED: [Overlay; 3] = [Overlay::Shellshock, Overlay::NapalmHeat, Overlay::TeleporterDaze];
+    overlays.pulse(TRIED[*next % TRIED.len()], 1.0, 4.0);
+    *next += 1;
 }

@@ -43,6 +43,82 @@ pub struct Refused;
 #[derive(Component)]
 pub struct Held;
 
+/// The hold half of a Buyable, like a Repack's Attachment: holding the Use key for
+/// `HOLD_BUY_SECS` buys this instead of the Buyable, and its owner hears `HoldPurchased`. While a
+/// Buyable has one, a tap buys on release rather than on press, so a hold never also taps. Its
+/// owner rewrites it every frame, like the Buyable, and `Refused` refuses both halves.
+#[derive(Component)]
+pub struct HoldBuy {
+    pub prompt: String,
+    pub price: Option<u64>,
+    /// Whether a tap still buys the Buyable itself. Without it only the hold is offered.
+    pub tap: bool,
+}
+
+/// The Player held the Use key on this Buyable's hold half and bought it.
+#[derive(Message)]
+pub struct HoldPurchased(pub Entity);
+
+/// What the Use key did on a Buyable with a hold half.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Press<T> {
+    /// Nothing yet: not pressed, still being held, or already spent.
+    Nothing,
+    /// Let go before `HOLD_BUY_SECS`.
+    Tap(T),
+    /// Held for `HOLD_BUY_SECS`.
+    Hold(T),
+}
+
+/// The Use key held on a Buyable with a hold half.
+#[derive(Resource, Debug)]
+pub struct HoldTimer<T> {
+    /// The Buyable it's held on, and for how long.
+    holding: Option<(T, f32)>,
+    /// Whether this hold has already bought, so it waits for the key to come up.
+    spent: bool,
+}
+
+impl<T> Default for HoldTimer<T> {
+    fn default() -> Self {
+        Self {
+            holding: None,
+            spent: false,
+        }
+    }
+}
+
+impl<T: PartialEq + Copy> HoldTimer<T> {
+    /// Advances by `dt`, with the Use key `pressed` while the Prompt belongs to `target` (`None`
+    /// for no Buyable with a hold half). Letting go early is a tap; holding for `HOLD_BUY_SECS` is
+    /// a hold, once. Looking away throws the press away.
+    pub fn advance(&mut self, target: Option<T>, pressed: bool, dt: f32) -> Press<T> {
+        let Some(target) = target else {
+            *self = Self::default();
+            return Press::Nothing;
+        };
+        if !pressed {
+            let tapped = matches!(self.holding, Some((held, _)) if held == target) && !self.spent;
+            *self = Self::default();
+            return if tapped { Press::Tap(target) } else { Press::Nothing };
+        }
+        let secs = match self.holding {
+            Some((held, secs)) if held == target => secs + dt,
+            _ => {
+                self.spent = false;
+                0.0
+            }
+        };
+        self.holding = Some((target, secs));
+        if secs >= HOLD_BUY_SECS && !self.spent {
+            self.spent = true;
+            Press::Hold(target)
+        } else {
+            Press::Nothing
+        }
+    }
+}
+
 /// The Player tried to buy something its owner refuses.
 #[derive(Message)]
 pub struct BuyRefused;
@@ -131,13 +207,15 @@ pub struct BuyPlugin;
 impl Plugin for BuyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Focus>()
+            .init_resource::<HoldTimer<Entity>>()
             .add_message::<Purchased>()
+            .add_message::<HoldPurchased>()
             .add_message::<CantAfford>()
             .add_message::<BuyRefused>()
             .add_systems(OnEnter(GameState::GameOver), |mut focus: ResMut<Focus>| focus.0 = None)
             .add_systems(
                 Update,
-                (focus, buy.run_if(in_state(Pause::Running)))
+                (focus, (buy, hold_buy).run_if(in_state(Pause::Running)))
                     .chain()
                     .run_if(in_state(GameState::Playing)),
             );
@@ -175,7 +253,8 @@ fn focus(
 pub fn buy(
     input: Res<ButtonInput<KeyCode>>,
     focus: Res<Focus>,
-    buyables: Query<(&Buyable, Has<Refused>), Without<Held>>,
+    // A Buyable with a hold half buys through `hold_buy`.
+    buyables: Query<(&Buyable, Has<Refused>), (Without<Held>, Without<HoldBuy>)>,
     down: Single<Has<LastStand>, With<Player>>,
     pause: Res<State<Pause>>,
     mut points: ResMut<Points>,
@@ -206,9 +285,87 @@ pub fn buy(
     }
 }
 
+/// The Use key on a Buyable with a hold half: a tap buys the Buyable on release, a hold buys the
+/// hold half. Both go through the same affordability check, spending and refusals as `buy`.
+fn hold_buy(
+    input: Res<ButtonInput<KeyCode>>,
+    focus: Res<Focus>,
+    buyables: Query<(&Buyable, &HoldBuy, Has<Refused>)>,
+    down: Single<Has<LastStand>, With<Player>>,
+    pause: Res<State<Pause>>,
+    time: Res<Time>,
+    mut timer: ResMut<HoldTimer<Entity>>,
+    mut points: ResMut<Points>,
+    mut purchased: MessageWriter<Purchased>,
+    mut held: MessageWriter<HoldPurchased>,
+    mut cant_afford: MessageWriter<CantAfford>,
+    mut refusals: MessageWriter<BuyRefused>,
+) {
+    let target = focus.0.filter(|entity| buyables.contains(*entity));
+    let (entity, hold) = match timer.advance(target, input.pressed(KeyCode::KeyF), time.delta_secs()) {
+        Press::Nothing => return,
+        Press::Tap(entity) => (entity, false),
+        Press::Hold(entity) => (entity, true),
+    };
+    let Ok((buyable, hold_buy, refused)) = buyables.get(entity) else { return };
+    if !hold && !hold_buy.tap {
+        return;
+    }
+    let price = if hold { hold_buy.price } else { buyable.price };
+    match decide(buyer(&points, *down, &pause), price, true).refused_if(refused) {
+        Decision::Buy => {
+            if let Some(price) = price {
+                points.spend(price);
+            }
+            if hold {
+                held.write(HoldPurchased(entity));
+            } else {
+                purchased.write(Purchased(entity));
+            }
+        }
+        Decision::CantAfford => {
+            cant_afford.write(CantAfford);
+        }
+        Decision::Refused => {
+            refusals.write(BuyRefused);
+        }
+        Decision::NoPrompt => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn letting_go_early_is_a_tap() {
+        let mut timer = HoldTimer::default();
+        assert_eq!(timer.advance(Some(1), true, 0.0), Press::Nothing);
+        assert_eq!(timer.advance(Some(1), true, HOLD_BUY_SECS / 2.0), Press::Nothing);
+        assert_eq!(timer.advance(Some(1), false, 0.016), Press::Tap(1));
+        assert_eq!(timer.advance(Some(1), false, 0.016), Press::Nothing, "once");
+    }
+
+    #[test]
+    fn holding_buys_the_hold_half_once_and_never_taps() {
+        let mut timer = HoldTimer::default();
+        timer.advance(Some(1), true, 0.0);
+        assert_eq!(timer.advance(Some(1), true, HOLD_BUY_SECS), Press::Hold(1));
+        assert_eq!(timer.advance(Some(1), true, 5.0), Press::Nothing, "still held, already bought");
+        assert_eq!(timer.advance(Some(1), false, 0.016), Press::Nothing, "letting go isn't a tap");
+        // A fresh press starts over.
+        timer.advance(Some(1), true, 0.0);
+        assert_eq!(timer.advance(Some(1), true, HOLD_BUY_SECS), Press::Hold(1));
+    }
+
+    #[test]
+    fn looking_away_throws_the_press_away() {
+        let mut timer = HoldTimer::default();
+        timer.advance(Some(1), true, HOLD_BUY_SECS * 0.9);
+        assert_eq!(timer.advance(None, true, 0.1), Press::Nothing);
+        assert_eq!(timer.advance(Some(1), true, 0.1), Press::Nothing, "the hold starts over");
+        assert_eq!(timer.advance(Some(2), false, 0.0), Press::Nothing, "a tap belongs to one Buyable");
+    }
 
     fn buyer(points: u64) -> Buyer {
         Buyer {

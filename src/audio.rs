@@ -9,12 +9,13 @@ use bevy::audio::Volume;
 use bevy::prelude::*;
 
 use crate::barrier::{PlankRebuilt, PlankTorn};
-use crate::buy::{BuyRefused, CantAfford, Purchased};
+use crate::buy::{BuyRefused, CantAfford, HoldPurchased, Purchased};
+use crate::hellhound::{HellhoundBite, Telegraph};
 use crate::player::PlayerCamera;
 use crate::power_up::PowerUpTaken;
-use crate::round::RoundStarted;
+use crate::round::{Round, RoundStarted};
 use crate::weapon::ShotFired;
-use crate::zombie::{ZombieHit, ZombieKilled};
+use crate::zombie::{Dying, Zombie, ZombieHit, ZombieKilled};
 use cues::{AUDIO_DIR, Cue, Mix};
 
 /// Distance between the Player's ears, in metres, for spatial cues.
@@ -57,7 +58,7 @@ impl Plugin for AudioPlugin {
         }
 
         app.add_systems(Startup, load_sounds)
-            .add_systems(Update, (add_listener, play_sounds));
+            .add_systems(Update, (add_listener, play_sounds, play_hound_sounds));
     }
 }
 
@@ -122,11 +123,13 @@ fn play_sounds(
     mut kills: MessageReader<ZombieKilled>,
     mut rounds: MessageReader<RoundStarted>,
     mut purchases: MessageReader<Purchased>,
+    mut holds: MessageReader<HoldPurchased>,
     mut cant_afford: MessageReader<CantAfford>,
     mut refusals: MessageReader<BuyRefused>,
     mut torn: MessageReader<PlankTorn>,
     mut rebuilt: MessageReader<PlankRebuilt>,
     mut power_ups: MessageReader<PowerUpTaken>,
+    round: Option<Res<Round>>,
 ) {
     for _ in shots.read() {
         sounds.play(&mut commands, Cue::GunshotPistol, None);
@@ -138,9 +141,15 @@ fn play_sounds(
         sounds.play(&mut commands, Cue::Kill, None);
     }
     for _ in rounds.read() {
-        sounds.play(&mut commands, Cue::RoundStart, None);
+        // A Hellhound Round opens with thunder and the announcer instead.
+        if round.as_ref().is_some_and(|round| round.hellhound.is_some()) {
+            sounds.play(&mut commands, Cue::HellhoundRoundStart, None);
+            sounds.play(&mut commands, Cue::AnnouncerHellhoundRound, None);
+        } else {
+            sounds.play(&mut commands, Cue::RoundStart, None);
+        }
     }
-    for _ in purchases.read() {
+    for _ in 0..purchases.read().count() + holds.read().count() {
         sounds.play(&mut commands, Cue::Buy, None);
     }
     for plank in torn.read() {
@@ -155,5 +164,26 @@ fn play_sounds(
     // Not affording a buy and a refused buy share the buzzer.
     for _ in 0..cant_afford.read().count() + refusals.read().count() {
         sounds.play(&mut commands, Cue::CantAfford, None);
+    }
+}
+
+/// A hound's lightning strike, its bites and its death yelp.
+fn play_hound_sounds(
+    mut commands: Commands,
+    mut sounds: ResMut<Sounds>,
+    strikes: Query<&Transform, Added<Telegraph>>,
+    deaths: Query<(&Zombie, &Transform), Added<Dying>>,
+    mut bites: MessageReader<HellhoundBite>,
+) {
+    for at in &strikes {
+        sounds.play(&mut commands, Cue::HoundSpawn, Some(at.translation));
+    }
+    for _ in bites.read() {
+        sounds.play(&mut commands, Cue::HoundBite, None);
+    }
+    for (zombie, at) in &deaths {
+        if zombie.is_hellhound() {
+            sounds.play(&mut commands, Cue::HoundDeath, Some(at.translation));
+        }
     }
 }
