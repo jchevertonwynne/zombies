@@ -45,6 +45,9 @@ _Avoid_: AAT, alternate ammo type, enchantment
 **Attachment**: A part fitted to one mount of an Upgraded Weapon, such as its optic or magazine, that changes how it handles. A Weapon holds at most one per mount.
 _Avoid_: mod, add-on
 
+**Underbarrel**: A second gun under an Upgraded Weapon's barrel, with its own ammo, that the Player switches to and fires instead of the main gun. It is either an Attachment or built into the Weapon, like the Masterkey.
+_Avoid_: alt-fire weapon, underslung
+
 **Wall Weapon**: A Weapon bought from its chalk outline on a wall. The same chalk sells ammo for that Weapon.
 _Avoid_: wall buy, chalk gun
 
