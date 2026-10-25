@@ -758,6 +758,8 @@ pub const USE_ANGLE: f32 = 45.0_f32.to_radians();
 /// A Door's range override: its use point sits mid-Door, so this reaches the Door's full width.
 pub const DOOR_USE_RANGE: f32 = USE_RANGE + 1.2;
 pub const CANT_AFFORD_FLASH_SECS: f32 = 0.5;
+/// An ammo buy costs half the Wall Weapon's price, rounded up to a multiple of this.
+pub const AMMO_PRICE_STEP: u64 = 10;
 
 
 // Settings

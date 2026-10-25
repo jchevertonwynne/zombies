@@ -117,8 +117,36 @@ impl Loadout {
     }
 
     pub fn magazine_size(&self, player: &[Modifier]) -> u32 {
-        let base = self.held().stats().magazine;
-        resolve_count(Stat::MagazineSize, base, player.iter().chain(&self.held().modifiers))
+        self.slot_magazine_size(self.held, player)
+    }
+
+    /// The Magazine size of the Weapon in a filled slot.
+    fn slot_magazine_size(&self, slot: usize, player: &[Modifier]) -> u32 {
+        let weapon = self.slot(slot).expect("a filled slot");
+        resolve_count(Stat::MagazineSize, weapon.stats().magazine, player.iter().chain(&weapon.modifiers))
+    }
+
+    /// The slot holding this Weapon, if the Player carries it.
+    pub fn slot_of(&self, id: WeaponId) -> Option<usize> {
+        self.slots.iter().position(|slot| slot.as_ref().is_some_and(|weapon| weapon.id == id))
+    }
+
+    /// Whether the Weapon in a filled slot has a full Magazine and full Reserve Ammo.
+    pub fn ammo_full(&self, slot: usize, player: &[Modifier]) -> bool {
+        let weapon = self.slot(slot).expect("a filled slot");
+        weapon.magazine >= self.slot_magazine_size(slot, player) && weapon.reserve >= weapon.stats().reserve_max
+    }
+
+    /// Fill the Magazine and Reserve Ammo of the Weapon in a filled slot, as an ammo buy does.
+    /// A Reload of that Weapon has nothing left to do, so it ends.
+    pub fn refill(&mut self, slot: usize, player: &[Modifier]) {
+        let size = self.slot_magazine_size(slot, player);
+        let weapon = self.slots[slot].as_mut().expect("a filled slot");
+        weapon.magazine = weapon.magazine.max(size);
+        weapon.reserve = weapon.reserve.max(weapon.stats().reserve_max);
+        if slot == self.held {
+            self.reload = None;
+        }
     }
 
     /// Damage per bullet at a distance, after falloff, before the hit zone and penetration.
@@ -739,6 +767,53 @@ mod tests {
             g11.try_fire(false, false, NONE);
         }
         assert_eq!(g11.held().magazine, 45);
+    }
+
+    #[test]
+    fn an_ammo_buy_fills_the_magazine_and_the_reserve() {
+        let mut loadout = Loadout::new(WeaponId::M1911);
+        loadout.give(WeaponId::M14);
+        assert_eq!(loadout.slot_of(WeaponId::M14), Some(1));
+        assert_eq!(loadout.slot_of(WeaponId::Mp40), None);
+
+        // A fresh M1911 has full Magazine but not full Reserve Ammo.
+        assert!(!loadout.ammo_full(0, NONE));
+        loadout.refill(0, NONE);
+        let m1911 = loadout.slot(0).unwrap();
+        assert_eq!((m1911.magazine, m1911.reserve), (8, 80));
+        assert!(loadout.ammo_full(0, NONE));
+    }
+
+    #[test]
+    fn ammo_is_full_only_when_both_magazine_and_reserve_are() {
+        let mut loadout = Loadout::new(WeaponId::M1911);
+        loadout.refill(0, NONE);
+        loadout.held_mut().magazine -= 1;
+        assert!(!loadout.ammo_full(0, NONE), "one bullet short in the Magazine");
+        loadout.refill(0, NONE);
+        loadout.held_mut().reserve -= 1;
+        assert!(!loadout.ammo_full(0, NONE), "one bullet short in the Reserve");
+    }
+
+    #[test]
+    fn refilling_the_weapon_in_hand_ends_its_reload() {
+        let mut loadout = Loadout::new(WeaponId::M1911);
+        loadout.held_mut().magazine = 2;
+        assert!(loadout.start_reload(NONE));
+        loadout.refill(0, NONE);
+        assert!(loadout.reload.is_none());
+        assert_eq!((loadout.held().magazine, loadout.held().reserve), (8, 80));
+    }
+
+    #[test]
+    fn a_weapon_buy_cancels_a_reload_and_comes_with_full_ammo() {
+        let mut loadout = Loadout::new(WeaponId::M1911);
+        loadout.held_mut().magazine = 2;
+        assert!(loadout.start_reload(NONE));
+        loadout.give(WeaponId::M14);
+        assert!(loadout.reload.is_none());
+        let m14 = loadout.held();
+        assert_eq!((m14.magazine, m14.reserve), (m14.stats().magazine, m14.stats().reserve_max));
     }
 
     #[test]

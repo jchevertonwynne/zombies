@@ -5,11 +5,13 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::arsenal::WeaponId;
 use crate::buy::Buyable;
 use crate::door::Door;
 use crate::layers::GameLayer;
 use crate::state::{GameState, InRun};
 use crate::tuning::*;
+use crate::wall_weapon::{WallWeapon, wall_price};
 use crate::zone::ZoneId;
 
 /// Where the Player's feet start: the middle of the Start Room, facing the Yard.
@@ -39,6 +41,23 @@ impl MapId {
         }
     }
 }
+
+/// How high a chalk outline's centre sits on its wall.
+const CHALK_HEIGHT: f32 = 1.5;
+
+/// The chalk outlines: each Wall Weapon, the Zone it's in, where on a wall's face its centre
+/// sits (x, z), and which way that face looks.
+const WALL_WEAPONS: [(WeaponId, ZoneId, Vec2, Vec2); 5] = [
+    // Either side of the Start Room's Yard Door, facing the Player at the start.
+    (WeaponId::M14, ZoneId::StartRoom, Vec2::new(-5.0, 14.2), Vec2::Y),
+    (WeaponId::Olympia, ZoneId::StartRoom, Vec2::new(5.0, 14.2), Vec2::Y),
+    // On the outer wall, between two Spawn Points.
+    (WeaponId::Mp40, ZoneId::WestHall, Vec2::new(-25.8, 10.0), Vec2::X),
+    // On the wall to the Yard.
+    (WeaponId::TrenchGun, ZoneId::EastHall, Vec2::new(14.2, 4.0), Vec2::X),
+    // On the solid Yard–Power Room wall, past the Gazebo.
+    (WeaponId::Ak74u, ZoneId::Yard, Vec2::new(11.0, -13.8), Vec2::Y),
+];
 
 /// A fixed place in the Map where Zombies enter play, in the Zone it serves.
 #[derive(Component)]
@@ -254,6 +273,41 @@ fn spawn_map(
         b.solid(Vec3::new(w, 1.1, d), Vec3::new(x, 0.55, z), &crate_mat);
     }
 
+    // Chalk outlines: a pale gun shape drawn on the wall, its Buyable just in front.
+    let chalk_mat = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.9, 0.9, 0.85),
+        perceptual_roughness: 1.0,
+        ..default()
+    });
+    let barrel = meshes.add(Cuboid::new(1.2, 0.12, 0.02));
+    let grip = meshes.add(Cuboid::new(0.12, 0.3, 0.02));
+    for (weapon, _, at, facing) in WALL_WEAPONS {
+        let price = wall_price(weapon).expect("only Wall Weapons go on walls");
+        let centre = Vec3::new(at.x, CHALK_HEIGHT, at.y);
+        let normal = Vec3::new(facing.x, 0.0, facing.y);
+        // Lay the outline flat against the wall, its length along the wall.
+        let rotation = Quat::from_rotation_arc(Vec3::Z, normal);
+        commands
+            .spawn((
+                InRun,
+                WallWeapon(weapon),
+                Buyable {
+                    use_point: centre + normal * 0.05,
+                    prompt: String::new(),
+                    price: Some(price),
+                    range: USE_RANGE,
+                },
+                Mesh3d(barrel.clone()),
+                MeshMaterial3d(chalk_mat.clone()),
+                Transform::from_translation(centre + normal * 0.01).with_rotation(rotation),
+            ))
+            .with_child((
+                Mesh3d(grip.clone()),
+                MeshMaterial3d(chalk_mat.clone()),
+                Transform::from_xyz(0.3, -0.2, 0.0),
+            ));
+    }
+
     // Spawn Points. Windows come with Barriers; until then indoor Zombies appear by the outer
     // walls, and Yard Zombies rise from the ground.
     for (zone, x, z) in [
@@ -310,5 +364,20 @@ fn spawn_map(
             },
             Transform::from_xyz(x, y, z),
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_chalk_outline_sits_in_its_zone() {
+        for (weapon, zone, at, _) in WALL_WEAPONS {
+            let (lo, hi) = zone.volume();
+            let inside = (lo.x..=hi.x).contains(&at.x) && (lo.z..=hi.z).contains(&at.y);
+            assert!(inside, "{weapon:?} is outside {}", zone.name());
+            assert!(wall_price(weapon).is_some(), "{weapon:?} is not a Wall Weapon");
+        }
     }
 }

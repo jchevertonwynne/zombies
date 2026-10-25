@@ -242,10 +242,6 @@ pub struct WeaponStats {
     pub name: &'static str,
     pub class: WeaponClass,
     pub fire: FireMode,
-    #[allow(
-        dead_code,
-        reason = "Wall Weapons and the Mystery Box arrive in later slices"
-    )]
     pub availability: Availability,
     /// Damage per bullet (pellet, or impact) up close, falling to `damage_min` at range.
     pub damage_max: f32,
