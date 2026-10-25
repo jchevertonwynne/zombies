@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use crate::door::Door;
 use crate::last_stand::LastStand;
 use crate::layers::GameLayer;
+use crate::modifier::{Modifiers, Stat, resolve};
 use crate::barrier::{Barriers, Entering};
 use crate::hellhound::{HellhoundBite, Telegraph};
 use crate::nav::{NavGraph, Route, repath_interval};
@@ -166,6 +167,24 @@ pub struct ZombieKilled {
     pub at: Vec3,
 }
 
+/// The damage side of a kill made by a hit, sent beside its `ZombieKilled` for rules that need
+/// it: the dead Zombie's max Health, and the damage beyond what it took to kill it.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct KillDamage {
+    pub zombie: Entity,
+    /// Where the Zombie's feet were when it died.
+    pub at: Vec3,
+    pub max_health: f32,
+    /// The hit's damage past the Health the Zombie had left. Infinite for a hit that always kills.
+    pub overflow: f32,
+    pub attack: Attack,
+}
+
+/// The damage a hit does past the Health its Zombie had left, before Insta-Kill.
+pub fn overflow_damage(health: f32, damage: f32) -> f32 {
+    (damage - health.max(0.0)).max(0.0)
+}
+
 /// A stuck or lost Zombie was quietly removed. It wasn't killed, so it goes back into the Horde.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct ZombieCleanedUp;
@@ -204,6 +223,8 @@ impl StuckWatch {
 #[derive(Component)]
 pub struct Zombie {
     health: f32,
+    /// The Health it spawned with.
+    max_health: f32,
     tier: SpeedTier,
     attack_cooldown: f32,
     /// Seconds left before a swing lands; `None` when not swinging.
@@ -229,6 +250,7 @@ impl Zombie {
     fn new(health: f32, tier: SpeedTier, at: Vec3) -> Self {
         Self {
             health,
+            max_health: health,
             tier,
             attack_cooldown: 0.0,
             wind_up: None,
@@ -435,6 +457,7 @@ impl Plugin for ZombiePlugin {
         app.add_message::<DamageZombie>()
             .add_message::<ZombieHit>()
             .add_message::<ZombieKilled>()
+            .add_message::<KillDamage>()
             .add_message::<ZombieCleanedUp>()
             .add_message::<KnockDown>()
             .add_message::<Gibbed>()
@@ -705,14 +728,14 @@ fn chase(
         (Entity, &mut Zombie, &mut Route, &mut Transform, &Collider, Option<&Lured>),
         (Without<Dying>, Without<Rising>, Without<KnockedDown>, Without<Entering>, Without<Telegraph>),
     >,
-    player: Single<(&Transform, Has<LastStand>), (With<Player>, Without<Zombie>)>,
+    player: Single<(&Transform, Has<LastStand>, &Modifiers), (With<Player>, Without<Zombie>)>,
     graph: Res<NavGraph>,
     doors: Query<&Door>,
     barriers: Res<Barriers>,
     move_and_slide: MoveAndSlide,
     time: Res<Time>,
 ) {
-    let (player, last_stand) = *player;
+    let (player, last_stand, modifiers) = *player;
     let dt = time.delta_secs();
     let player_feet = player.translation - Vec3::Y * (PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0);
     let open_doors: Vec<_> = doors.iter().filter(|door| door.open).filter_map(|door| door.joins).collect();
@@ -784,7 +807,8 @@ fn chase(
         if facing.length_squared() > 1e-4 {
             transform.rotation = Quat::from_rotation_y(f32::atan2(-facing.x, -facing.z));
         }
-        let stride = if planted { Vec3::ZERO } else { heading * zombie.speed() };
+        let speed = resolve(Stat::ZombieSpeed, zombie.speed(), &modifiers.0);
+        let stride = if planted { Vec3::ZERO } else { heading * speed };
         let velocity = stride + Vec3::Y * (zombie.fall_speed - GRAVITY * dt);
 
         let mut grounded = false;
@@ -1010,6 +1034,7 @@ pub fn apply_damage(
     mut hits: MessageWriter<ZombieHit>,
     mut kills: MessageWriter<ZombieKilled>,
     mut nova_kills: MessageWriter<NovaCrawlerKilled>,
+    mut kill_damage: MessageWriter<KillDamage>,
 ) {
     let insta_kill = power_ups.active(PowerUp::InstaKill);
     for request in requests.read() {
@@ -1020,6 +1045,7 @@ pub fn apply_damage(
         if zombie.health <= 0.0 {
             continue;
         }
+        let overflow = overflow_damage(zombie.health, request.damage);
         zombie.health -= if zombie.special == Some(SpecialKind::Napalm) {
             doubled_damage(request.damage, insta_kill)
         } else {
@@ -1042,12 +1068,20 @@ pub fn apply_damage(
         if let Some(rising) = rising {
             centre.y = rising.standing;
         }
+        let at = centre - Vec3::Y * zombie.half_height();
         kills.write(ZombieKilled {
             pay: request.attack.pay(),
             headshot: is_headshot(request.zone, request.attack),
             zone: request.zone,
             attack: request.attack,
-            at: centre - Vec3::Y * zombie.half_height(),
+            at,
+        });
+        kill_damage.write(KillDamage {
+            zombie: request.zombie,
+            at,
+            max_health: zombie.max_health,
+            overflow,
+            attack: request.attack,
         });
         if zombie.nova {
             nova_kills.write(NovaCrawlerKilled {
@@ -1217,6 +1251,14 @@ mod tests {
         assert_eq!(separation(Vec3::ZERO, [Vec3::new(3.0, 0.0, 0.0)]), Vec3::ZERO);
         let push = separation(Vec3::ZERO, [Vec3::new(0.5, 0.0, 0.0)]);
         assert!(push.x < 0.0 && push.y == 0.0 && push.z == 0.0);
+    }
+
+    #[test]
+    fn a_kill_overflows_by_the_damage_past_the_health_left() {
+        assert_eq!(overflow_damage(100.0, 150.0), 50.0);
+        assert_eq!(overflow_damage(100.0, 100.0), 0.0);
+        assert_eq!(overflow_damage(100.0, 40.0), 0.0);
+        assert_eq!(overflow_damage(100.0, f32::INFINITY), f32::INFINITY);
     }
 
     #[test]

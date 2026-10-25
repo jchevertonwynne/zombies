@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 use crate::last_stand::LastStand;
+use crate::modifier::{Modifiers, Stat, resolve};
 use crate::player::Player;
 use crate::state::GameState;
 use crate::tuning::*;
@@ -24,9 +25,16 @@ pub fn kill_points(kill: &ZombieKilled) -> u64 {
     }
 }
 
-/// What an award of `amount` really pays: twice as much while Double Points is on.
-pub fn award_amount(amount: u64, double: bool) -> u64 {
-    if double { amount.saturating_mul(2) } else { amount }
+/// What an award of `amount` really pays: twice as much while Double Points is on, and `extra`
+/// more multiples of it from stat entries, added to Double Points' rather than multiplied.
+pub fn award_amount(amount: u64, double: bool, extra: f32) -> u64 {
+    let rate = 1.0 + f64::from(extra.max(0.0)) + if double { 1.0 } else { 0.0 };
+    if rate.fract() == 0.0 {
+        amount.saturating_mul(rate as u64)
+    } else {
+        // A float-to-int cast saturates, so this never wraps either.
+        (amount as f64 * rate).round() as u64
+    }
 }
 
 #[derive(Resource, Default)]
@@ -37,12 +45,14 @@ pub struct Points {
     pub earned: u64,
     /// Whether Double Points is on, doubling every award. The Power-ups own it.
     pub double: bool,
+    /// Extra multiples of every award, from the Player's `Stat::PointsRate` entries.
+    pub extra_rate: f32,
 }
 
 impl Points {
     /// Pays an award, doubled while Double Points is on, and returns what was paid.
     pub fn award(&mut self, amount: u64) -> u64 {
-        let amount = award_amount(amount, self.double);
+        let amount = award_amount(amount, self.double, self.extra_rate);
         self.balance = self.balance.saturating_add(amount);
         self.earned = self.earned.saturating_add(amount);
         amount
@@ -82,7 +92,15 @@ impl Plugin for PointsPlugin {
                     ..default()
                 };
             })
-            .add_systems(Update, earn);
+            .add_systems(Update, (resolve_rate, earn).chain());
+    }
+}
+
+/// Every award's extra multiples follow the Player's stat entries.
+fn resolve_rate(player: Query<&Modifiers, With<Player>>, mut points: ResMut<Points>) {
+    let extra = resolve(Stat::PointsRate, 0.0, player.iter().flat_map(|modifiers| &modifiers.0));
+    if points.extra_rate != extra {
+        points.extra_rate = extra;
     }
 }
 
@@ -152,9 +170,9 @@ mod tests {
 
     #[test]
     fn double_points_doubles_every_award() {
-        assert_eq!(award_amount(60, false), 60);
-        assert_eq!(award_amount(60, true), 120);
-        assert_eq!(award_amount(u64::MAX, true), u64::MAX);
+        assert_eq!(award_amount(60, false, 0.0), 60);
+        assert_eq!(award_amount(60, true, 0.0), 120);
+        assert_eq!(award_amount(u64::MAX, true, 0.0), u64::MAX);
 
         let mut points = Points {
             double: true,
@@ -162,6 +180,15 @@ mod tests {
         };
         assert_eq!(points.award(400), 800);
         assert_eq!((points.balance, points.earned), (800, 800));
+    }
+
+    #[test]
+    fn an_extra_rate_adds_to_double_points_rather_than_multiplying() {
+        // One extra multiple: ×2, and ×3 (not ×4) during Double Points.
+        assert_eq!(award_amount(60, false, 1.0), 120);
+        assert_eq!(award_amount(60, true, 1.0), 180);
+        assert_eq!(award_amount(10, false, 0.5), 15);
+        assert_eq!(award_amount(u64::MAX, true, 1.0), u64::MAX);
     }
 
     #[test]

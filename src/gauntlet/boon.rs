@@ -4,6 +4,7 @@
 
 use bevy::prelude::*;
 
+use super::pact::{COLD_STEEL, ENDLESS_BELT, LIGHTNING_ROD, OPEN_BAR, OVERCLOCKED, PactRef};
 use crate::modifier::{Effect, Modifier, Source, Stat};
 use crate::power_up::PowerUp;
 use crate::tuning::*;
@@ -41,35 +42,6 @@ impl Rarity {
     }
 }
 
-/// A Pact a Requirement names, by stable ID and display name.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PactRef {
-    pub id: &'static str,
-    pub name: &'static str,
-}
-
-// The Pacts the Boons' Requirements name. The Pacts themselves arrive in their own slice.
-pub const ENDLESS_BELT: PactRef = PactRef {
-    id: "endless_belt",
-    name: "Endless Belt",
-};
-pub const OPEN_BAR: PactRef = PactRef {
-    id: "open_bar",
-    name: "Open Bar",
-};
-pub const LIGHTNING_ROD: PactRef = PactRef {
-    id: "lightning_rod",
-    name: "Lightning Rod",
-};
-pub const COLD_STEEL: PactRef = PactRef {
-    id: "cold_steel",
-    name: "Cold Steel",
-};
-pub const OVERCLOCKED: PactRef = PactRef {
-    id: "overclocked",
-    name: "Overclocked",
-};
-
 /// What must hold, when an Offer is drawn, for a Boon to be on it. A held Boon whose Requirement
 /// lapses stays held.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,7 +71,7 @@ impl Requirement {
         }
     }
 
-    fn holds(self, run: &RunFacts) -> bool {
+    pub fn holds(self, run: &RunFacts) -> bool {
         match self {
             Requirement::PowerOn => run.power_on,
             Requirement::NotPact(pact) => !run.held_pacts.contains(&pact.id),
@@ -111,10 +83,10 @@ impl Requirement {
     }
 }
 
-/// A card's Requirement line, or `None` for a Boon without one.
-pub fn requirement_line(boon: &BoonDef) -> Option<String> {
-    (!boon.requirements.is_empty()).then(|| {
-        let labels: Vec<_> = boon.requirements.iter().map(|r| r.label()).collect();
+/// A card's Requirement line, or `None` for a Boon or Pact without one.
+pub fn requirement_line(requirements: &[Requirement]) -> Option<String> {
+    (!requirements.is_empty()).then(|| {
+        let labels: Vec<_> = requirements.iter().map(|r| r.label()).collect();
         format!("Requires {}", labels.join("; "))
     })
 }
@@ -133,7 +105,7 @@ pub struct RunFacts {
     pub holds_upgraded: bool,
     /// A Weapon carried has an Ammo Mod.
     pub holds_ammo_mod: bool,
-    /// Every Boon counts as Unlocked (the debug key), until the Armory saves Unlocks.
+    /// Every Boon and Pact counts as Unlocked (the debug key), until the Armory saves Unlocks.
     pub unlock_all: bool,
 }
 
@@ -1313,13 +1285,13 @@ mod tests {
 
     #[test]
     fn cards_show_every_requirement() {
-        assert_eq!(requirement_line(named("hollow_points")), None);
+        assert_eq!(requirement_line(named("hollow_points").requirements), None);
         assert_eq!(
-            requirement_line(named("short_circuit")).as_deref(),
+            requirement_line(named("short_circuit").requirements).as_deref(),
             Some("Requires Power on; not Lightning Rod")
         );
         assert_eq!(
-            requirement_line(named("full_belt")).as_deref(),
+            requirement_line(named("full_belt").requirements).as_deref(),
             Some("Requires not Endless Belt")
         );
     }
@@ -1444,7 +1416,7 @@ mod tests {
 
     #[test]
     fn rare_cards_show_their_requirements() {
-        let line = |id| requirement_line(named(id)).unwrap();
+        let line = |id| requirement_line(named(id).requirements).unwrap();
         assert_eq!(line("loaded_dice"), "Requires used the Box once");
         assert_eq!(line("last_rites"), "Requires bought Quick Revive once");
         assert_eq!(line("double_punched"), "Requires holds an Upgraded Weapon");

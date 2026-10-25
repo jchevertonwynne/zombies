@@ -7,6 +7,7 @@
 use bevy::prelude::*;
 
 use crate::last_stand::LastStand;
+use crate::modifier::{Modifier, Modifiers, Stat, resolve_points};
 use crate::player::{Player, PlayerCamera};
 use crate::points::Points;
 use crate::state::{GameState, Pause};
@@ -166,6 +167,12 @@ pub fn can_afford(points: u64, price: Option<u64>) -> bool {
     price.is_none_or(|price| points >= price)
 }
 
+/// What the Player is really charged for an owner's `price`: every price goes through the
+/// Player's `Stat::Price` entries, so a rule can make everything dearer without touching owners.
+pub fn charged(price: Option<u64>, player: &[Modifier]) -> Option<u64> {
+    price.map(|price| resolve_points(Stat::Price, price, player))
+}
+
 /// What pressing Use on a Buyable does.
 pub fn decide(buyer: Buyer, price: Option<u64>, in_reach: bool) -> Decision {
     if buyer.blocked() || !in_reach {
@@ -255,7 +262,7 @@ pub fn buy(
     focus: Res<Focus>,
     // A Buyable with a hold half buys through `hold_buy`.
     buyables: Query<(&Buyable, Has<Refused>), (Without<Held>, Without<HoldBuy>)>,
-    down: Single<Has<LastStand>, With<Player>>,
+    player: Single<(Has<LastStand>, &Modifiers), With<Player>>,
     pause: Res<State<Pause>>,
     mut points: ResMut<Points>,
     mut purchased: MessageWriter<Purchased>,
@@ -267,10 +274,12 @@ pub fn buy(
     }
     let Some(entity) = focus.0 else { return };
     let Ok((buyable, refused)) = buyables.get(entity) else { return };
+    let (down, modifiers) = *player;
+    let price = charged(buyable.price, &modifiers.0);
     // Focus already holds only Buyables in reach.
-    match decide(buyer(&points, *down, &pause), buyable.price, true).refused_if(refused) {
+    match decide(buyer(&points, down, &pause), price, true).refused_if(refused) {
         Decision::Buy => {
-            if let Some(price) = buyable.price {
+            if let Some(price) = price {
                 points.spend(price);
             }
             purchased.write(Purchased(entity));
@@ -291,7 +300,7 @@ fn hold_buy(
     input: Res<ButtonInput<KeyCode>>,
     focus: Res<Focus>,
     buyables: Query<(&Buyable, &HoldBuy, Has<Refused>)>,
-    down: Single<Has<LastStand>, With<Player>>,
+    player: Single<(Has<LastStand>, &Modifiers), With<Player>>,
     pause: Res<State<Pause>>,
     time: Res<Time>,
     mut timer: ResMut<HoldTimer<Entity>>,
@@ -311,8 +320,9 @@ fn hold_buy(
     if !hold && !hold_buy.tap {
         return;
     }
-    let price = if hold { hold_buy.price } else { buyable.price };
-    match decide(buyer(&points, *down, &pause), price, true).refused_if(refused) {
+    let (down, modifiers) = *player;
+    let price = charged(if hold { hold_buy.price } else { buyable.price }, &modifiers.0);
+    match decide(buyer(&points, down, &pause), price, true).refused_if(refused) {
         Decision::Buy => {
             if let Some(price) = price {
                 points.spend(price);
@@ -423,6 +433,17 @@ mod tests {
         assert_eq!(decide(down, Some(250), true).refused_if(true), Decision::NoPrompt);
         // Too few Points still flashes them red.
         assert_eq!(decide(buyer(0), Some(250), true).refused_if(true), Decision::CantAfford);
+    }
+
+    #[test]
+    fn price_entries_make_every_price_dearer_but_leave_free_uses_free() {
+        use crate::modifier::{Effect, Source};
+        let dearer = [Modifier { stat: Stat::Price, source: Source("A"), effect: Effect::Mult(1.25) }];
+        assert_eq!(charged(Some(1000), &[]), Some(1000));
+        assert_eq!(charged(Some(1000), &dearer), Some(1250));
+        assert_eq!(charged(Some(950), &dearer), Some(1188));
+        assert_eq!(charged(Some(0), &dearer), Some(0));
+        assert_eq!(charged(None, &dearer), None);
     }
 
     #[test]

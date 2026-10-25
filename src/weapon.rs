@@ -78,6 +78,11 @@ impl WeaponCopy {
         resolve_count(Stat::ReserveSize, self.stats().reserve_max, &self.modifiers)
     }
 
+    /// The most Reserve Ammo it carries for the Player, after their entries and its own.
+    pub fn reserve_cap(&self, player: &[Modifier]) -> u32 {
+        resolve_count(Stat::ReserveSize, self.stats().reserve_max, player.iter().chain(&self.modifiers))
+    }
+
     /// Fill its Magazine, its Reserve Ammo and its Underbarrel's ammo.
     fn filled(self) -> Self {
         Self {
@@ -335,7 +340,7 @@ impl Loadout {
     pub fn ammo_full(&self, slot: usize, player: &[Modifier]) -> bool {
         let weapon = self.slot(slot).expect("a filled slot");
         weapon.magazine >= self.slot_magazine_size(slot, player)
-            && weapon.reserve >= weapon.reserve_max()
+            && weapon.reserve >= weapon.reserve_cap(player)
             && weapon.underbarrel.is_none_or(|underbarrel| underbarrel.is_full())
     }
 
@@ -345,7 +350,7 @@ impl Loadout {
         let size = self.slot_magazine_size(slot, player);
         let weapon = self.slots[slot].as_mut().expect("a filled slot");
         weapon.magazine = weapon.magazine.max(size);
-        weapon.reserve = weapon.reserve.max(weapon.reserve_max());
+        weapon.reserve = weapon.reserve.max(weapon.reserve_cap(player));
         if let Some(underbarrel) = &mut weapon.underbarrel {
             *underbarrel = UnderbarrelAmmo::full(underbarrel.kind);
         }
@@ -600,6 +605,28 @@ impl Loadout {
         self.toggle = 0.0;
     }
 
+    /// Holds every Weapon's Reserve Ammo to the most the Player's entries let it carry. Max Ammo
+    /// and new Weapons fill to the Weapon's own most; this trims them.
+    pub fn cap_reserves(&mut self, player: &[Modifier]) {
+        for weapon in self.slots.iter_mut().flatten() {
+            weapon.reserve = weapon.reserve.min(weapon.reserve_cap(player));
+        }
+    }
+
+    /// With a `Stat::ReserveFeed` entry, the gun that fires now takes its bullets straight from
+    /// Reserve Ammo: its Magazine is topped up from it at once, so it never needs a Reload.
+    pub fn feed_from_reserve(&mut self, player: &[Modifier]) {
+        if resolve(Stat::ReserveFeed, 0.0, player) < 1.0 {
+            return;
+        }
+        let size = self.magazine_size(player);
+        let (magazine, reserve) = self.gun_ammo_mut();
+        let taken = size.saturating_sub(*magazine).min(*reserve);
+        *reserve -= taken;
+        *magazine += taken;
+        self.reload = None;
+    }
+
     /// Advance the clocks that don't depend on any stat.
     pub fn tick(&mut self, dt: f32) {
         self.since_shot += dt;
@@ -850,6 +877,7 @@ fn reload(
         loadout.start_reload(&modifiers.0);
     }
     loadout.advance_reload(time.delta_secs(), &modifiers.0);
+    loadout.feed_from_reserve(&modifiers.0);
 }
 
 /// Right mouse aims down the sights.
@@ -1064,22 +1092,35 @@ fn knife(
         &attack_filter(entity),
     ) && let Some((zombie, zone)) = zombie_for(hit.entity, &hit_areas)
     {
+        let base = knife_damage(knife.bowie, ballistic_in_hand(loadout));
         damage.write(DamageZombie {
             zombie,
-            damage: resolve(Stat::KnifeDamage, knife_damage(knife.bowie, ballistic_in_hand(loadout)), &modifiers.0),
+            damage: knife_hit(base, &modifiers.0, rand::random()),
             zone,
             attack: Attack::Knife,
         });
     }
 }
 
-/// The Player's Weapon slots follow their stat entries.
+/// A Knife hit's damage after the Player's entries: their Knife damage, or a kill outright on a
+/// `roll` in `[0, 1)` under their `Stat::KnifeKillChance`.
+pub fn knife_hit(base: f32, player: &[Modifier], roll: f64) -> f32 {
+    if roll < f64::from(resolve(Stat::KnifeKillChance, 0.0, player)) {
+        f32::INFINITY
+    } else {
+        resolve(Stat::KnifeDamage, base, player)
+    }
+}
+
+/// The Player's Weapon slots, and how much Reserve Ammo each Weapon carries, follow their stat
+/// entries.
 fn resolve_slots(mut player: Single<(&mut Loadout, &Modifiers), With<Player>>) {
     let (ref mut loadout, modifiers) = *player;
     let count = resolve_count(Stat::WeaponSlots, WEAPON_SLOTS, &modifiers.0) as usize;
     if loadout.slot_count() != count {
         loadout.set_slot_count(count);
     }
+    loadout.cap_reserves(&modifiers.0);
 }
 
 /// Kills can put bullets back in the held Weapon's Magazine, through the modifier seam. A Trap's,
@@ -1526,6 +1567,43 @@ mod tests {
             assert_eq!(weapon.reserve, weapon.stats().reserve_max);
             assert_eq!(weapon.magazine, 1, "the Magazine is left alone");
         }
+    }
+
+    #[test]
+    fn a_knife_kill_chance_entry_makes_the_knife_kill() {
+        let always = [Modifier { stat: Stat::KnifeKillChance, source: Source("A"), effect: Effect::Chance(1.0, 1) }];
+        assert_eq!(knife_hit(KNIFE_DAMAGE, NONE, 0.0), KNIFE_DAMAGE);
+        assert_eq!(knife_hit(KNIFE_DAMAGE, &always, 0.999), f32::INFINITY);
+    }
+
+    #[test]
+    fn a_reserve_entry_on_the_player_caps_every_weapons_reserve() {
+        let half = [Modifier { stat: Stat::ReserveSize, source: Source("A"), effect: Effect::Mult(0.5) }];
+        let mut loadout = Loadout::new(WeaponId::M1911);
+        loadout.refill(0, NONE);
+        assert_eq!(loadout.held().reserve, 80);
+        loadout.cap_reserves(&half);
+        assert_eq!(loadout.held().reserve, 40);
+        assert!(loadout.ammo_full(0, &half), "full at the lower cap");
+        loadout.max_ammo();
+        loadout.cap_reserves(&half);
+        assert_eq!(loadout.held().reserve, 40);
+    }
+
+    #[test]
+    fn a_reserve_feed_entry_fires_straight_from_reserve_with_no_reload() {
+        let feed = [Modifier { stat: Stat::ReserveFeed, source: Source("A"), effect: Effect::Flat(1.0) }];
+        let mut loadout = Loadout::new(WeaponId::M1911);
+        loadout.held_mut().magazine = 3;
+        loadout.feed_from_reserve(NONE);
+        assert_eq!((loadout.held().magazine, loadout.held().reserve), (3, 32), "Classic waits for a Reload");
+        loadout.feed_from_reserve(&feed);
+        assert_eq!((loadout.held().magazine, loadout.held().reserve), (8, 27));
+        assert!(!loadout.start_reload(&feed), "a full Magazine never Reloads");
+        loadout.held_mut().reserve = 2;
+        loadout.held_mut().magazine = 0;
+        loadout.feed_from_reserve(&feed);
+        assert_eq!((loadout.held().magazine, loadout.held().reserve), (2, 0));
     }
 
     #[test]

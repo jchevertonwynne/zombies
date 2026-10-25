@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use crate::buy::{Buyable, Purchased, Refused};
 use crate::door::Door;
 use crate::last_stand::LastStand;
-use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve};
+use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve, resolve_points};
 use crate::perk::{Perk, Perks};
 use crate::player::{Player, PlayerHit, take_hits};
 use crate::power::Power;
@@ -300,13 +300,15 @@ fn run_traps(mut traps: Query<&mut Trap>, player: Query<&Modifiers, With<Player>
 /// a Trap ready to buy.
 fn prompt_switches(
     mut commands: Commands,
-    switches: Query<(Entity, &TrapSwitch, &Children, Has<Buyable>, Has<Refused>)>,
+    switches: Query<(Entity, &TrapSwitch, &Children, Option<&Buyable>, Has<Refused>)>,
     mut lights: Query<&mut Visibility, With<SwitchLight>>,
     traps: Query<&Trap>,
     doors: Query<&Door>,
     power: Res<Power>,
+    player: Query<&Modifiers, With<Player>>,
 ) {
-    for (entity, switch, children, has_buyable, refused) in &switches {
+    let price = resolve_points(Stat::TrapPrice, TRAP_PRICE, player.iter().flat_map(|modifiers| &modifiers.0));
+    for (entity, switch, children, buyable, refused) in &switches {
         let Ok(trap) = traps.get(switch.trap) else { continue };
         let door_open = doors.iter().any(|door| door.open && door.joins == Some(trap.joins));
         let want = trap_prompt(door_open, power.is_on(), trap.phase);
@@ -316,12 +318,14 @@ fn prompt_switches(
                 light.set_if_neq(shown);
             }
         }
-        let current = match (has_buyable, refused) {
+        let current = match (buyable.is_some(), refused) {
             (false, _) => TrapPrompt::NoPrompt,
             (true, true) => TrapPrompt::NeedsPower,
             (true, false) => TrapPrompt::Buy,
         };
-        if want == current {
+        // A changed price (from the modifier seam) re-offers the buy.
+        let repriced = want == TrapPrompt::Buy && buyable.is_some_and(|buyable| buyable.price != Some(price));
+        if want == current && !repriced {
             continue;
         }
         let buyable = |prompt: &str, price| Buyable {
@@ -341,7 +345,7 @@ fn prompt_switches(
             TrapPrompt::Buy => {
                 switch_entity
                     .remove::<Refused>()
-                    .insert(buyable("Press F to activate the Electric Trap", Some(TRAP_PRICE)));
+                    .insert(buyable("Press F to activate the Electric Trap", Some(price)));
             }
         }
     }
