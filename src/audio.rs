@@ -1,145 +1,134 @@
-//! Placeholder sounds, synthesised at startup so there are no asset files yet.
+//! Plays every cue from its slot in `assets/audio`. The placeholders there come from the
+//! `gen-sounds` binary, and real recordings can replace them file by file.
 
-use std::f32::consts::TAU;
+pub mod cues;
+pub mod slots;
 
+use bevy::asset::io::file::FileAssetReader;
+use bevy::audio::Volume;
 use bevy::prelude::*;
 
+use crate::player::PlayerCamera;
 use crate::round::RoundStarted;
 use crate::weapon::ShotFired;
 use crate::zombie::{ZombieHit, ZombieKilled};
+use cues::{AUDIO_DIR, Cue, Mix};
 
-const SAMPLE_RATE: u32 = 22_050;
+/// Distance between the Player's ears, in metres, for spatial cues.
+const EAR_GAP: f32 = 0.2;
 
-#[derive(Resource)]
-struct Sounds {
-    gunshot: Handle<AudioSource>,
-    hit: Handle<AudioSource>,
-    kill: Handle<AudioSource>,
-    round_sting: Handle<AudioSource>,
+struct Slot {
+    variants: Vec<Handle<AudioSource>>,
+    last: Option<usize>,
 }
+
+/// Each slot's loaded variants, in `Cue::ALL` order.
+#[derive(Resource)]
+struct Sounds(Vec<Slot>);
+
+/// Each slot's files, found by the startup check, waiting to be loaded.
+#[derive(Resource)]
+struct SlotFiles(Vec<Vec<String>>);
 
 pub struct AudioPlugin;
 
 impl Plugin for AudioPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, synthesise)
-            .add_systems(Update, play_sounds);
+        let dir = FileAssetReader::get_base_path()
+            .join("assets")
+            .join(AUDIO_DIR);
+        let stems: Vec<String> = Cue::ALL.iter().map(|cue| cue.stem()).collect();
+        let files = slots::list_files(&dir);
+        match slots::check_slots(stems.iter().map(String::as_str), &files) {
+            Ok(found) => {
+                app.insert_resource(SlotFiles(found));
+            }
+            Err(errors) => {
+                eprintln!("error: bad audio slots in {}:", dir.display());
+                for error in &errors {
+                    eprintln!("  {error}");
+                }
+                eprintln!("Run `cargo gen-sounds` to write placeholders for missing slots.");
+                std::process::exit(1);
+            }
+        }
+
+        app.add_systems(Startup, load_sounds)
+            .add_systems(Update, (add_listener, play_sounds));
     }
 }
 
-fn synthesise(mut commands: Commands, mut sources: ResMut<Assets<AudioSource>>) {
-    let mut add = |samples: Vec<f32>| sources.add(AudioSource { bytes: wav(&samples).into() });
-    commands.insert_resource(Sounds {
-        gunshot: add(gunshot()),
-        hit: add(thud(0.06, 220.0)),
-        kill: add(thud(0.18, 90.0)),
-        round_sting: add(round_sting()),
-    });
+fn load_sounds(mut commands: Commands, files: Res<SlotFiles>, assets: Res<AssetServer>) {
+    let slots = files
+        .0
+        .iter()
+        .map(|variants| Slot {
+            variants: variants
+                .iter()
+                .map(|file| assets.load(format!("{AUDIO_DIR}/{file}")))
+                .collect(),
+            last: None,
+        })
+        .collect();
+    commands.insert_resource(Sounds(slots));
+    commands.remove_resource::<SlotFiles>();
+}
+
+fn add_listener(mut commands: Commands, cameras: Query<Entity, Added<PlayerCamera>>) {
+    for camera in &cameras {
+        commands
+            .entity(camera)
+            .insert(SpatialListener::new(EAR_GAP));
+    }
+}
+
+impl Sounds {
+    /// The variant of `cue` to play next.
+    fn next(&mut self, cue: Cue) -> Handle<AudioSource> {
+        let slot = &mut self.0[cue.index()];
+        let pick = slots::pick_variant(slot.variants.len(), slot.last, rand::random());
+        slot.last = Some(pick);
+        slot.variants[pick].clone()
+    }
+
+    /// Plays `cue`. Spatial cues are heard from `at`; without it, they play flat.
+    fn play(&mut self, commands: &mut Commands, cue: Cue, at: Option<Vec3>) {
+        let player = AudioPlayer::new(self.next(cue));
+        let spec = cue.spec();
+        let settings = PlaybackSettings::DESPAWN.with_volume(Volume::Linear(spec.gain));
+        match (spec.mix, at) {
+            (Mix::Spatial, Some(at)) => {
+                commands.spawn((
+                    player,
+                    settings.with_spatial(true),
+                    Transform::from_translation(at),
+                ));
+            }
+            _ => {
+                commands.spawn((player, settings));
+            }
+        }
+    }
 }
 
 fn play_sounds(
     mut commands: Commands,
-    sounds: Res<Sounds>,
+    mut sounds: ResMut<Sounds>,
     mut shots: MessageReader<ShotFired>,
     mut hits: MessageReader<ZombieHit>,
     mut kills: MessageReader<ZombieKilled>,
     mut rounds: MessageReader<RoundStarted>,
 ) {
-    let mut play = |sound: &Handle<AudioSource>, volume: f32| {
-        commands.spawn((
-            AudioPlayer::new(sound.clone()),
-            PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(volume)),
-        ));
-    };
     for _ in shots.read() {
-        play(&sounds.gunshot, 0.6);
+        sounds.play(&mut commands, Cue::GunshotPistol, None);
     }
     for _ in hits.read() {
-        play(&sounds.hit, 0.5);
+        sounds.play(&mut commands, Cue::Hit, None);
     }
     for _ in kills.read() {
-        play(&sounds.kill, 0.8);
+        sounds.play(&mut commands, Cue::Kill, None);
     }
     for _ in rounds.read() {
-        play(&sounds.round_sting, 0.9);
+        sounds.play(&mut commands, Cue::RoundStart, None);
     }
-}
-
-fn samples(secs: f32) -> impl Iterator<Item = f32> {
-    (0..(secs * SAMPLE_RATE as f32) as u32).map(|i| i as f32 / SAMPLE_RATE as f32)
-}
-
-/// Cheap deterministic white noise in [-1, 1].
-fn noise(state: &mut u32) -> f32 {
-    *state ^= *state << 13;
-    *state ^= *state >> 17;
-    *state ^= *state << 5;
-    (*state as f32 / u32::MAX as f32) * 2.0 - 1.0
-}
-
-fn gunshot() -> Vec<f32> {
-    let mut seed = 0x1234_5678;
-    samples(0.3)
-        .map(|t| {
-            let crack = noise(&mut seed) * (-t * 30.0).exp();
-            let boom = (TAU * 70.0 * t).sin() * (-t * 15.0).exp();
-            (crack * 0.8 + boom * 0.6).clamp(-1.0, 1.0)
-        })
-        .collect()
-}
-
-fn thud(secs: f32, freq: f32) -> Vec<f32> {
-    let mut seed = 0x9e37_79b9;
-    samples(secs)
-        .map(|t| {
-            let decay = (-t * 6.0 / secs).exp();
-            ((TAU * freq * t).sin() * 0.7 + noise(&mut seed) * 0.3) * decay
-        })
-        .collect()
-}
-
-/// Three low, descending, wobbling notes.
-fn round_sting() -> Vec<f32> {
-    let notes = [(110.0, 0.0), (98.0, 0.45), (73.4, 0.9)];
-    samples(2.4)
-        .map(|t| {
-            notes
-                .iter()
-                .filter(|(_, start)| t >= *start)
-                .map(|(freq, start)| {
-                    let local = t - start;
-                    let envelope = (local * 20.0).min(1.0) * (-local * 1.8).exp();
-                    let tremolo = 1.0 + 0.3 * (TAU * 6.0 * local).sin();
-                    // Odd harmonics give it a hollow, horn-ish tone.
-                    let tone = (TAU * freq * local).sin()
-                        + (TAU * freq * 3.0 * local).sin() / 3.0
-                        + (TAU * freq * 5.0 * local).sin() / 5.0;
-                    tone * envelope * tremolo * 0.3
-                })
-                .sum::<f32>()
-                .clamp(-1.0, 1.0)
-        })
-        .collect()
-}
-
-/// Encodes mono samples as a 16-bit PCM WAV file.
-fn wav(samples: &[f32]) -> Vec<u8> {
-    let data_len = (samples.len() * 2) as u32;
-    let mut out = Vec::with_capacity(44 + data_len as usize);
-    out.extend_from_slice(b"RIFF");
-    out.extend_from_slice(&(36 + data_len).to_le_bytes());
-    out.extend_from_slice(b"WAVEfmt ");
-    out.extend_from_slice(&16u32.to_le_bytes()); // fmt chunk size
-    out.extend_from_slice(&1u16.to_le_bytes()); // PCM
-    out.extend_from_slice(&1u16.to_le_bytes()); // mono
-    out.extend_from_slice(&SAMPLE_RATE.to_le_bytes());
-    out.extend_from_slice(&(SAMPLE_RATE * 2).to_le_bytes()); // byte rate
-    out.extend_from_slice(&2u16.to_le_bytes()); // block align
-    out.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
-    out.extend_from_slice(b"data");
-    out.extend_from_slice(&data_len.to_le_bytes());
-    for s in samples {
-        out.extend_from_slice(&((s * i16::MAX as f32) as i16).to_le_bytes());
-    }
-    out
 }
