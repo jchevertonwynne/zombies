@@ -50,7 +50,10 @@ _Avoid_: drop, pickup, perk
 
 **Spawn Point**: A fixed place in the Map where Zombies enter play. Most sit just outside one Barrier, and a Zombie that spawns there has to get in through that Barrier. The rest are Risers.
 
-**Barrier**: A boarded-up window in a Zone's outer wall. Zombies tear the boards off to climb in. The Player can never pass through a Barrier, whether it is boarded or not.
+**Barrier**: A planked-up window in a Zone's outer wall. Zombies tear the Planks off to climb in, and can swipe the Player through the window while they do it. The Player can never pass through a Barrier, whether it is planked or not.
+
+**Plank**: One piece of wood on a Barrier. A Zombie tears Planks off one at a time, and the Player earns Points for putting them back. A Barrier is only open to Zombies once every Plank is gone.
+_Avoid_: board, plank of wood
 
 **Riser**: A Spawn Point in open ground, where a Zombie climbs up out of the dirt with no Barrier in its way.
 
