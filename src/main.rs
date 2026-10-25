@@ -20,6 +20,7 @@ mod settings;
 mod state;
 mod stats;
 mod tuning;
+mod wall_weapon;
 mod weapon;
 mod zombie;
 mod zone;
@@ -52,6 +53,7 @@ fn main() {
             buy::BuyPlugin,
             player::PlayerPlugin,
             weapon::WeaponPlugin,
+            wall_weapon::WallWeaponPlugin,
             zombie::ZombiePlugin,
             round::RoundPlugin,
             points::PointsPlugin,

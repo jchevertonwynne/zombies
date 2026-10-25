@@ -32,6 +32,15 @@ pub struct Purchased(pub Entity);
 #[derive(Message)]
 pub struct CantAfford;
 
+/// Its owner refuses this Buyable for now, like an ammo buy with full ammo. The Prompt still
+/// shows, but the Use key charges nothing and plays the buzzer.
+#[derive(Component)]
+pub struct Refused;
+
+/// The Player tried to buy something its owner refuses.
+#[derive(Message)]
+pub struct BuyRefused;
+
 /// The Buyable whose Prompt is showing, if any.
 #[derive(Resource, Default)]
 pub struct Focus(pub Option<Entity>);
@@ -59,6 +68,15 @@ pub enum Decision {
     Buy,
     /// Nothing is charged; the buzzer plays and the Points flash red.
     CantAfford,
+    /// Nothing is charged; the buzzer plays.
+    Refused,
+}
+
+impl Decision {
+    /// A buy the owner refuses becomes a refusal. Not affording it still flashes the Points.
+    pub fn refused_if(self, refused: bool) -> Self {
+        if refused && self == Decision::Buy { Decision::Refused } else { self }
+    }
 }
 
 /// Whether the Player can pay `price`. Priceless uses are always affordable.
@@ -109,6 +127,7 @@ impl Plugin for BuyPlugin {
         app.init_resource::<Focus>()
             .add_message::<Purchased>()
             .add_message::<CantAfford>()
+            .add_message::<BuyRefused>()
             .add_systems(OnEnter(GameState::GameOver), |mut focus: ResMut<Focus>| focus.0 = None)
             .add_systems(
                 Update,
@@ -149,19 +168,20 @@ fn focus(
 fn buy(
     input: Res<ButtonInput<KeyCode>>,
     focus: Res<Focus>,
-    buyables: Query<&Buyable>,
+    buyables: Query<(&Buyable, Has<Refused>)>,
     pause: Res<State<Pause>>,
     mut points: ResMut<Points>,
     mut purchased: MessageWriter<Purchased>,
     mut cant_afford: MessageWriter<CantAfford>,
+    mut refusals: MessageWriter<BuyRefused>,
 ) {
     if !input.just_pressed(KeyCode::KeyF) {
         return;
     }
     let Some(entity) = focus.0 else { return };
-    let Ok(buyable) = buyables.get(entity) else { return };
+    let Ok((buyable, refused)) = buyables.get(entity) else { return };
     // Focus already holds only Buyables in reach.
-    match decide(buyer(&points, &pause), buyable.price, true) {
+    match decide(buyer(&points, &pause), buyable.price, true).refused_if(refused) {
         Decision::Buy => {
             if let Some(price) = buyable.price {
                 points.spend(price);
@@ -170,6 +190,9 @@ fn buy(
         }
         Decision::CantAfford => {
             cant_afford.write(CantAfford);
+        }
+        Decision::Refused => {
+            refusals.write(BuyRefused);
         }
         Decision::NoPrompt => {}
     }
@@ -220,6 +243,21 @@ mod tests {
         }
         // Not even a buzzer when broke.
         assert_eq!(decide(Buyer { down: true, ..buyer(0) }, Some(750), true), Decision::NoPrompt);
+    }
+
+    #[test]
+    fn a_refused_buy_charges_nothing_and_buzzes() {
+        assert_eq!(decide(buyer(5000), Some(250), true).refused_if(true), Decision::Refused);
+        assert_eq!(decide(buyer(5000), Some(250), true).refused_if(false), Decision::Buy);
+    }
+
+    #[test]
+    fn a_refusal_never_shows_a_prompt_that_would_be_hidden_anyway() {
+        assert_eq!(decide(buyer(5000), Some(250), false).refused_if(true), Decision::NoPrompt);
+        let down = Buyer { down: true, ..buyer(5000) };
+        assert_eq!(decide(down, Some(250), true).refused_if(true), Decision::NoPrompt);
+        // Too few Points still flashes them red.
+        assert_eq!(decide(buyer(0), Some(250), true).refused_if(true), Decision::CantAfford);
     }
 
     #[test]
