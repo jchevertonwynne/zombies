@@ -3,6 +3,7 @@
 
 mod ammo_mod;
 mod arsenal;
+mod attachment;
 mod audio;
 mod barrier;
 mod buy;
@@ -72,6 +73,7 @@ fn main() {
             buy::BuyPlugin,
             player::PlayerPlugin,
             weapon::WeaponPlugin,
+            attachment::AttachmentPlugin,
             // Buying and carrying beyond the starting Weapon.
             (
                 wall_weapon::WallWeaponPlugin,

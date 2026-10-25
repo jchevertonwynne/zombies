@@ -36,8 +36,6 @@ pub enum Explosive {
     Frag,
     Claymore,
     MonkeyBomb,
-    // Underbarrels arrive in their own slice, which sends this.
-    #[allow(dead_code)]
     GrenadeLauncher,
     /// A Weapon's own splash: a launcher's, the Ray Gun's, a Crossbow bolt's, Mustang & Sally's…
     /// An Upgraded Weapon keeps its base's id, so the Awful Lawton is the Crossbow here.
@@ -98,6 +96,8 @@ pub struct Launched {
     /// Damage to a Zombie it hits directly, before the hit zone.
     pub impact: f32,
     pub impact_headshot: f32,
+    /// Whether a direct hit to the head counts as a Headshot. The Grenade Launcher's never does.
+    pub headshots: bool,
     pub splash: Splash,
     /// The launcher's Ammo Mods, rolled by its impact and its blast.
     pub ammo_mods: AmmoMods,
@@ -112,6 +112,7 @@ struct Projectile {
     gravity: f32,
     impact: f32,
     impact_headshot: f32,
+    headshots: bool,
     splash: Splash,
     ammo_mods: AmmoMods,
     crawlers: bool,
@@ -198,6 +199,7 @@ fn launch(mut commands: Commands, mut launched: MessageReader<Launched>, assets:
                 gravity: shot.flight.gravity,
                 impact: shot.impact,
                 impact_headshot: shot.impact_headshot,
+                headshots: shot.headshots,
                 splash: shot.splash,
                 ammo_mods: shot.ammo_mods,
                 crawlers: shot.crawlers,
@@ -236,7 +238,7 @@ fn fly(
                         damage.write(DamageZombie {
                             zombie,
                             damage: amount,
-                            zone: area.0,
+                            zone: if projectile.headshots { area.0 } else { HitZone::Torso },
                             attack: Attack::Bullet,
                         });
                         if !projectile.ammo_mods.is_empty() {

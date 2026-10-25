@@ -15,6 +15,20 @@ pub enum Stat {
     ReloadTime,
     /// Bullets a full Magazine holds.
     MagazineSize,
+    /// The most Reserve Ammo a Weapon carries.
+    ReserveSize,
+    /// How much of a Weapon's damage falloff applies, from 1 (all of it) to 0 (none).
+    DamageFalloff,
+    /// Degrees of hip spread, fresh and fully bloomed alike.
+    HipSpread,
+    /// A factor on Headshot damage, on top of the Headshot multiplier, while aiming.
+    AimedHeadshot,
+    /// Extra Zombies a bullet passes while aiming.
+    AimedPierce,
+    /// Damage a bullet keeps through each Zombie it passes, while aiming.
+    AimedPierceDamage,
+    /// The factor aiming puts on the FOV.
+    AimedFov,
     /// The Player's walk and sprint speed.
     MoveSpeed,
     /// The Player's maximum Health.

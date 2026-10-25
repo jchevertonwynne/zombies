@@ -4,8 +4,11 @@ use bevy::prelude::*;
 
 use crate::ammo_mod::{AmmoModHit, AmmoMods, glint_colour, pick_ammo_mod};
 use crate::arsenal::{Burn, FireMode, Splash, WeaponClass, WeaponId, WeaponStats};
+use crate::attachment::{
+    Attachment, FlameFired, Underbarrel, UnderbarrelAmmo, built_in_underbarrel, free_mounts, pick_attachment,
+};
 use crate::burn::Ignite;
-use crate::combat::{Crossing, hit_damage, pierce, spread_direction};
+use crate::combat::{Crossing, Sights, hit_damage, pierce, spread_direction};
 use crate::explosive::{Explosion, Explosive, Launched, flight, makes_crawlers};
 use crate::layers::GameLayer;
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve, resolve_count};
@@ -28,6 +31,18 @@ pub struct WeaponCopy {
     pub ammo_mods: AmmoMods,
     /// Repacks of this copy so far, of either kind; each costs more than the last.
     pub repacks: u32,
+    /// The Attachments its hold Repacks added, at most one per mount.
+    pub attachments: Vec<Attachment>,
+    /// Its Underbarrel and that gun's own ammo: an Attachment, or built in.
+    pub underbarrel: Option<UnderbarrelAmmo>,
+    /// Reloads of the main gun finished, for Dual Mag's every-second Reload.
+    pub reloads: u32,
+}
+
+/// Whether a Weapon with Dual Mag, having finished `reloads` Reloads, takes the flat
+/// `DUAL_MAG_RELOAD_SECS` for the next: every second one does.
+pub fn dual_mag_flat(reloads: u32) -> bool {
+    reloads % 2 == 1
 }
 
 impl WeaponCopy {
@@ -42,6 +57,9 @@ impl WeaponCopy {
             modifiers: Vec::new(),
             ammo_mods: AmmoMods::NONE,
             repacks: 0,
+            attachments: Vec::new(),
+            underbarrel: None,
+            reloads: 0,
         }
     }
 
@@ -50,16 +68,35 @@ impl WeaponCopy {
         if self.upgraded { self.id.upgraded() } else { self.id.stats() }
     }
 
-    /// Its Pack-a-Punch form: the upgraded row, with a full Magazine and full Reserve Ammo. Its
-    /// own modifier entries stay with it, ready for Repacks.
-    pub fn upgrade(self) -> Self {
-        let stats = self.id.upgraded();
+    /// A full Magazine of its own, before the Player's entries.
+    pub fn magazine_size(&self) -> u32 {
+        resolve_count(Stat::MagazineSize, self.stats().magazine, &self.modifiers)
+    }
+
+    /// The most Reserve Ammo it carries, after its own entries (Extended Mag).
+    pub fn reserve_max(&self) -> u32 {
+        resolve_count(Stat::ReserveSize, self.stats().reserve_max, &self.modifiers)
+    }
+
+    /// Fill its Magazine, its Reserve Ammo and its Underbarrel's ammo.
+    fn filled(self) -> Self {
         Self {
-            upgraded: true,
-            magazine: stats.magazine,
-            reserve: stats.reserve_max,
+            magazine: self.magazine_size(),
+            reserve: self.reserve_max(),
+            underbarrel: self.underbarrel.map(|underbarrel| UnderbarrelAmmo::full(underbarrel.kind)),
             ..self
         }
+    }
+
+    /// Its Pack-a-Punch form: the upgraded row, with a full Magazine and full Reserve Ammo, and
+    /// any built-in Underbarrel loaded. Its own modifier entries stay with it, ready for Repacks.
+    pub fn upgrade(self) -> Self {
+        Self {
+            upgraded: true,
+            underbarrel: built_in_underbarrel(self.id).map(UnderbarrelAmmo::full),
+            ..self
+        }
+        .filled()
     }
 
     /// Its tap Repack: a random Ammo Mod it lacks, picked by `roll` in [0, 1), and full ammo, as
@@ -68,14 +105,37 @@ impl WeaponCopy {
         let Some(ammo_mod) = pick_ammo_mod(self.ammo_mods, roll).filter(|_| self.ammo_mods.has_room()) else {
             return self;
         };
-        let stats = self.stats();
         Self {
             ammo_mods: self.ammo_mods.with(ammo_mod),
             repacks: self.repacks.saturating_add(1),
-            magazine: stats.magazine,
-            reserve: stats.reserve_max,
             ..self
         }
+        .filled()
+    }
+
+    /// Whether a hold Repack has a mount to fill on it.
+    pub fn has_free_mount(&self) -> bool {
+        self.upgraded && !free_mounts(self.stats(), &self.attachments).is_empty()
+    }
+
+    /// Its hold Repack: a random Attachment in a free mount, picked by the two rolls in [0, 1),
+    /// with its entries as their own source and full ammo. An Underbarrel comes loaded. A copy
+    /// with no free mount comes back unchanged.
+    pub fn repack_attachment(mut self, mount_roll: f32, attachment_roll: f32) -> Self {
+        let free = free_mounts(self.stats(), &self.attachments);
+        let Some(attachment) = pick_attachment(&free, mount_roll, attachment_roll).filter(|_| self.upgraded) else {
+            return self;
+        };
+        self.attachments.push(attachment);
+        self.modifiers.extend(attachment.modifiers());
+        if let Some(kind) = attachment.underbarrel() {
+            self.underbarrel = Some(UnderbarrelAmmo::full(kind));
+        }
+        Self {
+            repacks: self.repacks.saturating_add(1),
+            ..self
+        }
+        .filled()
     }
 }
 
@@ -84,6 +144,8 @@ pub struct Reload {
     pub elapsed: f32,
     /// The unmodified seconds, fixed when the Reload starts (tactical or empty, bullets to load).
     base_secs: f32,
+    /// Dual Mag's flat Reload, which no modifier shortens.
+    flat: bool,
 }
 
 /// Putting one Weapon away and bringing another up.
@@ -129,6 +191,10 @@ pub struct Loadout {
     bloom: f32,
     /// Seconds of sprint-out left before the Weapon can fire or aim.
     sprint_out: f32,
+    /// Whether the held Weapon's Underbarrel is up instead of its main gun.
+    underbarrel_up: bool,
+    /// Seconds left of a toggle to or from the Underbarrel.
+    pub toggle: f32,
 }
 
 impl Loadout {
@@ -143,6 +209,8 @@ impl Loadout {
             aim: 0.0,
             bloom: 0.0,
             sprint_out: 0.0,
+            underbarrel_up: false,
+            toggle: 0.0,
         }
     }
 
@@ -158,13 +226,52 @@ impl Loadout {
         self.slots.get(slot).and_then(Option::as_ref)
     }
 
-    /// A stat of the held Weapon, resolved from its base and the Player's and the Weapon's entries.
-    pub fn resolve(&self, stat: Stat, base: f32, player: &[Modifier]) -> f32 {
-        resolve(stat, base, player.iter().chain(&self.held().modifiers))
+    /// The held Weapon's Underbarrel, while it's up instead of the main gun.
+    pub fn underbarrel(&self) -> Option<&UnderbarrelAmmo> {
+        self.held().underbarrel.as_ref().filter(|_| self.underbarrel_up)
     }
 
+    /// The row of the gun that fires now: the held Weapon's, or its Underbarrel's.
+    pub fn gun_stats(&self) -> &'static WeaponStats {
+        self.underbarrel().map_or(self.held().stats(), |underbarrel| underbarrel.kind.stats())
+    }
+
+    /// The entries on the gun that fires now. An Underbarrel takes the Player's but none of the
+    /// Weapon's own: its Attachments belong to the main gun.
+    fn gun_entries<'a>(&'a self, player: &'a [Modifier]) -> impl Iterator<Item = &'a Modifier> {
+        let own: &[Modifier] = if self.underbarrel().is_some() { &[] } else { &self.held().modifiers };
+        player.iter().chain(own)
+    }
+
+    /// The Magazine and Reserve Ammo of the gun that fires now.
+    pub fn gun_ammo(&self) -> (u32, u32) {
+        match self.underbarrel() {
+            Some(underbarrel) => (underbarrel.magazine, underbarrel.reserve),
+            None => (self.held().magazine, self.held().reserve),
+        }
+    }
+
+    fn gun_ammo_mut(&mut self) -> (&mut u32, &mut u32) {
+        let up = self.underbarrel_up;
+        let copy = self.slots[self.held].as_mut().expect("the held slot is always filled");
+        match copy.underbarrel.as_mut() {
+            Some(underbarrel) if up => (&mut underbarrel.magazine, &mut underbarrel.reserve),
+            _ => (&mut copy.magazine, &mut copy.reserve),
+        }
+    }
+
+    /// A stat of the gun that fires now, resolved from its base and the Player's and the Weapon's
+    /// entries.
+    pub fn resolve(&self, stat: Stat, base: f32, player: &[Modifier]) -> f32 {
+        resolve(stat, base, self.gun_entries(player))
+    }
+
+    /// A full Magazine for the gun that fires now. An Underbarrel's is fixed.
     pub fn magazine_size(&self, player: &[Modifier]) -> u32 {
-        self.slot_magazine_size(self.held, player)
+        match self.underbarrel() {
+            Some(underbarrel) => underbarrel.kind.stats().magazine,
+            None => self.slot_magazine_size(self.held, player),
+        }
     }
 
     /// The Magazine size of the Weapon in a filled slot.
@@ -178,34 +285,66 @@ impl Loadout {
         self.slots.iter().position(|slot| slot.as_ref().is_some_and(|weapon| weapon.id == id))
     }
 
-    /// Whether the Weapon in a filled slot has a full Magazine and full Reserve Ammo.
+    /// Whether the Weapon in a filled slot has a full Magazine, full Reserve Ammo and a full
+    /// Underbarrel.
     pub fn ammo_full(&self, slot: usize, player: &[Modifier]) -> bool {
         let weapon = self.slot(slot).expect("a filled slot");
-        weapon.magazine >= self.slot_magazine_size(slot, player) && weapon.reserve >= weapon.stats().reserve_max
+        weapon.magazine >= self.slot_magazine_size(slot, player)
+            && weapon.reserve >= weapon.reserve_max()
+            && weapon.underbarrel.is_none_or(|underbarrel| underbarrel.is_full())
     }
 
-    /// Fill the Magazine and Reserve Ammo of the Weapon in a filled slot, as an ammo buy does.
-    /// A Reload of that Weapon has nothing left to do, so it ends.
+    /// Fill the Magazine, Reserve Ammo and Underbarrel of the Weapon in a filled slot, as an ammo
+    /// buy or Max Ammo does. A Reload of that Weapon has nothing left to do, so it ends.
     pub fn refill(&mut self, slot: usize, player: &[Modifier]) {
         let size = self.slot_magazine_size(slot, player);
         let weapon = self.slots[slot].as_mut().expect("a filled slot");
         weapon.magazine = weapon.magazine.max(size);
-        weapon.reserve = weapon.reserve.max(weapon.stats().reserve_max);
+        weapon.reserve = weapon.reserve.max(weapon.reserve_max());
+        if let Some(underbarrel) = &mut weapon.underbarrel {
+            *underbarrel = UnderbarrelAmmo::full(underbarrel.kind);
+        }
         if slot == self.held {
             self.reload = None;
         }
     }
 
-    /// Max Ammo: every Weapon carried gets full Reserve Ammo. Magazines are left as they are.
+    /// Max Ammo: every Weapon carried gets full Reserve Ammo (Extended Mag's included) and a full
+    /// Underbarrel. Magazines are left as they are.
     pub fn max_ammo(&mut self) {
         for weapon in self.slots.iter_mut().flatten() {
-            weapon.reserve = weapon.reserve.max(weapon.stats().reserve_max);
+            weapon.reserve = weapon.reserve.max(weapon.reserve_max());
+            if let Some(underbarrel) = &mut weapon.underbarrel {
+                *underbarrel = UnderbarrelAmmo::full(underbarrel.kind);
+            }
         }
     }
 
     /// Damage per bullet at a distance, after falloff, before the hit zone and penetration.
+    /// Falloff itself goes through the seam, so a Long Barrel can take it away.
     pub fn damage_at(&self, distance: f32, player: &[Modifier]) -> f32 {
-        self.resolve(Stat::Damage, self.held().stats().damage_at(distance), player)
+        let stats = self.gun_stats();
+        let falloff = self.resolve(Stat::DamageFalloff, 1.0, player);
+        let fallen = stats.damage_max + (stats.damage_at(distance) - stats.damage_max) * falloff;
+        self.resolve(Stat::Damage, fallen, player)
+    }
+
+    /// Whether the sights are fully up, so optics count.
+    pub fn aimed(&self) -> bool {
+        self.aim >= 1.0
+    }
+
+    /// What the held Weapon's optic adds to a bullet: only while aimed, and never to an
+    /// Underbarrel's.
+    pub fn sights(&self, player: &[Modifier]) -> Sights {
+        if !self.aimed() || self.underbarrel().is_some() {
+            return Sights::PLAIN;
+        }
+        Sights {
+            headshot: self.resolve(Stat::AimedHeadshot, 1.0, player),
+            extra_pierce: self.resolve(Stat::AimedPierce, 0.0, player).round().max(0.0) as u32,
+            pierce_damage: self.resolve(Stat::AimedPierceDamage, PENETRATION_DAMAGE_FACTOR, player),
+        }
     }
 
     /// The held Weapon's damage multiplier for a hit zone. The head's resolves through the seam.
@@ -264,29 +403,47 @@ impl Loadout {
         self.bloom = (self.bloom - dt / SPREAD_RECOVERY_SECS).max(0.0);
     }
 
-    /// The held Weapon's current spread in degrees: the bloomed hip spread, narrowing to the
-    /// aimed spread as the sights come up.
+    /// The current spread in degrees of the gun that fires now: the bloomed hip spread (through
+    /// the Weapon's own entries, so a Grip tightens it), narrowing to the aimed spread as the
+    /// sights come up.
     pub fn spread(&self) -> f32 {
-        let stats = self.held().stats();
+        let stats = self.gun_stats();
         let (fresh, full) = stats.hip_spread();
-        let hip = fresh + (full - fresh) * self.bloom;
+        let grip = self.resolve(Stat::HipSpread, 1.0, &[]);
+        let hip = (fresh + (full - fresh) * self.bloom) * grip;
         hip + (stats.aimed_spread() - hip) * self.aim
     }
 
-    /// The factor aiming puts on the FOV now.
+    /// The factor aiming puts on the FOV now, through the held Weapon's own entries (an ACOG
+    /// zooms further).
     pub fn fov_factor(&self) -> f32 {
-        let ads = self.held().stats().ads_fov().unwrap_or(1.0);
+        let held = self.held();
+        let ads = resolve(Stat::AimedFov, held.stats().ads_fov().unwrap_or(1.0), &held.modifiers);
         1.0 + (ads - 1.0) * self.aim
     }
 
     pub fn fire_interval(&self, player: &[Modifier]) -> f32 {
-        self.resolve(Stat::FireInterval, self.held().stats().fire_interval, player)
+        self.resolve(Stat::FireInterval, self.gun_stats().fire_interval, player)
     }
 
-    /// Seconds the current Reload takes in all, if reloading.
+    /// Seconds the current Reload takes in all, if reloading. Dual Mag's flat Reload ignores
+    /// every modifier.
     pub fn reload_secs(&self, player: &[Modifier]) -> Option<f32> {
         let reload = self.reload.as_ref()?;
-        Some(self.resolve(Stat::ReloadTime, reload.base_secs, player))
+        Some(if reload.flat { reload.base_secs } else { self.resolve(Stat::ReloadTime, reload.base_secs, player) })
+    }
+
+    /// Switch between the held Weapon's main gun and its Underbarrel, taking
+    /// `UNDERBARREL_TOGGLE_SECS`. Like a switch, it ends a Reload and drops the sights.
+    pub fn toggle_underbarrel(&mut self) -> bool {
+        if self.held().underbarrel.is_none() || self.swap.is_some() || self.toggle > 0.0 {
+            return false;
+        }
+        let up = !self.underbarrel_up;
+        self.reset_for_swap();
+        self.underbarrel_up = up;
+        self.toggle = UNDERBARREL_TOGGLE_SECS;
+        true
     }
 
     /// Bring up the Weapon in a slot. A switch cancels a Reload, losing its progress.
@@ -354,7 +511,7 @@ impl Loadout {
     pub fn pick_up_bullet(&mut self, id: WeaponId) -> bool {
         let Some(slot) = self.slot_of(id) else { return false };
         let weapon = self.slots[slot].as_mut().expect("a filled slot");
-        if weapon.reserve >= weapon.stats().reserve_max {
+        if weapon.reserve >= weapon.reserve_max() {
             return false;
         }
         weapon.reserve += 1;
@@ -372,35 +529,57 @@ impl Loadout {
         self.reset_for_swap();
     }
 
-    /// A switch ends a Reload and a burst, and drops the sights and the bloom.
+    /// A switch ends a Reload and a burst, drops the sights and the bloom, and puts the main
+    /// gun back up.
     fn reset_for_swap(&mut self) {
         self.reload = None;
         self.burst_left = 0;
         self.aim = 0.0;
         self.bloom = 0.0;
+        self.underbarrel_up = false;
+        self.toggle = 0.0;
     }
 
     /// Advance the clocks that don't depend on any stat.
     pub fn tick(&mut self, dt: f32) {
         self.since_shot += dt;
+        self.toggle = (self.toggle - dt).max(0.0);
         if let Some(swap) = &mut self.swap {
             swap.elapsed += dt;
             if swap.elapsed >= swap.secs() {
                 self.swap = None;
             }
         }
+        // A Flamethrower recharges whenever it isn't the gun firing.
+        let firing = self.underbarrel().is_some() && self.since_shot < FLAMETHROWER.fire_interval * 2.0;
+        for (slot, weapon) in self.slots.iter_mut().enumerate() {
+            if let Some(underbarrel) = weapon.as_mut().and_then(|weapon| weapon.underbarrel.as_mut())
+                && !(firing && slot == self.held)
+            {
+                underbarrel.recharge(dt);
+            }
+        }
     }
 
-    /// Start a Reload, if the Magazine has room and there is Reserve Ammo to fill it from.
+    /// Start a Reload of the gun that fires now, if its Magazine has room and there is Reserve
+    /// Ammo to fill it from. The Flamethrower recharges instead.
     pub fn start_reload(&mut self, player: &[Modifier]) -> bool {
         let size = self.magazine_size(player);
-        let weapon = self.held();
-        if self.swap.is_some() || self.reload.is_some() || weapon.magazine >= size || weapon.reserve == 0 {
+        let (magazine, reserve) = self.gun_ammo();
+        let recharges = self.underbarrel().is_some_and(|underbarrel| underbarrel.kind == Underbarrel::Flamethrower);
+        if self.swap.is_some() || self.reload.is_some() || magazine >= size || reserve == 0 || recharges {
             return false;
         }
-        let loading = (size - weapon.magazine).min(weapon.reserve);
-        let base_secs = weapon.stats().reload.secs(weapon.magazine, loading);
-        self.reload = Some(Reload { elapsed: 0.0, base_secs });
+        let loading = (size - magazine).min(reserve);
+        let held = self.held();
+        let dual_mag = self.underbarrel().is_none() && held.attachments.contains(&Attachment::DualMag);
+        let flat = dual_mag && dual_mag_flat(held.reloads);
+        let base_secs = if flat { DUAL_MAG_RELOAD_SECS } else { self.gun_stats().reload.secs(magazine, loading) };
+        self.reload = Some(Reload {
+            elapsed: 0.0,
+            base_secs,
+            flat,
+        });
         self.burst_left = 0;
         true
     }
@@ -413,16 +592,20 @@ impl Loadout {
         reload.elapsed += dt;
         if reload.elapsed >= secs {
             self.reload = None;
-            let weapon = self.held_mut();
-            let taken = size.saturating_sub(weapon.magazine).min(weapon.reserve);
-            weapon.reserve -= taken;
-            weapon.magazine += taken;
+            if self.underbarrel().is_none() {
+                let held = self.held_mut();
+                held.reloads = held.reloads.wrapping_add(1);
+            }
+            let (magazine, reserve) = self.gun_ammo_mut();
+            let taken = size.saturating_sub(*magazine).min(*reserve);
+            *reserve -= taken;
+            *magazine += taken;
         }
     }
 
-    /// Whether the held Weapon fires now, given the trigger. Spends the bullet when it does.
+    /// Whether the gun that fires now fires, given the trigger. Spends the bullet when it does.
     pub fn try_fire(&mut self, pressed: bool, just_pressed: bool, player: &[Modifier]) -> bool {
-        let wants = match self.held().stats().fire {
+        let wants = match self.gun_stats().fire {
             FireMode::Semi => just_pressed,
             FireMode::Auto => pressed,
             FireMode::Burst(shots) => {
@@ -433,17 +616,19 @@ impl Loadout {
             }
         };
         let ready = self.swap.is_none()
+            && self.toggle <= 0.0
             && self.reload.is_none()
             && self.sprint_out <= 0.0
             && self.since_shot >= self.fire_interval(player);
         if !wants || !ready {
             return false;
         }
-        if self.held().magazine == 0 {
+        let (magazine, _) = self.gun_ammo_mut();
+        if *magazine == 0 {
             self.burst_left = 0;
             return false;
         }
-        self.held_mut().magazine -= 1;
+        *magazine -= 1;
         self.since_shot = 0.0;
         self.burst_left = self.burst_left.saturating_sub(1);
         self.bloom = (self.bloom + SPREAD_BLOOM_PER_SHOT).min(1.0);
@@ -481,7 +666,7 @@ pub struct ShotFired;
 
 /// The on-screen Weapon model, a child of the camera.
 #[derive(Component)]
-struct ViewModel {
+pub struct ViewModel {
     kick: f32,
 }
 
@@ -625,6 +810,7 @@ fn fire(
     mut launched: MessageWriter<Launched>,
     mut explosions: MessageWriter<Explosion>,
     mut wonders: MessageWriter<WonderFired>,
+    mut flames: MessageWriter<FlameFired>,
 ) {
     let (entity, mut loadout, modifiers) = player.into_inner();
     let entries = &modifiers.0;
@@ -633,15 +819,31 @@ fn fire(
     let spread = loadout.spread();
     if !loadout.try_fire(pressed, just_pressed, entries) {
         // Pulling the trigger on an empty Magazine starts a Reload.
-        if just_pressed && loadout.held().magazine == 0 {
+        if just_pressed && loadout.gun_ammo().0 == 0 {
             loadout.start_reload(entries);
         }
         return;
     }
     view_model.kick = 1.0;
+
+    // The gun that fired: the held Weapon, or its Underbarrel.
+    let stats = loadout.gun_stats();
+    let underbarrel = loadout.underbarrel().map(|underbarrel| underbarrel.kind);
+    if underbarrel == Some(Underbarrel::Flamethrower) {
+        // Each tick burns everything in the cone.
+        flames.write(FlameFired {
+            origin: camera.translation(),
+            forward: camera.forward(),
+            damage: loadout.damage_at(0.0, entries),
+            burn: Burn {
+                damage: loadout.resolve(Stat::Damage, FLAMETHROWER_BURN.damage, entries),
+                ..FLAMETHROWER_BURN
+            },
+        });
+        return;
+    }
     shots.write(ShotFired);
 
-    let stats = loadout.held().stats();
     // Every damage event from this Weapon rolls its Ammo Mods.
     let ammo_mods = loadout.held().ammo_mods;
     let mut roll = |zombie, damage| {
@@ -670,6 +872,7 @@ fn fire(
         });
     }
     let filter = attack_filter(entity);
+    let sights = loadout.sights(entries);
     let pellets = if is_wonder(stats.class) { 0 } else { stats.pellets };
     for _ in 0..pellets {
         let direction = spread_direction(camera.forward(), spread, rand::random(), rand::random());
@@ -679,7 +882,11 @@ fn fire(
             min: loadout.resolve(Stat::Damage, splash.min, entries),
             ..splash
         });
-        if let (Some(flight), Some(splash)) = (flight(stats.id), splash) {
+        let flight = match underbarrel {
+            Some(underbarrel) => underbarrel.flight(),
+            None => flight(stats.id),
+        };
+        if let (Some(flight), Some(splash)) = (flight, splash) {
             // Launchers fire a real projectile, which bursts on the first thing it touches.
             launched.write(Launched {
                 origin: camera.translation() + *direction * 0.5,
@@ -687,9 +894,15 @@ fn fire(
                 flight,
                 impact: loadout.damage_at(0.0, entries),
                 impact_headshot: loadout.zone_multiplier(HitZone::Head, entries),
+                // The Grenade Launcher never scores a Headshot.
+                headshots: underbarrel.is_none(),
                 splash,
                 ammo_mods,
-                crawlers: makes_crawlers(Explosive::Weapon(stats.id)),
+                // Only the Grenade Launcher flies among the underbarrels.
+                crawlers: makes_crawlers(match underbarrel {
+                    Some(_) => Explosive::GrenadeLauncher,
+                    None => Explosive::Weapon(stats.id),
+                }),
             });
             continue;
         }
@@ -715,7 +928,11 @@ fn fire(
                 splash,
                 hurts_player: true,
                 ammo_mods,
-                crawlers: makes_crawlers(Explosive::Weapon(stats.id)),
+                // Only the Grenade Launcher flies among the underbarrels.
+                crawlers: makes_crawlers(match underbarrel {
+                    Some(_) => Explosive::GrenadeLauncher,
+                    None => Explosive::Weapon(stats.id),
+                }),
             });
             continue;
         }
@@ -735,8 +952,8 @@ fn fire(
             },
             None => Crossing::World,
         });
-        for hit in pierce(crossings, stats.penetration.extra_zombies()) {
-            let amount = hit_damage(loadout.zone_multiplier(hit.zone, entries), loadout.damage_at(hit.distance, entries), &hit);
+        for hit in pierce(crossings, stats.penetration.extra_zombies() + sights.extra_pierce) {
+            let amount = hit_damage(loadout.zone_multiplier(hit.zone, entries), loadout.damage_at(hit.distance, entries), &hit, sights);
             damage.write(DamageZombie {
                 zombie: hit.zombie,
                 damage: amount,
@@ -751,7 +968,7 @@ fn fire(
     }
 
     // Like the real thing: firing the last bullet starts a Reload.
-    if loadout.held().magazine == 0 {
+    if loadout.gun_ammo().0 == 0 {
         loadout.start_reload(entries);
     }
 }
@@ -1318,5 +1535,237 @@ mod tests {
         }];
         let rifle = Loadout::new(WeaponId::M14);
         assert!((rifle.move_speed(10.0, &quicker) - 10.0 * 0.95 * 1.2).abs() < 1e-4);
+    }
+
+    /// The copy a hold Repack makes when its rolls land on `attachment`.
+    fn fit(copy: WeaponCopy, attachment: Attachment) -> WeaponCopy {
+        let rolls = (0..100).map(|i| i as f32 / 100.0);
+        let free = free_mounts(copy.stats(), &copy.attachments);
+        let (mount_roll, attachment_roll) = rolls
+            .clone()
+            .flat_map(|a| rolls.clone().map(move |b| (a, b)))
+            .find(|(a, b)| pick_attachment(&free, *a, *b) == Some(attachment))
+            .expect("a free mount for it");
+        copy.repack_attachment(mount_roll, attachment_roll)
+    }
+
+    fn upgraded(id: WeaponId, attachments: &[Attachment]) -> Loadout {
+        let mut loadout = Loadout::new(WeaponId::M1911);
+        let copy = attachments.iter().fold(WeaponCopy::new(id).upgrade(), |copy, a| fit(copy, *a));
+        loadout.give_copy(copy);
+        run(&mut loadout, 5.0, NONE);
+        loadout
+    }
+
+    const SPEED_COLA: [Modifier; 1] = [Modifier {
+        stat: Stat::ReloadTime,
+        source: Source("Speed Cola"),
+        effect: Effect::Mult(SPEED_COLA_RELOAD_MULT),
+    }];
+
+    #[test]
+    fn a_hold_repack_fits_one_attachment_per_mount_and_counts_as_a_repack() {
+        let copy = fit(WeaponCopy::new(WeaponId::Mp40).upgrade(), Attachment::RapidFire);
+        assert_eq!((copy.attachments.as_slice(), copy.repacks), ([Attachment::RapidFire].as_slice(), 1));
+        // The barrel is taken, so a Long Barrel can never follow.
+        assert!(!free_mounts(copy.stats(), &copy.attachments).contains(&crate::attachment::Mount::Barrel));
+        let full = [
+            Attachment::RedDotSight,
+            Attachment::ExtendedMag,
+            Attachment::Flamethrower,
+            Attachment::Grip,
+        ]
+        .into_iter()
+        .fold(copy, fit);
+        assert!(!full.has_free_mount());
+        let unchanged = full.repack_attachment(0.5, 0.5);
+        assert_eq!((unchanged.attachments.len(), unchanged.repacks), (5, 5));
+        // A base Weapon takes no Attachments.
+        assert!(!WeaponCopy::new(WeaponId::Mp40).has_free_mount());
+    }
+
+    #[test]
+    fn rapid_fire_shortens_the_fire_interval_alongside_double_tap() {
+        let loadout = upgraded(WeaponId::Mp40, &[Attachment::RapidFire]);
+        let double_tap = [Modifier {
+            stat: Stat::FireInterval,
+            source: Source("Double Tap"),
+            effect: Effect::Mult(DOUBLE_TAP_FIRE_INTERVAL_MULT),
+        }];
+        let base = WeaponId::Mp40.upgraded().fire_interval;
+        assert!((loadout.fire_interval(&double_tap) - base * 0.6).abs() < 1e-6);
+    }
+
+    #[test]
+    fn extended_mag_comes_full_and_counts_toward_full_ammo() {
+        let mut loadout = upgraded(WeaponId::M14, &[Attachment::ExtendedMag]);
+        // Mnesia's 16 + 192 become 24 + 240.
+        assert_eq!((loadout.held().magazine, loadout.held().reserve), (24, 240));
+        assert_eq!(loadout.magazine_size(NONE), 24);
+        assert!(loadout.ammo_full(1, NONE));
+        loadout.held_mut().reserve = 200;
+        assert!(!loadout.ammo_full(1, NONE));
+        loadout.refill(1, NONE);
+        assert_eq!(loadout.held().reserve, 240);
+    }
+
+    #[test]
+    fn long_barrel_keeps_max_damage_at_any_range() {
+        let plain = upgraded(WeaponId::Mp40, &[]);
+        let long = upgraded(WeaponId::Mp40, &[Attachment::LongBarrel]);
+        assert_eq!(plain.damage_at(100.0, NONE), 120.0);
+        assert_eq!(long.damage_at(100.0, NONE), 200.0);
+        assert_eq!(long.damage_at(0.0, NONE), 200.0);
+    }
+
+    #[test]
+    fn grip_tightens_the_hip_spread() {
+        let loadout = upgraded(WeaponId::Mp40, &[Attachment::Grip]);
+        assert!((loadout.spread() - 2.0 * 0.6).abs() < 1e-5);
+    }
+
+    #[test]
+    fn optics_count_only_while_aimed() {
+        let mut loadout = upgraded(WeaponId::Mp40, &[Attachment::AcogSight]);
+        assert_eq!(loadout.sights(NONE), Sights::PLAIN, "from the hip");
+        loadout.update_stance(1.0, false, true);
+        let aimed = loadout.sights(NONE);
+        assert_eq!((aimed.extra_pierce, aimed.pierce_damage), (2, 1.0));
+        assert!((loadout.fov_factor() - ADS_FOV_IRON * ACOG_ADS_FOV_MULT).abs() < 1e-5);
+
+        let mut red_dot = upgraded(WeaponId::Mp40, &[Attachment::RedDotSight]);
+        red_dot.update_stance(1.0, false, true);
+        assert_eq!(red_dot.sights(NONE).headshot, 1.5);
+    }
+
+    #[test]
+    fn dual_mag_makes_every_second_reload_a_flat_0_4_s() {
+        assert!(!dual_mag_flat(0) && dual_mag_flat(1) && !dual_mag_flat(2));
+        let mut loadout = upgraded(WeaponId::Mp40, &[Attachment::DualMag]);
+        loadout.held_mut().magazine = 10;
+        loadout.start_reload(&SPEED_COLA);
+        assert!((loadout.reload_secs(&SPEED_COLA).unwrap() - 2.3 * SPEED_COLA_RELOAD_MULT).abs() < 1e-5);
+        run(&mut loadout, 5.0, &SPEED_COLA);
+
+        // The second: flat, and Speed Cola doesn't shorten it.
+        loadout.held_mut().magazine = 10;
+        loadout.start_reload(&SPEED_COLA);
+        assert_eq!(loadout.reload_secs(&SPEED_COLA), Some(DUAL_MAG_RELOAD_SECS));
+        run(&mut loadout, DUAL_MAG_RELOAD_SECS, &SPEED_COLA);
+        assert_eq!(loadout.held().magazine, 64);
+
+        // And the third is ordinary again.
+        loadout.held_mut().magazine = 10;
+        loadout.start_reload(NONE);
+        assert_eq!(loadout.reload_secs(NONE), Some(2.3));
+    }
+
+    #[test]
+    fn the_aug_50m3_comes_with_its_masterkey() {
+        let aug = WeaponCopy::new(WeaponId::Aug).upgrade();
+        let masterkey = aug.underbarrel.expect("built in");
+        assert_eq!((masterkey.kind, masterkey.magazine, masterkey.reserve), (Underbarrel::Masterkey, 6, 30));
+        assert!(WeaponCopy::new(WeaponId::Famas).upgrade().underbarrel.is_none());
+        assert!(WeaponCopy::new(WeaponId::Aug).underbarrel.is_none(), "only once Upgraded");
+    }
+
+    #[test]
+    fn x_toggles_the_underbarrel_in_half_a_second() {
+        let mut loadout = upgraded(WeaponId::Aug, &[]);
+        assert!(loadout.toggle_underbarrel());
+        assert_eq!(loadout.gun_stats().name, "Masterkey");
+        assert!(!loadout.try_fire(true, true, NONE), "mid-toggle");
+        assert!(!loadout.toggle_underbarrel(), "one toggle at a time");
+        run(&mut loadout, UNDERBARREL_TOGGLE_SECS, NONE);
+
+        // The Masterkey spends its own shells, not the AUG-50M3's bullets.
+        assert!(loadout.try_fire(true, true, NONE));
+        assert_eq!(loadout.gun_ammo(), (5, 30));
+        assert_eq!(loadout.held().magazine, 30);
+        assert_eq!(loadout.damage_at(0.0, NONE), 240.0);
+
+        // Its Reload loads two shells at a time.
+        assert!(loadout.start_reload(NONE));
+        assert!((loadout.reload_secs(NONE).unwrap() - (0.9 + 0.3 + 0.95)).abs() < 1e-5);
+        run(&mut loadout, 3.0, NONE);
+        assert_eq!(loadout.gun_ammo(), (6, 29));
+
+        assert!(loadout.toggle_underbarrel());
+        assert_eq!(loadout.gun_stats().name, "AUG-50M3");
+        assert!(!loadout.toggle_underbarrel(), "still toggling back");
+    }
+
+    #[test]
+    fn a_weapon_without_an_underbarrel_ignores_x() {
+        let mut loadout = upgraded(WeaponId::Mp40, &[Attachment::Grip]);
+        assert!(!loadout.toggle_underbarrel());
+        assert_eq!(loadout.gun_stats().name, "The Afterburner");
+    }
+
+    #[test]
+    fn a_weapon_switch_puts_the_main_gun_back_up() {
+        let mut loadout = upgraded(WeaponId::Aug, &[]);
+        loadout.toggle_underbarrel();
+        run(&mut loadout, 1.0, NONE);
+        assert!(loadout.underbarrel().is_some());
+        loadout.cycle();
+        run(&mut loadout, 5.0, NONE);
+        loadout.cycle();
+        run(&mut loadout, 5.0, NONE);
+        assert!(loadout.underbarrel().is_none());
+        assert_eq!(loadout.gun_stats().name, "AUG-50M3");
+    }
+
+    #[test]
+    fn the_underbarrel_takes_perks_but_not_the_weapons_attachments() {
+        let mut loadout = upgraded(WeaponId::M14, &[Attachment::RapidFire, Attachment::GrenadeLauncher]);
+        loadout.toggle_underbarrel();
+        assert_eq!(loadout.gun_stats().name, "Grenade Launcher");
+        assert_eq!(loadout.fire_interval(NONE), GRENADE_LAUNCHER.fire_interval);
+        assert_eq!(loadout.magazine_size(NONE), 1);
+    }
+
+    #[test]
+    fn max_ammo_and_the_chalk_refill_the_underbarrel() {
+        let mut loadout = upgraded(WeaponId::Mp40, &[Attachment::GrenadeLauncher]);
+        assert!(loadout.ammo_full(1, NONE));
+        loadout.toggle_underbarrel();
+        run(&mut loadout, 1.0, NONE);
+        assert!(loadout.try_fire(true, true, NONE));
+        assert_eq!(loadout.gun_ammo(), (0, 5));
+        assert!(!loadout.ammo_full(1, NONE), "the Underbarrel is short");
+        loadout.refill(1, NONE);
+        assert_eq!(loadout.gun_ammo(), (1, 5));
+        assert!(loadout.ammo_full(1, NONE));
+    }
+
+    #[test]
+    fn the_flamethrower_burns_its_tank_and_recharges_when_idle() {
+        let mut loadout = upgraded(WeaponId::Mp40, &[Attachment::Flamethrower]);
+        loadout.toggle_underbarrel();
+        run(&mut loadout, 1.0, NONE);
+        for _ in 0..10 {
+            assert!(loadout.try_fire(true, false, NONE));
+            run(&mut loadout, FLAMETHROWER.fire_interval, NONE);
+        }
+        assert_eq!(loadout.gun_ammo(), (90, 300));
+        assert!(!loadout.start_reload(NONE), "it recharges instead");
+        // A second off the trigger refills a second of tank.
+        run(&mut loadout, 1.0, NONE);
+        let (tank, reserve) = loadout.gun_ammo();
+        assert!(tank > 90 && tank + reserve == 390, "{tank} + {reserve}");
+    }
+
+    #[test]
+    fn attachments_stay_with_their_copy_through_a_down_and_go_with_it() {
+        let mut loadout = upgraded(WeaponId::Mp40, &[Attachment::ExtendedMag, Attachment::Masterkey]);
+        let mut stand = crate::last_stand::LastStand::begin(&mut loadout);
+        stand.self_revive(&mut loadout);
+        assert_eq!(loadout.held().attachments, [Attachment::ExtendedMag, Attachment::Masterkey]);
+        assert!(loadout.held().underbarrel.is_some());
+        // Replacing the copy loses them.
+        loadout.give(WeaponId::Mp40);
+        assert!(loadout.held().attachments.is_empty() && loadout.held().underbarrel.is_none());
+        assert_eq!(loadout.held().magazine, 32);
     }
 }

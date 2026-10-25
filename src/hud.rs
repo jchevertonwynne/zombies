@@ -1,11 +1,12 @@
 use bevy::prelude::*;
 
-use crate::buy::{Buyable, CantAfford, Focus, can_afford};
+use crate::buy::{Buyable, CantAfford, Focus, HoldBuy, can_afford};
 use crate::player::{Health, Player};
 use crate::points::{Points, PointsAwarded};
 use crate::round::{Round, RoundPhase};
 use crate::state::{GameState, InRun};
-use crate::tuning::CANT_AFFORD_FLASH_SECS;
+use crate::attachment::Underbarrel;
+use crate::tuning::{CANT_AFFORD_FLASH_SECS, FLAMETHROWER_TICKS_PER_SEC};
 use crate::weapon::{Loadout, UPGRADED_PURPLE};
 
 pub const ROUND_RED: Color = Color::srgb(0.7, 0.05, 0.02);
@@ -35,6 +36,13 @@ struct PromptText;
 
 #[derive(Component)]
 struct PromptCost;
+
+/// A second line of the Prompt for a Buyable's hold half, and its price.
+#[derive(Component)]
+struct PromptHold;
+
+#[derive(Component)]
+struct PromptHoldCost;
 
 /// Seconds left of the red Points flash after a refused buy.
 #[derive(Resource, Default)]
@@ -146,7 +154,9 @@ fn spawn_hud(mut commands: Commands) {
         ))
         .with_children(|row| {
             row.spawn((PromptText, text("", 22.0, Color::WHITE), Visibility::Hidden))
-                .with_child((PromptCost, TextSpan::default(), TextColor(Color::WHITE)));
+                .with_child((PromptCost, TextSpan::default(), TextColor(Color::WHITE)))
+                .with_child((PromptHold, TextSpan::default(), TextColor(Color::WHITE)))
+                .with_child((PromptHoldCost, TextSpan::default(), TextColor(Color::WHITE)));
         });
 
     commands.spawn((
@@ -235,13 +245,15 @@ fn points_text(
 /// The focused Buyable's Prompt, always with its price, in red when the Player can't afford it.
 fn prompt_text(
     focus: Res<Focus>,
-    buyables: Query<&Buyable>,
+    buyables: Query<(&Buyable, Option<&HoldBuy>)>,
     points: Res<Points>,
     prompt: Single<(&mut Text, &mut Visibility), With<PromptText>>,
-    cost: Single<(&mut TextSpan, &mut TextColor), With<PromptCost>>,
+    cost: Single<(&mut TextSpan, &mut TextColor), (With<PromptCost>, Without<PromptHoldCost>)>,
+    mut hold_line: Single<&mut TextSpan, (With<PromptHold>, Without<PromptCost>, Without<PromptHoldCost>)>,
+    hold_cost: Single<(&mut TextSpan, &mut TextColor), (With<PromptHoldCost>, Without<PromptCost>)>,
 ) {
     let (mut text, mut visibility) = prompt.into_inner();
-    let Some(buyable) = focus.0.and_then(|e| buyables.get(e).ok()) else {
+    let Some((buyable, hold)) = focus.0.and_then(|e| buyables.get(e).ok()) else {
         visibility.set_if_neq(Visibility::Hidden);
         return;
     };
@@ -250,11 +262,32 @@ fn prompt_text(
         text.0.clone_from(&buyable.prompt);
     }
     let (mut span, mut color) = cost.into_inner();
-    let price = buyable.price.map_or(String::new(), |price| format!(" [Cost: {}]", with_commas(price)));
-    if span.0 != price {
-        span.0 = price;
+    set_price(&mut span, &mut color, buyable.price, points.balance);
+
+    // A hold half offered beside the tap gets a line of its own.
+    let (mut hold_span, mut hold_color) = hold_cost.into_inner();
+    match hold.filter(|hold| hold.tap) {
+        Some(hold) => {
+            let line = format!("\n{}", hold.prompt);
+            if hold_line.0 != line {
+                hold_line.0 = line;
+            }
+            set_price(&mut hold_span, &mut hold_color, hold.price, points.balance);
+        }
+        None => {
+            hold_line.0.clear();
+            hold_span.0.clear();
+        }
     }
-    color.0 = if can_afford(points.balance, buyable.price) { Color::WHITE } else { CANT_AFFORD_RED };
+}
+
+/// A Prompt's price, in red when the Player can't afford it.
+fn set_price(span: &mut TextSpan, color: &mut TextColor, price: Option<u64>, balance: u64) {
+    let text = price.map_or(String::new(), |price| format!(" [Cost: {}]", with_commas(price)));
+    if span.0 != text {
+        span.0 = text;
+    }
+    color.0 = if can_afford(balance, price) { Color::WHITE } else { CANT_AFFORD_RED };
 }
 
 /// The Weapon in hand and its ammo. An Upgraded Weapon's name shows in purple.
@@ -266,16 +299,38 @@ fn ammo_text(
     let (mut text, mut color) = name.into_inner();
     let weapon = loadout.held();
     color.set_if_neq(TextColor(if weapon.upgraded { UPGRADED_PURPLE } else { Color::WHITE }));
-    let name = weapon.stats().name;
+    // With the Underbarrel up, its name and ammo show beside the Weapon's.
+    let name = match loadout.underbarrel() {
+        Some(underbarrel) => format!("{} | {}", weapon.stats().name, underbarrel.kind.stats().name),
+        None => weapon.stats().name.to_string(),
+    };
     if text.0 != name {
-        text.0 = name.to_string();
+        text.0 = name;
     }
-    let reserve = weapon.reserve;
-    count.0 = if loadout.reload.is_some() {
+    let (magazine, reserve) = match loadout.underbarrel() {
+        // The Flamethrower's fuel shows in seconds.
+        Some(underbarrel) if underbarrel.kind == Underbarrel::Flamethrower => (
+            format!("{:.1}s", underbarrel.magazine as f32 / FLAMETHROWER_TICKS_PER_SEC),
+            format!("{:.0}s", underbarrel.reserve as f32 / FLAMETHROWER_TICKS_PER_SEC),
+        ),
+        _ => {
+            let (magazine, reserve) = loadout.gun_ammo();
+            (magazine.to_string(), reserve.to_string())
+        }
+    };
+    let mut line = if loadout.reload.is_some() {
         format!("  RELOADING  {reserve}")
     } else {
-        format!("  {} / {reserve}", weapon.magazine)
+        format!("  {magazine} / {reserve}")
     };
+    // Attachments are listed under the upgraded name.
+    if !weapon.attachments.is_empty() {
+        let names: Vec<_> = weapon.attachments.iter().map(|attachment| attachment.name()).collect();
+        line = format!("{line}\n{}", names.join(", "));
+    }
+    if count.0 != line {
+        count.0 = line;
+    }
 }
 
 fn spawn_popups(
