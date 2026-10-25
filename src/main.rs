@@ -2,7 +2,9 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
 mod audio;
+mod buy;
 mod debug;
+mod door;
 mod hud;
 mod layers;
 mod map;
@@ -14,6 +16,7 @@ mod stats;
 mod tuning;
 mod weapon;
 mod zombie;
+mod zone;
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
@@ -33,6 +36,9 @@ fn main() {
         .add_plugins((
             state::StatePlugin,
             map::MapPlugin,
+            zone::ZonePlugin,
+            door::DoorPlugin,
+            buy::BuyPlugin,
             player::PlayerPlugin,
             weapon::WeaponPlugin,
             zombie::ZombiePlugin,

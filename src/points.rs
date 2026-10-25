@@ -34,6 +34,11 @@ impl Points {
         self.balance = self.balance.saturating_add(amount);
         self.earned = self.earned.saturating_add(amount);
     }
+
+    /// Takes Points for a purchase. The purchase flow checks affordability first.
+    pub fn spend(&mut self, amount: u64) {
+        self.balance = self.balance.saturating_sub(amount);
+    }
 }
 
 /// Points were awarded (for HUD popups).

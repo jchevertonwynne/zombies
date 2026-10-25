@@ -1,0 +1,331 @@
+//! Zones: which one the Player is in, and which are Active.
+
+use bevy::prelude::*;
+
+use crate::debug::DebugView;
+use crate::door::Door;
+use crate::player::Player;
+use crate::state::GameState;
+use crate::tuning::*;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ZoneId {
+    StartRoom,
+    WestHall,
+    Balcony,
+    EastHall,
+    DiningRoom,
+    PowerRoom,
+    Yard,
+}
+
+impl ZoneId {
+    pub const ALL: [ZoneId; 7] = [
+        ZoneId::StartRoom,
+        ZoneId::WestHall,
+        ZoneId::Balcony,
+        ZoneId::EastHall,
+        ZoneId::DiningRoom,
+        ZoneId::PowerRoom,
+        ZoneId::Yard,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            ZoneId::StartRoom => "Start Room",
+            ZoneId::WestHall => "West Hall",
+            ZoneId::Balcony => "Balcony",
+            ZoneId::EastHall => "East Hall",
+            ZoneId::DiningRoom => "Dining Room",
+            ZoneId::PowerRoom => "Power Room",
+            ZoneId::Yard => "Yard",
+        }
+    }
+
+    /// The Zone's volume. Floors sit a little inside it, so a Player standing on one is inside.
+    /// West Hall is two storeys tall because its ramp climbs to the Balcony.
+    pub fn volume(self) -> (Vec3, Vec3) {
+        const LOW: f32 = -0.25;
+        const UPPER: f32 = 3.75;
+        const TOP: f32 = 8.0;
+        let (x0, x1, y0, y1, z0, z1) = match self {
+            ZoneId::StartRoom => (-14.0, 14.0, LOW, UPPER, 14.0, 26.0),
+            ZoneId::WestHall => (-26.0, -14.0, LOW, TOP, -14.0, 26.0),
+            ZoneId::Balcony => (-14.0, -10.0, UPPER, TOP, -14.0, 10.0),
+            ZoneId::EastHall => (14.0, 26.0, LOW, UPPER, -14.0, 26.0),
+            ZoneId::DiningRoom => (-26.0, 0.0, LOW, UPPER, -26.0, -14.0),
+            ZoneId::PowerRoom => (0.0, 26.0, LOW, UPPER, -26.0, -14.0),
+            ZoneId::Yard => (-14.0, 14.0, LOW, UPPER, -14.0, 14.0),
+        };
+        (Vec3::new(x0, y0, z0), Vec3::new(x1, y1, z1))
+    }
+
+    fn bit(self) -> u8 {
+        1 << self as u8
+    }
+}
+
+/// A set of Zones.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ZoneSet(u8);
+
+impl ZoneSet {
+    pub fn insert(&mut self, zone: ZoneId) {
+        self.0 |= zone.bit();
+    }
+
+    pub fn contains(self, zone: ZoneId) -> bool {
+        self.0 & zone.bit() != 0
+    }
+
+    pub fn iter(self) -> impl Iterator<Item = ZoneId> {
+        ZoneId::ALL.into_iter().filter(move |&zone| self.contains(zone))
+    }
+}
+
+impl FromIterator<ZoneId> for ZoneSet {
+    fn from_iter<I: IntoIterator<Item = ZoneId>>(iter: I) -> Self {
+        let mut set = ZoneSet::default();
+        for zone in iter {
+            set.insert(zone);
+        }
+        set
+    }
+}
+
+/// Joins that never close: the ramp from West Hall up to the Balcony, and the drop from the
+/// Balcony into the Yard. The drop is one-way to walk but counts both ways for activation.
+pub const FIXED_JOINS: [(ZoneId, ZoneId); 2] = [
+    (ZoneId::WestHall, ZoneId::Balcony),
+    (ZoneId::Balcony, ZoneId::Yard),
+];
+
+/// The Zone the Player is in after moving. They change Zone only once their whole body
+/// (`min`..`max`) is inside the new one; until then they stay in the old Zone.
+pub fn track_zone(current: ZoneId, min: Vec3, max: Vec3) -> ZoneId {
+    let fully_inside = |zone: ZoneId| {
+        let (lo, hi) = zone.volume();
+        min.cmpge(lo).all() && max.cmple(hi).all()
+    };
+    if fully_inside(current) {
+        return current;
+    }
+    ZoneId::ALL.into_iter().find(|&zone| fully_inside(zone)).unwrap_or(current)
+}
+
+/// The Active Zones: the Player's Zone, plus every Zone one open join away from it.
+/// `open_joins` lists the joins that are passable now (open Doors, the ramp and the drop).
+pub fn active_zones(player: ZoneId, open_joins: impl IntoIterator<Item = (ZoneId, ZoneId)>) -> ZoneSet {
+    let mut active = ZoneSet::default();
+    active.insert(player);
+    for (a, b) in open_joins {
+        if a == player {
+            active.insert(b);
+        } else if b == player {
+            active.insert(a);
+        }
+    }
+    active
+}
+
+/// The Zone the Player is standing in.
+#[derive(Resource)]
+pub struct PlayerZone(pub ZoneId);
+
+/// Zones whose Spawn Points send in Zombies.
+#[derive(Resource)]
+pub struct ActiveZones(pub ZoneSet);
+
+#[derive(Default, Reflect, GizmoConfigGroup)]
+struct ZoneGizmos;
+
+#[derive(Component)]
+struct ZoneDebugText;
+
+pub struct ZonePlugin;
+
+impl Plugin for ZonePlugin {
+    fn build(&self, app: &mut App) {
+        app.init_gizmo_group::<ZoneGizmos>()
+            .insert_resource(PlayerZone(ZoneId::StartRoom))
+            .insert_resource(ActiveZones(ZoneSet::default()))
+            .add_systems(OnEnter(GameState::Playing), (reset, spawn_debug_text))
+            .add_systems(
+                Update,
+                (
+                    (track_player, update_active_zones).chain(),
+                    (draw_zones, debug_text).run_if(|view: Res<DebugView>| view.0),
+                    show_debug_text,
+                )
+                    .chain()
+                    .run_if(in_state(GameState::Playing)),
+            );
+    }
+}
+
+fn reset(mut zone: ResMut<PlayerZone>) {
+    zone.0 = ZoneId::StartRoom;
+}
+
+fn track_player(player: Single<&Transform, With<Player>>, mut zone: ResMut<PlayerZone>) {
+    let half = Vec3::new(PLAYER_RADIUS, PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0, PLAYER_RADIUS);
+    let at = player.translation;
+    let tracked = track_zone(zone.0, at - half, at + half);
+    if tracked != zone.0 {
+        zone.0 = tracked;
+    }
+}
+
+fn update_active_zones(zone: Res<PlayerZone>, doors: Query<&Door>, mut active: ResMut<ActiveZones>) {
+    let open_doors = doors.iter().filter(|door| door.open).filter_map(|door| door.joins);
+    let set = active_zones(zone.0, FIXED_JOINS.into_iter().chain(open_doors));
+    if set != active.0 {
+        active.0 = set;
+    }
+}
+
+fn draw_zones(mut gizmos: Gizmos<ZoneGizmos>, zone: Res<PlayerZone>, active: Res<ActiveZones>) {
+    for id in ZoneId::ALL {
+        let (lo, hi) = id.volume();
+        let colour = if id == zone.0 {
+            Color::WHITE
+        } else if active.0.contains(id) {
+            Color::srgb(0.2, 1.0, 0.3)
+        } else {
+            Color::srgb(0.6, 0.2, 0.2)
+        };
+        let centre = (lo + hi) / 2.0;
+        gizmos.cube(Transform::from_translation(centre).with_scale(hi - lo), colour);
+    }
+}
+
+fn spawn_debug_text(mut commands: Commands) {
+    commands.spawn((
+        crate::state::InRun,
+        ZoneDebugText,
+        Text::new(""),
+        TextFont {
+            font_size: FontSize::Px(18.0),
+            ..default()
+        },
+        TextColor(Color::WHITE),
+        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.5)),
+        Node {
+            position_type: PositionType::Absolute,
+            left: px(16.0),
+            top: px(12.0),
+            ..default()
+        },
+        Visibility::Hidden,
+    ));
+}
+
+fn debug_text(zone: Res<PlayerZone>, active: Res<ActiveZones>, mut text: Single<&mut Text, With<ZoneDebugText>>) {
+    let names: Vec<_> = active.0.iter().map(ZoneId::name).collect();
+    text.0 = format!("Zone: {}\nActive: {}", zone.0.name(), names.join(", "));
+}
+
+fn show_debug_text(view: Res<DebugView>, mut visibility: Single<&mut Visibility, With<ZoneDebugText>>) {
+    let wanted = if view.0 { Visibility::Inherited } else { Visibility::Hidden };
+    visibility.set_if_neq(wanted);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ZoneId::*;
+
+    /// A Player-sized box with its feet at `(x, y, z)`.
+    fn body(x: f32, y: f32, z: f32) -> (Vec3, Vec3) {
+        (Vec3::new(x - 0.35, y, z - 0.35), Vec3::new(x + 0.35, y + 1.8, z + 0.35))
+    }
+
+    fn track(current: ZoneId, feet: (f32, f32, f32)) -> ZoneId {
+        let (min, max) = body(feet.0, feet.1, feet.2);
+        track_zone(current, min, max)
+    }
+
+    #[test]
+    fn zone_volumes_do_not_overlap() {
+        for a in ZoneId::ALL {
+            for b in ZoneId::ALL.into_iter().filter(|&b| b != a) {
+                let ((alo, ahi), (blo, bhi)) = (a.volume(), b.volume());
+                let overlap = alo.cmplt(bhi).all() && blo.cmplt(ahi).all();
+                assert!(!overlap, "{a:?} overlaps {b:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn standing_in_a_room_puts_the_player_in_it() {
+        assert_eq!(track(StartRoom, (0.0, 0.0, 20.0)), StartRoom);
+        assert_eq!(track(StartRoom, (-20.0, 0.0, 0.0)), WestHall);
+        assert_eq!(track(StartRoom, (0.0, 0.0, 0.0)), Yard);
+        assert_eq!(track(StartRoom, (-12.0, 4.0, 0.0)), Balcony);
+        assert_eq!(track(StartRoom, (-10.0, 0.0, -20.0)), DiningRoom);
+        assert_eq!(track(StartRoom, (10.0, 0.0, -20.0)), PowerRoom);
+        assert_eq!(track(StartRoom, (20.0, 0.0, 0.0)), EastHall);
+    }
+
+    #[test]
+    fn a_player_straddling_a_doorway_stays_in_the_old_zone() {
+        // The Start–Yard Door is in the wall at z = 14.
+        assert_eq!(track(StartRoom, (0.0, 0.0, 14.0)), StartRoom);
+        assert_eq!(track(Yard, (0.0, 0.0, 14.0)), Yard);
+    }
+
+    #[test]
+    fn a_player_changes_zone_once_fully_inside_the_new_one() {
+        assert_eq!(track(StartRoom, (0.0, 0.0, 13.7)), StartRoom);
+        assert_eq!(track(StartRoom, (0.0, 0.0, 13.6)), Yard);
+    }
+
+    #[test]
+    fn falling_from_the_balcony_moves_the_player_into_the_yard_only_once_below_it() {
+        assert_eq!(track(Balcony, (-11.0, 3.0, 4.0)), Balcony);
+        assert_eq!(track(Balcony, (-9.0, 1.0, 4.0)), Yard);
+    }
+
+    #[test]
+    fn climbing_the_ramp_keeps_the_player_in_west_hall() {
+        assert_eq!(track(WestHall, (-15.7, 2.0, 4.0)), WestHall);
+        assert_eq!(track(WestHall, (-15.7, 4.0, -2.0)), WestHall);
+    }
+
+    #[test]
+    fn the_start_room_alone_is_active_with_every_door_shut() {
+        let active = active_zones(StartRoom, FIXED_JOINS);
+        assert_eq!(active.iter().collect::<Vec<_>>(), vec![StartRoom]);
+    }
+
+    #[test]
+    fn open_doors_activate_the_zone_on_the_other_side() {
+        let active = active_zones(StartRoom, FIXED_JOINS.into_iter().chain([(StartRoom, WestHall)]));
+        assert!(active.contains(WestHall));
+        assert!(!active.contains(Balcony), "only one join away counts");
+    }
+
+    #[test]
+    fn west_hall_activates_the_balcony_but_not_the_yard() {
+        let active = active_zones(WestHall, FIXED_JOINS);
+        assert!(active.contains(Balcony));
+        assert!(!active.contains(Yard));
+    }
+
+    #[test]
+    fn the_balcony_activates_west_hall_and_the_yard() {
+        let active = active_zones(Balcony, FIXED_JOINS);
+        assert_eq!(active, ZoneSet::from_iter([Balcony, WestHall, Yard]));
+    }
+
+    #[test]
+    fn the_drop_counts_both_ways_for_activation() {
+        assert!(active_zones(Yard, FIXED_JOINS).contains(Balcony));
+    }
+
+    #[test]
+    fn a_far_open_door_activates_nothing() {
+        let active = active_zones(StartRoom, FIXED_JOINS.into_iter().chain([(DiningRoom, PowerRoom)]));
+        assert_eq!(active, ZoneSet::from_iter([StartRoom]));
+    }
+}

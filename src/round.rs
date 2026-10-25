@@ -6,6 +6,7 @@ use crate::map::SpawnPoint;
 use crate::state::{GameState, Pause};
 use crate::tuning::*;
 use crate::zombie::{Dying, SpeedTier, Zombie, ZombieAssetsParam, spawn_zombie};
+use crate::zone::ActiveZones;
 
 /// Zombie health for a Round, built Round by Round as BO1 does: +100 a Round through Round 9,
 /// then +10% (floored) a Round, with no cap. Converted to `f32` only at spawn.
@@ -119,7 +120,8 @@ fn spawn_horde(
     mut commands: Commands,
     mut round: ResMut<Round>,
     alive: Query<(), (With<Zombie>, Without<Dying>)>,
-    spawn_points: Query<&Transform, With<SpawnPoint>>,
+    spawn_points: Query<(&Transform, &SpawnPoint)>,
+    active: Res<ActiveZones>,
     assets: ZombieAssetsParam,
     time: Res<Time>,
 ) {
@@ -131,7 +133,12 @@ fn spawn_horde(
         return;
     }
 
-    let points: Vec<_> = spawn_points.iter().collect();
+    // Only Spawn Points in Active Zones send in Zombies.
+    let points: Vec<_> = spawn_points
+        .iter()
+        .filter(|(_, point)| active.0.contains(point.0))
+        .map(|(transform, _)| transform)
+        .collect();
     if points.is_empty() {
         return;
     }

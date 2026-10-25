@@ -100,6 +100,20 @@ pub const POINTS_NECK_KILL: u64 = 70;
 pub const POINTS_HEADSHOT_KILL: u64 = 100;
 pub const POINTS_KNIFE_KILL: u64 = 130;
 
-// Map
-pub const ARENA_HALF_SIZE: f32 = 20.0;
-pub const WALL_HEIGHT: f32 = 4.0;
+// Doors
+pub const DOOR_PRICE_START_WEST: u64 = 750;
+pub const DOOR_PRICE_START_EAST: u64 = 750;
+pub const DOOR_PRICE_WEST_DINING: u64 = 1000;
+pub const DOOR_PRICE_EAST_POWER: u64 = 1000;
+pub const DOOR_PRICE_DINING_POWER: u64 = 1250;
+pub const DOOR_PRICE_START_YARD: u64 = 1000;
+pub const DOOR_PRICE_YARD_DINING: u64 = 1250;
+
+// Buying
+/// How far from a Buyable's use point the Player can buy it, height included.
+pub const USE_RANGE: f32 = 2.0;
+/// How far off the crosshair a Buyable's use point can be and still be bought.
+pub const USE_ANGLE: f32 = 45.0_f32.to_radians();
+/// A Door's range override: its use point sits mid-Door, so this reaches the Door's full width.
+pub const DOOR_USE_RANGE: f32 = USE_RANGE + 1.2;
+pub const CANT_AFFORD_FLASH_SECS: f32 = 0.5;

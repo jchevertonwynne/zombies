@@ -4,6 +4,7 @@ use std::f32::consts::TAU;
 
 use bevy::prelude::*;
 
+use crate::buy::{CantAfford, Purchased};
 use crate::round::RoundStarted;
 use crate::weapon::ShotFired;
 use crate::zombie::{ZombieHit, ZombieKilled};
@@ -16,6 +17,8 @@ struct Sounds {
     hit: Handle<AudioSource>,
     kill: Handle<AudioSource>,
     round_sting: Handle<AudioSource>,
+    buzzer: Handle<AudioSource>,
+    purchase: Handle<AudioSource>,
 }
 
 pub struct AudioPlugin;
@@ -34,6 +37,8 @@ fn synthesise(mut commands: Commands, mut sources: ResMut<Assets<AudioSource>>) 
         hit: add(thud(0.06, 220.0)),
         kill: add(thud(0.18, 90.0)),
         round_sting: add(round_sting()),
+        buzzer: add(buzzer()),
+        purchase: add(purchase()),
     });
 }
 
@@ -44,6 +49,8 @@ fn play_sounds(
     mut hits: MessageReader<ZombieHit>,
     mut kills: MessageReader<ZombieKilled>,
     mut rounds: MessageReader<RoundStarted>,
+    mut purchases: MessageReader<Purchased>,
+    mut refusals: MessageReader<CantAfford>,
 ) {
     let mut play = |sound: &Handle<AudioSource>, volume: f32| {
         commands.spawn((
@@ -62,6 +69,12 @@ fn play_sounds(
     }
     for _ in rounds.read() {
         play(&sounds.round_sting, 0.9);
+    }
+    for _ in purchases.read() {
+        play(&sounds.purchase, 0.7);
+    }
+    for _ in refusals.read() {
+        play(&sounds.buzzer, 0.6);
     }
 }
 
@@ -118,6 +131,28 @@ fn round_sting() -> Vec<f32> {
                 })
                 .sum::<f32>()
                 .clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
+/// A harsh low square-wave buzz for a buy the Player can't afford.
+fn buzzer() -> Vec<f32> {
+    samples(0.35)
+        .map(|t| {
+            let square = if (TAU * 110.0 * t).sin() >= 0.0 { 1.0 } else { -1.0 };
+            let envelope = (t * 200.0).min(1.0) * (1.0 - t / 0.35);
+            square * envelope * 0.35
+        })
+        .collect()
+}
+
+/// Two bright rising notes for a purchase.
+fn purchase() -> Vec<f32> {
+    samples(0.4)
+        .map(|t| {
+            let (freq, local) = if t < 0.12 { (880.0, t) } else { (1320.0, t - 0.12) };
+            let envelope = (local * 300.0).min(1.0) * (-local * 9.0).exp();
+            (TAU * freq * local).sin() * envelope * 0.4
         })
         .collect()
 }

@@ -1,13 +1,17 @@
 use bevy::prelude::*;
 
+use crate::buy::{Buyable, CantAfford, Focus, can_afford};
 use crate::player::{Health, Player};
 use crate::points::{Points, PointsAwarded};
 use crate::round::{Round, RoundPhase};
 use crate::state::{GameState, InRun, Pause};
+use crate::tuning::CANT_AFFORD_FLASH_SECS;
 use crate::weapon::Weapon;
 
 const ROUND_RED: Color = Color::srgb(0.7, 0.05, 0.02);
 const POPUP_SECS: f32 = 0.8;
+const POINTS_GOLD: Color = Color::srgb(1.0, 0.9, 0.5);
+const CANT_AFFORD_RED: Color = Color::srgb(1.0, 0.15, 0.1);
 
 #[derive(Component)]
 struct DamageTint;
@@ -21,6 +25,17 @@ struct PointsText;
 #[derive(Component)]
 struct AmmoText;
 
+/// The Prompt under the crosshair. Its one child span holds the price.
+#[derive(Component)]
+struct PromptText;
+
+#[derive(Component)]
+struct PromptCost;
+
+/// Seconds left of the red Points flash after a refused buy.
+#[derive(Resource, Default)]
+struct PointsFlash(f32);
+
 #[derive(Component)]
 struct PopupColumn;
 
@@ -33,12 +48,23 @@ pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(GameState::Playing), spawn_hud)
+        app.init_resource::<PointsFlash>()
+            .add_systems(OnEnter(GameState::Playing), spawn_hud)
             .add_systems(OnEnter(Pause::Paused), spawn_pause_screen)
             .add_systems(OnEnter(GameState::GameOver), spawn_game_over_screen)
             .add_systems(
                 Update,
-                (damage_tint, round_text, points_text, ammo_text, spawn_popups, animate_popups)
+                (
+                    damage_tint,
+                    round_text,
+                    flash_points,
+                    points_text,
+                    ammo_text,
+                    prompt_text,
+                    spawn_popups,
+                    animate_popups,
+                )
+                    .chain()
                     .run_if(in_state(GameState::Playing)),
             )
             .add_systems(Update, restart.run_if(in_state(GameState::GameOver)));
@@ -105,6 +131,23 @@ fn spawn_hud(mut commands: Commands) {
             }
         });
 
+    // The Prompt, just under the crosshair.
+    commands
+        .spawn((
+            InRun,
+            Node {
+                position_type: PositionType::Absolute,
+                width: percent(100.0),
+                top: percent(56.0),
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+        ))
+        .with_children(|row| {
+            row.spawn((PromptText, text("", 22.0, Color::WHITE), Visibility::Hidden))
+                .with_child((PromptCost, TextSpan::default(), TextColor(Color::WHITE)));
+        });
+
     commands.spawn((
         InRun,
         RoundText,
@@ -141,7 +184,7 @@ fn spawn_hud(mut commands: Commands) {
                     ..default()
                 },
             ));
-            column.spawn((PointsText, text("0", 36.0, Color::srgb(1.0, 0.9, 0.5))));
+            column.spawn((PointsText, text("0", 36.0, POINTS_GOLD)));
             column.spawn((AmmoText, text("", 28.0, Color::WHITE)));
         });
 }
@@ -169,8 +212,46 @@ fn round_text(
     };
 }
 
-fn points_text(points: Res<Points>, mut text: Single<&mut Text, With<PointsText>>) {
+fn flash_points(mut flash: ResMut<PointsFlash>, mut refused: MessageReader<CantAfford>, time: Res<Time>) {
+    flash.0 = (flash.0 - time.delta_secs()).max(0.0);
+    if refused.read().count() > 0 {
+        flash.0 = CANT_AFFORD_FLASH_SECS;
+    }
+}
+
+fn points_text(
+    points: Res<Points>,
+    flash: Res<PointsFlash>,
+    text: Single<(&mut Text, &mut TextColor), With<PointsText>>,
+) {
+    let (mut text, mut color) = text.into_inner();
     text.0 = with_commas(points.balance);
+    color.0 = if flash.0 > 0.0 { CANT_AFFORD_RED } else { POINTS_GOLD };
+}
+
+/// The focused Buyable's Prompt, always with its price, in red when the Player can't afford it.
+fn prompt_text(
+    focus: Res<Focus>,
+    buyables: Query<&Buyable>,
+    points: Res<Points>,
+    prompt: Single<(&mut Text, &mut Visibility), With<PromptText>>,
+    cost: Single<(&mut TextSpan, &mut TextColor), With<PromptCost>>,
+) {
+    let (mut text, mut visibility) = prompt.into_inner();
+    let Some(buyable) = focus.0.and_then(|e| buyables.get(e).ok()) else {
+        visibility.set_if_neq(Visibility::Hidden);
+        return;
+    };
+    visibility.set_if_neq(Visibility::Inherited);
+    if text.0 != buyable.prompt {
+        text.0.clone_from(&buyable.prompt);
+    }
+    let (mut span, mut color) = cost.into_inner();
+    let price = buyable.price.map_or(String::new(), |price| format!(" [Cost: {}]", with_commas(price)));
+    if span.0 != price {
+        span.0 = price;
+    }
+    color.0 = if can_afford(points.balance, buyable.price) { Color::WHITE } else { CANT_AFFORD_RED };
 }
 
 fn ammo_text(weapon: Single<&Weapon, With<Player>>, mut text: Single<&mut Text, With<AmmoText>>) {

@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
 
 use crate::layers::GameLayer;
+use crate::map::PLAYER_START;
 use crate::state::{GameState, InRun, Pause};
 use crate::tuning::*;
 use crate::weapon::{Knife, Weapon};
@@ -93,7 +94,7 @@ fn spawn_player(mut commands: Commands) {
             Visibility::default(),
             Weapon::pistol(),
             Knife::default(),
-            Transform::from_xyz(0.0, half_height + 0.05, 0.0),
+            Transform::from_translation(PLAYER_START + Vec3::Y * (half_height + 0.05)),
             RigidBody::Kinematic,
             CustomPositionIntegration,
             TranslationInterpolation,
