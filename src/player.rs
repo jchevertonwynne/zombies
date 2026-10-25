@@ -119,8 +119,8 @@ fn spawn_player(mut commands: Commands, settings: Res<Settings>) {
             DistanceFog {
                 color: Color::srgb(0.02, 0.02, 0.04),
                 falloff: FogFalloff::Linear {
-                    start: 10.0,
-                    end: 45.0,
+                    start: FOG_START,
+                    end: FOG_END,
                 },
                 ..default()
             },

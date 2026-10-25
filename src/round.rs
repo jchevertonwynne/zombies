@@ -3,10 +3,16 @@ use std::ops::RangeInclusive;
 use bevy::prelude::*;
 
 use crate::barrier::Entering;
+use crate::hellhound::{
+    HellhoundAssetsParam, HellhoundSchedule, hellhound_health, hellhound_horde, hellhound_spawn_candidates,
+    hellhound_spawn_gap, mixed_hound_chance, spawn_hellhound,
+};
 use crate::map::{SpawnKind, SpawnPoint};
+use crate::player::Player;
+use crate::power_up::{DropPowerUp, PowerUp};
 use crate::state::{GameState, Pause};
 use crate::tuning::*;
-use crate::zombie::{Dying, SpeedTier, Zombie, ZombieAssetsParam, ZombieCleanedUp, spawn_zombie};
+use crate::zombie::{Dying, SpeedTier, Zombie, ZombieAssetsParam, ZombieCleanedUp, ZombieKilled, spawn_zombie};
 use crate::zone::{ActiveZones, ZoneId, ZoneSet};
 
 /// Zombie health for a Round, built Round by Round as BO1 does: +100 a Round through Round 9,
@@ -68,7 +74,7 @@ pub fn speed_tier(roll: u32) -> SpeedTier {
 }
 
 /// The Spawn Points a new Zombie picks from, uniformly: every one in an Active Zone, with no
-/// line-of-sight exclusion.
+/// line-of-sight exclusion. Hellhound Spawn Points are picked by `hellhound_spawn_candidates`.
 pub fn spawn_candidates<T>(points: impl IntoIterator<Item = (ZoneId, T)>, active: ZoneSet) -> Vec<T> {
     points
         .into_iter()
@@ -88,19 +94,39 @@ pub enum RoundPhase {
 pub struct Round {
     pub number: u32,
     pub phase: RoundPhase,
+    /// Which Hellhound Round this is (1 for the first), if it is one. Its Horde is all hounds.
+    pub hellhound: Option<u32>,
     /// Zombies in this Round's Horde that haven't spawned yet.
     left_to_spawn: u32,
     spawn_timer: f32,
+    schedule: HellhoundSchedule,
+    /// Where the Round's latest kill fell: in a Hellhound Round, the last hound's Max Ammo drops there.
+    last_kill: Option<Vec3>,
 }
 
 impl Round {
-    fn begin(number: u32) -> Self {
+    /// Round `number` begins, Hellhound Round or not by the Run's `schedule`.
+    fn begin(number: u32, mut schedule: HellhoundSchedule) -> Self {
+        let hellhound = schedule.begin(number, rand::random_range(HELLHOUND_ROUND_GAPS));
+        let (left_to_spawn, spawn_timer) = match hellhound {
+            Some(count) => (hellhound_horde(count), HELLHOUND_FIRST_SPAWN_SECS),
+            None => (horde_size(number), 0.0),
+        };
         Self {
             number,
             phase: RoundPhase::Active,
-            left_to_spawn: horde_size(number),
-            spawn_timer: 0.0,
+            hellhound,
+            left_to_spawn,
+            spawn_timer,
+            schedule,
+            last_kill: None,
         }
+    }
+
+    /// The Hellhound Round count whose health hounds outside a Hellhound Round use: the latest
+    /// one so far.
+    pub fn hellhound_tier(&self) -> u32 {
+        self.schedule.played()
     }
 }
 
@@ -134,7 +160,8 @@ impl Plugin for RoundPlugin {
 }
 
 fn start_first_round(mut commands: Commands, mut started: MessageWriter<RoundStarted>) {
-    commands.insert_resource(Round::begin(1));
+    let schedule = HellhoundSchedule::new(rand::random_range(HELLHOUND_FIRST_ROUNDS));
+    commands.insert_resource(Round::begin(1, schedule));
     commands.insert_resource(IntermissionHold::default());
     started.write(RoundStarted);
 }
@@ -148,24 +175,66 @@ fn requeue_cleaned_up(mut round: ResMut<Round>, mut cleaned: MessageReader<Zombi
     }
 }
 
+/// Spawns the Horde: normal Zombies, a few of them hounds from Round 16, or all hounds in a
+/// Hellhound Round.
 fn spawn_horde(
     mut commands: Commands,
     mut round: ResMut<Round>,
-    alive: Query<(), (With<Zombie>, Without<Dying>)>,
+    alive: Query<&Zombie, Without<Dying>>,
     spawn_points: Query<(&Transform, &SpawnPoint)>,
+    player: Single<&Transform, With<Player>>,
     active: Res<ActiveZones>,
     assets: ZombieAssetsParam,
+    hound_assets: HellhoundAssetsParam,
     time: Res<Time>,
 ) {
     if round.phase != RoundPhase::Active || round.left_to_spawn == 0 {
         return;
     }
     round.spawn_timer -= time.delta_secs();
-    if round.spawn_timer > 0.0 || alive.iter().count() as u32 >= ALIVE_CAP {
+    let cap = if round.hellhound.is_some() { HELLHOUND_ALIVE_CAP } else { ALIVE_CAP };
+    if round.spawn_timer > 0.0 || alive.iter().count() as u32 >= cap {
         return;
     }
 
-    let points = spawn_candidates(spawn_points.iter().map(|(t, point)| (point.zone, (t, point.kind))), active.0);
+    let hound_points = || {
+        let points = spawn_points
+            .iter()
+            .filter(|(_, point)| point.kind == SpawnKind::Hellhound)
+            .map(|(t, point)| (point.zone, t.translation));
+        hellhound_spawn_candidates(points, active.0, player.translation)
+    };
+    if let Some(count) = round.hellhound {
+        let points = hound_points();
+        if points.is_empty() {
+            return;
+        }
+        spawn_hellhound(&mut commands, &hound_assets, points[rand::random_range(0..points.len())], hellhound_health(count));
+        round.left_to_spawn -= 1;
+        round.spawn_timer = hellhound_spawn_gap(count);
+        return;
+    }
+
+    // Mixed hounds: a few normal spawns are hounds instead, at the latest tier's health.
+    let hounds_alive = alive.iter().filter(|zombie| zombie.is_hellhound()).count() as u32;
+    if hounds_alive < HELLHOUND_MIXED_MAX_ALIVE && rand::random_bool(mixed_hound_chance(round.number)) {
+        let points = hound_points();
+        if !points.is_empty() {
+            let health = hellhound_health(round.hellhound_tier());
+            spawn_hellhound(&mut commands, &hound_assets, points[rand::random_range(0..points.len())], health);
+            round.left_to_spawn -= 1;
+            round.spawn_timer = spawn_delay(round.number);
+            return;
+        }
+    }
+
+    let points = spawn_candidates(
+        spawn_points
+            .iter()
+            .filter(|(_, point)| point.kind != SpawnKind::Hellhound)
+            .map(|(t, point)| (point.zone, (t, point.kind))),
+        active.0,
+    );
     if points.is_empty() {
         return;
     }
@@ -202,14 +271,29 @@ fn last_zombie_sprints(round: Res<Round>, mut alive: Query<&mut Zombie, Without<
     }
 }
 
+/// The Round ends with its last Zombie. In a Hellhound Round, the last hound drops a Max Ammo,
+/// outside the per-Round cap.
 fn end_round(
     mut round: ResMut<Round>,
     alive: Query<(), (With<Zombie>, Without<Dying>)>,
+    mut kills: MessageReader<ZombieKilled>,
     mut ended: MessageWriter<RoundEnded>,
+    mut drops: MessageWriter<DropPowerUp>,
 ) {
+    if let Some(kill) = kills.read().last() {
+        round.last_kill = Some(kill.at);
+    }
     if round.phase == RoundPhase::Active && round.left_to_spawn == 0 && alive.is_empty() {
         round.phase = RoundPhase::Intermission(INTERMISSION_SECS);
         ended.write(RoundEnded);
+        if round.hellhound.is_some()
+            && let Some(at) = round.last_kill
+        {
+            drops.write(DropPowerUp {
+                at,
+                power_up: Some(PowerUp::MaxAmmo),
+            });
+        }
     }
 }
 
@@ -228,7 +312,7 @@ fn run_intermission(
     }
     let left = left - time.delta_secs();
     if left <= 0.0 {
-        *round = Round::begin(round.number.saturating_add(1));
+        *round = Round::begin(round.number.saturating_add(1), round.schedule);
         started.write(RoundStarted);
     } else {
         round.phase = RoundPhase::Intermission(left);
