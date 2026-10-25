@@ -3,10 +3,10 @@ use bevy::prelude::*;
 use crate::player::{Health, Player};
 use crate::points::{Points, PointsAwarded};
 use crate::round::{Round, RoundPhase};
-use crate::state::{GameState, InRun, Pause};
+use crate::state::{GameState, InRun};
 use crate::weapon::Loadout;
 
-const ROUND_RED: Color = Color::srgb(0.7, 0.05, 0.02);
+pub const ROUND_RED: Color = Color::srgb(0.7, 0.05, 0.02);
 const POPUP_SECS: f32 = 0.8;
 
 #[derive(Component)]
@@ -34,7 +34,6 @@ pub struct HudPlugin;
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(OnEnter(GameState::Playing), spawn_hud)
-            .add_systems(OnEnter(Pause::Paused), spawn_pause_screen)
             .add_systems(OnEnter(GameState::GameOver), spawn_game_over_screen)
             .add_systems(
                 Update,
@@ -58,7 +57,7 @@ pub fn with_commas(n: u64) -> String {
     out
 }
 
-fn text(value: impl Into<String>, size: f32, color: Color) -> impl Bundle {
+pub fn text(value: impl Into<String>, size: f32, color: Color) -> impl Bundle {
     (
         Text::new(value),
         TextFont {
@@ -69,7 +68,7 @@ fn text(value: impl Into<String>, size: f32, color: Color) -> impl Bundle {
     )
 }
 
-fn full_screen() -> Node {
+pub fn full_screen() -> Node {
     Node {
         position_type: PositionType::Absolute,
         width: percent(100.0),
@@ -211,7 +210,7 @@ fn animate_popups(
     }
 }
 
-fn overlay(commands: &mut Commands, lines: &[(&str, f32, Color)]) -> Entity {
+pub fn overlay(commands: &mut Commands, lines: &[(&str, f32, Color)]) -> Entity {
     commands
         .spawn((
             Node {
@@ -230,17 +229,6 @@ fn overlay(commands: &mut Commands, lines: &[(&str, f32, Color)]) -> Entity {
             }
         })
         .id()
-}
-
-fn spawn_pause_screen(mut commands: Commands) {
-    let screen = overlay(
-        &mut commands,
-        &[
-            ("PAUSED", 64.0, Color::WHITE),
-            ("Esc to resume", 24.0, Color::srgb(0.7, 0.7, 0.7)),
-        ],
-    );
-    commands.entity(screen).insert(DespawnOnExit(Pause::Paused));
 }
 
 fn spawn_game_over_screen(mut commands: Commands, round: Res<Round>) {

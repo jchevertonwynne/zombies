@@ -8,6 +8,7 @@ use bevy::window::{CursorGrabMode, CursorOptions};
 
 use crate::layers::GameLayer;
 use crate::modifier::{Modifiers, Stat};
+use crate::settings::Settings;
 use crate::state::{GameState, InRun, Pause};
 use crate::tuning::*;
 use crate::weapon::{Knife, Loadout};
@@ -63,6 +64,8 @@ impl Plugin for PlayerPlugin {
             .add_systems(OnEnter(GameState::Playing), spawn_player)
             .add_systems(OnEnter(Pause::Running), grab_cursor)
             .add_systems(OnExit(Pause::Running), release_cursor)
+            // Settings apply immediately, even from Pause.
+            .add_systems(Update, apply_fov.run_if(resource_changed::<Settings>))
             .add_systems(FixedUpdate, move_player.run_if(in_state(Pause::Running)))
             .add_systems(
                 Update,
@@ -78,7 +81,7 @@ impl Plugin for PlayerPlugin {
     }
 }
 
-fn spawn_player(mut commands: Commands) {
+fn spawn_player(mut commands: Commands, settings: Res<Settings>) {
     let half_height = PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0;
     commands
         .spawn((
@@ -106,7 +109,7 @@ fn spawn_player(mut commands: Commands) {
             PlayerCamera,
             Camera3d::default(),
             Projection::Perspective(PerspectiveProjection {
-                fov: 75.0_f32.to_radians(),
+                fov: settings.fov_radians(),
                 ..default()
             }),
             DistanceFog {
@@ -131,12 +134,21 @@ fn release_cursor(mut cursor: Single<&mut CursorOptions>) {
     cursor.grab_mode = CursorGrabMode::None;
 }
 
+fn apply_fov(settings: Res<Settings>, mut cameras: Query<&mut Projection, With<PlayerCamera>>) {
+    for mut projection in &mut cameras {
+        if let Projection::Perspective(perspective) = &mut *projection {
+            perspective.fov = settings.fov_radians();
+        }
+    }
+}
+
 fn look(
     mouse: Res<AccumulatedMouseMotion>,
+    settings: Res<Settings>,
     mut player: Single<&mut Transform, With<Player>>,
     mut camera: Single<&mut Transform, (With<PlayerCamera>, Without<Player>)>,
 ) {
-    let delta = mouse.delta * MOUSE_SENSITIVITY;
+    let delta = settings.look_delta(mouse.delta);
     player.rotate_y(-delta.x);
 
     const PITCH_LIMIT: f32 = FRAC_PI_2 - 0.01;

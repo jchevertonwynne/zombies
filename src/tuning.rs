@@ -15,6 +15,7 @@ pub const PLAYER_SPRINT_SPEED: f32 = 7.5;
 pub const PLAYER_ACCELERATION: f32 = 60.0;
 pub const PLAYER_JUMP_SPEED: f32 = 5.5;
 pub const GRAVITY: f32 = 18.0;
+/// Radians of look per pixel of mouse motion at the default sensitivity.
 pub const MOUSE_SENSITIVITY: f32 = 0.0025;
 
 // Health
@@ -586,3 +587,17 @@ pub const POINTS_KNIFE_KILL: u64 = 130;
 // Map
 pub const ARENA_HALF_SIZE: f32 = 20.0;
 pub const WALL_HEIGHT: f32 = 4.0;
+
+// Settings
+/// Sensitivity runs 1–10; the default plays exactly like `MOUSE_SENSITIVITY` and the rest scale it.
+pub const SENSITIVITY_MIN: u8 = 1;
+pub const SENSITIVITY_MAX: u8 = 10;
+pub const SENSITIVITY_DEFAULT: u8 = 5;
+/// Master volume in percent.
+pub const MASTER_VOLUME_DEFAULT: u8 = 80;
+pub const MASTER_VOLUME_STEP: u8 = 5;
+/// Vertical field of view in degrees.
+pub const FOV_MIN: u8 = 65;
+pub const FOV_MAX: u8 = 110;
+pub const FOV_DEFAULT: u8 = 80;
+pub const FOV_STEP: u8 = 5;

@@ -7163,4 +7163,6 @@ dependencies = [
  "avian3d",
  "bevy",
  "rand",
+ "ron",
+ "serde",
 ]

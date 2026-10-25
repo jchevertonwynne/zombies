@@ -3,8 +3,19 @@ use bevy::prelude::*;
 #[derive(States, Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum GameState {
     #[default]
+    MainMenu,
     Playing,
     GameOver,
+}
+
+/// Which screen of the Main Menu is showing.
+#[derive(SubStates, Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[source(GameState = GameState::MainMenu)]
+pub enum MainMenuScreen {
+    #[default]
+    Root,
+    Records,
+    Settings,
 }
 
 #[derive(SubStates, Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -15,7 +26,17 @@ pub enum Pause {
     Paused,
 }
 
-/// Everything spawned for a run. Despawned when leaving Game Over so a restart starts clean.
+/// Which screen of the Pause menu is showing.
+#[derive(SubStates, Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[source(Pause = Pause::Paused)]
+pub enum PauseScreen {
+    #[default]
+    Root,
+    Settings,
+}
+
+/// Everything spawned for a Run. Despawned when leaving Game Over or returning to the Main Menu,
+/// so the next Run starts clean.
 #[derive(Component, Default)]
 pub struct InRun;
 
@@ -24,8 +45,11 @@ pub struct StatePlugin;
 impl Plugin for StatePlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<GameState>()
+            .add_sub_state::<MainMenuScreen>()
             .add_sub_state::<Pause>()
+            .add_sub_state::<PauseScreen>()
             .add_systems(OnExit(GameState::GameOver), despawn_run)
+            .add_systems(OnEnter(GameState::MainMenu), despawn_run)
             .add_systems(OnEnter(Pause::Paused), pause_time)
             .add_systems(OnExit(Pause::Paused), resume_time)
             .add_systems(Update, toggle_pause.run_if(in_state(GameState::Playing)));
@@ -38,16 +62,21 @@ fn despawn_run(mut commands: Commands, run: Query<Entity, With<InRun>>) {
     }
 }
 
+/// Esc pauses and resumes. From Pause's Settings it goes back to the Pause menu instead.
 fn toggle_pause(
     input: Res<ButtonInput<KeyCode>>,
     pause: Res<State<Pause>>,
+    screen: Option<Res<State<PauseScreen>>>,
     mut next: ResMut<NextState<Pause>>,
+    mut next_screen: ResMut<NextState<PauseScreen>>,
 ) {
-    if input.just_pressed(KeyCode::Escape) {
-        next.set(match pause.get() {
-            Pause::Running => Pause::Paused,
-            Pause::Paused => Pause::Running,
-        });
+    if !input.just_pressed(KeyCode::Escape) {
+        return;
+    }
+    match (pause.get(), screen.map(|screen| *screen.get())) {
+        (Pause::Paused, Some(PauseScreen::Settings)) => next_screen.set(PauseScreen::Root),
+        (Pause::Paused, _) => next.set(Pause::Running),
+        (Pause::Running, _) => next.set(Pause::Paused),
     }
 }
 
