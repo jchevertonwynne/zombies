@@ -11,8 +11,10 @@ use crate::arsenal::{
 pub const PLAYER_RADIUS: f32 = 0.35;
 pub const PLAYER_CAPSULE_LENGTH: f32 = 1.1;
 pub const PLAYER_EYE_HEIGHT: f32 = 0.7; // above the capsule centre
-pub const PLAYER_WALK_SPEED: f32 = 5.0;
-pub const PLAYER_SPRINT_SPEED: f32 = 7.5;
+// Faster than BO1 on purpose (playtest): walking just out-paces a Sprinter (5.5), and sprinting
+// clearly escapes one while stamina lasts.
+pub const PLAYER_WALK_SPEED: f32 = 6.5;
+pub const PLAYER_SPRINT_SPEED: f32 = 9.0;
 pub const PLAYER_ACCELERATION: f32 = 60.0;
 pub const PLAYER_JUMP_SPEED: f32 = 5.5;
 pub const GRAVITY: f32 = 18.0;
