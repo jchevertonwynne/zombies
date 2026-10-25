@@ -14,6 +14,11 @@ dev = ["bevy/dynamic_linking"]
 
 [profile.dev]
 opt-level = 1
+# The mingw linker embeds DWARF debuginfo directly in the .exe, unlike MSVC which
+# writes a separate .pdb. With full debuginfo this binary hit 2.45 GB, past the
+# 2 GB PE limit, and exec failed with EINVAL before Windows could load it.
+# Line tables keep file/line numbers in panic backtraces at a fraction of the size.
+debug = "line-tables-only"
 
 [profile.dev.package."*"]
 opt-level = 3

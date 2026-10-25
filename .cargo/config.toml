@@ -1,0 +1,15 @@
+# This project is developed in WSL but rendered on Windows.
+#
+# WSL has no hardware Vulkan: NVIDIA's WSL driver exposes CUDA/D3D12/NVENC but
+# not Vulkan or GL, and Debian doesn't build Mesa's Dozen (Vulkan-over-D3D12)
+# driver. Building for the host would leave wgpu with only lavapipe (CPU).
+#
+# So the default target is Windows. The .exe runs on the real GPU via WSL
+# interop, and `cargo run` launches it from this shell as usual. Targeting
+# Windows also means the Wayland/X11/ALSA/udev crates are never built, so no
+# Linux graphics -dev packages are needed.
+[build]
+target = "x86_64-pc-windows-gnu"
+
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"
