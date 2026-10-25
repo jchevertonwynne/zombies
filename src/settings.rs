@@ -20,6 +20,10 @@ pub struct Settings {
     /// Vertical field of view in degrees, 65–110.
     pub fov: u8,
     pub invert_y: bool,
+    /// Head bob, the landing dip and weapon sway. Missing from Settings saved before it existed,
+    /// which start with it On.
+    #[serde(default = "camera_sway_default")]
+    pub camera_sway: bool,
     /// The Mode last picked, so the Mode screen can start on it.
     pub last_mode: Mode,
 }
@@ -32,9 +36,14 @@ impl Default for Settings {
             master_volume: MASTER_VOLUME_DEFAULT,
             fov: FOV_DEFAULT,
             invert_y: false,
+            camera_sway: true,
             last_mode: Mode::default(),
         }
     }
+}
+
+fn camera_sway_default() -> bool {
+    true
 }
 
 impl SaveFile for Settings {
@@ -53,14 +62,16 @@ pub enum Setting {
     MasterVolume,
     Fov,
     InvertY,
+    CameraSway,
 }
 
 impl Setting {
-    pub const ALL: [Setting; 4] = [
+    pub const ALL: [Setting; 5] = [
         Setting::Sensitivity,
         Setting::MasterVolume,
         Setting::Fov,
         Setting::InvertY,
+        Setting::CameraSway,
     ];
 
     pub fn label(self) -> &'static str {
@@ -69,6 +80,7 @@ impl Setting {
             Setting::MasterVolume => "Master Volume",
             Setting::Fov => "Field of View",
             Setting::InvertY => "Invert Y",
+            Setting::CameraSway => "Camera Sway",
         }
     }
 }
@@ -82,7 +94,8 @@ impl Settings {
         self
     }
 
-    /// Steps a Setting up (`up`) or down one notch, stopping at the ends. Invert-Y flips either way.
+    /// Steps a Setting up (`up`) or down one notch, stopping at the ends. On/Off Settings flip
+    /// either way.
     pub fn adjust(&mut self, setting: Setting, up: bool) {
         let step = |value: u8, step: u8, min: u8, max: u8| {
             if up {
@@ -100,6 +113,7 @@ impl Settings {
             }
             Setting::Fov => self.fov = step(self.fov, FOV_STEP, FOV_MIN, FOV_MAX),
             Setting::InvertY => self.invert_y = !self.invert_y,
+            Setting::CameraSway => self.camera_sway = !self.camera_sway,
         }
     }
 
@@ -109,7 +123,8 @@ impl Settings {
             Setting::Sensitivity => self.sensitivity.to_string(),
             Setting::MasterVolume => format!("{}%", self.master_volume),
             Setting::Fov => self.fov.to_string(),
-            Setting::InvertY => if self.invert_y { "On" } else { "Off" }.to_string(),
+            Setting::InvertY => on_off(self.invert_y),
+            Setting::CameraSway => on_off(self.camera_sway),
         }
     }
 
@@ -131,6 +146,10 @@ impl Settings {
     pub fn volume(&self) -> Volume {
         Volume::Linear(self.master_volume as f32 / 100.0)
     }
+}
+
+fn on_off(on: bool) -> String {
+    if on { "On" } else { "Off" }.to_string()
 }
 
 /// Where save files go, or `None` to run without saving.
@@ -187,7 +206,27 @@ mod tests {
         assert_eq!(settings.master_volume, 80);
         assert_eq!(settings.fov, 80);
         assert!(!settings.invert_y);
+        assert!(settings.camera_sway);
         assert_eq!(settings.last_mode, Mode::Classic);
+    }
+
+    #[test]
+    fn camera_sway_toggles_and_saves() {
+        let dir = TempDir::new("settings-camera-sway");
+        let mut settings = Settings::default();
+        settings.adjust(Setting::CameraSway, true);
+        assert!(!settings.camera_sway);
+        assert_eq!(settings.display(Setting::CameraSway), "Off");
+        save::store(&dir.0, &settings).unwrap();
+        assert!(!save::load::<Settings>(&dir.0).camera_sway);
+    }
+
+    #[test]
+    fn settings_saved_before_camera_sway_load_with_it_on() {
+        let old = "(version: 1, sensitivity: 7, master_volume: 50, fov: 90, invert_y: true, last_mode: Classic)";
+        let settings = save::parse::<Settings>(old).unwrap();
+        assert_eq!((settings.sensitivity, settings.fov), (7, 90));
+        assert!(settings.camera_sway);
     }
 
     #[test]

@@ -39,6 +39,7 @@ mod special;
 mod shellshock;
 mod state;
 mod stats;
+mod sway;
 mod teleporter;
 mod trap;
 mod tuning;
@@ -102,6 +103,7 @@ fn main() {
         // How the Run looks and sounds, and the debug keys.
         .add_plugins((
             hud::HudPlugin,
+            sway::SwayPlugin,
             audio::AudioPlugin,
             debug::DebugPlugin,
         ))

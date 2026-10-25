@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use crate::buy::buy;
 use crate::modifier::Modifiers;
 use crate::perk::{Drinking, Perk, Perks, drink, kept_on_down};
-use crate::player::{Health, Player, PlayerCamera, take_hits};
+use crate::player::{Eye, Health, Player, take_hits};
 use crate::state::{GameState, Pause};
 use crate::tuning::*;
 use crate::weapon::{Loadout, WeaponCopy};
@@ -146,16 +146,12 @@ fn self_revive(
 }
 
 /// The view drops to the floor for the crawl and comes back up after.
-fn lower_eye(
-    player: Single<Has<LastStand>, With<Player>>,
-    mut camera: Single<&mut Transform, With<PlayerCamera>>,
-    time: Res<Time>,
-) {
+pub fn lower_eye(player: Single<Has<LastStand>, With<Player>>, mut eye: Single<&mut Eye>, time: Res<Time>) {
     let target = if *player { PLAYER_EYE_HEIGHT - LAST_STAND_EYE_DROP } else { PLAYER_EYE_HEIGHT };
     let step = LAST_STAND_EYE_DROP * 3.0 * time.delta_secs();
-    let y = camera.translation.y;
+    let y = eye.height;
     if y != target {
-        camera.translation.y = if y < target { (y + step).min(target) } else { (y - step).max(target) };
+        eye.height = if y < target { (y + step).min(target) } else { (y - step).max(target) };
     }
 }
 
