@@ -5,7 +5,7 @@ use crate::layers::GameLayer;
 use crate::player::{Locomotion, Player, PlayerCamera};
 use crate::state::Pause;
 use crate::tuning::*;
-use crate::zombie::{DamageZombie, HitKind, Zombie, ZombieHead};
+use crate::zombie::{Attack, DamageZombie, HitArea, HitZone};
 
 #[derive(Component)]
 pub struct Weapon {
@@ -102,21 +102,14 @@ fn spawn_view_model(
     }
 }
 
-/// Resolves a collider hit to the Zombie it belongs to, and whether it was the head.
-fn zombie_for(
-    hit: Entity,
-    zombies: &Query<(), With<Zombie>>,
-    heads: &Query<&ChildOf, With<ZombieHead>>,
-) -> Option<(Entity, bool)> {
-    if zombies.contains(hit) {
-        return Some((hit, false));
-    }
-    heads.get(hit).ok().map(|parent| (parent.parent(), true))
+/// Resolves a collider hit to the Zombie it belongs to, and the hit zone.
+fn zombie_for(hit: Entity, hit_areas: &Query<(&HitArea, &ChildOf)>) -> Option<(Entity, HitZone)> {
+    hit_areas.get(hit).ok().map(|(area, parent)| (parent.parent(), area.0))
 }
 
+/// Attacks hit the world and Zombies' hit areas, never the body capsules they move with.
 fn attack_filter(player: Entity) -> SpatialQueryFilter {
-    SpatialQueryFilter::from_mask([GameLayer::World, GameLayer::Zombie, GameLayer::ZombieHead])
-        .with_excluded_entities([player])
+    SpatialQueryFilter::from_mask([GameLayer::World, GameLayer::ZombieHitArea]).with_excluded_entities([player])
 }
 
 fn reload(
@@ -143,8 +136,7 @@ fn fire(
     mut view_model: Single<&mut ViewModel>,
     mouse: Res<ButtonInput<MouseButton>>,
     spatial: SpatialQuery,
-    zombies: Query<(), With<Zombie>>,
-    heads: Query<&ChildOf, With<ZombieHead>>,
+    hit_areas: Query<(&HitArea, &ChildOf)>,
     mut damage: MessageWriter<DamageZombie>,
     mut shots: MessageWriter<ShotFired>,
     time: Res<Time>,
@@ -174,17 +166,15 @@ fn fire(
         PISTOL_RANGE,
         true,
         &attack_filter(entity),
-    ) && let Some((zombie, headshot)) = zombie_for(hit.entity, &zombies, &heads)
+    ) && let Some((zombie, zone)) = zombie_for(hit.entity, &hit_areas)
     {
-        let (damage_dealt, kind) = if headshot {
-            (PISTOL_DAMAGE * HEADSHOT_MULTIPLIER, HitKind::Head)
-        } else {
-            (PISTOL_DAMAGE, HitKind::Body)
-        };
+        // Per-class multipliers for the other zones arrive with the combat model.
+        let multiplier = if zone == HitZone::Head { HEADSHOT_MULTIPLIER } else { 1.0 };
         damage.write(DamageZombie {
             zombie,
-            damage: damage_dealt,
-            kind,
+            damage: PISTOL_DAMAGE * multiplier,
+            zone,
+            attack: Attack::Bullet,
         });
     }
 
@@ -199,8 +189,7 @@ fn knife(
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
     input: Res<ButtonInput<KeyCode>>,
     spatial: SpatialQuery,
-    zombies: Query<(), With<Zombie>>,
-    heads: Query<&ChildOf, With<ZombieHead>>,
+    hit_areas: Query<(&HitArea, &ChildOf)>,
     mut damage: MessageWriter<DamageZombie>,
     time: Res<Time>,
 ) {
@@ -218,12 +207,13 @@ fn knife(
         camera.forward(),
         &ShapeCastConfig::from_max_distance(KNIFE_RANGE),
         &attack_filter(entity),
-    ) && let Some((zombie, _)) = zombie_for(hit.entity, &zombies, &heads)
+    ) && let Some((zombie, zone)) = zombie_for(hit.entity, &hit_areas)
     {
         damage.write(DamageZombie {
             zombie,
             damage: KNIFE_DAMAGE,
-            kind: HitKind::Knife,
+            zone,
+            attack: Attack::Knife,
         });
     }
 }

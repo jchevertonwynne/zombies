@@ -21,14 +21,31 @@ pub struct PlayerCamera;
 #[derive(Component)]
 pub struct Health {
     pub current: f32,
+    pub max: f32,
     since_hit: f32,
 }
 
-#[derive(Component, Default)]
+#[derive(Component)]
 pub struct Locomotion {
     velocity: Vec3,
     grounded: bool,
     pub sprinting: bool,
+    /// Seconds of sprint left.
+    stamina: f32,
+    /// Sprint ran out; it can't start again until fully recharged.
+    winded: bool,
+}
+
+impl Default for Locomotion {
+    fn default() -> Self {
+        Self {
+            velocity: Vec3::ZERO,
+            grounded: false,
+            sprinting: false,
+            stamina: SPRINT_DURATION_SECS,
+            winded: false,
+        }
+    }
 }
 
 /// A Zombie's swing connected.
@@ -69,6 +86,7 @@ fn spawn_player(mut commands: Commands) {
             Player,
             Health {
                 current: PLAYER_MAX_HEALTH,
+                max: PLAYER_MAX_HEALTH,
                 since_hit: HEALTH_REGEN_DELAY_SECS,
             },
             Locomotion::default(),
@@ -138,8 +156,22 @@ fn move_player(
     let right = input.pressed(KeyCode::KeyD) as i8 - input.pressed(KeyCode::KeyA) as i8;
     let wish = Vec2::new(right as f32, forward as f32).normalize_or_zero();
 
-    // Sprinting only makes sense running forwards on the ground.
-    locomotion.sprinting = input.pressed(KeyCode::ShiftLeft) && forward > 0 && locomotion.grounded;
+    // Sprinting only makes sense running forwards on the ground, and it runs out.
+    let wants_sprint = input.pressed(KeyCode::ShiftLeft) && forward > 0 && locomotion.grounded;
+    locomotion.sprinting = wants_sprint && !locomotion.winded;
+    if locomotion.sprinting {
+        locomotion.stamina -= dt;
+        if locomotion.stamina <= 0.0 {
+            locomotion.stamina = 0.0;
+            locomotion.winded = true;
+        }
+    } else {
+        locomotion.stamina += dt * SPRINT_DURATION_SECS / SPRINT_RECHARGE_SECS;
+        if locomotion.stamina >= SPRINT_DURATION_SECS {
+            locomotion.stamina = SPRINT_DURATION_SECS;
+            locomotion.winded = false;
+        }
+    }
     let speed = if locomotion.sprinting { PLAYER_SPRINT_SPEED } else { PLAYER_WALK_SPEED };
 
     let wish_world = transform.rotation * Vec3::new(wish.x, 0.0, -wish.y) * speed;
@@ -191,12 +223,13 @@ fn regenerate(mut health: Single<&mut Health, With<Player>>, time: Res<Time>) {
     let dt = time.delta_secs();
     health.since_hit += dt;
     if health.since_hit >= HEALTH_REGEN_DELAY_SECS {
-        health.current = (health.current + HEALTH_REGEN_PER_SEC * dt).min(PLAYER_MAX_HEALTH);
+        let rate = health.max / HEALTH_REGEN_FULL_SECS;
+        health.current = (health.current + rate * dt).min(health.max);
     }
 }
 
 impl Health {
     pub fn fraction(&self) -> f32 {
-        (self.current / PLAYER_MAX_HEALTH).clamp(0.0, 1.0)
+        (self.current / self.max).clamp(0.0, 1.0)
     }
 }

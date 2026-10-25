@@ -6,7 +6,7 @@ use bevy::prelude::*;
 
 use crate::round::RoundStarted;
 use crate::weapon::ShotFired;
-use crate::zombie::ZombieHit;
+use crate::zombie::{ZombieHit, ZombieKilled};
 
 const SAMPLE_RATE: u32 = 22_050;
 
@@ -42,6 +42,7 @@ fn play_sounds(
     sounds: Res<Sounds>,
     mut shots: MessageReader<ShotFired>,
     mut hits: MessageReader<ZombieHit>,
+    mut kills: MessageReader<ZombieKilled>,
     mut rounds: MessageReader<RoundStarted>,
 ) {
     let mut play = |sound: &Handle<AudioSource>, volume: f32| {
@@ -53,12 +54,11 @@ fn play_sounds(
     for _ in shots.read() {
         play(&sounds.gunshot, 0.6);
     }
-    for hit in hits.read() {
-        if hit.killed {
-            play(&sounds.kill, 0.8);
-        } else {
-            play(&sounds.hit, 0.5);
-        }
+    for _ in hits.read() {
+        play(&sounds.hit, 0.5);
+    }
+    for _ in kills.read() {
+        play(&sounds.kill, 0.8);
     }
     for _ in rounds.read() {
         play(&sounds.round_sting, 0.9);

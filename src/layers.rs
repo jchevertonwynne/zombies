@@ -6,5 +6,6 @@ pub enum GameLayer {
     World,
     Player,
     Zombie,
-    ZombieHead,
+    /// A Zombie's limb, torso, neck and head areas, which attacks hit instead of its body capsule.
+    ZombieHitArea,
 }

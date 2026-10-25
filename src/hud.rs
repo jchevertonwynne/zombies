@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use crate::player::{Health, Player};
-use crate::points::{Points, PointsEarned};
+use crate::points::{Points, PointsAwarded};
 use crate::round::{Round, RoundPhase};
 use crate::state::{GameState, InRun, Pause};
 use crate::weapon::Weapon;
@@ -43,6 +43,19 @@ impl Plugin for HudPlugin {
             )
             .add_systems(Update, restart.run_if(in_state(GameState::GameOver)));
     }
+}
+
+/// A whole number with comma thousands separators, as every Points figure is shown.
+pub fn with_commas(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, digit) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(digit);
+    }
+    out
 }
 
 fn text(value: impl Into<String>, size: f32, color: Color) -> impl Bundle {
@@ -157,7 +170,7 @@ fn round_text(
 }
 
 fn points_text(points: Res<Points>, mut text: Single<&mut Text, With<PointsText>>) {
-    text.0 = points.0.to_string();
+    text.0 = with_commas(points.balance);
 }
 
 fn ammo_text(weapon: Single<&Weapon, With<Player>>, mut text: Single<&mut Text, With<AmmoText>>) {
@@ -171,13 +184,13 @@ fn ammo_text(weapon: Single<&Weapon, With<Player>>, mut text: Single<&mut Text, 
 
 fn spawn_popups(
     mut commands: Commands,
-    mut earned: MessageReader<PointsEarned>,
+    mut awarded: MessageReader<PointsAwarded>,
     column: Single<Entity, With<PopupColumn>>,
 ) {
-    for PointsEarned(amount) in earned.read() {
+    for PointsAwarded(amount) in awarded.read() {
         commands.entity(*column).with_child((
             Popup { age: 0.0 },
-            text(format!("+{amount}"), 24.0, Color::srgb(1.0, 0.85, 0.2)),
+            text(format!("+{}", with_commas(*amount)), 24.0, Color::srgb(1.0, 0.85, 0.2)),
         ));
     }
 }
@@ -249,5 +262,29 @@ fn spawn_game_over_screen(mut commands: Commands, round: Res<Round>) {
 fn restart(input: Res<ButtonInput<KeyCode>>, mut next: ResMut<NextState<GameState>>) {
     if input.just_pressed(KeyCode::Enter) {
         next.set(GameState::Playing);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn small_numbers_have_no_separator() {
+        assert_eq!(with_commas(0), "0");
+        assert_eq!(with_commas(10), "10");
+        assert_eq!(with_commas(999), "999");
+    }
+
+    #[test]
+    fn thousands_are_separated_by_commas() {
+        assert_eq!(with_commas(1_000), "1,000");
+        assert_eq!(with_commas(25_500), "25,500");
+        assert_eq!(with_commas(1_234_567), "1,234,567");
+    }
+
+    #[test]
+    fn the_largest_points_total_still_formats() {
+        assert_eq!(with_commas(u64::MAX), "18,446,744,073,709,551,615");
     }
 }

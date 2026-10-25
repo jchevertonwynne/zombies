@@ -10,6 +10,7 @@ mod player;
 mod points;
 mod round;
 mod state;
+mod stats;
 mod tuning;
 mod weapon;
 mod zombie;
@@ -37,6 +38,7 @@ fn main() {
             zombie::ZombiePlugin,
             round::RoundPlugin,
             points::PointsPlugin,
+            stats::StatsPlugin,
             hud::HudPlugin,
             audio::AudioPlugin,
             debug::DebugPlugin,

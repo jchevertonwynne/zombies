@@ -1,3 +1,5 @@
+use std::ops::RangeInclusive;
+
 use bevy::prelude::*;
 
 use crate::map::SpawnPoint;
@@ -5,39 +7,61 @@ use crate::state::{GameState, Pause};
 use crate::tuning::*;
 use crate::zombie::{Dying, SpeedTier, Zombie, ZombieAssetsParam, spawn_zombie};
 
-/// Zombie health for a Round: +100 per Round up to Round 9, then +10% per Round.
-pub fn zombie_health(round: u32) -> f32 {
-    let round = round.max(1);
-    if round < 10 {
-        150.0 + 100.0 * (round - 1) as f32
-    } else {
-        950.0 * 1.1_f32.powi((round - 9) as i32)
+/// Zombie health for a Round, built Round by Round as BO1 does: +100 a Round through Round 9,
+/// then +10% (floored) a Round, with no cap. Converted to `f32` only at spawn.
+pub fn zombie_health(round: u32) -> u64 {
+    let mut health = ZOMBIE_HEALTH_START;
+    for r in 2..=round {
+        health = if r >= 10 {
+            health.saturating_add((health as f64 * ZOMBIE_HEALTH_GROWTH) as u64)
+        } else {
+            health.saturating_add(ZOMBIE_HEALTH_PER_ROUND)
+        };
     }
+    health
 }
 
-/// How many Zombies make up a Round's Horde. A simplified version of the solo curve.
+/// How many Zombies make up a Round's solo Horde:
+/// `24 + int(3 × max(1, r/5) × (r ≥ 10 ? r × 0.15 : 1))`, scaled down in Rounds 1–5.
 pub fn horde_size(round: u32) -> u32 {
-    match round.max(1) {
-        r @ 1..=4 => [6, 8, 13, 18][(r - 1) as usize],
-        r => {
-            let r = r as f32;
-            (0.09 * r * r + 0.7 * r + 20.0) as u32
-        }
+    let r = round.max(1) as f64;
+    let mut multiplier = (r / 5.0).max(1.0);
+    if round >= 10 {
+        multiplier *= r * 0.15;
+    }
+    // Float-to-int casts saturate, so huge Rounds pin at u32::MAX instead of wrapping.
+    let size = HORDE_BASE.saturating_add((HORDE_SOLO_BONUS * multiplier) as u32);
+    match HORDE_EARLY_SCALE.get(round.max(1) as usize - 1) {
+        Some(scale) => (size as f64 * scale) as u32,
+        None => size,
     }
 }
 
-/// Picks a Speed Tier for a new Zombie. `roll` is uniform in `[0, 1)`.
-/// Round 1 is all Walkers; Joggers take over from Round 2 and Sprinters appear from Round 4.
-pub fn speed_tier(round: u32, roll: f32) -> SpeedTier {
-    let r = round.max(1) as f32;
-    let sprint = (0.15 * (r - 3.0)).clamp(0.0, 0.85);
-    let jog = (0.25 * (r - 1.0)).clamp(0.0, 1.0) * (1.0 - sprint);
-    if roll < sprint {
-        SpeedTier::Sprinter
-    } else if roll < sprint + jog {
+/// Seconds between Zombie spawns in a Round: 2.0 s, ×0.95 each Round, never below the floor.
+pub fn spawn_delay(round: u32) -> f32 {
+    let shrink = SPAWN_DELAY_FACTOR.powf(round.saturating_sub(1) as f32);
+    (SPAWN_DELAY_START_SECS * shrink).max(SPAWN_DELAY_MIN_SECS)
+}
+
+/// The range a new Zombie's speed roll is drawn from, uniformly: `[base, base + 34]`,
+/// with base 1 in Round 1 and `(round − 1) × 8` after.
+pub fn speed_roll_range(round: u32) -> RangeInclusive<u32> {
+    let base = if round <= 1 {
+        1
+    } else {
+        (round - 1).saturating_mul(SPEED_ROLL_PER_ROUND)
+    };
+    base..=base.saturating_add(SPEED_ROLL_SPREAD)
+}
+
+/// The Speed Tier a speed roll gives.
+pub fn speed_tier(roll: u32) -> SpeedTier {
+    if roll <= SPEED_ROLL_WALKER_MAX {
+        SpeedTier::Walker
+    } else if roll <= SPEED_ROLL_JOGGER_MAX {
         SpeedTier::Jogger
     } else {
-        SpeedTier::Walker
+        SpeedTier::Sprinter
     }
 }
 
@@ -79,7 +103,7 @@ impl Plugin for RoundPlugin {
             .add_systems(OnEnter(GameState::Playing), start_first_round)
             .add_systems(
                 Update,
-                (spawn_horde, end_round, run_intermission)
+                (spawn_horde, last_zombie_sprints, end_round, run_intermission)
                     .chain()
                     .run_if(in_state(Pause::Running)),
             );
@@ -113,17 +137,30 @@ fn spawn_horde(
     }
     let point = points[rand::random_range(0..points.len())];
     let jitter = Vec3::new(rand::random_range(-1.0..1.0), 0.0, rand::random_range(-1.0..1.0));
-    let tier = speed_tier(round.number, rand::random());
+    let tier = speed_tier(rand::random_range(speed_roll_range(round.number)));
 
     spawn_zombie(
         &mut commands,
         &assets,
         point.translation + jitter,
-        zombie_health(round.number),
+        zombie_health(round.number) as f32,
         tier,
     );
     round.left_to_spawn -= 1;
-    round.spawn_timer = SPAWN_INTERVAL_SECS;
+    round.spawn_timer = spawn_delay(round.number);
+}
+
+/// In the Rounds listed, the Horde's last Zombie sprints so the Round can't be stalled.
+fn last_zombie_sprints(round: Res<Round>, mut alive: Query<&mut Zombie, Without<Dying>>) {
+    if round.phase != RoundPhase::Active
+        || round.left_to_spawn > 0
+        || !LAST_ZOMBIE_SPRINT_ROUNDS.contains(&round.number)
+    {
+        return;
+    }
+    if let Ok(mut last) = alive.single_mut() {
+        last.sprint();
+    }
 }
 
 fn end_round(mut round: ResMut<Round>, alive: Query<(), (With<Zombie>, Without<Dying>)>) {
@@ -142,7 +179,7 @@ fn run_intermission(
     };
     let left = left - time.delta_secs();
     if left <= 0.0 {
-        *round = Round::begin(round.number + 1);
+        *round = Round::begin(round.number.saturating_add(1));
         started.write(RoundStarted);
     } else {
         round.phase = RoundPhase::Intermission(left);
@@ -154,21 +191,70 @@ mod tests {
     use super::*;
 
     #[test]
-    fn health_grows_linearly_then_exponentially() {
-        assert_eq!(zombie_health(1), 150.0);
-        assert_eq!(zombie_health(2), 250.0);
-        assert_eq!(zombie_health(9), 950.0);
-        assert!((zombie_health(10) - 1045.0).abs() < 0.01);
-        assert!(zombie_health(20) > zombie_health(19) * 1.09);
+    fn health_follows_the_bo1_table() {
+        let table = [
+            (1, 150),
+            (2, 250),
+            (3, 350),
+            (5, 550),
+            (9, 950),
+            (10, 1045),
+            (11, 1149),
+            (12, 1263),
+            (15, 1679),
+            (20, 2701),
+            (25, 4348),
+            (30, 7000),
+            (40, 18151),
+            (50, 47073),
+        ];
+        for (round, health) in table {
+            assert_eq!(zombie_health(round), health, "round {round}");
+        }
     }
 
     #[test]
-    fn horde_starts_small_and_keeps_growing() {
-        assert_eq!(horde_size(1), 6);
-        assert_eq!(horde_size(4), 18);
-        for r in 1..50 {
-            assert!(horde_size(r + 1) > horde_size(r), "round {r}");
+    fn health_has_no_cap_and_never_wraps() {
+        let mut last = 0;
+        for round in 1..=1000 {
+            let health = zombie_health(round);
+            assert!(health >= last, "round {round}");
+            last = health;
         }
+        assert_eq!(zombie_health(1000), u64::MAX);
+    }
+
+    #[test]
+    fn horde_follows_the_bo1_solo_table() {
+        let table = [
+            (1, 6),
+            (2, 8),
+            (3, 13),
+            (4, 18),
+            (5, 24),
+            (6, 27),
+            (7, 28),
+            (8, 28),
+            (9, 29),
+            (10, 33),
+            (12, 36),
+            (15, 44),
+            (20, 60),
+            (25, 80),
+            (30, 105),
+            (50, 249),
+        ];
+        for (round, size) in table {
+            assert_eq!(horde_size(round), size, "round {round}");
+        }
+    }
+
+    #[test]
+    fn horde_never_shrinks_or_wraps() {
+        for r in 1..10_000 {
+            assert!(horde_size(r + 1) >= horde_size(r), "round {r}");
+        }
+        assert_eq!(horde_size(u32::MAX), u32::MAX);
     }
 
     #[test]
@@ -177,16 +263,63 @@ mod tests {
     }
 
     #[test]
-    fn round_one_is_all_walkers() {
-        for roll in [0.0, 0.5, 0.999] {
-            assert_eq!(speed_tier(1, roll), SpeedTier::Walker);
+    fn spawn_delay_starts_at_two_seconds_and_shrinks_five_percent_a_round() {
+        let table = [
+            (1, 2.0),
+            (5, 1.63),
+            (10, 1.26),
+            (15, 0.98),
+            (20, 0.755),
+            (30, 0.45),
+            (50, 0.16),
+        ];
+        for (round, delay) in table {
+            assert!((spawn_delay(round) - delay).abs() < 0.005, "round {round}: {}", spawn_delay(round));
         }
     }
 
     #[test]
-    fn sprinters_appear_later_but_never_take_over_entirely() {
-        assert_ne!(speed_tier(3, 0.0), SpeedTier::Sprinter);
-        assert_eq!(speed_tier(4, 0.0), SpeedTier::Sprinter);
-        assert_ne!(speed_tier(100, 0.99), SpeedTier::Sprinter);
+    fn spawn_delay_bottoms_out_at_the_floor() {
+        assert_eq!(spawn_delay(100), 0.08);
+        assert_eq!(spawn_delay(u32::MAX), 0.08);
+    }
+
+    /// Every Speed Tier a Round's roll can produce.
+    fn tiers_in(round: u32) -> Vec<SpeedTier> {
+        let mut tiers: Vec<_> = speed_roll_range(round).map(speed_tier).collect();
+        tiers.dedup();
+        tiers
+    }
+
+    #[test]
+    fn round_one_is_all_walkers() {
+        assert_eq!(speed_roll_range(1), 1..=35);
+        assert_eq!(tiers_in(1), [SpeedTier::Walker]);
+    }
+
+    #[test]
+    fn joggers_join_from_round_two() {
+        assert_eq!(speed_roll_range(2), 8..=42);
+        assert_eq!(tiers_in(2), [SpeedTier::Walker, SpeedTier::Jogger]);
+    }
+
+    #[test]
+    fn first_sprinters_appear_in_round_six() {
+        assert_eq!(tiers_in(5), [SpeedTier::Walker, SpeedTier::Jogger]);
+        assert_eq!(speed_roll_range(6), 40..=74);
+        assert_eq!(tiers_in(6), [SpeedTier::Jogger, SpeedTier::Sprinter]);
+    }
+
+    #[test]
+    fn every_zombie_sprints_from_round_ten() {
+        assert_eq!(tiers_in(9), [SpeedTier::Jogger, SpeedTier::Sprinter]);
+        for round in [10, 30, 100] {
+            assert_eq!(tiers_in(round), [SpeedTier::Sprinter], "round {round}");
+        }
+    }
+
+    #[test]
+    fn speed_roll_never_wraps() {
+        assert_eq!(*speed_roll_range(u32::MAX).end(), u32::MAX);
     }
 }

@@ -25,12 +25,34 @@ impl SpeedTier {
     }
 }
 
-/// How a Zombie was hit, which decides damage and Points.
+/// Where on a Zombie a hit landed, which decides damage and kill Points.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HitKind {
-    Body,
+pub enum HitZone {
+    Limb,
+    Torso,
+    Neck,
     Head,
+}
+
+/// What dealt the damage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Attack {
+    Bullet,
     Knife,
+}
+
+/// Whether a hit counts as a Headshot: a bullet to the head. A Knife kill pays as a Knife kill wherever it lands.
+pub fn is_headshot(zone: HitZone, attack: Attack) -> bool {
+    zone == HitZone::Head && attack == Attack::Bullet
+}
+
+/// Whether a kill pays kill Points. An Unpaid Kill still counts toward the Round and the Run Record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pay {
+    Paid,
+    // Traps, the Teleporter, the Nuke and the other Unpaid sources arrive in later slices.
+    #[allow(dead_code)]
+    Unpaid,
 }
 
 /// Request to damage a Zombie, written by the Player's attacks.
@@ -38,14 +60,21 @@ pub enum HitKind {
 pub struct DamageZombie {
     pub zombie: Entity,
     pub damage: f32,
-    pub kind: HitKind,
+    pub zone: HitZone,
+    pub attack: Attack,
 }
 
-/// A Zombie took damage. `killed` is true for the hit that finished it.
+/// A Zombie took damage and survived.
 #[derive(Message, Debug, Clone, Copy)]
-pub struct ZombieHit {
-    pub kind: HitKind,
-    pub killed: bool,
+pub struct ZombieHit;
+
+/// The kill message: a Zombie died. Every kill, from any source, is sent as one of these.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct ZombieKilled {
+    pub pay: Pay,
+    pub headshot: bool,
+    pub zone: HitZone,
+    pub attack: Attack,
 }
 
 #[derive(Component)]
@@ -57,9 +86,16 @@ pub struct Zombie {
     wind_up: Option<f32>,
 }
 
-/// The head hitbox. Its parent is the Zombie.
+impl Zombie {
+    /// Switches to Sprinter, as the last Zombie of an early Round does.
+    pub fn sprint(&mut self) {
+        self.tier = SpeedTier::Sprinter;
+    }
+}
+
+/// One of a Zombie's hit areas. Its parent is the Zombie.
 #[derive(Component)]
-pub struct ZombieHead;
+pub struct HitArea(pub HitZone);
 
 /// A killed Zombie falling over before it disappears.
 #[derive(Component, Default)]
@@ -84,6 +120,7 @@ impl Plugin for ZombiePlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<DamageZombie>()
             .add_message::<ZombieHit>()
+            .add_message::<ZombieKilled>()
             .add_systems(Startup, load_assets)
             .add_systems(FixedUpdate, chase.run_if(in_state(Pause::Running)))
             .add_systems(
@@ -101,7 +138,7 @@ fn load_assets(
     commands.insert_resource(ZombieAssets {
         body: meshes.add(Capsule3d::new(ZOMBIE_RADIUS, ZOMBIE_CAPSULE_LENGTH)),
         head: meshes.add(Sphere::new(ZOMBIE_HEAD_RADIUS)),
-        arm: meshes.add(Cuboid::new(0.12, 0.12, 0.6)),
+        arm: meshes.add(Cuboid::from_size(ZOMBIE_ARM_SIZE)),
         eye: meshes.add(Sphere::new(0.035)),
         skin: materials.add(Color::srgb(0.45, 0.52, 0.38)),
         clothes: materials.add(Color::srgb(0.22, 0.24, 0.2)),
@@ -145,14 +182,15 @@ pub fn spawn_zombie(commands: &mut Commands, assets: &ZombieAssetsParam, at: Vec
             CollisionLayers::new(GameLayer::Zombie, LayerMask::ALL),
         ))
         .with_children(|zombie| {
+            let hit_layers = CollisionLayers::new(GameLayer::ZombieHitArea, LayerMask::ALL);
             zombie
                 .spawn((
-                    ZombieHead,
+                    HitArea(HitZone::Head),
                     Mesh3d(assets.head.clone()),
                     MeshMaterial3d(assets.skin.clone()),
                     Transform::from_xyz(0.0, head_offset, 0.0),
                     Collider::sphere(ZOMBIE_HEAD_RADIUS),
-                    CollisionLayers::new(GameLayer::ZombieHead, LayerMask::ALL),
+                    hit_layers,
                 ))
                 .with_children(|head| {
                     for x in [-0.07, 0.07] {
@@ -166,12 +204,44 @@ pub fn spawn_zombie(commands: &mut Commands, assets: &ZombieAssetsParam, at: Vec
             // Arms reaching forward (-Z is forward).
             for x in [-ZOMBIE_RADIUS - 0.05, ZOMBIE_RADIUS + 0.05] {
                 zombie.spawn((
+                    HitArea(HitZone::Limb),
                     Mesh3d(assets.arm.clone()),
                     MeshMaterial3d(assets.skin.clone()),
                     Transform::from_xyz(x, half * 0.55, -0.3),
+                    box_collider(ZOMBIE_ARM_SIZE),
+                    hit_layers,
                 ));
             }
+
+            // Invisible hit areas inside the body capsule, stacked from the feet up:
+            // legs, then torso, then a short neck under the head.
+            let neck_bottom = head_offset - ZOMBIE_HEAD_RADIUS - ZOMBIE_NECK_SIZE.y;
+            let torso_bottom = -half + ZOMBIE_LEG_SIZE.y;
+            for x in [-ZOMBIE_LEG_OFFSET, ZOMBIE_LEG_OFFSET] {
+                zombie.spawn((
+                    HitArea(HitZone::Limb),
+                    Transform::from_xyz(x, -half + ZOMBIE_LEG_SIZE.y / 2.0, 0.0),
+                    box_collider(ZOMBIE_LEG_SIZE),
+                    hit_layers,
+                ));
+            }
+            zombie.spawn((
+                HitArea(HitZone::Torso),
+                Transform::from_xyz(0.0, (torso_bottom + neck_bottom) / 2.0, 0.0),
+                Collider::cuboid(ZOMBIE_TORSO_WIDTH, neck_bottom - torso_bottom, ZOMBIE_TORSO_DEPTH),
+                hit_layers,
+            ));
+            zombie.spawn((
+                HitArea(HitZone::Neck),
+                Transform::from_xyz(0.0, neck_bottom + ZOMBIE_NECK_SIZE.y / 2.0, 0.0),
+                box_collider(ZOMBIE_NECK_SIZE),
+                hit_layers,
+            ));
         });
+}
+
+fn box_collider(size: Vec3) -> Collider {
+    Collider::cuboid(size.x, size.y, size.z)
 }
 
 /// Lets other modules spawn Zombies without knowing about the asset handles.
@@ -231,9 +301,12 @@ fn attack(
         match zombie.wind_up {
             Some(left) if left - dt <= 0.0 => {
                 zombie.wind_up = None;
-                zombie.attack_cooldown = ZOMBIE_ATTACK_COOLDOWN_SECS;
+                // A Zombie that lands a swipe is ignored for a moment; other Zombies can still hit.
                 if in_reach {
-                    hits.write(PlayerHit { damage: ZOMBIE_DAMAGE });
+                    hits.write(PlayerHit {
+                        damage: ZOMBIE_SWIPE_DAMAGE,
+                    });
+                    zombie.attack_cooldown = ZOMBIE_HIT_COOLDOWN_SECS;
                 }
             }
             Some(left) => zombie.wind_up = Some(left - dt),
@@ -249,8 +322,9 @@ fn apply_damage(
     mut commands: Commands,
     mut requests: MessageReader<DamageZombie>,
     mut zombies: Query<(&mut Zombie, &Children), Without<Dying>>,
-    heads: Query<(), With<ZombieHead>>,
+    hit_areas: Query<(), With<HitArea>>,
     mut hits: MessageWriter<ZombieHit>,
+    mut kills: MessageWriter<ZombieKilled>,
 ) {
     for request in requests.read() {
         let Ok((mut zombie, children)) = zombies.get_mut(request.zombie) else {
@@ -261,21 +335,25 @@ fn apply_damage(
             continue;
         }
         zombie.health -= request.damage;
-        let killed = zombie.health <= 0.0;
-        hits.write(ZombieHit {
-            kind: request.kind,
-            killed,
-        });
+        if zombie.health > 0.0 {
+            hits.write(ZombieHit);
+            continue;
+        }
 
-        if killed {
-            commands
-                .entity(request.zombie)
-                .insert(Dying::default())
-                .remove::<(Collider, CollisionLayers)>();
-            for child in children.iter() {
-                if heads.contains(child) {
-                    commands.entity(child).remove::<(Collider, CollisionLayers)>();
-                }
+        // Every kill the Player's own attacks make is Paid; Unpaid sources come with later systems.
+        kills.write(ZombieKilled {
+            pay: Pay::Paid,
+            headshot: is_headshot(request.zone, request.attack),
+            zone: request.zone,
+            attack: request.attack,
+        });
+        commands
+            .entity(request.zombie)
+            .insert(Dying::default())
+            .remove::<(Collider, CollisionLayers)>();
+        for child in children.iter() {
+            if hit_areas.contains(child) {
+                commands.entity(child).remove::<(Collider, CollisionLayers)>();
             }
         }
     }
