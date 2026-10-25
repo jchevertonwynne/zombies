@@ -16,6 +16,7 @@ use crate::equipment::Equipment;
 use crate::hud::text;
 use crate::last_stand::LastStand;
 use crate::map::BOX_LOCATIONS;
+use crate::modifier::{Modifiers, Stat, resolve, resolve_count};
 use crate::mystery_box::{BoxAssets, BoxRun, BoxState, MysteryBox, spawn_box};
 use crate::nav::zone_at;
 use crate::player::Player;
@@ -89,6 +90,8 @@ pub struct ActivePowerUps {
     insta_kill: f32,
     double_points: f32,
     fire_sale: f32,
+    /// Seconds added to every timed Power-up, resolved from the Player's stat entries.
+    pub extra_secs: f32,
 }
 
 impl ActivePowerUps {
@@ -120,8 +123,9 @@ impl ActivePowerUps {
 
     /// Starts a timed Power-up, or restarts it if it's already on. Instant ones have no timer.
     pub fn start(&mut self, power_up: PowerUp) {
+        let secs = POWER_UP_TIMED_SECS + self.extra_secs;
         if let Some(timer) = self.timer_mut(power_up) {
-            *timer = POWER_UP_TIMED_SECS;
+            *timer = secs;
         }
     }
 
@@ -144,6 +148,8 @@ pub struct DropMeter {
     pub armed: bool,
     /// Drops so far this Round.
     pub this_round: u32,
+    /// The most drops a Round, resolved from the Player's stat entries.
+    pub per_round: u32,
 }
 
 impl Default for DropMeter {
@@ -153,6 +159,7 @@ impl Default for DropMeter {
             gap: POWER_UP_THRESHOLD_START,
             armed: false,
             this_round: 0,
+            per_round: POWER_UPS_PER_ROUND,
         }
     }
 }
@@ -172,7 +179,7 @@ impl DropMeter {
     /// included), `chance` is uniform in [0, 1), and `reachable` says whether the Player can get
     /// to where it died. A drop disarms the meter; a drop that can't land leaves it armed.
     pub fn roll(&mut self, eligible: bool, chance: f64, reachable: bool) -> bool {
-        if !eligible || self.this_round >= POWER_UPS_PER_ROUND {
+        if !eligible || self.this_round >= self.per_round {
             return false;
         }
         if !(self.armed || chance < POWER_UP_KILL_CHANCE) || !reachable {
@@ -337,7 +344,7 @@ impl Plugin for PowerUpPlugin {
             .add_systems(OnEnter(GameState::Playing), (reset, spawn_countdown))
             .add_systems(
                 Update,
-                (tick_timers, drop_power_ups, age_drops, pick_up, nuke, fire_sale, show_countdown)
+                (resolve_stats, tick_timers, drop_power_ups, age_drops, pick_up, nuke, fire_sale, show_countdown)
                     .chain()
                     .run_if(in_state(Pause::Running)),
             );
@@ -351,6 +358,22 @@ fn reset(mut active: ResMut<ActivePowerUps>, mut meter: ResMut<DropMeter>, mut b
 }
 
 /// Timed Power-ups run down, and Double Points follows its timer.
+/// Timed Power-up length and the per-Round cap follow the Player's stat entries.
+fn resolve_stats(
+    player: Single<&Modifiers, With<Player>>,
+    mut active: ResMut<ActivePowerUps>,
+    mut meter: ResMut<DropMeter>,
+) {
+    let extra = resolve(Stat::PowerUpDuration, 0.0, &player.0);
+    if active.extra_secs != extra {
+        active.extra_secs = extra;
+    }
+    let per_round = resolve_count(Stat::PowerUpsPerRound, POWER_UPS_PER_ROUND, &player.0);
+    if meter.per_round != per_round {
+        meter.per_round = per_round;
+    }
+}
+
 fn tick_timers(mut active: ResMut<ActivePowerUps>, mut points: ResMut<Points>, time: Res<Time>) {
     active.tick(time.delta_secs());
     let double = active.active(PowerUp::DoublePoints);
@@ -648,6 +671,22 @@ mod tests {
         assert!(!meter.roll(true, 0.031, true));
         assert!(meter.roll(true, 0.029, true));
         assert!(!meter.roll(false, 0.0, true));
+    }
+
+    #[test]
+    fn a_raised_cap_allows_more_drops_a_round() {
+        let mut meter = DropMeter { per_round: 5, ..DropMeter::default() };
+        for _ in 0..5 {
+            assert!(meter.roll(true, 0.0, true));
+        }
+        assert!(!meter.roll(true, 0.0, true));
+    }
+
+    #[test]
+    fn extra_seconds_lengthen_timed_power_ups() {
+        let mut active = ActivePowerUps { extra_secs: 10.0, ..ActivePowerUps::default() };
+        active.start(PowerUp::DoublePoints);
+        assert_eq!(active.left(PowerUp::DoublePoints), POWER_UP_TIMED_SECS + 10.0);
     }
 
     #[test]
