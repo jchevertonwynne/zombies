@@ -2,6 +2,7 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
 mod audio;
+mod boon_offer_prototype;
 mod debug;
 mod hud;
 mod layers;
@@ -40,6 +41,7 @@ fn main() {
             hud::HudPlugin,
             audio::AudioPlugin,
             debug::DebugPlugin,
+            boon_offer_prototype::BoonOfferPrototypePlugin,
         ))
         .run();
 }

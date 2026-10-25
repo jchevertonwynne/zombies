@@ -13,6 +13,8 @@ pub enum Pause {
     #[default]
     Running,
     Paused,
+    /// PROTOTYPE: a Boon or Pact Offer is on screen, freezing the world.
+    Offer,
 }
 
 /// Everything spawned for a run. Despawned when leaving Game Over so a restart starts clean.
@@ -28,6 +30,8 @@ impl Plugin for StatePlugin {
             .add_systems(OnExit(GameState::GameOver), despawn_run)
             .add_systems(OnEnter(Pause::Paused), pause_time)
             .add_systems(OnExit(Pause::Paused), resume_time)
+            .add_systems(OnEnter(Pause::Offer), pause_time)
+            .add_systems(OnExit(Pause::Offer), resume_time)
             .add_systems(Update, toggle_pause.run_if(in_state(GameState::Playing)));
     }
 }
@@ -47,6 +51,7 @@ fn toggle_pause(
         next.set(match pause.get() {
             Pause::Running => Pause::Paused,
             Pause::Paused => Pause::Running,
+            Pause::Offer => return,
         });
     }
 }
