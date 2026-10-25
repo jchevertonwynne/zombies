@@ -11,16 +11,16 @@ pub fn points_for(_hit: ZombieHit) -> u64 {
     POINTS_PER_HIT
 }
 
-/// Kill Points for a kill: by hit zone, a flat amount for the Knife, nothing if Unpaid. A Burn
-/// kill pays by the zone it's dealt to, the torso.
+/// Kill Points for a kill: by hit zone, a flat amount for the Knife, nothing if Unpaid (a Trap's,
+/// say). A Burn kill pays by the zone it's dealt to, the torso.
 pub fn kill_points(kill: &ZombieKilled) -> u64 {
     match (kill.pay, kill.attack, kill.zone) {
         (Pay::Unpaid, _, _) => 0,
         (Pay::Paid, Attack::Knife, _) => POINTS_KNIFE_KILL,
-        (Pay::Paid, Attack::Bullet | Attack::Burn, HitZone::Limb) => POINTS_LIMB_KILL,
-        (Pay::Paid, Attack::Bullet | Attack::Burn, HitZone::Torso) => POINTS_TORSO_KILL,
-        (Pay::Paid, Attack::Bullet | Attack::Burn, HitZone::Neck) => POINTS_NECK_KILL,
-        (Pay::Paid, Attack::Bullet | Attack::Burn, HitZone::Head) => POINTS_HEADSHOT_KILL,
+        (Pay::Paid, _, HitZone::Limb) => POINTS_LIMB_KILL,
+        (Pay::Paid, _, HitZone::Torso) => POINTS_TORSO_KILL,
+        (Pay::Paid, _, HitZone::Neck) => POINTS_NECK_KILL,
+        (Pay::Paid, _, HitZone::Head) => POINTS_HEADSHOT_KILL,
     }
 }
 
@@ -130,7 +130,7 @@ mod tests {
     #[test]
     fn unpaid_kills_pay_nothing() {
         for zone in [HitZone::Limb, HitZone::Torso, HitZone::Neck, HitZone::Head] {
-            for attack in [Attack::Bullet, Attack::Knife] {
+            for attack in [Attack::Bullet, Attack::Knife, Attack::Trap] {
                 assert_eq!(kill_points(&kill(Pay::Unpaid, zone, attack)), 0);
             }
         }

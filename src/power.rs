@@ -1,5 +1,5 @@
 //! Power: off at the start of every Run until the Player throws the Power Switch in the Power
-//! Room, then on for the rest of the Run. Perk Machines, Power Doors, and later Traps and the
+//! Room, then on for the rest of the Run. Perk Machines, Power Doors, Traps, and later the
 //! Teleporter, read `Power` to know.
 
 use avian3d::prelude::*;

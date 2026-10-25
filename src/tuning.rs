@@ -1194,6 +1194,27 @@ pub const QUICK_REVIVE_FLOAT_SECS: f32 = 3.0;
 /// How high the machine rises as it floats away (approx).
 pub const QUICK_REVIVE_FLOAT_HEIGHT: f32 = 12.0;
 
+// Traps
+pub const TRAP_PRICE: u64 = 1000;
+/// How long a Trap's switch takes to throw before the Trap starts running.
+pub const TRAP_FLIP_SECS: f32 = 0.5;
+pub const TRAP_RUN_SECS: f32 = 40.0;
+/// After running, how long until the Trap can be bought again.
+pub const TRAP_COOLDOWN_SECS: f32 = 60.0;
+/// A Trap's volume across its doorway: width along the wall, height, depth through the doorway.
+pub const TRAP_SIZE: Vec3 = Vec3::new(2.4, 3.0, 2.5);
+/// A Zombie touching a running Trap dies after a random delay up to this.
+pub const TRAP_KILL_DELAY_MAX_SECS: f32 = 1.25;
+/// With Juggernog, each touch of a running Trap does this much and shocks the Player.
+pub const TRAP_PLAYER_DAMAGE: f32 = 50.0;
+/// How long a shock lasts. Still inside when it ends is another touch.
+pub const TRAP_SHOCK_SECS: f32 = 2.5;
+/// The shock's factor on move speed (approx).
+pub const TRAP_SHOCK_SPEED_MULT: f32 = 0.5;
+/// The Sapper takes this fraction of its max Health once per entry, plus a stun, instead of dying.
+pub const TRAP_SAPPER_HEALTH_FRACTION: f32 = 0.2;
+pub const TRAP_SAPPER_STUN_SECS: f32 = 2.0;
+
 // Last Stand
 pub const LAST_STAND_SECS: f32 = 10.0;
 /// The crawl's factor on walk speed.

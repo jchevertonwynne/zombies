@@ -44,6 +44,8 @@ pub enum Attack {
     Knife,
     /// Burn damage over time, from fire.
     Burn,
+    /// An electric Trap's shock. The Map's kill, not the Player's.
+    Trap,
 }
 
 /// Whether a hit counts as a Headshot: a bullet to the head. A Knife kill pays as a Knife kill wherever it lands.
@@ -55,9 +57,16 @@ pub fn is_headshot(zone: HitZone, attack: Attack) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pay {
     Paid,
-    // Traps, the Teleporter, the Nuke and the other Unpaid sources arrive in later slices.
-    #[allow(dead_code)]
+    // The Teleporter, the Nuke and the other Unpaid sources arrive in later slices.
     Unpaid,
+}
+
+/// Whether a kill by this attack pays: the Player's own attacks do, a Trap's never does.
+pub fn pay_for(attack: Attack) -> Pay {
+    match attack {
+        Attack::Bullet | Attack::Knife | Attack::Burn => Pay::Paid,
+        Attack::Trap => Pay::Unpaid,
+    }
 }
 
 /// Request to damage a Zombie, written by the Player's attacks.
@@ -585,9 +594,8 @@ fn apply_damage(
             continue;
         }
 
-        // Every kill the Player's own attacks make is Paid; Unpaid sources come with later systems.
         kills.write(ZombieKilled {
-            pay: Pay::Paid,
+            pay: pay_for(request.attack),
             headshot: is_headshot(request.zone, request.attack),
             zone: request.zone,
             attack: request.attack,
@@ -685,6 +693,15 @@ mod tests {
         assert_eq!(separation(Vec3::ZERO, [Vec3::new(3.0, 0.0, 0.0)]), Vec3::ZERO);
         let push = separation(Vec3::ZERO, [Vec3::new(0.5, 0.0, 0.0)]);
         assert!(push.x < 0.0 && push.y == 0.0 && push.z == 0.0);
+    }
+
+    #[test]
+    fn trap_kills_are_unpaid_and_never_headshots() {
+        assert_eq!(pay_for(Attack::Trap), Pay::Unpaid);
+        assert!(!is_headshot(HitZone::Head, Attack::Trap));
+        for attack in [Attack::Bullet, Attack::Knife, Attack::Burn] {
+            assert_eq!(pay_for(attack), Pay::Paid);
+        }
     }
 
     #[test]

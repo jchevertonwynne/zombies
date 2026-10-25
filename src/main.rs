@@ -30,6 +30,7 @@ mod save;
 mod settings;
 mod state;
 mod stats;
+mod trap;
 mod tuning;
 mod wall_weapon;
 mod weapon;
@@ -90,6 +91,7 @@ fn main() {
             last_stand::LastStandPlugin,
             pack_a_punch::PackAPunchPlugin,
             burn::BurnPlugin,
+            trap::TrapPlugin,
         ))
         .run();
 }
