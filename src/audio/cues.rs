@@ -63,6 +63,7 @@ macro_rules! cues {
 cues! {
     // Rounds
     RoundStart => "round_start", Root, Flat, 0.9;
+    HellhoundRoundStart => "hellhound_round_start", Root, Flat, 0.9;
 
     // Player
     GunshotPistol => "gunshot_pistol", Root, Flat, 0.6;
@@ -75,8 +76,13 @@ cues! {
     PlankTear => "plank_tear", Root, Spatial, 0.9;
     PlankRebuild => "plank_rebuild", Root, Flat, 0.6;
 
-    // Announcer. The Power-up lines play on pickup; the rest start playing when Hellhound
-    // Rounds and the Sapper exist.
+    // Hellhounds
+    HoundSpawn => "hound_spawn", Root, Spatial, 1.0;
+    HoundBite => "hound_bite", Root, Flat, 0.8;
+    HoundDeath => "hound_death", Root, Spatial, 0.8;
+
+    // Announcer. The Power-up lines play on pickup and the Hellhound line as its Round starts;
+    // the Sapper's starts playing when the Sapper exists.
     AnnouncerMaxAmmo => "announcer_max_ammo", Announcer, Flat, 1.0;
     AnnouncerInstaKill => "announcer_insta_kill", Announcer, Flat, 1.0;
     AnnouncerDoublePoints => "announcer_double_points", Announcer, Flat, 1.0;

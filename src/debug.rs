@@ -95,6 +95,7 @@ fn drop_power_up(player: Single<&Transform, With<Player>>, mut drops: MessageWri
     let feet = player.translation.y - (crate::tuning::PLAYER_RADIUS + crate::tuning::PLAYER_CAPSULE_LENGTH / 2.0);
     drops.write(DropPowerUp {
         at: Vec3::new(player.translation.x + ahead.x, feet, player.translation.z + ahead.z),
+        power_up: None,
     });
 }
 

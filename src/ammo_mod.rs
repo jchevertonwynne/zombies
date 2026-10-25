@@ -16,6 +16,7 @@ use crate::burn::{Burning, Ignite};
 use crate::door::Door;
 use crate::explosive::{in_sight, world_filter};
 use crate::layers::GameLayer;
+use crate::hellhound::Telegraph;
 use crate::modifier::{Modifiers, Stat, resolve};
 use crate::barrier::Barriers;
 use crate::nav::{NavGraph, Route};
@@ -421,7 +422,8 @@ fn roll_ammo_mods(
     mut cooldowns: ResMut<Cooldowns>,
     mut delayed: ResMut<DelayedHits>,
     mut flashes: ResMut<Flashes>,
-    zombies: Query<(Entity, &Zombie, &Transform, &Children, Has<Dying>, Has<Rising>)>,
+    // A hound still in its lightning strike can't be hurt, so no Ammo Mod touches it.
+    zombies: Query<(Entity, &Zombie, &Transform, &Children, Has<Dying>, Has<Rising>), Without<Telegraph>>,
     hit_areas: Query<(), With<HitArea>>,
     player: Single<&Modifiers, With<Player>>,
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
