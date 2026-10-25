@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 avian3d = "0.8"
 bevy = "0.20"
+# avian's own interpolation, named directly only to cut a teleport cleanly (see `Teleport`).
+bevy_transform_interpolation = "0.6"
 pathfinding = "4"
 rand = "0.10.3"
 ron = "0.12"
