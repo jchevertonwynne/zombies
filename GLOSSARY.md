@@ -155,6 +155,16 @@ _Avoid_: perk-a-cola, buff
 **Trap**: A Buyable hazard across a doorway that, once switched on, kills every Zombie that walks into it for a short time and can Down the Player too. It then needs a cooldown before it can be bought again.
 _Avoid_: electric fence, zapper
 
+**Teleporter**: A Map's set of Teleporter Pads and the Mainframe they send the Player to. It needs Power and only carries the Player one way, to the Mainframe; Zombies have to walk.
+
+**Teleporter Pad**: A Buyable platform that, once Linked, sends the Player to the Mainframe for Points. It kills the Zombies crowded around it when it fires.
+_Avoid_: teleporter (for one pad), portal
+
+**Mainframe**: The machine at the Teleporter's single arrival point. Each Teleporter Pad is Linked by using it after activating that pad.
+_Avoid_: core, hub
+
+**Link**: Joining a Teleporter Pad to the Mainframe, by activating the pad and then reaching the Mainframe in time. A Link lasts for the rest of the Run.
+
 **Mode**: The ruleset a Run is played under: Classic or Gauntlet. Every Run has exactly one Mode, chosen before it starts and fixed for the whole Run.
 _Avoid_: game type, difficulty
 
