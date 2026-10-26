@@ -1,0 +1,10 @@
+[package]
+name = "gen-sounds"
+version = "0.1.0"
+edition = "2024"
+description = "Writes synthesised placeholders for the game's audio slots"
+publish = false
+
+[dependencies]
+hound = "3.5"
+vorbis_rs = "0.5"

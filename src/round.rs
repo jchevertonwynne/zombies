@@ -2,10 +2,21 @@ use std::ops::RangeInclusive;
 
 use bevy::prelude::*;
 
-use crate::map::SpawnPoint;
+use crate::barrier::Entering;
+use crate::hellhound::{
+    HellhoundAssetsParam, HellhoundSchedule, hellhound_health, hellhound_horde, hellhound_spawn_candidates,
+    hellhound_spawn_gap, mixed_hound_chance, spawn_hellhound,
+};
+use crate::map::{SpawnKind, SpawnPoint};
+use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_count};
+use crate::nova::{NovaAssetsParam, nova_crawler_entry, nova_crawler_health, spawn_nova_crawler, spawns_nova_crawler};
+use crate::player::Player;
+use crate::power::Power;
+use crate::power_up::{DropPowerUp, PowerUp};
 use crate::state::{GameState, Pause};
 use crate::tuning::*;
-use crate::zombie::{Dying, SpeedTier, Zombie, ZombieAssetsParam, spawn_zombie};
+use crate::zombie::{Dying, SpeedTier, Zombie, ZombieAssetsParam, ZombieCleanedUp, ZombieKilled, spawn_zombie};
+use crate::zone::{ActiveZones, ZoneId, ZoneSet};
 
 /// Zombie health for a Round, built Round by Round as BO1 does: +100 a Round through Round 9,
 /// then +10% (floored) a Round, with no cap. Converted to `f32` only at spawn.
@@ -65,6 +76,26 @@ pub fn speed_tier(roll: u32) -> SpeedTier {
     }
 }
 
+/// A new Zombie's Speed Tier after the Player's stat entries: a Sprinter, whatever the Round
+/// rolled, on a `roll` in `[0, 1)` under their `Stat::SprinterChance`.
+pub fn spawn_tier(rolled: SpeedTier, player: &[Modifier], roll: f64) -> SpeedTier {
+    if roll < f64::from(resolve(Stat::SprinterChance, 0.0, player)) {
+        SpeedTier::Sprinter
+    } else {
+        rolled
+    }
+}
+
+/// The Spawn Points a new Zombie picks from, uniformly: every one in an Active Zone, with no
+/// line-of-sight exclusion. Hellhound Spawn Points are picked by `hellhound_spawn_candidates`.
+pub fn spawn_candidates<T>(points: impl IntoIterator<Item = (ZoneId, T)>, active: ZoneSet) -> Vec<T> {
+    points
+        .into_iter()
+        .filter(|(zone, _)| active.contains(*zone))
+        .map(|(_, point)| point)
+        .collect()
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum RoundPhase {
     Active,
@@ -76,34 +107,95 @@ pub enum RoundPhase {
 pub struct Round {
     pub number: u32,
     pub phase: RoundPhase,
+    /// Which Hellhound Round this is (1 for the first), if it is one. Its Horde is all hounds.
+    pub hellhound: Option<u32>,
+    /// How many Zombies make up this Round's Horde.
+    horde: u32,
     /// Zombies in this Round's Horde that haven't spawned yet.
     left_to_spawn: u32,
     spawn_timer: f32,
+    schedule: HellhoundSchedule,
+    /// Where the Round's latest kill fell: in a Hellhound Round, the last hound's Max Ammo drops there.
+    last_kill: Option<Vec3>,
 }
 
 impl Round {
-    fn begin(number: u32) -> Self {
+    /// Round `number` begins, Hellhound Round or not by the Run's `schedule`. Its Horde follows
+    /// the Player's stat entries.
+    fn begin(number: u32, mut schedule: HellhoundSchedule, player: &[Modifier]) -> Self {
+        let hellhound = schedule.begin(number, rand::random_range(HELLHOUND_ROUND_GAPS));
+        let (horde, spawn_timer) = match hellhound {
+            Some(count) => (hellhound_horde(count), HELLHOUND_FIRST_SPAWN_SECS),
+            None => (horde_size(number), 0.0),
+        };
+        let left_to_spawn = resolve_count(Stat::HordeSize, horde, player);
         Self {
             number,
             phase: RoundPhase::Active,
-            left_to_spawn: horde_size(number),
-            spawn_timer: 0.0,
+            hellhound,
+            horde: left_to_spawn,
+            left_to_spawn,
+            spawn_timer,
+            schedule,
+            last_kill: None,
         }
+    }
+
+    /// The Hellhound Round count whose health hounds outside a Hellhound Round use: the latest
+    /// one so far.
+    pub fn hellhound_tier(&self) -> u32 {
+        self.schedule.played()
+    }
+
+    /// How many Zombies make up this Round's Horde.
+    pub fn horde(&self) -> u32 {
+        self.horde
+    }
+
+    /// How many of the Horde have spawned so far.
+    pub fn horde_spawned(&self) -> u32 {
+        self.horde.saturating_sub(self.left_to_spawn)
+    }
+
+    /// Takes one Zombie from the Horde's left-to-spawn count for something else to spawn in its
+    /// place (a special). False when the Horde has all spawned.
+    pub fn take_from_horde(&mut self) -> bool {
+        if self.left_to_spawn == 0 {
+            return false;
+        }
+        self.left_to_spawn -= 1;
+        true
     }
 }
 
+/// A Zombie the Round doesn't wait for: if it's alive when the rest of the Horde is dead, the
+/// Round ends anyway and it carries over into the next one. The special slot's Zombies have it.
+#[derive(Component)]
+pub struct CarriesOver;
+
 #[derive(Message)]
 pub struct RoundStarted;
+
+/// The Round's last Zombie died and the Intermission began.
+#[derive(Message)]
+pub struct RoundEnded;
+
+/// Held by anything layered on the Round that needs the Intermission to wait before counting
+/// down. While held, the Intermission stays at its full length.
+#[derive(Resource, Default)]
+pub struct IntermissionHold(pub bool);
 
 pub struct RoundPlugin;
 
 impl Plugin for RoundPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<RoundStarted>()
+            .add_message::<RoundEnded>()
+            .init_resource::<IntermissionHold>()
             .add_systems(OnEnter(GameState::Playing), start_first_round)
             .add_systems(
                 Update,
-                (spawn_horde, last_zombie_sprints, end_round, run_intermission)
+                (requeue_cleaned_up, spawn_horde, last_zombie_sprints, end_round, run_intermission)
                     .chain()
                     .run_if(in_state(Pause::Running)),
             );
@@ -111,47 +203,133 @@ impl Plugin for RoundPlugin {
 }
 
 fn start_first_round(mut commands: Commands, mut started: MessageWriter<RoundStarted>) {
-    commands.insert_resource(Round::begin(1));
+    let schedule = HellhoundSchedule::new(rand::random_range(HELLHOUND_FIRST_ROUNDS));
+    commands.insert_resource(Round::begin(1, schedule, &[]));
+    commands.insert_resource(IntermissionHold::default());
     started.write(RoundStarted);
 }
 
+/// A cleaned-up Zombie goes back into the Horde's left-to-spawn count; its replacement rolls a
+/// fresh Speed Tier when it spawns.
+fn requeue_cleaned_up(mut round: ResMut<Round>, mut cleaned: MessageReader<ZombieCleanedUp>) {
+    let count = cleaned.read().count() as u32;
+    if count > 0 {
+        round.left_to_spawn = round.left_to_spawn.saturating_add(count);
+    }
+}
+
+/// Spawns the Horde: normal Zombies, a few of them hounds from Round 16 and Nova Crawlers after
+/// Power, or all hounds in a Hellhound Round.
 fn spawn_horde(
     mut commands: Commands,
     mut round: ResMut<Round>,
-    alive: Query<(), (With<Zombie>, Without<Dying>)>,
-    spawn_points: Query<&Transform, With<SpawnPoint>>,
+    alive: Query<&Zombie, Without<Dying>>,
+    spawn_points: Query<(&Transform, &SpawnPoint)>,
+    player: Single<(&Transform, &Modifiers), With<Player>>,
+    active: Res<ActiveZones>,
     assets: ZombieAssetsParam,
+    hound_assets: HellhoundAssetsParam,
+    nova_assets: NovaAssetsParam,
+    power: Res<Power>,
     time: Res<Time>,
 ) {
     if round.phase != RoundPhase::Active || round.left_to_spawn == 0 {
         return;
     }
     round.spawn_timer -= time.delta_secs();
-    if round.spawn_timer > 0.0 || alive.iter().count() as u32 >= ALIVE_CAP {
+    let (player, modifiers) = *player;
+    let cap = if round.hellhound.is_some() {
+        HELLHOUND_ALIVE_CAP
+    } else {
+        resolve_count(Stat::AliveCap, ALIVE_CAP, &modifiers.0)
+    };
+    if round.spawn_timer > 0.0 || alive.iter().count() as u32 >= cap {
         return;
     }
 
-    let points: Vec<_> = spawn_points.iter().collect();
+    let hound_points = || {
+        let points = spawn_points
+            .iter()
+            .filter(|(_, point)| point.kind == SpawnKind::Hellhound)
+            .map(|(t, point)| (point.zone, t.translation));
+        hellhound_spawn_candidates(points, active.0, player.translation)
+    };
+    if let Some(count) = round.hellhound {
+        let points = hound_points();
+        if points.is_empty() {
+            return;
+        }
+        spawn_hellhound(&mut commands, &hound_assets, points[rand::random_range(0..points.len())], hellhound_health(count));
+        round.left_to_spawn -= 1;
+        round.spawn_timer = hellhound_spawn_gap(count);
+        return;
+    }
+
+    // Mixed hounds: a few normal spawns are hounds instead, at the latest tier's health.
+    let hounds_alive = alive.iter().filter(|zombie| zombie.is_hellhound()).count() as u32;
+    if hounds_alive < HELLHOUND_MIXED_MAX_ALIVE && rand::random_bool(mixed_hound_chance(round.number)) {
+        let points = hound_points();
+        if !points.is_empty() {
+            let health = hellhound_health(round.hellhound_tier());
+            spawn_hellhound(&mut commands, &hound_assets, points[rand::random_range(0..points.len())], health);
+            round.left_to_spawn -= 1;
+            round.spawn_timer = spawn_delay(round.number);
+            return;
+        }
+    }
+
+    // Nova Crawlers: after Power, a few normal spawns drop from Vents (or rise in the Yard) instead.
+    let novas_alive = alive.iter().filter(|zombie| zombie.is_nova_crawler()).count() as u32;
+    if spawns_nova_crawler(power.is_on(), round.hellhound.is_some(), novas_alive, rand::random()) {
+        let points = spawn_candidates(
+            spawn_points
+                .iter()
+                .filter(|(_, point)| nova_crawler_entry(point.kind))
+                .map(|(t, point)| (point.zone, (t.translation, point.kind))),
+            active.0,
+        );
+        if !points.is_empty() {
+            let (at, kind) = points[rand::random_range(0..points.len())];
+            spawn_nova_crawler(&mut commands, &nova_assets, kind, at, nova_crawler_health(round.number));
+            round.left_to_spawn -= 1;
+            round.spawn_timer = spawn_delay(round.number);
+            return;
+        }
+    }
+
+    let points = spawn_candidates(
+        spawn_points
+            .iter()
+            .filter(|(_, point)| matches!(point.kind, SpawnKind::Window(_) | SpawnKind::Riser))
+            .map(|(t, point)| (point.zone, (t, point.kind))),
+        active.0,
+    );
     if points.is_empty() {
         return;
     }
-    let point = points[rand::random_range(0..points.len())];
-    let jitter = Vec3::new(rand::random_range(-1.0..1.0), 0.0, rand::random_range(-1.0..1.0));
+    let (point, kind) = points[rand::random_range(0..points.len())];
+    let jitter = Vec3::new(rand::random_range(-0.75..0.75), 0.0, rand::random_range(-0.75..0.75));
     let tier = speed_tier(rand::random_range(speed_roll_range(round.number)));
+    let tier = spawn_tier(tier, &modifiers.0, rand::random());
 
-    spawn_zombie(
+    let zombie = spawn_zombie(
         &mut commands,
         &assets,
         point.translation + jitter,
         zombie_health(round.number) as f32,
         tier,
+        (kind == SpawnKind::Riser).then_some(ZOMBIE_RISE_SECS),
     );
+    // A Zombie outside a window has to get in through its Barrier.
+    if let SpawnKind::Window(barrier) = kind {
+        commands.entity(zombie).insert(Entering::new(barrier));
+    }
     round.left_to_spawn -= 1;
     round.spawn_timer = spawn_delay(round.number);
 }
 
 /// In the Rounds listed, the Horde's last Zombie sprints so the Round can't be stalled.
-fn last_zombie_sprints(round: Res<Round>, mut alive: Query<&mut Zombie, Without<Dying>>) {
+fn last_zombie_sprints(round: Res<Round>, mut alive: Query<&mut Zombie, (Without<Dying>, Without<CarriesOver>)>) {
     if round.phase != RoundPhase::Active
         || round.left_to_spawn > 0
         || !LAST_ZOMBIE_SPRINT_ROUNDS.contains(&round.number)
@@ -163,23 +341,50 @@ fn last_zombie_sprints(round: Res<Round>, mut alive: Query<&mut Zombie, Without<
     }
 }
 
-fn end_round(mut round: ResMut<Round>, alive: Query<(), (With<Zombie>, Without<Dying>)>) {
+/// The Round ends with its last Zombie, not counting any that carry over. In a Hellhound Round,
+/// the last hound drops a Max Ammo, outside the per-Round cap.
+fn end_round(
+    mut round: ResMut<Round>,
+    alive: Query<(), (With<Zombie>, Without<Dying>, Without<CarriesOver>)>,
+    mut kills: MessageReader<ZombieKilled>,
+    mut ended: MessageWriter<RoundEnded>,
+    mut drops: MessageWriter<DropPowerUp>,
+) {
+    if let Some(kill) = kills.read().last() {
+        round.last_kill = Some(kill.at);
+    }
     if round.phase == RoundPhase::Active && round.left_to_spawn == 0 && alive.is_empty() {
         round.phase = RoundPhase::Intermission(INTERMISSION_SECS);
+        ended.write(RoundEnded);
+        if round.hellhound.is_some()
+            && let Some(at) = round.last_kill
+        {
+            drops.write(DropPowerUp {
+                at,
+                power_up: Some(PowerUp::MaxAmmo),
+            });
+        }
     }
 }
 
 fn run_intermission(
     mut round: ResMut<Round>,
+    hold: Res<IntermissionHold>,
+    player: Query<&Modifiers, With<Player>>,
     mut started: MessageWriter<RoundStarted>,
     time: Res<Time>,
 ) {
     let RoundPhase::Intermission(left) = round.phase else {
         return;
     };
+    if hold.0 {
+        round.phase = RoundPhase::Intermission(INTERMISSION_SECS);
+        return;
+    }
     let left = left - time.delta_secs();
     if left <= 0.0 {
-        *round = Round::begin(round.number.saturating_add(1));
+        let entries: Vec<Modifier> = player.iter().flat_map(|modifiers| modifiers.0.iter().copied()).collect();
+        *round = Round::begin(round.number.saturating_add(1), round.schedule, &entries);
         started.write(RoundStarted);
     } else {
         round.phase = RoundPhase::Intermission(left);
@@ -189,6 +394,15 @@ fn run_intermission(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zombies_spawn_only_in_active_zones() {
+        use ZoneId::*;
+        let points = [(StartRoom, 0), (StartRoom, 1), (WestHall, 2), (Yard, 3), (Balcony, 4)];
+        let active = ZoneSet::from_iter([StartRoom, Yard]);
+        assert_eq!(spawn_candidates(points, active), vec![0, 1, 3]);
+        assert!(spawn_candidates(points, ZoneSet::from_iter([DiningRoom])).is_empty());
+    }
 
     #[test]
     fn health_follows_the_bo1_table() {
@@ -316,6 +530,25 @@ mod tests {
         for round in [10, 30, 100] {
             assert_eq!(tiers_in(round), [SpeedTier::Sprinter], "round {round}");
         }
+    }
+
+    #[test]
+    fn a_sprinter_chance_entry_makes_sprinters_from_round_one() {
+        use crate::modifier::{Effect, Source};
+        let always = [Modifier { stat: Stat::SprinterChance, source: Source("A"), effect: Effect::Chance(1.0, 1) }];
+        for roll in [0.0, 0.5, 0.999] {
+            assert_eq!(spawn_tier(SpeedTier::Walker, &always, roll), SpeedTier::Sprinter);
+            assert_eq!(spawn_tier(SpeedTier::Walker, &[], roll), SpeedTier::Walker, "Classic keeps the roll");
+        }
+    }
+
+    #[test]
+    fn horde_and_alive_cap_entries_resize_them() {
+        use crate::modifier::{Effect, Source};
+        let bigger = [Modifier { stat: Stat::HordeSize, source: Source("A"), effect: Effect::Mult(1.25) }];
+        assert_eq!(resolve_count(Stat::HordeSize, horde_size(10), &bigger), (horde_size(10) as f32 * 1.25).ceil() as u32);
+        let cap = [Modifier { stat: Stat::AliveCap, source: Source("A"), effect: Effect::Flat(8.0) }];
+        assert_eq!(resolve_count(Stat::AliveCap, ALIVE_CAP, &cap), 32);
     }
 
     #[test]

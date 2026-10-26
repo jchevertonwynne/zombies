@@ -2,7 +2,8 @@
 
 use bevy::prelude::*;
 
-use crate::state::GameState;
+use crate::last_stand::{Down, go_down};
+use crate::state::{GameState, Pause};
 use crate::zombie::ZombieKilled;
 
 #[derive(Resource, Default, Debug, PartialEq)]
@@ -10,6 +11,8 @@ pub struct RunStats {
     pub kills: u32,
     pub headshots: u32,
     pub downs: u32,
+    /// Game-time survived in seconds. Only counts while the world runs, so pauses don't.
+    pub survived_secs: f64,
 }
 
 impl RunStats {
@@ -30,12 +33,22 @@ impl Plugin for StatsPlugin {
             .add_systems(OnEnter(GameState::Playing), |mut stats: ResMut<RunStats>| {
                 *stats = RunStats::default()
             })
-            // Without Quick Revive, the Down that ends the Run is the only kind.
-            .add_systems(OnEnter(GameState::GameOver), |mut stats: ResMut<RunStats>| {
-                stats.downs = stats.downs.saturating_add(1)
-            })
-            .add_systems(Update, count_kills);
+            // Counted in the frame of the Down, so the one that ends the Run is in its Record.
+            .add_systems(Update, (count_kills, count_downs.after(go_down)))
+            .add_systems(Update, count_time.run_if(in_state(Pause::Running)));
     }
+}
+
+/// Every Down counts: one ending in a Self-Revive as much as the one ending the Run.
+fn count_downs(mut downs: MessageReader<Down>, mut stats: ResMut<RunStats>) {
+    for _ in downs.read() {
+        stats.downs = stats.downs.saturating_add(1);
+    }
+}
+
+/// `Time` here is virtual time, which stands still whenever the world is frozen.
+fn count_time(time: Res<Time>, mut stats: ResMut<RunStats>) {
+    stats.survived_secs += time.delta_secs_f64();
 }
 
 fn count_kills(mut kills: MessageReader<ZombieKilled>, mut stats: ResMut<RunStats>) {
@@ -55,6 +68,7 @@ mod tests {
             headshot,
             zone: if headshot { HitZone::Head } else { HitZone::Torso },
             attack: Attack::Bullet,
+            at: bevy::math::Vec3::ZERO,
         }
     }
 
@@ -82,6 +96,7 @@ mod tests {
             kills: u32::MAX,
             headshots: u32::MAX,
             downs: 0,
+            survived_secs: 0.0,
         };
         stats.record_kill(&kill(Pay::Paid, true));
         assert_eq!(stats.kills, u32::MAX);
