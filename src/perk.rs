@@ -94,14 +94,14 @@ impl Perk {
     }
 
     /// Where its machine stands, against a wall of its Zone, and the way it faces.
-    fn machine_spot(self) -> (Vec3, Vec3) {
+    pub(crate) fn machine_spot(self) -> (Vec3, Vec3) {
         match self {
             // West Hall's outer wall.
             Perk::Juggernog => (Vec3::new(-25.2, 0.0, 10.0), Vec3::X),
-            // The Dining Room's south wall.
-            Perk::SpeedCola => (Vec3::new(-13.0, 0.0, -25.2), Vec3::Z),
-            // The Power Room's south wall.
-            Perk::DoubleTap => (Vec3::new(13.0, 0.0, -25.2), Vec3::Z),
+            // The Dining Room's south wall, west of the Passage Door.
+            Perk::SpeedCola => (Vec3::new(-23.0, 0.0, -25.2), Vec3::Z),
+            // The Power Room's south wall, east of the Tunnel Door.
+            Perk::DoubleTap => (Vec3::new(24.0, 0.0, -25.2), Vec3::Z),
             // The Start Room's north wall, away from its Spawn Points.
             Perk::QuickRevive => (Vec3::new(11.5, 0.0, 25.2), Vec3::NEG_Z),
         }

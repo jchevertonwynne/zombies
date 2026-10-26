@@ -1,5 +1,8 @@
 //! The greybox Map: a ring of five indoor Zones around an open Yard, plus a Balcony over the Yard
-//! reached by a ramp in West Hall, with a one-way drop back down.
+//! reached by a ramp in West Hall, with a one-way drop back down. South of the ring, across open
+//! ground, lies the south wing: the Workshop, the Storeroom and the Generator Room, reached down
+//! the Passage from the Dining Room and the Tunnel from the Power Room. The Teleporter's Pads sit
+//! at the wing's far corners.
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
@@ -27,7 +30,8 @@ const RAIL_HEIGHT: f32 = 1.1;
 /// Which Map a Run is played on. As a resource, it's the Map of the current (or just-ended) Run.
 #[derive(Resource, Serialize, Deserialize, Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MapId {
-    /// The greybox Map: five rooms ringing the Yard, plus the Balcony. The only Map so far.
+    /// The greybox Map: five rooms ringing the Yard, the Balcony, and the south wing. The only Map
+    /// so far.
     #[default]
     Greybox,
 }
@@ -61,7 +65,7 @@ const WALL_WEAPONS: [(WeaponId, ZoneId, Vec2, Vec2); 5] = [
 
 /// The Box Locations, in order: the Zone, where the Box's centre sits on the floor (x, z), and
 /// which way its front faces (where the Player stands). Every Run starts the Box at the first.
-pub const BOX_LOCATIONS: [(ZoneId, Vec2, Vec2); 4] = [
+pub const BOX_LOCATIONS: [(ZoneId, Vec2, Vec2); 5] = [
     // Against the back wall, behind the Player at the start.
     (ZoneId::StartRoom, Vec2::new(0.0, 25.35), Vec2::NEG_Y),
     // On the wall to the Yard, south of the Trench Gun.
@@ -70,6 +74,8 @@ pub const BOX_LOCATIONS: [(ZoneId, Vec2, Vec2); 4] = [
     (ZoneId::DiningRoom, Vec2::new(-13.5, -14.65), Vec2::NEG_Y),
     // Against the East Hall wall.
     (ZoneId::Yard, Vec2::new(13.35, -2.0), Vec2::NEG_X),
+    // Against the Storeroom's north wall, between the wing's two halves.
+    (ZoneId::Storeroom, Vec2::new(0.0, -38.65), Vec2::NEG_Y),
 ];
 
 const WINDOW_WIDTH: f32 = 1.6;
@@ -77,14 +83,14 @@ const WINDOW_HEIGHT: f32 = 2.2;
 /// How far outside its window a window Spawn Point sits.
 const WINDOW_SPAWN_OUT: f32 = 2.0;
 
-/// One of the 13 windows in the ring's outer walls, each the home of one Barrier (an index into
+/// One of the 20 windows in the outer walls, each the home of one Barrier (an index into
 /// `WINDOWS`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BarrierId(pub u8);
 
 /// The windows: the Zone each lets into, its centre on the wall (x, z), and the way out. Each is
 /// planked up by its Barrier.
-pub const WINDOWS: [(ZoneId, Vec2, Vec2); 13] = [
+pub const WINDOWS: [(ZoneId, Vec2, Vec2); 20] = [
     (ZoneId::StartRoom, Vec2::new(-7.0, 26.0), Vec2::Y),
     (ZoneId::StartRoom, Vec2::new(7.0, 26.0), Vec2::Y),
     (ZoneId::WestHall, Vec2::new(-26.0, 18.0), Vec2::NEG_X),
@@ -98,6 +104,14 @@ pub const WINDOWS: [(ZoneId, Vec2, Vec2); 13] = [
     (ZoneId::DiningRoom, Vec2::new(-26.0, -20.0), Vec2::NEG_X),
     (ZoneId::PowerRoom, Vec2::new(8.0, -26.0), Vec2::NEG_Y),
     (ZoneId::PowerRoom, Vec2::new(20.0, -26.0), Vec2::NEG_Y),
+    // The south wing.
+    (ZoneId::Workshop, Vec2::new(-28.0, -50.0), Vec2::NEG_Y),
+    (ZoneId::Workshop, Vec2::new(-16.0, -50.0), Vec2::NEG_Y),
+    (ZoneId::Workshop, Vec2::new(-34.0, -44.0), Vec2::NEG_X),
+    (ZoneId::Storeroom, Vec2::new(0.0, -50.0), Vec2::NEG_Y),
+    (ZoneId::GeneratorRoom, Vec2::new(16.0, -50.0), Vec2::NEG_Y),
+    (ZoneId::GeneratorRoom, Vec2::new(28.0, -50.0), Vec2::NEG_Y),
+    (ZoneId::GeneratorRoom, Vec2::new(34.0, -44.0), Vec2::X),
 ];
 
 /// Where a window's Spawn Point stands: on the ground just outside it.
@@ -118,7 +132,7 @@ const RISERS: [Vec2; 4] = [
 /// The Hellhound Spawn Points: the Zone each serves and where it stands on the floor. Spread
 /// through every Zone, clear of walls, machines and cover, so a spot 10–25 m from the Player is
 /// almost always open.
-const HELLHOUND_SPAWNS: [(ZoneId, Vec3); 21] = [
+const HELLHOUND_SPAWNS: [(ZoneId, Vec3); 28] = [
     (ZoneId::StartRoom, Vec3::new(-11.0, 0.0, 20.0)),
     (ZoneId::StartRoom, Vec3::new(11.0, 0.0, 20.0)),
     (ZoneId::StartRoom, Vec3::new(-6.0, 0.0, 16.5)),
@@ -140,12 +154,20 @@ const HELLHOUND_SPAWNS: [(ZoneId, Vec3); 21] = [
     (ZoneId::Yard, Vec3::new(9.0, 0.0, 9.0)),
     (ZoneId::Yard, Vec3::new(-9.0, 0.0, -10.0)),
     (ZoneId::Yard, Vec3::new(10.0, 0.0, -12.0)),
+    (ZoneId::Passage, Vec3::new(-12.0, 0.0, -32.0)),
+    (ZoneId::Workshop, Vec3::new(-18.0, 0.0, -44.0)),
+    (ZoneId::Workshop, Vec3::new(-8.0, 0.0, -46.0)),
+    (ZoneId::Storeroom, Vec3::new(0.0, 0.0, -45.0)),
+    (ZoneId::GeneratorRoom, Vec3::new(18.0, 0.0, -44.0)),
+    (ZoneId::GeneratorRoom, Vec3::new(8.0, 0.0, -46.0)),
+    (ZoneId::Tunnel, Vec3::new(14.0, 0.0, -32.0)),
 ];
 
 /// The Special Spawn Points, where a Napalm or a Shrieker rises: the Zone each serves and where it
 /// stands on the floor. One or two in each of the Start Room, West Hall, East Hall, Dining Room,
-/// Power Room and the Yard, on open spots the hounds use, clear of the Vents.
-const SPECIAL_SPAWNS: [(ZoneId, Vec3); 10] = [
+/// Power Room, the Yard, the Workshop and the Generator Room, on open spots the hounds use, clear
+/// of the Vents.
+const SPECIAL_SPAWNS: [(ZoneId, Vec3); 12] = [
     (ZoneId::StartRoom, Vec3::new(-11.0, 0.0, 20.0)),
     (ZoneId::StartRoom, Vec3::new(11.0, 0.0, 20.0)),
     (ZoneId::WestHall, Vec3::new(-20.0, 0.0, 20.0)),
@@ -156,6 +178,8 @@ const SPECIAL_SPAWNS: [(ZoneId, Vec3); 10] = [
     (ZoneId::PowerRoom, Vec3::new(18.0, 0.0, -20.0)),
     (ZoneId::Yard, Vec3::new(-9.0, 0.0, 0.0)),
     (ZoneId::Yard, Vec3::new(9.0, 0.0, 9.0)),
+    (ZoneId::Workshop, Vec3::new(-18.0, 0.0, -44.0)),
+    (ZoneId::GeneratorRoom, Vec3::new(18.0, 0.0, -44.0)),
 ];
 
 /// The Vents Nova Crawlers drop from: the Zone each is in, and the spot on the floor below it.
@@ -353,7 +377,7 @@ pub fn spawn_map(
     };
 
     // Floors: one per Zone, then the Balcony and the ramp's landing up at the first storey.
-    for zone in [StartRoom, WestHall, EastHall, DiningRoom, PowerRoom, Yard] {
+    for zone in [StartRoom, WestHall, EastHall, DiningRoom, PowerRoom, Yard, Passage, Workshop, Storeroom, GeneratorRoom, Tunnel] {
         let (lo, hi) = zone.volume();
         let size = Vec3::new(hi.x - lo.x, 0.2, hi.z - lo.z);
         let centre = Vec3::new((lo.x + hi.x) / 2.0, -0.1, (lo.z + hi.z) / 2.0);
@@ -363,12 +387,17 @@ pub fn spawn_map(
     b.solid(Vec3::new(4.0, 0.2, 24.0), Vec3::new(-12.0, STOREY - 0.1, -2.0), &floor_mat);
     b.solid(Vec3::new(3.0, 0.2, 4.0), Vec3::new(-15.7, STOREY - 0.1, -2.0), &floor_mat);
 
-    // Ground outside the outer walls, where Zombies gather at the windows.
+    // Ground outside the outer walls, where Zombies gather at the windows: round the ring, across
+    // the gap between the ring and the south wing (just under the Passage and Tunnel floors), and
+    // round the wing.
     for (size, centre) in [
         (Vec3::new(60.0, 0.2, 4.0), Vec3::new(0.0, -0.1, 28.0)),
-        (Vec3::new(60.0, 0.2, 4.0), Vec3::new(0.0, -0.1, -28.0)),
         (Vec3::new(4.0, 0.2, 52.0), Vec3::new(-28.0, -0.1, 0.0)),
         (Vec3::new(4.0, 0.2, 52.0), Vec3::new(28.0, -0.1, 0.0)),
+        (Vec3::new(76.0, 0.2, 12.0), Vec3::new(0.0, -0.11, -32.0)),
+        (Vec3::new(76.0, 0.2, 4.0), Vec3::new(0.0, -0.1, -52.0)),
+        (Vec3::new(4.0, 0.2, 12.0), Vec3::new(-36.0, -0.1, -44.0)),
+        (Vec3::new(4.0, 0.2, 12.0), Vec3::new(36.0, -0.1, -44.0)),
     ] {
         b.solid(size, centre, &yard_mat);
     }
@@ -380,8 +409,26 @@ pub fn spawn_map(
     b.outer_wall(v(-14.0, 26.0), v(26.0, 26.0), STOREY);
     b.outer_wall(v(-26.0, -14.0), v(-26.0, 26.0), tall);
     b.outer_wall(v(-26.0, -26.0), v(-26.0, -14.0), STOREY);
-    b.outer_wall(v(-26.0, -26.0), v(26.0, -26.0), STOREY);
+    // The south wall, with the Doors down to the Passage and the Tunnel.
+    b.outer_wall(v(-26.0, -26.0), v(-13.5, -26.0), STOREY);
+    b.wall(v(-13.5, -26.0), v(-10.5, -26.0), 0.0, STOREY, &[(1.5, door(DiningRoom, Passage, DOOR_PRICE_DINING_PASSAGE))]);
+    b.outer_wall(v(-10.5, -26.0), v(12.5, -26.0), STOREY);
+    b.wall(v(12.5, -26.0), v(15.5, -26.0), 0.0, STOREY, &[(1.5, door(PowerRoom, Tunnel, DOOR_PRICE_POWER_TUNNEL))]);
+    b.outer_wall(v(15.5, -26.0), v(26.0, -26.0), STOREY);
     b.outer_wall(v(26.0, -26.0), v(26.0, 26.0), STOREY);
+
+    // The south wing: the Passage and the Tunnel across the open ground, then the Workshop, the
+    // Storeroom and the Generator Room side by side, open to the corridors at their north ends.
+    for x in [-13.5, -10.5, 12.5, 15.5] {
+        b.wall(v(x, -38.0), v(x, -26.0), 0.0, STOREY, &[]);
+    }
+    let corridor = || Gap::Open { width: 3.0, height: DOOR_HEIGHT };
+    b.wall(v(-34.0, -38.0), v(34.0, -38.0), 0.0, STOREY, &[(22.0, corridor()), (48.0, corridor())]);
+    b.outer_wall(v(-34.0, -50.0), v(34.0, -50.0), STOREY);
+    b.outer_wall(v(-34.0, -50.0), v(-34.0, -38.0), STOREY);
+    b.outer_wall(v(34.0, -50.0), v(34.0, -38.0), STOREY);
+    b.wall(v(-4.0, -50.0), v(-4.0, -38.0), 0.0, STOREY, &[(6.0, door(Workshop, Storeroom, DOOR_PRICE_WORKSHOP_STOREROOM))]);
+    b.wall(v(4.0, -50.0), v(4.0, -38.0), 0.0, STOREY, &[(6.0, door(Storeroom, GeneratorRoom, DOOR_PRICE_STOREROOM_GENERATOR))]);
 
     // Start Room
     b.wall(v(-14.0, 14.0), v(-14.0, 26.0), 0.0, tall, &[(6.0, door(StartRoom, WestHall, DOOR_PRICE_START_WEST))]);
@@ -436,8 +483,18 @@ pub fn spawn_map(
     b.wall(v(2.0, -4.0), v(8.0, -4.0), 0.0, gazebo_height, &[(3.0, Gap::Door(None, None))]);
     b.solid(Vec3::new(6.8, 0.2, 6.8), Vec3::new(5.0, gazebo_height + 0.1, -7.0), &wall_mat);
 
-    // Yard cover
-    for (x, z, w, d) in [(-5.0, 4.0, 3.0, 1.0), (9.0, 3.0, 1.0, 3.0), (-3.0, -6.0, 1.2, 1.2), (2.0, 8.0, 1.2, 1.2)] {
+    // Yard cover, and workbenches and crates in the south wing, against its north wall where
+    // nothing walks.
+    for (x, z, w, d) in [
+        (-5.0, 4.0, 3.0, 1.0),
+        (9.0, 3.0, 1.0, 3.0),
+        (-3.0, -6.0, 1.2, 1.2),
+        (2.0, 8.0, 1.2, 1.2),
+        (-22.0, -38.8, 4.0, 1.2),
+        (-30.5, -38.9, 1.2, 1.2),
+        (22.0, -38.8, 4.0, 1.2),
+        (30.5, -38.9, 1.2, 1.2),
+    ] {
         b.solid(Vec3::new(w, 1.1, d), Vec3::new(x, 0.55, z), &crate_mat);
     }
 
@@ -559,6 +616,11 @@ pub fn spawn_map(
         (13.0, STOREY - 0.5, -20.0),
         (-12.0, 2.0 * STOREY - 0.5, -2.0),
         (0.0, STOREY + 2.0, 0.0),
+        (-12.0, STOREY - 0.5, -32.0),
+        (14.0, STOREY - 0.5, -32.0),
+        (-19.0, STOREY - 0.5, -44.0),
+        (0.0, STOREY - 0.5, -44.0),
+        (19.0, STOREY - 0.5, -44.0),
     ];
     for (x, y, z) in lamps {
         commands.spawn((
@@ -585,6 +647,64 @@ mod tests {
             let inside = (lo.x..=hi.x).contains(&at.x) && (lo.z..=hi.z).contains(&at.y);
             assert!(inside, "{weapon:?} is outside {}", zone.name());
             assert!(wall_price(weapon).is_some(), "{weapon:?} is not a Wall Weapon");
+        }
+    }
+
+    /// Everything fixed to the Map's walls and floors, besides the walls and Doors themselves:
+    /// a name, where it stands (x, y, z), and how far round it must stay clear.
+    fn fixtures() -> Vec<(String, Vec3, f32)> {
+        use crate::equipment::EQUIPMENT_WALLS;
+        use crate::perk::Perk;
+        use crate::teleporter::{MAINFRAME_AT, PadId};
+
+        let flat = |at: Vec2, y: f32| Vec3::new(at.x, y, at.y);
+        let mut fixtures = Vec::new();
+        for (weapon, _, at, _) in WALL_WEAPONS {
+            fixtures.push((format!("{weapon:?} chalk"), flat(at, CHALK_HEIGHT), 0.8));
+        }
+        for (i, (zone, at, _)) in BOX_LOCATIONS.iter().enumerate() {
+            fixtures.push((format!("Box Location {i} ({})", zone.name()), flat(*at, 0.0), 1.0));
+        }
+        for (i, (_, at, _)) in WINDOWS.iter().enumerate() {
+            fixtures.push((format!("window {i}"), flat(*at, 1.1), WINDOW_WIDTH / 2.0));
+        }
+        for perk in Perk::ALL {
+            fixtures.push((format!("{perk:?}"), perk.machine_spot().0, 0.7));
+        }
+        for (wall, _, at, _) in EQUIPMENT_WALLS {
+            fixtures.push((format!("{wall:?} chalk"), at, 0.6));
+        }
+        for pad in PadId::ALL {
+            fixtures.push((format!("{pad:?} Pad"), pad.at(), TELEPORTER_PAD_RADIUS));
+        }
+        fixtures.push(("Mainframe".into(), MAINFRAME_AT, 0.8));
+        fixtures.push(("Power Switch".into(), crate::power::SWITCH_AT, 0.5));
+        fixtures.push(("Pack-a-Punch".into(), crate::pack_a_punch::MACHINE_AT, 0.8));
+        fixtures
+    }
+
+    #[test]
+    fn nothing_on_the_map_stands_in_anything_else() {
+        let fixtures = fixtures();
+        for (i, (a, at_a, clear_a)) in fixtures.iter().enumerate() {
+            for (b, at_b, clear_b) in &fixtures[i + 1..] {
+                // A storey apart is apart.
+                if (at_a.y - at_b.y).abs() > 2.5 {
+                    continue;
+                }
+                let gap = Vec2::new(at_a.x - at_b.x, at_a.z - at_b.z).length();
+                assert!(gap >= clear_a + clear_b + 0.3, "{a} and {b} are only {gap:.2} m apart");
+            }
+        }
+    }
+
+    #[test]
+    fn the_teleporter_pads_are_far_from_each_other_and_the_mainframe() {
+        use crate::teleporter::{MAINFRAME_AT, PadId};
+        let [a, b] = PadId::ALL.map(PadId::at);
+        assert!(a.distance(b) > 50.0, "the Pads are {:.1} m apart", a.distance(b));
+        for pad in [a, b] {
+            assert!(pad.distance(MAINFRAME_AT) > 60.0);
         }
     }
 
@@ -615,7 +735,7 @@ mod tests {
         for (zone, at) in SPECIAL_SPAWNS {
             assert_eq!(crate::nav::zone_at(at + Vec3::Y * 0.5), Some(zone), "{at} is outside {}", zone.name());
         }
-        for zone in [StartRoom, WestHall, EastHall, DiningRoom, PowerRoom, Yard] {
+        for zone in [StartRoom, WestHall, EastHall, DiningRoom, PowerRoom, Yard, Workshop, GeneratorRoom] {
             let count = SPECIAL_SPAWNS.iter().filter(|(z, _)| *z == zone).count();
             assert!((1..=2).contains(&count), "{} has {count} Special Spawn Points", zone.name());
         }

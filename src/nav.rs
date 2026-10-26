@@ -111,6 +111,7 @@ const NODES: &[(&str, f32, f32, f32)] = &[
     ("dining_wn", -20.0, 0.0, -15.5),
     ("dining_yn", -7.0, 0.0, -15.5),
     ("dining_pe", -1.5, 0.0, -20.0),
+    ("dining_ps", -12.0, 0.0, -24.5),
     ("w8_in", -18.0, 0.0, -24.5),
     ("w8_out", -18.0, 0.0, -28.0),
     ("w9_in", -6.0, 0.0, -24.5),
@@ -121,10 +122,44 @@ const NODES: &[(&str, f32, f32, f32)] = &[
     ("power_c", 13.0, 0.0, -20.0),
     ("power_w", 1.5, 0.0, -20.0),
     ("power_n", 20.0, 0.0, -15.5),
+    ("power_s", 14.0, 0.0, -24.5),
     ("w11_in", 8.0, 0.0, -24.5),
     ("w11_out", 8.0, 0.0, -28.0),
     ("w12_in", 20.0, 0.0, -24.5),
     ("w12_out", 20.0, 0.0, -28.0),
+    // The Passage and the Tunnel, across the open ground to the south wing
+    ("pass_n", -12.0, 0.0, -27.5),
+    ("pass_s", -12.0, 0.0, -36.5),
+    ("tun_n", 14.0, 0.0, -27.5),
+    ("tun_s", 14.0, 0.0, -36.5),
+    // Workshop
+    ("work_n", -12.0, 0.0, -39.5),
+    ("work_c", -19.0, 0.0, -44.0),
+    ("work_w", -30.0, 0.0, -44.0),
+    ("work_e", -5.5, 0.0, -44.0),
+    ("w13_in", -28.0, 0.0, -48.5),
+    ("w13_out", -28.0, 0.0, -52.0),
+    ("w14_in", -16.0, 0.0, -48.5),
+    ("w14_out", -16.0, 0.0, -52.0),
+    ("w15_in", -32.5, 0.0, -44.0),
+    ("w15_out", -36.0, 0.0, -44.0),
+    // Storeroom
+    ("store_w", -2.5, 0.0, -44.0),
+    ("store_c", 0.0, 0.0, -44.0),
+    ("store_e", 2.5, 0.0, -44.0),
+    ("w16_in", 0.0, 0.0, -48.5),
+    ("w16_out", 0.0, 0.0, -52.0),
+    // Generator Room
+    ("gen_w", 5.5, 0.0, -44.0),
+    ("gen_c", 19.0, 0.0, -44.0),
+    ("gen_n", 14.0, 0.0, -39.5),
+    ("gen_e", 30.0, 0.0, -44.0),
+    ("w17_in", 16.0, 0.0, -48.5),
+    ("w17_out", 16.0, 0.0, -52.0),
+    ("w18_in", 28.0, 0.0, -48.5),
+    ("w18_out", 28.0, 0.0, -52.0),
+    ("w19_in", 32.5, 0.0, -44.0),
+    ("w19_out", 36.0, 0.0, -44.0),
     // Vents, up near the top of their rooms, over the spot a Nova Crawler drops to
     ("vent_west", -21.0, NOVA_VENT_HEIGHT, 4.0),
     ("vent_east", 21.0, NOVA_VENT_HEIGHT, 4.0),
@@ -209,6 +244,8 @@ const EDGES: &[(&str, &str, Gate)] = {
         ("w9_out", "w9_in", barrier(9)),
         ("w10_out", "w10_in", barrier(10)),
         ("dining_pe", "power_w", door(DiningRoom, PowerRoom)),
+        ("dining_c", "dining_ps", OPEN),
+        ("dining_ps", "pass_n", door(DiningRoom, Passage)),
         // Power Room
         ("power_c", "power_w", OPEN),
         ("power_c", "power_n", OPEN),
@@ -216,6 +253,40 @@ const EDGES: &[(&str, &str, Gate)] = {
         ("power_c", "w12_in", OPEN),
         ("w11_out", "w11_in", barrier(11)),
         ("w12_out", "w12_in", barrier(12)),
+        ("power_c", "power_s", OPEN),
+        ("power_s", "tun_n", door(PowerRoom, Tunnel)),
+        // The Passage and the Tunnel, open into the wing at their south ends
+        ("pass_n", "pass_s", OPEN),
+        ("pass_s", "work_n", OPEN),
+        ("tun_n", "tun_s", OPEN),
+        ("tun_s", "gen_n", OPEN),
+        // Workshop
+        ("work_n", "work_c", OPEN),
+        ("work_c", "work_w", OPEN),
+        ("work_c", "work_e", OPEN),
+        ("work_c", "w13_in", OPEN),
+        ("work_c", "w14_in", OPEN),
+        ("work_w", "w15_in", OPEN),
+        ("w13_out", "w13_in", barrier(13)),
+        ("w14_out", "w14_in", barrier(14)),
+        ("w15_out", "w15_in", barrier(15)),
+        ("work_e", "store_w", door(Workshop, Storeroom)),
+        // Storeroom
+        ("store_w", "store_c", OPEN),
+        ("store_c", "store_e", OPEN),
+        ("store_c", "w16_in", OPEN),
+        ("w16_out", "w16_in", barrier(16)),
+        ("store_e", "gen_w", door(Storeroom, GeneratorRoom)),
+        // Generator Room
+        ("gen_w", "gen_c", OPEN),
+        ("gen_c", "gen_n", OPEN),
+        ("gen_c", "gen_e", OPEN),
+        ("gen_c", "w17_in", OPEN),
+        ("gen_c", "w18_in", OPEN),
+        ("gen_e", "w19_in", OPEN),
+        ("w17_out", "w17_in", barrier(17)),
+        ("w18_out", "w18_in", barrier(18)),
+        ("w19_out", "w19_in", barrier(19)),
         // The Vent drops
         ("vent_west", "west_mid", Gate::OneWay),
         ("vent_east", "east_mid", Gate::OneWay),
@@ -418,7 +489,7 @@ mod tests {
         Some(path.into_iter().map(|i| NODES[i].0).collect())
     }
 
-    const ALL_DOORS: [(ZoneId, ZoneId); 7] = [
+    const ALL_DOORS: [(ZoneId, ZoneId); 11] = [
         (StartRoom, WestHall),
         (StartRoom, EastHall),
         (StartRoom, Yard),
@@ -426,7 +497,44 @@ mod tests {
         (EastHall, PowerRoom),
         (DiningRoom, PowerRoom),
         (Yard, DiningRoom),
+        (DiningRoom, Passage),
+        (PowerRoom, Tunnel),
+        (Workshop, Storeroom),
+        (Storeroom, GeneratorRoom),
     ];
+
+    #[test]
+    fn every_walked_edge_is_a_clear_walk_through_the_built_map() {
+        use avian3d::prelude::*;
+        use bevy::ecs::system::RunSystemOnce;
+
+        use crate::layers::GameLayer;
+
+        let mut sim = crate::zombie::headless::Sim::new(60.0, |_| {});
+        let blocked: Vec<String> = sim
+            .world_mut()
+            .run_system_once(|spatial: SpatialQuery, doors: Query<Entity, With<Door>>| {
+                let graph = NavGraph::new();
+                // Doors stand open once bought; the Vents and the drop are falls, not walks.
+                let filter = SpatialQueryFilter::from_mask(GameLayer::World).with_excluded_entities(doors.iter());
+                let body = Collider::sphere(ZOMBIE_RADIUS * 0.8);
+                graph
+                    .edges
+                    .iter()
+                    .filter(|edge| edge.gate != Gate::OneWay)
+                    .filter_map(|edge| {
+                        let (from, to) = (graph.nodes[edge.from].at + Vec3::Y, graph.nodes[edge.to].at + Vec3::Y);
+                        let dir = Dir3::new(to - from).ok()?;
+                        let config = ShapeCastConfig::from_max_distance(from.distance(to));
+                        spatial
+                            .cast_shape(&body, from, Quat::IDENTITY, dir, &config, &filter)
+                            .map(|_| format!("{} -> {}", NODES[edge.from].0, NODES[edge.to].0))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap();
+        assert!(blocked.is_empty(), "blocked: {blocked:?}");
+    }
 
     #[test]
     fn open_and_one_way_edges_are_always_passable() {
@@ -455,7 +563,7 @@ mod tests {
     fn every_edge_names_real_nodes() {
         let graph = NavGraph::new();
         assert_eq!(graph.edges.len(), EDGES.len());
-        assert!((40..=66).contains(&graph.nodes.len()), "about 40 nodes and the Vents, not {}", graph.nodes.len());
+        assert!((40..=100).contains(&graph.nodes.len()), "about 90 nodes and the Vents, not {}", graph.nodes.len());
     }
 
     #[test]

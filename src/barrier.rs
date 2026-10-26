@@ -726,8 +726,8 @@ mod tests {
     }
 
     #[test]
-    fn there_are_thirteen_barriers_and_none_in_the_yard() {
-        assert_eq!(WINDOWS.len(), 13);
+    fn there_are_twenty_barriers_and_none_in_the_yard() {
+        assert_eq!(WINDOWS.len(), 20);
         assert!(
             WINDOWS
                 .iter()

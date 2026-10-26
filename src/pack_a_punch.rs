@@ -174,7 +174,7 @@ impl PackAPunch {
 }
 
 /// The machine's spot at the back of the Gazebo, facing out of its Power Door (+Z).
-const MACHINE_AT: Vec3 = Vec3::new(5.0, 0.0, -9.2);
+pub(crate) const MACHINE_AT: Vec3 = Vec3::new(5.0, 0.0, -9.2);
 const MACHINE_SIZE: Vec3 = Vec3::new(1.6, 1.6, 0.9);
 
 /// The Weapon on the machine's tray, shown while one is inside.

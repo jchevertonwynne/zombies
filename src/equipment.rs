@@ -271,11 +271,11 @@ struct EquipmentAssets {
 
 /// Where each Equipment wall's chalk sits: its Zone, the centre on a wall's face (x, y, z), and
 /// which way that face looks.
-const EQUIPMENT_WALLS: [(EquipmentWall, ZoneId, Vec3, Vec3); 3] = [
-    // On the Dining Room's outer west wall.
-    (EquipmentWall::Frags, ZoneId::DiningRoom, Vec3::new(-25.8, 1.5, -20.0), Vec3::X),
-    // On the Power Room's outer east wall.
-    (EquipmentWall::Claymore, ZoneId::PowerRoom, Vec3::new(25.8, 1.5, -20.0), Vec3::NEG_X),
+pub(crate) const EQUIPMENT_WALLS: [(EquipmentWall, ZoneId, Vec3, Vec3); 3] = [
+    // On the Dining Room's north wall, east of the Yard Door.
+    (EquipmentWall::Frags, ZoneId::DiningRoom, Vec3::new(-3.0, 1.5, -14.2), Vec3::NEG_Z),
+    // On the Power Room's north wall, the far side of the Yard's AK-74u.
+    (EquipmentWall::Claymore, ZoneId::PowerRoom, Vec3::new(6.0, 1.5, -14.2), Vec3::NEG_Z),
     // On the full wall at the Balcony's south end, a storey up.
     (EquipmentWall::BowieKnife, ZoneId::Balcony, Vec3::new(-12.0, 5.5, -13.8), Vec3::Z),
 ];

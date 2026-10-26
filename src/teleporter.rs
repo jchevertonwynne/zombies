@@ -1,5 +1,5 @@
-//! The Teleporter: two Pads, in the Dining and Power Rooms, that send the Player one way to the
-//! Mainframe in the Start Room. After Power, each Pad is Linked once by activating it and then
+//! The Teleporter: two Pads, at the far corners of the south wing's Workshop and Generator Room,
+//! that send the Player one way to the Mainframe in the Start Room, a long walk away. After Power, each Pad is Linked once by activating it and then
 //! using the Mainframe in time. A trip charges at the Pad, killing Zombies around it, holds the
 //! Player in a black space nothing can reach, then lands them at the Mainframe, killing every
 //! Zombie around it, with a random aftereffect and an arrival drop. All its kills are Unpaid.
@@ -30,12 +30,12 @@ use crate::zone::{PlayerZone, ZoneId};
 /// One of the two Pads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PadId {
-    Dining,
-    Power,
+    Workshop,
+    Generator,
 }
 
 impl PadId {
-    pub const ALL: [PadId; 2] = [PadId::Dining, PadId::Power];
+    pub const ALL: [PadId; 2] = [PadId::Workshop, PadId::Generator];
 
     fn index(self) -> usize {
         self as usize
@@ -44,8 +44,9 @@ impl PadId {
     /// The Pad's centre on the floor.
     pub fn at(self) -> Vec3 {
         match self {
-            PadId::Dining => Vec3::new(-13.0, 0.0, -20.0),
-            PadId::Power => Vec3::new(13.0, 0.0, -20.0),
+            // The far corners of the south wing, a long walk from the Mainframe and each other.
+            PadId::Workshop => Vec3::new(-28.0, 0.0, -44.5),
+            PadId::Generator => Vec3::new(28.0, 0.0, -44.5),
         }
     }
 }
@@ -887,21 +888,21 @@ mod tests {
     fn a_pad_links_by_activating_it_then_using_the_mainframe() {
         let mut teleporter = Teleporter::default();
         assert_eq!(
-            pad_prompt(true, &teleporter, PadId::Dining),
+            pad_prompt(true, &teleporter, PadId::Workshop),
             TeleporterPrompt::Activate
         );
         assert_eq!(
             mainframe_prompt(true, &teleporter),
             TeleporterPrompt::NoPrompt
         );
-        teleporter.activate(PadId::Dining);
+        teleporter.activate(PadId::Workshop);
         assert_eq!(mainframe_prompt(true, &teleporter), TeleporterPrompt::Link);
         teleporter.advance(TELEPORTER_LINK_SECS - 0.1);
         teleporter.link();
-        assert!(teleporter.linked(PadId::Dining));
-        assert!(!teleporter.linked(PadId::Power));
+        assert!(teleporter.linked(PadId::Workshop));
+        assert!(!teleporter.linked(PadId::Generator));
         assert_eq!(
-            pad_prompt(true, &teleporter, PadId::Dining),
+            pad_prompt(true, &teleporter, PadId::Workshop),
             TeleporterPrompt::Teleport
         );
         assert_eq!(
@@ -914,12 +915,12 @@ mod tests {
     #[test]
     fn a_link_attempt_runs_out_after_30_seconds() {
         let mut teleporter = Teleporter::default();
-        teleporter.activate(PadId::Power);
+        teleporter.activate(PadId::Generator);
         teleporter.advance(TELEPORTER_LINK_SECS);
         teleporter.link();
-        assert!(!teleporter.linked(PadId::Power));
+        assert!(!teleporter.linked(PadId::Generator));
         assert_eq!(
-            pad_prompt(true, &teleporter, PadId::Power),
+            pad_prompt(true, &teleporter, PadId::Generator),
             TeleporterPrompt::Activate
         );
     }
@@ -927,37 +928,37 @@ mod tests {
     #[test]
     fn only_one_link_attempt_at_a_time() {
         let mut teleporter = Teleporter::default();
-        teleporter.activate(PadId::Dining);
+        teleporter.activate(PadId::Workshop);
         assert_eq!(
-            pad_prompt(true, &teleporter, PadId::Power),
+            pad_prompt(true, &teleporter, PadId::Generator),
             TeleporterPrompt::NoPrompt
         );
-        teleporter.activate(PadId::Power);
+        teleporter.activate(PadId::Generator);
         teleporter.link();
-        assert!(teleporter.linked(PadId::Dining) && !teleporter.linked(PadId::Power));
+        assert!(teleporter.linked(PadId::Workshop) && !teleporter.linked(PadId::Generator));
     }
 
     #[test]
     fn a_link_lasts_for_the_run() {
-        let mut teleporter = powered_and_linked(&[PadId::Dining]);
+        let mut teleporter = powered_and_linked(&[PadId::Workshop]);
         for _ in 0..100 {
             teleporter.advance(60.0);
         }
-        assert!(teleporter.linked(PadId::Dining));
+        assert!(teleporter.linked(PadId::Workshop));
     }
 
     #[test]
     fn a_trip_charges_holds_then_arrives_and_cools_down_both_pads() {
         let mut teleporter = powered_and_linked(&PadId::ALL);
-        teleporter.depart(PadId::Dining);
+        teleporter.depart(PadId::Workshop);
         assert_eq!(
-            pad_prompt(true, &teleporter, PadId::Power),
+            pad_prompt(true, &teleporter, PadId::Generator),
             TeleporterPrompt::NoPrompt
         );
         assert_eq!(teleporter.advance(TELEPORTER_CHARGE_SECS - 0.1), None);
         assert_eq!(
             teleporter.advance(0.15),
-            Some(TripEvent::Charged(PadId::Dining))
+            Some(TripEvent::Charged(PadId::Workshop))
         );
         assert_eq!(teleporter.advance(TELEPORTER_HOLDING_SECS - 0.1), None);
         assert_eq!(
@@ -972,7 +973,7 @@ mod tests {
         }
         teleporter.advance(TELEPORTER_COOLDOWN_SECS);
         assert_eq!(
-            pad_prompt(true, &teleporter, PadId::Power),
+            pad_prompt(true, &teleporter, PadId::Generator),
             TeleporterPrompt::Teleport
         );
         assert_eq!((TELEPORTER_PRICE, TELEPORTER_COOLDOWN_SECS), (1500, 5.0));
@@ -980,12 +981,12 @@ mod tests {
 
     #[test]
     fn the_next_arrival_knows_the_time_since_the_last() {
-        let mut teleporter = powered_and_linked(&[PadId::Power]);
-        teleporter.depart(PadId::Power);
+        let mut teleporter = powered_and_linked(&[PadId::Generator]);
+        teleporter.depart(PadId::Generator);
         teleporter.advance(TELEPORTER_CHARGE_SECS);
         teleporter.advance(TELEPORTER_HOLDING_SECS);
         teleporter.advance(30.0);
-        teleporter.depart(PadId::Power);
+        teleporter.depart(PadId::Generator);
         teleporter.advance(TELEPORTER_CHARGE_SECS);
         let arrived = teleporter.advance(TELEPORTER_HOLDING_SECS);
         let Some(TripEvent::Arrived {
@@ -999,8 +1000,8 @@ mod tests {
 
     #[test]
     fn leaving_the_pad_aborts_the_trip_and_loses_the_points() {
-        let mut teleporter = powered_and_linked(&[PadId::Dining]);
-        teleporter.depart(PadId::Dining);
+        let mut teleporter = powered_and_linked(&[PadId::Workshop]);
+        teleporter.depart(PadId::Workshop);
         teleporter.advance(TELEPORTER_CHARGE_SECS);
         teleporter.abort();
         assert_eq!(teleporter.trip, None);
@@ -1011,32 +1012,32 @@ mod tests {
     #[test]
     fn an_unlinked_pad_cant_start_a_trip() {
         let mut teleporter = Teleporter::default();
-        teleporter.depart(PadId::Dining);
+        teleporter.depart(PadId::Workshop);
         assert_eq!(teleporter.trip, None);
     }
 
     #[test]
     fn a_sabotaged_teleporter_shows_nothing_until_restored() {
-        let mut teleporter = powered_and_linked(&[PadId::Dining]);
+        let mut teleporter = powered_and_linked(&[PadId::Workshop]);
         teleporter.sabotage();
         assert_eq!(
-            pad_prompt(true, &teleporter, PadId::Dining),
+            pad_prompt(true, &teleporter, PadId::Workshop),
             TeleporterPrompt::NoPrompt
         );
         assert_eq!(
-            pad_prompt(true, &teleporter, PadId::Power),
+            pad_prompt(true, &teleporter, PadId::Generator),
             TeleporterPrompt::NoPrompt
         );
         teleporter.restore();
         assert_eq!(
-            pad_prompt(true, &teleporter, PadId::Dining),
+            pad_prompt(true, &teleporter, PadId::Workshop),
             TeleporterPrompt::Teleport
         );
     }
 
     #[test]
     fn the_player_must_stay_within_four_and_a_half_metres() {
-        let pad = PadId::Dining.at();
+        let pad = PadId::Workshop.at();
         assert!(stays_for_trip(pad, pad + Vec3::new(4.4, 0.9, 0.0), false));
         assert!(!stays_for_trip(pad, pad + Vec3::new(4.0, 0.9, 2.5), false));
         assert!(!stays_for_trip(pad, pad, true), "not while Down");
@@ -1157,8 +1158,8 @@ mod tests {
     #[test]
     fn the_pads_and_mainframe_stand_in_their_zones() {
         for (pad, zone) in [
-            (PadId::Dining, ZoneId::DiningRoom),
-            (PadId::Power, ZoneId::PowerRoom),
+            (PadId::Workshop, ZoneId::Workshop),
+            (PadId::Generator, ZoneId::GeneratorRoom),
         ] {
             assert_eq!(zone_at(pad.at() + Vec3::Y * 0.5), Some(zone));
             // Clear of the Box Locations.

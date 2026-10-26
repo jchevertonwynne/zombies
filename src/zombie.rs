@@ -660,12 +660,22 @@ pub fn spawn_zombie(
                     Mesh3d(assets.head.clone()),
                     MeshMaterial3d(assets.skin.clone()),
                     Transform::from_xyz(0.0, head_offset, 0.0),
-                    Collider::sphere(ZOMBIE_HEAD_RADIUS),
+                    Collider::cuboid(rig::HEAD, rig::HEAD, rig::HEAD),
                     hit_layers,
                 ))
                 .with_children(|head| rig::face(head, assets, rig::HEAD))
                 .id();
-            body = Some(rig::spawn_standing(zombie, assets, root, head));
+            // The neck leans with the rig too, so it stays under the head.
+            let neck_bottom = head_offset - ZOMBIE_HEAD_RADIUS - ZOMBIE_NECK_SIZE.y;
+            let neck = zombie
+                .spawn((
+                    HitArea(HitZone::Neck),
+                    Transform::from_xyz(0.0, neck_bottom + ZOMBIE_NECK_SIZE.y / 2.0, 0.0),
+                    box_collider(ZOMBIE_NECK_SIZE),
+                    hit_layers,
+                ))
+                .id();
+            body = Some(rig::spawn_standing(zombie, assets, root, head, neck));
             // Arms reaching forward (-Z is forward), where the rig's arms shamble.
             for x in [-ZOMBIE_RADIUS - 0.05, ZOMBIE_RADIUS + 0.05] {
                 zombie.spawn((
@@ -676,9 +686,8 @@ pub fn spawn_zombie(
                 ));
             }
 
-            // Invisible hit areas inside the body capsule, stacked from the feet up:
-            // legs, then torso, then a short neck under the head.
-            let neck_bottom = head_offset - ZOMBIE_HEAD_RADIUS - ZOMBIE_NECK_SIZE.y;
+            // Invisible hit areas inside the body capsule, stacked from the feet up: legs, then
+            // torso, up to the neck under the head (above).
             let torso_bottom = -half + ZOMBIE_LEG_SIZE.y;
             for x in [-ZOMBIE_LEG_OFFSET, ZOMBIE_LEG_OFFSET] {
                 zombie.spawn((
@@ -692,12 +701,6 @@ pub fn spawn_zombie(
                 HitArea(HitZone::Torso),
                 Transform::from_xyz(0.0, (torso_bottom + neck_bottom) / 2.0, 0.0),
                 Collider::cuboid(ZOMBIE_TORSO_WIDTH, neck_bottom - torso_bottom, ZOMBIE_TORSO_DEPTH),
-                hit_layers,
-            ));
-            zombie.spawn((
-                HitArea(HitZone::Neck),
-                Transform::from_xyz(0.0, neck_bottom + ZOMBIE_NECK_SIZE.y / 2.0, 0.0),
-                box_collider(ZOMBIE_NECK_SIZE),
                 hit_layers,
             ));
         });
@@ -718,7 +721,7 @@ fn spawn_crawler_parts(crawler: &mut ChildSpawnerCommands, assets: &ZombieAssets
             Mesh3d(assets.head.clone()),
             MeshMaterial3d(assets.skin.clone()),
             Transform::from_xyz(0.0, CRAWLER_RADIUS - ZOMBIE_HEAD_RADIUS, front),
-            Collider::sphere(ZOMBIE_HEAD_RADIUS),
+            Collider::cuboid(rig::HEAD, rig::HEAD, rig::HEAD),
             hit_layers,
         ))
         .with_children(|head| rig::face(head, assets, rig::HEAD));
