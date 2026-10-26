@@ -17,10 +17,18 @@ pub enum ZoneId {
     DiningRoom,
     PowerRoom,
     Yard,
+    /// The corridor south from the Dining Room to the Workshop.
+    Passage,
+    Workshop,
+    /// Between the Workshop and the Generator Room, at the middle of the south wing.
+    Storeroom,
+    GeneratorRoom,
+    /// The corridor south from the Power Room to the Generator Room.
+    Tunnel,
 }
 
 impl ZoneId {
-    pub const ALL: [ZoneId; 7] = [
+    pub const ALL: [ZoneId; 12] = [
         ZoneId::StartRoom,
         ZoneId::WestHall,
         ZoneId::Balcony,
@@ -28,6 +36,11 @@ impl ZoneId {
         ZoneId::DiningRoom,
         ZoneId::PowerRoom,
         ZoneId::Yard,
+        ZoneId::Passage,
+        ZoneId::Workshop,
+        ZoneId::Storeroom,
+        ZoneId::GeneratorRoom,
+        ZoneId::Tunnel,
     ];
 
     pub fn name(self) -> &'static str {
@@ -39,6 +52,11 @@ impl ZoneId {
             ZoneId::DiningRoom => "Dining Room",
             ZoneId::PowerRoom => "Power Room",
             ZoneId::Yard => "Yard",
+            ZoneId::Passage => "Passage",
+            ZoneId::Workshop => "Workshop",
+            ZoneId::Storeroom => "Storeroom",
+            ZoneId::GeneratorRoom => "Generator Room",
+            ZoneId::Tunnel => "Tunnel",
         }
     }
 
@@ -56,18 +74,23 @@ impl ZoneId {
             ZoneId::DiningRoom => (-26.0, 0.0, LOW, UPPER, -26.0, -14.0),
             ZoneId::PowerRoom => (0.0, 26.0, LOW, UPPER, -26.0, -14.0),
             ZoneId::Yard => (-14.0, 14.0, LOW, UPPER, -14.0, 14.0),
+            ZoneId::Passage => (-13.5, -10.5, LOW, UPPER, -38.0, -26.0),
+            ZoneId::Workshop => (-34.0, -4.0, LOW, UPPER, -50.0, -38.0),
+            ZoneId::Storeroom => (-4.0, 4.0, LOW, UPPER, -50.0, -38.0),
+            ZoneId::GeneratorRoom => (4.0, 34.0, LOW, UPPER, -50.0, -38.0),
+            ZoneId::Tunnel => (12.5, 15.5, LOW, UPPER, -38.0, -26.0),
         };
         (Vec3::new(x0, y0, z0), Vec3::new(x1, y1, z1))
     }
 
-    fn bit(self) -> u8 {
-        1 << self as u8
+    fn bit(self) -> u16 {
+        1 << self as u16
     }
 }
 
 /// A set of Zones.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ZoneSet(u8);
+pub struct ZoneSet(u16);
 
 impl ZoneSet {
     pub fn insert(&mut self, zone: ZoneId) {
@@ -93,11 +116,14 @@ impl FromIterator<ZoneId> for ZoneSet {
     }
 }
 
-/// Joins that never close: the ramp from West Hall up to the Balcony, and the drop from the
-/// Balcony into the Yard. The drop is one-way to walk but counts both ways for activation.
-pub const FIXED_JOINS: [(ZoneId, ZoneId); 2] = [
+/// Joins that never close: the ramp from West Hall up to the Balcony, the drop from the
+/// Balcony into the Yard, and the open ends of the Passage and the Tunnel into the south wing.
+/// The drop is one-way to walk but counts both ways for activation.
+pub const FIXED_JOINS: [(ZoneId, ZoneId); 4] = [
     (ZoneId::WestHall, ZoneId::Balcony),
     (ZoneId::Balcony, ZoneId::Yard),
+    (ZoneId::Passage, ZoneId::Workshop),
+    (ZoneId::Tunnel, ZoneId::GeneratorRoom),
 ];
 
 /// The Zone the Player is in after moving. They change Zone only once their whole body

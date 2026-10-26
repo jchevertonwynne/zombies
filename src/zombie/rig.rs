@@ -14,13 +14,14 @@ use bevy::prelude::*;
 use super::{Dying, KnockedDown, Rising, Stunned, Zombie, ZombieAssets, body_half_height};
 use crate::barrier::{AtWindow, Entering};
 use crate::special::Shrieker;
-use crate::tuning::{CRAWLER_BODY_LENGTH, CRAWLER_RADIUS, ZOMBIE_FALL_SECS, ZOMBIE_HEAD_RADIUS};
+use crate::tuning::{CRAWLER_BODY_LENGTH, CRAWLER_RADIUS, ZOMBIE_FALL_SECS, ZOMBIE_HEAD_RADIUS, ZOMBIE_NECK_SIZE};
 
 pub(super) const TORSO: Vec3 = Vec3::new(0.56, 0.66, 0.3);
 pub(super) const ARM: Vec3 = Vec3::new(0.2, 0.5, 0.2);
 pub(super) const HAND: Vec3 = Vec3::new(0.2, 0.16, 0.2);
 pub(super) const LEG: Vec3 = Vec3::new(0.26, 0.7, 0.26);
-pub(super) const HEAD: f32 = 0.42;
+/// The head: a cube as wide as the head's hit area, which is the same cube.
+pub(super) const HEAD: f32 = 2.0 * ZOMBIE_HEAD_RADIUS;
 /// A Crawler's body, lying along its facing.
 pub(super) const CRAWLER_BODY: Vec3 = Vec3::new(0.5, 0.36, CRAWLER_BODY_LENGTH + 0.3);
 /// How far the shoulders sit out from the middle, and above the hips.
@@ -40,6 +41,8 @@ pub(super) enum Rig {
         hips: Entity,
         /// Its head hit area, which carries the head's boxes.
         head: Entity,
+        /// Its neck hit area, which leans with the upper body to stay under the head.
+        neck: Entity,
         /// Left, then right.
         arms: [Entity; 2],
         legs: [Entity; 2],
@@ -329,6 +332,7 @@ pub(super) fn spawn_standing(
     assets: &ZombieAssets,
     root: Entity,
     head: Entity,
+    neck: Entity,
 ) -> Rig {
     let hips_y = hips_height();
     let arm = |zombie: &mut ChildSpawnerCommands, side: usize| {
@@ -373,7 +377,7 @@ pub(super) fn spawn_standing(
             ))
             .id()
     });
-    Rig::Standing { hips, head, arms, legs }
+    Rig::Standing { hips, head, neck, arms, legs }
 }
 
 /// A Crawler's arms, reaching out from the front of its body, and the stumps of its legs.
@@ -427,6 +431,11 @@ pub(super) fn face(head: &mut ChildSpawnerCommands, assets: &ZombieAssets, size:
 /// The hips' height above the body's centre: the top of the legs.
 fn hips_height() -> f32 {
     LEG.y - body_half_height()
+}
+
+/// Where the neck's hit area sits on a standing Zombie at rest: just under the head.
+fn neck_rest() -> Vec3 {
+    head_rest() - Vec3::Y * (ZOMBIE_HEAD_RADIUS + ZOMBIE_NECK_SIZE.y / 2.0)
 }
 
 /// Where the head's hit area sits on a standing Zombie at rest.
@@ -526,13 +535,23 @@ pub(super) fn animate(
             }
         };
         match *rig {
-            Rig::Standing { hips, head, arms, legs } => {
+            Rig::Standing { hips, head, neck, arms, legs } => {
                 let pose = pose(activity, gait.phase, stride, run, gait.clock);
                 let upper = Quat::from_rotation_y(pose.twist) * Quat::from_rotation_x(-pose.lean);
                 let hips_at = Vec3::Y * (hips_height() + pose.bob);
                 set(hips, &|t| {
                     t.translation = hips_at;
                     t.rotation = t.rotation.slerp(upper, follow);
+                });
+                let leaned = parts.get(hips).map_or(upper, |t| t.rotation);
+                let mut set = |part: Entity, f: &dyn Fn(&mut Transform)| {
+                    if let Ok(mut transform) = parts.get_mut(part) {
+                        f(&mut transform);
+                    }
+                };
+                set(neck, &|t| {
+                    t.rotation = leaned;
+                    t.translation = hips_at + leaned * (neck_rest() - Vec3::Y * hips_height());
                 });
                 // The head rides on the upper body, with its own nod and a tilt of its own.
                 let tilt = ((entity.index_u32() % 7) as f32 - 3.0) * 0.06;

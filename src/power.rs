@@ -23,7 +23,7 @@ impl Power {
 }
 
 /// The Power Switch's spot on the Power Room's east wall, and the way it faces.
-const SWITCH_AT: Vec3 = Vec3::new(25.6, 1.3, -20.0);
+pub(crate) const SWITCH_AT: Vec3 = Vec3::new(25.6, 1.3, -20.0);
 const SWITCH_FACING: Vec3 = Vec3::NEG_X;
 
 /// The lever that turns the Power on. Used, not bought: it has a Prompt but no price.

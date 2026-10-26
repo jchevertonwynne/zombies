@@ -1433,6 +1433,12 @@ pub const DOOR_PRICE_EAST_POWER: u64 = 1000;
 pub const DOOR_PRICE_DINING_POWER: u64 = 1250;
 pub const DOOR_PRICE_START_YARD: u64 = 1000;
 pub const DOOR_PRICE_YARD_DINING: u64 = 1250;
+/// The south wing: into the Passage and the Tunnel from the rooms above, and through the
+/// Storeroom between the Workshop and the Generator Room.
+pub const DOOR_PRICE_DINING_PASSAGE: u64 = 1000;
+pub const DOOR_PRICE_POWER_TUNNEL: u64 = 1000;
+pub const DOOR_PRICE_WORKSHOP_STOREROOM: u64 = 1250;
+pub const DOOR_PRICE_STOREROOM_GENERATOR: u64 = 1250;
 
 // Buying
 /// How far from a Buyable's use point the Player can buy it, height included.
