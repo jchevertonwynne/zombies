@@ -5,7 +5,9 @@
 //! sight, brings a full one back up and seats it. Anything else (shells, a cylinder, a rocket,
 //! the Wonder Weapons) is rolled the other way while the left hand feeds it, again and again. The
 //! Knife is a right hand slashing across the screen while the Weapon drops out of the way; the
-//! Ballistic Knife in hand lunges and stabs with its own blade instead.
+//! Ballistic Knife in hand lunges and stabs with its own blade instead. A Perk drink puts the
+//! Weapon away, brings the Perk's bottle up in the right hand, pops its cap, tips it back and
+//! tosses it away before the Weapon comes back up.
 
 use bevy::prelude::*;
 
@@ -133,6 +135,43 @@ pub fn stab_lunge(t: f32) -> f32 {
     }
 }
 
+/// A Perk drink `t` of the way (0 to 1) through: how far the Weapon is put away (1 for out of
+/// sight), and where the bottle hand is (camera space), if it's in sight.
+pub fn drink_pose(t: f32) -> (f32, Option<Transform>) {
+    let t = t.clamp(0.0, 1.0);
+    // Down at once, and back up once the bottle is gone, in time for the Perk to apply.
+    let lowered = smoothstep(t / 0.1) * (1.0 - smoothstep((t - 0.84) / 0.16));
+    if !(0.08..0.86).contains(&t) {
+        return (lowered, None);
+    }
+    let below = Vec3::new(0.3, -0.55, -0.4);
+    let held = Vec3::new(0.14, -0.19, -0.4);
+    // Up under the nose, the neck pointing back at the mouth.
+    let mouth = Vec3::new(0.04, -0.06, -0.27);
+    let away = Vec3::new(0.45, -0.7, -0.3);
+    // How far it's tipped back toward the mouth, leant in from the right, and spun as it's tossed.
+    let (at, tip, lean, spin) = if t < 0.24 {
+        (below.lerp(held, smoothstep((t - 0.08) / 0.16)), 0.0, 0.2, 0.0)
+    } else if t < 0.32 {
+        // A flick as the cap pops off.
+        let flick = (1.0 - ((t - 0.28) / 0.04).abs()).max(0.0);
+        (held + Vec3::Y * 0.02 * flick, -0.2 * flick, 0.2, 0.0)
+    } else if t < 0.44 {
+        let up = smoothstep((t - 0.32) / 0.12);
+        (held.lerp(mouth, up), 1.9 * up, 0.2.lerp(0.35, up), 0.0)
+    } else if t < 0.72 {
+        // Three glugs, tipping it further as it empties.
+        let k = (t - 0.44) / 0.28;
+        let glug = (k * std::f32::consts::TAU * 3.0).sin() * 0.008;
+        (mouth + Vec3::Y * glug, 1.9 + 0.4 * k, 0.35, 0.0)
+    } else {
+        let toss = smoothstep((t - 0.72) / 0.14);
+        (mouth.lerp(away, toss), 2.3.lerp(0.6, toss), 0.35, -2.4 * toss)
+    };
+    let rotation = Quat::from_rotation_z(lean + spin) * Quat::from_rotation_x(tip);
+    (lowered, Some(Transform::from_translation(at).with_rotation(rotation)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,6 +215,40 @@ mod tests {
         assert!(gone.is_none());
         assert!(dip < 0.2);
         assert!(knife_pose(0.3).0 > 0.9, "the Weapon is out of the way mid-slash");
+    }
+
+    #[test]
+    fn a_drink_puts_the_weapon_away_and_brings_it_back() {
+        assert_eq!(drink_pose(0.0).0, 0.0);
+        assert!(drink_pose(0.5).0 > 0.99);
+        assert!(drink_pose(1.0).0 < 1e-4);
+        assert!(drink_pose(0.0).1.is_none() && drink_pose(0.95).1.is_none(), "no bottle before or after");
+    }
+
+    #[test]
+    fn the_bottle_comes_up_to_the_mouth_tipped_back_then_goes() {
+        let raised = drink_pose(0.2).1.unwrap();
+        let drinking = drink_pose(0.6).1.unwrap();
+        assert!(drinking.translation.y > raised.translation.y && drinking.translation.z > raised.translation.z);
+        // Its neck (+Y) points back toward the camera (+Z) while it's drunk.
+        assert!((drinking.rotation * Vec3::Y).z > 0.5);
+        assert!((raised.rotation * Vec3::Y).y > 0.9, "upright before it's drunk");
+        let tossed = drink_pose(0.85).1.unwrap();
+        assert!(tossed.translation.y < -0.6, "on its way out of sight");
+    }
+
+    #[test]
+    fn the_drink_pose_never_jumps() {
+        let mut last = drink_pose(0.0);
+        for i in 1..=1000 {
+            let pose = drink_pose(i as f32 / 1000.0);
+            assert!((pose.0 - last.0).abs() < 0.03);
+            if let (Some(a), Some(b)) = (pose.1, last.1) {
+                assert!(a.translation.distance(b.translation) < 0.02, "at {i}");
+                assert!(a.rotation.angle_between(b.rotation) < 0.06, "at {i}");
+            }
+            last = pose;
+        }
     }
 
     #[test]

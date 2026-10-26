@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use crate::controls::{Action, Controls};
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
-use crate::buy::{Buyable, Focus, Held};
+use crate::buy::{Buyable, Focus, Held, Nearby};
 use crate::last_stand::LastStand;
 use crate::map::{BarrierId, WINDOWS};
 use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_points};
@@ -400,6 +400,7 @@ fn spawn_barriers(
                 Barrier(barrier),
                 // Its Buyable comes and goes with missing Planks; see `show_planks`.
                 Held,
+                Nearby,
                 barrier_transform(barrier),
                 Visibility::default(),
             ))
@@ -704,7 +705,7 @@ fn show_planks(
                 use_point: window_centre(window.0) - out * 0.3 + Vec3::Y * 1.2,
                 prompt: "Hold F to rebuild Barrier".into(),
                 price: None,
-                range: USE_RANGE,
+                range: BARRIER_REBUILD_RANGE,
             });
         } else if !wants_prompt && has_prompt {
             commands.entity(entity).remove::<Buyable>();

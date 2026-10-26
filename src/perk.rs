@@ -198,6 +198,11 @@ impl Drinking {
         self.elapsed += dt;
         self.elapsed >= PERK_DRINK_SECS
     }
+
+    /// How far through the drink it is, 0 to 1.
+    pub fn progress(&self) -> f32 {
+        (self.elapsed / PERK_DRINK_SECS).min(1.0)
+    }
 }
 
 /// Run condition: the Player's hands are free for their Weapon and Knife.

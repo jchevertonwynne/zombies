@@ -2,7 +2,7 @@ use avian3d::prelude::*;
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
 
-use crate::hands::{ReloadPose, ReloadStyle, knife_pose, reload_pose, stab_lunge};
+use crate::hands::{ReloadPose, ReloadStyle, drink_pose, knife_pose, reload_pose, stab_lunge};
 use crate::controls::{Action, Controls};
 use crate::ammo_mod::{AmmoModHit, AmmoMods, glint_colour, pick_ammo_mod};
 use crate::arsenal::{Burn, FireMode, Splash, WeaponId, WeaponStats};
@@ -803,6 +803,8 @@ pub enum ViewPart {
     Magazine,
     LeftHand,
     Knife,
+    /// The Perk being drunk, in the right hand.
+    Bottle,
 }
 
 /// Poses the view model from scratch each frame; camera sway adds to the pose after it.
@@ -852,6 +854,7 @@ fn spawn_view_model(
             )
         };
         commands.entity(camera).with_child(part(ViewPart::Knife));
+        commands.entity(camera).with_child(part(ViewPart::Bottle));
         commands.entity(camera).with_child((
             ViewModel { kick: 0.0 },
             Mesh3d(guns.view(STARTING_WEAPON)),
@@ -1206,7 +1209,7 @@ fn animate_view_model(
         (Without<ViewModel>, Without<Glint>),
     >,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    player: Single<(&Loadout, &Modifiers, &Knife, Has<Drinking>), With<Player>>,
+    player: Single<(&Loadout, &Modifiers, &Knife, Option<&Drinking>), With<Player>>,
     guns: Res<GunModels>,
     time: Res<Time>,
 ) {
@@ -1218,9 +1221,10 @@ fn animate_view_model(
     let mut shown_id = loadout.held().id;
     let mut class = loadout.held().stats().class;
     let mut shown = glint_of(loadout.held());
-    let dip = if drinking {
-        // Out of sight while the Perk is drunk.
-        0.6
+    // A Perk drink puts the Weapon out of sight while the bottle comes up.
+    let (drink_dip, bottle) = drinking.map_or((0.0, None), |drinking| drink_pose(drinking.progress()));
+    let dip = if drinking.is_some() {
+        0.6 * drink_dip
     } else if let Some(swap) = &loadout.swap {
         if swap.elapsed < swap.drop_secs {
             shown_id = swap.from.id;
@@ -1306,6 +1310,7 @@ fn animate_view_model(
                 Some(if knife.bowie { guns.bowie.clone() } else { guns.knife.clone() }),
                 knife_hand,
             ),
+            ViewPart::Bottle => (drinking.map(|drinking| guns.bottle(drinking.perk)), bottle),
         };
         match (shown_mesh, placed) {
             (Some(shown_mesh), Some(placed)) => {

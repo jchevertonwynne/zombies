@@ -8,7 +8,8 @@
 //!
 //! In the hands, the magazine (if it has one) and the left hand are models of their own, so a
 //! Reload can pull the magazine out and the hand can fetch a new one. The Knife is its own model
-//! too: a right hand slashing across the screen.
+//! too: a right hand slashing across the screen. So is each Perk's bottle, in the right hand that
+//! drinks it.
 //!
 //! Each model also marks where its Attachments go: the top of the receiver for an optic, the
 //! muzzle, and under the fore-end for an Underbarrel or a Grip. An Extended Mag or Dual Mag
@@ -19,6 +20,7 @@ use bevy::prelude::*;
 
 use crate::arsenal::{WeaponClass, WeaponId};
 use crate::attachment::Attachment;
+use crate::perk::Perk;
 use crate::tuning::WEAPONS;
 
 /// How long each class's model is, as a multiple of a pistol's 0.3: a switch is easy to see.
@@ -74,6 +76,9 @@ pub struct GunModels {
     /// The Knife, and the Bowie Knife, in a right hand: the hand at the origin, the blade along −Z.
     pub knife: Handle<Mesh>,
     pub bowie: Handle<Mesh>,
+    /// Each Perk's bottle in a right hand, by its place in `Perk::ALL`: the hand at the origin,
+    /// the bottle standing up out of it along +Y, its label facing +Z.
+    bottles: [Handle<Mesh>; 4],
     pub material: Handle<StandardMaterial>,
 }
 
@@ -107,6 +112,10 @@ impl GunModels {
 
     pub fn world(&self, id: WeaponId) -> Handle<Mesh> {
         self.world[id as usize].clone()
+    }
+
+    pub fn bottle(&self, perk: Perk) -> Handle<Mesh> {
+        self.bottles[perk as usize].clone()
     }
 }
 
@@ -178,6 +187,7 @@ impl FromWorld for GunModels {
             knife.mesh()
         };
         let (knife, bowie) = (meshes.add(knife(false)), meshes.add(knife(true)));
+        let bottles = Perk::ALL.map(|perk| meshes.add(bottle(perk)));
         let material = world.resource_mut::<Assets<StandardMaterial>>().add(StandardMaterial {
             // The vertex colours carry every part's colour.
             base_color: Color::WHITE,
@@ -195,6 +205,7 @@ impl FromWorld for GunModels {
             world: world_meshes,
             knife,
             bowie,
+            bottles,
             material,
         }
     }
@@ -293,6 +304,99 @@ fn hand(gun: &mut Gun, at: Vec3, side: f32) {
     gun.part(Vec3::new(0.075, 0.085, 0.09), at, SKIN);
     let arm = Quat::from_rotation_y(side * 0.35) * Quat::from_rotation_x(0.55);
     gun.turned(Vec3::new(0.085, 0.085, 0.36), at + arm * Vec3::new(0.0, 0.0, 0.2), arm, SLEEVE);
+}
+
+/// The shape of a Perk's bottle: its glass, label and cap colours, how wide and tall its body and
+/// neck are, and the mark on the front of its label.
+struct BottleLook {
+    glass: Color,
+    label: Color,
+    cap: Color,
+    body: Vec2,
+    neck: Vec2,
+    mark: fn(&mut Gun, Vec3),
+}
+
+fn bottle_look(perk: Perk) -> BottleLook {
+    match perk {
+        // A big, heavy red bottle with a long neck, and a white shield on its label.
+        Perk::Juggernog => BottleLook {
+            glass: Color::srgb(0.5, 0.04, 0.04),
+            label: Color::srgb(0.85, 0.82, 0.75),
+            cap: Color::srgb(0.75, 0.6, 0.2),
+            body: Vec2::new(0.075, 0.17),
+            neck: Vec2::new(0.032, 0.08),
+            mark: |gun, front| {
+                gun.part(Vec3::new(0.034, 0.03, 0.004), front + Vec3::Y * 0.004, SHELLS);
+                gun.part(Vec3::new(0.02, 0.012, 0.004), front - Vec3::Y * 0.016, SHELLS);
+            },
+        },
+        // A slim green bottle with a lightning bolt across its lime label.
+        Perk::SpeedCola => BottleLook {
+            glass: Color::srgb(0.05, 0.35, 0.1),
+            label: Color::srgb(0.55, 0.85, 0.3),
+            cap: STEEL,
+            body: Vec2::new(0.058, 0.15),
+            neck: Vec2::new(0.026, 0.09),
+            mark: |gun, front| {
+                let bolt = Color::srgb(0.95, 0.85, 0.15);
+                gun.turned(Vec3::new(0.008, 0.042, 0.004), front, Quat::from_rotation_z(-0.6), bolt);
+            },
+        },
+        // A stubby amber bottle with two bullets on its orange label.
+        Perk::DoubleTap => BottleLook {
+            glass: Color::srgb(0.35, 0.18, 0.05),
+            label: Color::srgb(0.95, 0.55, 0.1),
+            cap: Color::srgb(0.6, 0.1, 0.05),
+            body: Vec2::new(0.068, 0.12),
+            neck: Vec2::new(0.03, 0.05),
+            mark: |gun, front| {
+                for x in [-0.009, 0.009] {
+                    gun.part(Vec3::new(0.008, 0.03, 0.004), front + Vec3::X * x, DARK);
+                }
+            },
+        },
+        // A squat, round pale-blue bottle with a blue cross on its white label.
+        Perk::QuickRevive => BottleLook {
+            glass: Color::srgb(0.3, 0.6, 0.9),
+            label: Color::srgb(0.92, 0.95, 1.0),
+            cap: Color::srgb(0.92, 0.95, 1.0),
+            body: Vec2::new(0.085, 0.11),
+            neck: Vec2::new(0.034, 0.045),
+            mark: |gun, front| {
+                let cross = Color::srgb(0.15, 0.4, 0.85);
+                gun.part(Vec3::new(0.03, 0.01, 0.004), front, cross);
+                gun.part(Vec3::new(0.01, 0.03, 0.004), front, cross);
+            },
+        },
+    }
+}
+
+/// A Perk's bottle in a right hand at the origin: its base in the fist, its label above it.
+fn bottle(perk: Perk) -> Mesh {
+    let look = bottle_look(perk);
+    let mut gun = Gun::default();
+    hand(&mut gun, Vec3::ZERO, 1.0);
+    // The top of the fist `hand` makes.
+    let fist_top = 0.0425;
+    let (width, height) = (look.body.x, look.body.y);
+    let bottom = fist_top - 0.4 * height;
+    let top = bottom + height;
+    gun.part(Vec3::new(width, height, width), Vec3::Y * (bottom + height / 2.0), look.glass);
+    // A rounded shoulder up into the neck.
+    let shoulder = Vec3::new(width * 0.7, 0.025, width * 0.7);
+    gun.part(shoulder, Vec3::Y * (top + shoulder.y / 2.0), look.glass);
+    let neck_base = top + shoulder.y;
+    let neck = Vec3::new(look.neck.x, look.neck.y, look.neck.x);
+    gun.part(neck, Vec3::Y * (neck_base + neck.y / 2.0), look.glass);
+    gun.part(Vec3::new(neck.x + 0.008, 0.014, neck.x + 0.008), Vec3::Y * (neck_base + neck.y + 0.007), look.cap);
+    // The label, wrapped round what shows of the body above the fist.
+    let shown = top - fist_top;
+    let label = Vec3::new(width + 0.004, (shown * 0.6).min(0.06), width + 0.004);
+    let label_at = Vec3::Y * (fist_top + shown / 2.0);
+    gun.part(label, label_at, look.label);
+    (look.mark)(&mut gun, label_at + Vec3::Z * (label.z / 2.0 + 0.002));
+    gun.mesh()
 }
 
 /// A pistol's grip, angled back: `at` is its middle.
@@ -779,6 +883,17 @@ mod tests {
     use bevy::mesh::VertexAttributeValues;
 
     use super::*;
+
+    #[test]
+    fn every_perk_has_its_own_bottle_shape() {
+        let shapes = Perk::ALL.map(|perk| {
+            let look = bottle_look(perk);
+            (look.body, look.neck)
+        });
+        for (i, a) in shapes.iter().enumerate() {
+            assert!(shapes[i + 1..].iter().all(|b| b != a), "{:?} shares a shape", Perk::ALL[i]);
+        }
+    }
 
     #[test]
     fn every_weapon_builds_a_model_that_fits_its_class_length() {

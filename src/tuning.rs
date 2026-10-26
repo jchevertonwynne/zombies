@@ -1445,6 +1445,8 @@ pub const DOOR_PRICE_STOREROOM_GENERATOR: u64 = 1250;
 pub const USE_RANGE: f32 = 2.0;
 /// How far off the crosshair a Buyable's use point can be and still be bought.
 pub const USE_ANGLE: f32 = 45.0_f32.to_radians();
+/// How near a Barrier's inside face the Player must be to rebuild it, looking anywhere.
+pub const BARRIER_REBUILD_RANGE: f32 = 2.5;
 /// A Door's range override: its use point sits mid-Door, so this reaches the Door's full width.
 pub const DOOR_USE_RANGE: f32 = USE_RANGE + 1.2;
 pub const CANT_AFFORD_FLASH_SECS: f32 = 0.5;
