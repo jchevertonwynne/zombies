@@ -10,8 +10,7 @@
 //! - The **Shrieker** sprints, screams to blur and shake the Player's view, and its death scream
 //!   kills the Zombies in sight around it.
 //!
-//! Their own kills are Unpaid. The cadence lives in pure functions so another special (the
-//! Sapper) can reuse the same shape.
+//! Their own kills are Unpaid. The Sapper has its own counter and lives in its own module.
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
@@ -36,11 +35,13 @@ use crate::zombie::{
 };
 use crate::zone::{ActiveZones, PlayerZone, ZoneId, ZoneSet};
 
-/// The two Special Zombies of the special slot.
+/// The Special Zombies with a kind of their own: the two of the special slot, and the Sapper.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpecialKind {
     Napalm,
     Shrieker,
+    /// The mini-boss, on its own counter (see the Sapper module).
+    Sapper,
 }
 
 impl SpecialKind {
@@ -50,15 +51,23 @@ impl SpecialKind {
             * match self {
                 SpecialKind::Napalm => NAPALM_HEALTH_MULTIPLIER,
                 SpecialKind::Shrieker => SHRIEKER_HEALTH_MULTIPLIER,
+                SpecialKind::Sapper => SAPPER_HEALTH_MULTIPLIER,
             }
     }
 
-    /// How long it takes to rise out of the ground.
+    /// How long it takes to rise out of the ground. The Sapper never rises: it comes through a
+    /// window.
     pub fn rise_secs(self) -> f32 {
         match self {
             SpecialKind::Napalm => NAPALM_RISE_SECS,
             SpecialKind::Shrieker => SHRIEKER_RISE_SECS,
+            SpecialKind::Sapper => 0.0,
         }
+    }
+
+    /// Whether it's one of the special slot's two, rather than the Sapper.
+    pub fn in_slot(self) -> bool {
+        self != SpecialKind::Sapper
     }
 }
 
@@ -93,12 +102,14 @@ impl SpecialSlot {
         }
     }
 
-    /// A special of `kind` died in Round `round`: its next is due `gap` Rounds later.
+    /// A special of `kind` died in Round `round`: its next is due `gap` Rounds later. The Sapper
+    /// keeps its own counter, so its death changes nothing here.
     pub fn died(&mut self, kind: SpecialKind, round: u32, gap: u32) {
         let next = round.saturating_add(gap);
         match kind {
             SpecialKind::Napalm => self.napalm = next,
             SpecialKind::Shrieker => self.shrieker = next,
+            SpecialKind::Sapper => {}
         }
     }
 
@@ -107,6 +118,7 @@ impl SpecialSlot {
         match kind {
             SpecialKind::Napalm => rand::random_range(NAPALM_ROUND_GAPS),
             SpecialKind::Shrieker => rand::random_range(SHRIEKER_ROUND_GAPS),
+            SpecialKind::Sapper => 0,
         }
     }
 }
@@ -133,12 +145,12 @@ pub fn special_spawn_candidates(
     if own.is_empty() { open.into_iter().map(|(_, at)| at).collect() } else { own }
 }
 
-/// Whether the `n`th hit a Zombie survives pays hit Points: never a Napalm's, every
-/// `SHRIEKER_HIT_POINTS_EVERY`th of a Shrieker's, and every one of anything else's.
+/// Whether the `n`th hit a Zombie survives pays hit Points: never a Napalm's or the Sapper's,
+/// every `SHRIEKER_HIT_POINTS_EVERY`th of a Shrieker's, and every one of anything else's.
 pub fn hit_pays(special: Option<SpecialKind>, n: u32) -> bool {
     match special {
         None => true,
-        Some(SpecialKind::Napalm) => false,
+        Some(SpecialKind::Napalm | SpecialKind::Sapper) => false,
         Some(SpecialKind::Shrieker) => n.is_multiple_of(SHRIEKER_HIT_POINTS_EVERY),
     }
 }
@@ -357,7 +369,7 @@ fn plan_special(
     if plan.round == round.number {
         return;
     }
-    let one_alive = alive.iter().any(|zombie| zombie.special_kind().is_some());
+    let one_alive = alive.iter().any(|zombie| zombie.special_kind().is_some_and(SpecialKind::in_slot));
     *plan = SpecialPlan {
         round: round.number,
         kind: slot.due(round.number, round.hellhound.is_some(), one_alive),
@@ -403,7 +415,7 @@ fn spawn_special(
     let at = points[rand::random_range(0..points.len())];
     let health = kind.health(zombie_health(round.number) as f32);
     let tier = match kind {
-        SpecialKind::Napalm => SpeedTier::Walker,
+        SpecialKind::Napalm | SpecialKind::Sapper => SpeedTier::Walker,
         SpecialKind::Shrieker => SpeedTier::Sprinter,
     };
     let zombie = spawn_zombie(&mut commands, &zombie_assets, at, health, tier, Some(kind.rise_secs()));
@@ -454,6 +466,8 @@ fn spawn_special(
                 at: Some(at),
             });
         }
+        // The slot never plans the Sapper.
+        SpecialKind::Sapper => {}
     }
     plan.kind = None;
 }
@@ -594,7 +608,7 @@ fn special_deaths(
 ) {
     let round_number = round.map_or(1, |round| round.number);
     for (zombie, transform, dying) in &deaths {
-        let Some(kind) = zombie.special_kind() else {
+        let Some(kind) = zombie.special_kind().filter(|kind| kind.in_slot()) else {
             continue;
         };
         slot.died(kind, round_number, SpecialSlot::draw_gap(kind));
@@ -655,6 +669,7 @@ fn special_deaths(
                     at: Some(at),
                 });
             }
+            SpecialKind::Sapper => {}
         }
     }
 }
@@ -1001,5 +1016,6 @@ mod tests {
         assert_eq!(SpecialKind::Napalm.health(150.0), 600.0);
         assert_eq!(SpecialKind::Shrieker.health(150.0), 375.0);
         assert_eq!((SpecialKind::Napalm.rise_secs(), SpecialKind::Shrieker.rise_secs()), (1.5, 1.0));
+        assert_eq!(SpecialKind::Sapper.health(150.0), 1200.0);
     }
 }

@@ -17,7 +17,7 @@ use crate::points::{Points, PointsAwarded};
 use crate::round::{Round, zombie_health};
 use crate::state::{GameState, InRun, Pause};
 use crate::tuning::*;
-use crate::zombie::{Attack, DamageZombie, Dying, HitZone, KnockedDown, Zombie};
+use crate::zombie::{Attack, DamageZombie, Dying, HitZone, KnockedDown, Stunned, Zombie};
 
 /// How far outside the wall a Zombie stands to tear at a window.
 const SPOT_OUT: f32 = 0.75;
@@ -63,6 +63,11 @@ impl Barriers {
         let torn = *planks > 0;
         *planks = planks.saturating_sub(1);
         torn
+    }
+
+    /// Tears every Plank off at once, as the Sapper does. Returns how many there were.
+    pub fn smash(&mut self, barrier: BarrierId) -> u8 {
+        std::mem::take(&mut self.planks[barrier.0 as usize])
     }
 
     /// Puts one Plank back. False if the Barrier was already whole.
@@ -358,7 +363,10 @@ fn spawn_barriers(
 fn enter_through_windows(
     mut commands: Commands,
     // A Zombie knocked down by the Thundergun picks up where it left off once it's back up.
-    mut zombies: Query<(Entity, &Zombie, &mut Entering, &mut Transform), (Without<Dying>, Without<KnockedDown>)>,
+    mut zombies: Query<
+        (Entity, &Zombie, &mut Entering, &mut Transform),
+        (Without<Dying>, Without<KnockedDown>, Without<Stunned>),
+    >,
     player: Single<(&Transform, &Modifiers, Has<LastStand>), (With<Player>, Without<Zombie>)>,
     mut barriers: ResMut<Barriers>,
     mut hits: MessageWriter<PlayerHit>,
@@ -608,6 +616,15 @@ mod tests {
             6,
             "other Barriers are untouched"
         );
+    }
+
+    #[test]
+    fn the_sapper_smashes_all_six_planks_at_once() {
+        let mut barriers = Barriers::default();
+        assert_eq!(barriers.smash(BarrierId(2)), 6);
+        assert!(barriers.is_open(BarrierId(2)));
+        assert_eq!(barriers.smash(BarrierId(2)), 0);
+        assert_eq!(barriers.planks(BarrierId(3)), 6);
     }
 
     #[test]

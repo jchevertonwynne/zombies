@@ -16,6 +16,7 @@ use crate::player::PlayerCamera;
 use crate::power_up::PowerUpTaken;
 use crate::round::{Round, RoundStarted};
 use crate::shellshock::{ShellshockStarted, Shellshocked};
+use crate::sapper::{Sabotaging, Sapper};
 use crate::special::SpecialCue;
 use crate::tuning::SHELLSHOCK_MUFFLE_GAIN;
 use crate::weapon::ShotFired;
@@ -71,7 +72,7 @@ impl Plugin for AudioPlugin {
                 (
                     add_listener,
                     muffle,
-                    (play_sounds, play_hound_sounds, play_nova_sounds, play_special_sounds),
+                    (play_sounds, play_hound_sounds, play_nova_sounds, play_special_sounds, play_sapper_loops),
                 )
                     .chain(),
             );
@@ -253,5 +254,44 @@ fn play_nova_sounds(
 fn play_special_sounds(mut commands: Commands, mut sounds: ResMut<Sounds>, mut cues: MessageReader<SpecialCue>) {
     for cue in cues.read() {
         sounds.play(&mut commands, cue.cue, cue.at);
+    }
+}
+
+/// One of the Sapper's looping sounds, a child of the Sapper: its breathing while it lives, or
+/// its Sabotage while it works.
+#[derive(Component)]
+struct SapperLoop {
+    sabotage: bool,
+}
+
+/// The Sapper's idle loops from its arrival to its death, and its Sabotage loop while it works.
+fn play_sapper_loops(
+    mut commands: Commands,
+    mut sounds: ResMut<Sounds>,
+    arrived: Query<Entity, Added<Sapper>>,
+    working: Query<Entity, (With<Sapper>, Added<Sabotaging>)>,
+    died: Query<Entity, (With<Sapper>, Added<Dying>)>,
+    mut stopped: RemovedComponents<Sabotaging>,
+    loops: Query<(Entity, &SapperLoop, &ChildOf)>,
+) {
+    let mut start = |commands: &mut Commands, sapper: Entity, cue: Cue, sabotage: bool| {
+        let player = AudioPlayer::new(sounds.next(cue));
+        let settings = PlaybackSettings::LOOP
+            .with_volume(Volume::Linear(sounds.gain(cue)))
+            .with_spatial(true);
+        commands.entity(sapper).with_child((SapperLoop { sabotage }, player, settings, Transform::default()));
+    };
+    for sapper in &arrived {
+        start(&mut commands, sapper, Cue::SapperIdle, false);
+    }
+    for sapper in &working {
+        start(&mut commands, sapper, Cue::SapperSabotage, true);
+    }
+    let stopped: Vec<Entity> = stopped.read().collect();
+    for (entity, sound, parent) in &loops {
+        let sapper = parent.parent();
+        if (sound.sabotage && stopped.contains(&sapper)) || died.contains(sapper) {
+            commands.entity(entity).despawn();
+        }
     }
 }

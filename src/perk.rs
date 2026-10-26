@@ -9,6 +9,7 @@ use crate::layers::GameLayer;
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve_count, resolve_points};
 use crate::player::Player;
 use crate::power::Power;
+use crate::sapper::Sabotaged;
 use crate::state::{GameState, InRun, Pause};
 use crate::tuning::*;
 use crate::weapon::Loadout;
@@ -202,13 +203,20 @@ pub fn hands_free(drinking: Query<(), (With<Player>, With<Drinking>)>) -> bool {
     drinking.is_empty()
 }
 
-/// The machine that sells one Perk.
+/// The machine that sells one Perk. A Sabotaged machine shows no Prompt until it's restored.
 #[derive(Component)]
 pub struct PerkMachine {
     pub perk: Perk,
     use_point: Vec3,
     /// How many times it has sold its Perk this Run.
     buys: u32,
+}
+
+impl PerkMachine {
+    /// Where it's bought from, in front of it.
+    pub fn use_point(&self) -> Vec3 {
+        self.use_point
+    }
 }
 
 /// A machine that has sold its last Perk: it waits, floats away, and is gone.
@@ -353,18 +361,23 @@ pub fn drink(
     commands.entity(entity).remove::<Drinking>();
 }
 
-/// Machines own their Buyables: a buy, the Power refusal, or no Prompt at all.
+/// Machines own their Buyables: a buy, the Power refusal, or no Prompt at all (always, while
+/// Sabotaged).
 fn prompt_machines(
     mut commands: Commands,
-    machines: Query<(Entity, &PerkMachine, Option<&Buyable>, Has<Refused>), Without<Leaving>>,
+    machines: Query<(Entity, &PerkMachine, Option<&Buyable>, Has<Refused>, Has<Sabotaged>), Without<Leaving>>,
     player: Single<(&Perks, &Modifiers, Has<Drinking>), With<Player>>,
     power: Res<Power>,
 ) {
     let (perks, modifiers, drinking) = *player;
-    for (entity, machine, buyable, refused) in &machines {
+    for (entity, machine, buyable, refused, sabotaged) in &machines {
         let perk = machine.perk;
         let price = resolve_points(Stat::PerkPrice, perk.price(), &modifiers.0);
-        let want = machine_prompt(perk, power.is_on(), perks.has(perk), drinking);
+        let want = if sabotaged {
+            MachinePrompt::NoPrompt
+        } else {
+            machine_prompt(perk, power.is_on(), perks.has(perk), drinking)
+        };
         let current = match (buyable, refused) {
             (None, _) => MachinePrompt::NoPrompt,
             (Some(_), true) => MachinePrompt::NeedsPower,

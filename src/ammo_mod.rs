@@ -24,7 +24,7 @@ use crate::player::{Player, PlayerCamera};
 use crate::state::{GameState, InRun, Pause};
 use crate::tuning::*;
 use crate::zombie::{
-    Attack, DamageZombie, Dying, HitArea, HitZone, Lured, Pay, Rising, Zombie, ZombieKilled, apply_damage,
+    Attack, DamageZombie, Dying, HitArea, HitZone, Lured, Pay, Rising, StunZombie, Zombie, ZombieKilled, apply_damage,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -438,6 +438,7 @@ fn roll_ammo_mods(
     mut damage: MessageWriter<DamageZombie>,
     mut ignite: MessageWriter<Ignite>,
     mut kills: MessageWriter<ZombieKilled>,
+    mut stuns: MessageWriter<StunZombie>,
     time: Res<Time>,
 ) {
     cooldowns.tick(time.delta_secs());
@@ -466,7 +467,8 @@ fn roll_ammo_mods(
             .map(|(entity, _, transform, ..)| (entity, transform.translation))
             .unzip();
         for ammo_mod in fired {
-            // Turned does nothing to a Napalm or a Shrieker.
+            // Turned does nothing to a Napalm, a Shrieker or the Sapper. Every other proc only
+            // hurts the Sapper (see `sapper_damage`).
             if ammo_mod == AmmoMod::Turned && zombie.special_kind().is_some() {
                 continue;
             }
@@ -489,6 +491,12 @@ fn roll_ammo_mods(
                 }
                 AmmoMod::DeadWire => {
                     kill(&mut damage, shot, Pay::Paid);
+                    if zombie.is_sapper() {
+                        stuns.write(StunZombie {
+                            zombie: shot,
+                            secs: SAPPER_DEAD_WIRE_STUN_SECS,
+                        });
+                    }
                     let chain = dead_wire_chain(at, &positions, |a, b| in_sight(&spatial, a + Vec3::Y * 0.6, b + Vec3::Y * 0.6));
                     for link in chain {
                         let zombie = others[link.index];
@@ -524,10 +532,15 @@ fn roll_ammo_mods(
                     kill(&mut damage, shot, Pay::Paid);
                     let forward = camera.forward().with_y(0.0).normalize_or_zero();
                     let targets = thunder_wall_targets(at, forward, &positions);
-                    commands.entity(shot).insert(Flung::away(at - forward, at, THUNDER_WALL_FLING_SPEED, THUNDER_WALL_FLING_LIFT));
+                    // The Sapper survives it, so it stays on its feet.
+                    if !zombie.is_sapper() {
+                        commands.entity(shot).insert(Flung::away(at - forward, at, THUNDER_WALL_FLING_SPEED, THUNDER_WALL_FLING_LIFT));
+                    }
                     for i in targets {
                         kill(&mut damage, others[i], Pay::Paid);
-                        commands.entity(others[i]).insert(Flung::away(at, positions[i], THUNDER_WALL_FLING_SPEED, THUNDER_WALL_FLING_LIFT));
+                        if !zombies.get(others[i]).is_ok_and(|(_, other, ..)| other.is_sapper()) {
+                            commands.entity(others[i]).insert(Flung::away(at, positions[i], THUNDER_WALL_FLING_SPEED, THUNDER_WALL_FLING_LIFT));
+                        }
                         spent.push(others[i]);
                     }
                     flashes.burst(at, THUNDER_WALL_RADIUS, colour);
@@ -568,10 +581,12 @@ fn roll_ammo_mods(
 }
 
 /// Dead Wire hits land once their delay is up, each dealing the Zombie's health and then some.
+/// The Sapper is stunned instead of killed.
 fn run_delayed_hits(
     mut delayed: ResMut<DelayedHits>,
     zombies: Query<&Zombie, Without<Dying>>,
     mut damage: MessageWriter<DamageZombie>,
+    mut stuns: MessageWriter<StunZombie>,
     time: Res<Time>,
 ) {
     let dt = time.delta_secs();
@@ -581,6 +596,12 @@ fn run_delayed_hits(
             return true;
         }
         if let Ok(target) = zombies.get(*zombie) {
+            if target.is_sapper() {
+                stuns.write(StunZombie {
+                    zombie: *zombie,
+                    secs: SAPPER_DEAD_WIRE_STUN_SECS,
+                });
+            }
             damage.write(DamageZombie {
                 zombie: *zombie,
                 damage: target.health() + DEAD_WIRE_EXTRA_DAMAGE,

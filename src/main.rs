@@ -33,6 +33,7 @@ mod records;
 mod power;
 mod power_up;
 mod round;
+mod sapper;
 mod save;
 mod settings;
 mod special;
@@ -93,6 +94,7 @@ fn main() {
                 hellhound::HellhoundPlugin,
                 nova::NovaPlugin,
                 special::SpecialPlugin,
+                sapper::SapperPlugin,
                 shellshock::ShellshockPlugin,
             ),
             round::RoundPlugin,

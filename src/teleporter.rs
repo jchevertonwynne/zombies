@@ -51,6 +51,11 @@ impl PadId {
 pub const MAINFRAME_AT: Vec3 = Vec3::new(-10.5, 0.0, 25.4);
 const MAINFRAME_FACING: Vec3 = Vec3::NEG_Z;
 const MAINFRAME_SIZE: Vec3 = Vec3::new(1.4, 2.0, 0.8);
+
+/// Where the Mainframe is used from: in front of its screen.
+pub fn mainframe_use_point() -> Vec3 {
+    MAINFRAME_AT + Vec3::Y * 1.3 + MAINFRAME_FACING * (MAINFRAME_SIZE.z / 2.0 + 0.2)
+}
 /// Where the Player lands, in front of the Mainframe.
 const ARRIVAL_AT: Vec3 = Vec3::new(-10.5, 0.0, 23.0);
 /// Teleporter hounds land in a ring round this point, which keeps the whole ring in the Start Room.
@@ -106,7 +111,6 @@ impl Teleporter {
     }
 
     /// Whether a trip is under way, so the Sapper skips it.
-    #[allow(dead_code, reason = "read by the Sapper slice")]
     pub fn in_use(&self) -> bool {
         self.trip.is_some()
     }
@@ -116,13 +120,11 @@ impl Teleporter {
     }
 
     /// The Sapper kills the Teleporter: no Pad or the Mainframe shows a Prompt until it's restored.
-    #[allow(dead_code, reason = "called by the Sapper slice")]
     pub fn sabotage(&mut self) {
         self.sabotaged = true;
         self.linking = None;
     }
 
-    #[allow(dead_code, reason = "called by the Sapper slice")]
     pub fn restore(&mut self) {
         self.sabotaged = false;
     }
@@ -365,7 +367,6 @@ struct Aftermath {
 
 /// A Zombie the Teleporter's kills spare: the Sapper.
 #[derive(Component)]
-#[allow(dead_code, reason = "inserted by the Sapper slice")]
 pub struct ResistsTeleporter;
 
 /// A Pad, the Buyable that activates it and then starts trips. `shown` is the Prompt it has now.
@@ -770,9 +771,7 @@ fn prompt_teleporter(
     }
     for (entity, mut mainframe) in &mut mainframes {
         let want = mainframe_prompt(power.is_on(), &teleporter);
-        let use_point =
-            MAINFRAME_AT + Vec3::Y * 1.3 + MAINFRAME_FACING * (MAINFRAME_SIZE.z / 2.0 + 0.2);
-        set(entity, &mut mainframe.shown, want, use_point, USE_RANGE);
+        set(entity, &mut mainframe.shown, want, mainframe_use_point(), USE_RANGE);
     }
 }
 

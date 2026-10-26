@@ -1313,6 +1313,45 @@ pub const SHRIEKER_DEATH_SCREAM_DELAY_SECS: std::ops::RangeInclusive<f32> = 0.0.
 pub const SHRIEKER_HIT_POINTS_EVERY: u32 = 2;
 /// Seconds between a Shrieker's idle gasps, drawn uniformly.
 pub const SHRIEKER_IDLE_SECS: std::ops::RangeInclusive<f32> = 2.0..=4.0;
+// The Sapper
+/// The first Sapper Round is drawn uniformly from these Rounds; each time one appears the next is
+/// due this many Rounds later, drawn uniformly.
+pub const SAPPER_FIRST_ROUNDS: std::ops::RangeInclusive<u32> = 8..=10;
+pub const SAPPER_ROUND_GAPS: std::ops::RangeInclusive<u32> = 4..=6;
+/// The announcer's warning plays this long before the Sapper comes through its window.
+pub const SAPPER_WARNING_SECS: f32 = 2.0;
+/// Health as a multiple of the Round's Zombie health, with no cap.
+pub const SAPPER_HEALTH_MULTIPLIER: f32 = 8.0;
+/// Its helmet comes off once it has lost this share of its max health; until then a Headshot
+/// counts as a body hit.
+pub const SAPPER_HELMET_FRACTION: f32 = 0.15;
+pub const SAPPER_SPEED: f32 = 4.5;
+/// The slam: `SAPPER_SLAM_DAMAGE` to a Player within `SAPPER_SLAM_REACH` in a
+/// `SAPPER_SLAM_ARC_DEGREES` arc in front of it, after the wind-up, then the cooldown.
+pub const SAPPER_SLAM_DAMAGE: f32 = 150.0;
+pub const SAPPER_SLAM_REACH: f32 = 3.0;
+pub const SAPPER_SLAM_ARC_DEGREES: f32 = 60.0;
+pub const SAPPER_SLAM_WIND_UP_SECS: f32 = 0.8;
+pub const SAPPER_SLAM_COOLDOWN_SECS: f32 = 2.5;
+/// A Sabotage takes this long. Damage doesn't interrupt it; a stun starts it over.
+pub const SAPPER_SABOTAGE_SECS: f32 = 3.0;
+/// How close to a system it must stand to Sabotage it (invented).
+pub const SAPPER_SABOTAGE_REACH: f32 = 3.0;
+/// Holding the Use key on a Sabotaged system restores it for this.
+pub const SAPPER_RESTORE_PRICE: u64 = 2000;
+/// A Player's kill of the Sapper pays this on top of its kill Points.
+pub const SAPPER_KILL_BONUS: u64 = 500;
+/// The Thundergun stuns it for this long instead of killing or knocking it down.
+pub const SAPPER_THUNDERGUN_STUN_SECS: f32 = 1.5;
+/// An Ammo Mod proc that would kill it deals this share of its max health instead.
+pub const SAPPER_AMMO_MOD_HEALTH_FRACTION: f32 = 0.05;
+/// Dead Wire stuns it for this long as well.
+pub const SAPPER_DEAD_WIRE_STUN_SECS: f32 = 1.0;
+/// Stuck this long without progress toward its goal, it's moved to the path node nearest its
+/// target instead of being cleaned up.
+pub const SAPPER_STUCK_SECS: f32 = 10.0;
+/// Seconds between its footsteps while it walks (invented).
+pub const SAPPER_STEP_SECS: f32 = 0.55;
 // Nova Crawlers
 /// After Power, this share of normal spawns are Nova Crawlers instead, with at most
 /// `NOVA_CRAWLER_MAX_ALIVE` alive and none on Hellhound Rounds.

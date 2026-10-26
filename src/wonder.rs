@@ -125,15 +125,15 @@ fn load_assets(
     });
 }
 
-/// The Thundergun blasts everything in its cylinder; the bolt and the blade fly as hitscan, hit
-/// what they meet and stick there.
+/// The Thundergun blasts everything in its cylinder (the Sapper is only ever knocked down, which
+/// stuns it); the bolt and the blade fly as hitscan, hit what they meet and stick there.
 fn fire_wonders(
     mut commands: Commands,
     mut fired: MessageReader<WonderFired>,
     player: Single<Entity, With<Player>>,
     spatial: SpatialQuery,
     hit_areas: Query<(&HitArea, &ChildOf)>,
-    zombies: Query<(Entity, &GlobalTransform), (With<Zombie>, Without<Dying>)>,
+    zombies: Query<(Entity, &GlobalTransform, &Zombie), Without<Dying>>,
     mut damage: MessageWriter<DamageZombie>,
     mut knock_downs: MessageWriter<KnockDown>,
     assets: Res<WonderAssets>,
@@ -142,12 +142,15 @@ fn fire_wonders(
         .with_excluded_entities([*player]);
     for shot in fired.read() {
         if shot.stats.class == WeaponClass::Thundergun {
-            for (zombie, transform) in &zombies {
+            for (zombie, transform, body) in &zombies {
                 let centre = transform.translation();
-                let Some(blast) = thundergun_reach(shot.origin, shot.direction, centre).and_then(thundergun_blast)
+                let Some(mut blast) = thundergun_reach(shot.origin, shot.direction, centre).and_then(thundergun_blast)
                 else {
                     continue;
                 };
+                if body.is_sapper() {
+                    blast = Blast::KnockDown;
+                }
                 if !in_sight(&spatial, shot.origin, centre) {
                     continue;
                 }
@@ -188,7 +191,7 @@ fn fire_wonders(
                 zone: area.0,
                 attack: Attack::Bullet,
             });
-            if let Ok((_, transform)) = zombies.get(zombie) {
+            if let Ok((_, transform, _)) = zombies.get(zombie) {
                 host = Some((zombie, transform.affine().inverse().transform_point3(at)));
             }
         }

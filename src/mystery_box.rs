@@ -19,6 +19,7 @@ use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_points};
 use crate::pack_a_punch::PackAPunch;
 use crate::player::Player;
 use crate::points::Points;
+use crate::sapper::Sabotaged;
 use crate::state::{GameState, InRun, Pause};
 use crate::tuning::*;
 use crate::weapon::{Loadout, WeaponCopy};
@@ -563,15 +564,22 @@ fn run_boxes(
     }
 }
 
-/// Each Box owns its Buyable: a spin while idle, the Prize while one waits, and nothing otherwise.
+/// Where a Box standing at `transform` is used from: the middle of the lid's front edge.
+pub fn box_use_point(transform: &Transform) -> Vec3 {
+    transform.translation + transform.back() * (BOX_SIZE.z / 2.0) + Vec3::Y * (BOX_SIZE.y / 2.0)
+}
+
+/// Each Box owns its Buyable: a spin while idle, the Prize while one waits, and nothing otherwise
+/// (nor while it's Sabotaged).
 fn price_boxes(
     mut commands: Commands,
-    mut boxes: Query<(Entity, &MysteryBox, &Transform, Option<&mut Buyable>)>,
+    mut boxes: Query<(Entity, &MysteryBox, &Transform, Option<&mut Buyable>, Has<Sabotaged>)>,
     player: Query<&Modifiers, With<Player>>,
 ) {
     let entries: Vec<Modifier> = player.iter().flat_map(|modifiers| modifiers.0.iter().copied()).collect();
-    for (entity, mystery_box, transform, buyable) in &mut boxes {
+    for (entity, mystery_box, transform, buyable, sabotaged) in &mut boxes {
         let offer = match mystery_box.state {
+            _ if sabotaged => None,
             BoxState::Idle => {
                 Some(("Press F for Random Weapon".to_string(), Some(box_price(mystery_box.price, &entries))))
             }
@@ -580,8 +588,7 @@ fn price_boxes(
             }
             _ => None,
         };
-        // The middle of the lid's front edge.
-        let use_point = transform.translation + transform.back() * (BOX_SIZE.z / 2.0) + Vec3::Y * (BOX_SIZE.y / 2.0);
+        let use_point = box_use_point(transform);
         match (offer, buyable) {
             (None, Some(_)) => {
                 commands.entity(entity).remove::<Buyable>();

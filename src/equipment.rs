@@ -13,6 +13,7 @@ use crate::arsenal::Splash;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_count};
 use crate::player::{Player, PlayerCamera};
 use crate::round::{Round, RoundStarted};
+use crate::sapper::Sapper;
 use crate::state::{GameState, InRun, Pause};
 use crate::tuning::*;
 use crate::weapon::Knife;
@@ -593,12 +594,12 @@ fn land_monkey_bombs(
 }
 
 /// Every landed Monkey Bomb (and every other Pull) draws the Zombies near it, the first to land getting
-/// first pick.
+/// first pick. The Sapper ignores them.
 fn lure_zombies(
     mut commands: Commands,
     bombs: Query<(&MonkeyBomb, &Transform)>,
     pulls: Query<&Pull>,
-    zombies: Query<(Entity, &Transform, Option<&Lured>, Option<&Entering>), (With<Zombie>, Without<Dying>)>,
+    zombies: Query<(Entity, &Transform, Option<&Lured>, Option<&Entering>), (With<Zombie>, Without<Dying>, Without<Sapper>)>,
 ) {
     let mut active: Vec<_> = bombs
         .iter()

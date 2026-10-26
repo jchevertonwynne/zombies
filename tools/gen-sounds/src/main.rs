@@ -63,6 +63,15 @@ fn recipe(cue: Cue) -> Recipe {
         Cue::ShriekerScream => Recipe::Synth(shriek(1.0, 1800.0, 1500.0, 0x5e1e_0003)),
         Cue::ShriekerDeath => Recipe::Synth(shriek(1.4, 1100.0, 600.0, 0x5e1e_0004)),
         Cue::ScreamPop => Recipe::Synth(thud(0.12, 140.0)),
+        Cue::SapperSmash => Recipe::Synth(sapper_smash()),
+        Cue::SapperIdle => Recipe::Synth(sapper_idle()),
+        Cue::SapperStep => Recipe::Synth(sapper_step()),
+        Cue::SapperSabotage => Recipe::Synth(sapper_sabotage()),
+        Cue::SapperWindup => Recipe::Synth(rising_whoosh(0.8, 0x5a99_0001)),
+        Cue::SapperSlam => Recipe::Synth(thud(0.7, 45.0)),
+        Cue::HelmetOff => Recipe::Synth(clang()),
+        Cue::SapperStun => Recipe::Synth(thud(0.35, 120.0)),
+        Cue::SapperDeath => Recipe::Synth(bellow()),
         Cue::AnnouncerMaxAmmo => Recipe::Speak("Max Ammo!", None),
         Cue::AnnouncerInstaKill => Recipe::Speak("Insta-Kill!", None),
         Cue::AnnouncerDoublePoints => Recipe::Speak("Double Points!", None),
@@ -518,6 +527,68 @@ fn shriek(secs: f32, from: f32, to: f32, mut seed: u32) -> Vec<f32> {
             let tone = phase.sin() + 0.5 * (phase * 2.0).sin() + 0.3 * noise(&mut seed);
             let envelope = (t * 40.0).min(1.0) * (1.0 - p).sqrt();
             (tone * 1.6).clamp(-1.0, 1.0) * envelope * 0.4
+        })
+        .collect()
+}
+
+/// One huge splintering crash, for the Sapper tearing every Plank off at once.
+fn sapper_smash() -> Vec<f32> {
+    let mut seed = 0x5a99_0002;
+    samples(1.0)
+        .map(|t| {
+            let splinter = noise(&mut seed) * (-t * 5.0).exp() * (1.0 + (TAU * 23.0 * t).sin());
+            let boom = (TAU * 55.0 * t).sin() * (-t * 4.0).exp();
+            (splinter * 0.55 + boom * 0.6).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
+/// Laboured breathing over clanking gear, looped while the Sapper lives.
+fn sapper_idle() -> Vec<f32> {
+    let mut seed = 0x5a99_0003;
+    let secs = 2.4;
+    samples(secs)
+        .map(|t| {
+            // In and out, once each over the loop.
+            let breath = (TAU * t / secs).sin().abs() * noise(&mut seed) * 0.25;
+            let clank = if (t * 2.5).fract() < 0.03 { (TAU * 900.0 * t).sin() * 0.3 } else { 0.0 };
+            breath + clank
+        })
+        .collect()
+}
+
+/// A deep footstep thud with a metal jangle.
+fn sapper_step() -> Vec<f32> {
+    let mut seed = 0x5a99_0004;
+    samples(0.4)
+        .map(|t| {
+            let thud = (TAU * 60.0 * t).sin() * (-t * 14.0).exp() * 0.8;
+            let jangle = (TAU * 1300.0 * t).sin() * noise(&mut seed).abs() * (-t * 9.0).exp() * 0.2;
+            (thud + jangle).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
+/// Tearing cables and sparks over a buzz, looped for the 3 s Sabotage.
+fn sapper_sabotage() -> Vec<f32> {
+    let mut seed = 0x5a99_0005;
+    samples(1.5)
+        .map(|t| {
+            let buzz = ((TAU * 120.0 * t).sin() * 3.0).clamp(-1.0, 1.0) * 0.15;
+            let spark = if noise(&mut seed) > 0.96 { noise(&mut seed) * 0.6 } else { 0.0 };
+            let tear = noise(&mut seed) * 0.15 * (1.0 + (TAU * 3.0 * t).sin()) / 2.0;
+            (buzz + spark + tear).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
+/// A metallic clang with a ricochet ring, for the Sapper's helmet coming off.
+fn clang() -> Vec<f32> {
+    samples(0.9)
+        .map(|t| {
+            let ring = (TAU * 1450.0 * t).sin() * 0.4 + (TAU * 2210.0 * t).sin() * 0.25;
+            let ricochet = (TAU * (2600.0 - 1400.0 * t) * t).sin() * 0.2;
+            (ring + ricochet) * (-t * 5.0).exp()
         })
         .collect()
 }

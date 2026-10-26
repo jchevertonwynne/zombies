@@ -18,6 +18,7 @@ use crate::modifier::{Modifier, Modifiers, Stat, resolve_points};
 use crate::perk::Drinking;
 use crate::player::Player;
 use crate::power::Power;
+use crate::sapper::Sabotaged;
 use crate::state::{GameState, InRun, Pause};
 use crate::tuning::*;
 use crate::weapon::{Loadout, UPGRADED_PURPLE, WeaponCopy};
@@ -281,8 +282,13 @@ fn run_machine(mut machines: Query<&mut PackAPunch>, time: Res<Time>) {
     }
 }
 
+/// Where the machine standing at `at` is used from, in front of it.
+pub fn use_point(at: Vec3) -> Vec3 {
+    at + Vec3::Z * (MACHINE_SIZE.z / 2.0 + 0.1)
+}
+
 /// The machine owns its Buyable, so it keeps the Prompt, price and refusal current, and the hold
-/// half of a Repack with them.
+/// half of a Repack with them. A Sabotaged machine shows no Prompt.
 fn prompt_machine(
     mut commands: Commands,
     mut machines: Query<(
@@ -292,6 +298,7 @@ fn prompt_machine(
         Option<&mut Buyable>,
         Option<&mut HoldBuy>,
         Has<Refused>,
+        Has<Sabotaged>,
     )>,
     player: Single<(&Loadout, &Modifiers, Has<Drinking>), With<Player>>,
     power: Res<Power>,
@@ -309,8 +316,12 @@ fn prompt_machine(
     let price = |base| machine_price(base, &modifiers.0);
     let upgrade_price = price(PAP_PRICE);
     let (tap_price, hold_price) = (price(repack_price(copy.repacks)), price(attachment_repack_price(copy.repacks)));
-    for (entity, machine, transform, buyable, hold_buy, refused) in &mut machines {
-        let want = machine_prompt(power.is_on(), machine.stage(), held, !drinking);
+    for (entity, machine, transform, buyable, hold_buy, refused, sabotaged) in &mut machines {
+        let want = if sabotaged {
+            MachinePrompt::NoPrompt
+        } else {
+            machine_prompt(power.is_on(), machine.stage(), held, !drinking)
+        };
         // The hold half, if this Prompt has one, and whether a tap buys alongside it.
         let mut hold = None;
         let (prompt, price, refuse) = match want {
@@ -372,7 +383,7 @@ fn prompt_machine(
             }
             None => {
                 commands.entity(entity).insert(Buyable {
-                    use_point: transform.translation + Vec3::Z * (MACHINE_SIZE.z / 2.0 + 0.1),
+                    use_point: use_point(transform.translation),
                     prompt,
                     price,
                     range: USE_RANGE,

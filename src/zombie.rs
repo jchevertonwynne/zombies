@@ -14,7 +14,8 @@ use crate::nova::{NovaCrawlerKilled, NovaSwipe};
 use crate::player::{Player, PlayerHit};
 use crate::power_up::{ActivePowerUps, PowerUp};
 use crate::round::CarriesOver;
-use crate::special::{SpecialKind, hit_pays};
+use crate::special::{SpecialCue, SpecialKind, hit_pays};
+use crate::audio::cues::Cue;
 use crate::state::{InRun, Pause};
 use crate::tuning::*;
 
@@ -111,6 +112,17 @@ pub fn doubled_damage(damage: f32, insta_kill: bool) -> f32 {
     if insta_kill { damage * 2.0 } else { damage }
 }
 
+/// The damage a hit really does to the Sapper, with `max_health`. Insta-Kill only doubles it. An
+/// Ammo Mod proc, which would kill anything else, deals `SAPPER_AMMO_MOD_HEALTH_FRACTION` of its
+/// max health instead, and so does another Special's one-blow kill (a Napalm's blast, a death
+/// scream, a Nova Crawler's burst).
+pub fn sapper_damage(damage: f32, attack: Attack, max_health: f32, insta_kill: bool) -> f32 {
+    let instant = matches!(attack, Attack::AmmoMod(_))
+        || (matches!(attack, Attack::Napalm | Attack::Scream | Attack::NovaBlast) && !damage.is_finite());
+    let damage = if instant { max_health * SAPPER_AMMO_MOD_HEALTH_FRACTION } else { damage };
+    doubled_damage(damage, insta_kill)
+}
+
 /// Request to damage a Zombie, written by the Player's attacks.
 #[derive(Message)]
 pub struct DamageZombie {
@@ -119,6 +131,25 @@ pub struct DamageZombie {
     pub zone: HitZone,
     pub attack: Attack,
 }
+
+/// Request to stun a Zombie in place for `secs`: it can't move or attack until it wears off. A
+/// longer stun replaces a shorter one already under way. Only the Sapper is ever stunned.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct StunZombie {
+    pub zombie: Entity,
+    pub secs: f32,
+}
+
+/// A stunned Zombie, standing still for `left` more seconds.
+#[derive(Component, Debug)]
+pub struct Stunned {
+    left: f32,
+}
+
+/// A Zombie heading for a point of its own (feet height) rather than the Player, as the Sapper
+/// does for the system it means to Sabotage. It beats a Monkey Bomb's pull.
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct Seeking(pub Vec3);
 
 /// Request to knock a Zombie off its feet, as the Thundergun's blast does: it's flung along
 /// `push` and lies there a moment before it gets up.
@@ -131,7 +162,7 @@ pub struct KnockDown {
 /// A Zombie took damage and survived.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct ZombieHit {
-    /// Whether the hit pays hit Points: a Napalm's never do, a Shrieker's every 2nd.
+    /// Whether the hit pays hit Points: a Napalm's or the Sapper's never do, a Shrieker's every 2nd.
     pub pays: bool,
 }
 
@@ -281,10 +312,11 @@ impl Zombie {
         }
     }
 
-    /// A Napalm (a Walker) or a Shrieker (a Sprinter) with `health`, its centre at `at`.
+    /// A Napalm (a Walker), a Shrieker (a Sprinter) or the Sapper (at its own speed) with
+    /// `health`, its centre at `at`.
     pub fn special(kind: SpecialKind, health: f32, at: Vec3) -> Self {
         let tier = match kind {
-            SpecialKind::Napalm => SpeedTier::Walker,
+            SpecialKind::Napalm | SpecialKind::Sapper => SpeedTier::Walker,
             SpecialKind::Shrieker => SpeedTier::Sprinter,
         };
         Self {
@@ -294,9 +326,12 @@ impl Zombie {
     }
 
     /// How fast it moves: by its Speed Tier, `CRAWLER_SPEED` once it's a Crawler,
-    /// `HELLHOUND_SPEED` for a Hellhound, or `NOVA_CRAWLER_SPEED` for a Nova Crawler.
+    /// `HELLHOUND_SPEED` for a Hellhound, `NOVA_CRAWLER_SPEED` for a Nova Crawler, or
+    /// `SAPPER_SPEED` for the Sapper.
     pub fn speed(&self) -> f32 {
-        if self.hellhound {
+        if self.is_sapper() {
+            SAPPER_SPEED
+        } else if self.hellhound {
             HELLHOUND_SPEED
         } else if self.nova {
             NOVA_CRAWLER_SPEED
@@ -312,10 +347,16 @@ impl Zombie {
         self.health
     }
 
+    /// The health it spawned with.
+    pub fn max_health(&self) -> f32 {
+        self.max_health
+    }
+
     /// Switches to Sprinter, as the last Zombie of an early Round does. A Crawler never sprints,
-    /// a Hellhound already runs at its own speed, and a Napalm only ever walks.
+    /// a Hellhound already runs at its own speed, a Napalm only ever walks, and the Sapper keeps
+    /// its own pace.
     pub fn sprint(&mut self) {
-        if !self.crawler && self.special != Some(SpecialKind::Napalm) {
+        if !self.crawler && !matches!(self.special, Some(SpecialKind::Napalm | SpecialKind::Sapper)) {
             self.tier = SpeedTier::Sprinter;
         }
     }
@@ -332,13 +373,17 @@ impl Zombie {
         self.nova
     }
 
-    /// Which of the special slot's Zombies it is, if it's a Napalm or a Shrieker.
+    /// Which kind of Special Zombie it is, if it's a Napalm, a Shrieker or the Sapper.
     pub fn special_kind(&self) -> Option<SpecialKind> {
         self.special
     }
 
-    /// Whether it's a Special Zombie (a Hellhound, a Nova Crawler, a Napalm or a Shrieker) rather
-    /// than a normal Zombie. A Crawler is a normal Zombie that lost its legs.
+    pub fn is_sapper(&self) -> bool {
+        self.special == Some(SpecialKind::Sapper)
+    }
+
+    /// Whether it's a Special Zombie (a Hellhound, a Nova Crawler, a Napalm, a Shrieker or the
+    /// Sapper) rather than a normal Zombie. A Crawler is a normal Zombie that lost its legs.
     pub fn is_special(&self) -> bool {
         self.hellhound || self.nova || self.special.is_some()
     }
@@ -375,6 +420,8 @@ impl Zombie {
             (ZOMBIE_REACH, ZOMBIE_WIND_UP_SECS, NOVA_CRAWLER_SWIPE_DAMAGE, ZOMBIE_HIT_COOLDOWN_SECS)
         } else if self.special == Some(SpecialKind::Napalm) {
             (ZOMBIE_REACH, ZOMBIE_WIND_UP_SECS, NAPALM_SWIPE_DAMAGE, ZOMBIE_HIT_COOLDOWN_SECS)
+        } else if self.is_sapper() {
+            (SAPPER_SLAM_REACH, SAPPER_SLAM_WIND_UP_SECS, SAPPER_SLAM_DAMAGE, SAPPER_SLAM_COOLDOWN_SECS)
         } else {
             (ZOMBIE_REACH, ZOMBIE_WIND_UP_SECS, ZOMBIE_SWIPE_DAMAGE, ZOMBIE_HIT_COOLDOWN_SECS)
         }
@@ -455,6 +502,7 @@ pub struct ZombiePlugin;
 impl Plugin for ZombiePlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<DamageZombie>()
+            .add_message::<StunZombie>()
             .add_message::<ZombieHit>()
             .add_message::<ZombieKilled>()
             .add_message::<KillDamage>()
@@ -469,6 +517,7 @@ impl Plugin for ZombiePlugin {
                     rise,
                     attack,
                     knock_down,
+                    stun,
                     // First, so a Zombie killed in the same frame dies as the Crawler it became.
                     become_crawler.before(apply_damage),
                     apply_damage,
@@ -725,8 +774,15 @@ pub fn heading(distance: f32, reach: f32, swinging: bool, last_stand: bool) -> H
 /// area, and move under gravity with grounded move-and-slide.
 fn chase(
     mut zombies: Query<
-        (Entity, &mut Zombie, &mut Route, &mut Transform, &Collider, Option<&Lured>),
-        (Without<Dying>, Without<Rising>, Without<KnockedDown>, Without<Entering>, Without<Telegraph>),
+        (Entity, &mut Zombie, &mut Route, &mut Transform, &Collider, Option<&Lured>, Option<&Seeking>),
+        (
+            Without<Dying>,
+            Without<Rising>,
+            Without<KnockedDown>,
+            Without<Stunned>,
+            Without<Entering>,
+            Without<Telegraph>,
+        ),
     >,
     player: Single<(&Transform, Has<LastStand>, &Modifiers), (With<Player>, Without<Zombie>)>,
     graph: Res<NavGraph>,
@@ -741,14 +797,16 @@ fn chase(
     let open_doors: Vec<_> = doors.iter().filter(|door| door.open).filter_map(|door| door.joins).collect();
     let probe = Collider::sphere(ZOMBIE_RADIUS * 0.8);
     let filter_mask = [GameLayer::World, GameLayer::Zombie, GameLayer::Player];
-    let positions: Vec<_> = zombies.iter().map(|(entity, _, _, transform, _, _)| (entity, transform.translation)).collect();
+    let positions: Vec<_> = zombies.iter().map(|(entity, _, _, transform, ..)| (entity, transform.translation)).collect();
 
-    for (entity, mut zombie, mut route, mut transform, collider, lured) in &mut zombies {
+    for (entity, mut zombie, mut route, mut transform, collider, lured, seeking) in &mut zombies {
         let half = zombie.half_height();
         let feet = transform.translation - Vec3::Y * half;
-        // A Monkey Bomb's pull beats everything, even a Player in Last Stand.
-        let target_feet = lured.map_or(player_feet, |lure| lure.0);
-        let last_stand = last_stand && lured.is_none();
+        // A point of its own beats everything; then a Monkey Bomb's pull, even over a Player in
+        // Last Stand.
+        let goal_feet = seeking.map(|seek| seek.0).or(lured.map(|lure| lure.0));
+        let target_feet = goal_feet.unwrap_or(player_feet);
+        let last_stand = last_stand && goal_feet.is_none();
         let rise = target_feet.y - feet.y;
 
         route.repath_in -= dt;
@@ -886,17 +944,33 @@ fn clean_up_stuck(
     }
 }
 
-/// Zombies inside swipe the Player in reach, and Hellhounds bite. Those outside a window reach
-/// through it instead (see the Barriers).
+/// Whether the Sapper at `from`, facing `forward`, can slam the Player at `to`: within
+/// `SAPPER_SLAM_REACH` along the floor and inside the arc in front of it.
+pub fn slam_reaches(from: Vec3, forward: Vec3, to: Vec3) -> bool {
+    let flat = horizontal(to - from);
+    let half_arc = (SAPPER_SLAM_ARC_DEGREES / 2.0).to_radians();
+    flat.length() <= SAPPER_SLAM_REACH && (flat.length() < 1e-3 || horizontal(forward).angle_between(flat) <= half_arc)
+}
+
+/// Zombies inside swipe the Player in reach, Hellhounds bite, and the Sapper slams the Player in
+/// the arc in front of it. Those outside a window reach through it instead (see the Barriers).
 fn attack(
     mut zombies: Query<
         (&mut Zombie, &Transform),
-        (Without<Dying>, Without<Rising>, Without<KnockedDown>, Without<Entering>, Without<Telegraph>),
+        (
+            Without<Dying>,
+            Without<Rising>,
+            Without<KnockedDown>,
+            Without<Stunned>,
+            Without<Entering>,
+            Without<Telegraph>,
+        ),
     >,
     player: Single<(&Transform, Has<LastStand>), With<Player>>,
     mut hits: MessageWriter<PlayerHit>,
     mut bites: MessageWriter<HellhoundBite>,
     mut nova_swipes: MessageWriter<NovaSwipe>,
+    mut cues: MessageWriter<SpecialCue>,
     time: Res<Time>,
 ) {
     let (player, last_stand) = *player;
@@ -910,12 +984,19 @@ fn attack(
         let (reach, wind_up, damage, cooldown) = zombie.attack_stats();
         // Same floor only: a Zombie under the Balcony can't swipe the Player standing on it.
         let in_reach = horizontal(player.translation - transform.translation).length() <= reach
-            && (player.translation.y - transform.translation.y).abs() < 1.5;
+            && (player.translation.y - transform.translation.y).abs() < 1.5
+            && (!zombie.is_sapper() || slam_reaches(transform.translation, *transform.forward(), player.translation));
+        let at = Some(transform.translation);
         zombie.attack_cooldown = (zombie.attack_cooldown - dt).max(0.0);
 
         match zombie.wind_up {
             Some(left) if left - dt <= 0.0 => {
                 zombie.wind_up = None;
+                // The slam comes down whether or not the Player is still there.
+                if zombie.is_sapper() {
+                    cues.write(SpecialCue { cue: Cue::SapperSlam, at });
+                    zombie.attack_cooldown = cooldown;
+                }
                 // A Zombie that lands a swipe is ignored for a moment; other Zombies can still hit.
                 if in_reach {
                     hits.write(PlayerHit { damage });
@@ -931,6 +1012,9 @@ fn attack(
             Some(left) => zombie.wind_up = Some(left - dt),
             None if in_reach && zombie.attack_cooldown <= 0.0 => {
                 zombie.wind_up = Some(wind_up);
+                if zombie.is_sapper() {
+                    cues.write(SpecialCue { cue: Cue::SapperWindup, at });
+                }
             }
             None => {}
         }
@@ -938,7 +1022,7 @@ fn attack(
 }
 
 /// A knock-down drops any swing in progress. A Riser still climbing out, or a hound still in its
-/// lightning, can't be knocked down.
+/// lightning, can't be knocked down. The Sapper keeps its feet: the Thundergun stuns it instead.
 fn knock_down(
     mut commands: Commands,
     mut requests: MessageReader<KnockDown>,
@@ -946,17 +1030,54 @@ fn knock_down(
         (&mut Zombie, &Transform),
         (Without<Dying>, Without<Rising>, Without<KnockedDown>, Without<Telegraph>),
     >,
+    mut stuns: MessageWriter<StunZombie>,
 ) {
     for request in requests.read() {
         let Ok((mut zombie, transform)) = zombies.get_mut(request.zombie) else {
             continue;
         };
+        if zombie.is_sapper() {
+            stuns.write(StunZombie {
+                zombie: request.zombie,
+                secs: SAPPER_THUNDERGUN_STUN_SECS,
+            });
+            continue;
+        }
         zombie.wind_up = None;
         commands.entity(request.zombie).insert(KnockedDown {
             elapsed: 0.0,
             push: request.push,
             facing: transform.rotation,
         });
+    }
+}
+
+/// A stun drops any swing in progress and holds the Zombie still until it wears off.
+fn stun(
+    mut commands: Commands,
+    mut requests: MessageReader<StunZombie>,
+    mut zombies: Query<(Entity, &mut Zombie, Option<&mut Stunned>), Without<Dying>>,
+    time: Res<Time>,
+) {
+    for (entity, _, stunned) in &mut zombies {
+        if let Some(mut stunned) = stunned {
+            stunned.left -= time.delta_secs();
+            if stunned.left <= 0.0 {
+                commands.entity(entity).remove::<Stunned>();
+            }
+        }
+    }
+    for request in requests.read() {
+        let Ok((_, mut zombie, stunned)) = zombies.get_mut(request.zombie) else {
+            continue;
+        };
+        zombie.wind_up = None;
+        match stunned {
+            Some(mut stunned) => stunned.left = stunned.left.max(request.secs),
+            None => {
+                commands.entity(request.zombie).insert(Stunned { left: request.secs });
+            }
+        }
     }
 }
 
@@ -1023,8 +1144,9 @@ fn become_crawler(
     }
 }
 
-/// A hound in its lightning strike can't be hurt. Insta-Kill only doubles a Napalm's damage. A
-/// Nova Crawler's death is also told to the Nova module, which decides whether it bursts.
+/// A hound in its lightning strike can't be hurt. Insta-Kill only doubles a Napalm's or the
+/// Sapper's damage, and the Sapper shrugs off one-blow kills (see `sapper_damage`). A Nova
+/// Crawler's death is also told to the Nova module, which decides whether it bursts.
 pub fn apply_damage(
     mut commands: Commands,
     mut requests: MessageReader<DamageZombie>,
@@ -1046,7 +1168,9 @@ pub fn apply_damage(
             continue;
         }
         let overflow = overflow_damage(zombie.health, request.damage);
-        zombie.health -= if zombie.special == Some(SpecialKind::Napalm) {
+        zombie.health -= if zombie.is_sapper() {
+            sapper_damage(request.damage, request.attack, zombie.max_health, insta_kill)
+        } else if zombie.special == Some(SpecialKind::Napalm) {
             doubled_damage(request.damage, insta_kill)
         } else {
             dealt_damage(request.damage, insta_kill)
@@ -1297,6 +1421,38 @@ mod tests {
         assert!(shrieker.is_special() && !shrieker.can_lose_legs());
         let normal = Zombie::new(150.0, SpeedTier::Walker, Vec3::ZERO);
         assert!(!normal.is_special() && normal.can_lose_legs());
+    }
+
+    #[test]
+    fn the_sapper_takes_double_damage_from_insta_kill_and_a_twentieth_from_a_killing_ammo_mod() {
+        assert_eq!(sapper_damage(100.0, Attack::Bullet, 8000.0, false), 100.0);
+        assert_eq!(sapper_damage(100.0, Attack::Bullet, 8000.0, true), 200.0);
+        assert_eq!(sapper_damage(f32::INFINITY, Attack::AmmoMod(Pay::Paid), 8000.0, false), 400.0);
+        assert_eq!(sapper_damage(f32::INFINITY, Attack::Napalm, 8000.0, false), 400.0);
+        assert_eq!(sapper_damage(40.0, Attack::Napalm, 8000.0, false), 40.0, "fire ticks hurt as usual");
+    }
+
+    #[test]
+    fn the_sapper_slams_three_metres_out_in_a_sixty_degree_arc() {
+        let forward = Vec3::NEG_Z;
+        assert!(slam_reaches(Vec3::ZERO, forward, Vec3::new(0.0, 0.5, -2.9)));
+        assert!(!slam_reaches(Vec3::ZERO, forward, Vec3::new(0.0, 0.0, -3.1)), "too far");
+        assert!(!slam_reaches(Vec3::ZERO, forward, Vec3::new(0.0, 0.0, 2.0)), "behind it");
+        // 30° either side of its facing.
+        assert!(slam_reaches(Vec3::ZERO, forward, Vec3::new(1.0, 0.0, -2.0)));
+        assert!(!slam_reaches(Vec3::ZERO, forward, Vec3::new(2.0, 0.0, -2.0)));
+        let sapper = Zombie::special(SpecialKind::Sapper, 8000.0, Vec3::ZERO);
+        assert_eq!(sapper.attack_stats(), (3.0, 0.8, 150.0, 2.5));
+    }
+
+    #[test]
+    fn the_sapper_walks_at_its_own_speed_and_never_sprints_or_crawls() {
+        let mut sapper = Zombie::special(SpecialKind::Sapper, 8000.0, Vec3::ZERO);
+        assert_eq!(sapper.speed(), SAPPER_SPEED);
+        sapper.sprint();
+        assert_eq!(sapper.speed(), 4.5);
+        assert!(sapper.is_sapper() && !sapper.can_lose_legs());
+        assert_eq!(sapper.max_health(), 8000.0);
     }
 
     #[test]

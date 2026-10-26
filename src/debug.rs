@@ -7,6 +7,7 @@ use crate::equipment::Equipment;
 use crate::hud::overlay::{Overlay, Overlays};
 use crate::player::Player;
 use crate::power_up::DropPowerUp;
+use crate::sapper::SummonSapper;
 use crate::state::Pause;
 use crate::weapon::{Loadout, WeaponCopy};
 
@@ -27,7 +28,8 @@ pub struct DebugView(pub bool);
 
 /// F1 toggles the debug view. F2 grants the next debug Weapon. F3 grants Monkey Bombs, as the
 /// Mystery Box would. F6 Pack-a-Punches the Weapon in hand. F7 drops the next Power-up from the
-/// bag just ahead of the Player. F8 pulses the next effect overlay.
+/// bag just ahead of the Player. F8 pulses the next effect overlay. F10 summons the Sapper, after
+/// its warning, once the Round is under way.
 pub struct DebugPlugin;
 
 impl Plugin for DebugPlugin {
@@ -61,6 +63,14 @@ impl Plugin for DebugPlugin {
                 drop_power_up
                     .run_if(in_state(Pause::Running))
                     .run_if(input_just_pressed(KeyCode::F7)),
+            )
+            .add_systems(
+                Update,
+                (|mut summons: MessageWriter<SummonSapper>| {
+                    summons.write(SummonSapper);
+                })
+                .run_if(in_state(Pause::Running))
+                .run_if(input_just_pressed(KeyCode::F10)),
             )
             .add_systems(
                 Update,

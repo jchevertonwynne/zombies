@@ -11,6 +11,7 @@ use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve, resolv
 use crate::perk::{Perk, Perks};
 use crate::player::{Player, PlayerHit, take_hits};
 use crate::power::Power;
+use crate::sapper::Sabotaged;
 use crate::state::{GameState, InRun, Pause};
 use crate::tuning::*;
 use crate::zombie::{Attack, DamageZombie, Dying, HitZone, Rising, Zombie};
@@ -130,7 +131,6 @@ pub fn kill_delay(roll: f32) -> f32 {
 }
 
 /// The Sapper's hit from one entry into a running Trap: damage from its max Health, and the stun.
-#[allow(dead_code, reason = "the hook the Sapper slice reads TrapStruck with")]
 pub fn sapper_trap_hit(max_health: f32) -> (f32, f32) {
     (max_health * TRAP_SAPPER_HEALTH_FRACTION, TRAP_SAPPER_STUN_SECS)
 }
@@ -143,11 +143,19 @@ pub fn touches(centre: Vec3, half: Vec3, at: Vec3, radius: f32, half_height: f32
     outside.length() <= radius && offset.y.abs() <= half.y + half_height
 }
 
-/// An electric Trap across the doorway of the Door joining `joins`.
+/// An electric Trap across the doorway of the Door joining `joins`. A Sabotaged Trap stops and
+/// shows no Prompt until it's restored.
 #[derive(Component)]
 pub struct Trap {
     joins: (ZoneId, ZoneId),
     phase: TrapPhase,
+}
+
+impl Trap {
+    /// The two Zones whose Door it spans.
+    pub fn joins(&self) -> (ZoneId, ZoneId) {
+        self.joins
+    }
 }
 
 /// One of a Trap's two switches, the Buyable that runs it.
@@ -175,7 +183,6 @@ pub struct Shocked {
 
 /// A Zombie a Trap doesn't kill: the Sapper, which takes `sapper_trap_hit` once per entry instead.
 #[derive(Component)]
-#[allow(dead_code, reason = "inserted by the Sapper slice")]
 pub struct ResistsTraps;
 
 /// A `ResistsTraps` Zombie inside a running Trap, so it's struck once per entry.
@@ -186,7 +193,6 @@ struct InTrap;
 /// `sapper_trap_hit`.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct TrapStruck {
-    #[allow(dead_code, reason = "read by the Sapper slice")]
     pub zombie: Entity,
 }
 
@@ -286,32 +292,39 @@ fn use_switches(
     }
 }
 
-/// The cooldown resolves through the modifier seam from the Player's entries.
-fn run_traps(mut traps: Query<&mut Trap>, player: Query<&Modifiers, With<Player>>, time: Res<Time>) {
+/// The cooldown resolves through the modifier seam from the Player's entries. A Sabotaged Trap
+/// goes dead at once, even mid-run.
+fn run_traps(mut traps: Query<(&mut Trap, Has<Sabotaged>)>, player: Query<&Modifiers, With<Player>>, time: Res<Time>) {
     let cooldown = resolve(Stat::TrapCooldown, TRAP_COOLDOWN_SECS, player.iter().flat_map(|modifiers| &modifiers.0));
-    for mut trap in &mut traps {
-        if trap.phase != TrapPhase::Idle {
+    for (mut trap, sabotaged) in &mut traps {
+        if sabotaged {
+            trap.phase = TrapPhase::Idle;
+        } else if trap.phase != TrapPhase::Idle {
             trap.phase.advance(time.delta_secs(), cooldown);
         }
     }
 }
 
-/// Switches own their Buyables: a buy, the Power refusal, or no Prompt at all. A lit lamp marks
-/// a Trap ready to buy.
+/// Switches own their Buyables: a buy, the Power refusal, or no Prompt at all (always, while the
+/// Trap is Sabotaged). A lit lamp marks a Trap ready to buy.
 fn prompt_switches(
     mut commands: Commands,
     switches: Query<(Entity, &TrapSwitch, &Children, Option<&Buyable>, Has<Refused>)>,
     mut lights: Query<&mut Visibility, With<SwitchLight>>,
-    traps: Query<&Trap>,
+    traps: Query<(&Trap, Has<Sabotaged>)>,
     doors: Query<&Door>,
     power: Res<Power>,
     player: Query<&Modifiers, With<Player>>,
 ) {
     let price = resolve_points(Stat::TrapPrice, TRAP_PRICE, player.iter().flat_map(|modifiers| &modifiers.0));
     for (entity, switch, children, buyable, refused) in &switches {
-        let Ok(trap) = traps.get(switch.trap) else { continue };
+        let Ok((trap, sabotaged)) = traps.get(switch.trap) else { continue };
         let door_open = doors.iter().any(|door| door.open && door.joins == Some(trap.joins));
-        let want = trap_prompt(door_open, power.is_on(), trap.phase);
+        let want = if sabotaged {
+            TrapPrompt::NoPrompt
+        } else {
+            trap_prompt(door_open, power.is_on(), trap.phase)
+        };
         for child in children {
             if let Ok(mut light) = lights.get_mut(*child) {
                 let shown = if want == TrapPrompt::Buy { Visibility::Inherited } else { Visibility::Hidden };

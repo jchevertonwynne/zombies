@@ -100,6 +100,17 @@ cues! {
     ShriekerDeath => "shrieker_death", Root, Spatial, 1.0;
     ScreamPop => "scream_pop", Root, Spatial, 0.8;
 
+    // The Sapper. Its idle and Sabotage loop for as long as they last.
+    SapperSmash => "sapper_smash", Root, Spatial, 1.0;
+    SapperIdle => "sapper_idle", Root, Spatial, 0.6;
+    SapperStep => "sapper_step", Root, Spatial, 0.8;
+    SapperSabotage => "sapper_sabotage", Root, Spatial, 0.9;
+    SapperWindup => "sapper_windup", Root, Spatial, 1.0;
+    SapperSlam => "sapper_slam", Root, Spatial, 1.0;
+    HelmetOff => "helmet_off", Root, Spatial, 1.0;
+    SapperStun => "sapper_stun", Root, Spatial, 0.9;
+    SapperDeath => "sapper_death", Root, Spatial, 1.0;
+
     // Announcer. The Power-up lines play on pickup and the Hellhound line as its Round starts;
     // the Sapper's starts playing when the Sapper exists.
     AnnouncerMaxAmmo => "announcer_max_ammo", Announcer, Flat, 1.0;
