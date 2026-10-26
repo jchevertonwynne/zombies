@@ -21,7 +21,8 @@ use crate::perk::hands_free;
 use crate::player::Player;
 use crate::state::Pause;
 use crate::tuning::*;
-use crate::weapon::{Loadout, ViewPart};
+use crate::gun_model::GunModels;
+use crate::weapon::{Loadout, ViewModel, WeaponCopy};
 use crate::zombie::{Attack, DamageZombie, Dying, HitZone, Zombie};
 
 /// Where on a Weapon an Attachment fits.
@@ -295,6 +296,7 @@ pub struct AttachmentPlugin;
 impl Plugin for AttachmentPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<FlameFired>()
+            .init_resource::<GunModels>()
             .add_systems(Update, spawn_attachment_models)
             .add_systems(
                 Update,
@@ -337,47 +339,20 @@ fn burn_in_flames(
     }
 }
 
+/// One model per Attachment on the view model, each swapped to the held Weapon's own fit of it.
 fn spawn_attachment_models(
     mut commands: Commands,
-    view_models: Query<(Entity, &ViewPart), Added<ViewPart>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    view_models: Query<Entity, Added<ViewModel>>,
+    guns: Res<GunModels>,
 ) {
-    // On the Stretch, which stretches them along the Weapon with the glint.
-    for (view_model, _) in view_models.iter().filter(|(_, part)| **part == ViewPart::Stretch) {
-        let dark = materials.add(Color::srgb(0.1, 0.1, 0.11));
-        let red = materials.add(StandardMaterial {
-            base_color: Color::srgb(1.0, 0.1, 0.05),
-            emissive: LinearRgba::rgb(12.0, 0.5, 0.2),
-            unlit: true,
-            ..default()
-        });
-        let tank = materials.add(Color::srgb(0.6, 0.15, 0.05));
-        // The Stretch is 0.3 long before its class stretches it; its muzzle is at −Z.
-        let parts: [(Attachment, Mesh, Handle<StandardMaterial>, Vec3); 10] = [
-            (Attachment::RedDotSight, Cuboid::new(0.03, 0.03, 0.04).into(), red, Vec3::new(0.0, 0.07, 0.03)),
-            (Attachment::AcogSight, cylinder(0.022, 0.1), dark.clone(), Vec3::new(0.0, 0.075, 0.02)),
-            (Attachment::LongBarrel, cylinder(0.012, 0.12), dark.clone(), Vec3::new(0.0, 0.02, -0.2)),
-            (Attachment::RapidFire, cylinder(0.02, 0.05), dark.clone(), Vec3::new(0.0, 0.02, -0.15)),
-            (Attachment::ExtendedMag, Cuboid::new(0.03, 0.16, 0.05).into(), dark.clone(), Vec3::new(0.0, -0.11, 0.0)),
-            (Attachment::DualMag, Cuboid::new(0.06, 0.1, 0.05).into(), dark.clone(), Vec3::new(0.0, -0.09, 0.0)),
-            (Attachment::Masterkey, cylinder(0.018, 0.2), dark.clone(), Vec3::new(0.0, -0.065, -0.08)),
-            (Attachment::GrenadeLauncher, cylinder(0.025, 0.14), dark.clone(), Vec3::new(0.0, -0.07, -0.08)),
-            (Attachment::Flamethrower, cylinder(0.018, 0.2), tank, Vec3::new(0.0, -0.065, -0.08)),
-            (Attachment::Grip, Cuboid::new(0.025, 0.07, 0.025).into(), dark, Vec3::new(0.0, -0.08, -0.1)),
-        ];
+    for view_model in &view_models {
         commands.entity(view_model).with_children(|model| {
-            for (attachment, mesh, material, at) in parts {
-                let mut transform = Transform::from_translation(at);
-                if matches!(mesh_shape(attachment), Shape::Tube) {
-                    // Cylinders stand up the Y axis; lay them along the barrel.
-                    transform.rotation = Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
-                }
+            for attachment in Attachment::ALL {
                 model.spawn((
                     AttachmentModel(attachment),
-                    Mesh3d(meshes.add(mesh)),
-                    MeshMaterial3d(material),
-                    transform,
+                    Mesh3d(guns.knife.clone()),
+                    MeshMaterial3d(guns.material.clone()),
+                    Transform::default(),
                     Visibility::Hidden,
                 ));
             }
@@ -385,37 +360,46 @@ fn spawn_attachment_models(
     }
 }
 
-enum Shape {
-    Box,
-    Tube,
-}
-
-fn mesh_shape(attachment: Attachment) -> Shape {
-    match attachment {
-        Attachment::AcogSight
-        | Attachment::LongBarrel
-        | Attachment::RapidFire
-        | Attachment::Masterkey
-        | Attachment::GrenadeLauncher
-        | Attachment::Flamethrower => Shape::Tube,
-        _ => Shape::Box,
+/// The Attachments a Weapon copy shows: those its Repacks added, and a built-in Underbarrel.
+pub fn shown_attachments(copy: &WeaponCopy) -> Vec<Attachment> {
+    let mut shown = copy.attachments.clone();
+    if let Some(underbarrel) = &copy.underbarrel {
+        let built_in = Attachment::ALL.into_iter().find(|a| a.underbarrel() == Some(underbarrel.kind));
+        if let Some(built_in) = built_in
+            && !shown.contains(&built_in)
+        {
+            shown.push(built_in);
+        }
     }
+    shown
 }
 
-fn cylinder(radius: f32, length: f32) -> Mesh {
-    Cylinder::new(radius, length).into()
-}
-
-/// The parts on the view model are the held Weapon's Attachments, hidden while it's put away.
+/// The held Weapon's Attachments on the view model, fitted where its model has them; hidden while
+/// it's put away. Magazines aren't here: they replace the Weapon's own (see `GunModels`).
 fn show_attachments(
     player: Single<&Loadout, With<Player>>,
-    mut models: Query<(&AttachmentModel, &mut Visibility)>,
+    mut models: Query<(&AttachmentModel, &mut Mesh3d, &mut Transform, &mut Visibility)>,
+    guns: Res<GunModels>,
 ) {
     let held = player.held();
     let putting_away = player.swap.as_ref().is_some_and(|swap| swap.elapsed < swap.drop_secs);
-    for (model, mut visibility) in &mut models {
-        let shown = !putting_away && held.attachments.contains(&model.0);
-        visibility.set_if_neq(if shown { Visibility::Inherited } else { Visibility::Hidden });
+    let shown = shown_attachments(held);
+    for (model, mut mesh, mut transform, mut visibility) in &mut models {
+        let part = guns.attachment(held.id, model.0).filter(|_| !putting_away && shown.contains(&model.0));
+        match part {
+            Some(part) => {
+                if mesh.0 != part.mesh {
+                    mesh.0 = part.mesh.clone();
+                }
+                if *transform != part.rest {
+                    *transform = part.rest;
+                }
+                visibility.set_if_neq(Visibility::Inherited);
+            }
+            None => {
+                visibility.set_if_neq(Visibility::Hidden);
+            }
+        }
     }
 }
 

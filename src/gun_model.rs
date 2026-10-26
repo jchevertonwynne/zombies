@@ -9,10 +9,16 @@
 //! In the hands, the magazine (if it has one) and the left hand are models of their own, so a
 //! Reload can pull the magazine out and the hand can fetch a new one. The Knife is its own model
 //! too: a right hand slashing across the screen.
+//!
+//! Each model also marks where its Attachments go: the top of the receiver for an optic, the
+//! muzzle, and under the fore-end for an Underbarrel or a Grip. An Extended Mag or Dual Mag
+//! replaces the magazine itself, so it comes out in a Reload; a Weapon with no magazine to swap
+//! (shells, a cylinder) carries spare rounds on its side instead.
 
 use bevy::prelude::*;
 
 use crate::arsenal::{WeaponClass, WeaponId};
+use crate::attachment::Attachment;
 use crate::tuning::WEAPONS;
 
 /// How long each class's model is, as a multiple of a pistol's 0.3: a switch is easy to see.
@@ -35,6 +41,9 @@ const DARK: Color = Color::srgb(0.08, 0.08, 0.09);
 const STEEL: Color = Color::srgb(0.55, 0.56, 0.6);
 const WOOD: Color = Color::srgb(0.45, 0.27, 0.12);
 const OLIVE: Color = Color::srgb(0.3, 0.34, 0.2);
+const RUST: Color = Color::srgb(0.6, 0.15, 0.05);
+const TAPE: Color = Color::srgb(0.7, 0.62, 0.38);
+const SHELLS: Color = Color::srgb(0.75, 0.12, 0.08);
 const SKIN: Color = Color::srgb(0.82, 0.62, 0.46);
 const SLEEVE: Color = Color::srgb(0.27, 0.31, 0.21);
 
@@ -54,6 +63,12 @@ pub struct GunModels {
     /// The left hand on its fore-end. None where it's part of the model, as on the second gun
     /// of a dual-wield.
     left_hand: Vec<Option<Part>>,
+    /// Its magazine as an Extended Mag, and as a Dual Mag: two taped side by side.
+    extended_magazine: Vec<Option<Part>>,
+    dual_magazine: Vec<Option<Part>>,
+    /// Each Attachment fitted to it, by its place in `Attachment::ALL`. Not the magazine
+    /// Attachments on a Weapon with a magazine: those replace the magazine (see `magazine_with`).
+    attachments: Vec<[Option<Part>; 10]>,
     /// As it floats in the world, lying along X, magazine and all.
     world: Vec<Handle<Mesh>>,
     /// The Knife, and the Bowie Knife, in a right hand: the hand at the origin, the blade along −Z.
@@ -67,8 +82,23 @@ impl GunModels {
         self.view[id as usize].clone()
     }
 
-    pub fn magazine(&self, id: WeaponId) -> Option<&Part> {
-        self.magazine[id as usize].as_ref()
+    /// Its magazine with `attachments` fitted: an Extended Mag's or a Dual Mag's in place of its own.
+    pub fn magazine_with(&self, id: WeaponId, attachments: &[Attachment]) -> Option<&Part> {
+        let i = id as usize;
+        let fitted = if attachments.contains(&Attachment::DualMag) {
+            self.dual_magazine[i].as_ref()
+        } else if attachments.contains(&Attachment::ExtendedMag) {
+            self.extended_magazine[i].as_ref()
+        } else {
+            None
+        };
+        fitted.or(self.magazine[i].as_ref())
+    }
+
+    /// `attachment`'s model fitted to it, unless it's a magazine that replaces its own.
+    pub fn attachment(&self, id: WeaponId, attachment: Attachment) -> Option<&Part> {
+        let slot = Attachment::ALL.iter().position(|&a| a == attachment)?;
+        self.attachments[id as usize][slot].as_ref()
     }
 
     pub fn left_hand(&self, id: WeaponId) -> Option<&Part> {
@@ -85,11 +115,24 @@ impl FromWorld for GunModels {
         let mut meshes = world.resource_mut::<Assets<Mesh>>();
         let mut view = Vec::new();
         let mut magazine = Vec::new();
+        let mut extended_magazine = Vec::new();
+        let mut dual_magazine = Vec::new();
+        let mut attachments = Vec::new();
         let mut left_hand = Vec::new();
         let mut world_meshes = Vec::new();
         for row in &WEAPONS {
-            let mut gun = Gun::default();
+            let mut gun = Gun::new(row.class);
             let hands = build(&mut gun, row.id, row.class);
+            let mut add = |(mesh, rest): (Mesh, Transform)| Part { mesh: meshes.add(mesh), rest };
+            let swapped = gun.magazine.as_ref().map(|(_, rest)| *rest);
+            extended_magazine.push(swapped.map(|rest| add((extended(gun.magazine_size), rest))));
+            dual_magazine.push(swapped.map(|rest| add((dual(gun.magazine_size), rest))));
+            attachments.push(Attachment::ALL.map(|attachment| {
+                fitted(attachment, &gun.anchors, swapped.is_some()).map(|mesh| {
+                    let rest = Transform::from_translation(gun.anchors.at(attachment));
+                    add((mesh, rest))
+                })
+            }));
             let mut whole = gun.mesh();
             if let Some((mesh, rest)) = &gun.magazine {
                 whole.merge(&mesh.clone().transformed_by(*rest)).expect("both are triangle lists");
@@ -145,6 +188,9 @@ impl FromWorld for GunModels {
         Self {
             view,
             magazine,
+            extended_magazine,
+            dual_magazine,
+            attachments,
             left_hand,
             world: world_meshes,
             knife,
@@ -160,9 +206,55 @@ struct Gun {
     mesh: Option<Mesh>,
     /// Its magazine, built on its own around the point where it meets the gun, and where that is.
     magazine: Option<(Mesh, Transform)>,
+    /// The magazine's size, for its Extended and Dual Mag versions.
+    magazine_size: Vec3,
+    anchors: Anchors,
+}
+
+/// Where a model's Attachments go.
+#[derive(Debug, Clone, Copy, Default)]
+struct Anchors {
+    /// The top of the receiver, where an optic's base sits.
+    optic: Vec3,
+    /// The middle of the muzzle's face, and the barrel's width and height there.
+    muzzle: Vec3,
+    bore: Vec2,
+    /// Under the fore-end, where an Underbarrel or a Grip hangs from.
+    under: Vec3,
+    /// The left of the receiver, where spare rounds ride on a Weapon with no magazine to swap.
+    side: Vec3,
+}
+
+impl Anchors {
+    /// Where `attachment` is fitted.
+    fn at(&self, attachment: Attachment) -> Vec3 {
+        match attachment {
+            Attachment::RedDotSight | Attachment::AcogSight => self.optic,
+            Attachment::LongBarrel | Attachment::RapidFire => self.muzzle,
+            Attachment::ExtendedMag | Attachment::DualMag => self.side,
+            Attachment::Masterkey | Attachment::GrenadeLauncher | Attachment::Flamethrower | Attachment::Grip => {
+                self.under
+            }
+        }
+    }
 }
 
 impl Gun {
+    /// An empty model of `class`, its Attachments where most models of its length have them.
+    fn new(class: WeaponClass) -> Self {
+        let half = 0.15 * model_length(class);
+        Self {
+            anchors: Anchors {
+                optic: Vec3::new(0.0, 0.05, 0.0),
+                muzzle: Vec3::new(0.0, 0.01, -half),
+                bore: Vec2::splat(0.025),
+                under: Vec3::new(0.0, -0.045, -0.2),
+                side: Vec3::new(-0.033, 0.0, 0.03),
+            },
+            ..default()
+        }
+    }
+
     /// A `size` box centred `at`, in `colour`.
     fn part(&mut self, size: Vec3, at: Vec3, colour: Color) -> &mut Self {
         self.turned(size, at, Quat::IDENTITY, colour)
@@ -219,6 +311,96 @@ fn detachable(gun: &mut Gun, size: Vec3, rest: Transform, colour: Color) {
     let mut magazine = Gun::default();
     magazine.part(size, Vec3::new(0.0, -size.y / 2.0, 0.0), colour);
     gun.magazine = Some((magazine.mesh(), rest));
+    gun.magazine_size = size;
+}
+
+/// An Extended Mag in place of a `size` magazine: the same, but much longer.
+fn extended(size: Vec3) -> Mesh {
+    let long = size * Vec3::new(1.0, 1.6, 1.0);
+    let mut magazine = Gun::default();
+    magazine.part(long, Vec3::new(0.0, -long.y / 2.0, 0.0), DARK);
+    // A base plate, to tell it from the standard one.
+    magazine.part(Vec3::new(size.x + 0.01, 0.015, size.z + 0.01), Vec3::new(0.0, -long.y, 0.0), METAL);
+    magazine.mesh()
+}
+
+/// A Dual Mag in place of a `size` magazine: a second magazine taped alongside, upside down.
+fn dual(size: Vec3) -> Mesh {
+    let mut magazine = Gun::default();
+    let beside = -(size.x + 0.006);
+    magazine.part(size, Vec3::new(0.0, -size.y / 2.0, 0.0), DARK);
+    magazine.part(size, Vec3::new(beside, -size.y / 2.0 - 0.02, 0.0), DARK);
+    magazine.part(
+        Vec3::new(size.x * 2.0 + 0.016, 0.025, size.z + 0.008),
+        Vec3::new(beside / 2.0, -size.y * 0.55, 0.0),
+        TAPE,
+    );
+    magazine.mesh()
+}
+
+/// `attachment`'s model, built around where it's fitted (see `Anchors`). None for a magazine
+/// Attachment on a Weapon whose magazine `swaps`: that replaces the magazine instead.
+fn fitted(attachment: Attachment, anchors: &Anchors, swaps: bool) -> Option<Mesh> {
+    let bore = anchors.bore.extend(0.0);
+    let mut model = Gun::default();
+    match attachment {
+        Attachment::RedDotSight => {
+            model.part(Vec3::new(0.03, 0.012, 0.05), Vec3::new(0.0, 0.006, 0.0), DARK);
+            // A square hood with the red dot glowing inside it.
+            model.part(Vec3::new(0.036, 0.036, 0.028), Vec3::new(0.0, 0.03, 0.0), DARK);
+            model.part(Vec3::new(0.024, 0.024, 0.032), Vec3::new(0.0, 0.03, 0.0), Color::srgb(1.0, 0.12, 0.06));
+        }
+        Attachment::AcogSight => {
+            model.part(Vec3::new(0.03, 0.012, 0.06), Vec3::new(0.0, 0.006, 0.0), DARK);
+            model.part(Vec3::new(0.036, 0.036, 0.11), Vec3::new(0.0, 0.03, 0.0), DARK);
+            model.part(Vec3::new(0.048, 0.048, 0.035), Vec3::new(0.0, 0.03, -0.06), DARK);
+            model.part(Vec3::new(0.042, 0.042, 0.02), Vec3::new(0.0, 0.03, 0.055), DARK);
+            model.part(Vec3::new(0.034, 0.034, 0.004), Vec3::new(0.0, 0.03, -0.079), Color::srgb(0.3, 0.5, 0.75));
+        }
+        Attachment::LongBarrel => {
+            model.part(Vec3::new(bore.x * 0.85, bore.y * 0.85, 0.13), Vec3::new(0.0, 0.0, -0.065), DARK);
+            model.part(Vec3::new(bore.x * 1.3, bore.y * 1.3, 0.03), Vec3::new(0.0, 0.0, -0.13), METAL);
+        }
+        Attachment::RapidFire => {
+            model.part(Vec3::new(bore.x * 1.5, bore.y * 1.5, 0.06), Vec3::new(0.0, 0.0, -0.03), METAL);
+            for z in [-0.015, -0.045] {
+                model.part(Vec3::new(bore.x * 1.65, bore.y * 1.65, 0.008), Vec3::new(0.0, 0.0, z), DARK);
+            }
+        }
+        Attachment::ExtendedMag | Attachment::DualMag if swaps => return None,
+        Attachment::ExtendedMag | Attachment::DualMag => {
+            // A holder of spare rounds on the side, longer for a Dual Mag.
+            let long = if attachment == Attachment::DualMag { 0.16 } else { 0.1 };
+            model.part(Vec3::new(0.014, 0.05, long), Vec3::new(-0.007, 0.0, 0.0), DARK);
+            for y in [-0.012, 0.012] {
+                model.part(Vec3::new(0.008, 0.016, long - 0.012), Vec3::new(-0.016, y, 0.0), SHELLS);
+            }
+        }
+        Attachment::Masterkey => {
+            // A sawn-off pump shotgun clamped under the barrel.
+            model.part(Vec3::new(0.02, 0.012, 0.12), Vec3::new(0.0, -0.006, 0.0), DARK);
+            model.part(Vec3::new(0.03, 0.03, 0.24), Vec3::new(0.0, -0.027, -0.06), METAL);
+            model.part(Vec3::new(0.042, 0.036, 0.08), Vec3::new(0.0, -0.03, -0.05), DARK);
+            model.part(Vec3::new(0.036, 0.042, 0.06), Vec3::new(0.0, -0.03, 0.08), DARK);
+        }
+        Attachment::GrenadeLauncher => {
+            model.part(Vec3::new(0.02, 0.012, 0.1), Vec3::new(0.0, -0.006, 0.0), DARK);
+            model.part(Vec3::new(0.048, 0.048, 0.17), Vec3::new(0.0, -0.036, -0.05), DARK);
+            model.part(Vec3::new(0.036, 0.042, 0.06), Vec3::new(0.0, -0.034, 0.06), METAL);
+            model.part(Vec3::new(0.01, 0.03, 0.014), Vec3::new(0.0, -0.07, 0.07), DARK);
+        }
+        Attachment::Flamethrower => {
+            model.part(Vec3::new(0.02, 0.012, 0.1), Vec3::new(0.0, -0.006, 0.0), DARK);
+            model.part(Vec3::new(0.022, 0.022, 0.2), Vec3::new(0.0, -0.022, -0.09), METAL);
+            model.part(Vec3::new(0.03, 0.03, 0.016), Vec3::new(0.0, -0.022, -0.19), Color::srgb(1.0, 0.55, 0.1));
+            model.part(Vec3::new(0.05, 0.05, 0.13), Vec3::new(0.0, -0.05, 0.04), RUST);
+        }
+        Attachment::Grip => {
+            model.part(Vec3::new(0.03, 0.012, 0.045), Vec3::new(0.0, -0.006, 0.0), DARK);
+            model.part(Vec3::new(0.026, 0.085, 0.032), Vec3::new(0.0, -0.05, 0.0), DARK);
+        }
+    }
+    Some(model.mesh())
 }
 
 /// Iron sights: a post at the front and a notch at the back.
@@ -261,6 +443,16 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
                 }
             };
             pistol(gun, 0.0);
+            gun.anchors.optic = Vec3::new(0.0, 0.05, 0.03);
+            gun.anchors.muzzle = Vec3::new(0.0, 0.02, -0.16);
+            gun.anchors.bore = Vec2::splat(0.03);
+            gun.anchors.side = Vec3::new(-0.028, -0.005, 0.0);
+            if id == WeaponId::Python {
+                gun.anchors.optic = Vec3::new(0.0, 0.045, -0.03);
+                gun.anchors.muzzle = Vec3::new(0.0, 0.025, -0.15);
+                gun.anchors.bore = Vec2::new(0.035, 0.04);
+                gun.anchors.side = Vec3::new(-0.03, 0.01, 0.04);
+            }
             if class == WeaponClass::DualWield {
                 // The second gun, in the left hand across the screen.
                 pistol(gun, -0.44);
@@ -305,6 +497,8 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
                 _ => magazine(gun, -0.06, 0.15, 0.1, DARK),
             }
             grip(gun, Vec3::new(0.0, -0.09, 0.08), furniture);
+            gun.anchors.optic = Vec3::new(0.0, if id == WeaponId::Spectre { 0.07 } else { 0.045 }, 0.03);
+            gun.anchors.under = Vec3::new(0.0, -0.045, -0.12);
             // A folding stock: two thin rails and a butt plate.
             for x in [-0.025, 0.025] {
                 gun.part(Vec3::new(0.012, 0.012, 0.13), Vec3::new(x, -0.01, half - 0.07), DARK);
@@ -324,6 +518,9 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
                     gun.part(Vec3::new(0.04, 0.05, 0.14), Vec3::new(0.0, 0.1, -0.05), DARK);
                     gun.part(Vec3::new(0.02, 0.02, 0.06), Vec3::new(0.0, 0.0, -half + 0.02), DARK);
                     grip(gun, Vec3::new(0.0, -0.12, -0.02), DARK);
+                    gun.anchors.optic = Vec3::new(0.0, 0.125, -0.05);
+                    gun.anchors.muzzle = Vec3::new(0.0, 0.0, -half - 0.01);
+                    gun.anchors.under = Vec3::new(0.0, -0.075, -0.2);
                     return Hands {
                         right: Vec3::new(0.0, -0.15, -0.01),
                         left: Vec3::new(0.0, -0.09, -0.22),
@@ -337,6 +534,9 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
                     gun.part(Vec3::new(0.025, 0.025, 0.1), Vec3::new(0.0, 0.01, -half + 0.05), DARK);
                     magazine(gun, 0.17, 0.13, 0.15, DARK);
                     grip(gun, Vec3::new(0.0, -0.1, 0.0), furniture);
+                    gun.anchors.under = Vec3::new(0.0, -0.04, -0.2);
+                    // On top of the carry handle, or the AUG's rail.
+                    gun.anchors.optic = Vec3::new(0.0, if id == WeaponId::Famas { 0.105 } else { 0.1 }, 0.0);
                     if id == WeaponId::Famas {
                         // The carry handle running along the top.
                         gun.part(Vec3::new(0.025, 0.03, 0.32), Vec3::new(0.0, 0.09, 0.0), DARK);
@@ -369,6 +569,7 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
             magazine(gun, -0.05, 0.15, curve, DARK);
             grip(gun, Vec3::new(0.0, -0.1, 0.07), if id == WeaponId::M14 { WOOD } else { DARK });
             sights(gun, 0.05, -half + 0.06, 0.08);
+            gun.anchors.under = Vec3::new(0.0, -0.045, -0.24);
             Hands {
                 right: Vec3::new(0.0, -0.13, 0.08),
                 left: Vec3::new(0.0, -0.07, -0.22),
@@ -383,6 +584,11 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
                 gun.part(Vec3::new(0.06, 0.035, 0.26), Vec3::new(0.0, -0.01, -0.12), WOOD);
                 gun.part(Vec3::new(0.06, 0.08, 0.1), Vec3::new(0.0, 0.0, 0.12), METAL);
                 gun.turned(Vec3::new(0.05, 0.1, 0.2), Vec3::new(0.0, -0.05, 0.25), Quat::from_rotation_x(0.2), WOOD);
+                gun.anchors.optic = Vec3::new(0.0, 0.04, 0.12);
+                gun.anchors.muzzle = Vec3::new(0.0, 0.02, -0.34);
+                gun.anchors.bore = Vec2::new(0.064, 0.03);
+                gun.anchors.under = Vec3::new(0.0, -0.03, -0.12);
+                gun.anchors.side = Vec3::new(-0.03, 0.0, 0.12);
                 return Hands {
                     right: Vec3::new(0.0, -0.1, 0.17),
                     left: Vec3::new(0.0, -0.06, -0.12),
@@ -413,6 +619,11 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
                 );
             }
             sights(gun, 0.045, -half + 0.03, 0.1);
+            gun.anchors.optic = Vec3::new(0.0, 0.05, 0.06);
+            gun.anchors.muzzle = Vec3::new(0.0, 0.025, -0.33);
+            gun.anchors.bore = Vec2::splat(0.035);
+            gun.anchors.under = Vec3::new(0.0, -0.05, -0.2);
+            gun.anchors.side = Vec3::new(-0.03, 0.0, 0.04);
             Hands {
                 right: Vec3::new(0.0, -0.1, 0.13),
                 left: Vec3::new(0.0, -0.07, -0.17),
@@ -439,6 +650,8 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
                 magazine(gun, -0.03, 0.09, 0.0, DARK);
             }
             grip(gun, Vec3::new(0.0, -0.1, 0.09), furniture);
+            gun.anchors.optic = Vec3::new(0.0, 0.105, 0.0);
+            gun.anchors.under = Vec3::new(0.0, -0.045, -0.24);
             Hands {
                 right: Vec3::new(0.0, -0.13, 0.1),
                 left: Vec3::new(0.0, -0.07, -0.22),
@@ -464,6 +677,10 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
             // A carry handle on top.
             gun.part(Vec3::new(0.02, 0.05, 0.1), Vec3::new(0.0, 0.09, -0.03), DARK);
             grip(gun, Vec3::new(0.0, -0.12, 0.1), DARK);
+            // Behind the carry handle.
+            gun.anchors.optic = Vec3::new(0.0, 0.06, 0.09);
+            gun.anchors.bore = Vec2::splat(0.035);
+            gun.anchors.under = Vec3::new(0.0, -0.05, -0.28);
             Hands {
                 right: Vec3::new(0.0, -0.15, 0.1),
                 left: Vec3::new(0.0, -0.08, -0.26),
@@ -578,6 +795,31 @@ mod tests {
             }
             let colours = mesh.attribute(Mesh::ATTRIBUTE_COLOR).expect("coloured per vertex");
             assert_eq!(colours.len(), mesh.count_vertices());
+        }
+    }
+
+    #[test]
+    fn every_attachment_a_weapon_can_get_has_a_model_on_it() {
+        use crate::attachment::mounts;
+
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Mesh>()
+            .init_asset::<StandardMaterial>()
+            .init_resource::<GunModels>();
+        let guns = app.world().resource::<GunModels>();
+        for row in &WEAPONS {
+            for &mount in mounts(row.id.upgraded()) {
+                for attachment in Attachment::ALL.into_iter().filter(|a| a.mount() == mount) {
+                    let shown = match guns.magazine_with(row.id, &[]) {
+                        Some(own) if attachment.mount() == crate::attachment::Mount::Magazine => {
+                            guns.magazine_with(row.id, &[attachment]).is_some_and(|fitted| fitted.mesh != own.mesh)
+                        }
+                        _ => guns.attachment(row.id, attachment).is_some(),
+                    };
+                    assert!(shown, "{} has no {}", row.name, attachment.name());
+                }
+            }
         }
     }
 }

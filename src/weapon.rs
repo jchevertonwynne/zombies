@@ -10,11 +10,12 @@ use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
 use crate::attachment::{
     Attachment, FlameFired, Underbarrel, UnderbarrelAmmo, built_in_underbarrel, free_mounts, pick_attachment,
+    shown_attachments,
 };
 use crate::burn::Ignite;
 use crate::combat::{Crossing, Sights, hit_damage, pierce, spread_direction};
 use crate::explosive::{Explosion, Explosive, Launched, flight, makes_crawlers};
-use crate::gun_model::{GunModels, model_length};
+use crate::gun_model::{GunModels, Part, model_length};
 use crate::layers::GameLayer;
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve, resolve_count};
 use crate::perk::{Drinking, hands_free};
@@ -1237,8 +1238,23 @@ fn animate_view_model(
     if mesh.0 != gun {
         mesh.0 = gun;
     }
-    let magazine = guns.magazine(shown_id);
-    let left_hand = guns.left_hand(shown_id);
+    // The Attachments on show belong to the Weapon in hand, not one being put away.
+    let fitted = if shown_id == loadout.held().id { shown_attachments(loadout.held()) } else { Vec::new() };
+    let magazine = guns.magazine_with(shown_id, &fitted);
+    // The left hand moves down onto a Grip or an Underbarrel.
+    let held_by = |attachment: Attachment, hold: Vec3| {
+        fitted.contains(&attachment).then(|| guns.attachment(shown_id, attachment)).flatten().map(|part| part.rest.translation + hold)
+    };
+    let hand_on = held_by(Attachment::Grip, Vec3::new(0.0, -0.06, 0.0)).or_else(|| {
+        [Attachment::Masterkey, Attachment::GrenadeLauncher, Attachment::Flamethrower]
+            .into_iter()
+            .find_map(|attachment| held_by(attachment, Vec3::new(-0.035, -0.06, -0.04)))
+    });
+    let left_hand = guns.left_hand(shown_id).map(|hand| Part {
+        mesh: hand.mesh.clone(),
+        rest: hand_on.map_or(hand.rest, |at| hand.rest.with_translation(at)),
+    });
+    let left_hand = left_hand.as_ref();
 
     // A Reload: the magazine swapped, or the gun fed by hand.
     let reload = match (&loadout.reload, loadout.reload_secs(&modifiers.0)) {
