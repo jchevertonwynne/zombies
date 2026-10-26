@@ -153,10 +153,6 @@ pub struct SpawnHellhounds {
     pub count: u32,
 }
 
-/// A hound's bite landed on the Player.
-#[derive(Message, Debug, Clone, Copy)]
-pub struct HellhoundBite;
-
 #[derive(Resource)]
 struct HellhoundAssets {
     body: Handle<Mesh>,
@@ -185,7 +181,6 @@ pub struct HellhoundPlugin;
 impl Plugin for HellhoundPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<SpawnHellhounds>()
-            .add_message::<HellhoundBite>()
             .add_systems(Startup, load_assets)
             .add_systems(
                 Update,

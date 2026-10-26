@@ -1,30 +1,64 @@
 //! Plays every cue from its slot in `assets/audio`. The placeholders there come from the
 //! `gen-sounds` binary, and real recordings can replace them file by file.
+//!
+//! Most cues play from the messages and state changes the game's systems already make. Anything
+//! else asks for its cue with a [`PlayCue`]. Loops are children of what they belong to, so they
+//! stop when it goes, or flat loops that last while their trigger does. The mix rules live in
+//! [`mix`].
 
 pub mod cues;
+pub mod mix;
 pub mod slots;
+
+use std::collections::HashMap;
 
 use bevy::asset::io::file::FileAssetReader;
 use bevy::audio::Volume;
 use bevy::prelude::*;
 
+use crate::attachment::FlameFired;
 use crate::barrier::{PlankRebuilt, PlankTorn};
 use crate::buy::{BuyRefused, CantAfford, HoldPurchased, Purchased};
-use crate::hellhound::{HellhoundBite, Telegraph};
-use crate::nova::{GasCloud, NovaSwipe, VentDrop};
-use crate::player::PlayerCamera;
-use crate::power_up::PowerUpTaken;
-use crate::round::{Round, RoundStarted};
+use crate::door::Door;
+use crate::equipment::{Claymore, MonkeyBomb};
+use crate::explosive::Explosion;
+use crate::hellhound::Telegraph;
+use crate::last_stand::{Down, SelfRevived};
+use crate::mystery_box::MysteryBox;
+use crate::nova::{GasCloud, VentDrop};
+use crate::pack_a_punch::{PackAPunch, Stage};
+use crate::perk::{Drinking, PerkMachine};
+use crate::player::{Health, Player, PlayerCamera, PlayerHit};
+use crate::power::Power;
+use crate::power_up::{ActivePowerUps, Dropped, PowerUp, PowerUpTaken};
+use crate::round::{Round, RoundEnded, RoundStarted};
+use crate::sapper::{Sabotaged, Sabotaging, Sapper};
 use crate::shellshock::{ShellshockStarted, Shellshocked};
-use crate::sapper::{Sabotaging, Sapper};
-use crate::special::SpecialCue;
-use crate::tuning::SHELLSHOCK_MUFFLE_GAIN;
-use crate::weapon::ShotFired;
-use crate::zombie::{Dying, Zombie, ZombieHit, ZombieKilled};
+use crate::special::{FirePool, Napalm, SpecialCue};
+use crate::state::{GameState, InRun};
+use crate::teleporter::{MAINFRAME_AT, Teleporter};
+use crate::trap::Trap;
+use crate::tuning::{IDLE_VOCAL_CAP, IDLE_VOCAL_RETRY_SECS, LOW_HEALTH_FRACTION, NAPALM_HEAT_DIST, SHELLSHOCK_MUFFLE_GAIN, SHRIEKER_BLUR_SECS};
+use crate::weapon::{Loadout, ShotFired};
+use crate::zombie::{Attack, Dying, Gibbed, Rising, Zombie, ZombieHit, ZombieKilled};
 use cues::{AUDIO_DIR, Cue, Mix};
+use mix::BoxPhase;
 
 /// Distance between the Player's ears, in metres, for spatial cues.
 const EAR_GAP: f32 = 0.2;
+/// A spawn fire pool crackles at this fraction of a death pool's volume.
+const SPAWN_POOL_GAIN: f32 = 0.5;
+/// The Flamethrower's roar lingers this long after its last tick, so it holds between ticks.
+const FLAME_LINGER_SECS: f32 = 0.2;
+/// A Crawler still for this long stops dragging.
+const DRAG_STILL_SECS: f32 = 0.3;
+
+/// Asks for a cue: heard from `at` if the cue is spatial, or flat without it.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct PlayCue {
+    pub cue: Cue,
+    pub at: Option<Vec3>,
+}
 
 struct Slot {
     variants: Vec<Handle<AudioSource>>,
@@ -42,6 +76,40 @@ struct Sounds {
 /// Each slot's files, found by the startup check, waiting to be loaded.
 #[derive(Resource)]
 struct SlotFiles(Vec<Vec<String>>);
+
+/// A looping cue, a child of the entity it belongs to, so it stops when that goes.
+#[derive(Component)]
+struct LoopOf(Cue);
+
+/// A flat looping cue, playing while its trigger lasts, or for `left` more seconds.
+#[derive(Component)]
+struct FlatLoop {
+    cue: Cue,
+    left: Option<f32>,
+}
+
+/// When a Zombie next makes its idle vocal.
+#[derive(Component)]
+struct IdleVoice {
+    next: f32,
+}
+
+/// An idle vocal playing, a child of its Zombie. These are what the voice cap counts.
+#[derive(Component)]
+struct IdleVocal;
+
+/// When a powered Perk machine next plays its jingle.
+#[derive(Component)]
+struct Jingle {
+    next: f32,
+}
+
+/// Where a Crawler was last frame, and how long it has stood still, for its drag.
+#[derive(Component)]
+struct Drag {
+    last: Vec3,
+    still: f32,
+}
 
 pub struct AudioPlugin;
 
@@ -66,13 +134,27 @@ impl Plugin for AudioPlugin {
             }
         }
 
-        app.add_systems(Startup, load_sounds)
+        app.add_message::<PlayCue>()
+            .add_systems(Startup, load_sounds)
+            .add_systems(OnEnter(GameState::GameOver), |mut commands: Commands, mut sounds: ResMut<Sounds>| {
+                sounds.play(&mut commands, Cue::GameOver, None);
+            })
             .add_systems(
                 Update,
                 (
                     add_listener,
                     muffle,
-                    (play_sounds, play_hound_sounds, play_nova_sounds, play_special_sounds, play_sapper_loops),
+                    play_cues,
+                    play_round_sounds,
+                    play_buy_sounds,
+                    play_player_sounds,
+                    play_zombie_sounds,
+                    play_map_sounds,
+                    idle_vocals,
+                    perk_jingles,
+                    crawler_drag,
+                    entity_loops,
+                    flat_loops,
                 )
                     .chain(),
             );
@@ -112,102 +194,89 @@ impl Sounds {
         slot.variants[pick].clone()
     }
 
-    /// A cue's volume: its gain, turned down under a Shellshock's muffle (bar the Shellshock's
-    /// own ring).
+    /// A cue's volume: its gain, turned down under a Shellshock's muffle (bar the rings in the
+    /// Player's own ears).
     fn gain(&self, cue: Cue) -> f32 {
         let gain = cue.spec().gain;
-        if self.muffled && cue != Cue::Shellshock { gain * SHELLSHOCK_MUFFLE_GAIN } else { gain }
+        if self.muffled && !matches!(cue, Cue::Shellshock | Cue::ScreamHit) { gain * SHELLSHOCK_MUFFLE_GAIN } else { gain }
     }
 
     /// Plays `cue`. Spatial cues are heard from `at`; without it, they play flat.
     fn play(&mut self, commands: &mut Commands, cue: Cue, at: Option<Vec3>) {
+        self.play_at_speed(commands, cue, at, 1.0);
+    }
+
+    /// Plays `cue` at a playback `speed`, which shifts its pitch.
+    fn play_at_speed(&mut self, commands: &mut Commands, cue: Cue, at: Option<Vec3>, speed: f32) {
         let player = AudioPlayer::new(self.next(cue));
-        let spec = cue.spec();
-        let settings = PlaybackSettings::DESPAWN.with_volume(Volume::Linear(self.gain(cue)));
-        match (spec.mix, at) {
+        let settings = PlaybackSettings::DESPAWN
+            .with_volume(Volume::Linear(self.gain(cue)))
+            .with_speed(speed);
+        match (cue.spec().mix, at) {
             (Mix::Spatial, Some(at)) => {
-                commands.spawn((
-                    player,
-                    settings.with_spatial(true),
-                    Transform::from_translation(at),
-                ));
+                commands.spawn((player, settings.with_spatial(true), Transform::from_translation(at)));
             }
             _ => {
                 commands.spawn((player, settings));
             }
         }
     }
-}
 
-fn play_sounds(
-    mut commands: Commands,
-    mut sounds: ResMut<Sounds>,
-    mut shots: MessageReader<ShotFired>,
-    mut hits: MessageReader<ZombieHit>,
-    mut kills: MessageReader<ZombieKilled>,
-    mut rounds: MessageReader<RoundStarted>,
-    mut purchases: MessageReader<Purchased>,
-    mut holds: MessageReader<HoldPurchased>,
-    mut cant_afford: MessageReader<CantAfford>,
-    mut refusals: MessageReader<BuyRefused>,
-    mut torn: MessageReader<PlankTorn>,
-    mut rebuilt: MessageReader<PlankRebuilt>,
-    mut power_ups: MessageReader<PowerUpTaken>,
-    round: Option<Res<Round>>,
-) {
-    for _ in shots.read() {
-        sounds.play(&mut commands, Cue::GunshotPistol, None);
+    /// `cue` played once as a child of an entity, heard from wherever it goes.
+    fn voice(&mut self, cue: Cue) -> impl Bundle + use<> {
+        let settings = PlaybackSettings::DESPAWN
+            .with_volume(Volume::Linear(self.gain(cue)))
+            .with_spatial(cue.spec().mix == Mix::Spatial);
+        (AudioPlayer::new(self.next(cue)), settings, Transform::default())
     }
-    for _ in hits.read() {
-        sounds.play(&mut commands, Cue::Hit, None);
-    }
-    for _ in kills.read() {
-        sounds.play(&mut commands, Cue::Kill, None);
-    }
-    for _ in rounds.read() {
-        // A Hellhound Round opens with thunder and the announcer instead.
-        if round.as_ref().is_some_and(|round| round.hellhound.is_some()) {
-            sounds.play(&mut commands, Cue::HellhoundRoundStart, None);
-            sounds.play(&mut commands, Cue::AnnouncerHellhoundRound, None);
-        } else {
-            sounds.play(&mut commands, Cue::RoundStart, None);
-        }
-    }
-    for _ in 0..purchases.read().count() + holds.read().count() {
-        sounds.play(&mut commands, Cue::Buy, None);
-    }
-    for plank in torn.read() {
-        sounds.play(&mut commands, Cue::PlankTear, Some(plank.at));
-    }
-    for _ in rebuilt.read() {
-        sounds.play(&mut commands, Cue::PlankRebuild, None);
-    }
-    for PowerUpTaken(power_up) in power_ups.read() {
-        sounds.play(&mut commands, power_up.announcer(), None);
-    }
-    // Not affording a buy and a refused buy share the buzzer.
-    for _ in 0..cant_afford.read().count() + refusals.read().count() {
-        sounds.play(&mut commands, Cue::CantAfford, None);
+
+    /// `cue` looping at `scale` of its volume. A spatial one, as a child, is heard from its parent.
+    fn looping(&mut self, cue: Cue, scale: f32) -> impl Bundle + use<> {
+        let settings = PlaybackSettings::LOOP
+            .with_volume(Volume::Linear(self.gain(cue) * scale))
+            .with_spatial(cue.spec().mix == Mix::Spatial);
+        (AudioPlayer::new(self.next(cue)), settings, Transform::default())
     }
 }
 
-/// A hound's lightning strike, its bites and its death yelp.
-fn play_hound_sounds(
-    mut commands: Commands,
-    mut sounds: ResMut<Sounds>,
-    strikes: Query<&Transform, Added<Telegraph>>,
-    deaths: Query<(&Zombie, &Transform), Added<Dying>>,
-    mut bites: MessageReader<HellhoundBite>,
+/// Adds `bundle` as a child of `parent`, unless `parent` is gone by the time it lands.
+fn spawn_child(commands: &mut Commands, parent: Entity, bundle: impl Bundle) {
+    commands.entity(parent).queue_silenced(move |mut parent: EntityWorldMut| {
+        parent.with_child(bundle);
+    });
+}
+
+/// Keeps one `cue` loop on each entity in `wanted` (at its volume scale) and none on any other.
+fn sync_loops(
+    commands: &mut Commands,
+    sounds: &mut Sounds,
+    loops: &Query<(Entity, &LoopOf, &ChildOf)>,
+    cue: Cue,
+    wanted: &[(Entity, f32)],
 ) {
-    for at in &strikes {
-        sounds.play(&mut commands, Cue::HoundSpawn, Some(at.translation));
+    let owners: Vec<Entity> = wanted.iter().map(|&(owner, _)| owner).collect();
+    let playing: Vec<(Entity, Entity)> = loops
+        .iter()
+        .filter(|(_, sound, _)| sound.0 == cue)
+        .map(|(entity, _, parent)| (entity, parent.parent()))
+        .collect();
+    let (start, stop) = mix::loop_changes(&owners, &playing);
+    for owner in start {
+        let scale = wanted.iter().find(|w| w.0 == owner).map_or(1.0, |w| w.1);
+        let bundle = (LoopOf(cue), sounds.looping(cue, scale));
+        spawn_child(commands, owner, bundle);
     }
-    for _ in bites.read() {
-        sounds.play(&mut commands, Cue::HoundBite, None);
+    for sound in stop {
+        commands.entity(sound).try_despawn();
     }
-    for (zombie, at) in &deaths {
-        if zombie.is_hellhound() {
-            sounds.play(&mut commands, Cue::HoundDeath, Some(at.translation));
+}
+
+/// Starts a flat loop of `cue` for `secs`, or stretches the one playing to last that long.
+fn hold_flat_loop(commands: &mut Commands, sounds: &mut Sounds, loops: &mut Query<&mut FlatLoop>, cue: Cue, secs: f32) {
+    match loops.iter_mut().find(|sound| sound.cue == cue) {
+        Some(mut sound) => sound.left = Some(sound.left.map_or(secs, |left| left.max(secs))),
+        None => {
+            commands.spawn((InRun, FlatLoop { cue, left: Some(secs) }, sounds.looping(cue, 1.0)));
         }
     }
 }
@@ -220,78 +289,469 @@ fn muffle(shellshocked: Res<Shellshocked>, mut sounds: ResMut<Sounds>) {
     }
 }
 
-/// A Nova Crawler's Vent drop, its swipes, its gas burst with the cloud's hiss, and the
-/// Shellshock's ring.
-fn play_nova_sounds(
+/// Cues other systems ask for, and the Shellshock's ring. A Shrieker's scream rings in the
+/// Player's ears for the length of its blur, in place of the Shellshock's own ring.
+fn play_cues(
     mut commands: Commands,
     mut sounds: ResMut<Sounds>,
-    drops: Query<&Transform, Added<VentDrop>>,
-    clouds: Query<(Entity, &Transform), Added<GasCloud>>,
-    mut swipes: MessageReader<NovaSwipe>,
+    mut asked: MessageReader<PlayCue>,
+    mut specials: MessageReader<SpecialCue>,
     mut shellshocks: MessageReader<ShellshockStarted>,
+    mut loops: Query<&mut FlatLoop>,
 ) {
-    for at in &drops {
-        sounds.play(&mut commands, Cue::NovaVent, Some(at.translation));
-    }
-    for _ in swipes.read() {
-        sounds.play(&mut commands, Cue::NovaAttack, None);
-    }
-    for (cloud, at) in &clouds {
-        sounds.play(&mut commands, Cue::NovaBurst, Some(at.translation));
-        // The hiss loops for as long as the cloud lasts, and goes with it.
-        let hiss = AudioPlayer::new(sounds.next(Cue::NovaGas));
-        let settings = PlaybackSettings::LOOP
-            .with_volume(Volume::Linear(sounds.gain(Cue::NovaGas)))
-            .with_spatial(true);
-        commands.entity(cloud).with_child((hiss, settings, Transform::default()));
+    let requests = asked
+        .read()
+        .map(|cue| (cue.cue, cue.at))
+        .chain(specials.read().map(|cue| (cue.cue, cue.at)))
+        .collect::<Vec<_>>();
+    let mut screamed = loops.iter().any(|sound| sound.cue == Cue::ScreamHit);
+    for (cue, at) in requests {
+        if cue == Cue::ScreamHit {
+            hold_flat_loop(&mut commands, &mut sounds, &mut loops, cue, SHRIEKER_BLUR_SECS);
+            screamed = true;
+        } else {
+            sounds.play(&mut commands, cue, at);
+        }
     }
     for _ in shellshocks.read() {
-        sounds.play(&mut commands, Cue::Shellshock, None);
+        if !screamed {
+            sounds.play(&mut commands, Cue::Shellshock, None);
+        }
     }
 }
 
-/// The Napalm's and the Shrieker's sounds, as their module asks for them.
-fn play_special_sounds(mut commands: Commands, mut sounds: ResMut<Sounds>, mut cues: MessageReader<SpecialCue>) {
-    for cue in cues.read() {
-        sounds.play(&mut commands, cue.cue, cue.at);
-    }
-}
-
-/// One of the Sapper's looping sounds, a child of the Sapper: its breathing while it lives, or
-/// its Sabotage while it works.
-#[derive(Component)]
-struct SapperLoop {
-    sabotage: bool,
-}
-
-/// The Sapper's idle loops from its arrival to its death, and its Sabotage loop while it works.
-fn play_sapper_loops(
+/// Round stings, the Down and the Self-Revive.
+fn play_round_sounds(
     mut commands: Commands,
     mut sounds: ResMut<Sounds>,
-    arrived: Query<Entity, Added<Sapper>>,
-    working: Query<Entity, (With<Sapper>, Added<Sabotaging>)>,
-    died: Query<Entity, (With<Sapper>, Added<Dying>)>,
-    mut stopped: RemovedComponents<Sabotaging>,
-    loops: Query<(Entity, &SapperLoop, &ChildOf)>,
+    mut started: MessageReader<RoundStarted>,
+    mut ended: MessageReader<RoundEnded>,
+    mut downs: MessageReader<Down>,
+    mut revives: MessageReader<SelfRevived>,
+    round: Option<Res<Round>>,
 ) {
-    let mut start = |commands: &mut Commands, sapper: Entity, cue: Cue, sabotage: bool| {
-        let player = AudioPlayer::new(sounds.next(cue));
-        let settings = PlaybackSettings::LOOP
-            .with_volume(Volume::Linear(sounds.gain(cue)))
-            .with_spatial(true);
-        commands.entity(sapper).with_child((SapperLoop { sabotage }, player, settings, Transform::default()));
+    for _ in started.read() {
+        // A Hellhound Round opens with thunder and the announcer instead.
+        if round.as_ref().is_some_and(|round| round.hellhound.is_some()) {
+            sounds.play(&mut commands, Cue::HellhoundRoundStart, None);
+            sounds.play(&mut commands, Cue::AnnouncerHellhoundRound, None);
+        } else {
+            sounds.play(&mut commands, Cue::RoundStart, None);
+        }
+    }
+    for _ in ended.read() {
+        sounds.play(&mut commands, Cue::RoundEnd, None);
+    }
+    for _ in downs.read() {
+        sounds.play(&mut commands, Cue::Down, None);
+    }
+    for _ in revives.read() {
+        sounds.play(&mut commands, Cue::SelfRevive, None);
+    }
+}
+
+/// Buys, Planks and Power-ups.
+fn play_buy_sounds(
+    mut commands: Commands,
+    mut sounds: ResMut<Sounds>,
+    mut purchases: MessageReader<Purchased>,
+    mut holds: MessageReader<HoldPurchased>,
+    mut cant_afford: MessageReader<CantAfford>,
+    mut refusals: MessageReader<BuyRefused>,
+    mut torn: MessageReader<PlankTorn>,
+    mut rebuilt: MessageReader<PlankRebuilt>,
+    mut power_ups: MessageReader<PowerUpTaken>,
+) {
+    for _ in 0..purchases.read().count() + holds.read().count() {
+        sounds.play(&mut commands, Cue::Buy, None);
+    }
+    // Not affording a buy and a refused buy share the buzzer.
+    for _ in 0..cant_afford.read().count() + refusals.read().count() {
+        sounds.play(&mut commands, Cue::CantAfford, None);
+    }
+    for plank in torn.read() {
+        sounds.play(&mut commands, Cue::PlankTear, Some(plank.at));
+    }
+    for plank in rebuilt.read() {
+        sounds.play(&mut commands, Cue::PlankRebuild, Some(plank.at));
+    }
+    for PowerUpTaken(power_up) in power_ups.read() {
+        sounds.play(&mut commands, Cue::PowerupPickup, None);
+        sounds.play(&mut commands, power_up.announcer(), None);
+        if *power_up == PowerUp::Nuke {
+            sounds.play(&mut commands, Cue::NukeBlast, None);
+        }
+    }
+}
+
+/// The Player's own sounds: gunshots (by class, at the Weapon's pitch, with Pack-a-Punch's zap on
+/// top), the Flamethrower's roar, hits and kills, explosions, getting hurt, Reloads and switches,
+/// Claymores and Perk drinks.
+fn play_player_sounds(
+    mut commands: Commands,
+    mut sounds: ResMut<Sounds>,
+    mut shots: MessageReader<ShotFired>,
+    mut flames: MessageReader<FlameFired>,
+    mut hits: MessageReader<ZombieHit>,
+    mut kills: MessageReader<ZombieKilled>,
+    mut explosions: MessageReader<Explosion>,
+    mut hurts: MessageReader<PlayerHit>,
+    mut loops: Query<&mut FlatLoop>,
+    loadout: Query<&Loadout, With<Player>>,
+    claymores: Query<(), Added<Claymore>>,
+    drinks: Query<(), (With<Player>, Added<Drinking>)>,
+    // Whether the Player was reloading, and switching, last frame.
+    mut was: Local<(bool, bool)>,
+) {
+    for shot in shots.read() {
+        let (cue, speed) = mix::shot_cue(shot.weapon, shot.underbarrel);
+        sounds.play_at_speed(&mut commands, cue, None, speed);
+        if shot.upgraded {
+            sounds.play(&mut commands, Cue::PapShotLayer, None);
+        }
+    }
+    if flames.read().count() > 0 {
+        hold_flat_loop(&mut commands, &mut sounds, &mut loops, Cue::Flamethrower, FLAME_LINGER_SECS);
+    }
+    for hit in hits.read() {
+        sounds.play(&mut commands, if hit.headshot { Cue::Headshot } else { Cue::Hit }, None);
+    }
+    for kill in kills.read() {
+        sounds.play(&mut commands, Cue::Kill, None);
+        if kill.headshot {
+            sounds.play(&mut commands, Cue::Headshot, None);
+        }
+        if kill.attack == Attack::Trap {
+            sounds.play(&mut commands, Cue::TrapKill, Some(kill.at));
+        }
+    }
+    for explosion in explosions.read() {
+        sounds.play(&mut commands, Cue::Explosion, Some(explosion.at));
+    }
+    for _ in hurts.read() {
+        sounds.play(&mut commands, Cue::PlayerHurt, None);
+    }
+    if let Ok(loadout) = loadout.single() {
+        let now = (loadout.reload.is_some(), loadout.swap.is_some());
+        if now.0 && !was.0 {
+            sounds.play(&mut commands, Cue::Reload, None);
+        }
+        if now.1 && !was.1 {
+            sounds.play(&mut commands, Cue::WeaponSwap, None);
+        }
+        *was = now;
+    }
+    for _ in &claymores {
+        sounds.play(&mut commands, Cue::ClaymorePlant, None);
+    }
+    for _ in &drinks {
+        sounds.play(&mut commands, Cue::PerkDrink, None);
+    }
+}
+
+/// Zombies, Hellhounds and Nova Crawlers arriving, losing their legs and dying.
+fn play_zombie_sounds(
+    mut commands: Commands,
+    mut sounds: ResMut<Sounds>,
+    strikes: Query<&GlobalTransform, Added<Telegraph>>,
+    risers: Query<(&Zombie, &GlobalTransform), Added<Rising>>,
+    deaths: Query<(&Zombie, &GlobalTransform), Added<Dying>>,
+    drops: Query<&GlobalTransform, Added<VentDrop>>,
+    clouds: Query<&GlobalTransform, Added<GasCloud>>,
+    positions: Query<&GlobalTransform>,
+    mut gibbed: MessageReader<Gibbed>,
+) {
+    for at in &strikes {
+        sounds.play(&mut commands, Cue::HoundSpawn, Some(at.translation()));
+    }
+    for (zombie, at) in &risers {
+        // A Nova Crawler drops from its Vent, and a special rises with its own sound.
+        if !zombie.is_special() {
+            sounds.play(&mut commands, Cue::ZombieRiser, Some(at.translation()));
+        }
+    }
+    for (zombie, at) in &deaths {
+        if zombie.is_hellhound() {
+            sounds.play(&mut commands, Cue::HoundDeath, Some(at.translation()));
+        } else if !zombie.is_special() {
+            sounds.play(&mut commands, Cue::ZombieDeath, Some(at.translation()));
+        }
+    }
+    for &Gibbed { zombie } in gibbed.read() {
+        if let Ok(at) = positions.get(zombie) {
+            sounds.play(&mut commands, Cue::CrawlerGib, Some(at.translation()));
+        }
+    }
+    for at in &drops {
+        sounds.play(&mut commands, Cue::NovaVent, Some(at.translation()));
+    }
+    for at in &clouds {
+        sounds.play(&mut commands, Cue::NovaBurst, Some(at.translation()));
+    }
+}
+
+/// The Map's state changes: Doors opening, the Power coming on, Sabotages and restores, the
+/// Mystery Box and Pack-a-Punch.
+fn play_map_sounds(
+    mut commands: Commands,
+    mut sounds: ResMut<Sounds>,
+    doors: Query<(&Door, &GlobalTransform), Changed<Door>>,
+    power: Res<Power>,
+    teleporter: Option<Res<Teleporter>>,
+    sabotaged: Query<&GlobalTransform, Added<Sabotaged>>,
+    mut restored: RemovedComponents<Sabotaged>,
+    standing: Query<(), Without<Sabotaged>>,
+    boxes: Query<(Entity, &MysteryBox, &GlobalTransform)>,
+    machines: Query<(Entity, &PackAPunch, &GlobalTransform)>,
+    // Whether the Power was on and the Teleporter Sabotaged last frame, and where each Box and
+    // Pack-a-Punch was up to.
+    mut was: Local<(bool, bool)>,
+    mut box_phases: Local<HashMap<Entity, BoxPhase>>,
+    mut pap_stages: Local<HashMap<Entity, Option<Stage>>>,
+) {
+    for (door, at) in &doors {
+        if door.open {
+            sounds.play(&mut commands, Cue::DoorOpen, Some(at.translation()));
+        }
+    }
+    if power.is_on() && !was.0 {
+        sounds.play(&mut commands, Cue::PowerOn, None);
+    }
+    for at in &sabotaged {
+        sounds.play(&mut commands, Cue::PowerDown, Some(at.translation()));
+    }
+    let teleporter_down = teleporter.is_some_and(|teleporter| teleporter.sabotaged());
+    if teleporter_down && !was.1 {
+        sounds.play(&mut commands, Cue::PowerDown, Some(MAINFRAME_AT));
+    }
+    // A restored system is still standing; one despawned with the Run isn't.
+    let restores = restored.read().filter(|&entity| standing.contains(entity)).count();
+    if restores > 0 || (was.1 && !teleporter_down) {
+        sounds.play(&mut commands, Cue::PowerRestore, None);
+    }
+    *was = (power.is_on(), teleporter_down);
+
+    let mut phases = HashMap::new();
+    for (entity, mystery_box, at) in &boxes {
+        let now = BoxPhase::from(&mystery_box.state);
+        let before = box_phases.get(&entity).copied().unwrap_or(now);
+        if let Some(cue) = mix::box_cue(before, now) {
+            sounds.play(&mut commands, cue, Some(at.translation()));
+        }
+        phases.insert(entity, now);
+    }
+    *box_phases = phases;
+
+    let mut stages = HashMap::new();
+    for (entity, machine, at) in &machines {
+        let now = machine.stage();
+        let before = pap_stages.get(&entity).copied().unwrap_or(now);
+        if let Some(cue) = mix::pap_cue(before, now) {
+            sounds.play(&mut commands, cue, Some(at.translation()));
+        }
+        stages.insert(entity, now);
+    }
+    *pap_stages = stages;
+}
+
+/// Zombies moan, grunt and shriek now and then, as do Crawlers, Nova Crawlers and Hellhounds,
+/// but only the nearest `IDLE_VOCAL_CAP` are heard at once. A Zombie's idle stops when it dies.
+fn idle_vocals(
+    mut commands: Commands,
+    mut sounds: ResMut<Sounds>,
+    camera: Query<&GlobalTransform, With<PlayerCamera>>,
+    mut zombies: Query<
+        (Entity, &Zombie, &GlobalTransform, Option<&mut IdleVoice>),
+        (Without<Dying>, Without<Rising>, Without<Telegraph>),
+    >,
+    vocals: Query<(Entity, &ChildOf), With<IdleVocal>>,
+    positions: Query<&GlobalTransform, Without<Dying>>,
+    time: Res<Time>,
+) {
+    let Ok(ears) = camera.single() else {
+        return;
     };
-    for sapper in &arrived {
-        start(&mut commands, sapper, Cue::SapperIdle, false);
+    let ears = ears.translation();
+    let dt = time.delta_secs();
+    let mut due = Vec::new();
+    for (entity, zombie, at, voice) in &mut zombies {
+        let Some((_, every)) = mix::idle_vocal(zombie) else { continue };
+        match voice {
+            Some(mut voice) => {
+                voice.next -= dt;
+                if voice.next <= 0.0 {
+                    due.push((entity, at.translation().distance(ears)));
+                }
+            }
+            None => {
+                commands.entity(entity).insert(IdleVoice {
+                    next: mix::within(&every, rand::random()),
+                });
+            }
+        }
     }
-    for sapper in &working {
-        start(&mut commands, sapper, Cue::SapperSabotage, true);
+    let mut playing = Vec::new();
+    for (vocal, parent) in &vocals {
+        match positions.get(parent.parent()) {
+            Ok(at) => playing.push((vocal, at.translation().distance(ears))),
+            // Its Zombie is dying, and makes its death sound instead.
+            Err(_) => commands.entity(vocal).try_despawn(),
+        }
     }
-    let stopped: Vec<Entity> = stopped.read().collect();
-    for (entity, sound, parent) in &loops {
-        let sapper = parent.parent();
-        if (sound.sabotage && stopped.contains(&sapper)) || died.contains(sapper) {
-            commands.entity(entity).despawn();
+    let voices = mix::choose_voices(&playing, &due, IDLE_VOCAL_CAP);
+    for vocal in voices.stop {
+        commands.entity(vocal).try_despawn();
+    }
+    for (entity, _) in due {
+        let Ok((_, zombie, _, Some(mut voice))) = zombies.get_mut(entity) else { continue };
+        let Some((cue, every)) = mix::idle_vocal(zombie) else { continue };
+        if voices.start.contains(&entity) {
+            voice.next = mix::within(&every, rand::random());
+            let bundle = (IdleVocal, sounds.voice(cue));
+            spawn_child(&mut commands, entity, bundle);
+        } else {
+            voice.next = IDLE_VOCAL_RETRY_SECS;
+        }
+    }
+}
+
+/// Every Perk machine plays its jingle when bought, and every 2–4 minutes while it's powered.
+fn perk_jingles(
+    mut commands: Commands,
+    mut sounds: ResMut<Sounds>,
+    mut machines: Query<(Entity, &PerkMachine, &GlobalTransform, Option<&mut Jingle>, Has<Sabotaged>)>,
+    mut purchases: MessageReader<Purchased>,
+    power: Res<Power>,
+    time: Res<Time>,
+) {
+    let bought: Vec<Entity> = purchases.read().map(|Purchased(entity)| *entity).collect();
+    for (entity, machine, at, jingle, sabotaged) in &mut machines {
+        let Some(mut jingle) = jingle else {
+            commands.entity(entity).insert(Jingle {
+                next: mix::next_jingle_secs(rand::random()),
+            });
+            continue;
+        };
+        let powered = (!machine.perk.needs_power() || power.is_on()) && !sabotaged;
+        if powered {
+            jingle.next -= time.delta_secs();
+        }
+        if bought.contains(&entity) || (powered && jingle.next <= 0.0) {
+            sounds.play(&mut commands, mix::jingle(machine.perk), Some(at.translation()));
+            jingle.next = mix::next_jingle_secs(rand::random());
+        }
+    }
+}
+
+/// A Crawler drags itself along with a scrape and a slap, for as long as it's moving.
+fn crawler_drag(
+    mut commands: Commands,
+    mut sounds: ResMut<Sounds>,
+    mut zombies: Query<(Entity, &Zombie, &GlobalTransform, Option<&mut Drag>), Without<Dying>>,
+    loops: Query<(Entity, &LoopOf, &ChildOf)>,
+    time: Res<Time>,
+) {
+    let mut wanted = Vec::new();
+    for (entity, zombie, at, drag) in &mut zombies {
+        if !zombie.is_crawler() {
+            continue;
+        }
+        let at = at.translation();
+        match drag {
+            Some(mut drag) => {
+                drag.still = if at.distance(drag.last) > 1e-3 { 0.0 } else { drag.still + time.delta_secs() };
+                drag.last = at;
+                if drag.still < DRAG_STILL_SECS {
+                    wanted.push((entity, 1.0));
+                }
+            }
+            None => {
+                commands.entity(entity).insert(Drag { last: at, still: 0.0 });
+            }
+        }
+    }
+    sync_loops(&mut commands, &mut sounds, &loops, Cue::CrawlerDrag, &wanted);
+}
+
+/// The loops that belong to something in the world, each lasting as long as its trigger: the
+/// gas cloud's hiss, the Sapper's breathing and its Sabotage, a living Napalm, a fire pool, a
+/// landed Monkey Bomb, a Power-up on the ground, a running Trap and a Box in a Fire Sale.
+fn entity_loops(
+    mut commands: Commands,
+    mut sounds: ResMut<Sounds>,
+    loops: Query<(Entity, &LoopOf, &ChildOf)>,
+    clouds: Query<Entity, With<GasCloud>>,
+    sappers: Query<(Entity, Has<Sabotaging>), (With<Sapper>, Without<Dying>)>,
+    napalms: Query<Entity, (With<Napalm>, Without<Dying>)>,
+    pools: Query<(Entity, &FirePool)>,
+    bombs: Query<(Entity, &MonkeyBomb)>,
+    dropped: Query<Entity, With<Dropped>>,
+    traps: Query<(Entity, &Trap)>,
+    boxes: Query<(Entity, &MysteryBox)>,
+    active: Res<ActivePowerUps>,
+) {
+    let all = |entities: Vec<Entity>| entities.into_iter().map(|entity| (entity, 1.0)).collect::<Vec<_>>();
+    let fire_sale = active.active(PowerUp::FireSale);
+    let wanted: [(Cue, Vec<(Entity, f32)>); 9] = [
+        (Cue::NovaGas, all(clouds.iter().collect())),
+        (Cue::SapperIdle, all(sappers.iter().map(|(entity, _)| entity).collect())),
+        (Cue::SapperSabotage, all(sappers.iter().filter(|(_, working)| *working).map(|(entity, _)| entity).collect())),
+        (Cue::NapalmIdle, all(napalms.iter().collect())),
+        (
+            Cue::FirePool,
+            pools.iter().map(|(entity, pool)| (entity, if pool.spawned { SPAWN_POOL_GAIN } else { 1.0 })).collect(),
+        ),
+        (Cue::MonkeyBomb, all(bombs.iter().filter(|(_, bomb)| bomb.landed()).map(|(entity, _)| entity).collect())),
+        (Cue::PowerupHum, all(dropped.iter().collect())),
+        (Cue::TrapActive, all(traps.iter().filter(|(_, trap)| trap.running()).map(|(entity, _)| entity).collect())),
+        (
+            Cue::FireSale,
+            all(boxes.iter().filter(|(_, mystery_box)| fire_sale && mystery_box.present()).map(|(entity, _)| entity).collect()),
+        ),
+    ];
+    for (cue, wanted) in wanted {
+        sync_loops(&mut commands, &mut sounds, &loops, cue, &wanted);
+    }
+}
+
+/// The flat loops: the heartbeat at low Health and the Napalm's heat close by last while they
+/// do; the timed ones (the Flamethrower, a scream's ring) run out.
+fn flat_loops(
+    mut commands: Commands,
+    mut sounds: ResMut<Sounds>,
+    mut loops: Query<(Entity, &mut FlatLoop)>,
+    player: Query<(&Health, &GlobalTransform), With<Player>>,
+    napalms: Query<&GlobalTransform, (With<Napalm>, Without<Dying>)>,
+    state: Res<State<GameState>>,
+    time: Res<Time>,
+) {
+    let playing = *state.get() == GameState::Playing;
+    let (low, hot) = match player.single() {
+        Ok((health, at)) if playing => (
+            health.fraction() < LOW_HEALTH_FRACTION,
+            napalms.iter().any(|napalm| napalm.translation().distance(at.translation()) <= NAPALM_HEAT_DIST),
+        ),
+        _ => (false, false),
+    };
+    let mut on = [(Cue::LowHealth, low), (Cue::NapalmHeat, hot)];
+    for (entity, mut sound) in &mut loops {
+        match &mut sound.left {
+            Some(left) => {
+                *left -= time.delta_secs();
+                if *left <= 0.0 || !playing {
+                    commands.entity(entity).despawn();
+                }
+            }
+            None => match on.iter_mut().find(|(cue, _)| *cue == sound.cue) {
+                // Already playing: nothing to start.
+                Some((_, want)) if *want => *want = false,
+                _ => commands.entity(entity).despawn(),
+            },
+        }
+    }
+    for (cue, start) in on {
+        if start {
+            commands.spawn((InRun, FlatLoop { cue, left: None }, sounds.looping(cue, 1.0)));
         }
     }
 }

@@ -16,6 +16,8 @@ use bevy::input::common_conditions::input_just_pressed;
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
 
+use crate::audio::PlayCue;
+use crate::audio::cues::Cue;
 use crate::buy::Purchased;
 use crate::explosive::Explosion;
 use crate::last_stand::LastStand;
@@ -230,6 +232,7 @@ fn open_offer(
     time: Res<Time>,
     mut hold: ResMut<IntermissionHold>,
     mut freeze: ResMut<Freeze>,
+    mut cues: MessageWriter<PlayCue>,
 ) {
     let Some(left) = pending.0.as_mut() else {
         return;
@@ -267,6 +270,11 @@ fn open_offer(
         hold.0 = false;
         return;
     }
+    let cue = match choices {
+        Choices::Boons(_) => Cue::BoonOffer,
+        Choices::Pacts(_) => Cue::PactOffer,
+    };
+    cues.write(PlayCue { cue, at: None });
     commands.insert_resource(Offer {
         choices,
         round: round.number,
@@ -288,6 +296,7 @@ fn pick(
     mut pacts: ResMut<HeldPacts>,
     mut freeze: ResMut<Freeze>,
     mut hold: ResMut<IntermissionHold>,
+    mut cues: MessageWriter<PlayCue>,
 ) {
     let Some(offer) = offer else {
         return;
@@ -316,6 +325,10 @@ fn pick(
             }
         }
     }
+    cues.write(PlayCue {
+        cue: Cue::OfferPick,
+        at: None,
+    });
     commands.remove_resource::<Offer>();
     freeze.0 = false;
     hold.0 = false;

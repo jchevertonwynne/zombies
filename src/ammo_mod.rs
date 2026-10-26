@@ -12,6 +12,8 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 
 use crate::arsenal::Burn;
+use crate::audio::PlayCue;
+use crate::audio::cues::Cue;
 use crate::burn::{Burning, Ignite};
 use crate::door::Door;
 use crate::explosive::{in_sight, world_filter};
@@ -47,6 +49,17 @@ impl AmmoMod {
 
     fn index(self) -> usize {
         self as usize
+    }
+
+    /// The sound it makes when it triggers.
+    pub fn cue(self) -> Cue {
+        match self {
+            AmmoMod::BlastFurnace => Cue::AmmoModBlastFurnace,
+            AmmoMod::DeadWire => Cue::AmmoModDeadWire,
+            AmmoMod::Fireworks => Cue::AmmoModFireworks,
+            AmmoMod::ThunderWall => Cue::AmmoModThunderWall,
+            AmmoMod::Turned => Cue::AmmoModTurned,
+        }
     }
 
     #[allow(dead_code, reason = "for the HUD and debug output")]
@@ -441,7 +454,7 @@ fn roll_ammo_mods(
     mut damage: MessageWriter<DamageZombie>,
     mut ignite: MessageWriter<Ignite>,
     mut kills: MessageWriter<ZombieKilled>,
-    mut stuns: MessageWriter<StunZombie>,
+    (mut stuns, mut cues): (MessageWriter<StunZombie>, MessageWriter<PlayCue>),
     time: Res<Time>,
 ) {
     cooldowns.tick(time.delta_secs());
@@ -476,6 +489,10 @@ fn roll_ammo_mods(
                 continue;
             }
             cooldowns.start(ammo_mod, resolve(Stat::AmmoModCooldown, ammo_mod.cooldown_secs(), &player.0));
+            cues.write(PlayCue {
+                cue: ammo_mod.cue(),
+                at: Some(at),
+            });
             let colour = ammo_mod.glint();
             match ammo_mod {
                 AmmoMod::BlastFurnace => {

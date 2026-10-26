@@ -4,6 +4,8 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+use crate::audio::PlayCue;
+use crate::audio::cues::Cue;
 use crate::buy::{Buyable, Purchased, Refused};
 use crate::layers::GameLayer;
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve_count, resolve_points};
@@ -332,10 +334,18 @@ fn buy_perks(
 fn float_away(
     mut commands: Commands,
     mut machines: Query<(Entity, &mut Leaving, &mut Transform)>,
+    mut cues: MessageWriter<PlayCue>,
     time: Res<Time>,
 ) {
     for (entity, mut leaving, mut transform) in &mut machines {
+        let waited = leaving.elapsed;
         leaving.elapsed += time.delta_secs();
+        if waited < QUICK_REVIVE_LEAVE_DELAY_SECS && leaving.elapsed >= QUICK_REVIVE_LEAVE_DELAY_SECS {
+            cues.write(PlayCue {
+                cue: Cue::PerkMachineLeave,
+                at: Some(leaving.from),
+            });
+        }
         match leaving_rise(leaving.elapsed) {
             Some(rise) => transform.translation = leaving.from + Vec3::Y * rise,
             None => commands.entity(entity).despawn(),

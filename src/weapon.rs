@@ -4,6 +4,8 @@ use bevy::prelude::*;
 
 use crate::ammo_mod::{AmmoModHit, AmmoMods, glint_colour, pick_ammo_mod};
 use crate::arsenal::{Burn, FireMode, Splash, WeaponClass, WeaponId, WeaponStats};
+use crate::audio::PlayCue;
+use crate::audio::cues::Cue;
 use crate::attachment::{
     Attachment, FlameFired, Underbarrel, UnderbarrelAmmo, built_in_underbarrel, free_mounts, pick_attachment,
 };
@@ -747,9 +749,14 @@ pub fn knife_damage(bowie: bool, ballistic: Option<bool>) -> f32 {
     }
 }
 
-/// The held Weapon went off (for audio and effects).
-#[derive(Message)]
-pub struct ShotFired;
+/// The held Weapon went off (for audio and effects): which Weapon, whether it's Upgraded, and the
+/// Underbarrel it fired through, if any.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct ShotFired {
+    pub weapon: WeaponId,
+    pub upgraded: bool,
+    pub underbarrel: Option<Underbarrel>,
+}
 
 /// The on-screen Weapon model, a child of the camera.
 #[derive(Component)]
@@ -905,6 +912,7 @@ fn fire(
     mut explosions: MessageWriter<Explosion>,
     mut wonders: MessageWriter<WonderFired>,
     mut flames: MessageWriter<FlameFired>,
+    mut cues: MessageWriter<PlayCue>,
 ) {
     let (entity, mut loadout, modifiers) = player.into_inner();
     let entries = &modifiers.0;
@@ -912,8 +920,9 @@ fn fire(
     // Spread is read before the shot blooms it.
     let spread = loadout.spread();
     if !loadout.try_fire(pressed, just_pressed, entries) {
-        // Pulling the trigger on an empty Magazine starts a Reload.
+        // Pulling the trigger on an empty Magazine clicks, and starts a Reload.
         if just_pressed && loadout.gun_ammo().0 == 0 {
+            cues.write(PlayCue { cue: Cue::EmptyClick, at: None });
             loadout.start_reload(entries);
         }
         return;
@@ -936,7 +945,11 @@ fn fire(
         });
         return;
     }
-    shots.write(ShotFired);
+    shots.write(ShotFired {
+        weapon: loadout.held().id,
+        upgraded: loadout.held().upgraded,
+        underbarrel,
+    });
 
     // Every damage event from this Weapon rolls its Ammo Mods.
     let ammo_mods = loadout.held().ammo_mods;
@@ -1074,6 +1087,7 @@ fn knife(
     spatial: SpatialQuery,
     hit_areas: Query<(&HitArea, &ChildOf)>,
     mut damage: MessageWriter<DamageZombie>,
+    mut cues: MessageWriter<PlayCue>,
     time: Res<Time>,
 ) {
     let (entity, mut knife, loadout, modifiers) = player.into_inner();
@@ -1082,6 +1096,7 @@ fn knife(
         return;
     }
     knife.cooldown = KNIFE_COOLDOWN_SECS;
+    cues.write(PlayCue { cue: Cue::KnifeSwing, at: None });
 
     if let Some(hit) = spatial.cast_shape(
         &Collider::sphere(KNIFE_RADIUS),
@@ -1099,6 +1114,7 @@ fn knife(
             zone,
             attack: Attack::Knife,
         });
+        cues.write(PlayCue { cue: Cue::KnifeHit, at: None });
     }
 }
 

@@ -1387,6 +1387,24 @@ pub const SHELLSHOCK_MUFFLE_GAIN: f32 = 0.3;
 /// How strongly the Shellshock overlay blurs the view (invented).
 pub const SHELLSHOCK_OVERLAY_STRENGTH: f32 = 1.0;
 
+// Audio (per-cue gains live beside the audio code)
+/// At most this many idle Zombie vocals play at once, the nearest Zombies first.
+pub const IDLE_VOCAL_CAP: usize = 6;
+/// Seconds between one Zombie's idle vocals, by what it is (invented): a Walker moans slowly, a
+/// Sprinter shrieks often.
+pub const WALKER_IDLE_SECS: std::ops::RangeInclusive<f32> = 5.0..=9.0;
+pub const JOGGER_IDLE_SECS: std::ops::RangeInclusive<f32> = 3.0..=6.0;
+pub const SPRINTER_IDLE_SECS: std::ops::RangeInclusive<f32> = 1.5..=3.5;
+pub const CRAWLER_IDLE_SECS: std::ops::RangeInclusive<f32> = 4.0..=8.0;
+pub const NOVA_CRAWLER_IDLE_SECS: std::ops::RangeInclusive<f32> = 2.0..=4.0;
+pub const HELLHOUND_IDLE_SECS: std::ops::RangeInclusive<f32> = 2.0..=4.0;
+/// A Zombie due a vocal with no voice free tries again this soon (invented).
+pub const IDLE_VOCAL_RETRY_SECS: f32 = 0.5;
+/// A powered Perk machine plays its jingle this often, at random within the range.
+pub const PERK_JINGLE_SECS: std::ops::RangeInclusive<f32> = 120.0..=240.0;
+/// The heartbeat loops while the Player's Health is below this fraction of its max.
+pub const LOW_HEALTH_FRACTION: f32 = 0.4;
+
 // Fog
 /// The Player's fog, linear from start to end.
 pub const FOG_START: f32 = 10.0;

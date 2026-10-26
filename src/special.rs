@@ -259,8 +259,10 @@ struct DeathScream {
 
 /// A fire pool on the floor: it burns the Player every tick while they stand in it.
 #[derive(Component)]
-struct FirePool {
+pub struct FirePool {
     ticks: Burning,
+    /// The short pool a Napalm leaves where it spawns, rather than the one it leaves at death.
+    pub spawned: bool,
 }
 
 /// A Zombie that walked into a fire pool, burning to death.
@@ -484,6 +486,7 @@ fn spawn_pool(commands: &mut Commands, assets: &SpecialAssets, at: Vec3, damage:
                 tick_secs: NAPALM_POOL_TICK_SECS,
                 secs,
             }),
+            spawned: secs < NAPALM_DEATH_POOL_SECS,
         },
         Mesh3d(assets.pool.clone()),
         MeshMaterial3d(assets.fire.clone()),
@@ -573,6 +576,10 @@ fn shriek(
                 if reaches {
                     shellshocks.write(Shellshock {
                         secs: SHRIEKER_BLUR_SECS,
+                    });
+                    cues.write(SpecialCue {
+                        cue: Cue::ScreamHit,
+                        at: None,
                     });
                     shake.left = shake.left.max(SHRIEKER_SHAKE_SECS);
                 }

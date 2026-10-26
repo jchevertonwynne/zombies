@@ -9,9 +9,9 @@ use crate::last_stand::LastStand;
 use crate::layers::GameLayer;
 use crate::modifier::{Modifiers, Stat, resolve};
 use crate::barrier::{Barriers, Entering};
-use crate::hellhound::{HellhoundBite, Telegraph};
+use crate::hellhound::Telegraph;
 use crate::nav::{NavGraph, Route, repath_interval};
-use crate::nova::{NovaCrawlerKilled, NovaSwipe};
+use crate::nova::NovaCrawlerKilled;
 use crate::player::{Player, PlayerHit};
 use crate::power_up::{ActivePowerUps, PowerUp};
 use crate::round::CarriesOver;
@@ -165,6 +165,7 @@ pub struct KnockDown {
 pub struct ZombieHit {
     /// Whether the hit pays hit Points: a Napalm's or the Sapper's never do, a Shrieker's every 2nd.
     pub pays: bool,
+    pub headshot: bool,
 }
 
 /// An explosion blew a Zombie's legs off: it becomes a Crawler.
@@ -373,6 +374,10 @@ impl Zombie {
 
     pub fn is_crawler(&self) -> bool {
         self.crawler
+    }
+
+    pub fn tier(&self) -> SpeedTier {
+        self.tier
     }
 
     pub fn is_hellhound(&self) -> bool {
@@ -1000,8 +1005,6 @@ fn attack(
     >,
     player: Single<(&Transform, Has<LastStand>), With<Player>>,
     mut hits: MessageWriter<PlayerHit>,
-    mut bites: MessageWriter<HellhoundBite>,
-    mut nova_swipes: MessageWriter<NovaSwipe>,
     mut cues: MessageWriter<SpecialCue>,
     time: Res<Time>,
 ) {
@@ -1032,11 +1035,16 @@ fn attack(
                 // A Zombie that lands a swipe is ignored for a moment; other Zombies can still hit.
                 if in_reach {
                     hits.write(PlayerHit { damage });
-                    if zombie.hellhound {
-                        bites.write(HellhoundBite);
-                    }
-                    if zombie.nova {
-                        nova_swipes.write(NovaSwipe);
+                    // The Sapper's slam has its own sound, above.
+                    if !zombie.is_sapper() {
+                        let cue = if zombie.hellhound {
+                            Cue::HoundBite
+                        } else if zombie.nova {
+                            Cue::NovaAttack
+                        } else {
+                            Cue::ZombieAttack
+                        };
+                        cues.write(SpecialCue { cue, at });
                     }
                     zombie.attack_cooldown = cooldown;
                 }
@@ -1218,6 +1226,7 @@ pub fn apply_damage(
                 zombie.hits = zombie.hits.saturating_add(1);
                 hits.write(ZombieHit {
                     pays: hit_pays(zombie.special, zombie.hits),
+                    headshot: is_headshot(request.zone, request.attack),
                 });
             }
             continue;

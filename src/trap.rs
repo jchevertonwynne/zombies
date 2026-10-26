@@ -156,6 +156,11 @@ impl Trap {
     pub fn joins(&self) -> (ZoneId, ZoneId) {
         self.joins
     }
+
+    /// Whether it's running, zapping everything inside.
+    pub fn running(&self) -> bool {
+        self.phase.running()
+    }
 }
 
 /// One of a Trap's two switches, the Buyable that runs it.

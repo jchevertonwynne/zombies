@@ -145,8 +145,8 @@ mod tests {
 
     #[test]
     fn any_non_lethal_hit_pays_ten() {
-        assert_eq!(points_for(ZombieHit { pays: true }), 10);
-        assert_eq!(points_for(ZombieHit { pays: false }), 0);
+        assert_eq!(points_for(ZombieHit { pays: true, headshot: false }), 10);
+        assert_eq!(points_for(ZombieHit { pays: false, headshot: false }), 0);
     }
 
     #[test]

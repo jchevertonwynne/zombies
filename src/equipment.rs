@@ -238,15 +238,22 @@ struct Frag {
 
 /// A thrown Monkey Bomb. Its fuse starts when it lands.
 #[derive(Component)]
-struct MonkeyBomb {
+pub struct MonkeyBomb {
     fuse: Option<f32>,
     /// Seconds since it was thrown.
     age: f32,
 }
 
+impl MonkeyBomb {
+    /// Whether it has landed and its fuse is burning.
+    pub fn landed(&self) -> bool {
+        self.fuse.is_some()
+    }
+}
+
 /// A planted Claymore, and the countdown once a Zombie sets it off.
 #[derive(Component)]
-struct Claymore {
+pub struct Claymore {
     facing: Vec3,
     countdown: Option<f32>,
 }

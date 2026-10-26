@@ -9,6 +9,8 @@ use bevy::prelude::*;
 use bevy::render::view::ColorGrading;
 use rand::RngExt;
 
+use crate::audio::PlayCue;
+use crate::audio::cues::Cue;
 use crate::shellshock::Shellshock;
 use crate::buy::{Buyable, Purchased, Refused};
 use crate::hellhound::SpawnHellhounds;
@@ -560,15 +562,29 @@ fn use_teleporter(
     pads: Query<&Pad>,
     mainframes: Query<(), With<Mainframe>>,
     mut teleporter: ResMut<Teleporter>,
+    mut cues: MessageWriter<PlayCue>,
 ) {
     for Purchased(entity) in purchases.read() {
         if let Ok(pad) = pads.get(*entity) {
             if teleporter.linked(pad.pad) {
+                let idle = !teleporter.in_use();
                 teleporter.depart(pad.pad);
+                if idle && teleporter.in_use() {
+                    cues.write(PlayCue {
+                        cue: Cue::TeleporterCharge,
+                        at: Some(pad.pad.at()),
+                    });
+                }
             } else {
                 teleporter.activate(pad.pad);
             }
         } else if mainframes.contains(*entity) {
+            if teleporter.linking().is_some() {
+                cues.write(PlayCue {
+                    cue: Cue::MainframeLink,
+                    at: Some(mainframe_use_point()),
+                });
+            }
             teleporter.link();
         }
     }
@@ -594,6 +610,7 @@ fn run_trips(
     mut damage: MessageWriter<DamageZombie>,
     mut overlays: ResMut<Overlays>,
     mut shellshocks: MessageWriter<Shellshock>,
+    mut cues: MessageWriter<PlayCue>,
     round: Option<Res<Round>>,
     time: Res<Time>,
 ) {
@@ -626,6 +643,10 @@ fn run_trips(
             );
             if stays_for_trip(pad.at(), transform.translation, last_stand) {
                 teleport.send(HOLDING_AT, None);
+                cues.write(PlayCue {
+                    cue: Cue::TeleporterFire,
+                    at: Some(pad.at()),
+                });
             } else {
                 teleporter.abort();
             }
@@ -635,6 +656,10 @@ fn run_trips(
             teleport.send(ARRIVAL_AT, Some(Quat::from_rotation_arc(Vec3::NEG_Z, MAINFRAME_FACING)));
             zone.0 = ZoneId::StartRoom;
             kill(MAINFRAME_AT, TELEPORTER_ARRIVAL_KILL_RADIUS, usize::MAX);
+            cues.write(PlayCue {
+                cue: Cue::TeleporterArrive,
+                at: Some(ARRIVAL_AT),
+            });
 
             let rng = &mut rand::rng();
             let effect = Aftereffect::ALL[rng.random_range(0..Aftereffect::ALL.len())];

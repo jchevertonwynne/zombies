@@ -45,8 +45,6 @@ impl Sim {
         .insert_state(GameState::Playing)
         .add_sub_state::<Pause>()
         .add_message::<PlayerHit>()
-        .add_message::<HellhoundBite>()
-        .add_message::<NovaSwipe>()
         .add_message::<SpecialCue>()
         .add_message::<NovaCrawlerKilled>()
         .init_resource::<ActivePowerUps>()

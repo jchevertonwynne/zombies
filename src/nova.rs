@@ -76,10 +76,6 @@ pub struct NovaCrawlerKilled {
     pub attack: Attack,
 }
 
-/// A Nova Crawler's swipe landed on the Player.
-#[derive(Message, Debug, Clone, Copy)]
-pub struct NovaSwipe;
-
 /// A Nova Crawler that came in by dropping from a Vent.
 #[derive(Component)]
 pub struct VentDrop;
@@ -116,7 +112,6 @@ pub struct NovaPlugin;
 impl Plugin for NovaPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<NovaCrawlerKilled>()
-            .add_message::<NovaSwipe>()
             .add_systems(Startup, load_assets)
             .add_systems(
                 Update,

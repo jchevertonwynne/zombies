@@ -7,6 +7,8 @@
 
 use bevy::prelude::*;
 
+use crate::audio::PlayCue;
+use crate::audio::cues::Cue;
 use crate::buy::{Buyable, Focus, Held};
 use crate::last_stand::LastStand;
 use crate::map::{BarrierId, WINDOWS};
@@ -229,9 +231,11 @@ pub struct PlankTorn {
     pub at: Vec3,
 }
 
-/// The Player put a Plank back.
+/// The Player put a Plank back, at `at`.
 #[derive(Message)]
-pub struct PlankRebuilt;
+pub struct PlankRebuilt {
+    pub at: Vec3,
+}
 
 /// A Zombie outside a window, getting in. While it has this, the Barrier steers it instead of the
 /// chase, and the stuck rule leaves it alone.
@@ -372,6 +376,7 @@ fn enter_through_windows(
     mut hits: MessageWriter<PlayerHit>,
     mut torn: MessageWriter<PlankTorn>,
     mut damage: MessageWriter<DamageZombie>,
+    mut cues: MessageWriter<PlayCue>,
     round: Res<Round>,
     time: Res<Time>,
 ) {
@@ -435,6 +440,10 @@ fn enter_through_windows(
                         if rand::random_bool(BARRIER_SWIPE_CHANCE) {
                             hits.write(PlayerHit {
                                 damage: ZOMBIE_SWIPE_DAMAGE,
+                            });
+                            cues.write(PlayCue {
+                                cue: Cue::ZombieAttack,
+                                at: Some(transform.translation),
                             });
                         }
                     }
@@ -532,7 +541,9 @@ fn rebuild_planks(
     }
     let Some(barrier) = target else { return };
     barriers.rebuild(barrier);
-    rebuilt.write(PlankRebuilt);
+    rebuilt.write(PlankRebuilt {
+        at: window_centre(barrier) + Vec3::Y * 1.2,
+    });
     let entries = player.iter().next().map_or(&[][..], |modifiers| &modifiers.0[..]);
     let reward = rebuild.pay(round.number, PlankRates::resolve(round.number, entries));
     if reward > 0 {

@@ -288,7 +288,7 @@ struct Bag(Vec<PowerUp>);
 
 /// A Power-up on the ground.
 #[derive(Component)]
-struct Dropped {
+pub struct Dropped {
     power_up: PowerUp,
     age: f32,
     /// Where it floats.
