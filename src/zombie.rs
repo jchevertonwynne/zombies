@@ -2,6 +2,7 @@ use std::f32::consts::FRAC_PI_2;
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
+use bevy_transform_interpolation::{TransformEasingSystems, TranslationEasingState};
 
 use crate::door::Door;
 use crate::last_stand::LastStand;
@@ -231,6 +232,15 @@ pub struct StuckWatch {
 impl StuckWatch {
     pub fn new(at: Vec3) -> Self {
         Self { anchor: at, secs: 0.0 }
+    }
+
+    /// A watch about to run out on a Zombie at `at` that makes no progress.
+    #[cfg(test)]
+    pub fn nearly_up(at: Vec3) -> Self {
+        Self {
+            anchor: at,
+            secs: ZOMBIE_CLEANUP_SECS - 0.05,
+        }
     }
 
     /// Advances the watch by `dt` with the Zombie at `at` and the Player at `player`. Returns true
@@ -474,6 +484,8 @@ impl Rising {
 #[derive(Component, Default)]
 pub struct Dying {
     elapsed: f32,
+    /// Seconds of its fall it has sunk toward the floor through, counted in the physics step.
+    sunk: f32,
     /// The attack that killed it, when it was killed rather than falling as a Turned ally.
     killed_by: Option<Attack>,
 }
@@ -497,6 +509,16 @@ struct ZombieAssets {
     eyes: Handle<StandardMaterial>,
 }
 
+/// Zombies are interpolated, so their translation is only ever written in the physics step
+/// (`FixedUpdate`). A write from `Update` is undone: whenever the next frame runs a physics step,
+/// the interpolation first completes the easing it was doing and puts the Zombie back where the
+/// last step left it (see `crate::player::Teleport`). Any other change to a Zombie's Transform
+/// in `Update`, even a turn, counts as a teleport and throws the easing away, so it freezes on
+/// frames without a step. Turns drawn every frame go in this set instead: right after the
+/// interpolation has eased the translation, and before it notes that it has.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FrameTurnSystems;
+
 pub struct ZombiePlugin;
 
 impl Plugin for ZombiePlugin {
@@ -510,18 +532,27 @@ impl Plugin for ZombiePlugin {
             .add_message::<KnockDown>()
             .add_message::<Gibbed>()
             .add_systems(Startup, load_assets)
-            .add_systems(FixedUpdate, (chase, tumble).run_if(in_state(Pause::Running)))
+            .configure_sets(
+                RunFixedMainLoop,
+                FrameTurnSystems
+                    .in_set(RunFixedMainLoopSystems::AfterFixedMainLoop)
+                    .after(TransformEasingSystems::Ease)
+                    .before(TransformEasingSystems::UpdateEasingTick),
+            )
+            .add_systems(FixedUpdate, (rise, chase, tumble, sink).run_if(in_state(Pause::Running)))
+            .add_systems(
+                RunFixedMainLoop,
+                fall_over.run_if(in_state(Pause::Running)).in_set(FrameTurnSystems),
+            )
             .add_systems(
                 Update,
                 (
-                    rise,
                     attack,
                     knock_down,
                     stun,
                     // First, so a Zombie killed in the same frame dies as the Crawler it became.
                     become_crawler.before(apply_damage),
                     apply_damage,
-                    fall_over,
                     clean_up_stuck,
                 )
                     .run_if(in_state(Pause::Running)),
@@ -896,7 +927,8 @@ fn chase(
 }
 
 /// Risers climb out of the ground over their rise time (`ZOMBIE_RISE_SECS`, or a special's own),
-/// and Nova Crawlers drop from their Vents.
+/// and Nova Crawlers drop from their Vents. In the physics step, so the chase starts from where
+/// they end up.
 fn rise(mut commands: Commands, mut risers: Query<(Entity, &mut Rising, &mut Transform), Without<Dying>>, time: Res<Time>) {
     for (entity, mut rising, mut transform) in &mut risers {
         rising.elapsed += time.delta_secs();
@@ -1123,11 +1155,11 @@ fn tumble(
 fn become_crawler(
     mut commands: Commands,
     mut gibbed: MessageReader<Gibbed>,
-    mut zombies: Query<(&mut Zombie, &mut Transform), (Without<Dying>, Without<Rising>)>,
+    mut zombies: Query<(&mut Zombie, &mut Transform, &mut TranslationEasingState), (Without<Dying>, Without<Rising>)>,
     assets: Res<ZombieAssets>,
 ) {
     for &Gibbed { zombie: entity } in gibbed.read() {
-        let Ok((mut zombie, mut transform)) = zombies.get_mut(entity) else {
+        let Ok((mut zombie, mut transform, mut easing)) = zombies.get_mut(entity) else {
             continue;
         };
         if !zombie.can_lose_legs() {
@@ -1135,7 +1167,12 @@ fn become_crawler(
         }
         zombie.crawler = true;
         zombie.wind_up = None;
-        transform.translation.y -= body_half_height() - CRAWLER_RADIUS;
+        // Dropped at once, before the next physics step, so the easing under way drops with it:
+        // otherwise the step would complete it and put the body back up.
+        let drop = Vec3::Y * (body_half_height() - CRAWLER_RADIUS);
+        transform.translation -= drop;
+        easing.start = easing.start.map(|start| start - drop);
+        easing.end = easing.end.map(|end| end - drop);
         commands
             .entity(entity)
             .insert((Mesh3d(assets.crawler_body.clone()), Collider::sphere(CRAWLER_RADIUS)))
@@ -1217,8 +1254,8 @@ pub fn apply_damage(
         commands
             .entity(request.zombie)
             .insert(Dying {
-                elapsed: 0.0,
                 killed_by: Some(request.attack),
+                ..default()
             })
             .remove::<(Collider, CollisionLayers)>();
         for child in children.iter() {
@@ -1229,9 +1266,17 @@ pub fn apply_damage(
     }
 }
 
+/// Whether a dying body rolls onto its side rather than tipping backwards: a Crawler, a Hellhound or
+/// a Nova Crawler, already low. A fallen Turned ally is no longer a `Zombie`, and tips backwards.
+fn rolls_over(zombie: Option<&Zombie>) -> bool {
+    zombie.is_some_and(|zombie| zombie.crawler || zombie.hellhound || zombie.nova)
+}
+
+/// A killed Zombie tips backwards about its local X axis, or rolls onto its side, turning a little
+/// every frame (in `FrameTurnSystems`), then disappears. `sink` lowers it onto the floor.
 fn fall_over(
     mut commands: Commands,
-    mut dying: Query<(Entity, &mut Dying, &mut Transform, &Zombie)>,
+    mut dying: Query<(Entity, &mut Dying, &mut Transform, Option<&Zombie>)>,
     time: Res<Time>,
 ) {
     for (entity, mut dying, mut transform, zombie) in &mut dying {
@@ -1239,14 +1284,11 @@ fn fall_over(
         dying.elapsed += time.delta_secs();
         let after = (dying.elapsed / ZOMBIE_FALL_SECS).min(1.0);
 
-        // Tip backwards about the local X axis, sinking so it lies on the floor. A Crawler or a
-        // Hellhound or Nova Crawler, already low, rolls onto its side.
         let step = (after - before) * FRAC_PI_2;
-        if step > 0.0 && (zombie.crawler || zombie.hellhound || zombie.nova) {
+        if step > 0.0 && rolls_over(zombie) {
             transform.rotate_local_z(step);
         } else if step > 0.0 {
             transform.rotate_local_x(step);
-            transform.translation.y -= (after - before) * (body_half_height() - ZOMBIE_RADIUS);
         }
 
         if dying.elapsed >= ZOMBIE_FALL_SECS + ZOMBIE_CORPSE_SECS {
@@ -1254,6 +1296,22 @@ fn fall_over(
         }
     }
 }
+
+/// A body tipping backwards sinks as it falls, so it lies on the floor. In the physics step, in
+/// time with `fall_over`.
+fn sink(mut dying: Query<(&mut Dying, &mut Transform, Option<&Zombie>)>, time: Res<Time>) {
+    for (mut dying, mut transform, zombie) in &mut dying {
+        let before = (dying.sunk / ZOMBIE_FALL_SECS).min(1.0);
+        dying.sunk += time.delta_secs();
+        let after = (dying.sunk / ZOMBIE_FALL_SECS).min(1.0);
+        if after > before && !rolls_over(zombie) {
+            transform.translation.y -= (after - before) * (body_half_height() - ZOMBIE_RADIUS);
+        }
+    }
+}
+
+#[cfg(test)]
+pub mod headless;
 
 #[cfg(test)]
 mod tests {

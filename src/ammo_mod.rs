@@ -328,7 +328,9 @@ pub struct TurnedAlly {
 #[derive(Component, Debug)]
 struct Flung {
     velocity: Vec3,
-    floor: f32,
+    /// How far above its takeoff height it has been thrown. It lands back on 0, wherever its fall
+    /// has sunk it to meanwhile.
+    height: f32,
 }
 
 /// The phantom gun Fireworks raises where the shot Zombie fell.
@@ -380,13 +382,14 @@ impl Plugin for AmmoModPlugin {
             .add_systems(
                 Update,
                 (
-                    (roll_ammo_mods, run_delayed_hits, fire_phantoms, run_allies)
-                        .chain()
-                        .before(apply_damage),
-                    (fling, draw_flashes),
+                    (roll_ammo_mods, run_delayed_hits, fire_phantoms).chain().before(apply_damage),
+                    draw_flashes,
                 )
                     .run_if(in_state(Pause::Running)),
-            );
+            )
+            // Turned allies and flung bodies are Zombies' bodies, which are interpolated, so they
+            // move in the physics step (see `crate::zombie::FrameTurnSystems`).
+            .add_systems(FixedUpdate, (run_allies, fling).run_if(in_state(Pause::Running)));
     }
 }
 
@@ -792,7 +795,7 @@ impl Flung {
         let away = (at - from).with_y(0.0).normalize_or_zero();
         Self {
             velocity: away * speed + Vec3::Y * lift,
-            floor: at.y,
+            height: 0.0,
         }
     }
 }
@@ -817,10 +820,12 @@ fn fling(
                 transform.translation += step;
             }
         }
-        transform.translation.y += flung.velocity.y * dt;
+        // Down no further than back to its takeoff height, so it lands where its fall leaves it.
+        let rise = (flung.velocity.y * dt).max(-flung.height);
+        transform.translation.y += rise;
+        flung.height += rise;
         flung.velocity.y -= GRAVITY * dt;
-        if flung.velocity.y < 0.0 && transform.translation.y <= flung.floor {
-            transform.translation.y = flung.floor;
+        if flung.velocity.y < 0.0 && flung.height <= 0.0 {
             commands.entity(entity).remove::<Flung>();
         }
     }
@@ -1070,5 +1075,74 @@ mod tests {
         assert_eq!(Attack::AmmoMod(Pay::Unpaid).pay(), Pay::Unpaid);
         assert_eq!(Attack::AmmoMod(Pay::Paid).pay(), Pay::Paid);
         assert_eq!(Attack::Bullet.pay(), Pay::Paid);
+    }
+
+    mod headless {
+        use super::*;
+        use crate::zombie::headless::Sim;
+
+        const FRAME_RATES: [f64; 3] = [144.0, 60.0, 90.0];
+
+        fn movement(app: &mut App) {
+            app.add_systems(FixedUpdate, (run_allies, fling));
+        }
+
+        /// Throwing a body from `Update` was undone whenever the next frame ran a physics step, so
+        /// flung bodies barely moved, and landing put a body back at standing height however far
+        /// its fall had sunk it. A Thunder Wall throws one its whole arc, evenly, at any frame
+        /// rate, and it lands lying on the floor.
+        #[test]
+        fn a_flung_body_flies_its_whole_arc_and_lands_lying_down() {
+            let flight = 2.0 * THUNDER_WALL_FLING_LIFT / GRAVITY;
+            let reach = THUNDER_WALL_FLING_SPEED * flight;
+            for fps in FRAME_RATES {
+                let mut sim = Sim::new(fps, movement);
+                let zombie = sim.spawn(Vec3::new(4.0, 0.0, 12.0), None);
+                sim.run(sim.frames(0.3));
+                let from = sim.frame(zombie).pos;
+                sim.send(DamageZombie {
+                    zombie,
+                    damage: 1e6,
+                    zone: HitZone::Torso,
+                    attack: Attack::AmmoMod(Pay::Paid),
+                });
+                let blast = from + Vec3::X;
+                sim.world_mut().entity_mut(zombie).insert(Flung::away(blast, from, THUNDER_WALL_FLING_SPEED, THUNDER_WALL_FLING_LIFT));
+                let samples = sim.track(zombie, sim.frames(flight + 0.5));
+                // At its speed every frame in the air, give or take the steps at either end.
+                let in_air = sim.frames(flight) - 2;
+                for w in samples[2..in_air].windows(2) {
+                    let speed = (w[1].pos - w[0].pos).with_y(0.0).length() / sim.frame_secs;
+                    assert!((speed - THUNDER_WALL_FLING_SPEED).abs() < 0.5, "{fps} fps: {speed} m/s");
+                }
+                let peak = samples.iter().map(|s| s.pos.y).fold(f32::MIN, f32::max);
+                assert!(peak > from.y + 0.3, "{fps} fps: peaked at {peak}");
+                let last = samples.last().unwrap().pos;
+                let travelled = last.with_y(0.0).distance(from.with_y(0.0));
+                assert!((travelled - reach).abs() < 0.4, "{fps} fps: flew {travelled} m, not {reach}");
+                let lying = from.y - (ZOMBIE_CAPSULE_LENGTH / 2.0);
+                assert!((last.y - lying).abs() < 0.03, "{fps} fps: landed at {}, not {lying}", last.y);
+            }
+        }
+
+        /// Moving a Turned ally from `Update` was undone whenever the next frame ran a physics
+        /// step, so it crept along at a fraction of its sprint. It sprints at its target evenly, at
+        /// any frame rate.
+        #[test]
+        fn a_turned_ally_sprints_at_its_target() {
+            for fps in FRAME_RATES {
+                let mut sim = Sim::new(fps, movement);
+                let ally = sim.spawn(Vec3::new(-4.0, 0.0, 12.0), None);
+                sim.spawn(Vec3::new(4.0, 0.0, 12.0), None);
+                sim.run(5);
+                sim.world_mut().entity_mut(ally).remove::<Zombie>().insert(TurnedAlly::default());
+                sim.run(sim.frames(0.2));
+                let samples = sim.track(ally, sim.frames(0.4));
+                for w in samples.windows(2) {
+                    let speed = (w[1].pos - w[0].pos).with_y(0.0).length() / sim.frame_secs;
+                    assert!((speed - ZOMBIE_SPRINT_SPEED).abs() < 0.1, "{fps} fps: {speed} m/s");
+                }
+            }
+        }
     }
 }

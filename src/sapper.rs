@@ -11,6 +11,7 @@
 //! carries over between Rounds with its health and helmet, and every death drops a Power-up.
 
 use bevy::prelude::*;
+use bevy_transform_interpolation::TranslationEasingState;
 
 use crate::audio::cues::Cue;
 use crate::barrier::{Barriers, Entering};
@@ -835,12 +836,14 @@ fn prune_restores(
 }
 
 /// A Sapper that makes no progress toward its goal for `SAPPER_STUCK_SECS` is moved to the path
-/// node nearest its target instead of being cleaned up. Moved in the fixed step, like the chase.
+/// node nearest its target instead of being cleaned up. Moved in the fixed step, like the chase,
+/// as a clean cut: the easing starts from the new spot too.
 fn unstick(
     mut sappers: Query<
         (
             &mut Sapper,
             &mut Transform,
+            &mut TranslationEasingState,
             &mut Route,
             Option<&Seeking>,
             Has<Stunned>,
@@ -853,7 +856,7 @@ fn unstick(
 ) {
     let half = ZOMBIE_RADIUS + ZOMBIE_CAPSULE_LENGTH / 2.0;
     let player_feet = player.translation - Vec3::Y * (PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0);
-    for (mut sapper, mut transform, mut route, seeking, stunned) in &mut sappers {
+    for (mut sapper, mut transform, mut easing, mut route, seeking, stunned) in &mut sappers {
         let goal = seeking.map_or(player_feet, |seek| seek.0);
         let feet = transform.translation - Vec3::Y * half;
         let at_goal = stunned
@@ -867,6 +870,7 @@ fn unstick(
         }
         let node = graph.nodes[graph.nearest(goal)].at;
         transform.translation = node + Vec3::Y * (half + 0.02);
+        easing.start = Some(transform.translation);
         *route = Route::default();
         sapper.watch = SapperWatch::new(transform.translation);
     }
@@ -1034,5 +1038,36 @@ mod tests {
             (0..300).all(|_| !busy.update(Vec3::ZERO, true, 0.1)),
             "never stuck at its goal"
         );
+    }
+
+    /// A stuck Sapper is moved in the physics step, but the easing used to start from where it was
+    /// stuck, so frames between steps showed it partway there. It cuts straight to the path node,
+    /// on every frame offset and frame rate.
+    #[test]
+    fn a_stuck_sapper_moves_to_a_path_node_cleanly() {
+        use crate::map::PLAYER_START;
+        use crate::zombie::headless::Sim;
+        let graph = NavGraph::new();
+        let node = graph.nodes[graph.nearest(PLAYER_START)].at;
+        let near = |a: Vec3, b: Vec3| a.with_y(0.0).distance(b.with_y(0.0)) < 0.5;
+        for fps in [144.0, 60.0, 90.0] {
+            for offset in 0..3 {
+                let mut sim = Sim::new(fps, |app| {
+                    app.add_systems(FixedUpdate, unstick);
+                });
+                let zombie = sim.spawn(Vec3::new(0.0, 0.0, 12.0), None);
+                sim.run(5 + offset);
+                let from = sim.frame(zombie).pos;
+                let mut sapper = Sapper::new(from);
+                sapper.watch.secs = SAPPER_STUCK_SECS - 0.05;
+                sim.world_mut().entity_mut(zombie).insert(sapper);
+                let samples = sim.track(zombie, sim.frames(0.3));
+                for s in &samples {
+                    assert!(near(s.pos, from) || near(s.pos, node), "{fps} fps, offset {offset}: a frame at {}", s.pos);
+                }
+                let last = samples.last().unwrap().pos;
+                assert!(near(last, node), "{fps} fps, offset {offset}: ended at {last}");
+            }
+        }
     }
 }

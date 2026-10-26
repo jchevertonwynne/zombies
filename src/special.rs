@@ -14,6 +14,7 @@
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
+use bevy_transform_interpolation::TranslationEasingState;
 
 use crate::arsenal::Burn;
 use crate::audio::cues::Cue;
@@ -302,6 +303,7 @@ impl Plugin for SpecialPlugin {
             .insert_resource(SpecialSlot::new(*NAPALM_FIRST_ROUNDS.start(), *SHRIEKER_FIRST_ROUNDS.start()))
             .add_systems(Startup, load_assets)
             .add_systems(OnEnter(GameState::Playing), reset)
+            .add_systems(FixedUpdate, unstick.run_if(in_state(Pause::Running)))
             .add_systems(
                 Update,
                 (
@@ -315,7 +317,6 @@ impl Plugin for SpecialPlugin {
                     heat_tint,
                     shake_view,
                     fade_fireballs,
-                    unstick,
                 )
                     .run_if(in_state(Pause::Running)),
             );
@@ -830,16 +831,20 @@ fn fade_fireballs(mut commands: Commands, mut fireballs: Query<(Entity, &mut Fir
 }
 
 /// A special that's stuck, or lost far from the Player, is moved to a fresh Special Spawn Point
-/// instead of being cleaned up, so it never leaves the Horde or its slot.
+/// instead of being cleaned up, so it never leaves the Horde or its slot. Moved in the physics
+/// step, like the chase, as a clean cut: the easing starts from the new spot too.
 fn unstick(
-    mut specials: Query<(&mut SpecialWatch, &mut Transform, &mut Route), (Without<Dying>, Without<Rising>)>,
+    mut specials: Query<
+        (&mut SpecialWatch, &mut Transform, &mut TranslationEasingState, &mut Route),
+        (Without<Dying>, Without<Rising>),
+    >,
     player: Single<&Transform, (With<Player>, Without<SpecialWatch>)>,
     spawn_points: Query<(&Transform, &SpawnPoint), (Without<SpecialWatch>, Without<Player>)>,
     player_zone: Res<PlayerZone>,
     active: Res<ActiveZones>,
     time: Res<Time>,
 ) {
-    for (mut watch, mut transform, mut route) in &mut specials {
+    for (mut watch, mut transform, mut easing, mut route) in &mut specials {
         if !watch.0.update(transform.translation, player.translation, time.delta_secs()) {
             continue;
         }
@@ -855,6 +860,7 @@ fn unstick(
         if !points.is_empty() {
             let at = points[rand::random_range(0..points.len())];
             transform.translation = at + Vec3::Y * (ZOMBIE_RADIUS + ZOMBIE_CAPSULE_LENGTH / 2.0 + 0.02);
+            easing.start = Some(transform.translation);
             *route = Route::default();
         }
         watch.0 = StuckWatch::new(transform.translation);
@@ -1017,5 +1023,45 @@ mod tests {
         assert_eq!(SpecialKind::Shrieker.health(150.0), 375.0);
         assert_eq!((SpecialKind::Napalm.rise_secs(), SpecialKind::Shrieker.rise_secs()), (1.5, 1.0));
         assert_eq!(SpecialKind::Sapper.health(150.0), 1200.0);
+    }
+
+    /// Every Special Spawn Point on the Map.
+    fn special_spawn_points(world: &mut World) -> Vec<Vec3> {
+        world
+            .query::<(&Transform, &SpawnPoint)>()
+            .iter(world)
+            .filter(|(_, point)| point.kind == SpawnKind::Special)
+            .map(|(t, _)| t.translation)
+            .collect()
+    }
+
+    /// Moving a stuck special from `Update` was undone whenever the next frame ran a physics step:
+    /// it snapped straight back. It lands on a Special Spawn Point on every frame offset and frame
+    /// rate, with no frame partway there.
+    #[test]
+    fn a_stuck_special_moves_to_a_spawn_point_cleanly() {
+        use crate::zombie::headless::Sim;
+        for fps in [144.0, 60.0, 90.0] {
+            for offset in 0..3 {
+                let mut sim = Sim::new(fps, |app| {
+                    app.insert_resource(PlayerZone(ZoneId::StartRoom))
+                        .insert_resource(ActiveZones(ZoneId::ALL.into_iter().collect()))
+                        .add_systems(FixedUpdate, unstick);
+                });
+                let points = special_spawn_points(sim.world_mut());
+                let on_a_point = |at: Vec3| points.iter().any(|p| p.with_y(0.0).distance(at.with_y(0.0)) < 0.5);
+                let zombie = sim.spawn(Vec3::new(0.0, 0.0, 12.0), None);
+                sim.run(5 + offset);
+                let from = sim.frame(zombie).pos;
+                sim.world_mut().entity_mut(zombie).insert(SpecialWatch(StuckWatch::nearly_up(from)));
+                let samples = sim.track(zombie, sim.frames(0.3));
+                for s in &samples {
+                    let near_start = s.pos.with_y(0.0).distance(from.with_y(0.0)) < 0.5;
+                    assert!(near_start || on_a_point(s.pos), "{fps} fps, offset {offset}: a frame at {}", s.pos);
+                }
+                let last = samples.last().unwrap().pos;
+                assert!(on_a_point(last) && last.distance(from) > 2.0, "{fps} fps, offset {offset}: ended at {last}");
+            }
+        }
     }
 }
