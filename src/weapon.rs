@@ -3,7 +3,7 @@ use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
 
 use crate::ammo_mod::{AmmoModHit, AmmoMods, glint_colour, pick_ammo_mod};
-use crate::arsenal::{Burn, FireMode, Splash, WeaponClass, WeaponId, WeaponStats};
+use crate::arsenal::{Burn, FireMode, Splash, WeaponId, WeaponStats};
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
 use crate::attachment::{
@@ -12,6 +12,7 @@ use crate::attachment::{
 use crate::burn::Ignite;
 use crate::combat::{Crossing, Sights, hit_damage, pierce, spread_direction};
 use crate::explosive::{Explosion, Explosive, Launched, flight, makes_crawlers};
+use crate::gun_model::{GunModels, model_length};
 use crate::layers::GameLayer;
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve, resolve_count};
 use crate::perk::{Drinking, hands_free};
@@ -792,6 +793,7 @@ pub struct WeaponPlugin;
 impl Plugin for WeaponPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<ShotFired>()
+            .init_resource::<GunModels>()
             .add_systems(Update, spawn_view_model)
             .add_systems(
                 Update,
@@ -809,14 +811,9 @@ fn spawn_view_model(
     cameras: Query<Entity, Added<PlayerCamera>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    guns: Res<GunModels>,
 ) {
     for camera in &cameras {
-        let metal = materials.add(StandardMaterial {
-            base_color: Color::srgb(0.15, 0.15, 0.17),
-            metallic: 0.8,
-            perceptual_roughness: 0.4,
-            ..default()
-        });
         let glint = materials.add(StandardMaterial {
             base_color: UPGRADED_PURPLE,
             emissive: LinearRgba::from(UPGRADED_PURPLE) * 8.0,
@@ -825,8 +822,9 @@ fn spawn_view_model(
         });
         commands.entity(camera).with_child((
             ViewModel { kick: 0.0 },
-            Mesh3d(meshes.add(Cuboid::new(0.06, 0.1, 0.3))),
-            MeshMaterial3d(metal),
+            // `animate_view_model` swaps in the model of the Weapon in hand.
+            Mesh3d(guns.view(STARTING_WEAPON)),
+            MeshMaterial3d(guns.material.clone()),
             Transform::from_xyz(0.22, -0.2, -0.45),
             children![(
                 Glint {
@@ -1159,30 +1157,20 @@ fn ballistic_in_hand(loadout: &Loadout) -> Option<bool> {
     (held.id == WeaponId::BallisticKnife).then_some(held.upgraded)
 }
 
-/// How long the greybox model is for each class, so a switch is easy to see.
-fn model_length(class: WeaponClass) -> f32 {
-    match class {
-        WeaponClass::Pistol | WeaponClass::DualWield | WeaponClass::BallisticKnife => 1.0,
-        WeaponClass::RayGun => 1.3,
-        WeaponClass::Smg | WeaponClass::Crossbow => 1.7,
-        WeaponClass::Thundergun => 2.0,
-        WeaponClass::Rifle | WeaponClass::Shotgun => 2.3,
-        WeaponClass::Lmg | WeaponClass::Sniper | WeaponClass::Launcher => 2.7,
-    }
-}
-
 fn animate_view_model(
-    mut view_model: Single<(&mut ViewModel, &mut Transform)>,
+    mut view_model: Single<(&mut ViewModel, &mut Transform, &mut Mesh3d)>,
     mut glint: Single<(&mut Glint, &mut Transform, &mut Visibility), Without<ViewModel>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     player: Single<(&Loadout, &Modifiers, Has<Drinking>), With<Player>>,
+    guns: Res<GunModels>,
     time: Res<Time>,
 ) {
-    let (ref mut model, ref mut transform) = *view_model;
+    let (ref mut model, ref mut transform, ref mut mesh) = *view_model;
     let (loadout, modifiers, drinking) = *player;
     model.kick = (model.kick - time.delta_secs() * 8.0).max(0.0);
 
     // Dip the gun out of view while reloading; drop the old gun and raise the new one on a switch.
+    let mut shown_id = loadout.held().id;
     let mut class = loadout.held().stats().class;
     let mut shown = glint_of(loadout.held());
     let dip = if drinking {
@@ -1190,6 +1178,7 @@ fn animate_view_model(
         0.6
     } else if let Some(swap) = &loadout.swap {
         if swap.elapsed < swap.drop_secs {
+            shown_id = swap.from.id;
             class = swap.from.class;
             shown = swap.from_glint;
             swap.elapsed / swap.drop_secs * 0.4
@@ -1203,6 +1192,10 @@ fn animate_view_model(
         0.0
     };
     let length = model_length(class);
+    let gun = guns.view(shown_id);
+    if mesh.0 != gun {
+        mesh.0 = gun;
+    }
     transform.translation = Vec3::new(0.22, -0.2 - dip, -0.45 - 0.15 * (length - 1.0) + model.kick * 0.05);
     transform.rotation = Quat::from_rotation_x(model.kick * 0.25 - dip * 2.0);
     transform.scale = Vec3::new(1.0, 1.0, length);

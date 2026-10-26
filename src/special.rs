@@ -259,6 +259,13 @@ pub struct Shrieker {
     idle_in: f32,
 }
 
+impl Shrieker {
+    /// Whether it's winding up its scream.
+    pub fn screaming(&self) -> bool {
+        self.wind_up.is_some()
+    }
+}
+
 /// Watches a special for being stuck. A special is never cleaned up; it's moved instead.
 #[derive(Component)]
 struct SpecialWatch(StuckWatch);

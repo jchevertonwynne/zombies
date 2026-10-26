@@ -13,6 +13,7 @@ use rand::{Rng, RngExt};
 use crate::arsenal::{Availability, WeaponId};
 use crate::buy::{Buyable, Purchased, charged};
 use crate::equipment::Equipment;
+use crate::gun_model::GunModels;
 use crate::layers::GameLayer;
 use crate::map::BOX_LOCATIONS;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_points};
@@ -369,6 +370,7 @@ impl Plugin for MysteryBoxPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<TeddyBear>()
             .init_resource::<BoxAssets>()
+            .init_resource::<GunModels>()
             .init_resource::<BoxRun>()
             .add_systems(OnEnter(GameState::Playing), spawn_boxes)
             .add_systems(
@@ -621,26 +623,28 @@ fn price_boxes(
 fn animate_boxes(
     time: Res<Time>,
     assets: Res<BoxAssets>,
+    guns: Res<GunModels>,
     boxes: Query<(&MysteryBox, &BoxParts)>,
     mut parts: Query<(&mut Transform, &mut Visibility), Without<MysteryBox>>,
-    mut looks: Query<&mut MeshMaterial3d<StandardMaterial>>,
+    mut looks: Query<(&mut Mesh3d, &mut MeshMaterial3d<StandardMaterial>)>,
 ) {
     let now = time.elapsed_secs();
     let palette = assets.prize_mats.len();
     for (mystery_box, box_parts) in &boxes {
         // The Prize: rising while it spins, then sinking back until it's taken or lost.
         let prize = match mystery_box.state {
+            // Flicking through the Weapons, one per step.
             BoxState::Spinning { elapsed, .. } => Some((
                 PRIZE_LOW.lerp(PRIZE_HIGH, elapsed / BOX_SPIN_SECS),
                 elapsed * 6.0,
-                (spin_step(elapsed) as usize * 7) % palette,
+                Some(WEAPONS[(spin_step(elapsed) as usize * 7) % WEAPONS.len()].id),
             )),
             BoxState::Offering { prize, left, .. } => Some((
                 PRIZE_LOW.lerp(PRIZE_HIGH, left / BOX_PICKUP_SECS),
                 0.0,
                 match prize {
-                    Prize::Weapon(id) => id as usize % palette,
-                    Prize::MonkeyBomb => palette - 1,
+                    Prize::Weapon(id) => Some(id),
+                    Prize::MonkeyBomb => None,
                 },
             )),
             _ => None,
@@ -650,10 +654,18 @@ fn animate_boxes(
                 Some((height, yaw, look)) => {
                     visibility.set_if_neq(Visibility::Inherited);
                     *transform = Transform::from_xyz(0.0, height, 0.0).with_rotation(Quat::from_rotation_y(yaw));
-                    if let Ok(mut material) = looks.get_mut(box_parts.prize)
-                        && material.0 != assets.prize_mats[look]
-                    {
-                        material.0 = assets.prize_mats[look].clone();
+                    // A Weapon's own model, or the plain block of a Monkey Bomb.
+                    let (mesh, material) = match look {
+                        Some(id) => (guns.world(id), guns.material.clone()),
+                        None => (assets.prize.clone(), assets.prize_mats[palette - 1].clone()),
+                    };
+                    if let Ok((mut shown_mesh, mut shown_material)) = looks.get_mut(box_parts.prize) {
+                        if shown_mesh.0 != mesh {
+                            shown_mesh.0 = mesh;
+                        }
+                        if shown_material.0 != material {
+                            shown_material.0 = material;
+                        }
                     }
                 }
                 None => {

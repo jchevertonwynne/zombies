@@ -14,6 +14,7 @@ mod door;
 mod equipment;
 mod explosive;
 mod gauntlet;
+mod gun_model;
 mod hellhound;
 mod hud;
 mod last_stand;
