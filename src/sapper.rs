@@ -28,6 +28,7 @@ use crate::points::BonusPoints;
 use crate::power::Power;
 use crate::power_up::DropPowerUp;
 use crate::round::{CarriesOver, Round, RoundPhase, zombie_health};
+use crate::settings::Settings;
 use crate::special::{SpecialCue, SpecialKind, special_spawn_at};
 use crate::state::{GameState, InRun, Pause};
 use crate::teleporter::{PadId, ResistsTeleporter, Teleporter, mainframe_use_point};
@@ -53,9 +54,11 @@ impl SapperCadence {
     }
 
     /// Whether a Sapper comes in Round `round`: once it's due, never on a Hellhound Round (it
-    /// waits for the next Round that isn't one), and never while one is alive.
-    pub fn due(&self, round: u32, hellhound_round: bool, one_alive: bool) -> bool {
-        !hellhound_round && !one_alive && round >= self.next
+    /// waits for the next Round that isn't one), never while one is alive, and never while it's
+    /// switched off in Settings (`on`). The counter only advances on appearance, so switched off
+    /// it stays where it is.
+    pub fn due(&self, round: u32, hellhound_round: bool, one_alive: bool, on: bool) -> bool {
+        on && !hellhound_round && !one_alive && round >= self.next
     }
 
     /// A Sapper appeared in Round `round`: the next is due `gap` Rounds later.
@@ -327,6 +330,7 @@ fn plan_sapper(
     mut plan: ResMut<SapperPlan>,
     mut summons: MessageReader<SummonSapper>,
     sappers: Query<(), (With<Sapper>, Without<Dying>)>,
+    settings: Res<Settings>,
 ) {
     let Some(round) = round else {
         return;
@@ -339,7 +343,12 @@ fn plan_sapper(
     if plan.round == round.number {
         return;
     }
-    let due = cadence.due(round.number, round.hellhound.is_some(), !sappers.is_empty());
+    let due = cadence.due(
+        round.number,
+        round.hellhound.is_some(),
+        !sappers.is_empty(),
+        settings.special_zombies.sapper,
+    );
     *plan = SapperPlan {
         round: round.number,
         at: due.then(|| {
@@ -354,7 +363,8 @@ fn plan_sapper(
 }
 
 /// Once enough of the Horde has spawned the warning plays, and then the Sapper smashes in through
-/// a window in a Zombie's place.
+/// a window in a Zombie's place. One switched off since the Round was planned doesn't come, and
+/// its cadence doesn't advance.
 fn spawn_sapper(
     mut commands: Commands,
     mut plan: ResMut<SapperPlan>,
@@ -368,11 +378,17 @@ fn spawn_sapper(
     zombie_assets: ZombieAssetsParam,
     assets: Res<SapperAssets>,
     mut cues: MessageWriter<SpecialCue>,
+    settings: Res<Settings>,
     time: Res<Time>,
 ) {
     let Some(at) = plan.at else {
         return;
     };
+    if !settings.special_zombies.sapper && !plan.summoned {
+        plan.at = None;
+        plan.warning = None;
+        return;
+    }
     if round.phase != RoundPhase::Active || round.horde_spawned() < at {
         return;
     }
@@ -909,21 +925,29 @@ mod tests {
         assert_eq!(SAPPER_FIRST_ROUNDS, 8..=10);
         assert_eq!(SAPPER_ROUND_GAPS, 4..=6);
         let mut cadence = SapperCadence::new(9);
-        assert!(!cadence.due(8, false, false));
-        assert!(cadence.due(9, false, false));
+        assert!(!cadence.due(8, false, false, true));
+        assert!(cadence.due(9, false, false, true));
         // It advances on appearance, not on death.
         cadence.appeared(9, 5);
-        assert!(!cadence.due(10, false, false));
-        assert!(!cadence.due(13, false, false));
-        assert!(cadence.due(14, false, false));
+        assert!(!cadence.due(10, false, false, true));
+        assert!(!cadence.due(13, false, false, true));
+        assert!(cadence.due(14, false, false, true));
+    }
+
+    #[test]
+    fn a_switched_off_sapper_never_comes_and_its_cadence_stays_put() {
+        let cadence = SapperCadence::new(9);
+        assert!((1..=60).all(|round| !cadence.due(round, false, false, false)));
+        assert_eq!(cadence, SapperCadence::new(9), "it only advances on appearance");
+        assert!(cadence.due(20, false, false, true), "switched back on, it's due at once");
     }
 
     #[test]
     fn a_due_sapper_waits_through_a_hellhound_round_and_while_one_is_alive() {
         let cadence = SapperCadence::new(8);
-        assert!(!cadence.due(8, true, false));
-        assert!(cadence.due(9, false, false), "still due the Round after");
-        assert!(!cadence.due(9, false, true), "one alive at most");
+        assert!(!cadence.due(8, true, false, true));
+        assert!(cadence.due(9, false, false, true), "still due the Round after");
+        assert!(!cadence.due(9, false, true, true), "one alive at most");
     }
 
     #[test]

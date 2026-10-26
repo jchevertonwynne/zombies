@@ -139,7 +139,7 @@ _Avoid_: high scores, leaderboard
 
 **Lifetime Stats**: Running totals across every Run the Player has finished.
 
-**Settings**: The Player's saved preferences: sensitivity, volume, field of view and invert-Y.
+**Settings**: The Player's saved preferences: sensitivity, volume, field of view, invert-Y, camera sway, and an On/Off switch per Special Zombie type (all On by default).
 
 **Perk**: A lasting upgrade the Player buys from a Perk Machine. It lasts until the Player's next Down, which takes away every Perk they hold.
 _Avoid_: perk-a-cola, buff

@@ -27,6 +27,7 @@ use crate::nav::Route;
 use crate::player::{Player, PlayerCamera, PlayerHit};
 use crate::points::BonusPoints;
 use crate::round::{CarriesOver, Round, RoundPhase, zombie_health};
+use crate::settings::{Settings, SpecialType, SpecialZombies};
 use crate::shellshock::Shellshock;
 use crate::state::{GameState, InRun, Pause};
 use crate::tuning::*;
@@ -66,6 +67,15 @@ impl SpecialKind {
         }
     }
 
+    /// Its On/Off switch in Settings.
+    pub fn switch(self) -> SpecialType {
+        match self {
+            SpecialKind::Napalm => SpecialType::Napalm,
+            SpecialKind::Shrieker => SpecialType::Shrieker,
+            SpecialKind::Sapper => SpecialType::Sapper,
+        }
+    }
+
     /// Whether it's one of the special slot's two, rather than the Sapper.
     pub fn in_slot(self) -> bool {
         self != SpecialKind::Sapper
@@ -90,13 +100,15 @@ impl SpecialSlot {
     }
 
     /// Which special Round `round` brings, if any: at most one, the Napalm checked first, none on
-    /// a Hellhound Round, and none while a special (carried over) is still alive.
-    pub fn due(&self, round: u32, hellhound_round: bool, one_alive: bool) -> Option<SpecialKind> {
+    /// a Hellhound Round, and none while a special (carried over) is still alive. A type switched
+    /// off in Settings (`on`) is skipped, so the other can still come; with both off the slot
+    /// never fills.
+    pub fn due(&self, round: u32, hellhound_round: bool, one_alive: bool, on: &SpecialZombies) -> Option<SpecialKind> {
         if hellhound_round || one_alive {
             None
-        } else if round >= self.napalm {
+        } else if on.napalm && round >= self.napalm {
             Some(SpecialKind::Napalm)
-        } else if round >= self.shrieker {
+        } else if on.shrieker && round >= self.shrieker {
             Some(SpecialKind::Shrieker)
         } else {
             None
@@ -365,6 +377,7 @@ fn plan_special(
     slot: Res<SpecialSlot>,
     mut plan: ResMut<SpecialPlan>,
     alive: Query<&Zombie, Without<Dying>>,
+    settings: Res<Settings>,
 ) {
     let Some(round) = round else {
         return;
@@ -375,12 +388,13 @@ fn plan_special(
     let one_alive = alive.iter().any(|zombie| zombie.special_kind().is_some_and(SpecialKind::in_slot));
     *plan = SpecialPlan {
         round: round.number,
-        kind: slot.due(round.number, round.hellhound.is_some(), one_alive),
+        kind: slot.due(round.number, round.hellhound.is_some(), one_alive, &settings.special_zombies),
         at: special_spawn_at(round.horde(), rand::random_range(SPECIAL_SPAWN_HORDE_FRACTION)),
     };
 }
 
-/// The Round's special rises once enough of the Horde has spawned, in a Zombie's place.
+/// The Round's special rises once enough of the Horde has spawned, in a Zombie's place. One
+/// switched off since the Round was planned doesn't come, and its place stays a normal Zombie.
 fn spawn_special(
     mut commands: Commands,
     mut plan: ResMut<SpecialPlan>,
@@ -392,11 +406,16 @@ fn spawn_special(
     active: Res<ActiveZones>,
     zombie_assets: ZombieAssetsParam,
     assets: Res<SpecialAssets>,
+    settings: Res<Settings>,
     mut cues: MessageWriter<SpecialCue>,
 ) {
     let Some(kind) = plan.kind else {
         return;
     };
+    if !settings.special_zombies.is_on(kind.switch()) {
+        plan.kind = None;
+        return;
+    }
     if round.phase != RoundPhase::Active
         || round.horde_spawned() < plan.at
         || alive.iter().count() as u32 >= ALIVE_CAP
@@ -881,10 +900,15 @@ mod tests {
     /// The specials a slot brings through Round 30, every gap drawn as `gap`, with each special
     /// killed in the Round it comes.
     fn specials(napalm: u32, shrieker: u32, gap: u32) -> Vec<(u32, SpecialKind)> {
+        specials_with(napalm, shrieker, gap, &SpecialZombies::default())
+    }
+
+    /// `specials`, with the types switched as `on`.
+    fn specials_with(napalm: u32, shrieker: u32, gap: u32, on: &SpecialZombies) -> Vec<(u32, SpecialKind)> {
         let mut slot = SpecialSlot::new(napalm, shrieker);
         let mut seen = Vec::new();
         for round in 1..=30 {
-            if let Some(kind) = slot.due(round, false, false) {
+            if let Some(kind) = slot.due(round, false, false, on) {
                 seen.push((round, kind));
                 slot.died(kind, round, gap);
             }
@@ -899,14 +923,14 @@ mod tests {
         assert_eq!(NAPALM_FIRST_ROUNDS, 5..=7);
         assert_eq!(SHRIEKER_FIRST_ROUNDS, 4..=7);
         assert_eq!(specials(5, 7, 9)[0], (5, Napalm));
-        assert_eq!(SpecialSlot::new(5, 4).due(3, false, false), None);
+        assert_eq!(SpecialSlot::new(5, 4).due(3, false, false, &SpecialZombies::default()), None);
     }
 
     #[test]
     fn at_most_one_special_a_round_the_napalm_checked_first() {
         use SpecialKind::*;
         let slot = SpecialSlot::new(6, 6);
-        assert_eq!(slot.due(6, false, false), Some(Napalm));
+        assert_eq!(slot.due(6, false, false, &SpecialZombies::default()), Some(Napalm));
         // The Shrieker waits until the Napalm isn't due.
         assert_eq!(specials(6, 6, 2)[..4], [(6, Napalm), (7, Shrieker), (8, Napalm), (9, Shrieker)]);
     }
@@ -916,22 +940,53 @@ mod tests {
         use SpecialKind::*;
         let mut slot = SpecialSlot::new(5, 30);
         slot.died(Napalm, 5, 2);
-        assert_eq!(slot.due(6, false, false), None);
-        assert_eq!(slot.due(7, false, false), Some(Napalm));
+        assert_eq!(slot.due(6, false, false, &SpecialZombies::default()), None);
+        assert_eq!(slot.due(7, false, false, &SpecialZombies::default()), Some(Napalm));
         // A special that doesn't die stays due.
-        assert_eq!(slot.due(8, false, false), Some(Napalm));
+        assert_eq!(slot.due(8, false, false, &SpecialZombies::default()), Some(Napalm));
         slot.died(Napalm, 9, 1);
-        assert_eq!(slot.due(10, false, false), Some(Napalm));
+        assert_eq!(slot.due(10, false, false, &SpecialZombies::default()), Some(Napalm));
         assert_eq!(NAPALM_ROUND_GAPS, 1..=2);
         assert_eq!(SHRIEKER_ROUND_GAPS, 1..=3);
     }
 
     #[test]
+    fn napalm_only_skips_the_shrieker() {
+        let on = SpecialZombies { shrieker: false, ..default() };
+        let seen = specials_with(6, 4, 2, &on);
+        assert_eq!(seen[..3], [(6, SpecialKind::Napalm), (8, SpecialKind::Napalm), (10, SpecialKind::Napalm)]);
+        assert!(seen.iter().all(|&(_, kind)| kind == SpecialKind::Napalm));
+    }
+
+    #[test]
+    fn shrieker_only_skips_the_napalm_even_when_its_due_first() {
+        let on = SpecialZombies { napalm: false, ..default() };
+        let slot = SpecialSlot::new(5, 5);
+        assert_eq!(slot.due(5, false, false, &on), Some(SpecialKind::Shrieker));
+        let seen = specials_with(5, 6, 2, &on);
+        assert_eq!(seen[..3], [(6, SpecialKind::Shrieker), (8, SpecialKind::Shrieker), (10, SpecialKind::Shrieker)]);
+        assert!(seen.iter().all(|&(_, kind)| kind == SpecialKind::Shrieker));
+    }
+
+    #[test]
+    fn with_both_off_the_slot_never_fills() {
+        let on = SpecialZombies { napalm: false, shrieker: false, ..default() };
+        assert!(specials_with(5, 4, 1, &on).is_empty());
+    }
+
+    #[test]
+    fn every_special_kind_has_its_own_switch() {
+        assert_eq!(SpecialKind::Napalm.switch(), SpecialType::Napalm);
+        assert_eq!(SpecialKind::Shrieker.switch(), SpecialType::Shrieker);
+        assert_eq!(SpecialKind::Sapper.switch(), SpecialType::Sapper);
+    }
+
+    #[test]
     fn no_special_on_a_hellhound_round_or_while_one_is_alive() {
         let slot = SpecialSlot::new(5, 4);
-        assert_eq!(slot.due(6, true, false), None);
-        assert_eq!(slot.due(6, false, true), None);
-        assert_eq!(slot.due(7, false, false), Some(SpecialKind::Napalm));
+        assert_eq!(slot.due(6, true, false, &SpecialZombies::default()), None);
+        assert_eq!(slot.due(6, false, true, &SpecialZombies::default()), None);
+        assert_eq!(slot.due(7, false, false, &SpecialZombies::default()), Some(SpecialKind::Napalm));
     }
 
     #[test]

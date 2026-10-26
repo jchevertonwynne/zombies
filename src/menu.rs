@@ -9,7 +9,8 @@ use crate::hud::{ROUND_RED, full_screen, text, with_commas};
 use crate::map::MapId;
 use crate::mode::Mode;
 use crate::records::{
-    LastRun, RecordsFile, RunRecord, format_date, format_time, rank_line, record_run,
+    LastRun, RecordsFile, RunRecord, extra_line, format_date, format_time, off_types, rank_line,
+    record_run,
 };
 use crate::settings::{Setting, Settings};
 use crate::state::{Freeze, GameState, MainMenuScreen, Pause, PauseScreen, resume_to};
@@ -404,6 +405,11 @@ fn refresh_records(
                 }
                 for (rank, run) in runs.enumerate() {
                     table_row(board, record_cells(rank, run), Color::WHITE);
+                    let off = off_types(run);
+                    if !off.is_empty() {
+                        let labels: Vec<_> = off.iter().map(|kind| kind.label()).collect();
+                        board.spawn(text(format!("Off: {}", labels.join(", ")), 16.0, HINT_GREY));
+                    }
                 }
             }
 
@@ -494,11 +500,7 @@ fn spawn_game_over(mut commands: Commands, last: Res<LastRun>, more: Res<GameOve
                     Color::WHITE,
                 ));
                 for extra in &record.extras {
-                    lines.spawn(text(
-                        format!("{} x{}", extra.id, extra.count),
-                        20.0,
-                        Color::WHITE,
-                    ));
+                    lines.spawn(text(extra_line(extra), 20.0, Color::WHITE));
                 }
                 for line in &more.0 {
                     lines.spawn(text(line, 24.0, NEW_BEST_GOLD));
@@ -556,34 +558,22 @@ fn settings_screen(commands: &mut Commands, settings: &Settings, background: Col
                 ..default()
             },
         ));
-        for setting in Setting::ALL {
-            screen
-                .spawn(Node {
-                    align_items: AlignItems::Center,
-                    column_gap: px(12.0),
-                    ..default()
-                })
-                .with_children(|row| {
-                    row.spawn((
-                        text(setting.label(), 26.0, Color::WHITE),
-                        Node {
-                            width: px(220.0),
-                            ..default()
-                        },
-                    ));
-                    button(row, "<", MenuButton::Adjust(setting, false), 48.0);
-                    row.spawn((Node {
-                        width: px(110.0),
-                        justify_content: JustifyContent::Center,
-                        ..default()
-                    },))
-                        .with_child((
-                            SettingValue(setting),
-                            text(settings.display(setting), 26.0, Color::WHITE),
-                        ));
-                    button(row, ">", MenuButton::Adjust(setting, true), 48.0);
-                });
-        }
+        // The general Settings on the left, the Special Zombies group on the right.
+        screen
+            .spawn(Node {
+                column_gap: px(48.0),
+                align_items: AlignItems::FlexStart,
+                ..default()
+            })
+            .with_children(|columns| {
+                settings_column(columns, settings, None, &Setting::ALL);
+                settings_column(
+                    columns,
+                    settings,
+                    Some("Special Zombies"),
+                    &Setting::SPECIAL_ZOMBIES,
+                );
+            });
         screen.spawn(Node {
             height: px(16.0),
             ..default()
@@ -593,6 +583,60 @@ fn settings_screen(commands: &mut Commands, settings: &Settings, background: Col
         }
         button(screen, "Back", MenuButton::Back, 280.0);
     })
+}
+
+/// A column of Settings rows, under an optional group heading.
+fn settings_column(
+    parent: &mut ChildSpawnerCommands,
+    settings: &Settings,
+    heading: Option<&str>,
+    rows: &[Setting],
+) {
+    parent
+        .spawn(Node {
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::Center,
+            row_gap: px(14.0),
+            ..default()
+        })
+        .with_children(|column| {
+            if let Some(heading) = heading {
+                column.spawn(text(heading, 26.0, HINT_GREY));
+            }
+            for &setting in rows {
+                setting_row(column, settings, setting);
+            }
+        });
+}
+
+/// One Setting: its label, "<", its value and ">".
+fn setting_row(parent: &mut ChildSpawnerCommands, settings: &Settings, setting: Setting) {
+    parent
+        .spawn(Node {
+            align_items: AlignItems::Center,
+            column_gap: px(12.0),
+            ..default()
+        })
+        .with_children(|row| {
+            row.spawn((
+                text(setting.label(), 26.0, Color::WHITE),
+                Node {
+                    width: px(220.0),
+                    ..default()
+                },
+            ));
+            button(row, "<", MenuButton::Adjust(setting, false), 48.0);
+            row.spawn((Node {
+                width: px(110.0),
+                justify_content: JustifyContent::Center,
+                ..default()
+            },))
+                .with_child((
+                    SettingValue(setting),
+                    text(settings.display(setting), 26.0, Color::WHITE),
+                ));
+            button(row, ">", MenuButton::Adjust(setting, true), 48.0);
+        });
 }
 
 /// Opens the reset confirmation over the Settings screen.
