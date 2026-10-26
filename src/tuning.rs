@@ -1834,3 +1834,18 @@ pub const PACT_OVERKILL_CARRY_RADIUS_M: f32 = 5.0;
 /// The Alive Cap, up from `ALIVE_CAP`.
 pub const PACT_OVERKILL_ALIVE_CAP: u32 = 32;
 pub const PACT_DEAD_RUN_MOVE_SPEED_FACTOR: f32 = 1.3;
+
+// Scrip, Unlocks and Upgrade Tracks (Appendix B)
+/// Unlock prices in Scrip. Commons and a few Rares are Unlocked from the first launch.
+pub const UNLOCK_PRICE_RARE: u64 = 100;
+pub const UNLOCK_PRICE_LEGENDARY: u64 = 250;
+pub const UNLOCK_PRICE_PACT: u64 = 200;
+/// Each Upgrade Track's Rank prices in Scrip, first Rank first. A Track has this many Ranks.
+pub const UPGRADE_TRACK_RANK_PRICES: [u64; 5] = [50, 100, 150, 200, 250];
+pub const TRACK_STARTING_POINTS_PER_RANK: u64 = 100;
+pub const TRACK_WEAPON_DAMAGE_INCREASE_PER_RANK: f32 = 0.03;
+pub const TRACK_MOVE_SPEED_INCREASE_PER_RANK: f32 = 0.02;
+/// The Box spin price is multiplied by this once per Rank.
+pub const TRACK_BOX_PRICE_FACTOR_PER_RANK: f32 = 0.95;
+/// Extra seconds on timed Power-ups per Rank.
+pub const TRACK_POWER_UP_DURATION_SECS_PER_RANK: f32 = 2.0;

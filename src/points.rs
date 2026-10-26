@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use crate::last_stand::LastStand;
-use crate::modifier::{Modifiers, Stat, resolve};
+use crate::modifier::{Modifiers, RunModifiers, Stat, resolve, resolve_points};
 use crate::player::Player;
 use crate::state::GameState;
 use crate::tuning::*;
@@ -84,14 +84,18 @@ pub struct PointsPlugin;
 impl Plugin for PointsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Points>()
+            .init_resource::<RunModifiers>()
             .add_message::<PointsAwarded>()
             .add_message::<BonusPoints>()
-            .add_systems(OnEnter(GameState::Playing), |mut points: ResMut<Points>| {
-                *points = Points {
-                    balance: STARTING_POINTS,
-                    ..default()
-                };
-            })
+            .add_systems(
+                OnEnter(GameState::Playing),
+                |mut points: ResMut<Points>, run: Res<RunModifiers>| {
+                    *points = Points {
+                        balance: resolve_points(Stat::StartingPoints, STARTING_POINTS, &run.0),
+                        ..default()
+                    };
+                },
+            )
             .add_systems(Update, (resolve_rate, earn).chain());
     }
 }

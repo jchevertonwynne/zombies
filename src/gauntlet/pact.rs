@@ -349,8 +349,8 @@ pub fn is_pact_round(round: u32) -> bool {
 
 /// Whether a Pact can be on a Pact Offer: Unlocked, not held, with its Requirement holding now.
 pub fn pact_eligible(pact: &PactDef, held: &HeldPacts, run: &RunFacts) -> bool {
-    // Every Pact is bought in the Armory; until it saves Unlocks, only the debug key Unlocks them.
-    run.unlock_all
+    // Every Pact is bought in the Armory.
+    (run.unlock_all || run.unlocked.iter().any(|id| id == pact.id()))
         && !held.holds(pact.id())
         && pact
             .requirements
@@ -489,10 +489,17 @@ mod tests {
     #[test]
     fn locked_or_unmet_pacts_are_left_out() {
         let held = HeldPacts::default();
-        // Until the Armory saves Unlocks, nothing is Unlocked without the debug key.
+        // With nothing bought in the Armory, no Pact is Unlocked.
         assert!(draw_pact_offer(PACTS, &held, &RunFacts::default(), |_| 0.0).is_empty());
         let open_bar = pact(OPEN_BAR);
         assert!(!pact_eligible(open_bar, &held, &unlocked(false)));
+        let bought = RunFacts {
+            power_on: true,
+            unlocked: vec![OPEN_BAR.id.into()],
+            ..default()
+        };
+        assert!(pact_eligible(open_bar, &held, &bought));
+        assert!(!pact_eligible(pact(GLASS_JAW), &held, &bought));
         assert!(pact_eligible(open_bar, &held, &unlocked(true)));
         let overclocked = pact(OVERCLOCKED);
         assert!(!pact_eligible(overclocked, &held, &unlocked(true)));

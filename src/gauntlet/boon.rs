@@ -105,7 +105,9 @@ pub struct RunFacts {
     pub holds_upgraded: bool,
     /// A Weapon carried has an Ammo Mod.
     pub holds_ammo_mod: bool,
-    /// Every Boon and Pact counts as Unlocked (the debug key), until the Armory saves Unlocks.
+    /// The stable IDs of the Boons and Pacts bought in the Armory.
+    pub unlocked: Vec<String>,
+    /// Every Boon and Pact counts as Unlocked (the F9 debug key).
     pub unlock_all: bool,
 }
 
@@ -684,9 +686,7 @@ pub fn offer_weight(rarity: Rarity, stacks: u32) -> f64 {
 
 /// Whether a Boon can be on an Offer: Unlocked, with its Requirement holding now.
 pub fn eligible(boon: &BoonDef, run: &RunFacts) -> bool {
-    // Until the Armory saves Unlocks, the Boons Unlocked from the first launch are the only ones,
-    // unless the debug key Unlocks them all.
-    (boon.starts_unlocked || run.unlock_all)
+    (boon.starts_unlocked || run.unlock_all || run.unlocked.iter().any(|id| id == boon.id))
         && boon
             .requirements
             .iter()
@@ -1331,6 +1331,7 @@ mod tests {
             bought_quick_revive: true,
             holds_upgraded: true,
             holds_ammo_mod: true,
+            unlocked: Vec::new(),
             unlock_all: true,
         }
     }
@@ -1379,6 +1380,12 @@ mod tests {
         };
         assert!(!eligible(named("third_hand"), &locked));
         assert!(eligible(named("third_hand"), &everything()));
+        let bought = RunFacts {
+            unlocked: vec!["third_hand".into()],
+            ..locked.clone()
+        };
+        assert!(eligible(named("third_hand"), &bought));
+        assert!(!eligible(named("lucky_strike"), &bought));
         assert!(eligible(named("barbed_wire"), &locked));
         assert_eq!(
             BOONS

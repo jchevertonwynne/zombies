@@ -17,14 +17,14 @@ use crate::state::{Freeze, GameState, MainMenuScreen, Pause, PauseScreen, resume
 const BUTTON_IDLE: Color = Color::srgba(0.15, 0.15, 0.15, 0.9);
 const BUTTON_HOVER: Color = Color::srgba(0.3, 0.08, 0.06, 0.95);
 const BUTTON_PRESSED: Color = Color::srgba(0.5, 0.1, 0.06, 1.0);
-const HINT_GREY: Color = Color::srgb(0.7, 0.7, 0.7);
-const NEW_BEST_GOLD: Color = Color::srgb(1.0, 0.85, 0.2);
-const MENU_BACKGROUND: Color = Color::srgb(0.02, 0.02, 0.04);
+pub const HINT_GREY: Color = Color::srgb(0.7, 0.7, 0.7);
+pub const NEW_BEST_GOLD: Color = Color::srgb(1.0, 0.85, 0.2);
+pub const MENU_BACKGROUND: Color = Color::srgb(0.02, 0.02, 0.04);
 const DIM_BACKGROUND: Color = Color::srgba(0.0, 0.0, 0.0, 0.6);
 
 /// What a menu button does when clicked.
 #[derive(Component, Debug, Clone, Copy)]
-enum MenuButton {
+pub enum MenuButton {
     /// Opens the Mode screen.
     Play,
     /// Highlights a Mode on the Mode screen, remembering it as the last Mode.
@@ -43,15 +43,54 @@ enum MenuButton {
     Adjust(Setting, bool),
     /// Show this Mode's Records.
     RecordsTab(Mode),
-    /// Ask to confirm resetting Records & Lifetime Stats.
-    ResetRecords,
-    ConfirmReset,
+    /// Ask to confirm a reset.
+    AskReset(Reset),
+    ConfirmReset(Reset),
     CancelReset,
     /// From Game Over: a new Run in the same Mode.
     PlayAgain,
     /// From Game Over.
     MainMenu,
 }
+
+/// What a Settings reset wipes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reset {
+    /// Records & Lifetime Stats.
+    Records,
+    /// Gauntlet progress, leaving Records intact.
+    Gauntlet,
+}
+
+impl Reset {
+    fn button(self) -> &'static str {
+        match self {
+            Reset::Records => "Reset Records & Lifetime Stats",
+            Reset::Gauntlet => "Reset Gauntlet Progress",
+        }
+    }
+
+    fn warning(self) -> &'static str {
+        match self {
+            Reset::Records => "Every Run Record and Lifetime total will be lost.",
+            Reset::Gauntlet => "All Scrip, Unlocks and Ranks will be lost. Records are kept.",
+        }
+    }
+}
+
+/// Sent when the Player confirms "Reset Gauntlet Progress". Gauntlet owns that progress and wipes
+/// it; Records stay.
+#[derive(Message)]
+pub struct ResetGauntletProgress;
+
+/// Lines a Mode layered on Classic adds to the Game Over screen, under the Run Record. Classic
+/// leaves it empty; it's cleared as each Run starts.
+#[derive(Resource, Default)]
+pub struct GameOverLines(pub Vec<String>);
+
+/// Gives a button the menus' hover and press colours.
+#[derive(Component)]
+pub struct MenuButtonLook;
 
 /// Which Mode's Records the Records screen shows.
 #[derive(Resource, Default)]
@@ -69,7 +108,7 @@ struct ModeBoard;
 #[derive(Component)]
 struct SettingsScreen;
 
-/// The "Reset Records & Lifetime Stats?" confirmation.
+/// A reset's "Are you sure?" confirmation.
 #[derive(Component)]
 struct ResetConfirmation;
 
@@ -83,10 +122,15 @@ impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Mode>()
             .init_resource::<RecordsTab>()
+            .init_resource::<GameOverLines>()
+            .add_message::<ResetGauntletProgress>()
+            .add_systems(
+                OnEnter(GameState::Playing),
+                |mut lines: ResMut<GameOverLines>| lines.0.clear(),
+            )
             .add_systems(OnEnter(GameState::MainMenu), spawn_menu_camera)
             .add_systems(OnEnter(MainMenuScreen::Root), spawn_main_menu)
             .add_systems(OnEnter(MainMenuScreen::Mode), spawn_mode_screen)
-            .add_systems(OnEnter(MainMenuScreen::Armory), spawn_armory)
             .add_systems(OnEnter(MainMenuScreen::Records), spawn_records)
             .add_systems(OnEnter(MainMenuScreen::Settings), spawn_main_menu_settings)
             .add_systems(OnEnter(PauseScreen::Root), spawn_pause_menu)
@@ -121,7 +165,7 @@ fn spawn_menu_camera(mut commands: Commands) {
 }
 
 /// A full-screen column of centred widgets. The Main Menu is opaque; Pause dims the frozen world.
-fn screen(
+pub fn screen(
     commands: &mut Commands,
     background: Color,
     build: impl FnOnce(&mut ChildSpawnerCommands),
@@ -142,14 +186,15 @@ fn screen(
         .id()
 }
 
-fn button(parent: &mut ChildSpawnerCommands, label: &str, action: MenuButton, width: f32) {
+pub fn button(parent: &mut ChildSpawnerCommands, label: &str, action: impl Bundle, width: f32) {
     colored_button(parent, label, action, width, Color::WHITE);
 }
 
-fn colored_button(
+/// A menu button whose `action` component says what a click does.
+pub fn colored_button(
     parent: &mut ChildSpawnerCommands,
     label: &str,
-    action: MenuButton,
+    action: impl Bundle,
     width: f32,
     color: Color,
 ) {
@@ -157,6 +202,7 @@ fn colored_button(
         .spawn((
             Button,
             Hovered::default(),
+            MenuButtonLook,
             action,
             Node {
                 width: px(width),
@@ -258,24 +304,6 @@ fn refresh_mode_screen(
             .despawn_children()
             .with_children(|board| mode_board(board, mode));
     }
-}
-
-/// The Armory's entry point. Its Unlocks and Upgrades arrive with meta-progression.
-fn spawn_armory(mut commands: Commands) {
-    let screen = screen(&mut commands, MENU_BACKGROUND, |screen| {
-        screen.spawn(text("ARMORY", 64.0, Color::WHITE));
-        screen.spawn((
-            text("Unlocks and Upgrades are coming.", 24.0, HINT_GREY),
-            Node {
-                margin: UiRect::bottom(px(24.0)),
-                ..default()
-            },
-        ));
-        button(screen, "Back", MenuButton::Back, 280.0);
-    });
-    commands
-        .entity(screen)
-        .insert(DespawnOnExit(MainMenuScreen::Armory));
 }
 
 fn spawn_records(mut commands: Commands, mode: Res<Mode>, mut tab: ResMut<RecordsTab>) {
@@ -422,7 +450,7 @@ fn refresh_records(
         });
 }
 
-fn spawn_game_over(mut commands: Commands, last: Res<LastRun>) {
+fn spawn_game_over(mut commands: Commands, last: Res<LastRun>, more: Res<GameOverLines>) {
     let LastRun { record, rank } = &*last;
     let screen = screen(&mut commands, DIM_BACKGROUND, |screen| {
         screen.spawn(text("GAME OVER", 80.0, ROUND_RED));
@@ -471,6 +499,9 @@ fn spawn_game_over(mut commands: Commands, last: Res<LastRun>) {
                         20.0,
                         Color::WHITE,
                     ));
+                }
+                for line in &more.0 {
+                    lines.spawn(text(line, 24.0, NEW_BEST_GOLD));
                 }
                 lines.spawn(text(
                     format!(
@@ -557,18 +588,15 @@ fn settings_screen(commands: &mut Commands, settings: &Settings, background: Col
             height: px(16.0),
             ..default()
         });
-        button(
-            screen,
-            "Reset Records & Lifetime Stats",
-            MenuButton::ResetRecords,
-            440.0,
-        );
+        for reset in [Reset::Records, Reset::Gauntlet] {
+            button(screen, reset.button(), MenuButton::AskReset(reset), 440.0);
+        }
         button(screen, "Back", MenuButton::Back, 280.0);
     })
 }
 
 /// Opens the reset confirmation over the Settings screen.
-fn spawn_reset_confirmation(commands: &mut Commands, settings_screen: Entity) {
+fn spawn_reset_confirmation(commands: &mut Commands, settings_screen: Entity, reset: Reset) {
     commands.entity(settings_screen).with_children(|parent| {
         parent
             .spawn((
@@ -584,19 +612,21 @@ fn spawn_reset_confirmation(commands: &mut Commands, settings_screen: Entity) {
                 GlobalZIndex(20),
             ))
             .with_children(|confirm| {
-                confirm.spawn(text("Reset Records & Lifetime Stats?", 40.0, Color::WHITE));
+                confirm.spawn(text(format!("{}?", reset.button()), 40.0, Color::WHITE));
                 confirm.spawn((
-                    text(
-                        "Every Run Record and Lifetime total will be lost.",
-                        24.0,
-                        HINT_GREY,
-                    ),
+                    text(reset.warning(), 24.0, HINT_GREY),
                     Node {
                         margin: UiRect::bottom(px(16.0)),
                         ..default()
                     },
                 ));
-                colored_button(confirm, "Reset", MenuButton::ConfirmReset, 280.0, ROUND_RED);
+                colored_button(
+                    confirm,
+                    "Reset",
+                    MenuButton::ConfirmReset(reset),
+                    280.0,
+                    ROUND_RED,
+                );
                 button(confirm, "Cancel", MenuButton::CancelReset, 280.0);
             });
     });
@@ -626,6 +656,7 @@ fn activate_button(
     mut mode: ResMut<Mode>,
     mut tab: ResMut<RecordsTab>,
     mut records: ResMut<RecordsFile>,
+    mut reset_gauntlet: MessageWriter<ResetGauntletProgress>,
     main_menu: Option<Res<State<MainMenuScreen>>>,
     mut settings: ResMut<Settings>,
     mut next_game: ResMut<NextState<GameState>>,
@@ -666,16 +697,20 @@ fn activate_button(
         MenuButton::QuitToMainMenu => next_game.set(GameState::MainMenu),
         MenuButton::Adjust(setting, up) => settings.adjust(setting, up),
         MenuButton::RecordsTab(mode) => tab.0 = mode,
-        MenuButton::ResetRecords => {
+        MenuButton::AskReset(reset) => {
             if confirmation.is_empty()
                 && let Ok(screen) = settings_screen.single()
             {
-                spawn_reset_confirmation(&mut commands, screen);
+                spawn_reset_confirmation(&mut commands, screen, reset);
             }
         }
-        MenuButton::ConfirmReset | MenuButton::CancelReset => {
-            if matches!(action, MenuButton::ConfirmReset) {
-                *records = RecordsFile::default();
+        MenuButton::ConfirmReset(_) | MenuButton::CancelReset => {
+            match *action {
+                MenuButton::ConfirmReset(Reset::Records) => *records = RecordsFile::default(),
+                MenuButton::ConfirmReset(Reset::Gauntlet) => {
+                    reset_gauntlet.write(ResetGauntletProgress);
+                }
+                _ => {}
             }
             for entity in &confirmation {
                 commands.entity(entity).despawn();
@@ -685,7 +720,7 @@ fn activate_button(
 }
 
 fn highlight_buttons(
-    mut buttons: Query<(&Hovered, Has<Pressed>, &mut BackgroundColor), With<MenuButton>>,
+    mut buttons: Query<(&Hovered, Has<Pressed>, &mut BackgroundColor), With<MenuButtonLook>>,
 ) {
     for (hovered, pressed, mut background) in &mut buttons {
         let color = match (pressed, hovered.get()) {

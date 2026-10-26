@@ -1,11 +1,15 @@
 //! Gauntlet: Classic with a Boon Offer after every Round, and a Pact Offer in its place every
-//! fifth Round. It's layered on top of Classic and
+//! fifth Round. Between Runs, the Scrip each Run pays buys Unlocks and Upgrade Track Ranks in the
+//! Armory, kept in `gauntlet.ron`. It's layered on top of Classic and
 //! reaches it only through seams (ADR 0002): stat-modifier entries on the Player, messages Classic
 //! already sends, Classic state it reads, and the `Freeze` and `IntermissionHold` it holds. Every
-//! system here runs only when `Mode == Gauntlet`.
+//! system here that touches a Run runs only when `Mode == Gauntlet`; the Armory and the save file
+//! live in the menus.
 
+mod armory;
 mod boon;
 mod pact;
+mod progress;
 mod screen;
 
 use bevy::input::common_conditions::input_just_pressed;
@@ -15,8 +19,9 @@ use bevy::ui_widgets::Activate;
 use crate::buy::Purchased;
 use crate::explosive::Explosion;
 use crate::last_stand::LastStand;
+use crate::menu::{GameOverLines, ResetGauntletProgress};
 use crate::mode::Mode;
-use crate::modifier::Modifiers;
+use crate::modifier::{Modifiers, RunModifiers};
 use crate::mystery_box::{MysteryBox, TeddyBear};
 use crate::perk::{Perk, PerkMachine};
 use crate::player::Player;
@@ -24,8 +29,10 @@ use crate::points::BonusPoints;
 use crate::power::Power;
 use crate::power_up::{DropPowerUp, GivePowerUp, PowerUp, PowerUpTaken};
 use crate::records::{RecordExtra, RecordExtras};
-use crate::round::{IntermissionHold, Round, RoundEnded};
-use crate::state::{Freeze, GameState, Pause};
+use crate::round::{IntermissionHold, Round, RoundEnded, RoundPhase};
+use crate::save;
+use crate::settings::SaveDir;
+use crate::state::{Freeze, GameState, MainMenuScreen, Pause};
 use crate::tuning::*;
 use crate::weapon::Loadout;
 use crate::zombie::{DamageZombie, Dying, HitZone, KillDamage, Zombie, ZombieKilled};
@@ -38,6 +45,7 @@ use pact::{
     HeldPacts, OVERKILL, PACTS, PactDef, SCORCHED_EARTH, draw_pact_offer, is_pact_round,
     is_pact_source, overkill_target, scorched_earth_blast,
 };
+use progress::{GauntletFile, rounds_completed, scrip_for_rounds};
 use screen::{OfferCard, SkipButton};
 
 /// Seconds left before the Boon Offer opens, counted from the Round's last kill.
@@ -57,9 +65,17 @@ struct Bought {
 #[derive(Resource, Default)]
 struct Gifts(Vec<PowerUp>);
 
-/// Debug: every Boon and Pact counts as Unlocked, toggled with F9, until the Armory saves Unlocks.
+/// Debug: every Boon and Pact counts as Unlocked, toggled with F9 during a Gauntlet Run. It
+/// changes nothing in `gauntlet.ron`.
 #[derive(Resource, Default)]
 struct UnlockAll(bool);
+
+/// The Upgrade Track Ranks switched on as this Run began (0 to 25), for its Run Record.
+#[derive(Resource, Default)]
+struct ActiveRanks(u32);
+
+/// The Run Record line holding the active Rank count.
+const RANKS_RECORD_ID: &str = "upgrade_ranks";
 
 /// What an Offer's cards hold.
 enum Choices {
@@ -98,6 +114,39 @@ impl Plugin for GauntletPlugin {
             .init_resource::<Bought>()
             .init_resource::<Gifts>()
             .init_resource::<UnlockAll>()
+            .init_resource::<ActiveRanks>()
+            .init_resource::<RunModifiers>()
+            .init_resource::<armory::ArmoryTab>()
+            .init_resource::<armory::ArmoryNote>()
+            .add_systems(Startup, load_progress)
+            // Both run before the new Run's Player and Points are set up, after the Mode is picked.
+            .add_systems(OnExit(GameState::MainMenu), set_run_modifiers)
+            .add_systems(OnExit(GameState::GameOver), set_run_modifiers)
+            .add_systems(OnExit(GameState::Playing), pay_scrip.run_if(gauntlet))
+            // Closing the window mid-Run is quitting too.
+            .add_systems(
+                Last,
+                pay_scrip
+                    .run_if(on_message::<AppExit>)
+                    .run_if(in_state(GameState::Playing))
+                    .run_if(gauntlet),
+            )
+            .add_systems(
+                Update,
+                (
+                    reset_progress.run_if(on_message::<ResetGauntletProgress>),
+                    save_progress.run_if(resource_changed::<GauntletFile>),
+                )
+                    .chain(),
+            )
+            .add_systems(OnEnter(MainMenuScreen::Armory), armory::spawn_armory)
+            .add_systems(
+                Update,
+                armory::refresh_armory
+                    .run_if(in_state(MainMenuScreen::Armory))
+                    .run_if(armory::armory_changed),
+            )
+            .add_observer(armory::armory_click)
             .add_systems(
                 OnEnter(GameState::Playing),
                 (reset, screen::spawn_held_column).chain().run_if(gauntlet),
@@ -175,7 +224,7 @@ fn open_offer(
     held: Res<HeldBoons>,
     pacts: Res<HeldPacts>,
     bought: Res<Bought>,
-    unlock_all: Res<UnlockAll>,
+    (unlock_all, progress): (Res<UnlockAll>, Res<GauntletFile>),
     power: Option<Res<Power>>,
     round: Res<Round>,
     time: Res<Time>,
@@ -200,6 +249,7 @@ fn open_offer(
         bought_quick_revive: bought.quick_revive,
         holds_upgraded: loadout.weapons().any(|weapon| weapon.upgraded),
         holds_ammo_mod: loadout.weapons().any(|weapon| !weapon.ammo_mods.is_empty()),
+        unlocked: progress.unlocked.clone(),
         unlock_all: unlock_all.0,
     };
     let roll = |total| rand::random_range(0.0..total);
@@ -462,8 +512,14 @@ fn toggle_unlock_all(mut unlock_all: ResMut<UnlockAll>) {
     unlock_all.0 = !unlock_all.0;
 }
 
-/// The held Boons go on the Run Record in pick order, with their Stacks, then the Pacts.
-fn record_picks(held: Res<HeldBoons>, pacts: Res<HeldPacts>, mut extras: ResMut<RecordExtras>) {
+/// The held Boons go on the Run Record in pick order, with their Stacks, then the Pacts, then the
+/// active Rank count.
+fn record_picks(
+    held: Res<HeldBoons>,
+    pacts: Res<HeldPacts>,
+    ranks: Res<ActiveRanks>,
+    mut extras: ResMut<RecordExtras>,
+) {
     let boons = held.0.iter().map(|&(boon, stacks)| RecordExtra {
         id: boon.id.to_string(),
         count: stacks,
@@ -472,5 +528,72 @@ fn record_picks(held: Res<HeldBoons>, pacts: Res<HeldPacts>, mut extras: ResMut<
         id: pact.id().to_string(),
         count: 1,
     });
-    extras.0 = boons.chain(pacts).collect();
+    let ranks = RecordExtra {
+        id: RANKS_RECORD_ID.to_string(),
+        count: ranks.0,
+    };
+    extras.0 = boons.chain(pacts).chain([ranks]).collect();
+}
+
+fn load_progress(mut commands: Commands, dir: Res<SaveDir>) {
+    let file = match &dir.0 {
+        Some(dir) => save::load::<GauntletFile>(dir),
+        None => GauntletFile::default(),
+    };
+    commands.insert_resource(file);
+}
+
+fn save_progress(file: Res<GauntletFile>, dir: Res<SaveDir>) {
+    // A freshly loaded file is already on disk (or defaults); only changes get written.
+    if !file.is_added() {
+        store_progress(&file, &dir);
+    }
+}
+
+fn store_progress(file: &GauntletFile, dir: &SaveDir) {
+    if let Some(dir) = &dir.0
+        && let Err(err) = save::store(dir, file)
+    {
+        warn!("Couldn't save Gauntlet progress: {err}");
+    }
+}
+
+/// Settings' "Reset Gauntlet Progress": Scrip, Unlocks, Ranks and toggles go back to a first
+/// launch's. Records are left alone.
+fn reset_progress(mut file: ResMut<GauntletFile>) {
+    *file = GauntletFile::default();
+}
+
+/// The Upgrade Tracks switched on give a Gauntlet Run's Player its entries, starting Points
+/// included, through Classic's `RunModifiers`. A Classic Run gets none.
+fn set_run_modifiers(
+    mode: Res<Mode>,
+    file: Res<GauntletFile>,
+    mut run: ResMut<RunModifiers>,
+    mut ranks: ResMut<ActiveRanks>,
+) {
+    if *mode == Mode::Gauntlet {
+        run.0 = file.track_entries();
+        ranks.0 = file.active_ranks();
+    } else {
+        run.0.clear();
+        ranks.0 = 0;
+    }
+}
+
+/// The Run ended, at Game Over or on quit: each completed Round pays its number in Scrip, saved
+/// straight away (the app may be exiting) and shown on the Game Over screen.
+fn pay_scrip(
+    round: Res<Round>,
+    mut file: ResMut<GauntletFile>,
+    dir: Res<SaveDir>,
+    mut lines: ResMut<GameOverLines>,
+) {
+    let in_intermission = matches!(round.phase, RoundPhase::Intermission(_));
+    let scrip = scrip_for_rounds(rounds_completed(round.number, in_intermission));
+    file.pay(scrip);
+    store_progress(&file, &dir);
+    lines
+        .0
+        .push(format!("Scrip earned {}", crate::hud::with_commas(scrip)));
 }

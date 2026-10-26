@@ -12,7 +12,7 @@ use crate::equipment::Equipment;
 use crate::last_stand::LastStand;
 use crate::layers::GameLayer;
 use crate::map::PLAYER_START;
-use crate::modifier::{Modifier, Modifiers, Stat, resolve};
+use crate::modifier::{Modifier, Modifiers, RunModifiers, Stat, resolve};
 use crate::perk::Drinking;
 use crate::round::{Round, RoundPhase};
 use crate::settings::Settings;
@@ -141,6 +141,7 @@ impl Plugin for PlayerPlugin {
         configure_look(app);
         app.add_message::<PlayerHit>()
             .init_resource::<FovWarp>()
+            .init_resource::<RunModifiers>()
             .add_systems(
                 OnEnter(GameState::Playing),
                 (spawn_player, |mut warp: ResMut<FovWarp>| *warp = FovWarp::default()),
@@ -169,7 +170,7 @@ impl Plugin for PlayerPlugin {
     }
 }
 
-fn spawn_player(mut commands: Commands, settings: Res<Settings>) {
+fn spawn_player(mut commands: Commands, settings: Res<Settings>, run: Res<RunModifiers>) {
     let half_height = PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0;
     commands
         .spawn((
@@ -184,7 +185,7 @@ fn spawn_player(mut commands: Commands, settings: Res<Settings>) {
             Locomotion::default(),
             Visibility::default(),
             Loadout::new(STARTING_WEAPON),
-            Modifiers::default(),
+            Modifiers(run.0.clone()),
             (Knife::default(), Equipment::default()),
             Transform::from_translation(PLAYER_START + Vec3::Y * (half_height + 0.05)),
             RigidBody::Kinematic,

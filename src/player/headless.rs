@@ -54,6 +54,7 @@ impl Sim {
         .init_resource::<Steps>()
         .init_resource::<SendTeleport>()
         .init_resource::<Teleport>()
+        .init_resource::<crate::modifier::RunModifiers>()
         .add_systems(Update, send_teleport)
         .insert_resource(Settings::default())
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / fps)))

@@ -114,6 +114,8 @@ pub enum Stat {
     MaxAmmoInBag,
     /// A factor on the chance any eligible kill drops a Power-up (base 1).
     PowerUpDropChance,
+    /// The Points a Run starts with.
+    StartingPoints,
 }
 
 /// Where an entry comes from. Each Perk, Pack-a-Punch, Attachment and so on is its own source:
@@ -143,6 +145,12 @@ pub struct Modifier {
 /// Modifier entries held by the Player. A Weapon copy carries its own.
 #[derive(Component, Default)]
 pub struct Modifiers(pub Vec<Modifier>);
+
+/// Entries the Player starts every Run with, from whatever is layered on Classic (Classic leaves
+/// it empty). It's read once as the Run starts: the new Player's entries begin as these, and the
+/// starting Points resolve from them. Set it before the Run begins.
+#[derive(Resource, Default)]
+pub struct RunModifiers(pub Vec<Modifier>);
 
 /// One stat's value: `(base + Σflat) × Π(one multiplier per source) × Π rⁿ`, then any chances
 /// folded in hyperbolically, `1 − (1 − value) × Π(1 − c)ⁿ`.
