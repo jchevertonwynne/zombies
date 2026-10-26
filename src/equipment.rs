@@ -4,6 +4,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+use crate::controls::{Action, Controls};
 use crate::ammo_mod::AmmoMods;
 use crate::barrier::Entering;
 use crate::buy::{Buyable, Purchased, Refused};
@@ -454,22 +455,22 @@ pub fn equipment_splash(base: Splash, player: &[Modifier]) -> Splash {
     }
 }
 
-/// G pulls a frag's pin. Holding G cooks it, and letting go throws it with what's left of the
+/// The Lethal key pulls a frag's pin. Holding it cooks it, and letting go throws it with what's left of the
 /// fuse. Held too long, it goes off in the hand.
 fn throw_frags(
     mut commands: Commands,
     player: Single<(&mut Equipment, &Modifiers), With<Player>>,
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
-    input: Res<ButtonInput<KeyCode>>,
+    controls: Controls,
     assets: Res<EquipmentAssets>,
     mut explosions: MessageWriter<Explosion>,
     time: Res<Time>,
 ) {
     let (mut equipment, modifiers) = player.into_inner();
     let entries = &modifiers.0;
-    let held = input.pressed(KeyCode::KeyG);
+    let held = controls.pressed(Action::Lethal);
     let Some(cooked) = equipment.cooking else {
-        if input.just_pressed(KeyCode::KeyG) && equipment.frags > 0 {
+        if controls.just_pressed(Action::Lethal) && equipment.frags > 0 {
             equipment.frags -= 1;
             equipment.cooking = Some(0.0);
         }
@@ -494,15 +495,15 @@ fn throw_frags(
     }
 }
 
-/// 4 throws a Monkey Bomb.
+/// The Monkey Bomb key throws one.
 fn throw_monkey_bombs(
     mut commands: Commands,
     mut equipment: Single<&mut Equipment, With<Player>>,
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
-    input: Res<ButtonInput<KeyCode>>,
+    controls: Controls,
     assets: Res<EquipmentAssets>,
 ) {
-    if !input.just_pressed(KeyCode::Digit4) || equipment.monkey_bombs == 0 {
+    if !controls.just_pressed(Action::MonkeyBomb) || equipment.monkey_bombs == 0 {
         return;
     }
     equipment.monkey_bombs -= 1;
@@ -512,16 +513,16 @@ fn throw_monkey_bombs(
     ));
 }
 
-/// 5 plants a Claymore on the floor at the Player's feet, facing where they look.
+/// The Claymore key plants one on the floor at the Player's feet, facing where they look.
 fn plant_claymores(
     mut commands: Commands,
     player: Single<(&mut Equipment, &Transform), With<Player>>,
-    input: Res<ButtonInput<KeyCode>>,
+    controls: Controls,
     spatial: SpatialQuery,
     assets: Res<EquipmentAssets>,
 ) {
     let (mut equipment, transform) = player.into_inner();
-    if !input.just_pressed(KeyCode::Digit5) || equipment.claymores == 0 {
+    if !controls.just_pressed(Action::Claymore) || equipment.claymores == 0 {
         return;
     }
     let Some(floor) = spatial.cast_ray(transform.translation, Dir3::NEG_Y, 3.0, true, &world_filter()) else {

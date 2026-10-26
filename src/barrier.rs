@@ -7,6 +7,7 @@
 
 use bevy::prelude::*;
 
+use crate::controls::{Action, Controls};
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
 use crate::buy::{Buyable, Focus, Held};
@@ -642,7 +643,7 @@ fn face(transform: &mut Transform, direction: Vec3) {
 /// Holding the Use key at a Barrier missing Planks puts them back one at a time, paying Points
 /// up to the Round cap. Its Prompt comes from the shared pick, so it never shows while Down.
 fn rebuild_planks(
-    input: Res<ButtonInput<KeyCode>>,
+    controls: Controls,
     focus: Res<Focus>,
     windows: Query<&Barrier>,
     mut barriers: ResMut<Barriers>,
@@ -656,7 +657,7 @@ fn rebuild_planks(
 ) {
     let target = focus
         .0
-        .filter(|_| input.pressed(KeyCode::KeyF))
+        .filter(|_| controls.pressed(Action::Use))
         .and_then(|entity| windows.get(entity).ok())
         .map(|window| window.0)
         .filter(|&barrier| barriers.planks(barrier) < BARRIER_PLANKS);

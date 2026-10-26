@@ -2,6 +2,8 @@ use avian3d::prelude::*;
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
 
+use crate::hands::{ReloadPose, ReloadStyle, knife_pose, reload_pose, stab_lunge};
+use crate::controls::{Action, Controls};
 use crate::ammo_mod::{AmmoModHit, AmmoMods, glint_colour, pick_ammo_mod};
 use crate::arsenal::{Burn, FireMode, Splash, WeaponId, WeaponStats};
 use crate::audio::PlayCue;
@@ -737,6 +739,13 @@ pub struct Knife {
     pub bowie: bool,
 }
 
+impl Knife {
+    /// How far (0 to 1) through its swing the Knife is, while it's swinging.
+    pub fn swing(&self) -> Option<f32> {
+        (self.cooldown > 0.0).then(|| 1.0 - self.cooldown / KNIFE_COOLDOWN_SECS)
+    }
+}
+
 /// The Knife's melee damage, or the Bowie Knife's once bought. With the Ballistic Knife in hand
 /// the melee uses its blade instead: `ballistic` is `Some(upgraded)` then.
 pub fn knife_damage(bowie: bool, ballistic: Option<bool>) -> f32 {
@@ -784,6 +793,17 @@ struct Glint {
     pass: u32,
 }
 
+/// The moving parts around the view model. The Stretch stretches the Attachments and the glint
+/// along the Weapon to its class's `model_length`; the magazine and the left hand come off the
+/// model in a Reload; the knife hand is the camera's own, and slashes when the Knife is used.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewPart {
+    Stretch,
+    Magazine,
+    LeftHand,
+    Knife,
+}
+
 /// Poses the view model from scratch each frame; camera sway adds to the pose after it.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AnimateViewModel;
@@ -820,25 +840,45 @@ fn spawn_view_model(
             unlit: true,
             ..default()
         });
+        // `animate_view_model` swaps in the parts of the Weapon in hand.
+        let part = |part: ViewPart| {
+            (
+                part,
+                Mesh3d(guns.knife.clone()),
+                MeshMaterial3d(guns.material.clone()),
+                Transform::default(),
+                Visibility::Hidden,
+            )
+        };
+        commands.entity(camera).with_child(part(ViewPart::Knife));
         commands.entity(camera).with_child((
             ViewModel { kick: 0.0 },
-            // `animate_view_model` swaps in the model of the Weapon in hand.
             Mesh3d(guns.view(STARTING_WEAPON)),
             MeshMaterial3d(guns.material.clone()),
             Transform::from_xyz(0.22, -0.2, -0.45),
-            children![(
-                Glint {
-                    material: glint.clone(),
-                    colour: UPGRADED_PURPLE,
-                    sweep: 0.0,
-                    pass: 0,
-                },
-                // A thin band just proud of the model's sides.
-                Mesh3d(meshes.add(Cuboid::new(0.066, 0.106, 0.04))),
-                MeshMaterial3d(glint),
-                Transform::default(),
-                Visibility::Hidden,
-            )],
+            Visibility::default(),
+            children![
+                (
+                    ViewPart::Stretch,
+                    Transform::default(),
+                    Visibility::default(),
+                    children![(
+                        Glint {
+                            material: glint.clone(),
+                            colour: UPGRADED_PURPLE,
+                            sweep: 0.0,
+                            pass: 0,
+                        },
+                        // A thin band just proud of the model's sides.
+                        Mesh3d(meshes.add(Cuboid::new(0.066, 0.106, 0.04))),
+                        MeshMaterial3d(glint),
+                        Transform::default(),
+                        Visibility::Hidden,
+                    )],
+                ),
+                part(ViewPart::Magazine),
+                part(ViewPart::LeftHand),
+            ],
         ));
     }
 }
@@ -853,53 +893,53 @@ fn attack_filter(player: Entity) -> SpatialQueryFilter {
     SpatialQueryFilter::from_mask([GameLayer::World, GameLayer::ZombieHitArea]).with_excluded_entities([player])
 }
 
-/// Scroll, Q, or 1/2 (and 3, with a third slot) switch Weapons.
+/// Scroll, the Switch Weapon key, or the Weapon 1/2 (and 3, with a third slot) keys switch Weapons.
 fn switch_weapons(
     mut loadout: Single<&mut Loadout, With<Player>>,
-    input: Res<ButtonInput<KeyCode>>,
+    controls: Controls,
     scroll: Res<AccumulatedMouseScroll>,
     time: Res<Time>,
 ) {
     loadout.tick(time.delta_secs());
-    if input.just_pressed(KeyCode::Digit1) {
+    if controls.just_pressed(Action::Weapon1) {
         loadout.switch_to(0);
-    } else if input.just_pressed(KeyCode::Digit2) {
+    } else if controls.just_pressed(Action::Weapon2) {
         loadout.switch_to(1);
-    } else if input.just_pressed(KeyCode::Digit3) {
+    } else if controls.just_pressed(Action::Weapon3) {
         loadout.switch_to(2);
-    } else if input.just_pressed(KeyCode::KeyQ) || scroll.delta.y != 0.0 {
+    } else if controls.just_pressed(Action::SwitchWeapon) || scroll.delta.y != 0.0 {
         loadout.cycle();
     }
 }
 
 fn reload(
     player: Single<(&mut Loadout, &Modifiers), With<Player>>,
-    input: Res<ButtonInput<KeyCode>>,
+    controls: Controls,
     time: Res<Time>,
 ) {
     let (mut loadout, modifiers) = player.into_inner();
-    if input.just_pressed(KeyCode::KeyR) {
+    if controls.just_pressed(Action::Reload) {
         loadout.start_reload(&modifiers.0);
     }
     loadout.advance_reload(time.delta_secs(), &modifiers.0);
     loadout.feed_from_reserve(&modifiers.0);
 }
 
-/// Right mouse aims down the sights.
+/// The Aim key aims down the sights.
 fn aim(
     player: Single<(&mut Loadout, &Locomotion), With<Player>>,
-    mouse: Res<ButtonInput<MouseButton>>,
+    controls: Controls,
     time: Res<Time>,
 ) {
     let (mut loadout, locomotion) = player.into_inner();
-    loadout.update_stance(time.delta_secs(), locomotion.sprinting, mouse.pressed(MouseButton::Right));
+    loadout.update_stance(time.delta_secs(), locomotion.sprinting, controls.pressed(Action::Aim));
 }
 
 fn fire(
     player: Single<(Entity, &mut Loadout, &Modifiers), With<Player>>,
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
     mut view_model: Single<&mut ViewModel>,
-    mouse: Res<ButtonInput<MouseButton>>,
+    controls: Controls,
     spatial: SpatialQuery,
     hit_areas: Query<(&HitArea, &ChildOf)>,
     mut damage: MessageWriter<DamageZombie>,
@@ -914,7 +954,7 @@ fn fire(
 ) {
     let (entity, mut loadout, modifiers) = player.into_inner();
     let entries = &modifiers.0;
-    let (pressed, just_pressed) = (mouse.pressed(MouseButton::Left), mouse.just_pressed(MouseButton::Left));
+    let (pressed, just_pressed) = (controls.pressed(Action::Fire), controls.just_pressed(Action::Fire));
     // Spread is read before the shot blooms it.
     let spread = loadout.spread();
     if !loadout.try_fire(pressed, just_pressed, entries) {
@@ -1081,7 +1121,7 @@ fn fire(
 fn knife(
     player: Single<(Entity, &mut Knife, &Loadout, &Modifiers), With<Player>>,
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
-    input: Res<ButtonInput<KeyCode>>,
+    controls: Controls,
     spatial: SpatialQuery,
     hit_areas: Query<(&HitArea, &ChildOf)>,
     mut damage: MessageWriter<DamageZombie>,
@@ -1090,7 +1130,7 @@ fn knife(
 ) {
     let (entity, mut knife, loadout, modifiers) = player.into_inner();
     knife.cooldown = (knife.cooldown - time.delta_secs()).max(0.0);
-    if !input.just_pressed(KeyCode::KeyV) || knife.cooldown > 0.0 {
+    if !controls.just_pressed(Action::Knife) || knife.cooldown > 0.0 {
         return;
     }
     knife.cooldown = KNIFE_COOLDOWN_SECS;
@@ -1160,16 +1200,20 @@ fn ballistic_in_hand(loadout: &Loadout) -> Option<bool> {
 fn animate_view_model(
     mut view_model: Single<(&mut ViewModel, &mut Transform, &mut Mesh3d)>,
     mut glint: Single<(&mut Glint, &mut Transform, &mut Visibility), Without<ViewModel>>,
+    mut parts: Query<
+        (&ViewPart, &mut Transform, Option<&mut Mesh3d>, &mut Visibility),
+        (Without<ViewModel>, Without<Glint>),
+    >,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    player: Single<(&Loadout, &Modifiers, Has<Drinking>), With<Player>>,
+    player: Single<(&Loadout, &Modifiers, &Knife, Has<Drinking>), With<Player>>,
     guns: Res<GunModels>,
     time: Res<Time>,
 ) {
     let (ref mut model, ref mut transform, ref mut mesh) = *view_model;
-    let (loadout, modifiers, drinking) = *player;
+    let (loadout, modifiers, knife, drinking) = *player;
     model.kick = (model.kick - time.delta_secs() * 8.0).max(0.0);
 
-    // Dip the gun out of view while reloading; drop the old gun and raise the new one on a switch.
+    // Drop the old gun and raise the new one on a switch.
     let mut shown_id = loadout.held().id;
     let mut class = loadout.held().stats().class;
     let mut shown = glint_of(loadout.held());
@@ -1185,9 +1229,6 @@ fn animate_view_model(
         } else {
             (1.0 - (swap.elapsed - swap.drop_secs) / swap.raise_secs) * 0.4
         }
-    } else if let (Some(reload), Some(secs)) = (&loadout.reload, loadout.reload_secs(&modifiers.0)) {
-        let t = (reload.elapsed / secs).min(1.0);
-        (t * std::f32::consts::PI).sin() * 0.25
     } else {
         0.0
     };
@@ -1196,9 +1237,75 @@ fn animate_view_model(
     if mesh.0 != gun {
         mesh.0 = gun;
     }
-    transform.translation = Vec3::new(0.22, -0.2 - dip, -0.45 - 0.15 * (length - 1.0) + model.kick * 0.05);
-    transform.rotation = Quat::from_rotation_x(model.kick * 0.25 - dip * 2.0);
-    transform.scale = Vec3::new(1.0, 1.0, length);
+    let magazine = guns.magazine(shown_id);
+    let left_hand = guns.left_hand(shown_id);
+
+    // A Reload: the magazine swapped, or the gun fed by hand.
+    let reload = match (&loadout.reload, loadout.reload_secs(&modifiers.0)) {
+        (Some(reload), Some(secs)) if loadout.swap.is_none() => {
+            let hand_rest = left_hand.map_or(Vec3::ZERO, |hand| hand.rest.translation);
+            let (style, grab) = match magazine.filter(|_| loadout.underbarrel().is_none()) {
+                Some(magazine) => (ReloadStyle::Magazine, magazine.rest.translation + Vec3::new(-0.03, -0.06, 0.0) - hand_rest),
+                // The loading port, under the receiver.
+                None => (ReloadStyle::Feed, Vec3::new(0.0, -0.07, 0.04) - hand_rest),
+            };
+            reload_pose(style, reload.elapsed, secs, grab)
+        }
+        _ => ReloadPose::REST,
+    };
+
+    // The Knife: the Ballistic Knife in hand stabs with its own blade; otherwise the Weapon drops
+    // out of the way of the knife hand.
+    let stabbing = ballistic_in_hand(loadout).is_some();
+    let (knife_dip, knife_hand) = match knife.swing() {
+        Some(t) if !stabbing => knife_pose(t),
+        _ => (0.0, None),
+    };
+    let lunge = knife.swing().filter(|_| stabbing).map_or(0.0, stab_lunge);
+
+    transform.translation = Vec3::new(
+        0.22 + 0.1 * knife_dip,
+        -0.2 - dip - 0.3 * knife_dip,
+        -0.45 - 0.15 * (length - 1.0) + model.kick * 0.05 - lunge,
+    ) + reload.shift;
+    transform.rotation = Quat::from_rotation_x(model.kick * 0.25 - dip * 2.0)
+        * Quat::from_rotation_z(-0.6 * knife_dip)
+        * reload.turn;
+
+    for (part, mut part_transform, part_mesh, mut visibility) in &mut parts {
+        let (shown_mesh, placed) = match part {
+            ViewPart::Stretch => {
+                part_transform.scale = Vec3::new(1.0, 1.0, length);
+                continue;
+            }
+            ViewPart::Magazine => (
+                magazine.map(|magazine| magazine.mesh.clone()),
+                magazine.map(|magazine| magazine.rest.with_translation(magazine.rest.translation + reload.magazine)),
+            ),
+            ViewPart::LeftHand => (
+                left_hand.map(|hand| hand.mesh.clone()),
+                left_hand.map(|hand| hand.rest.with_translation(hand.rest.translation + reload.hand)),
+            ),
+            ViewPart::Knife => (
+                Some(if knife.bowie { guns.bowie.clone() } else { guns.knife.clone() }),
+                knife_hand,
+            ),
+        };
+        match (shown_mesh, placed) {
+            (Some(shown_mesh), Some(placed)) => {
+                if let Some(mut part_mesh) = part_mesh
+                    && part_mesh.0 != shown_mesh
+                {
+                    part_mesh.0 = shown_mesh;
+                }
+                *part_transform = placed;
+                visibility.set_if_neq(Visibility::Inherited);
+            }
+            _ => {
+                visibility.set_if_neq(Visibility::Hidden);
+            }
+        }
+    }
 
     // The glint sweeps from the back of the model to the muzzle, over and over.
     let (ref mut glint, ref mut glint_transform, ref mut visibility) = *glint;

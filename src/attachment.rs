@@ -12,6 +12,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+use crate::controls::{Action, Controls};
 use crate::arsenal::{Burn, WeaponClass, WeaponId, WeaponStats};
 use crate::burn::Ignite;
 use crate::explosive::{Flight, in_sight};
@@ -20,7 +21,7 @@ use crate::perk::hands_free;
 use crate::player::Player;
 use crate::state::Pause;
 use crate::tuning::*;
-use crate::weapon::{Loadout, ViewModel};
+use crate::weapon::{Loadout, ViewPart};
 use crate::zombie::{Attack, DamageZombie, Dying, HitZone, Zombie};
 
 /// Where on a Weapon an Attachment fits.
@@ -303,9 +304,9 @@ impl Plugin for AttachmentPlugin {
     }
 }
 
-/// X toggles between the main gun and its Underbarrel.
-fn toggle_underbarrel(mut loadout: Single<&mut Loadout, With<Player>>, input: Res<ButtonInput<KeyCode>>) {
-    if input.just_pressed(KeyCode::KeyX) {
+/// The Underbarrel key toggles between the main gun and its Underbarrel.
+fn toggle_underbarrel(mut loadout: Single<&mut Loadout, With<Player>>, controls: Controls) {
+    if controls.just_pressed(Action::Underbarrel) {
         loadout.toggle_underbarrel();
     }
 }
@@ -338,11 +339,12 @@ fn burn_in_flames(
 
 fn spawn_attachment_models(
     mut commands: Commands,
-    view_models: Query<Entity, Added<ViewModel>>,
+    view_models: Query<(Entity, &ViewPart), Added<ViewPart>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    for view_model in &view_models {
+    // On the Stretch, which stretches them along the Weapon with the glint.
+    for (view_model, _) in view_models.iter().filter(|(_, part)| **part == ViewPart::Stretch) {
         let dark = materials.add(Color::srgb(0.1, 0.1, 0.11));
         let red = materials.add(StandardMaterial {
             base_color: Color::srgb(1.0, 0.1, 0.05),
@@ -351,7 +353,7 @@ fn spawn_attachment_models(
             ..default()
         });
         let tank = materials.add(Color::srgb(0.6, 0.15, 0.05));
-        // The view model is 0.3 long before its class stretches it; its muzzle is at −Z.
+        // The Stretch is 0.3 long before its class stretches it; its muzzle is at −Z.
         let parts: [(Attachment, Mesh, Handle<StandardMaterial>, Vec3); 10] = [
             (Attachment::RedDotSight, Cuboid::new(0.03, 0.03, 0.04).into(), red, Vec3::new(0.0, 0.07, 0.03)),
             (Attachment::AcogSight, cylinder(0.022, 0.1), dark.clone(), Vec3::new(0.0, 0.075, 0.02)),

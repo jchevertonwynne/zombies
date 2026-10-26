@@ -5,6 +5,10 @@
 //! A model is built along −Z (its muzzle) around a 0.06 × 0.1 receiver at the origin, which the
 //! Upgraded glint wraps, and spans `model_length` × 0.3 from front to back, where the view
 //! model's Attachments expect to find its muzzle, sights and magazine.
+//!
+//! In the hands, the magazine (if it has one) and the left hand are models of their own, so a
+//! Reload can pull the magazine out and the hand can fetch a new one. The Knife is its own model
+//! too: a right hand slashing across the screen.
 
 use bevy::prelude::*;
 
@@ -34,20 +38,41 @@ const OLIVE: Color = Color::srgb(0.3, 0.34, 0.2);
 const SKIN: Color = Color::srgb(0.82, 0.62, 0.46);
 const SLEEVE: Color = Color::srgb(0.27, 0.31, 0.21);
 
+/// A moving part of a model in the hands: its mesh, and where it sits at rest.
+#[derive(Clone)]
+pub struct Part {
+    pub mesh: Handle<Mesh>,
+    pub rest: Transform,
+}
+
 /// Every Weapon's model, by `WeaponId`.
 #[derive(Resource)]
 pub struct GunModels {
-    /// In the Player's hands, squashed along Z by the class's `model_length` for the view model to
-    /// stretch back out (its Attachments stretch with it).
+    /// In the Player's hands, with the right hand on it, but without its magazine or left hand.
     view: Vec<Handle<Mesh>>,
-    /// As it floats in the world, lying along X.
+    magazine: Vec<Option<Part>>,
+    /// The left hand on its fore-end. None where it's part of the model, as on the second gun
+    /// of a dual-wield.
+    left_hand: Vec<Option<Part>>,
+    /// As it floats in the world, lying along X, magazine and all.
     world: Vec<Handle<Mesh>>,
+    /// The Knife, and the Bowie Knife, in a right hand: the hand at the origin, the blade along −Z.
+    pub knife: Handle<Mesh>,
+    pub bowie: Handle<Mesh>,
     pub material: Handle<StandardMaterial>,
 }
 
 impl GunModels {
     pub fn view(&self, id: WeaponId) -> Handle<Mesh> {
         self.view[id as usize].clone()
+    }
+
+    pub fn magazine(&self, id: WeaponId) -> Option<&Part> {
+        self.magazine[id as usize].as_ref()
+    }
+
+    pub fn left_hand(&self, id: WeaponId) -> Option<&Part> {
+        self.left_hand[id as usize].as_ref()
     }
 
     pub fn world(&self, id: WeaponId) -> Handle<Mesh> {
@@ -59,19 +84,57 @@ impl FromWorld for GunModels {
     fn from_world(world: &mut World) -> Self {
         let mut meshes = world.resource_mut::<Assets<Mesh>>();
         let mut view = Vec::new();
+        let mut magazine = Vec::new();
+        let mut left_hand = Vec::new();
         let mut world_meshes = Vec::new();
         for row in &WEAPONS {
-            let length = model_length(row.class);
             let mut gun = Gun::default();
             let hands = build(&mut gun, row.id, row.class);
+            let mut whole = gun.mesh();
+            if let Some((mesh, rest)) = &gun.magazine {
+                whole.merge(&mesh.clone().transformed_by(*rest)).expect("both are triangle lists");
+            }
             world_meshes.push(meshes.add(
-                gun.mesh()
+                whole
                     .rotated_by(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2))
                     .scaled_by(Vec3::splat(WORLD_SCALE)),
             ));
-            hands.add_to(&mut gun);
-            view.push(meshes.add(gun.mesh().scaled_by(Vec3::new(1.0, 1.0, 1.0 / length))));
+            hand(&mut gun, hands.right, 1.0);
+            // A dual-wield's left hand holds the second gun, which never moves on its own.
+            let left = if row.class == WeaponClass::DualWield {
+                hand(&mut gun, hands.left, -1.0);
+                None
+            } else {
+                let mut left = Gun::default();
+                hand(&mut left, Vec3::ZERO, -1.0);
+                Some(Part {
+                    mesh: meshes.add(left.mesh()),
+                    // It cups the fore-end from its left, where it can be seen.
+                    rest: Transform::from_translation(hands.left + Vec3::new(-0.03, -0.01, 0.0)),
+                })
+            };
+            view.push(meshes.add(gun.mesh()));
+            magazine.push(gun.magazine.map(|(mesh, rest)| Part {
+                mesh: meshes.add(mesh),
+                rest,
+            }));
+            left_hand.push(left);
         }
+        let knife = |bowie: bool| {
+            let mut knife = Gun::default();
+            hand(&mut knife, Vec3::ZERO, 1.0);
+            // The blade's flat faces the camera as it slashes across.
+            let (handle, blade) = if bowie {
+                (WOOD, Vec3::new(0.014, 0.06, 0.32))
+            } else {
+                (DARK, Vec3::new(0.012, 0.045, 0.26))
+            };
+            knife.part(Vec3::new(0.03, 0.035, 0.09), Vec3::new(0.0, 0.0, -0.07), handle);
+            knife.part(Vec3::new(0.02, 0.07, 0.015), Vec3::new(0.0, 0.0, -0.115), STEEL);
+            knife.part(blade, Vec3::new(0.0, 0.0, -0.12 - blade.z / 2.0), STEEL);
+            knife.mesh()
+        };
+        let (knife, bowie) = (meshes.add(knife(false)), meshes.add(knife(true)));
         let material = world.resource_mut::<Assets<StandardMaterial>>().add(StandardMaterial {
             // The vertex colours carry every part's colour.
             base_color: Color::WHITE,
@@ -81,7 +144,11 @@ impl FromWorld for GunModels {
         });
         Self {
             view,
+            magazine,
+            left_hand,
             world: world_meshes,
+            knife,
+            bowie,
             material,
         }
     }
@@ -91,6 +158,8 @@ impl FromWorld for GunModels {
 #[derive(Default)]
 struct Gun {
     mesh: Option<Mesh>,
+    /// Its magazine, built on its own around the point where it meets the gun, and where that is.
+    magazine: Option<(Mesh, Transform)>,
 }
 
 impl Gun {
@@ -126,22 +195,12 @@ struct Hands {
     left: Vec3,
 }
 
-impl Hands {
-    /// Blocky hands, with sleeved forearms running back and down out of view.
-    fn add_to(&self, gun: &mut Gun) {
-        // The left hand cups the fore-end from its left, where it can be seen.
-        let left = self.left + Vec3::new(-0.03, -0.01, 0.0);
-        for (hand, side) in [(self.right, 1.0), (left, -1.0)] {
-            gun.part(Vec3::new(0.075, 0.085, 0.09), hand, SKIN);
-            let arm = Quat::from_rotation_y(side * 0.35) * Quat::from_rotation_x(0.55);
-            gun.turned(
-                Vec3::new(0.085, 0.085, 0.36),
-                hand + arm * Vec3::new(0.0, 0.0, 0.2),
-                arm,
-                SLEEVE,
-            );
-        }
-    }
+/// A blocky hand at `at`, its sleeved forearm running back and down out of view, toward the
+/// right (`side` 1) or the left (−1).
+fn hand(gun: &mut Gun, at: Vec3, side: f32) {
+    gun.part(Vec3::new(0.075, 0.085, 0.09), at, SKIN);
+    let arm = Quat::from_rotation_y(side * 0.35) * Quat::from_rotation_x(0.55);
+    gun.turned(Vec3::new(0.085, 0.085, 0.36), at + arm * Vec3::new(0.0, 0.0, 0.2), arm, SLEEVE);
 }
 
 /// A pistol's grip, angled back: `at` is its middle.
@@ -151,12 +210,15 @@ fn grip(gun: &mut Gun, at: Vec3, colour: Color) {
 
 /// A magazine hanging under the receiver at `z`, `length` long, curving forward by `curve`.
 fn magazine(gun: &mut Gun, z: f32, length: f32, curve: f32, colour: Color) {
-    gun.turned(
-        Vec3::new(0.035, length, 0.06),
-        Vec3::new(0.0, -0.04 - length / 2.0, z),
-        Quat::from_rotation_x(curve),
-        colour,
-    );
+    let rest = Transform::from_xyz(0.0, -0.04, z).with_rotation(Quat::from_rotation_x(curve));
+    detachable(gun, Vec3::new(0.035, length, 0.06), rest, colour);
+}
+
+/// The magazine: a `size` box hanging down from `rest`, where it meets the gun.
+fn detachable(gun: &mut Gun, size: Vec3, rest: Transform, colour: Color) {
+    let mut magazine = Gun::default();
+    magazine.part(size, Vec3::new(0.0, -size.y / 2.0, 0.0), colour);
+    gun.magazine = Some((magazine.mesh(), rest));
 }
 
 /// Iron sights: a post at the front and a notch at the back.
@@ -186,6 +248,17 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
                 }
                 gun.part(Vec3::new(0.012, 0.035, 0.06), Vec3::new(x, -0.06, 0.03), DARK);
                 grip(gun, Vec3::new(x, -0.09, 0.1), grips);
+                if class == WeaponClass::Pistol && id != WeaponId::Python {
+                    // Up inside the grip, its base plate just showing under it.
+                    let up_grip = Quat::from_rotation_x(-0.25);
+                    let top = Vec3::new(x, -0.09, 0.1) + up_grip * Vec3::new(0.0, 0.06, 0.0);
+                    detachable(
+                        gun,
+                        Vec3::new(0.04, 0.13, 0.05),
+                        Transform::from_translation(top).with_rotation(up_grip),
+                        DARK,
+                    );
+                }
             };
             pistol(gun, 0.0);
             if class == WeaponClass::DualWield {
@@ -381,11 +454,11 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
             }
             if id == WeaponId::Rpk {
                 // A drum under the receiver, and wood furniture.
-                gun.part(Vec3::new(0.09, 0.12, 0.12), Vec3::new(0.0, -0.13, -0.03), DARK);
+                detachable(gun, Vec3::new(0.09, 0.12, 0.12), Transform::from_xyz(0.0, -0.07, -0.03), DARK);
                 gun.turned(Vec3::new(0.05, 0.1, 0.24), Vec3::new(0.0, -0.04, half - 0.12), Quat::from_rotation_x(0.12), WOOD);
             } else {
                 // A box of belted ammo hanging off the side.
-                gun.part(Vec3::new(0.1, 0.1, 0.12), Vec3::new(-0.06, -0.11, -0.03), OLIVE);
+                detachable(gun, Vec3::new(0.1, 0.1, 0.12), Transform::from_xyz(-0.06, -0.06, -0.03), OLIVE);
                 gun.part(Vec3::new(0.06, 0.11, 0.24), Vec3::new(0.0, -0.02, half - 0.12), DARK);
             }
             // A carry handle on top.

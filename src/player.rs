@@ -8,6 +8,7 @@ use bevy::render::view::ColorGrading;
 use bevy::window::{CursorGrabMode, CursorOptions};
 use bevy_transform_interpolation::TranslationEasingState;
 
+use crate::controls::{Action, Controls};
 use crate::equipment::Equipment;
 use crate::last_stand::LastStand;
 use crate::layers::GameLayer;
@@ -293,8 +294,7 @@ fn move_player(
         ),
         With<Player>,
     >,
-    input: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
+    controls: Controls,
     move_and_slide: MoveAndSlide,
     time: Res<Time>,
 ) {
@@ -302,14 +302,14 @@ fn move_player(
         player.into_inner();
     let dt = time.delta_secs();
 
-    let forward = input.pressed(KeyCode::KeyW) as i8 - input.pressed(KeyCode::KeyS) as i8;
-    let right = input.pressed(KeyCode::KeyD) as i8 - input.pressed(KeyCode::KeyA) as i8;
+    let forward = controls.pressed(Action::Forward) as i8 - controls.pressed(Action::Back) as i8;
+    let right = controls.pressed(Action::Right) as i8 - controls.pressed(Action::Left) as i8;
     let wish = Vec2::new(right as f32, forward as f32).normalize_or_zero();
 
     // Sprinting only makes sense running forwards on the ground, and it runs out. Aiming stops it,
     // and there's no sprinting with a Perk in hand or in Last Stand.
-    let aiming = mouse.pressed(MouseButton::Right) && loadout.can_aim();
-    let wants_sprint = input.pressed(KeyCode::ShiftLeft)
+    let aiming = controls.pressed(Action::Aim) && loadout.can_aim();
+    let wants_sprint = controls.pressed(Action::Sprint)
         && forward > 0
         && locomotion.grounded
         && !aiming
@@ -345,7 +345,7 @@ fn move_player(
     // slowly down the ramp while standing still.
     let mut vertical = if locomotion.grounded { 0.0 } else { locomotion.velocity.y - GRAVITY * dt };
     // No jumping from a crawl.
-    let jumped = locomotion.grounded && input.pressed(KeyCode::Space) && !last_stand;
+    let jumped = locomotion.grounded && controls.pressed(Action::Jump) && !last_stand;
     if jumped {
         vertical = PLAYER_JUMP_SPEED;
     }

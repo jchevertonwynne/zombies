@@ -6,6 +6,7 @@
 
 use bevy::prelude::*;
 
+use crate::controls::{Action, Controls};
 use crate::last_stand::LastStand;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve_points};
 use crate::player::{Player, PlayerCamera};
@@ -258,7 +259,7 @@ fn focus(
 }
 
 pub fn buy(
-    input: Res<ButtonInput<KeyCode>>,
+    controls: Controls,
     focus: Res<Focus>,
     // A Buyable with a hold half buys through `hold_buy`.
     buyables: Query<(&Buyable, Has<Refused>), (Without<Held>, Without<HoldBuy>)>,
@@ -269,7 +270,7 @@ pub fn buy(
     mut cant_afford: MessageWriter<CantAfford>,
     mut refusals: MessageWriter<BuyRefused>,
 ) {
-    if !input.just_pressed(KeyCode::KeyF) {
+    if !controls.just_pressed(Action::Use) {
         return;
     }
     let Some(entity) = focus.0 else { return };
@@ -297,7 +298,7 @@ pub fn buy(
 /// The Use key on a Buyable with a hold half: a tap buys the Buyable on release, a hold buys the
 /// hold half. Both go through the same affordability check, spending and refusals as `buy`.
 fn hold_buy(
-    input: Res<ButtonInput<KeyCode>>,
+    controls: Controls,
     focus: Res<Focus>,
     buyables: Query<(&Buyable, &HoldBuy, Has<Refused>)>,
     player: Single<(Has<LastStand>, &Modifiers), With<Player>>,
@@ -311,7 +312,7 @@ fn hold_buy(
     mut refusals: MessageWriter<BuyRefused>,
 ) {
     let target = focus.0.filter(|entity| buyables.contains(*entity));
-    let (entity, hold) = match timer.advance(target, input.pressed(KeyCode::KeyF), time.delta_secs()) {
+    let (entity, hold) = match timer.advance(target, controls.pressed(Action::Use), time.delta_secs()) {
         Press::Nothing => return,
         Press::Tap(entity) => (entity, false),
         Press::Hold(entity) => (entity, true),
