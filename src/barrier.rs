@@ -7,6 +7,7 @@
 
 use bevy::prelude::*;
 
+use crate::controls::{Action, Controls};
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
 use crate::buy::{Buyable, Focus, Held};
@@ -34,6 +35,8 @@ const VAULT_IN: f32 = 1.2;
 const VAULT_ARC: f32 = 0.6;
 /// How close counts as having reached a spot.
 const ARRIVE_DIST: f32 = 0.1;
+/// How long a torn-off Plank lies on the ground before it goes.
+const TORN_PLANK_SECS: f32 = 2.5;
 
 /// The Plank count of every Barrier. Carpenter restores them all at once.
 #[derive(Resource)]
@@ -225,10 +228,27 @@ pub struct Barrier(pub BarrierId);
 #[derive(Component)]
 struct Plank(u8);
 
-/// A Zombie tore a Plank off a Barrier, at `at`.
+/// A Zombie tore a Plank off a Barrier, at `at`: the `plank`th from the bottom.
 #[derive(Message)]
 pub struct PlankTorn {
     pub at: Vec3,
+    pub barrier: BarrierId,
+    pub plank: u8,
+}
+
+/// A Plank's look, shared by the Barriers and the Planks torn off them.
+#[derive(Resource)]
+struct PlankLook {
+    mesh: Handle<Mesh>,
+    material: Handle<StandardMaterial>,
+}
+
+/// A Plank a Zombie tore off, tossed aside and left lying on the ground a moment.
+#[derive(Component)]
+struct TornPlank {
+    velocity: Vec3,
+    spin: Vec3,
+    age: f32,
 }
 
 /// The Player put a Plank back, at `at`.
@@ -272,6 +292,30 @@ impl Entering {
     pub fn at_barrier(&self) -> bool {
         !matches!(self.stage, Stage::Vaulting { .. })
     }
+
+    /// What it's doing at the window, for its animation.
+    pub fn at_window(&self) -> AtWindow {
+        match self.stage {
+            Stage::Waiting(_) => AtWindow::Approaching,
+            // Still walking to its spot: its clock hasn't started.
+            Stage::AtSpot { next, .. } if next >= ZOMBIE_PLANK_TEAR_SECS => AtWindow::Approaching,
+            Stage::AtSpot { next, .. } => AtWindow::Working {
+                cycle: 1.0 - next / ZOMBIE_PLANK_TEAR_SECS,
+            },
+            Stage::Vaulting { .. } => AtWindow::Vaulting,
+        }
+    }
+}
+
+/// What a Zombie getting in through a window is doing.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AtWindow {
+    /// Waiting its turn, or walking to its attack spot.
+    Approaching,
+    /// At its spot, `cycle` of the way (0 to 1) to its next tear or swipe.
+    Working { cycle: f32 },
+    /// Climbing in.
+    Vaulting,
 }
 
 /// The middle of a window on the wall line, at floor height.
@@ -285,6 +329,19 @@ fn window_axes(barrier: BarrierId) -> (Vec3, Vec3) {
     let (_, _, out) = WINDOWS[barrier.0 as usize];
     let out = Vec3::new(out.x, 0.0, out.y);
     (out, Vec3::new(-out.z, 0.0, out.x))
+}
+
+/// Where the `p`th Plank from the bottom is nailed, on its Barrier (whose local −Z points out of
+/// the window, so local X runs along the wall): across the outside face, each a little askew.
+fn plank_transform(p: u8) -> Transform {
+    let tilt = if p.is_multiple_of(2) { 0.12 } else { -0.1 };
+    Transform::from_xyz(0.0, 0.35 + 0.32 * p as f32, -0.27).with_rotation(Quat::from_rotation_z(tilt))
+}
+
+/// A Barrier's own Transform, on its window.
+fn barrier_transform(barrier: BarrierId) -> Transform {
+    let (out, _) = window_axes(barrier);
+    Transform::from_translation(window_centre(barrier)).looking_to(out, Vec3::Y)
 }
 
 /// Where a Zombie's feet stand at an attack spot.
@@ -317,8 +374,7 @@ impl Plugin for BarrierPlugin {
             )
             .add_systems(
                 Update,
-                (rebuild_planks, show_planks)
-                    .chain()
+                ((rebuild_planks, show_planks).chain(), (toss_torn_planks, fly_torn_planks).chain())
                     .run_if(in_state(Pause::Running)),
             );
     }
@@ -330,11 +386,13 @@ fn spawn_barriers(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let plank = meshes.add(Cuboid::new(1.9, 0.18, 0.05));
-    let wood = materials.add(Color::srgb(0.45, 0.32, 0.18));
+    let wood = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.45, 0.32, 0.18),
+        perceptual_roughness: 0.9,
+        ..default()
+    });
     for i in 0..WINDOWS.len() {
         let barrier = BarrierId(i as u8);
-        let (out, _) = window_axes(barrier);
-        let centre = window_centre(barrier);
         commands
             .spawn((
                 InRun,
@@ -342,23 +400,87 @@ fn spawn_barriers(
                 Barrier(barrier),
                 // Its Buyable comes and goes with missing Planks; see `show_planks`.
                 Held,
-                // Local −Z points out of the window, so local X runs along the wall.
-                Transform::from_translation(centre).looking_to(out, Vec3::Y),
+                barrier_transform(barrier),
                 Visibility::default(),
             ))
             .with_children(|window| {
                 for p in 0..BARRIER_PLANKS {
-                    // Nailed across the outside face, each a little askew.
-                    let tilt = if p % 2 == 0 { 0.12 } else { -0.1 };
                     window.spawn((
                         Plank(p),
                         Mesh3d(plank.clone()),
                         MeshMaterial3d(wood.clone()),
-                        Transform::from_xyz(0.0, 0.35 + 0.32 * p as f32, -0.27)
-                            .with_rotation(Quat::from_rotation_z(tilt)),
+                        plank_transform(p),
                     ));
                 }
             });
+    }
+    commands.insert_resource(PlankLook {
+        mesh: plank,
+        material: wood,
+    });
+}
+
+/// A torn-off Plank comes away in the Zombie's hands and is flung aside, outside the window.
+fn toss_torn_planks(mut commands: Commands, mut torn: MessageReader<PlankTorn>, look: Option<Res<PlankLook>>) {
+    let Some(look) = look else {
+        torn.clear();
+        return;
+    };
+    for plank in torn.read() {
+        let (out, along) = window_axes(plank.barrier);
+        let from = barrier_transform(plank.barrier) * plank_transform(plank.plank);
+        let aside = if rand::random_bool(0.5) { 1.0 } else { -1.0 };
+        commands.spawn((
+            InRun,
+            Name::new("Torn Plank"),
+            TornPlank {
+                velocity: out * rand::random_range(2.0..3.5)
+                    + along * aside * rand::random_range(0.5..2.0)
+                    + Vec3::Y * rand::random_range(1.5..3.0),
+                spin: Vec3::new(
+                    rand::random_range(-6.0..6.0),
+                    rand::random_range(-4.0..4.0),
+                    rand::random_range(-8.0..8.0),
+                ),
+                age: 0.0,
+            },
+            Mesh3d(look.mesh.clone()),
+            MeshMaterial3d(look.material.clone()),
+            from,
+        ));
+    }
+}
+
+/// Torn-off Planks tumble to the ground, lie there a moment, then sink away.
+fn fly_torn_planks(
+    mut commands: Commands,
+    mut planks: Query<(Entity, &mut TornPlank, &mut Transform)>,
+    time: Res<Time>,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut plank, mut transform) in &mut planks {
+        plank.age += dt;
+        if plank.age >= TORN_PLANK_SECS {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        // Lying flat on the floor (at height 0 outside every window).
+        let resting = 0.03;
+        if transform.translation.y > resting || plank.velocity.y > 0.0 {
+            plank.velocity.y -= GRAVITY * dt;
+            transform.translation += plank.velocity * dt;
+            let spin = plank.spin * dt;
+            transform.rotate(Quat::from_euler(EulerRot::XYZ, spin.x, spin.y, spin.z));
+        } else {
+            transform.translation.y = resting;
+            plank.velocity = Vec3::ZERO;
+            let (yaw, _, _) = transform.rotation.to_euler(EulerRot::YXZ);
+            let flat = Quat::from_rotation_y(yaw);
+            transform.rotation = transform.rotation.slerp(flat, (12.0 * dt).min(1.0));
+        }
+        // Sinks into the floor over its last half second.
+        let fade = ((TORN_PLANK_SECS - plank.age) / 0.5).min(1.0);
+        transform.scale = Vec3::new(1.0, fade.max(0.05), 1.0);
     }
 }
 
@@ -451,6 +573,9 @@ fn enter_through_windows(
                         barriers.tear(barrier);
                         torn.write(PlankTorn {
                             at: centre + Vec3::Y * 1.2,
+                            barrier,
+                            // The top one comes off first; see `show_planks`.
+                            plank: barriers.planks(barrier),
                         });
                         if tear_damage > 0.0 {
                             damage.write(DamageZombie {
@@ -518,7 +643,7 @@ fn face(transform: &mut Transform, direction: Vec3) {
 /// Holding the Use key at a Barrier missing Planks puts them back one at a time, paying Points
 /// up to the Round cap. Its Prompt comes from the shared pick, so it never shows while Down.
 fn rebuild_planks(
-    input: Res<ButtonInput<KeyCode>>,
+    controls: Controls,
     focus: Res<Focus>,
     windows: Query<&Barrier>,
     mut barriers: ResMut<Barriers>,
@@ -532,7 +657,7 @@ fn rebuild_planks(
 ) {
     let target = focus
         .0
-        .filter(|_| input.pressed(KeyCode::KeyF))
+        .filter(|_| controls.pressed(Action::Use))
         .and_then(|entity| windows.get(entity).ok())
         .map(|window| window.0)
         .filter(|&barrier| barriers.planks(barrier) < BARRIER_PLANKS);

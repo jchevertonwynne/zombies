@@ -504,14 +504,20 @@ impl Dying {
 
 #[derive(Resource)]
 struct ZombieAssets {
-    body: Handle<Mesh>,
     head: Handle<Mesh>,
+    torso: Handle<Mesh>,
     arm: Handle<Mesh>,
+    hand: Handle<Mesh>,
+    leg: Handle<Mesh>,
+    stump: Handle<Mesh>,
     eye: Handle<Mesh>,
+    mouth: Handle<Mesh>,
     crawler_body: Handle<Mesh>,
     skin: Handle<StandardMaterial>,
     clothes: Handle<StandardMaterial>,
+    trousers: Handle<StandardMaterial>,
     eyes: Handle<StandardMaterial>,
+    mouth_mat: Handle<StandardMaterial>,
 }
 
 /// Zombies are interpolated, so their translation is only ever written in the physics step
@@ -549,6 +555,7 @@ impl Plugin for ZombiePlugin {
                 RunFixedMainLoop,
                 fall_over.run_if(in_state(Pause::Running)).in_set(FrameTurnSystems),
             )
+            .add_systems(Update, (rig::animate.run_if(in_state(Pause::Running)), rig::wear_outfits))
             .add_systems(
                 Update,
                 (
@@ -570,23 +577,32 @@ fn load_assets(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
+    // Blocky, all boxes: see `rig`.
+    let matte = |colour: Color| StandardMaterial {
+        base_color: colour,
+        perceptual_roughness: 0.95,
+        ..default()
+    };
     commands.insert_resource(ZombieAssets {
-        body: meshes.add(Capsule3d::new(ZOMBIE_RADIUS, ZOMBIE_CAPSULE_LENGTH)),
-        head: meshes.add(Sphere::new(ZOMBIE_HEAD_RADIUS)),
-        arm: meshes.add(Cuboid::from_size(ZOMBIE_ARM_SIZE)),
-        eye: meshes.add(Sphere::new(0.035)),
-        // Lying along its facing (-Z), dragging itself forward.
-        crawler_body: meshes.add(
-            Mesh::from(Capsule3d::new(CRAWLER_RADIUS * 0.9, CRAWLER_BODY_LENGTH))
-                .rotated_by(Quat::from_rotation_x(FRAC_PI_2)),
-        ),
-        skin: materials.add(Color::srgb(0.45, 0.52, 0.38)),
-        clothes: materials.add(Color::srgb(0.22, 0.24, 0.2)),
+        head: meshes.add(Cuboid::from_length(rig::HEAD)),
+        torso: meshes.add(Cuboid::from_size(rig::TORSO)),
+        arm: meshes.add(Cuboid::from_size(rig::ARM)),
+        hand: meshes.add(Cuboid::from_size(rig::HAND)),
+        leg: meshes.add(Cuboid::from_size(rig::LEG)),
+        stump: meshes.add(Cuboid::new(rig::LEG.x, rig::LEG.x, 0.16)),
+        eye: meshes.add(Cuboid::new(0.08, 0.06, 0.02)),
+        mouth: meshes.add(Cuboid::new(0.2, 0.05, 0.02)),
+        // Lying along its facing (-Z), low on the floor, dragging itself forward.
+        crawler_body: meshes.add(Mesh::from(Cuboid::from_size(rig::CRAWLER_BODY)).translated_by(Vec3::Y * -0.1)),
+        skin: materials.add(matte(Color::srgb(0.42, 0.55, 0.36))),
+        clothes: materials.add(matte(Color::srgb(0.2, 0.3, 0.34))),
+        trousers: materials.add(matte(Color::srgb(0.2, 0.2, 0.3))),
         eyes: materials.add(StandardMaterial {
             base_color: Color::srgb(1.0, 0.6, 0.1),
             emissive: LinearRgba::rgb(8.0, 4.0, 0.5),
             ..default()
         }),
+        mouth_mat: materials.add(matte(Color::srgb(0.12, 0.05, 0.05))),
     });
 }
 
@@ -606,7 +622,7 @@ pub fn spawn_zombie(
 ) -> Entity {
     let assets = &assets.0;
     let half = body_half_height();
-    let head_offset = half + ZOMBIE_HEAD_RADIUS * 0.5;
+    let head_offset = rig::head_rest().y;
     // Start just above the floor; gravity settles it.
     let standing = at.y + half + 0.02;
     // A Riser starts with the top of its head below the floor.
@@ -614,18 +630,21 @@ pub fn spawn_zombie(
     let centre = Vec3::new(at.x, if rise.is_some() { buried } else { standing }, at.z);
 
     let mut zombie = commands.spawn_empty();
+    let root = zombie.id();
     if let Some(secs) = rise {
         zombie.insert(Rising::new(buried, standing, secs));
     }
+    let mut body = None;
     zombie
         .insert((
             InRun,
             Name::new("Zombie"),
             Zombie::new(health, tier, centre),
             Route::default(),
-            Mesh3d(assets.body.clone()),
+            // Its outfit, worn by the rig's boxes (see `rig::Outfit`).
             MeshMaterial3d(assets.clothes.clone()),
             Transform::from_translation(centre),
+            Visibility::default(),
             RigidBody::Kinematic,
             CustomPositionIntegration,
             TranslationInterpolation,
@@ -634,7 +653,8 @@ pub fn spawn_zombie(
         ))
         .with_children(|zombie| {
             let hit_layers = CollisionLayers::new(GameLayer::ZombieHitArea, LayerMask::ALL);
-            zombie
+            // The head's hit area carries the head itself, and leans with the rig.
+            let head = zombie
                 .spawn((
                     HitArea(HitZone::Head),
                     Mesh3d(assets.head.clone()),
@@ -643,21 +663,13 @@ pub fn spawn_zombie(
                     Collider::sphere(ZOMBIE_HEAD_RADIUS),
                     hit_layers,
                 ))
-                .with_children(|head| {
-                    for x in [-0.07, 0.07] {
-                        head.spawn((
-                            Mesh3d(assets.eye.clone()),
-                            MeshMaterial3d(assets.eyes.clone()),
-                            Transform::from_xyz(x, 0.04, -ZOMBIE_HEAD_RADIUS * 0.9),
-                        ));
-                    }
-                });
-            // Arms reaching forward (-Z is forward).
+                .with_children(|head| rig::face(head, assets, rig::HEAD))
+                .id();
+            body = Some(rig::spawn_standing(zombie, assets, root, head));
+            // Arms reaching forward (-Z is forward), where the rig's arms shamble.
             for x in [-ZOMBIE_RADIUS - 0.05, ZOMBIE_RADIUS + 0.05] {
                 zombie.spawn((
                     HitArea(HitZone::Limb),
-                    Mesh3d(assets.arm.clone()),
-                    MeshMaterial3d(assets.skin.clone()),
                     Transform::from_xyz(x, half * 0.55, -0.3),
                     box_collider(ZOMBIE_ARM_SIZE),
                     hit_layers,
@@ -688,13 +700,16 @@ pub fn spawn_zombie(
                 box_collider(ZOMBIE_NECK_SIZE),
                 hit_layers,
             ));
-        })
-        .id()
+        });
+    if let Some(body) = body {
+        zombie.insert(body);
+    }
+    root
 }
 
 /// A Crawler's parts, around a body lying low along its facing: head and neck at the front, arms
-/// dragging it along, a torso, and no legs.
-fn spawn_crawler_parts(crawler: &mut ChildSpawnerCommands, assets: &ZombieAssets) {
+/// dragging it along, a torso, and no legs. Returns its rig.
+fn spawn_crawler_parts(crawler: &mut ChildSpawnerCommands, assets: &ZombieAssets, root: Entity) -> rig::Rig {
     let hit_layers = CollisionLayers::new(GameLayer::ZombieHitArea, LayerMask::ALL);
     let front = -(CRAWLER_BODY_LENGTH / 2.0 + CRAWLER_RADIUS);
     crawler
@@ -706,15 +721,7 @@ fn spawn_crawler_parts(crawler: &mut ChildSpawnerCommands, assets: &ZombieAssets
             Collider::sphere(ZOMBIE_HEAD_RADIUS),
             hit_layers,
         ))
-        .with_children(|head| {
-            for x in [-0.07, 0.07] {
-                head.spawn((
-                    Mesh3d(assets.eye.clone()),
-                    MeshMaterial3d(assets.eyes.clone()),
-                    Transform::from_xyz(x, 0.04, -ZOMBIE_HEAD_RADIUS * 0.9),
-                ));
-            }
-        });
+        .with_children(|head| rig::face(head, assets, rig::HEAD));
     crawler.spawn((
         HitArea(HitZone::Neck),
         Transform::from_xyz(0.0, 0.0, front + ZOMBIE_HEAD_RADIUS + ZOMBIE_NECK_SIZE.z / 2.0),
@@ -727,17 +734,16 @@ fn spawn_crawler_parts(crawler: &mut ChildSpawnerCommands, assets: &ZombieAssets
         Collider::cuboid(CRAWLER_RADIUS * 2.0, CRAWLER_RADIUS * 2.0, CRAWLER_BODY_LENGTH + CRAWLER_RADIUS),
         hit_layers,
     ));
-    // Arms out in front on the floor.
+    // Arms out in front on the floor, where the rig's arms drag it along.
     for x in [-CRAWLER_RADIUS - 0.05, CRAWLER_RADIUS + 0.05] {
         crawler.spawn((
             HitArea(HitZone::Limb),
-            Mesh3d(assets.arm.clone()),
-            MeshMaterial3d(assets.skin.clone()),
             Transform::from_xyz(x, ZOMBIE_ARM_SIZE.y / 2.0 - CRAWLER_RADIUS, front),
             box_collider(ZOMBIE_ARM_SIZE),
             hit_layers,
         ));
     }
+    rig::spawn_crawling(crawler, assets, root)
 }
 
 fn box_collider(size: Vec3) -> Collider {
@@ -1181,11 +1187,15 @@ fn become_crawler(
         transform.translation -= drop;
         easing.start = easing.start.map(|start| start - drop);
         easing.end = easing.end.map(|end| end - drop);
+        let mut body = None;
         commands
             .entity(entity)
             .insert((Mesh3d(assets.crawler_body.clone()), Collider::sphere(CRAWLER_RADIUS)))
             .despawn_children()
-            .with_children(|crawler| spawn_crawler_parts(crawler, &assets));
+            .with_children(|crawler| body = Some(spawn_crawler_parts(crawler, &assets, entity)));
+        if let Some(body) = body {
+            commands.entity(entity).insert(body);
+        }
     }
 }
 
@@ -1318,6 +1328,8 @@ fn sink(mut dying: Query<(&mut Dying, &mut Transform, Option<&Zombie>)>, time: R
         }
     }
 }
+
+mod rig;
 
 #[cfg(test)]
 pub mod headless;

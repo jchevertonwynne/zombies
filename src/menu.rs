@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use bevy::ui::Pressed;
 use bevy::ui_widgets::{Activate, Button};
 
+use crate::controls::{Action, Binding, Bindings};
 use crate::hud::{ROUND_RED, full_screen, text, with_commas};
 use crate::map::MapId;
 use crate::mode::Mode;
@@ -52,6 +53,14 @@ pub enum MenuButton {
     PlayAgain,
     /// From Game Over.
     MainMenu,
+    /// Opens the Controls page over the Settings screen.
+    Controls,
+    /// Waits for the key or mouse button to bind an Action to.
+    Rebind(Action),
+    /// Puts every binding back to its default.
+    ResetControls,
+    /// Closes the Controls page.
+    CloseControls,
 }
 
 /// What a Settings reset wipes.
@@ -117,6 +126,23 @@ struct ResetConfirmation;
 #[derive(Component)]
 struct SettingValue(Setting);
 
+/// The Controls page, opened over the Settings screen.
+#[derive(Component)]
+struct ControlsPage;
+
+/// The text on an Action's binding button.
+#[derive(Component)]
+struct BindingValue(Action);
+
+/// The prompt over the Controls page while it waits for a key, which also keeps clicks off the
+/// buttons under it.
+#[derive(Component)]
+struct ListeningPrompt;
+
+/// The Action the Controls page is waiting to bind, if any.
+#[derive(Resource, Default)]
+struct Rebinding(Option<Action>);
+
 pub struct MenuPlugin;
 
 impl Plugin for MenuPlugin {
@@ -124,6 +150,7 @@ impl Plugin for MenuPlugin {
         app.init_resource::<Mode>()
             .init_resource::<RecordsTab>()
             .init_resource::<GameOverLines>()
+            .init_resource::<Rebinding>()
             .add_message::<ResetGauntletProgress>()
             .add_systems(
                 OnEnter(GameState::Playing),
@@ -156,6 +183,9 @@ impl Plugin for MenuPlugin {
             )
             .add_systems(Update, play_again_key.run_if(in_state(GameState::GameOver)))
             .add_systems(Update, setting_values.run_if(resource_changed::<Settings>))
+            // Before anything else reads the keys, so Esc closes the page instead of backing out.
+            .add_systems(PreUpdate, capture_binding.after(bevy::input::InputSystems))
+            .add_systems(Update, binding_values)
             .add_systems(Update, main_menu_back.run_if(in_state(GameState::MainMenu)));
     }
 }
@@ -578,6 +608,7 @@ fn settings_screen(commands: &mut Commands, settings: &Settings, background: Col
             height: px(16.0),
             ..default()
         });
+        button(screen, "Controls", MenuButton::Controls, 440.0);
         for reset in [Reset::Records, Reset::Gauntlet] {
             button(screen, reset.button(), MenuButton::AskReset(reset), 440.0);
         }
@@ -676,6 +707,182 @@ fn spawn_reset_confirmation(commands: &mut Commands, settings_screen: Entity, re
     });
 }
 
+/// Opens the Controls page over the Settings screen: every Action and the key it's on.
+fn spawn_controls_page(commands: &mut Commands, settings_screen: Entity, bindings: &Bindings) {
+    commands.entity(settings_screen).with_children(|parent| {
+        parent
+            .spawn((
+                ControlsPage,
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    row_gap: px(10.0),
+                    ..full_screen()
+                },
+                // Opaque: the Settings rows under it would read through any dimming.
+                BackgroundColor(MENU_BACKGROUND),
+                GlobalZIndex(20),
+            ))
+            .with_children(|page| {
+                page.spawn(text("CONTROLS", 52.0, Color::WHITE));
+                page.spawn((
+                    text("Click a binding, then press the key or mouse button to put it on.", 20.0, HINT_GREY),
+                    Node {
+                        margin: UiRect::bottom(px(8.0)),
+                        ..default()
+                    },
+                ));
+                page.spawn(Node {
+                    column_gap: px(48.0),
+                    ..default()
+                })
+                .with_children(|columns| {
+                    let (left, right) = Action::ALL.split_at(Action::ALL.len().div_ceil(2));
+                    for actions in [left, right] {
+                        columns
+                            .spawn(Node {
+                                flex_direction: FlexDirection::Column,
+                                row_gap: px(8.0),
+                                ..default()
+                            })
+                            .with_children(|column| {
+                                for &action in actions {
+                                    binding_row(column, action, bindings.get(action));
+                                }
+                            });
+                    }
+                });
+                page.spawn(Node {
+                    column_gap: px(16.0),
+                    margin: UiRect::top(px(12.0)),
+                    ..default()
+                })
+                .with_children(|row| {
+                    button(row, "Reset to Defaults", MenuButton::ResetControls, 280.0);
+                    button(row, "Back", MenuButton::CloseControls, 200.0);
+                });
+            });
+    });
+}
+
+/// One Action: its label and a button showing what it's bound to.
+fn binding_row(parent: &mut ChildSpawnerCommands, action: Action, binding: Binding) {
+    parent
+        .spawn(Node {
+            align_items: AlignItems::Center,
+            column_gap: px(12.0),
+            ..default()
+        })
+        .with_children(|row| {
+            row.spawn((
+                text(action.label(), 22.0, Color::WHITE),
+                Node {
+                    width: px(200.0),
+                    ..default()
+                },
+            ));
+            row.spawn((
+                Button,
+                Hovered::default(),
+                MenuButtonLook,
+                MenuButton::Rebind(action),
+                Node {
+                    width: px(170.0),
+                    height: px(36.0),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                BackgroundColor(BUTTON_IDLE),
+            ))
+            .with_child((BindingValue(action), text(binding.name(), 22.0, Color::WHITE)));
+        });
+}
+
+/// Shows the waiting prompt over the Controls page.
+fn spawn_listening_prompt(commands: &mut Commands, page: Entity, action: Action) {
+    commands.entity(page).with_children(|parent| {
+        parent
+            .spawn((
+                ListeningPrompt,
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    row_gap: px(12.0),
+                    ..full_screen()
+                },
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.8)),
+                GlobalZIndex(30),
+            ))
+            .with_children(|prompt| {
+                prompt.spawn(text(format!("Press a key or mouse button for {}", action.label()), 32.0, Color::WHITE));
+                prompt.spawn(text("Esc to cancel", 22.0, HINT_GREY));
+            });
+    });
+}
+
+/// While the Controls page is open, Esc closes it (or cancels a rebind) rather than backing out
+/// of Settings. While it waits, the next bindable key press, or mouse button release, is bound.
+/// A mouse button binds on release, so letting go of it doesn't click a button underneath.
+fn capture_binding(
+    mut commands: Commands,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    pages: Query<Entity, With<ControlsPage>>,
+    prompts: Query<Entity, With<ListeningPrompt>>,
+    mut rebinding: ResMut<Rebinding>,
+    mut settings: ResMut<Settings>,
+) {
+    let Ok(page) = pages.single() else {
+        if rebinding.0.is_some() {
+            rebinding.0 = None;
+        }
+        return;
+    };
+    let stop_listening = |commands: &mut Commands, rebinding: &mut Rebinding| {
+        rebinding.0 = None;
+        for prompt in &prompts {
+            commands.entity(prompt).despawn();
+        }
+    };
+    if keys.clear_just_pressed(KeyCode::Escape) {
+        if rebinding.0.is_some() {
+            stop_listening(&mut commands, &mut rebinding);
+        } else {
+            commands.entity(page).despawn();
+        }
+        return;
+    }
+    let Some(action) = rebinding.0 else { return };
+    let key = keys.get_just_pressed().copied().find(|&key| Binding::bindable_key(key));
+    let pressed = key.map(Binding::Key).or_else(|| {
+        mouse.get_just_released().copied().find(|&button| Binding::bindable_mouse(button)).map(Binding::Mouse)
+    });
+    if let Some(binding) = pressed {
+        if let Some(key) = key {
+            keys.clear_just_pressed(key);
+        }
+        settings.bindings.set(action, binding);
+        stop_listening(&mut commands, &mut rebinding);
+    }
+}
+
+/// Binding buttons show their key, or that they're waiting for one.
+fn binding_values(settings: Res<Settings>, rebinding: Res<Rebinding>, mut values: Query<(&BindingValue, &mut Text)>) {
+    for (BindingValue(action), mut text) in &mut values {
+        let shown = if rebinding.0 == Some(*action) {
+            "...".to_string()
+        } else {
+            settings.bindings.get(*action).name().to_string()
+        };
+        if text.0 != shown {
+            text.0 = shown;
+        }
+    }
+}
+
 fn spawn_main_menu_settings(mut commands: Commands, settings: Res<Settings>) {
     let screen = settings_screen(&mut commands, &settings, MENU_BACKGROUND);
     commands
@@ -698,8 +905,8 @@ fn activate_button(
     settings_screen: Query<Entity, With<SettingsScreen>>,
     confirmation: Query<Entity, With<ResetConfirmation>>,
     mut mode: ResMut<Mode>,
-    mut tab: ResMut<RecordsTab>,
-    mut records: ResMut<RecordsFile>,
+    (mut tab, mut records): (ResMut<RecordsTab>, ResMut<RecordsFile>),
+    (controls_page, mut rebinding): (Query<Entity, With<ControlsPage>>, ResMut<Rebinding>),
     mut reset_gauntlet: MessageWriter<ResetGauntletProgress>,
     main_menu: Option<Res<State<MainMenuScreen>>>,
     mut settings: ResMut<Settings>,
@@ -741,6 +948,31 @@ fn activate_button(
         MenuButton::QuitToMainMenu => next_game.set(GameState::MainMenu),
         MenuButton::Adjust(setting, up) => settings.adjust(setting, up),
         MenuButton::RecordsTab(mode) => tab.0 = mode,
+        MenuButton::Controls => {
+            if controls_page.is_empty()
+                && let Ok(screen) = settings_screen.single()
+            {
+                spawn_controls_page(&mut commands, screen, &settings.bindings);
+            }
+        }
+        MenuButton::Rebind(action) => {
+            if rebinding.0.is_none()
+                && let Ok(page) = controls_page.single()
+            {
+                rebinding.0 = Some(action);
+                spawn_listening_prompt(&mut commands, page, action);
+            }
+        }
+        MenuButton::ResetControls => {
+            if settings.bindings != Bindings::default() {
+                settings.bindings = Bindings::default();
+            }
+        }
+        MenuButton::CloseControls => {
+            for page in &controls_page {
+                commands.entity(page).despawn();
+            }
+        }
         MenuButton::AskReset(reset) => {
             if confirmation.is_empty()
                 && let Ok(screen) = settings_screen.single()

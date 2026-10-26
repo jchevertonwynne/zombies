@@ -6,6 +6,7 @@ use bevy::audio::{GlobalVolume, Volume};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::controls::Bindings;
 use crate::mode::Mode;
 use crate::save::{self, SaveFile};
 use crate::tuning::*;
@@ -30,6 +31,10 @@ pub struct Settings {
     pub special_zombies: SpecialZombies,
     /// The Mode last picked, so the Mode screen can start on it.
     pub last_mode: Mode,
+    /// Key bindings changed from the defaults. Missing from Settings saved before they existed,
+    /// which start with every default.
+    #[serde(default)]
+    pub bindings: Bindings,
 }
 
 impl Default for Settings {
@@ -43,6 +48,7 @@ impl Default for Settings {
             camera_sway: true,
             special_zombies: SpecialZombies::default(),
             last_mode: Mode::default(),
+            bindings: Bindings::default(),
         }
     }
 }

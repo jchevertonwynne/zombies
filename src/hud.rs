@@ -8,6 +8,8 @@ pub mod overlay;
 
 use bevy::prelude::*;
 
+use crate::controls::with_use_key;
+use crate::settings::Settings;
 use crate::ammo_mod::AmmoMod;
 use crate::attachment::Underbarrel;
 use crate::buy::{Buyable, CantAfford, Focus, HoldBuy, can_afford, charged};
@@ -714,6 +716,7 @@ fn prompt_text(
     buyables: Query<(&Buyable, Option<&HoldBuy>)>,
     player: Single<&Modifiers, With<Player>>,
     points: Res<Points>,
+    settings: Res<Settings>,
     prompt: Single<(&mut Text, &mut Visibility), With<PromptText>>,
     cost: Single<(&mut TextSpan, &mut TextColor), (With<PromptCost>, Without<PromptHoldCost>)>,
     mut hold_line: Single<&mut TextSpan, (With<PromptHold>, Without<PromptCost>, Without<PromptHoldCost>)>,
@@ -725,15 +728,16 @@ fn prompt_text(
         return;
     };
     visibility.set_if_neq(Visibility::Inherited);
-    if text.0 != buyable.prompt {
-        text.0.clone_from(&buyable.prompt);
+    let shown = with_use_key(&buyable.prompt, &settings.bindings);
+    if text.0 != shown {
+        text.0 = shown;
     }
     let (mut span, mut color) = cost.into_inner();
     set_price(&mut span, &mut color, charged(buyable.price, &player.0), points.balance);
     let (mut hold_span, mut hold_color) = hold_cost.into_inner();
     match hold.filter(|hold| hold.tap) {
         Some(hold) => {
-            let line = format!("\n{}", hold.prompt);
+            let line = format!("\n{}", with_use_key(&hold.prompt, &settings.bindings));
             if hold_line.0 != line {
                 hold_line.0 = line;
             }
