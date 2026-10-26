@@ -37,14 +37,16 @@ impl HellhoundSchedule {
     }
 
     /// Round `round` begins. Returns which Hellhound Round it is (1 for the first), if it is one,
-    /// and books the next one `gap` Rounds later.
-    pub fn begin(&mut self, round: u32, gap: u32) -> Option<u32> {
+    /// and books the next one `gap` Rounds later. With Hellhounds switched off (`hounds_on`
+    /// false) a Round that would have been one is a normal Round, and the schedule moves on as if
+    /// it happened.
+    pub fn begin(&mut self, round: u32, gap: u32, hounds_on: bool) -> Option<u32> {
         if round < self.next {
             return None;
         }
         self.played += 1;
         self.next = round.saturating_add(gap);
-        Some(self.played)
+        hounds_on.then_some(self.played)
     }
 
     /// How many Hellhound Rounds have begun so far.
@@ -79,8 +81,12 @@ fn by_count(table: &[f32], count: u32) -> f32 {
     table[i]
 }
 
-/// The chance a normal spawn in Round `round` is a hound instead: none before Round 16.
-pub fn mixed_hound_chance(round: u32) -> f64 {
+/// The chance a normal spawn in Round `round` is a hound instead: none before Round 16, and none
+/// with Hellhounds switched off (`hounds_on` false).
+pub fn mixed_hound_chance(round: u32, hounds_on: bool) -> f64 {
+    if !hounds_on {
+        return 0.0;
+    }
     HELLHOUND_MIXED_CHANCE
         .iter()
         .rev()
@@ -400,7 +406,7 @@ mod tests {
     fn rounds(first: u32, gap: u32) -> Vec<u32> {
         let mut schedule = HellhoundSchedule::new(first);
         (1..=60)
-            .filter(|&r| schedule.begin(r, gap).is_some())
+            .filter(|&r| schedule.begin(r, gap, true).is_some())
             .collect()
     }
 
@@ -422,13 +428,32 @@ mod tests {
     #[test]
     fn hellhound_rounds_count_up() {
         let mut schedule = HellhoundSchedule::new(6);
-        assert_eq!(schedule.begin(5, 4), None);
-        assert_eq!(schedule.begin(6, 4), Some(1));
-        assert_eq!(schedule.begin(7, 4), None);
-        assert_eq!(schedule.begin(10, 5), Some(2));
+        assert_eq!(schedule.begin(5, 4, true), None);
+        assert_eq!(schedule.begin(6, 4, true), Some(1));
+        assert_eq!(schedule.begin(7, 4, true), None);
+        assert_eq!(schedule.begin(10, 5, true), Some(2));
         assert_eq!(schedule.played(), 2);
-        assert_eq!(schedule.begin(14, 4), None);
-        assert_eq!(schedule.begin(15, 4), Some(3));
+        assert_eq!(schedule.begin(14, 4, true), None);
+        assert_eq!(schedule.begin(15, 4, true), Some(3));
+    }
+
+    #[test]
+    fn with_hellhounds_off_their_rounds_are_normal_and_the_schedule_moves_on() {
+        let mut schedule = HellhoundSchedule::new(6);
+        assert_eq!(schedule.begin(6, 4, false), None, "Round 6 is a normal Round");
+        assert_eq!(schedule.played(), 1, "as if it happened");
+        assert_eq!(schedule.begin(9, 4, true), None);
+        // Switched back on, the next one falls where it would have.
+        assert_eq!(schedule.begin(10, 4, true), Some(2));
+        let mut off = HellhoundSchedule::new(5);
+        assert!((1..=60).all(|r| off.begin(r, 4, false).is_none()));
+    }
+
+    #[test]
+    fn no_mixed_hounds_with_hellhounds_off() {
+        for round in [16, 21, 31, 100] {
+            assert_eq!(mixed_hound_chance(round, false), 0.0, "round {round}");
+        }
     }
 
     #[test]
@@ -470,7 +495,7 @@ mod tests {
             (100, 0.03),
         ];
         for (round, chance) in table {
-            assert_eq!(mixed_hound_chance(round), chance, "round {round}");
+            assert_eq!(mixed_hound_chance(round, true), chance, "round {round}");
         }
     }
 

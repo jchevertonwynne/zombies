@@ -14,7 +14,7 @@ use crate::mode::Mode;
 use crate::points::Points;
 use crate::round::Round;
 use crate::save::{self, SaveFile};
-use crate::settings::SaveDir;
+use crate::settings::{SaveDir, Settings, SpecialType, SpecialZombies};
 use crate::state::GameState;
 use crate::stats::RunStats;
 use crate::tuning::*;
@@ -35,8 +35,9 @@ pub struct RunRecord {
     pub points_earned: u64,
     /// Game-time survived in seconds, with the world's frozen time left out.
     pub survived_secs: f64,
-    /// Lines a Mode layered on Classic adds to its Run Records, in the order it added them.
-    /// Classic leaves this empty. See [`RecordExtras`].
+    /// Lines a Mode layered on Classic adds to its Run Records, in the order it added them (see
+    /// [`RecordExtras`]), then one for each Special Zombie type switched off during the Run (see
+    /// [`off_extras`]). A faithful Classic Run leaves this empty.
     #[serde(default)]
     pub extras: Vec<RecordExtra>,
 }
@@ -52,6 +53,39 @@ pub struct RecordExtra {
 /// up to date during the Run, and it's copied onto the Run Record as-is when the Run ends.
 #[derive(Resource, Default)]
 pub struct RecordExtras(pub Vec<RecordExtra>);
+
+/// The Special Zombie switches of the Run so far: a type switched off at any point counts as off.
+#[derive(Resource, Default)]
+pub struct RunSpecialZombies(pub SpecialZombies);
+
+/// The Record extras a Run played with Special Zombie types switched off gets: one per type off,
+/// in Settings order, so a Record without Hellhounds is visibly different.
+pub fn off_extras(run: &SpecialZombies) -> Vec<RecordExtra> {
+    run.off()
+        .map(|kind| RecordExtra {
+            id: kind.off_record_id().to_string(),
+            count: 1,
+        })
+        .collect()
+}
+
+/// The Special Zombie types a Run Record was played with switched off.
+pub fn off_types(record: &RunRecord) -> Vec<SpecialType> {
+    record
+        .extras
+        .iter()
+        .filter_map(|extra| SpecialType::from_off_record_id(&extra.id))
+        .collect()
+}
+
+/// How a Record extra reads on screen: "Hellhounds Off" for a switched-off type, otherwise its ID
+/// and count.
+pub fn extra_line(extra: &RecordExtra) -> String {
+    match SpecialType::from_off_record_id(&extra.id) {
+        Some(kind) => format!("{} Off", kind.label()),
+        None => format!("{} x{}", extra.id, extra.count),
+    }
+}
 
 /// Whether `a` ranks above (`Less`) or below (`Greater`) `b`: the higher Round first, then the
 /// shorter time.
@@ -261,10 +295,20 @@ pub struct RecordsPlugin;
 impl Plugin for RecordsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<RecordExtras>()
+            .init_resource::<RunSpecialZombies>()
             .add_systems(Startup, load_records)
             .add_systems(
                 OnEnter(GameState::Playing),
-                |mut extras: ResMut<RecordExtras>| extras.0.clear(),
+                |mut extras: ResMut<RecordExtras>, mut run: ResMut<RunSpecialZombies>, settings: Res<Settings>| {
+                    extras.0.clear();
+                    run.0 = settings.special_zombies;
+                },
+            )
+            .add_systems(
+                Update,
+                track_switches
+                    .run_if(in_state(GameState::Playing))
+                    .run_if(resource_changed::<Settings>),
             )
             .add_systems(OnEnter(GameState::GameOver), record_run)
             .add_systems(
@@ -294,6 +338,11 @@ fn load_records(mut commands: Commands, dir: Res<SaveDir>) {
     commands.insert_resource(file);
 }
 
+/// A switch turned off mid-Run (from Pause) marks the Run as played without that type.
+fn track_switches(settings: Res<Settings>, mut run: ResMut<RunSpecialZombies>) {
+    run.0 = run.0.and(settings.special_zombies);
+}
+
 /// Writes the ending Run's Record.
 pub fn record_run(
     mut commands: Commands,
@@ -303,6 +352,7 @@ pub fn record_run(
     stats: Res<RunStats>,
     points: Res<Points>,
     extras: Res<RecordExtras>,
+    switches: Res<RunSpecialZombies>,
     mut file: ResMut<RecordsFile>,
     dir: Res<SaveDir>,
 ) {
@@ -319,7 +369,7 @@ pub fn record_run(
         downs: stats.downs,
         points_earned: points.earned,
         survived_secs: stats.survived_secs,
-        extras: extras.0.clone(),
+        extras: extras.0.iter().cloned().chain(off_extras(&switches.0)).collect(),
     };
     let rank = file.add(record.clone());
     // Stored straight away as well as on change, so it lands even if the app is exiting.
@@ -546,6 +596,26 @@ mod tests {
                     time_played_secs: 0.0, best_rounds: []))";
         let file = save::parse::<RecordsFile>(text).unwrap();
         assert_eq!(file.records.board(MapId::Greybox, Mode::Classic).count(), 1);
+    }
+
+    #[test]
+    fn a_run_with_types_off_lists_them_after_the_modes_extras() {
+        let switches = SpecialZombies {
+            hellhounds: false,
+            napalm: false,
+            ..default()
+        };
+        assert_eq!(off_extras(&SpecialZombies::default()), [], "a faithful Run lists none");
+        let mut extras = vec![RecordExtra {
+            id: "boon".to_string(),
+            count: 2,
+        }];
+        extras.extend(off_extras(&switches));
+        let record = RunRecord { extras, ..run(12, 0.0) };
+        assert_eq!(off_types(&record), [SpecialType::Hellhounds, SpecialType::Napalm]);
+        let lines: Vec<String> = record.extras.iter().map(extra_line).collect();
+        assert_eq!(lines, ["boon x2", "Hellhounds Off", "Napalm Off"]);
+        assert!(off_types(&run(12, 0.0)).is_empty());
     }
 
     #[test]

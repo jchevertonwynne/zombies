@@ -175,11 +175,11 @@ pub struct Gibbed {
 }
 
 /// The Crawler rule: whether a blast from an explosive that can make Crawlers blows a Zombie's
-/// legs off. Only a normal Zombie (not already a Crawler) that survives a hit of at least
-/// `CRAWLER_GIB_MIN_FRACTION` of its pre-hit `health` can lose them, on a `roll` in `[0, 1)`
-/// under `CRAWLER_GIB_CHANCE`.
-pub fn blows_legs_off(normal: bool, health: f32, damage: f32, roll: f64) -> bool {
-    normal && damage < health && damage >= health * CRAWLER_GIB_MIN_FRACTION && roll < CRAWLER_GIB_CHANCE
+/// legs off. Never with Crawlers switched off in Settings (`crawlers_on` false). Only a normal
+/// Zombie (not already a Crawler) that survives a hit of at least `CRAWLER_GIB_MIN_FRACTION` of
+/// its pre-hit `health` can lose them, on a `roll` in `[0, 1)` under `CRAWLER_GIB_CHANCE`.
+pub fn blows_legs_off(crawlers_on: bool, normal: bool, health: f32, damage: f32, roll: f64) -> bool {
+    crawlers_on && normal && damage < health && damage >= health * CRAWLER_GIB_MIN_FRACTION && roll < CRAWLER_GIB_CHANCE
 }
 
 /// A Crawler can't tear Planks, so `CRAWLER_PLANKED_STUCK_SECS` spent at a planked Barrier counts
@@ -1377,26 +1377,32 @@ mod tests {
 
     #[test]
     fn a_survived_explosive_hit_of_a_tenth_of_its_health_has_an_even_chance_to_gib() {
-        assert!(blows_legs_off(true, 1000.0, 100.0, 0.0));
-        assert!(blows_legs_off(true, 1000.0, 999.0, 0.49));
-        assert!(!blows_legs_off(true, 1000.0, 100.0, 0.5), "a failed roll keeps its legs");
-        assert!(!blows_legs_off(true, 1000.0, 99.0, 0.0), "under a tenth of its health");
+        assert!(blows_legs_off(true, true, 1000.0, 100.0, 0.0));
+        assert!(blows_legs_off(true, true, 1000.0, 999.0, 0.49));
+        assert!(!blows_legs_off(true, true, 1000.0, 100.0, 0.5), "a failed roll keeps its legs");
+        assert!(!blows_legs_off(true, true, 1000.0, 99.0, 0.0), "under a tenth of its health");
     }
 
     #[test]
     fn a_killing_blast_never_gibs() {
-        assert!(!blows_legs_off(true, 300.0, 300.0, 0.0));
-        assert!(!blows_legs_off(true, 300.0, 5000.0, 0.0));
+        assert!(!blows_legs_off(true, true, 300.0, 300.0, 0.0));
+        assert!(!blows_legs_off(true, true, 300.0, 5000.0, 0.0));
     }
 
     #[test]
     fn only_normal_zombies_gib() {
-        assert!(!blows_legs_off(false, 1000.0, 500.0, 0.0));
+        assert!(!blows_legs_off(true, false, 1000.0, 500.0, 0.0));
+    }
+
+    #[test]
+    fn with_crawlers_off_explosives_never_gib() {
+        let gibs = (0..1000).filter(|i| blows_legs_off(false, true, 1000.0, 500.0, *i as f64 / 1000.0)).count();
+        assert_eq!(gibs, 0);
     }
 
     #[test]
     fn about_half_of_qualifying_hits_gib() {
-        let gibs = (0..1000).filter(|i| blows_legs_off(true, 1000.0, 500.0, *i as f64 / 1000.0)).count();
+        let gibs = (0..1000).filter(|i| blows_legs_off(true, true, 1000.0, 500.0, *i as f64 / 1000.0)).count();
         assert_eq!(gibs, 500);
     }
 

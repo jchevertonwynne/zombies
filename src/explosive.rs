@@ -9,6 +9,7 @@ use crate::ammo_mod::{AmmoModHit, AmmoMods};
 use crate::arsenal::{Splash, WeaponId};
 use crate::layers::GameLayer;
 use crate::player::{Health, Player, PlayerHit};
+use crate::settings::Settings;
 use crate::state::{InRun, Pause};
 use crate::tuning::*;
 use crate::zombie::{Attack, DamageZombie, Dying, Gibbed, HitArea, HitZone, Zombie, blows_legs_off};
@@ -276,7 +277,8 @@ fn fly(
 }
 
 /// Every blast hurts the Zombies in sight within its radius, and the Player if it's theirs. One
-/// that can make Crawlers may blow the legs off a Zombie it doesn't kill.
+/// that can make Crawlers may blow the legs off a Zombie it doesn't kill, while Crawlers are
+/// switched on in Settings.
 fn explode(
     mut commands: Commands,
     mut explosions: MessageReader<Explosion>,
@@ -288,8 +290,10 @@ fn explode(
     mut gibbed: MessageWriter<Gibbed>,
     mut player_hits: MessageWriter<PlayerHit>,
     assets: Res<ExplosiveAssets>,
+    settings: Res<Settings>,
 ) {
     let (player_transform, health) = *player;
+    let crawlers_on = settings.special_zombies.crawlers;
     // Several blasts in one frame each see the Health the last one left.
     let mut health_left = health.current;
     // Likewise each Zombie's, and whether it can't lose its legs: already a Crawler, or a
@@ -323,7 +327,7 @@ fn explode(
                 blasted.len() - 1
             });
             let (_, before, not_normal) = blasted[i];
-            if explosion.crawlers && blows_legs_off(!not_normal, before, amount, rand::random()) {
+            if explosion.crawlers && blows_legs_off(crawlers_on, !not_normal, before, amount, rand::random()) {
                 gibbed.write(Gibbed { zombie });
                 blasted[i].2 = true;
             }

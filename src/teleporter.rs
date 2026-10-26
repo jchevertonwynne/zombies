@@ -21,6 +21,7 @@ use crate::player::{FovWarp, Player, PlayerCamera, Teleport};
 use crate::power::Power;
 use crate::power_up::DropPowerUp;
 use crate::round::Round;
+use crate::settings::Settings;
 use crate::state::{GameState, InRun, Pause};
 use crate::tuning::*;
 use crate::zombie::{Attack, DamageZombie, Dying, HitZone, Zombie};
@@ -297,14 +298,16 @@ pub fn re_teleport_hounds(round: u32, since_last: Option<f32>, both_linked: bool
 
 /// The arrival table, for uniform rolls in [0, 1). The re-teleport hounds come first and give no
 /// Power-up. Otherwise, from Round 16 the chance of nothing overrides both; from Round 15, 1 in 6
-/// is a Hellhound; and the rest are Power-ups.
+/// is a Hellhound; and the rest are Power-ups. With Hellhounds switched off (`hounds_on` false),
+/// each hound result gives a Power-up instead.
 pub fn arrival_drop(
     round: u32,
     re_teleport: bool,
+    hounds_on: bool,
     hound_roll: f64,
     nothing_roll: f64,
 ) -> ArrivalDrop {
-    if re_teleport {
+    let drop = if re_teleport {
         ArrivalDrop::Hellhounds(TELEPORTER_RETELEPORT_HOUNDS)
     } else if nothing_roll < nothing_chance(round) {
         ArrivalDrop::Nothing
@@ -312,6 +315,10 @@ pub fn arrival_drop(
         ArrivalDrop::Hellhounds(1)
     } else {
         ArrivalDrop::PowerUp
+    };
+    match drop {
+        ArrivalDrop::Hellhounds(_) if !hounds_on => ArrivalDrop::PowerUp,
+        drop => drop,
     }
 }
 
@@ -612,6 +619,7 @@ fn run_trips(
     mut shellshocks: MessageWriter<Shellshock>,
     mut cues: MessageWriter<PlayCue>,
     round: Option<Res<Round>>,
+    settings: Res<Settings>,
     time: Res<Time>,
 ) {
     let Some(event) = teleporter.advance(time.delta_secs()) else {
@@ -677,7 +685,8 @@ fn run_trips(
 
             let round = round.map_or(1, |round| round.number);
             let re_teleport = re_teleport_hounds(round, since_last, teleporter.both_linked());
-            let drop = arrival_drop(round, re_teleport, rng.random(), rng.random());
+            let hounds_on = settings.special_zombies.hellhounds;
+            let drop = arrival_drop(round, re_teleport, hounds_on, rng.random(), rng.random());
             aftermath.drop = Some((drop, TELEPORTER_DROP_DELAY_SECS));
         }
     }
@@ -1058,7 +1067,7 @@ mod tests {
     fn the_arrival_drop_is_always_a_power_up_before_round_15() {
         for round in 1..15 {
             for roll in [0.0, 0.1, 0.5, 0.99] {
-                assert_eq!(arrival_drop(round, false, roll, roll), ArrivalDrop::PowerUp);
+                assert_eq!(arrival_drop(round, false, true, roll, roll), ArrivalDrop::PowerUp);
             }
         }
     }
@@ -1066,10 +1075,10 @@ mod tests {
     #[test]
     fn from_round_15_one_arrival_in_six_spawns_a_hellhound() {
         assert_eq!(
-            arrival_drop(15, false, 0.16, 0.0),
+            arrival_drop(15, false, true, 0.16, 0.0),
             ArrivalDrop::Hellhounds(1)
         );
-        assert_eq!(arrival_drop(15, false, 0.17, 0.0), ArrivalDrop::PowerUp);
+        assert_eq!(arrival_drop(15, false, true, 0.17, 0.0), ArrivalDrop::PowerUp);
         assert_eq!(nothing_chance(15), 0.0);
     }
 
@@ -1078,14 +1087,14 @@ mod tests {
         assert!((nothing_chance(16) - 0.05).abs() < 1e-9);
         assert!((nothing_chance(25) - 0.5).abs() < 1e-9);
         assert_eq!(nothing_chance(40), 1.0);
-        assert_eq!(arrival_drop(16, false, 0.0, 0.04), ArrivalDrop::Nothing);
+        assert_eq!(arrival_drop(16, false, true, 0.0, 0.04), ArrivalDrop::Nothing);
         assert_eq!(
-            arrival_drop(16, false, 0.0, 0.06),
+            arrival_drop(16, false, true, 0.0, 0.06),
             ArrivalDrop::Hellhounds(1)
         );
-        assert_eq!(arrival_drop(25, false, 0.9, 0.49), ArrivalDrop::Nothing);
-        assert_eq!(arrival_drop(25, false, 0.9, 0.51), ArrivalDrop::PowerUp);
-        assert_eq!(arrival_drop(35, false, 0.9, 0.999), ArrivalDrop::Nothing);
+        assert_eq!(arrival_drop(25, false, true, 0.9, 0.49), ArrivalDrop::Nothing);
+        assert_eq!(arrival_drop(25, false, true, 0.9, 0.51), ArrivalDrop::PowerUp);
+        assert_eq!(arrival_drop(35, false, true, 0.9, 0.999), ArrivalDrop::Nothing);
     }
 
     #[test]
@@ -1107,10 +1116,22 @@ mod tests {
         // No Power-up, whatever the rolls.
         for roll in [0.0, 0.5, 0.99] {
             assert_eq!(
-                arrival_drop(21, true, roll, roll),
+                arrival_drop(21, true, true, roll, roll),
                 ArrivalDrop::Hellhounds(4)
             );
         }
+    }
+
+    #[test]
+    fn with_hellhounds_off_every_hound_result_is_a_power_up() {
+        assert_eq!(arrival_drop(15, false, false, 0.0, 0.0), ArrivalDrop::PowerUp);
+        assert_eq!(arrival_drop(16, false, false, 0.0, 0.06), ArrivalDrop::PowerUp);
+        for roll in [0.0, 0.5, 0.99] {
+            assert_eq!(arrival_drop(21, true, false, roll, roll), ArrivalDrop::PowerUp, "re-teleport");
+        }
+        // Nothing and Power-ups are unchanged.
+        assert_eq!(arrival_drop(16, false, false, 0.0, 0.04), ArrivalDrop::Nothing);
+        assert_eq!(arrival_drop(25, false, false, 0.9, 0.51), ArrivalDrop::PowerUp);
     }
 
     #[test]

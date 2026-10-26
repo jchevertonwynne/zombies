@@ -13,6 +13,7 @@ use crate::nova::{NovaAssetsParam, nova_crawler_entry, nova_crawler_health, spaw
 use crate::player::Player;
 use crate::power::Power;
 use crate::power_up::{DropPowerUp, PowerUp};
+use crate::settings::Settings;
 use crate::state::{GameState, Pause};
 use crate::tuning::*;
 use crate::zombie::{Dying, SpeedTier, Zombie, ZombieAssetsParam, ZombieCleanedUp, ZombieKilled, spawn_zombie};
@@ -120,10 +121,10 @@ pub struct Round {
 }
 
 impl Round {
-    /// Round `number` begins, Hellhound Round or not by the Run's `schedule`. Its Horde follows
-    /// the Player's stat entries.
-    fn begin(number: u32, mut schedule: HellhoundSchedule, player: &[Modifier]) -> Self {
-        let hellhound = schedule.begin(number, rand::random_range(HELLHOUND_ROUND_GAPS));
+    /// Round `number` begins, Hellhound Round or not by the Run's `schedule` (never with
+    /// Hellhounds switched off). Its Horde follows the Player's stat entries.
+    fn begin(number: u32, mut schedule: HellhoundSchedule, player: &[Modifier], hounds_on: bool) -> Self {
+        let hellhound = schedule.begin(number, rand::random_range(HELLHOUND_ROUND_GAPS), hounds_on);
         let (horde, spawn_timer) = match hellhound {
             Some(count) => (hellhound_horde(count), HELLHOUND_FIRST_SPAWN_SECS),
             None => (horde_size(number), 0.0),
@@ -202,9 +203,9 @@ impl Plugin for RoundPlugin {
     }
 }
 
-fn start_first_round(mut commands: Commands, mut started: MessageWriter<RoundStarted>) {
+fn start_first_round(mut commands: Commands, settings: Res<Settings>, mut started: MessageWriter<RoundStarted>) {
     let schedule = HellhoundSchedule::new(rand::random_range(HELLHOUND_FIRST_ROUNDS));
-    commands.insert_resource(Round::begin(1, schedule, &[]));
+    commands.insert_resource(Round::begin(1, schedule, &[], settings.special_zombies.hellhounds));
     commands.insert_resource(IntermissionHold::default());
     started.write(RoundStarted);
 }
@@ -219,7 +220,8 @@ fn requeue_cleaned_up(mut round: ResMut<Round>, mut cleaned: MessageReader<Zombi
 }
 
 /// Spawns the Horde: normal Zombies, a few of them hounds from Round 16 and Nova Crawlers after
-/// Power, or all hounds in a Hellhound Round.
+/// Power, or all hounds in a Hellhound Round. Each special type comes only while switched on in
+/// Settings, checked spawn by spawn, so a change mid-Run affects future spawns only.
 fn spawn_horde(
     mut commands: Commands,
     mut round: ResMut<Round>,
@@ -231,6 +233,7 @@ fn spawn_horde(
     hound_assets: HellhoundAssetsParam,
     nova_assets: NovaAssetsParam,
     power: Res<Power>,
+    settings: Res<Settings>,
     time: Res<Time>,
 ) {
     if round.phase != RoundPhase::Active || round.left_to_spawn == 0 {
@@ -254,7 +257,13 @@ fn spawn_horde(
             .map(|(t, point)| (point.zone, t.translation));
         hellhound_spawn_candidates(points, active.0, player.translation)
     };
+    let on = settings.special_zombies;
     if let Some(count) = round.hellhound {
+        // Hellhounds switched off mid-Round: no more come, and the Round ends with those alive.
+        if !on.hellhounds {
+            round.left_to_spawn = 0;
+            return;
+        }
         let points = hound_points();
         if points.is_empty() {
             return;
@@ -267,7 +276,7 @@ fn spawn_horde(
 
     // Mixed hounds: a few normal spawns are hounds instead, at the latest tier's health.
     let hounds_alive = alive.iter().filter(|zombie| zombie.is_hellhound()).count() as u32;
-    if hounds_alive < HELLHOUND_MIXED_MAX_ALIVE && rand::random_bool(mixed_hound_chance(round.number)) {
+    if hounds_alive < HELLHOUND_MIXED_MAX_ALIVE && rand::random_bool(mixed_hound_chance(round.number, on.hellhounds)) {
         let points = hound_points();
         if !points.is_empty() {
             let health = hellhound_health(round.hellhound_tier());
@@ -280,7 +289,7 @@ fn spawn_horde(
 
     // Nova Crawlers: after Power, a few normal spawns drop from Vents (or rise in the Yard) instead.
     let novas_alive = alive.iter().filter(|zombie| zombie.is_nova_crawler()).count() as u32;
-    if spawns_nova_crawler(power.is_on(), round.hellhound.is_some(), novas_alive, rand::random()) {
+    if spawns_nova_crawler(on.nova_crawlers, power.is_on(), round.hellhound.is_some(), novas_alive, rand::random()) {
         let points = spawn_candidates(
             spawn_points
                 .iter()
@@ -371,6 +380,7 @@ fn run_intermission(
     mut round: ResMut<Round>,
     hold: Res<IntermissionHold>,
     player: Query<&Modifiers, With<Player>>,
+    settings: Res<Settings>,
     mut started: MessageWriter<RoundStarted>,
     time: Res<Time>,
 ) {
@@ -384,7 +394,12 @@ fn run_intermission(
     let left = left - time.delta_secs();
     if left <= 0.0 {
         let entries: Vec<Modifier> = player.iter().flat_map(|modifiers| modifiers.0.iter().copied()).collect();
-        *round = Round::begin(round.number.saturating_add(1), round.schedule, &entries);
+        *round = Round::begin(
+            round.number.saturating_add(1),
+            round.schedule,
+            &entries,
+            settings.special_zombies.hellhounds,
+        );
         started.write(RoundStarted);
     } else {
         round.phase = RoundPhase::Intermission(left);

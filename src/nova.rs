@@ -22,11 +22,13 @@ use crate::state::{InRun, Pause};
 use crate::tuning::*;
 use crate::zombie::{Attack, DamageZombie, Dying, HitArea, HitZone, Rising, Zombie};
 
-/// Whether a normal spawn becomes a Nova Crawler: only after Power, never in a Hellhound Round,
-/// with fewer than `NOVA_CRAWLER_MAX_ALIVE` alive, on a `roll` in `[0, 1)` under
-/// `NOVA_CRAWLER_SPAWN_CHANCE`.
-pub fn spawns_nova_crawler(power_on: bool, hellhound_round: bool, alive: u32, roll: f64) -> bool {
-    power_on
+/// Whether a normal spawn becomes a Nova Crawler: only with them switched `on` in Settings and
+/// after Power, never in a Hellhound Round, with fewer than `NOVA_CRAWLER_MAX_ALIVE` alive, on a
+/// `roll` in `[0, 1)` under `NOVA_CRAWLER_SPAWN_CHANCE`. Switched off, their share stays normal
+/// Zombies.
+pub fn spawns_nova_crawler(on: bool, power_on: bool, hellhound_round: bool, alive: u32, roll: f64) -> bool {
+    on
+        && power_on
         && !hellhound_round
         && alive < NOVA_CRAWLER_MAX_ALIVE
         && roll < NOVA_CRAWLER_SPAWN_CHANCE
@@ -316,28 +318,37 @@ mod tests {
 
     #[test]
     fn nova_crawlers_spawn_only_after_power() {
-        assert!(!spawns_nova_crawler(false, false, 0, 0.0));
-        assert!(spawns_nova_crawler(true, false, 0, 0.0));
+        assert!(!spawns_nova_crawler(true, false, false, 0, 0.0));
+        assert!(spawns_nova_crawler(true, true, false, 0, 0.0));
     }
 
     #[test]
     fn a_tenth_of_normal_spawns_are_nova_crawlers() {
         let novas = (0..1000)
-            .filter(|i| spawns_nova_crawler(true, false, 0, *i as f64 / 1000.0))
+            .filter(|i| spawns_nova_crawler(true, true, false, 0, *i as f64 / 1000.0))
             .count();
         assert_eq!(novas, 100);
     }
 
     #[test]
     fn at_most_six_nova_crawlers_are_alive() {
-        assert!(spawns_nova_crawler(true, false, 5, 0.0));
-        assert!(!spawns_nova_crawler(true, false, 6, 0.0));
-        assert!(!spawns_nova_crawler(true, false, 9, 0.0));
+        assert!(spawns_nova_crawler(true, true, false, 5, 0.0));
+        assert!(!spawns_nova_crawler(true, true, false, 6, 0.0));
+        assert!(!spawns_nova_crawler(true, true, false, 9, 0.0));
+    }
+
+    #[test]
+    fn switched_off_nova_crawlers_never_spawn_and_their_share_stays_normal() {
+        assert!(!spawns_nova_crawler(false, true, false, 0, 0.0));
+        let novas = (0..1000)
+            .filter(|i| spawns_nova_crawler(false, true, false, 0, *i as f64 / 1000.0))
+            .count();
+        assert_eq!(novas, 0);
     }
 
     #[test]
     fn no_nova_crawlers_on_hellhound_rounds() {
-        assert!(!spawns_nova_crawler(true, true, 0, 0.0));
+        assert!(!spawns_nova_crawler(true, true, true, 0, 0.0));
     }
 
     #[test]
