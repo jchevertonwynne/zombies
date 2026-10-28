@@ -1138,7 +1138,9 @@ pub const ZOMBIE_REPATH_FAR_DIST: f32 = 30.0;
 /// How close (horizontally) a Zombie gets to a path node before heading for the next one.
 pub const ZOMBIE_WAYPOINT_REACH: f32 = 0.6;
 /// The most the Player's feet can be above or below a Zombie's for it to steer straight at them.
-pub const ZOMBIE_DIRECT_MAX_RISE: f32 = 1.0;
+/// More than the Yard cover boxes' 1.1 m, so a Player standing on one is swiped from beside it,
+/// and far less than the Balcony's 4 m, which is a separate floor reached by the ramp.
+pub const ZOMBIE_DIRECT_MAX_RISE: f32 = 1.2;
 /// Separation steering: Zombies closer than this push apart, by up to this weight of their stride.
 pub const ZOMBIE_SEPARATION_DIST: f32 = 1.0;
 pub const ZOMBIE_SEPARATION_WEIGHT: f32 = 0.6;

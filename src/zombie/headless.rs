@@ -287,3 +287,18 @@ fn a_zombie_walks_up_the_ramp_to_a_player_on_the_balcony() {
     }
     assert!(top > standing(0.0) + 3.5, "got up to {top}, ended at {last}");
 }
+
+/// A Player on a Yard crate is only a metre above the floor: Zombies come to the crate and swipe
+/// from beside it.
+#[test]
+fn a_zombie_swipes_a_player_standing_on_a_yard_crate() {
+    let mut sim = Sim::new(60.0, |_| {});
+    put_player(&mut sim, Vec3::new(-3.0, 1.1, -6.0));
+    sim.spawn(Vec3::new(-3.0, 0.0, 0.0), None);
+    let mut hits = 0;
+    for _ in 0..sim.frames(20.0) {
+        sim.run(1);
+        hits += sim.world_mut().resource_mut::<Messages<PlayerHit>>().drain().count();
+    }
+    assert!(hits >= 1, "the Zombie never landed a swipe");
+}
