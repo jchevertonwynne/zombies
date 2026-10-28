@@ -1192,6 +1192,12 @@ pub const PLANK_SLIDE_FROM: f32 = 1.1;
 /// How long the rebuild hand takes to come up when the Use key goes down at a Barrier, and to go
 /// away again when it's let go.
 pub const REBUILD_HAND_SECS: f32 = 0.2;
+/// A bought Wall Weapon's copy lifts off the chalk toward the Player over `WALL_LIFT_SECS`, this
+/// many metres of the way.
+pub const WALL_LIFT_SECS: f32 = 0.4;
+pub const WALL_LIFT_REACH: f32 = 0.7;
+/// An ammo buy plays its pose on the held Weapon for this long: a quick tilt and a magazine slap.
+pub const AMMO_BUY_SECS: f32 = 0.45;
 /// The Round cap on rebuild Points: `min(BARRIER_REBUILD_CAP_PER_ROUND × round, BARRIER_REBUILD_CAP_MAX)`.
 pub const BARRIER_REBUILD_CAP_PER_ROUND: u64 = 50;
 pub const BARRIER_REBUILD_CAP_MAX: u64 = 500;

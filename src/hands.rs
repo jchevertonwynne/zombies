@@ -10,7 +10,8 @@
 //! tosses it away before the Weapon comes back up. Rebuilding a Barrier dips the Weapon too, and a
 //! bare hand reaches forward and pushes once per Plank. So does Equipment: the left hand comes up
 //! holding a frag while it cooks and throws it overarm, throws a Monkey Bomb the same way, or
-//! reaches down to plant a Claymore.
+//! reaches down to plant a Claymore. Buying ammo at a Wall Weapon tilts the Weapon and slaps a
+//! fresh magazine home.
 //!
 //! Aiming and sprinting move the whole Weapon: aiming brings the sights up under the crosshair,
 //! and sprinting lets the muzzle drop and roll in to the left, BO1-style.
@@ -142,6 +143,17 @@ pub fn carry_pose(carry: f32, busy: f32) -> (Vec3, Quat) {
         * Quat::from_rotation_x(-0.45 * amount)
         * Quat::from_rotation_z(0.5 * amount);
     (Vec3::new(-0.04, -0.08, 0.03) * amount, turn)
+}
+
+/// An ammo buy `t` of the way (0 to 1) through: how far the Weapon tips out of the way (0 to 1,
+/// the same dip the Knife and Equipment use), and how far the magazine is pulled down from its
+/// seat and slapped back in (zero or below). Both are at rest at either end.
+pub fn ammo_buy_pose(t: f32) -> (f32, f32) {
+    let t = t.clamp(0.0, 1.0);
+    let tip = smoothstep(t / 0.25) * (1.0 - smoothstep((t - 0.7) / 0.3));
+    // Pulled down while the Weapon is tipped, then slapped home hard.
+    let pulled = smoothstep((t - 0.2) / 0.2) * (1.0 - smoothstep((t - 0.5) / 0.08));
+    (0.5 * tip, -0.08 * pulled)
 }
 
 /// A Knife slash `t` of the way (0 to 1) through: how far the Weapon drops out of the way, and
@@ -319,6 +331,23 @@ mod tests {
     use super::*;
 
     const GRAB: Vec3 = Vec3::new(0.0, -0.05, 0.1);
+
+    #[test]
+    fn an_ammo_buy_starts_and_ends_at_rest_and_never_jumps() {
+        assert_eq!(ammo_buy_pose(0.0), (0.0, 0.0));
+        assert_eq!(ammo_buy_pose(1.0), (0.0, 0.0));
+        let steps = 200;
+        let mut peak: (f32, f32) = (0.0, 0.0);
+        let mut last = ammo_buy_pose(0.0);
+        for i in 1..=steps {
+            let pose = ammo_buy_pose(i as f32 / steps as f32);
+            assert!((pose.0 - last.0).abs() < 0.03 && (pose.1 - last.1).abs() < 0.02, "jump at step {i}");
+            peak = (peak.0.max(pose.0), peak.1.min(pose.1));
+            last = pose;
+        }
+        assert!(peak.0 > 0.3, "the Weapon visibly tips: {peak:?}");
+        assert!(peak.1 < -0.05, "the magazine visibly comes down: {peak:?}");
+    }
 
     #[test]
     fn a_reload_starts_and_ends_at_rest() {
