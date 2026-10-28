@@ -260,3 +260,30 @@ fn a_zombie_that_loses_its_legs_drops_at_once() {
         }
     }
 }
+
+/// Stands the stand-in Player with their feet at `feet`.
+fn put_player(sim: &mut Sim, feet: Vec3) {
+    let half_height = PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0;
+    sim.world_mut()
+        .query_filtered::<&mut Transform, With<Player>>()
+        .single_mut(sim.app.world_mut())
+        .unwrap()
+        .translation = feet + Vec3::Y * half_height;
+}
+
+/// West Hall's ramp is the only way up to the Balcony, so a Zombie after a Player up there has to
+/// climb it.
+#[test]
+fn a_zombie_walks_up_the_ramp_to_a_player_on_the_balcony() {
+    let mut sim = Sim::new(60.0, |_| {});
+    put_player(&mut sim, Vec3::new(-12.5, 4.0, -2.0));
+    let zombie = sim.spawn(Vec3::new(-15.7, 0.0, 14.0), None);
+    // Stops following it if the stuck rule despawns it on the way.
+    let (mut top, mut last) = (f32::MIN, Vec3::ZERO);
+    for _ in 0..sim.frames(40.0) {
+        sim.run(1);
+        let Some(at) = sim.world_mut().get::<Transform>(zombie).map(|t| t.translation) else { break };
+        (top, last) = (top.max(at.y), at);
+    }
+    assert!(top > standing(0.0) + 3.5, "got up to {top}, ended at {last}");
+}
