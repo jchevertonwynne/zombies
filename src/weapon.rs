@@ -3,9 +3,10 @@ use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
 
 use crate::hands::{
-    HIP_DROP, HIP_SIDE, ReloadPose, ReloadStyle, aim_shift, aimed_kick, carry_pose, drink_pose, knife_pose, reload_pose,
+    HIP_DROP, HIP_SIDE, ReloadPose, ReloadStyle, aim_shift, aimed_kick, carry_pose, drink_pose, knife_pose, rebuild_pose, reload_pose,
     stab_lunge,
 };
+use crate::barrier::Rebuild;
 use crate::controls::{Action, Controls};
 use crate::ammo_mod::{AmmoModHit, AmmoMods, glint_colour, pick_ammo_mod};
 use crate::arsenal::{Burn, FireMode, Splash, WeaponId, WeaponStats};
@@ -820,6 +821,8 @@ pub enum ViewPart {
     Knife,
     /// The Perk being drunk, in the right hand.
     Bottle,
+    /// The bare hand that pushes Planks back onto a Barrier.
+    Palm,
 }
 
 /// Poses the view model from scratch each frame; camera sway adds to the pose after it.
@@ -870,6 +873,7 @@ fn spawn_view_model(
         };
         commands.entity(camera).with_child(part(ViewPart::Knife));
         commands.entity(camera).with_child(part(ViewPart::Bottle));
+        commands.entity(camera).with_child(part(ViewPart::Palm));
         commands.entity(camera).with_child((
             ViewModel { kick: 0.0 },
             Mesh3d(guns.view(STARTING_WEAPON)),
@@ -1239,6 +1243,7 @@ fn animate_view_model(
     mut materials: ResMut<Assets<StandardMaterial>>,
     player: Single<(&Loadout, &Modifiers, &Knife, Option<&Drinking>), With<Player>>,
     guns: Res<GunModels>,
+    rebuild: Res<Rebuild>,
     time: Res<Time>,
 ) {
     let (ref mut model, ref mut transform, ref mut mesh) = *view_model;
@@ -1309,6 +1314,9 @@ fn animate_view_model(
         Some(t) if !stabbing => knife_pose(t),
         _ => (0.0, None),
     };
+    // Rebuilding a Barrier moves the Weapon aside the same way, for the hand that pushes.
+    let (rebuild_dip, palm) = rebuild_pose(rebuild.hand().0, rebuild.hand().1);
+    let knife_dip = knife_dip.max(rebuild_dip);
     let lunge = knife.swing().filter(|_| stabbing).map_or(0.0, stab_lunge);
 
     // Aiming and the sprint carry give way to a switch, a Perk, the Knife and a Reload; the carry
@@ -1348,6 +1356,7 @@ fn animate_view_model(
                 Some(if knife.bowie { guns.bowie.clone() } else { guns.knife.clone() }),
                 knife_hand,
             ),
+            ViewPart::Palm => (Some(guns.palm.clone()), palm),
             ViewPart::Bottle => (drinking.map(|drinking| guns.bottle(drinking.perk)), bottle),
         };
         match (shown_mesh, placed) {

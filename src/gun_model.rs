@@ -76,6 +76,8 @@ pub struct GunModels {
     /// The Knife, and the Bowie Knife, in a right hand: the hand at the origin, the blade along −Z.
     pub knife: Handle<Mesh>,
     pub bowie: Handle<Mesh>,
+    /// A bare right hand for pushing Planks, its fist at the origin.
+    pub palm: Handle<Mesh>,
     /// Each Perk's bottle in a right hand, by its place in `Perk::ALL`: the hand at the origin,
     /// the bottle standing up out of it along +Y, its label facing +Z.
     bottles: [Handle<Mesh>; 4],
@@ -195,6 +197,11 @@ impl FromWorld for GunModels {
             knife.mesh()
         };
         let (knife, bowie) = (meshes.add(knife(false)), meshes.add(knife(true)));
+        let palm = {
+            let mut palm = Gun::default();
+            hand(&mut palm, Vec3::ZERO, 1.0);
+            meshes.add(palm.mesh())
+        };
         let bottles = Perk::ALL.map(|perk| meshes.add(bottle(perk)));
         let material = world.resource_mut::<Assets<StandardMaterial>>().add(StandardMaterial {
             // The vertex colours carry every part's colour.
@@ -213,6 +220,7 @@ impl FromWorld for GunModels {
             world: world_meshes,
             knife,
             bowie,
+            palm,
             bottles,
             material,
         }
