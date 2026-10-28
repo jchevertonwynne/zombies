@@ -1172,6 +1172,13 @@ pub const BARRIER_SWIPE_WINDOW_DIST: f32 = 1.3;
 /// Holding Use puts one Plank back per `BARRIER_REBUILD_SECS`, paying `BARRIER_REBUILD_POINTS`.
 pub const BARRIER_REBUILD_SECS: f32 = 1.0;
 pub const BARRIER_REBUILD_POINTS: u64 = 10;
+/// A rebuilt Plank slides into its slot from inside the room over `PLANK_SLIDE_SECS`, starting
+/// `PLANK_SLIDE_FROM` metres back from the window.
+pub const PLANK_SLIDE_SECS: f32 = 0.25;
+pub const PLANK_SLIDE_FROM: f32 = 1.1;
+/// How long the rebuild hand takes to come up when the Use key goes down at a Barrier, and to go
+/// away again when it's let go.
+pub const REBUILD_HAND_SECS: f32 = 0.2;
 /// The Round cap on rebuild Points: `min(BARRIER_REBUILD_CAP_PER_ROUND × round, BARRIER_REBUILD_CAP_MAX)`.
 pub const BARRIER_REBUILD_CAP_PER_ROUND: u64 = 50;
 pub const BARRIER_REBUILD_CAP_MAX: u64 = 500;

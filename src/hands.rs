@@ -7,7 +7,8 @@
 //! Knife is a right hand slashing across the screen while the Weapon drops out of the way; the
 //! Ballistic Knife in hand lunges and stabs with its own blade instead. A Perk drink puts the
 //! Weapon away, brings the Perk's bottle up in the right hand, pops its cap, tips it back and
-//! tosses it away before the Weapon comes back up.
+//! tosses it away before the Weapon comes back up. Rebuilding a Barrier dips the Weapon too, and a
+//! bare hand reaches forward and pushes once per Plank.
 //!
 //! Aiming and sprinting move the whole Weapon: aiming brings the sights up under the crosshair,
 //! and sprinting lets the muzzle drop and roll in to the left, BO1-style.
@@ -166,6 +167,31 @@ pub fn knife_pose(t: f32) -> (f32, Option<Transform>) {
     (dip, Some(Transform::from_translation(at).with_rotation(rotation)))
 }
 
+/// How far forward (0 to 1) the rebuild hand is pushed `t` of the way (0 to 1) through a Plank: it
+/// draws back, shoves as the Plank goes in at the end, and is back at rest by the next one.
+pub fn rebuild_push(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    smoothstep((t - 0.3) / 0.55) * (1.0 - smoothstep((t - 0.85) / 0.15))
+}
+
+/// The rebuild hand when it's `up` (0 gone to 1 ready) and `reach` (0 to 1) pushed forward: how
+/// far the Weapon dips out of the way, and where the hand is (camera space), if it's in sight.
+/// The Weapon follows `up`, so it dips and returns smoothly at either end of a hold.
+pub fn rebuild_pose(up: f32, reach: f32) -> (f32, Option<Transform>) {
+    let up = smoothstep(up);
+    if up <= 0.0 {
+        return (0.0, None);
+    }
+    let reach = reach.clamp(0.0, 1.0);
+    let below = Vec3::new(0.25, -0.6, -0.3);
+    let ready = Vec3::new(0.12, -0.2, -0.36);
+    let pushed = Vec3::new(0.02, -0.1, -0.62);
+    let at = below.lerp(ready, up).lerp(pushed, reach * up);
+    // The fist pitches up a little as it shoves.
+    let rotation = Quat::from_rotation_x(0.25 * reach * up);
+    (up, Some(Transform::from_translation(at).with_rotation(rotation)))
+}
+
 /// The Ballistic Knife's stab, `t` of the way through: how far forward the view model lunges.
 pub fn stab_lunge(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
@@ -289,6 +315,48 @@ mod tests {
                 assert!(a.rotation.angle_between(b.rotation) < 0.06, "at {i}");
             }
             last = pose;
+        }
+    }
+
+    #[test]
+    fn the_rebuild_pose_starts_and_ends_at_rest() {
+        let (dip, hand) = rebuild_pose(0.0, 0.0);
+        assert_eq!(dip, 0.0);
+        assert!(hand.is_none(), "no hand when it's not rebuilding");
+        assert_eq!(rebuild_push(0.0), 0.0);
+        assert!(rebuild_push(1.0) < 1e-5, "back at rest for the next Plank");
+    }
+
+    #[test]
+    fn the_rebuild_hand_reaches_forward_and_the_weapon_dips() {
+        let (dip, ready) = rebuild_pose(1.0, 0.0);
+        let (_, pushing) = rebuild_pose(1.0, 1.0);
+        assert!(dip > 0.99);
+        let (ready, pushing) = (ready.unwrap().translation, pushing.unwrap().translation);
+        assert!(pushing.z < ready.z - 0.2, "pushes forward (−Z)");
+        assert!(pushing.z.abs() > 0.1 && ready.z.abs() > 0.1, "past the near plane");
+        assert!(rebuild_push(0.85) > 0.99, "the shove lands as the Plank goes in");
+    }
+
+    #[test]
+    fn the_rebuild_pose_never_jumps() {
+        let mut last = rebuild_pose(0.0, 0.0);
+        for i in 1..=1000 {
+            let x = i as f32 / 1000.0;
+            // Up, then a push, then away.
+            let pose = rebuild_pose(x, rebuild_push(x));
+            assert!((pose.0 - last.0).abs() < 0.02, "dip at {i}");
+            if let (Some(a), Some(b)) = (pose.1, last.1) {
+                assert!(a.translation.distance(b.translation) < 0.03, "at {i}");
+                assert!(a.rotation.angle_between(b.rotation) < 0.05, "at {i}");
+            }
+            last = pose;
+        }
+        let mut last = 0.0;
+        for i in 1..=1000 {
+            let push = rebuild_push(i as f32 / 1000.0);
+            assert!((push - last).abs() < 0.02, "push at {i}");
+            last = push;
         }
     }
 
