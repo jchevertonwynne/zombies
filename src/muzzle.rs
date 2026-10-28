@@ -268,7 +268,7 @@ fn spawn_impacts(
             ));
         }
         *landed += 1;
-        if *landed % TRACER_EVERY == 0
+        if landed.is_multiple_of(TRACER_EVERY)
             && let Ok(muzzle) = flashes.single()
         {
             commands.spawn((

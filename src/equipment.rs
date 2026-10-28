@@ -848,7 +848,7 @@ mod tests {
             elapsed += 0.01;
         }
         assert_eq!(lets_go, 1);
-        assert!(elapsed >= THROW_SECS && elapsed < THROW_SECS + 0.02);
+        assert!((THROW_SECS..THROW_SECS + 0.02).contains(&elapsed));
     }
 
     #[test]
