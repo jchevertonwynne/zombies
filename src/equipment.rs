@@ -8,6 +8,8 @@ use crate::controls::{Action, Controls};
 use crate::ammo_mod::AmmoMods;
 use crate::barrier::Entering;
 use crate::buy::{Buyable, Purchased, Refused};
+use crate::gun_model::Handheld;
+use crate::hands::{cook_pose, cook_raise, plant_pose, throw_pose};
 use crate::explosive::{Explosion, Explosive, in_sight, makes_crawlers, world_filter};
 use crate::layers::GameLayer;
 use crate::arsenal::Splash;
@@ -280,6 +282,106 @@ pub(crate) const EQUIPMENT_WALLS: [(EquipmentWall, ZoneId, Vec3, Vec3); 3] = [
     (EquipmentWall::BowieKnife, ZoneId::Balcony, Vec3::new(-12.0, 5.5, -13.8), Vec3::Z),
 ];
 
+/// What the left hand is letting go of.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Handled {
+    /// A frag thrown with this much fuse left once it leaves the hand.
+    Frag(f32),
+    MonkeyBomb,
+    Claymore,
+}
+
+/// The hand handling Equipment after the key is let go: a throw or a plant playing out. The Weapon
+/// can't fire until it's done.
+#[derive(Component, Debug, Clone, PartialEq)]
+pub struct Handling {
+    pub what: Handled,
+    /// Seconds since the throw or plant began.
+    elapsed: f32,
+    /// How far up (0 to 1) the hand already was when a frag's throw began.
+    raised: f32,
+    /// Whether it's still in the hand.
+    in_hand: bool,
+}
+
+impl Handling {
+    /// A throw or a plant just begun, the hand `raised` of the way up if it was cooking a frag.
+    pub fn new(what: Handled, raised: f32) -> Self {
+        Self { what, elapsed: 0.0, raised, in_hand: true }
+    }
+
+    /// Seconds the whole throw or plant takes.
+    pub fn secs(&self) -> f32 {
+        match self.what {
+            Handled::Claymore => PLANT_SECS,
+            _ => THROW_SECS,
+        }
+    }
+
+    /// How far (0 to 1) through it the hand is.
+    pub fn progress(&self) -> f32 {
+        (self.elapsed / self.secs()).min(1.0)
+    }
+
+    fn release_at(&self) -> f32 {
+        match self.what {
+            Handled::Claymore => PLANT_RELEASE_AT,
+            _ => THROW_RELEASE_AT,
+        }
+    }
+
+    /// Advances it by `dt`. True on the frame the hand lets go.
+    pub fn advance(&mut self, dt: f32) -> bool {
+        self.elapsed += dt;
+        let let_go = self.in_hand && self.progress() >= self.release_at();
+        self.in_hand &= !let_go;
+        let_go
+    }
+
+    pub fn finished(&self) -> bool {
+        self.elapsed >= self.secs()
+    }
+
+    /// How far the Weapon dips and where the hand is (camera space) with what it holds, if it's in
+    /// sight.
+    pub fn pose(&self) -> (f32, Option<(Handheld, Transform)>) {
+        let (dip, hand) = match self.what {
+            Handled::Claymore => plant_pose(self.progress()),
+            _ => throw_pose(self.progress(), self.raised),
+        };
+        let held = match (self.in_hand, self.what) {
+            (false, _) => Handheld::Empty,
+            (true, Handled::Frag(_)) => Handheld::Frag,
+            (true, Handled::MonkeyBomb) => Handheld::MonkeyBomb,
+            (true, Handled::Claymore) => Handheld::Claymore,
+        };
+        (dip, hand.map(|hand| (held, hand)))
+    }
+
+    /// Where the hand is (camera space) as it lets go.
+    pub fn release_point(&self) -> Vec3 {
+        throw_pose(THROW_RELEASE_AT, self.raised).1.map_or(Vec3::ZERO, |hand| hand.translation)
+    }
+}
+
+/// The left hand as the view model shows it: how far the Weapon dips, and the hand with what it
+/// holds, if it's in sight. A cooking frag is held up; otherwise a throw or plant plays out.
+pub fn hand_pose(equipment: &Equipment, handling: Option<&Handling>) -> (f32, Option<(Handheld, Transform)>) {
+    match (equipment.cooking, handling) {
+        (Some(cooked), _) => {
+            let (dip, hand) = cook_pose(cook_raise(cooked));
+            (dip, Some((Handheld::Frag, hand)))
+        }
+        (None, Some(handling)) => handling.pose(),
+        (None, None) => (0.0, None),
+    }
+}
+
+/// Run condition: the Player's hand isn't busy with Equipment, so the Weapon can fire.
+pub fn arms_free(player: Query<(&Equipment, Has<Handling>), With<Player>>) -> bool {
+    player.iter().all(|(equipment, handling)| equipment.cooking.is_none() && !handling)
+}
+
 pub struct EquipmentPlugin;
 
 impl Plugin for EquipmentPlugin {
@@ -292,7 +394,7 @@ impl Plugin for EquipmentPlugin {
                     resolve_frag_limits,
                     restock,
                     (buy_walls, price_walls).chain(),
-                    (throw_frags, throw_monkey_bombs, plant_claymores),
+                    (throw_frags, throw_monkey_bombs, plant_claymores, release_handled),
                     (burn_frags, land_monkey_bombs, lure_zombies, trigger_claymores),
                 )
                     .chain()
@@ -426,20 +528,19 @@ fn buy_walls(
 }
 
 /// A thrown frag or Monkey Bomb: it bounces off the world and passes through everyone.
-fn thrown(mesh: &Handle<Mesh>, material: &Handle<StandardMaterial>, camera: &GlobalTransform) -> impl Bundle {
-    let forward = camera.forward();
+fn thrown(mesh: &Handle<Mesh>, material: &Handle<StandardMaterial>, from: Vec3, forward: Vec3) -> impl Bundle {
     (
         InRun,
         Mesh3d(mesh.clone()),
         MeshMaterial3d(material.clone()),
-        Transform::from_translation(camera.translation() + *forward * 0.4),
+        Transform::from_translation(from),
         RigidBody::Dynamic,
         Collider::sphere(THROWN_RADIUS),
         CollisionLayers::new(GameLayer::Thrown, GameLayer::World),
         Restitution::new(THROWN_RESTITUTION),
         Friction::new(0.8),
         AngularDamping(2.0),
-        LinearVelocity(*forward * EQUIPMENT_THROW_SPEED + Vec3::Y * EQUIPMENT_THROW_LIFT),
+        LinearVelocity(forward * EQUIPMENT_THROW_SPEED + Vec3::Y * EQUIPMENT_THROW_LIFT),
         TranslationInterpolation,
     )
 }
@@ -455,22 +556,21 @@ pub fn equipment_splash(base: Splash, player: &[Modifier]) -> Splash {
     }
 }
 
-/// The Lethal key pulls a frag's pin. Holding it cooks it, and letting go throws it with what's left of the
-/// fuse. Held too long, it goes off in the hand.
+/// The Lethal key pulls a frag's pin. Holding it cooks it, and letting go starts the throw with
+/// what's left of the fuse. Held too long, it goes off in the hand.
 fn throw_frags(
     mut commands: Commands,
-    player: Single<(&mut Equipment, &Modifiers), With<Player>>,
+    player: Single<(Entity, &mut Equipment, &Modifiers, Has<Handling>), With<Player>>,
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
     controls: Controls,
-    assets: Res<EquipmentAssets>,
     mut explosions: MessageWriter<Explosion>,
     time: Res<Time>,
 ) {
-    let (mut equipment, modifiers) = player.into_inner();
+    let (entity, mut equipment, modifiers, handling) = player.into_inner();
     let entries = &modifiers.0;
     let held = controls.pressed(Action::Lethal);
     let Some(cooked) = equipment.cooking else {
-        if controls.just_pressed(Action::Lethal) && equipment.frags > 0 {
+        if controls.just_pressed(Action::Lethal) && equipment.frags > 0 && !handling {
             equipment.frags -= 1;
             equipment.cooking = Some(0.0);
         }
@@ -480,7 +580,10 @@ fn throw_frags(
         Cook::Held(cooked) => equipment.cooking = Some(cooked),
         Cook::Thrown(fuse) => {
             equipment.cooking = None;
-            commands.spawn((Frag { fuse }, thrown(&assets.frag, &assets.frag_mat, &camera)));
+            // It keeps burning in the hand through the wind-up.
+            let fuse = (fuse - THROW_SECS * THROW_RELEASE_AT).max(FRAG_MIN_FUSE_SECS);
+            let raised = cook_raise(cooked + time.delta_secs());
+            commands.entity(entity).insert(Handling::new(Handled::Frag(fuse), raised));
         }
         Cook::InHand => {
             equipment.cooking = None;
@@ -495,49 +598,89 @@ fn throw_frags(
     }
 }
 
-/// The Monkey Bomb key throws one.
+/// The Monkey Bomb key starts throwing one.
 fn throw_monkey_bombs(
     mut commands: Commands,
-    mut equipment: Single<&mut Equipment, With<Player>>,
-    camera: Single<&GlobalTransform, With<PlayerCamera>>,
+    player: Single<(Entity, &mut Equipment, Has<Handling>), With<Player>>,
     controls: Controls,
-    assets: Res<EquipmentAssets>,
 ) {
-    if !controls.just_pressed(Action::MonkeyBomb) || equipment.monkey_bombs == 0 {
+    let (entity, mut equipment, handling) = player.into_inner();
+    if !controls.just_pressed(Action::MonkeyBomb) || equipment.monkey_bombs == 0 || handling || equipment.cooking.is_some() {
         return;
     }
     equipment.monkey_bombs -= 1;
-    commands.spawn((
-        MonkeyBomb { fuse: None, age: 0.0 },
-        thrown(&assets.monkey, &assets.monkey_mat, &camera),
-    ));
+    commands.entity(entity).insert(Handling::new(Handled::MonkeyBomb, 0.0));
 }
 
-/// The Claymore key plants one on the floor at the Player's feet, facing where they look.
+/// The Claymore key starts planting one, if there's a floor to plant it on.
 fn plant_claymores(
     mut commands: Commands,
-    player: Single<(&mut Equipment, &Transform), With<Player>>,
+    player: Single<(Entity, &mut Equipment, &Transform, Has<Handling>), With<Player>>,
     controls: Controls,
     spatial: SpatialQuery,
-    assets: Res<EquipmentAssets>,
 ) {
-    let (mut equipment, transform) = player.into_inner();
-    if !controls.just_pressed(Action::Claymore) || equipment.claymores == 0 {
+    let (entity, mut equipment, transform, handling) = player.into_inner();
+    if !controls.just_pressed(Action::Claymore) || equipment.claymores == 0 || handling || equipment.cooking.is_some() {
         return;
     }
-    let Some(floor) = spatial.cast_ray(transform.translation, Dir3::NEG_Y, 3.0, true, &world_filter()) else {
+    if floor_below(transform.translation, &spatial).is_none() {
+        return;
+    }
+    equipment.claymores -= 1;
+    commands.entity(entity).insert(Handling::new(Handled::Claymore, 0.0));
+}
+
+/// How far the floor is below `from`, if it's near.
+fn floor_below(from: Vec3, spatial: &SpatialQuery) -> Option<f32> {
+    spatial.cast_ray(from, Dir3::NEG_Y, 3.0, true, &world_filter()).map(|floor| floor.distance)
+}
+
+/// Plays out each throw or plant: the frag, Monkey Bomb or Claymore leaves the hand when it lets
+/// go. A thrown one leaves from where the hand is and flies to the crosshair; a Claymore goes on
+/// the floor at the Player's feet, facing where they look, and is given back if there's none by then.
+fn release_handled(
+    mut commands: Commands,
+    player: Option<Single<(Entity, &mut Equipment, &mut Handling, &Transform), With<Player>>>,
+    camera: Single<&GlobalTransform, With<PlayerCamera>>,
+    spatial: SpatialQuery,
+    assets: Res<EquipmentAssets>,
+    time: Res<Time>,
+) {
+    let Some(player) = player else {
         return;
     };
-    equipment.claymores -= 1;
-    let facing = transform.forward().with_y(0.0).normalize_or(Vec3::NEG_Z);
-    let at = transform.translation - Vec3::Y * floor.distance + facing * 0.5 + Vec3::Y * 0.08;
-    commands.spawn((
-        InRun,
-        Claymore { facing, countdown: None },
-        Mesh3d(assets.claymore.clone()),
-        MeshMaterial3d(assets.claymore_mat.clone()),
-        Transform::from_translation(at).looking_to(facing, Vec3::Y),
-    ));
+    let (entity, mut equipment, mut handling, transform) = player.into_inner();
+    if handling.advance(time.delta_secs()) {
+        let from = camera.transform_point(handling.release_point());
+        let aim = (camera.translation() + *camera.forward() * THROW_AIM_DISTANCE - from).normalize_or(*camera.forward());
+        match handling.what {
+            Handled::Frag(fuse) => {
+                commands.spawn((Frag { fuse }, thrown(&assets.frag, &assets.frag_mat, from, aim)));
+            }
+            Handled::MonkeyBomb => {
+                commands.spawn((MonkeyBomb { fuse: None, age: 0.0 }, thrown(&assets.monkey, &assets.monkey_mat, from, aim)));
+            }
+            Handled::Claymore => {
+                let Some(floor) = floor_below(transform.translation, &spatial) else {
+                    equipment.claymores += 1;
+                    commands.entity(entity).remove::<Handling>();
+                    return;
+                };
+                let facing = transform.forward().with_y(0.0).normalize_or(Vec3::NEG_Z);
+                let at = transform.translation - Vec3::Y * floor + facing * 0.5 + Vec3::Y * 0.08;
+                commands.spawn((
+                    InRun,
+                    Claymore { facing, countdown: None },
+                    Mesh3d(assets.claymore.clone()),
+                    MeshMaterial3d(assets.claymore_mat.clone()),
+                    Transform::from_translation(at).looking_to(facing, Vec3::Y),
+                ));
+            }
+        }
+    }
+    if handling.finished() {
+        commands.entity(entity).remove::<Handling>();
+    }
 }
 
 fn burn_frags(
@@ -689,6 +832,56 @@ fn trigger_claymores(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_throw_lets_go_once_partway_through_and_then_finishes() {
+        let mut handling = Handling::new(Handled::MonkeyBomb, 0.0);
+        let mut lets_go = 0;
+        let mut elapsed = 0.0;
+        while !handling.finished() {
+            let before = handling.in_hand;
+            if handling.advance(0.01) {
+                lets_go += 1;
+                assert!(before && !handling.in_hand);
+                assert!((elapsed / THROW_SECS - THROW_RELEASE_AT).abs() < 0.03, "at {elapsed}");
+            }
+            elapsed += 0.01;
+        }
+        assert_eq!(lets_go, 1);
+        assert!(elapsed >= THROW_SECS && elapsed < THROW_SECS + 0.02);
+    }
+
+    #[test]
+    fn a_plant_takes_longer_than_a_throw() {
+        assert!(Handling::new(Handled::Claymore, 0.0).secs() > Handling::new(Handled::Frag(1.0), 0.0).secs());
+    }
+
+    #[test]
+    fn the_hand_holds_the_equipment_until_it_lets_go() {
+        let mut handling = Handling::new(Handled::Frag(2.0), 1.0);
+        assert_eq!(handling.pose().1.map(|(held, _)| held), Some(Handheld::Frag));
+        handling.advance(THROW_SECS * (THROW_RELEASE_AT + 0.01));
+        assert_eq!(handling.pose().1.map(|(held, _)| held), Some(Handheld::Empty));
+        handling.advance(THROW_SECS);
+        assert!(handling.pose().1.is_none(), "out of sight once it's done");
+    }
+
+    #[test]
+    fn a_throw_leaves_from_the_hand_in_front_of_the_camera() {
+        let release = Handling::new(Handled::MonkeyBomb, 0.0).release_point();
+        assert!(release.z < -0.1 && release.z > -0.7, "{release}");
+    }
+
+    #[test]
+    fn a_cooking_frag_is_held_up_and_the_hand_is_otherwise_idle() {
+        let idle = Equipment::default();
+        assert_eq!(hand_pose(&idle, None), (0.0, None));
+        let cooking = Equipment { cooking: Some(1.0), ..Equipment::default() };
+        let (dip, hand) = hand_pose(&cooking, None);
+        assert!(dip > 0.99 && hand.map(|(held, _)| held) == Some(Handheld::Frag));
+        let throwing = Handling::new(Handled::Frag(1.0), 1.0);
+        assert_eq!(hand_pose(&idle, Some(&throwing)).0, throwing.pose().0);
+    }
 
     #[test]
     fn equipment_entries_raise_blast_damage_and_radius() {
