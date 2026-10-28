@@ -9,6 +9,7 @@ use crate::last_stand::LastStand;
 use crate::layers::GameLayer;
 use crate::modifier::{Modifiers, Stat, resolve};
 use crate::barrier::{Barriers, Entering};
+use crate::explosive::in_sight;
 use crate::hellhound::Telegraph;
 use crate::nav::{NavGraph, Route, repath_interval};
 use crate::nova::NovaCrawlerKilled;
@@ -814,6 +815,16 @@ pub fn heading(distance: f32, reach: f32, swinging: bool, last_stand: bool) -> H
     }
 }
 
+/// Whether a Zombie at `feet`, planning from its nearest node `first` to the next one `second`, is
+/// already on the edge between them and past `first`. Halfway up a ramp the nearest node is still
+/// the one behind, and without this the Zombie keeps turning back for it and never climbs. No cast
+/// is needed: the Map's tests check every edge is walkable, and a straight cast clips a ramp.
+fn already_past(first: Vec3, second: Vec3, feet: Vec3) -> bool {
+    let edge = second - first;
+    let along = (feet - first).dot(edge) / edge.length_squared();
+    along > 0.0 && feet.distance(first + edge * along.min(1.0)) < ZOMBIE_WAYPOINT_REACH
+}
+
 /// Zombies find the Player (or the Monkey Bomb pulling them) anywhere on the Map: they re-plan a route over the path-node graph
 /// every so often, steer straight at the Player when there's a clear walk or they share a node
 /// area, and move under gravity with grounded move-and-slide.
@@ -868,12 +879,14 @@ fn chase(
                 // until the stuck rule replaces it.
                 let path = graph.plan(from, to, &open_doors, |b| barriers.is_open(b)).unwrap_or_default();
                 route.waypoints = path.into_iter().map(|i| graph.nodes[i].at).collect();
-                // Skip the first node when the second is a clear walk on the same floor, so a
-                // Zombie never doubles back to the node behind it.
+                // Skip the first node when the second is a clear walk on the same floor, or the
+                // Zombie is already on the edge between them (a ramp changes floor on the way), so
+                // it never doubles back to the node behind it.
                 if let [first, second, ..] = route.waypoints[..]
-                    && (second.y - feet.y).abs() < 0.5
-                    && (first.y - feet.y).abs() < 0.5
-                    && clear_walk(spatial, &probe, transform.translation, second + Vec3::Y * half)
+                    && (already_past(first, second, feet)
+                        || ((second.y - feet.y).abs() < 0.5
+                            && (first.y - feet.y).abs() < 0.5
+                            && clear_walk(spatial, &probe, transform.translation, second + Vec3::Y * half)))
                 {
                     route.waypoints.remove(0);
                 }
@@ -999,7 +1012,9 @@ pub fn slam_reaches(from: Vec3, forward: Vec3, to: Vec3) -> bool {
 }
 
 /// Zombies inside swipe the Player in reach, Hellhounds bite, and the Sapper slams the Player in
-/// the arc in front of it. Those outside a window reach through it instead (see the Barriers).
+/// the arc in front of it, all only with a clear line to the Player: a wall or a closed Door
+/// stops a swipe and its wind-up. Those outside a window reach through it instead (see the
+/// Barriers).
 fn attack(
     mut zombies: Query<
         (&mut Zombie, &Transform),
@@ -1013,6 +1028,7 @@ fn attack(
         ),
     >,
     player: Single<(&Transform, Has<LastStand>), With<Player>>,
+    spatial: SpatialQuery,
     mut hits: MessageWriter<PlayerHit>,
     mut cues: MessageWriter<SpecialCue>,
     time: Res<Time>,
@@ -1026,10 +1042,13 @@ fn attack(
             continue;
         }
         let (reach, wind_up, damage, cooldown) = zombie.attack_stats();
-        // Same floor only: a Zombie under the Balcony can't swipe the Player standing on it.
+        // Same floor only: a Zombie under the Balcony can't swipe the Player standing on it. The
+        // line runs chest to chest (both transforms are capsule centres), so low cover like a
+        // Yard crate doesn't block it, but a wall does.
         let in_reach = horizontal(player.translation - transform.translation).length() <= reach
             && (player.translation.y - transform.translation.y).abs() < 1.5
-            && (!zombie.is_sapper() || slam_reaches(transform.translation, *transform.forward(), player.translation));
+            && (!zombie.is_sapper() || slam_reaches(transform.translation, *transform.forward(), player.translation))
+            && in_sight(&spatial, transform.translation, player.translation);
         let at = Some(transform.translation);
         zombie.attack_cooldown = (zombie.attack_cooldown - dt).max(0.0);
 

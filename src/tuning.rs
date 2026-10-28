@@ -1046,6 +1046,19 @@ pub const MONKEY_BOMB_LOST_SECS: f32 = 10.0;
 /// How fast Equipment leaves the hand, and the upward lift added to the throw (approx).
 pub const EQUIPMENT_THROW_SPEED: f32 = 14.0;
 pub const EQUIPMENT_THROW_LIFT: f32 = 3.0;
+/// Seconds a frag takes to come up into the hand while it cooks.
+pub const COOK_RAISE_SECS: f32 = 0.25;
+/// Seconds an overarm throw takes, and how far (0 to 1) through it the frag or Monkey Bomb leaves
+/// the hand.
+pub const THROW_SECS: f32 = 0.55;
+pub const THROW_RELEASE_AT: f32 = 0.4;
+/// Seconds planting a Claymore takes, and how far through it the hand lets go.
+pub const PLANT_SECS: f32 = 0.8;
+pub const PLANT_RELEASE_AT: f32 = 0.6;
+/// How far ahead of the camera a throw is aimed at, so it flies to the crosshair from the hand.
+pub const THROW_AIM_DISTANCE: f32 = 20.0;
+/// The least fuse a frag has left once it leaves the hand, after the wind-up burned some.
+pub const FRAG_MIN_FUSE_SECS: f32 = 0.1;
 /// The radius of a thrown frag or Monkey Bomb's collider.
 pub const THROWN_RADIUS: f32 = 0.08;
 /// How much of its speed a thrown frag or Monkey Bomb keeps off a bounce (approx).
@@ -1138,7 +1151,9 @@ pub const ZOMBIE_REPATH_FAR_DIST: f32 = 30.0;
 /// How close (horizontally) a Zombie gets to a path node before heading for the next one.
 pub const ZOMBIE_WAYPOINT_REACH: f32 = 0.6;
 /// The most the Player's feet can be above or below a Zombie's for it to steer straight at them.
-pub const ZOMBIE_DIRECT_MAX_RISE: f32 = 1.0;
+/// More than the Yard cover boxes' 1.1 m, so a Player standing on one is swiped from beside it,
+/// and far less than the Balcony's 4 m, which is a separate floor reached by the ramp.
+pub const ZOMBIE_DIRECT_MAX_RISE: f32 = 1.2;
 /// Separation steering: Zombies closer than this push apart, by up to this weight of their stride.
 pub const ZOMBIE_SEPARATION_DIST: f32 = 1.0;
 pub const ZOMBIE_SEPARATION_WEIGHT: f32 = 0.6;
@@ -1170,6 +1185,19 @@ pub const BARRIER_SWIPE_WINDOW_DIST: f32 = 1.3;
 /// Holding Use puts one Plank back per `BARRIER_REBUILD_SECS`, paying `BARRIER_REBUILD_POINTS`.
 pub const BARRIER_REBUILD_SECS: f32 = 1.0;
 pub const BARRIER_REBUILD_POINTS: u64 = 10;
+/// A rebuilt Plank slides into its slot from inside the room over `PLANK_SLIDE_SECS`, starting
+/// `PLANK_SLIDE_FROM` metres back from the window.
+pub const PLANK_SLIDE_SECS: f32 = 0.25;
+pub const PLANK_SLIDE_FROM: f32 = 1.1;
+/// How long the rebuild hand takes to come up when the Use key goes down at a Barrier, and to go
+/// away again when it's let go.
+pub const REBUILD_HAND_SECS: f32 = 0.2;
+/// A bought Wall Weapon's copy lifts off the chalk toward the Player over `WALL_LIFT_SECS`, this
+/// many metres of the way.
+pub const WALL_LIFT_SECS: f32 = 0.4;
+pub const WALL_LIFT_REACH: f32 = 0.7;
+/// An ammo buy plays its pose on the held Weapon for this long: a quick tilt and a magazine slap.
+pub const AMMO_BUY_SECS: f32 = 0.45;
 /// The Round cap on rebuild Points: `min(BARRIER_REBUILD_CAP_PER_ROUND × round, BARRIER_REBUILD_CAP_MAX)`.
 pub const BARRIER_REBUILD_CAP_PER_ROUND: u64 = 50;
 pub const BARRIER_REBUILD_CAP_MAX: u64 = 500;
@@ -1445,8 +1473,18 @@ pub const DOOR_PRICE_STOREROOM_GENERATOR: u64 = 1250;
 pub const USE_RANGE: f32 = 2.0;
 /// How far off the crosshair a Buyable's use point can be and still be bought.
 pub const USE_ANGLE: f32 = 45.0_f32.to_radians();
+/// How near a Barrier's inside face the Player must be to rebuild it, looking anywhere.
+pub const BARRIER_REBUILD_RANGE: f32 = 2.5;
 /// A Door's range override: its use point sits mid-Door, so this reaches the Door's full width.
 pub const DOOR_USE_RANGE: f32 = USE_RANGE + 1.2;
+/// An opening Door shakes for this long, then sinks into the floor over `DOOR_SINK_SECS`.
+pub const DOOR_SHAKE_SECS: f32 = 0.25;
+/// How long an opening Door takes to sink out of sight.
+pub const DOOR_SINK_SECS: f32 = 0.6;
+/// How far an opening Door sinks: a little more than its height, so it ends fully underground.
+pub const DOOR_SINK_DEPTH: f32 = 3.2;
+/// How far an opening Door shakes side to side, at most.
+pub const DOOR_SHAKE_AMPLITUDE: f32 = 0.04;
 pub const CANT_AFFORD_FLASH_SECS: f32 = 0.5;
 /// An ammo buy costs half the Wall Weapon's price, rounded up to a multiple of this.
 pub const AMMO_PRICE_STEP: u64 = 10;
@@ -1463,6 +1501,8 @@ pub const PAP_AMMO_PRICE: u64 = 4500;
 pub const PAP_PRICE: u64 = 5000;
 /// How long the machine works on a Weapon before it can be taken.
 pub const PAP_PROCESS_SECS: f32 = 3.0;
+/// Seconds the Weapon takes to slide into the machine's slot, and again to slide back out.
+pub const PAP_SLIDE_SECS: f32 = 0.6;
 /// How long the Upgraded Weapon waits to be taken before it's lost, with no refund.
 pub const PAP_PICKUP_SECS: f32 = 15.0;
 /// Seconds for the glint band to sweep once along an Upgraded Weapon.
@@ -1912,3 +1952,30 @@ pub const TRACK_MOVE_SPEED_INCREASE_PER_RANK: f32 = 0.02;
 pub const TRACK_BOX_PRICE_FACTOR_PER_RANK: f32 = 0.95;
 /// Extra seconds on timed Power-ups per Rank.
 pub const TRACK_POWER_UP_DURATION_SECS_PER_RANK: f32 = 2.0;
+
+// Muzzle flash, tracers and impact puffs
+/// How long the muzzle flash and its light last after a shot, in seconds.
+pub const MUZZLE_FLASH_SECS: f32 = 0.06;
+/// The muzzle flash's size (edge of its cube, in metres) per class of Weapon.
+pub const MUZZLE_FLASH_SIZE_SMALL: f32 = 0.05;
+pub const MUZZLE_FLASH_SIZE_MEDIUM: f32 = 0.075;
+pub const MUZZLE_FLASH_SIZE_LARGE: f32 = 0.115;
+/// The muzzle light's brightness (lumens) at the instant of the shot, and how far it reaches.
+pub const MUZZLE_LIGHT_INTENSITY: f32 = 120_000.0;
+pub const MUZZLE_LIGHT_RANGE: f32 = 9.0;
+/// How long an impact puff lasts, and the fastest it flies out, in metres per second.
+pub const IMPACT_PUFF_SECS: f32 = 0.25;
+pub const IMPACT_PUFF_SPEED: f32 = 2.5;
+/// Puffs thrown by one impact on the world, on a Zombie, and on a Zombie's head.
+pub const IMPACT_PUFFS_WORLD: u32 = 3;
+pub const IMPACT_PUFFS_ZOMBIE: u32 = 4;
+pub const IMPACT_PUFFS_HEADSHOT: u32 = 10;
+/// Puff cube edge, in metres, for a normal impact and for a Headshot.
+pub const IMPACT_PUFF_SIZE: f32 = 0.06;
+pub const IMPACT_PUFF_SIZE_HEADSHOT: f32 = 0.09;
+/// The most puffs alive at once, so a Train with an LMG stays cheap.
+pub const IMPACT_PUFF_CAP: usize = 64;
+/// Every this-many impacts draws a tracer from the muzzle, which lasts this long.
+pub const TRACER_EVERY: u32 = 3;
+pub const TRACER_SECS: f32 = 0.05;
+pub const TRACER_WIDTH: f32 = 0.012;

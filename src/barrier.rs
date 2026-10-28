@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use crate::controls::{Action, Controls};
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
-use crate::buy::{Buyable, Focus, Held};
+use crate::buy::{Buyable, Focus, Held, Nearby};
 use crate::last_stand::LastStand;
 use crate::map::{BarrierId, WINDOWS};
 use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_points};
@@ -35,6 +35,8 @@ const VAULT_IN: f32 = 1.2;
 const VAULT_ARC: f32 = 0.6;
 /// How close counts as having reached a spot.
 const ARRIVE_DIST: f32 = 0.1;
+/// The fastest the rebuild hand's push moves, in whole pushes per second.
+const REBUILD_PUSH_RATE: f32 = 8.0;
 /// How long a torn-off Plank lies on the ground before it goes.
 const TORN_PLANK_SECS: f32 = 2.5;
 
@@ -181,6 +183,10 @@ pub fn vault_secs(crawler: bool) -> f32 {
 pub struct Rebuild {
     /// The Barrier being rebuilt, and seconds into the current Plank.
     holding: Option<(BarrierId, f32)>,
+    /// For the view model's hand: how far up it is (0 to 1, eased in and out of a hold), and how
+    /// far it's pushed forward (0 to 1, following the Plank in progress).
+    hand: f32,
+    reach: f32,
     /// Rebuild Points paid in Round `paid_round`.
     paid: u64,
     paid_round: u32,
@@ -206,6 +212,26 @@ impl Rebuild {
             self.holding = Some((target, secs));
             false
         }
+    }
+
+    /// Eases the hand up while a hold goes on and away when it doesn't, and has it push once per
+    /// Plank, `dt` seconds on. Call it after `advance`.
+    pub fn animate(&mut self, dt: f32) {
+        let holding = self.holding.is_some();
+        let step = dt / REBUILD_HAND_SECS;
+        self.hand = if holding { (self.hand + step).min(1.0) } else { (self.hand - step).max(0.0) };
+        let push = match self.holding {
+            Some((_, secs)) => crate::hands::rebuild_push(secs / BARRIER_REBUILD_SECS),
+            None => 0.0,
+        };
+        // Never faster than the push itself, so letting go or a new Plank doesn't jerk it.
+        let max_move = dt * REBUILD_PUSH_RATE;
+        self.reach += (push - self.reach).clamp(-max_move, max_move);
+    }
+
+    /// The hand's state for the view model: how far up it is, and how far it's pushed.
+    pub fn hand(&self) -> (f32, f32) {
+        (self.hand, self.reach)
     }
 
     /// The Points for the Plank just put back in Round `round`, counted against that Round's cap.
@@ -235,6 +261,10 @@ pub struct PlankTorn {
     pub barrier: BarrierId,
     pub plank: u8,
 }
+
+/// A Plank just put back, sliding into its slot from inside the room.
+#[derive(Component)]
+struct Sliding(f32);
 
 /// A Plank's look, shared by the Barriers and the Planks torn off them.
 #[derive(Resource)]
@@ -374,7 +404,7 @@ impl Plugin for BarrierPlugin {
             )
             .add_systems(
                 Update,
-                ((rebuild_planks, show_planks).chain(), (toss_torn_planks, fly_torn_planks).chain())
+                ((rebuild_planks, show_planks, slide_planks).chain(), (toss_torn_planks, fly_torn_planks).chain())
                     .run_if(in_state(Pause::Running)),
             );
     }
@@ -400,6 +430,7 @@ fn spawn_barriers(
                 Barrier(barrier),
                 // Its Buyable comes and goes with missing Planks; see `show_planks`.
                 Held,
+                Nearby,
                 barrier_transform(barrier),
                 Visibility::default(),
             ))
@@ -661,7 +692,9 @@ fn rebuild_planks(
         .and_then(|entity| windows.get(entity).ok())
         .map(|window| window.0)
         .filter(|&barrier| barriers.planks(barrier) < BARRIER_PLANKS);
-    if !rebuild.advance(target, time.delta_secs()) {
+    let advanced = rebuild.advance(target, time.delta_secs());
+    rebuild.animate(time.delta_secs());
+    if !advanced {
         return;
     }
     let Some(barrier) = target else { return };
@@ -677,22 +710,55 @@ fn rebuild_planks(
     }
 }
 
+/// Where a Plank is `t` of the way (0 to 1) through sliding into the `p`th slot: back inside the
+/// room, tipped up, and swinging in to be flat against the window.
+fn sliding_transform(p: u8, t: f32) -> Transform {
+    let home = plank_transform(p);
+    let t = t.clamp(0.0, 1.0);
+    // Quick at first, settling into the slot.
+    let left = (1.0 - t).powi(3);
+    Transform {
+        translation: home.translation + Vec3::Z * PLANK_SLIDE_FROM * left,
+        rotation: home.rotation * Quat::from_rotation_x(0.9 * left),
+        scale: Vec3::ONE,
+    }
+}
+
+/// Planks just put back slide into their slots, then stay there.
+fn slide_planks(
+    mut commands: Commands,
+    mut planks: Query<(Entity, &Plank, &mut Sliding, &mut Transform)>,
+    time: Res<Time>,
+) {
+    for (entity, plank, mut sliding, mut transform) in &mut planks {
+        sliding.0 += time.delta_secs() / PLANK_SLIDE_SECS;
+        *transform = sliding_transform(plank.0, sliding.0);
+        if sliding.0 >= 1.0 {
+            commands.entity(entity).remove::<Sliding>();
+        }
+    }
+}
+
 /// Each Barrier shows the Planks it has left, and offers its Prompt only while missing some.
 fn show_planks(
     mut commands: Commands,
     windows: Query<(Entity, &Barrier, Has<Buyable>, &Children)>,
-    mut planks: Query<(&Plank, &mut Visibility)>,
+    mut planks: Query<(Entity, &Plank, &mut Visibility)>,
     barriers: Res<Barriers>,
 ) {
     for (entity, window, has_prompt, children) in &windows {
         let left = barriers.planks(window.0);
         for child in children {
-            if let Ok((plank, mut visibility)) = planks.get_mut(*child) {
+            if let Ok((plank_entity, plank, mut visibility)) = planks.get_mut(*child) {
                 let shown = if plank.0 < left {
                     Visibility::Inherited
                 } else {
                     Visibility::Hidden
                 };
+                // A Plank that wasn't there a moment ago slides in.
+                if shown == Visibility::Inherited && *visibility == Visibility::Hidden {
+                    commands.entity(plank_entity).insert(Sliding(0.0));
+                }
                 visibility.set_if_neq(shown);
             }
         }
@@ -704,7 +770,7 @@ fn show_planks(
                 use_point: window_centre(window.0) - out * 0.3 + Vec3::Y * 1.2,
                 prompt: "Hold F to rebuild Barrier".into(),
                 price: None,
-                range: USE_RANGE,
+                range: BARRIER_REBUILD_RANGE,
             });
         } else if !wants_prompt && has_prompt {
             commands.entity(entity).remove::<Buyable>();
@@ -715,6 +781,60 @@ fn show_planks(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_sliding_plank_comes_in_from_inside_and_settles_in_its_slot() {
+        let start = sliding_transform(2, 0.0);
+        let home = plank_transform(2);
+        assert!(start.translation.z > home.translation.z + 0.5, "back inside the room");
+        let end = sliding_transform(2, 1.0);
+        assert!(end.translation.distance(home.translation) < 1e-5);
+        assert!(end.rotation.angle_between(home.rotation) < 1e-5);
+        let mut last = start.translation;
+        for i in 1..=100 {
+            let at = sliding_transform(2, i as f32 / 100.0).translation;
+            assert!(at.z <= last.z + 1e-6, "only ever moves toward the window");
+            last = at;
+        }
+    }
+
+    #[test]
+    fn the_rebuild_hand_comes_up_with_a_hold_and_goes_with_it() {
+        let mut rebuild = Rebuild::default();
+        let window = Some(BarrierId(0));
+        for _ in 0..100 {
+            rebuild.advance(window, 0.01);
+            rebuild.animate(0.01);
+        }
+        assert_eq!(rebuild.hand().0, 1.0);
+        for _ in 0..100 {
+            rebuild.advance(None, 0.01);
+            rebuild.animate(0.01);
+        }
+        assert_eq!(rebuild.hand(), (0.0, 0.0));
+    }
+
+    #[test]
+    fn the_rebuild_hand_pushes_once_per_plank() {
+        let mut rebuild = Rebuild::default();
+        let window = Some(BarrierId(0));
+        let mut peaks = 0;
+        let mut last = 0.0;
+        let mut rising = false;
+        for _ in 0..300 {
+            rebuild.advance(window, 0.01);
+            rebuild.animate(0.01);
+            let reach = rebuild.hand().1;
+            if reach > last {
+                rising = true;
+            } else if reach < last && rising {
+                peaks += 1;
+                rising = false;
+            }
+            last = reach;
+        }
+        assert_eq!(peaks, 3, "three Planks in three seconds");
+    }
 
     #[test]
     fn every_barrier_starts_with_six_planks() {

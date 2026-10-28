@@ -1,7 +1,8 @@
 //! The Buyable seam: one shared purchase flow for everything bought or used with the Use key.
 //!
 //! Each Buyable's owner rewrites its `prompt` and `price` every frame. This module picks the one
-//! Buyable the Player is aiming at, checks the Points, spends them, and tells the owner with
+//! Buyable the Player is aiming at (or, failing that, the nearest one used from nearby, like a
+//! Barrier), checks the Points, spends them, and tells the owner with
 //! `Purchased`. The owner does the rest.
 
 use bevy::prelude::*;
@@ -44,6 +45,12 @@ pub struct Refused;
 /// purchase, so the purchase flow leaves it alone; its owner reads `Focus` and the held key.
 #[derive(Component)]
 pub struct Held;
+
+/// A Buyable used from anywhere near it, wherever the Player looks, like a Barrier's Planks. It
+/// gets the Prompt only when nothing the Player is aiming at is in reach, so it never steals a buy
+/// next to it.
+#[derive(Component)]
+pub struct Nearby;
 
 /// The hold half of a Buyable, like a Repack's Attachment: holding the Use key for
 /// `HOLD_BUY_SECS` buys this instead of the Buyable, and its owner hears `HoldPurchased`. While a
@@ -210,6 +217,16 @@ pub fn pick<T>(eye: Vec3, forward: Vec3, candidates: impl IntoIterator<Item = (T
         .map(|(item, _)| item)
 }
 
+/// The nearest of the Nearby Buyables within their range of the eye, whichever way it looks.
+pub fn pick_nearby<T>(eye: Vec3, candidates: impl IntoIterator<Item = (T, Vec3, f32)>) -> Option<T> {
+    candidates
+        .into_iter()
+        .map(|(item, use_point, range)| (item, eye.distance(use_point), range))
+        .filter(|&(_, distance, range)| distance <= range)
+        .min_by(|(_, a, _), (_, b, _)| a.total_cmp(b))
+        .map(|(item, _, _)| item)
+}
+
 pub struct BuyPlugin;
 
 impl Plugin for BuyPlugin {
@@ -241,7 +258,7 @@ fn buyer(points: &Points, down: bool, pause: &State<Pause>) -> Buyer {
 
 fn focus(
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
-    buyables: Query<(Entity, &Buyable)>,
+    buyables: Query<(Entity, &Buyable, Has<Nearby>)>,
     down: Single<Has<LastStand>, With<Player>>,
     points: Res<Points>,
     pause: Res<State<Pause>>,
@@ -250,8 +267,10 @@ fn focus(
     let picked = if buyer(&points, *down, &pause).blocked() {
         None
     } else {
-        let candidates = buyables.iter().map(|(entity, b)| (entity, b.use_point, b.range));
-        pick(camera.translation(), camera.forward().as_vec3(), candidates)
+        let eye = camera.translation();
+        let aimed = buyables.iter().filter(|(_, _, nearby)| !nearby).map(|(entity, b, _)| (entity, b.use_point, b.range));
+        let nearby = buyables.iter().filter(|(_, _, nearby)| *nearby).map(|(entity, b, _)| (entity, b.use_point, b.range));
+        pick(eye, camera.forward().as_vec3(), aimed).or_else(|| pick_nearby(eye, nearby))
     };
     if focus.0 != picked {
         focus.0 = picked;
@@ -518,6 +537,24 @@ mod tests {
             ("too wide", EYE + Vec3::new(1.0, 0.0, -0.2), USE_RANGE),
         ];
         assert_eq!(pick(EYE, AHEAD, candidates), None);
+    }
+
+    #[test]
+    fn a_nearby_buyable_is_reached_whichever_way_the_player_looks() {
+        let behind = EYE + Vec3::new(0.0, -0.4, 1.5);
+        assert_eq!(pick_nearby(EYE, [("behind", behind, BARRIER_REBUILD_RANGE)]), Some("behind"));
+        assert!(reach(EYE, AHEAD, behind, BARRIER_REBUILD_RANGE).is_none(), "an aimed Buyable there would not be");
+    }
+
+    #[test]
+    fn the_nearest_nearby_buyable_wins_and_far_ones_never_do() {
+        let candidates = [
+            ("far", EYE + Vec3::new(0.0, 0.0, -1.8), BARRIER_REBUILD_RANGE),
+            ("near", EYE + Vec3::new(1.0, 0.0, 0.5), BARRIER_REBUILD_RANGE),
+            ("out of range", EYE + Vec3::new(0.0, 0.0, 3.0), BARRIER_REBUILD_RANGE),
+        ];
+        assert_eq!(pick_nearby(EYE, candidates), Some("near"));
+        assert_eq!(pick_nearby(EYE, [((), EYE + Vec3::X * 3.0, BARRIER_REBUILD_RANGE)]), None);
     }
 
     #[test]

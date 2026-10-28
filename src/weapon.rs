@@ -2,7 +2,12 @@ use avian3d::prelude::*;
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
 
-use crate::hands::{ReloadPose, ReloadStyle, knife_pose, reload_pose, stab_lunge};
+use crate::hands::{
+    HIP_DROP, HIP_SIDE, ReloadPose, ReloadStyle, aim_shift, aimed_kick, carry_pose, drink_pose, knife_pose, rebuild_pose, reload_pose,
+    machine_push, stab_lunge,
+};
+use crate::barrier::Rebuild;
+use crate::wall_weapon::AmmoBuy;
 use crate::controls::{Action, Controls};
 use crate::ammo_mod::{AmmoModHit, AmmoMods, glint_colour, pick_ammo_mod};
 use crate::arsenal::{Burn, FireMode, Splash, WeaponId, WeaponStats};
@@ -17,7 +22,9 @@ use crate::combat::{Crossing, Sights, hit_damage, pierce, spread_direction};
 use crate::explosive::{Explosion, Explosive, Launched, flight, makes_crawlers};
 use crate::gun_model::{GunModels, Part, model_length};
 use crate::layers::GameLayer;
+use crate::muzzle::{BulletImpact, ImpactKind};
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve, resolve_count};
+use crate::equipment::{Equipment, Handling, arms_free, hand_pose};
 use crate::perk::{Drinking, hands_free};
 use crate::player::{Locomotion, Player, PlayerCamera};
 use crate::state::Pause;
@@ -168,6 +175,9 @@ pub struct Swap {
     pub elapsed: f32,
     pub drop_secs: f32,
     pub raise_secs: f32,
+    /// Whether the Weapon being put away is going into the Pack-a-Punch machine, so it's pushed
+    /// forward as it goes.
+    pub into_machine: bool,
 }
 
 impl Swap {
@@ -179,6 +189,7 @@ impl Swap {
             elapsed: 0.0,
             drop_secs: from.handling().drop_secs,
             raise_secs: to.handling().raise_secs,
+            into_machine: false,
         }
     }
 
@@ -204,6 +215,8 @@ pub struct Loadout {
     bloom: f32,
     /// Seconds of sprint-out left before the Weapon can fire or aim.
     sprint_out: f32,
+    /// How far the Weapon has eased into its sprint carry, 0 (ready) to 1 (carried).
+    carry: f32,
     /// Whether the held Weapon's Underbarrel is up instead of its main gun.
     underbarrel_up: bool,
     /// Seconds left of a toggle to or from the Underbarrel.
@@ -225,6 +238,7 @@ impl Loadout {
             aim: 0.0,
             bloom: 0.0,
             sprint_out: 0.0,
+            carry: 0.0,
             underbarrel_up: false,
             toggle: 0.0,
         }
@@ -447,6 +461,11 @@ impl Loadout {
         self.held().stats().ads_fov().is_some()
     }
 
+    /// How far the Weapon has eased into its sprint carry, 0 (ready) to 1 (carried).
+    pub fn carry(&self) -> f32 {
+        self.carry
+    }
+
     /// Advance sprint-out, aiming and spread recovery. Sprinting holds the Weapon down; aiming
     /// waits out the sprint-out, a switch and a Reload.
     pub fn update_stance(&mut self, dt: f32, sprinting: bool, wants_aim: bool) {
@@ -455,6 +474,9 @@ impl Loadout {
         } else {
             self.sprint_out = (self.sprint_out - dt).max(0.0);
         }
+        // The carry eases in and back out over the sprint-out time.
+        let out_secs = self.held().stats().handling().sprint_out_secs.max(0.05);
+        self.carry = move_towards(self.carry, if sprinting { 1.0 } else { 0.0 }, dt / out_secs);
         let aiming = wants_aim
             && self.can_aim()
             && !sprinting
@@ -574,6 +596,9 @@ impl Loadout {
         let taken = self.slots[self.held].take().expect("the held slot is always filled");
         self.held = other;
         self.begin_swap(&taken);
+        if let Some(swap) = &mut self.swap {
+            swap.into_machine = true;
+        }
         Some(taken)
     }
 
@@ -803,6 +828,12 @@ pub enum ViewPart {
     Magazine,
     LeftHand,
     Knife,
+    /// The Perk being drunk, in the right hand.
+    Bottle,
+    /// The bare hand that pushes Planks back onto a Barrier.
+    Palm,
+    /// The left hand throwing or planting Equipment, with it in its fist until it lets go.
+    Throw,
 }
 
 /// Poses the view model from scratch each frame; camera sway adds to the pose after it.
@@ -818,8 +849,9 @@ impl Plugin for WeaponPlugin {
             .add_systems(Update, spawn_view_model)
             .add_systems(
                 Update,
-                // A Perk drink puts the Weapon away and keeps the Knife out of reach.
-                ((switch_weapons, reload, aim, fire, knife).chain().run_if(hands_free), animate_view_model.in_set(AnimateViewModel))
+                // A Perk drink puts the Weapon away and keeps the Knife out of reach; so does
+                // Equipment in the hand.
+                ((switch_weapons, reload, aim, fire.run_if(arms_free), knife.run_if(arms_free)).chain().run_if(hands_free), animate_view_model.in_set(AnimateViewModel))
                     .chain()
                     .run_if(in_state(Pause::Running)),
             )
@@ -852,6 +884,9 @@ fn spawn_view_model(
             )
         };
         commands.entity(camera).with_child(part(ViewPart::Knife));
+        commands.entity(camera).with_child(part(ViewPart::Bottle));
+        commands.entity(camera).with_child(part(ViewPart::Palm));
+        commands.entity(camera).with_child(part(ViewPart::Throw));
         commands.entity(camera).with_child((
             ViewModel { kick: 0.0 },
             Mesh3d(guns.view(STARTING_WEAPON)),
@@ -952,6 +987,7 @@ fn fire(
     mut wonders: MessageWriter<WonderFired>,
     mut flames: MessageWriter<FlameFired>,
     mut cues: MessageWriter<PlayCue>,
+    mut impacts: MessageWriter<BulletImpact>,
 ) {
     let (entity, mut loadout, modifiers) = player.into_inner();
     let entries = &modifiers.0;
@@ -1090,6 +1126,18 @@ fn fire(
             true
         });
         crossed.sort_by(|a, b| a.distance.total_cmp(&b.distance));
+        // The first thing the line crosses gets the puffs.
+        if let Some(first) = crossed.first() {
+            impacts.write(BulletImpact {
+                at: camera.translation() + *direction * first.distance,
+                normal: first.normal,
+                kind: match zombie_for(first.entity, &hit_areas) {
+                    Some((_, HitZone::Head)) => ImpactKind::Headshot,
+                    Some(_) => ImpactKind::Zombie,
+                    None => ImpactKind::World,
+                },
+            });
+        }
         let crossings = crossed.iter().map(|hit| match zombie_for(hit.entity, &hit_areas) {
             Some((zombie, zone)) => Crossing::Zombie {
                 zombie,
@@ -1206,26 +1254,34 @@ fn animate_view_model(
         (Without<ViewModel>, Without<Glint>),
     >,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    player: Single<(&Loadout, &Modifiers, &Knife, Has<Drinking>), With<Player>>,
+    player: Single<(&Loadout, &Modifiers, &Knife, Option<&Drinking>, &Equipment, Option<&Handling>), With<Player>>,
     guns: Res<GunModels>,
+    rebuild: Res<Rebuild>,
+    ammo_buy: Res<AmmoBuy>,
     time: Res<Time>,
 ) {
     let (ref mut model, ref mut transform, ref mut mesh) = *view_model;
-    let (loadout, modifiers, knife, drinking) = *player;
+    let (loadout, modifiers, knife, drinking, equipment, handling) = *player;
     model.kick = (model.kick - time.delta_secs() * 8.0).max(0.0);
 
     // Drop the old gun and raise the new one on a switch.
     let mut shown_id = loadout.held().id;
     let mut class = loadout.held().stats().class;
     let mut shown = glint_of(loadout.held());
-    let dip = if drinking {
-        // Out of sight while the Perk is drunk.
-        0.6
+    // A Perk drink puts the Weapon out of sight while the bottle comes up.
+    let (drink_dip, bottle) = drinking.map_or((0.0, None), |drinking| drink_pose(drinking.progress()));
+    // The Weapon going into the Pack-a-Punch machine is pushed forward as it drops.
+    let mut push = 0.0;
+    let dip = if drinking.is_some() {
+        0.6 * drink_dip
     } else if let Some(swap) = &loadout.swap {
         if swap.elapsed < swap.drop_secs {
             shown_id = swap.from.id;
             class = swap.from.class;
             shown = swap.from_glint;
+            if swap.into_machine {
+                push = machine_push(swap.elapsed / swap.drop_secs);
+            }
             swap.elapsed / swap.drop_secs * 0.4
         } else {
             (1.0 - (swap.elapsed - swap.drop_secs) / swap.raise_secs) * 0.4
@@ -1277,15 +1333,34 @@ fn animate_view_model(
         Some(t) if !stabbing => knife_pose(t),
         _ => (0.0, None),
     };
+    // Rebuilding a Barrier moves the Weapon aside the same way, for the hand that pushes.
+    let (rebuild_dip, palm) = rebuild_pose(rebuild.hand().0, rebuild.hand().1);
+    let knife_dip = knife_dip.max(rebuild_dip);
     let lunge = knife.swing().filter(|_| stabbing).map_or(0.0, stab_lunge);
 
+    // Equipment: the Weapon dips for the left hand to cook, throw or plant it.
+    let (throw_dip, throw_hand) = hand_pose(equipment, handling);
+    // An ammo buy tips the Weapon the same way, and knocks its magazine out and back in.
+    let (ammo_dip, ammo_magazine) = ammo_buy.pose();
+    let tucked = knife_dip.max(throw_dip).max(ammo_dip);
+
+    // Aiming and the sprint carry give way to a switch, a Perk, the Knife, Equipment and a Reload;
+    // the carry to the sights coming up too.
+    let busy = tucked.max((dip * 5.0).min(1.0)).max((reload.turn.angle_between(Quat::IDENTITY) / 0.4).min(1.0));
+    let aim_by = aim_shift(loadout.aim, guns.sight_height(shown_id), busy);
+    let (carry_by, carry_turn) = carry_pose(loadout.carry() * (1.0 - loadout.aim), busy);
+    let kick = aimed_kick(model.kick, loadout.aim);
+
     transform.translation = Vec3::new(
-        0.22 + 0.1 * knife_dip,
-        -0.2 - dip - 0.3 * knife_dip,
-        -0.45 - 0.15 * (length - 1.0) + model.kick * 0.05 - lunge,
-    ) + reload.shift;
-    transform.rotation = Quat::from_rotation_x(model.kick * 0.25 - dip * 2.0)
-        * Quat::from_rotation_z(-0.6 * knife_dip)
+        HIP_SIDE + 0.1 * tucked,
+        -HIP_DROP - dip - 0.3 * tucked,
+        -0.45 - 0.15 * (length - 1.0) + kick * 0.05 - lunge - push,
+    ) + reload.shift
+        + aim_by
+        + carry_by;
+    transform.rotation = Quat::from_rotation_x(kick * 0.25 - dip * 2.0)
+        * Quat::from_rotation_z(-0.6 * tucked)
+        * carry_turn
         * reload.turn;
 
     for (part, mut part_transform, part_mesh, mut visibility) in &mut parts {
@@ -1296,7 +1371,7 @@ fn animate_view_model(
             }
             ViewPart::Magazine => (
                 magazine.map(|magazine| magazine.mesh.clone()),
-                magazine.map(|magazine| magazine.rest.with_translation(magazine.rest.translation + reload.magazine)),
+                magazine.map(|magazine| magazine.rest.with_translation(magazine.rest.translation + reload.magazine + Vec3::Y * ammo_magazine)),
             ),
             ViewPart::LeftHand => (
                 left_hand.map(|hand| hand.mesh.clone()),
@@ -1306,6 +1381,9 @@ fn animate_view_model(
                 Some(if knife.bowie { guns.bowie.clone() } else { guns.knife.clone() }),
                 knife_hand,
             ),
+            ViewPart::Palm => (Some(guns.palm.clone()), palm),
+            ViewPart::Bottle => (drinking.map(|drinking| guns.bottle(drinking.perk)), bottle),
+            ViewPart::Throw => (throw_hand.map(|(held, _)| guns.handheld(held)), throw_hand.map(|(_, hand)| hand)),
         };
         match (shown_mesh, placed) {
             (Some(shown_mesh), Some(placed)) => {
