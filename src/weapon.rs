@@ -23,6 +23,7 @@ use crate::gun_model::{GunModels, Part, model_length};
 use crate::layers::GameLayer;
 use crate::muzzle::{BulletImpact, ImpactKind};
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve, resolve_count};
+use crate::equipment::{Equipment, Handling, arms_free, hand_pose};
 use crate::perk::{Drinking, hands_free};
 use crate::player::{Locomotion, Player, PlayerCamera};
 use crate::state::Pause;
@@ -823,6 +824,8 @@ pub enum ViewPart {
     Bottle,
     /// The bare hand that pushes Planks back onto a Barrier.
     Palm,
+    /// The left hand throwing or planting Equipment, with it in its fist until it lets go.
+    Throw,
 }
 
 /// Poses the view model from scratch each frame; camera sway adds to the pose after it.
@@ -838,8 +841,9 @@ impl Plugin for WeaponPlugin {
             .add_systems(Update, spawn_view_model)
             .add_systems(
                 Update,
-                // A Perk drink puts the Weapon away and keeps the Knife out of reach.
-                ((switch_weapons, reload, aim, fire, knife).chain().run_if(hands_free), animate_view_model.in_set(AnimateViewModel))
+                // A Perk drink puts the Weapon away and keeps the Knife out of reach; so does
+                // Equipment in the hand.
+                ((switch_weapons, reload, aim, fire.run_if(arms_free), knife.run_if(arms_free)).chain().run_if(hands_free), animate_view_model.in_set(AnimateViewModel))
                     .chain()
                     .run_if(in_state(Pause::Running)),
             )
@@ -874,6 +878,7 @@ fn spawn_view_model(
         commands.entity(camera).with_child(part(ViewPart::Knife));
         commands.entity(camera).with_child(part(ViewPart::Bottle));
         commands.entity(camera).with_child(part(ViewPart::Palm));
+        commands.entity(camera).with_child(part(ViewPart::Throw));
         commands.entity(camera).with_child((
             ViewModel { kick: 0.0 },
             Mesh3d(guns.view(STARTING_WEAPON)),
@@ -1241,13 +1246,13 @@ fn animate_view_model(
         (Without<ViewModel>, Without<Glint>),
     >,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    player: Single<(&Loadout, &Modifiers, &Knife, Option<&Drinking>), With<Player>>,
+    player: Single<(&Loadout, &Modifiers, &Knife, Option<&Drinking>, &Equipment, Option<&Handling>), With<Player>>,
     guns: Res<GunModels>,
     rebuild: Res<Rebuild>,
     time: Res<Time>,
 ) {
     let (ref mut model, ref mut transform, ref mut mesh) = *view_model;
-    let (loadout, modifiers, knife, drinking) = *player;
+    let (loadout, modifiers, knife, drinking, equipment, handling) = *player;
     model.kick = (model.kick - time.delta_secs() * 8.0).max(0.0);
 
     // Drop the old gun and raise the new one on a switch.
@@ -1319,22 +1324,26 @@ fn animate_view_model(
     let knife_dip = knife_dip.max(rebuild_dip);
     let lunge = knife.swing().filter(|_| stabbing).map_or(0.0, stab_lunge);
 
-    // Aiming and the sprint carry give way to a switch, a Perk, the Knife and a Reload; the carry
-    // to the sights coming up too.
-    let busy = knife_dip.max((dip * 5.0).min(1.0)).max((reload.turn.angle_between(Quat::IDENTITY) / 0.4).min(1.0));
+    // Equipment: the Weapon dips for the left hand to cook, throw or plant it.
+    let (throw_dip, throw_hand) = hand_pose(equipment, handling);
+    let tucked = knife_dip.max(throw_dip);
+
+    // Aiming and the sprint carry give way to a switch, a Perk, the Knife, Equipment and a Reload;
+    // the carry to the sights coming up too.
+    let busy = tucked.max((dip * 5.0).min(1.0)).max((reload.turn.angle_between(Quat::IDENTITY) / 0.4).min(1.0));
     let aim_by = aim_shift(loadout.aim, guns.sight_height(shown_id), busy);
     let (carry_by, carry_turn) = carry_pose(loadout.carry() * (1.0 - loadout.aim), busy);
     let kick = aimed_kick(model.kick, loadout.aim);
 
     transform.translation = Vec3::new(
-        HIP_SIDE + 0.1 * knife_dip,
-        -HIP_DROP - dip - 0.3 * knife_dip,
+        HIP_SIDE + 0.1 * tucked,
+        -HIP_DROP - dip - 0.3 * tucked,
         -0.45 - 0.15 * (length - 1.0) + kick * 0.05 - lunge,
     ) + reload.shift
         + aim_by
         + carry_by;
     transform.rotation = Quat::from_rotation_x(kick * 0.25 - dip * 2.0)
-        * Quat::from_rotation_z(-0.6 * knife_dip)
+        * Quat::from_rotation_z(-0.6 * tucked)
         * carry_turn
         * reload.turn;
 
@@ -1358,6 +1367,7 @@ fn animate_view_model(
             ),
             ViewPart::Palm => (Some(guns.palm.clone()), palm),
             ViewPart::Bottle => (drinking.map(|drinking| guns.bottle(drinking.perk)), bottle),
+            ViewPart::Throw => (throw_hand.map(|(held, _)| guns.handheld(held)), throw_hand.map(|(_, hand)| hand)),
         };
         match (shown_mesh, placed) {
             (Some(shown_mesh), Some(placed)) => {

@@ -1046,6 +1046,19 @@ pub const MONKEY_BOMB_LOST_SECS: f32 = 10.0;
 /// How fast Equipment leaves the hand, and the upward lift added to the throw (approx).
 pub const EQUIPMENT_THROW_SPEED: f32 = 14.0;
 pub const EQUIPMENT_THROW_LIFT: f32 = 3.0;
+/// Seconds a frag takes to come up into the hand while it cooks.
+pub const COOK_RAISE_SECS: f32 = 0.25;
+/// Seconds an overarm throw takes, and how far (0 to 1) through it the frag or Monkey Bomb leaves
+/// the hand.
+pub const THROW_SECS: f32 = 0.55;
+pub const THROW_RELEASE_AT: f32 = 0.4;
+/// Seconds planting a Claymore takes, and how far through it the hand lets go.
+pub const PLANT_SECS: f32 = 0.8;
+pub const PLANT_RELEASE_AT: f32 = 0.6;
+/// How far ahead of the camera a throw is aimed at, so it flies to the crosshair from the hand.
+pub const THROW_AIM_DISTANCE: f32 = 20.0;
+/// The least fuse a frag has left once it leaves the hand, after the wind-up burned some.
+pub const FRAG_MIN_FUSE_SECS: f32 = 0.1;
 /// The radius of a thrown frag or Monkey Bomb's collider.
 pub const THROWN_RADIUS: f32 = 0.08;
 /// How much of its speed a thrown frag or Monkey Bomb keeps off a bounce (approx).

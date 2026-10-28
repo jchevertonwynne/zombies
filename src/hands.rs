@@ -8,12 +8,16 @@
 //! Ballistic Knife in hand lunges and stabs with its own blade instead. A Perk drink puts the
 //! Weapon away, brings the Perk's bottle up in the right hand, pops its cap, tips it back and
 //! tosses it away before the Weapon comes back up. Rebuilding a Barrier dips the Weapon too, and a
-//! bare hand reaches forward and pushes once per Plank.
+//! bare hand reaches forward and pushes once per Plank. So does Equipment: the left hand comes up
+//! holding a frag while it cooks and throws it overarm, throws a Monkey Bomb the same way, or
+//! reaches down to plant a Claymore.
 //!
 //! Aiming and sprinting move the whole Weapon: aiming brings the sights up under the crosshair,
 //! and sprinting lets the muzzle drop and roll in to the left, BO1-style.
 
 use bevy::prelude::*;
+
+use crate::tuning::{COOK_RAISE_SECS, PLANT_RELEASE_AT, THROW_RELEASE_AT};
 
 /// How a Weapon is reloaded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -239,6 +243,77 @@ pub fn drink_pose(t: f32) -> (f32, Option<Transform>) {
     (lowered, Some(Transform::from_translation(at).with_rotation(rotation)))
 }
 
+/// The left hand holding Equipment, camera space: below the view, and up in front of the chest.
+const HAND_BELOW: Vec3 = Vec3::new(-0.3, -0.55, -0.4);
+const HAND_HELD: Vec3 = Vec3::new(-0.16, -0.17, -0.38);
+
+/// How far (0 to 1) the hand has come up with a frag cooked for `cooked` seconds.
+pub fn cook_raise(cooked: f32) -> f32 {
+    smoothstep(cooked / COOK_RAISE_SECS)
+}
+
+/// A frag held `raise` of the way (0 to 1) up while it cooks: how far the Weapon dips, and where
+/// the hand is. It's where a throw starts from (see `throw_pose`).
+pub fn cook_pose(raise: f32) -> (f32, Transform) {
+    let raise = raise.clamp(0.0, 1.0);
+    let hand = Transform::from_translation(HAND_BELOW.lerp(HAND_HELD, raise)).with_rotation(Quat::from_rotation_x(0.3 * raise));
+    (raise, hand)
+}
+
+/// An overarm throw `t` of the way (0 to 1) through, begun from a frag held `raised` up (see
+/// `cook_pose`): how far the Weapon dips, and where the hand is, if it's in sight. The thing
+/// leaves the hand at `THROW_RELEASE_AT`.
+pub fn throw_pose(t: f32, raised: f32) -> (f32, Option<Transform>) {
+    let t = t.clamp(0.0, 1.0);
+    let raised = raised.clamp(0.0, 1.0);
+    let dip = raised.lerp(1.0, smoothstep(t / 0.2)) * (1.0 - smoothstep((t - 0.65) / 0.35));
+    if t >= 0.85 {
+        return (dip, None);
+    }
+    let start = cook_pose(raised).1.translation;
+    // Cocked back by the ear, thrown forward and down, and away.
+    let cocked = Vec3::new(-0.1, 0.04, -0.26);
+    let thrown = Vec3::new(-0.03, -0.04, -0.5);
+    let follow = Vec3::new(0.04, -0.3, -0.55);
+    let away = Vec3::new(0.08, -0.65, -0.5);
+    let half = THROW_RELEASE_AT * 0.5;
+    let (at, tip) = if t < half {
+        let k = smoothstep(t / half);
+        (start.lerp(cocked, k), (0.3 * raised).lerp(0.9, k))
+    } else if t < THROW_RELEASE_AT {
+        // Accelerating into the throw.
+        let k = ((t - half) / (THROW_RELEASE_AT - half)).powi(2);
+        (cocked.lerp(thrown, k), 0.9.lerp(-0.4, k))
+    } else if t < 0.65 {
+        let k = smoothstep((t - THROW_RELEASE_AT) / (0.65 - THROW_RELEASE_AT));
+        (thrown.lerp(follow, k), (-0.4f32).lerp(-0.9, k))
+    } else {
+        (follow.lerp(away, smoothstep((t - 0.65) / 0.2)), -0.9)
+    };
+    (dip, Some(Transform::from_translation(at).with_rotation(Quat::from_rotation_x(tip))))
+}
+
+/// Planting a Claymore `t` of the way (0 to 1) through: how far the Weapon dips, and where the
+/// hand is, if it's in sight. It reaches down and lets go at `PLANT_RELEASE_AT`.
+pub fn plant_pose(t: f32) -> (f32, Option<Transform>) {
+    let t = t.clamp(0.0, 1.0);
+    let dip = smoothstep(t / 0.15) * (1.0 - smoothstep((t - 0.75) / 0.25));
+    if t >= 0.85 {
+        return (dip, None);
+    }
+    let floor = Vec3::new(-0.06, -0.38, -0.45);
+    let (at, tip) = if t < 0.25 {
+        let k = smoothstep(t / 0.25);
+        (HAND_BELOW.lerp(HAND_HELD, k), 0.3 * k)
+    } else if t < PLANT_RELEASE_AT {
+        let k = smoothstep((t - 0.25) / (PLANT_RELEASE_AT - 0.25));
+        (HAND_HELD.lerp(floor, k), 0.3.lerp(-0.7, k))
+    } else {
+        (floor.lerp(HAND_BELOW, smoothstep((t - PLANT_RELEASE_AT) / (0.85 - PLANT_RELEASE_AT))), -0.7)
+    };
+    (dip, Some(Transform::from_translation(at).with_rotation(Quat::from_rotation_x(tip))))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -420,6 +495,73 @@ mod tests {
         let (shift, turn) = carry_pose(1.0, 1.0);
         assert_eq!(shift, Vec3::ZERO);
         assert!(turn.angle_between(Quat::IDENTITY) < 1e-6);
+    }
+
+    #[test]
+    fn a_cooking_frag_comes_up_and_the_throw_starts_from_there() {
+        assert_eq!(cook_raise(0.0), 0.0);
+        assert_eq!(cook_raise(COOK_RAISE_SECS), 1.0);
+        assert_eq!(cook_pose(0.0).0, 0.0);
+        assert!(cook_pose(1.0).1.translation.y > cook_pose(0.0).1.translation.y);
+        for raised in [0.0, 0.4, 1.0] {
+            let (dip, hand) = throw_pose(0.0, raised);
+            let (cook_dip, cook_hand) = cook_pose(raised);
+            assert!((dip - cook_dip).abs() < 1e-5);
+            assert!(hand.unwrap().translation.distance(cook_hand.translation) < 1e-5, "no jump at raised {raised}");
+        }
+    }
+
+    #[test]
+    fn a_throw_ends_with_the_hand_gone_and_the_weapon_back() {
+        let (dip, hand) = throw_pose(1.0, 1.0);
+        assert!(dip < 1e-4 && hand.is_none());
+        assert!(throw_pose(0.3, 0.0).0 > 0.9, "the Weapon is out of the way mid-throw");
+    }
+
+    #[test]
+    fn the_throw_goes_back_then_forward_and_down() {
+        let cocked = throw_pose(THROW_RELEASE_AT * 0.5, 1.0).1.unwrap();
+        let released = throw_pose(THROW_RELEASE_AT, 1.0).1.unwrap();
+        let after = throw_pose(0.6, 1.0).1.unwrap();
+        assert!(released.translation.z < cocked.translation.z - 0.15, "forward");
+        assert!(cocked.translation.y > released.translation.y && released.translation.y > after.translation.y);
+        assert!(cocked.translation.z <= -0.2, "past the near plane");
+    }
+
+    #[test]
+    fn throw_and_plant_poses_never_jump() {
+        for raised in [0.0, 1.0] {
+            let mut last = throw_pose(0.0, raised);
+            for i in 1..=1000 {
+                let pose = throw_pose(i as f32 / 1000.0, raised);
+                assert!((pose.0 - last.0).abs() < 0.03);
+                if let (Some(a), Some(b)) = (pose.1, last.1) {
+                    assert!(a.translation.distance(b.translation) < 0.02, "throw at {i}");
+                    assert!(a.rotation.angle_between(b.rotation) < 0.06, "throw at {i}");
+                }
+                last = pose;
+            }
+        }
+        let mut last = plant_pose(0.0);
+        for i in 1..=1000 {
+            let pose = plant_pose(i as f32 / 1000.0);
+            assert!((pose.0 - last.0).abs() < 0.03);
+            if let (Some(a), Some(b)) = (pose.1, last.1) {
+                assert!(a.translation.distance(b.translation) < 0.02, "plant at {i}");
+                assert!(a.rotation.angle_between(b.rotation) < 0.06, "plant at {i}");
+            }
+            last = pose;
+        }
+    }
+
+    #[test]
+    fn planting_starts_and_ends_at_rest_and_reaches_down() {
+        assert_eq!(plant_pose(0.0).0, 0.0);
+        assert!(plant_pose(1.0).0 < 1e-4 && plant_pose(1.0).1.is_none());
+        let held = plant_pose(0.25).1.unwrap();
+        let planting = plant_pose(PLANT_RELEASE_AT).1.unwrap();
+        assert!(planting.translation.y < held.translation.y - 0.15, "reached down");
+        assert!(plant_pose(0.5).0 > 0.95);
     }
 
     #[test]
