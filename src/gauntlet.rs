@@ -10,6 +10,7 @@ mod armory;
 mod boon;
 mod pact;
 mod progress;
+mod proto_procs;
 mod screen;
 
 use bevy::input::common_conditions::input_just_pressed;
@@ -118,6 +119,9 @@ impl Plugin for GauntletPlugin {
             .init_resource::<UnlockAll>()
             .init_resource::<ActiveRanks>()
             .init_resource::<RunModifiers>()
+            .init_resource::<proto_procs::ProtoProcs>()
+            .init_resource::<proto_procs::ProcCooldowns>()
+            .init_resource::<proto_procs::FrostFlashes>()
             .init_resource::<armory::ArmoryTab>()
             .init_resource::<armory::ArmoryNote>()
             .add_systems(Startup, load_progress)
@@ -151,7 +155,9 @@ impl Plugin for GauntletPlugin {
             .add_observer(armory::armory_click)
             .add_systems(
                 OnEnter(GameState::Playing),
-                (reset, screen::spawn_held_column).chain().run_if(gauntlet),
+                (reset, proto_procs::reset, screen::spawn_held_column, proto_procs::spawn_readout)
+                    .chain()
+                    .run_if(gauntlet),
             )
             .add_systems(
                 Update,
@@ -167,6 +173,19 @@ impl Plugin for GauntletPlugin {
                     (record_picks, screen::refresh_held_column).run_if(picks_changed),
                 )
                     .run_if(in_state(GameState::Playing))
+                    .run_if(gauntlet),
+            )
+            // PROTOTYPE (#93): the Proc Boons, and Insert to take them.
+            .add_systems(
+                Update,
+                (
+                    proto_procs::fire_procs,
+                    proto_procs::tick_frost,
+                    proto_procs::update_readout,
+                    proto_procs::grant.run_if(input_just_pressed(KeyCode::Insert)),
+                )
+                    .run_if(in_state(GameState::Playing))
+                    .run_if(in_state(Pause::Running))
                     .run_if(gauntlet),
             )
             .add_systems(
@@ -226,7 +245,7 @@ fn open_offer(
     held: Res<HeldBoons>,
     pacts: Res<HeldPacts>,
     bought: Res<Bought>,
-    (unlock_all, progress): (Res<UnlockAll>, Res<GauntletFile>),
+    (unlock_all, progress, proto): (Res<UnlockAll>, Res<GauntletFile>, Res<proto_procs::ProtoProcs>),
     power: Option<Res<Power>>,
     round: Res<Round>,
     time: Res<Time>,
@@ -245,6 +264,10 @@ fn open_offer(
         return;
     }
     pending.0 = None;
+    let mut unlocked = progress.unlocked.clone();
+    if proto.0 {
+        unlocked.extend(proto_procs::IDS.map(String::from));
+    }
     let run = RunFacts {
         power_on: power.is_some_and(|power| power.is_on()),
         held_pacts: pacts.ids(),
@@ -252,7 +275,7 @@ fn open_offer(
         bought_quick_revive: bought.quick_revive,
         holds_upgraded: loadout.weapons().any(|weapon| weapon.upgraded),
         holds_ammo_mod: loadout.weapons().any(|weapon| !weapon.ammo_mods.is_empty()),
-        unlocked: progress.unlocked.clone(),
+        unlocked,
         unlock_all: unlock_all.0,
     };
     let roll = |total| rand::random_range(0.0..total);

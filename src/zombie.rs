@@ -142,6 +142,15 @@ pub struct StunZombie {
     pub secs: f32,
 }
 
+/// PROTOTYPE (Proc Boons): a Frosted Zombie moves at `FROST_SPEED_FACTOR` of its speed for
+/// `left` more seconds. Gauntlet adds and ticks it.
+#[derive(Component, Debug)]
+pub struct Chilled {
+    pub left: f32,
+}
+
+pub const FROST_SPEED_FACTOR: f32 = 0.5;
+
 /// A stunned Zombie, standing still for `left` more seconds.
 #[derive(Component, Debug)]
 pub struct Stunned {
@@ -830,7 +839,7 @@ fn already_past(first: Vec3, second: Vec3, feet: Vec3) -> bool {
 /// area, and move under gravity with grounded move-and-slide.
 fn chase(
     mut zombies: Query<
-        (Entity, &mut Zombie, &mut Route, &mut Transform, &Collider, Option<&Lured>, Option<&Seeking>),
+        (Entity, &mut Zombie, &mut Route, &mut Transform, &Collider, Option<&Lured>, Option<&Seeking>, Has<Chilled>),
         (
             Without<Dying>,
             Without<Rising>,
@@ -855,7 +864,7 @@ fn chase(
     let filter_mask = [GameLayer::World, GameLayer::Zombie, GameLayer::Player];
     let positions: Vec<_> = zombies.iter().map(|(entity, _, _, transform, ..)| (entity, transform.translation)).collect();
 
-    for (entity, mut zombie, mut route, mut transform, collider, lured, seeking) in &mut zombies {
+    for (entity, mut zombie, mut route, mut transform, collider, lured, seeking, chilled) in &mut zombies {
         let half = zombie.half_height();
         let feet = transform.translation - Vec3::Y * half;
         // A point of its own beats everything; then a Monkey Bomb's pull, even over a Player in
@@ -923,7 +932,7 @@ fn chase(
         if facing.length_squared() > 1e-4 {
             transform.rotation = Quat::from_rotation_y(f32::atan2(-facing.x, -facing.z));
         }
-        let speed = resolve(Stat::ZombieSpeed, zombie.speed(), &modifiers.0);
+        let speed = resolve(Stat::ZombieSpeed, zombie.speed(), &modifiers.0) * if chilled { FROST_SPEED_FACTOR } else { 1.0 };
         let stride = if planted { Vec3::ZERO } else { heading * speed };
         let velocity = stride + Vec3::Y * (zombie.fall_speed - GRAVITY * dt);
 

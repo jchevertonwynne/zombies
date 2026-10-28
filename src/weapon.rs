@@ -702,9 +702,10 @@ impl Loadout {
         true
     }
 
-    /// Advance a Reload against its resolved time, filling the Magazine when it's done.
-    pub fn advance_reload(&mut self, dt: f32, player: &[Modifier]) {
-        let Some(secs) = self.reload_secs(player) else { return };
+    /// Advance a Reload against its resolved time, filling the Magazine when it's done. True on
+    /// the frame it finishes (PROTOTYPE: for the `Reloaded` Trigger).
+    pub fn advance_reload(&mut self, dt: f32, player: &[Modifier]) -> bool {
+        let Some(secs) = self.reload_secs(player) else { return false };
         let size = self.magazine_size(player);
         let reload = self.reload.as_mut().expect("reloading");
         reload.elapsed += dt;
@@ -718,7 +719,9 @@ impl Loadout {
             let taken = size.saturating_sub(*magazine).min(*reserve);
             *reserve -= taken;
             *magazine += taken;
+            return true;
         }
+        false
     }
 
     /// Whether the gun that fires now fires, given the trigger. Spends the bullet when it does.
@@ -785,6 +788,10 @@ pub fn knife_damage(bowie: bool, ballistic: Option<bool>) -> f32 {
     }
 }
 
+/// PROTOTYPE (Proc Boons): a Reload just finished.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct Reloaded;
+
 /// The held Weapon went off (for audio and effects): which Weapon, whether it's Upgraded, and the
 /// Underbarrel it fired through, if any.
 #[derive(Message, Debug, Clone, Copy)]
@@ -845,6 +852,7 @@ pub struct WeaponPlugin;
 impl Plugin for WeaponPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<ShotFired>()
+            .add_message::<Reloaded>()
             .init_resource::<GunModels>()
             .add_systems(Update, spawn_view_model)
             .add_systems(
@@ -952,12 +960,15 @@ fn reload(
     player: Single<(&mut Loadout, &Modifiers), With<Player>>,
     controls: Controls,
     time: Res<Time>,
+    mut reloaded: MessageWriter<Reloaded>,
 ) {
     let (mut loadout, modifiers) = player.into_inner();
     if controls.just_pressed(Action::Reload) {
         loadout.start_reload(&modifiers.0);
     }
-    loadout.advance_reload(time.delta_secs(), &modifiers.0);
+    if loadout.advance_reload(time.delta_secs(), &modifiers.0) {
+        reloaded.write(Reloaded);
+    }
     loadout.feed_from_reserve(&modifiers.0);
 }
 

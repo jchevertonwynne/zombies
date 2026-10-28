@@ -243,6 +243,11 @@ pub struct Link {
 /// Zombie hit arcs on to every Zombie not yet hit within its jump's radius, given a clear line,
 /// until the radii run out or `DEAD_WIRE_MAX_ZOMBIES` (the shot one included) are hit.
 pub fn dead_wire_chain(shot: Vec3, others: &[Vec3], clear: impl Fn(Vec3, Vec3) -> bool) -> Vec<Link> {
+    chain(shot, others, DEAD_WIRE_MAX_ZOMBIES, clear)
+}
+
+/// A Dead Wire chain capped at `max` Zombies, the one at `shot` included.
+fn chain(shot: Vec3, others: &[Vec3], max: usize, clear: impl Fn(Vec3, Vec3) -> bool) -> Vec<Link> {
     let mut links: Vec<Link> = Vec::new();
     let mut hit = vec![false; others.len()];
     // Breadth first: (index or the shot, where it stands, its depth).
@@ -250,7 +255,7 @@ pub fn dead_wire_chain(shot: Vec3, others: &[Vec3], clear: impl Fn(Vec3, Vec3) -
     while let Some((from, at, depth)) = queue.pop_front() {
         let Some(&radius) = DEAD_WIRE_JUMP_RADII.get(depth as usize) else { continue };
         for (index, &other) in others.iter().enumerate() {
-            if links.len() + 1 >= DEAD_WIRE_MAX_ZOMBIES {
+            if links.len() + 1 >= max {
                 return links;
             }
             if hit[index] || at.distance(other) > radius || !clear(at, other) {
@@ -325,6 +330,28 @@ pub struct AmmoModHit {
     pub ammo_mods: AmmoMods,
 }
 
+/// PROTOTYPE (Proc Boons): an element a Proc borrows from an Ammo Mod.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcElement {
+    /// Dead Wire's chain from `at` to `size` Zombies.
+    Shock,
+    /// Blast Furnace's burn on every Zombie within `size` metres of `at`.
+    Fire,
+    /// Thunder Wall's fling: kills the `size` closest Zombies within `PROC_KNOCKBACK_RADIUS`.
+    Knockback,
+}
+
+pub const PROC_KNOCKBACK_RADIUS: f32 = 4.0;
+
+/// PROTOTYPE (Proc Boons): the Classic-side seam. Gauntlet sends it when a Proc fires; this module
+/// knows nothing about Boons. Its kills are Paid Ammo Mod kills, so they never roll Ammo Mods.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct CastEffect {
+    pub element: ProcElement,
+    pub at: Vec3,
+    pub size: f32,
+}
+
 /// A Zombie on the Player's side after a Turned trigger. It's no longer a `Zombie`, so nothing
 /// can hurt it and the Round doesn't wait for it.
 #[derive(Component, Debug, Default)]
@@ -387,6 +414,7 @@ pub struct AmmoModPlugin;
 impl Plugin for AmmoModPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<AmmoModHit>()
+            .add_message::<CastEffect>()
             .init_resource::<Cooldowns>()
             .init_resource::<DelayedHits>()
             .init_resource::<Flashes>()
@@ -395,7 +423,7 @@ impl Plugin for AmmoModPlugin {
             .add_systems(
                 Update,
                 (
-                    (roll_ammo_mods, run_delayed_hits, fire_phantoms).chain().before(apply_damage),
+                    (roll_ammo_mods, cast_effects, run_delayed_hits, fire_phantoms).chain().before(apply_damage),
                     draw_flashes,
                 )
                     .run_if(in_state(Pause::Running)),
@@ -597,6 +625,69 @@ fn roll_ammo_mods(
             }
         }
         spent.push(shot);
+    }
+}
+
+/// PROTOTYPE (Proc Boons): each `CastEffect` plays out as its Ammo Mod would, from a point
+/// rather than a shot Zombie.
+fn cast_effects(
+    mut commands: Commands,
+    mut casts: MessageReader<CastEffect>,
+    mut delayed: ResMut<DelayedHits>,
+    mut flashes: ResMut<Flashes>,
+    zombies: Query<(Entity, &Zombie, &Transform), (Without<Dying>, Without<Telegraph>)>,
+    spatial: SpatialQuery,
+    mut damage: MessageWriter<DamageZombie>,
+    mut ignite: MessageWriter<Ignite>,
+    mut cues: MessageWriter<PlayCue>,
+) {
+    for cast in casts.read() {
+        let (others, positions): (Vec<Entity>, Vec<Vec3>) =
+            zombies.iter().map(|(entity, _, transform)| (entity, transform.translation)).unzip();
+        let at = cast.at;
+        match cast.element {
+            ProcElement::Shock => {
+                let colour = AmmoMod::DeadWire.glint();
+                let origin = at + Vec3::Y * 0.6;
+                let links = chain(at, &positions, cast.size as usize + 1, |a, b| {
+                    in_sight(&spatial, a + Vec3::Y * 0.6, b + Vec3::Y * 0.6)
+                });
+                for link in links {
+                    let from = link.from.map_or(origin, |from| positions[from]);
+                    flashes.line(from, positions[link.index], colour);
+                    let delay = rand::random_range(DEAD_WIRE_DELAY_MIN_SECS..DEAD_WIRE_DELAY_MAX_SECS) * link.depth as f32;
+                    delayed.0.push((delay, others[link.index]));
+                }
+                flashes.burst(at, 0.6, colour);
+                cues.write(PlayCue { cue: AmmoMod::DeadWire.cue(), at: Some(at) });
+            }
+            ProcElement::Fire => {
+                for (i, &other) in positions.iter().enumerate() {
+                    if at.with_y(0.0).distance(other.with_y(0.0)) <= cast.size
+                        && let Ok((_, target, _)) = zombies.get(others[i])
+                    {
+                        ignite.write(Ignite {
+                            zombie: others[i],
+                            burn: blast_furnace_burn(target.health()),
+                        });
+                    }
+                }
+                flashes.burst(at, cast.size, AmmoMod::BlastFurnace.glint());
+                cues.write(PlayCue { cue: AmmoMod::BlastFurnace.cue(), at: Some(at) });
+            }
+            ProcElement::Knockback => {
+                for i in closest_within(at, &positions, PROC_KNOCKBACK_RADIUS, cast.size as usize, |_| true) {
+                    kill(&mut damage, others[i], Pay::Paid);
+                    if !zombies.get(others[i]).is_ok_and(|(_, other, _)| other.is_sapper()) {
+                        commands
+                            .entity(others[i])
+                            .insert(Flung::away(at, positions[i], THUNDER_WALL_FLING_SPEED, THUNDER_WALL_FLING_LIFT));
+                    }
+                }
+                flashes.burst(at, PROC_KNOCKBACK_RADIUS, AmmoMod::ThunderWall.glint());
+                cues.write(PlayCue { cue: AmmoMod::ThunderWall.cue(), at: Some(at) });
+            }
+        }
     }
 }
 

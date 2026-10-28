@@ -618,6 +618,23 @@ pub const BOONS: &[BoonDef] = &[
             )
         },
     ),
+    // PROTOTYPE (Proc Boons, #93): locked until the Insert debug key grants them.
+    rare(super::proto_procs::ARC_LIGHT, "Arc Light", false, &[], &[], |n| {
+        let zombies = super::proto_procs::arc_light_zombies(n);
+        format!("Headshot kill: shock chains to {zombies} Zombies (2 s cooldown)")
+    }),
+    rare(super::proto_procs::HOT_BRASS, "Hot Brass", false, &[], &[], |n| {
+        let radius = super::proto_procs::hot_brass_radius(n);
+        format!("Reload finished: a fire ring burns Zombies within {radius:.1} m (8 s cooldown)")
+    }),
+    rare(super::proto_procs::ELBOW_ROOM, "Elbow Room", false, &[], &[], |n| {
+        let zombies = super::proto_procs::elbow_room_zombies(n);
+        format!("Taking a hit: knockback flings {zombies} Zombies within 4 m (15 s cooldown)")
+    }),
+    rare(super::proto_procs::FROSTBITE, "Frostbite", false, &[], &[], |n| {
+        let secs = super::proto_procs::frostbite_secs(n);
+        format!("Knife kill: Frost halves the speed of Zombies within 4 m for {secs:.0} s")
+    }),
     legendary(LUCKY_STRIKE, "Lucky Strike", &[], &[], |n| {
         format!(
             "{}% chance that picking up a Power-up also gives a random different one",
