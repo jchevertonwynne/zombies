@@ -12,6 +12,7 @@ use bevy::prelude::*;
 use crate::ammo_mod::{ammo_mod_slots, repack_price};
 use crate::arsenal::WeaponId;
 use crate::attachment::attachment_repack_price;
+use crate::gun_model::GunModels;
 use crate::buy::{Buyable, HoldBuy, HoldPurchased, Purchased, Refused};
 use crate::layers::GameLayer;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve_points};
@@ -42,6 +43,21 @@ pub fn stage(elapsed: f32) -> Stage {
         Stage::Ready
     } else {
         Stage::Lost
+    }
+}
+
+/// How far out of the machine's slot a Weapon that has been inside for `elapsed` seconds is shown:
+/// 1 out in the open, 0 fully inside and out of sight. It slides in as it's taken, stays inside
+/// while it's worked on, then slides back out and stays out until it's taken or lost.
+pub fn slot_slide(elapsed: f32) -> f32 {
+    let smooth = |t: f32| {
+        let t = t.clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    match stage(elapsed) {
+        Stage::Processing => 1.0 - smooth(elapsed / PAP_SLIDE_SECS),
+        Stage::Ready => smooth((elapsed - PAP_PROCESS_SECS) / PAP_SLIDE_SECS),
+        Stage::Lost => 0.0,
     }
 }
 
@@ -142,6 +158,13 @@ impl PackAPunch {
         self.inside.as_ref().map(|inside| stage(inside.elapsed))
     }
 
+    /// The Weapon to show on the tray, how far out of the slot it is (see `slot_slide`) and its
+    /// stage, if one is inside.
+    fn on_show(&self) -> Option<(WeaponId, f32, Stage)> {
+        let inside = self.inside.as_ref()?;
+        Some((inside.weapon.id, slot_slide(inside.elapsed), stage(inside.elapsed)))
+    }
+
     /// Take in a Weapon and start working on it. It comes out Upgraded, or Repacked with an Ammo
     /// Mod or an Attachment; either way with full ammo.
     pub fn insert(&mut self, weapon: WeaponCopy, work: Work) {
@@ -177,9 +200,17 @@ impl PackAPunch {
 pub(crate) const MACHINE_AT: Vec3 = Vec3::new(5.0, 0.0, -9.2);
 const MACHINE_SIZE: Vec3 = Vec3::new(1.6, 1.6, 0.9);
 
-/// The Weapon on the machine's tray, shown while one is inside.
+/// Where the Weapon on the machine's tray rests when it's out, and where it is when fully inside,
+/// from the machine's centre. The slot is in the top, so the body hides it going in.
+const TRAY_OUT: Vec3 = Vec3::new(0.0, MACHINE_SIZE.y / 2.0 + 0.25, 0.1);
+const TRAY_IN: Vec3 = Vec3::new(0.0, MACHINE_SIZE.y / 2.0 - 0.3, 0.1);
+
+/// The Weapon on the machine's tray, shown while one is sliding in or out or waiting. It is
+/// plain while it's worked on and has the Upgraded glint colour once it's Ready.
 #[derive(Component)]
-struct Tray;
+struct Tray {
+    upgraded: Handle<StandardMaterial>,
+}
 
 /// The machine's lights, lit once the Power is on.
 #[derive(Component)]
@@ -202,12 +233,19 @@ fn spawn_machine(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    guns: Res<GunModels>,
 ) {
     let body = Cuboid::from_size(MACHINE_SIZE);
     let centre = MACHINE_AT + Vec3::Y * body.half_size.y;
     let glow = materials.add(StandardMaterial {
         base_color: UPGRADED_PURPLE,
         emissive: LinearRgba::from(UPGRADED_PURPLE) * 6.0,
+        ..default()
+    });
+    let upgraded = materials.add(StandardMaterial {
+        base_color: UPGRADED_PURPLE,
+        emissive: LinearRgba::from(UPGRADED_PURPLE) * 2.0,
+        perceptual_roughness: 0.4,
         ..default()
     });
     commands.spawn((
@@ -222,10 +260,17 @@ fn spawn_machine(
         CollisionLayers::new(GameLayer::World, LayerMask::ALL),
         children![
             (
-                Tray,
-                Mesh3d(meshes.add(Cuboid::new(0.6, 0.1, 0.12))),
-                MeshMaterial3d(glow.clone()),
-                Transform::from_xyz(0.0, body.half_size.y + 0.05, 0.1),
+                // The slot the Weapon slides into.
+                Mesh3d(meshes.add(Cuboid::new(1.4, 0.02, 0.2))),
+                MeshMaterial3d(materials.add(Color::srgb(0.05, 0.03, 0.08))),
+                Transform::from_xyz(0.0, body.half_size.y + 0.005, 0.1),
+            ),
+            (
+                // Its mesh and material are set from the Weapon inside as it shows.
+                Tray { upgraded },
+                Mesh3d(guns.world(WeaponId::M1911)),
+                MeshMaterial3d(guns.material.clone()),
+                Transform::from_translation(TRAY_IN),
                 Visibility::Hidden,
             ),
             (
@@ -402,18 +447,36 @@ fn prompt_machine(
     }
 }
 
-/// The tray shows a Weapon while one is inside; the lights come on with the Power.
+/// The tray shows the Weapon inside sliding into the slot and out again, like the Mystery Box's
+/// Prize; the lights come on with the Power.
 fn show_machine(
     machines: Query<(&PackAPunch, &Children)>,
-    mut trays: Query<&mut Visibility, (With<Tray>, Without<MachineLight>)>,
-    mut lights: Query<&mut Visibility, With<MachineLight>>,
+    mut trays: Query<
+        (&Tray, &mut Transform, &mut Visibility, &mut Mesh3d, &mut MeshMaterial3d<StandardMaterial>),
+        Without<MachineLight>,
+    >,
+    mut lights: Query<&mut Visibility, (With<MachineLight>, Without<Tray>)>,
+    guns: Res<GunModels>,
     power: Res<Power>,
 ) {
     let shown = |on: bool| if on { Visibility::Inherited } else { Visibility::Hidden };
     for (machine, children) in &machines {
+        let on_show = machine.on_show().filter(|&(_, slide, _)| slide > 0.0);
         for child in children {
-            if let Ok(mut tray) = trays.get_mut(*child) {
-                tray.set_if_neq(shown(machine.stage().is_some()));
+            if let Ok((tray, mut transform, mut visibility, mut mesh, mut material)) = trays.get_mut(*child) {
+                visibility.set_if_neq(shown(on_show.is_some()));
+                let Some((id, slide, stage)) = on_show else { continue };
+                transform.translation = TRAY_IN.lerp(TRAY_OUT, slide);
+                let (want_mesh, want_material) = match stage {
+                    Stage::Ready => (guns.world(id), tray.upgraded.clone()),
+                    _ => (guns.world(id), guns.material.clone()),
+                };
+                if mesh.0 != want_mesh {
+                    mesh.0 = want_mesh;
+                }
+                if material.0 != want_material {
+                    material.0 = want_material;
+                }
             }
             if let Ok(mut light) = lights.get_mut(*child) {
                 light.set_if_neq(shown(power.is_on()));
@@ -426,6 +489,24 @@ fn show_machine(
 mod tests {
     use super::*;
     use crate::tuning::UPGRADED_WEAPONS;
+
+    #[test]
+    fn a_weapon_slides_in_stays_inside_then_slides_out_and_waits() {
+        assert_eq!(slot_slide(0.0), 1.0);
+        let mid = slot_slide(PAP_SLIDE_SECS / 2.0);
+        assert!(mid > 0.0 && mid < 1.0);
+        assert_eq!(slot_slide(PAP_SLIDE_SECS), 0.0);
+        assert_eq!(slot_slide(PAP_PROCESS_SECS - 0.01), 0.0);
+        let leaving = slot_slide(PAP_PROCESS_SECS + PAP_SLIDE_SECS / 2.0);
+        assert!(leaving > 0.0 && leaving < 1.0);
+        assert_eq!(slot_slide(PAP_PROCESS_SECS + PAP_SLIDE_SECS), 1.0);
+        assert_eq!(slot_slide(PAP_PROCESS_SECS + PAP_PICKUP_SECS - 0.01), 1.0);
+        // Lost: gone from sight at once.
+        assert_eq!(slot_slide(PAP_PROCESS_SECS + PAP_PICKUP_SECS), 0.0);
+    }
+
+    // The slide in and the slide out both fit inside the processing time.
+    const _: () = assert!(PAP_SLIDE_SECS * 2.0 < PAP_PROCESS_SECS);
 
     #[test]
     fn every_weapon_has_its_a3_upgraded_entry() {

@@ -11,7 +11,7 @@
 //! bare hand reaches forward and pushes once per Plank. So does Equipment: the left hand comes up
 //! holding a frag while it cooks and throws it overarm, throws a Monkey Bomb the same way, or
 //! reaches down to plant a Claymore. Buying ammo at a Wall Weapon tilts the Weapon and slaps a
-//! fresh magazine home.
+//! fresh magazine home, and handing it to Pack-a-Punch pushes it forward into the machine.
 //!
 //! Aiming and sprinting move the whole Weapon: aiming brings the sights up under the crosshair,
 //! and sprinting lets the muzzle drop and roll in to the left, BO1-style.
@@ -59,6 +59,8 @@ pub const HIP_SIDE: f32 = 0.22;
 pub const HIP_DROP: f32 = 0.2;
 /// How much closer to the camera the Weapon is pulled when it's aimed.
 const AIM_CLOSER: f32 = 0.06;
+/// How far forward the Weapon is pushed at the machine's slot as it goes in.
+const MACHINE_PUSH: f32 = 0.2;
 /// How much of its kick is left when it's fully aimed.
 const AIMED_KICK: f32 = 0.35;
 
@@ -208,6 +210,12 @@ pub fn rebuild_pose(up: f32, reach: f32) -> (f32, Option<Transform>) {
     (up, Some(Transform::from_translation(at).with_rotation(rotation)))
 }
 
+/// How far forward the view model is pushed `t` of the way (0 to 1) through being put away into
+/// the Pack-a-Punch machine: out toward the slot, before the drop takes it out of sight.
+pub fn machine_push(t: f32) -> f32 {
+    MACHINE_PUSH * smoothstep(t / 0.6)
+}
+
 /// The Ballistic Knife's stab, `t` of the way through: how far forward the view model lunges.
 pub fn stab_lunge(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
@@ -347,6 +355,18 @@ mod tests {
         }
         assert!(peak.0 > 0.3, "the Weapon visibly tips: {peak:?}");
         assert!(peak.1 < -0.05, "the magazine visibly comes down: {peak:?}");
+    }
+
+    #[test]
+    fn the_push_into_the_machine_starts_at_rest_and_only_moves_forward() {
+        assert_eq!(machine_push(0.0), 0.0);
+        let mut last = 0.0;
+        for step in 1..=20 {
+            let push = machine_push(step as f32 / 20.0);
+            assert!(push >= last && push <= MACHINE_PUSH + 1e-6);
+            last = push;
+        }
+        assert!((machine_push(1.0) - MACHINE_PUSH).abs() < 1e-6);
     }
 
     #[test]

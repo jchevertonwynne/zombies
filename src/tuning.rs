@@ -1501,6 +1501,8 @@ pub const PAP_AMMO_PRICE: u64 = 4500;
 pub const PAP_PRICE: u64 = 5000;
 /// How long the machine works on a Weapon before it can be taken.
 pub const PAP_PROCESS_SECS: f32 = 3.0;
+/// Seconds the Weapon takes to slide into the machine's slot, and again to slide back out.
+pub const PAP_SLIDE_SECS: f32 = 0.6;
 /// How long the Upgraded Weapon waits to be taken before it's lost, with no refund.
 pub const PAP_PICKUP_SECS: f32 = 15.0;
 /// Seconds for the glint band to sweep once along an Upgraded Weapon.
