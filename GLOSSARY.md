@@ -194,6 +194,18 @@ _Avoid_: level, rank
 **Requirement**: A condition a Boon must meet before it can appear in a Boon Offer, such as holding another Boon.
 _Avoid_: prerequisite, unlock
 
+**Proc Boon**: A Boon made of a Trigger and an Effect: whenever the Player does the Trigger, the Effect may fire and is seen working on screen. It belongs to the Player, not a Weapon, so it works with any Weapon, the Knife or a Lethal, and survives a Down. Each Stack makes its Effect bigger, never more likely.
+_Avoid_: on-hit boon, passive
+
+**Trigger**: The Player action that can fire a Proc Boon, such as a Headshot kill, a Knife kill or taking a hit.
+_Avoid_: condition, event
+
+**Effect**: What a Proc Boon does when it fires, drawn from the Ammo Mod elements (chain shock, burn, knockback, phantom gun, Turned) or a few of Gauntlet's own.
+_Avoid_: ability, power
+
+**Proc**: One firing of a Proc Boon's Effect. A Proc's damage never fires another Proc or an Ammo Mod.
+_Avoid_: activation, trigger (for the firing itself)
+
 **Pact**: A cursed Boon: stronger than any Legendary but carrying a Drawback. Pacts are offered in place of Boons every fifth Round, may be skipped, and each can be held only once.
 _Avoid_: cursed boon, curse, bargain
 
