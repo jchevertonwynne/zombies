@@ -7,6 +7,7 @@ use crate::hands::{
     stab_lunge,
 };
 use crate::barrier::Rebuild;
+use crate::wall_weapon::AmmoBuy;
 use crate::controls::{Action, Controls};
 use crate::ammo_mod::{AmmoModHit, AmmoMods, glint_colour, pick_ammo_mod};
 use crate::arsenal::{Burn, FireMode, Splash, WeaponId, WeaponStats};
@@ -1249,6 +1250,7 @@ fn animate_view_model(
     player: Single<(&Loadout, &Modifiers, &Knife, Option<&Drinking>, &Equipment, Option<&Handling>), With<Player>>,
     guns: Res<GunModels>,
     rebuild: Res<Rebuild>,
+    ammo_buy: Res<AmmoBuy>,
     time: Res<Time>,
 ) {
     let (ref mut model, ref mut transform, ref mut mesh) = *view_model;
@@ -1326,7 +1328,9 @@ fn animate_view_model(
 
     // Equipment: the Weapon dips for the left hand to cook, throw or plant it.
     let (throw_dip, throw_hand) = hand_pose(equipment, handling);
-    let tucked = knife_dip.max(throw_dip);
+    // An ammo buy tips the Weapon the same way, and knocks its magazine out and back in.
+    let (ammo_dip, ammo_magazine) = ammo_buy.pose();
+    let tucked = knife_dip.max(throw_dip).max(ammo_dip);
 
     // Aiming and the sprint carry give way to a switch, a Perk, the Knife, Equipment and a Reload;
     // the carry to the sights coming up too.
@@ -1355,7 +1359,7 @@ fn animate_view_model(
             }
             ViewPart::Magazine => (
                 magazine.map(|magazine| magazine.mesh.clone()),
-                magazine.map(|magazine| magazine.rest.with_translation(magazine.rest.translation + reload.magazine)),
+                magazine.map(|magazine| magazine.rest.with_translation(magazine.rest.translation + reload.magazine + Vec3::Y * ammo_magazine)),
             ),
             ViewPart::LeftHand => (
                 left_hand.map(|hand| hand.mesh.clone()),
