@@ -9,6 +9,7 @@ use crate::last_stand::LastStand;
 use crate::layers::GameLayer;
 use crate::modifier::{Modifiers, Stat, resolve};
 use crate::barrier::{Barriers, Entering};
+use crate::explosive::in_sight;
 use crate::hellhound::Telegraph;
 use crate::nav::{NavGraph, Route, repath_interval};
 use crate::nova::NovaCrawlerKilled;
@@ -1011,7 +1012,9 @@ pub fn slam_reaches(from: Vec3, forward: Vec3, to: Vec3) -> bool {
 }
 
 /// Zombies inside swipe the Player in reach, Hellhounds bite, and the Sapper slams the Player in
-/// the arc in front of it. Those outside a window reach through it instead (see the Barriers).
+/// the arc in front of it, all only with a clear line to the Player: a wall or a closed Door
+/// stops a swipe and its wind-up. Those outside a window reach through it instead (see the
+/// Barriers).
 fn attack(
     mut zombies: Query<
         (&mut Zombie, &Transform),
@@ -1025,6 +1028,7 @@ fn attack(
         ),
     >,
     player: Single<(&Transform, Has<LastStand>), With<Player>>,
+    spatial: SpatialQuery,
     mut hits: MessageWriter<PlayerHit>,
     mut cues: MessageWriter<SpecialCue>,
     time: Res<Time>,
@@ -1038,10 +1042,13 @@ fn attack(
             continue;
         }
         let (reach, wind_up, damage, cooldown) = zombie.attack_stats();
-        // Same floor only: a Zombie under the Balcony can't swipe the Player standing on it.
+        // Same floor only: a Zombie under the Balcony can't swipe the Player standing on it. The
+        // line runs chest to chest (both transforms are capsule centres), so low cover like a
+        // Yard crate doesn't block it, but a wall does.
         let in_reach = horizontal(player.translation - transform.translation).length() <= reach
             && (player.translation.y - transform.translation.y).abs() < 1.5
-            && (!zombie.is_sapper() || slam_reaches(transform.translation, *transform.forward(), player.translation));
+            && (!zombie.is_sapper() || slam_reaches(transform.translation, *transform.forward(), player.translation))
+            && in_sight(&spatial, transform.translation, player.translation);
         let at = Some(transform.translation);
         zombie.attack_cooldown = (zombie.attack_cooldown - dt).max(0.0);
 

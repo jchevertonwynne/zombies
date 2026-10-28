@@ -302,3 +302,18 @@ fn a_zombie_swipes_a_player_standing_on_a_yard_crate() {
     }
     assert!(hits >= 1, "the Zombie never landed a swipe");
 }
+
+/// The Pack-a-Punch Gazebo's west wall is thin: a Zombie just outside it, in reach of a Player
+/// just inside, must never land a swipe through it.
+#[test]
+fn a_zombie_cannot_swipe_a_player_through_the_gazebo_wall() {
+    let mut sim = Sim::new(60.0, |_| {});
+    put_player(&mut sim, Vec3::new(2.6, 0.0, -7.0));
+    sim.spawn(Vec3::new(1.5, 0.0, -7.0), None);
+    let mut hits = 0;
+    for _ in 0..sim.frames(5.0) {
+        sim.run(1);
+        hits += sim.world_mut().resource_mut::<Messages<PlayerHit>>().drain().count();
+    }
+    assert_eq!(hits, 0, "the Zombie hit the Player through the wall");
+}
