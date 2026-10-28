@@ -814,6 +814,16 @@ pub fn heading(distance: f32, reach: f32, swinging: bool, last_stand: bool) -> H
     }
 }
 
+/// Whether a Zombie at `feet`, planning from its nearest node `first` to the next one `second`, is
+/// already on the edge between them and past `first`. Halfway up a ramp the nearest node is still
+/// the one behind, and without this the Zombie keeps turning back for it and never climbs. No cast
+/// is needed: the Map's tests check every edge is walkable, and a straight cast clips a ramp.
+fn already_past(first: Vec3, second: Vec3, feet: Vec3) -> bool {
+    let edge = second - first;
+    let along = (feet - first).dot(edge) / edge.length_squared();
+    along > 0.0 && feet.distance(first + edge * along.min(1.0)) < ZOMBIE_WAYPOINT_REACH
+}
+
 /// Zombies find the Player (or the Monkey Bomb pulling them) anywhere on the Map: they re-plan a route over the path-node graph
 /// every so often, steer straight at the Player when there's a clear walk or they share a node
 /// area, and move under gravity with grounded move-and-slide.
@@ -868,12 +878,14 @@ fn chase(
                 // until the stuck rule replaces it.
                 let path = graph.plan(from, to, &open_doors, |b| barriers.is_open(b)).unwrap_or_default();
                 route.waypoints = path.into_iter().map(|i| graph.nodes[i].at).collect();
-                // Skip the first node when the second is a clear walk on the same floor, so a
-                // Zombie never doubles back to the node behind it.
+                // Skip the first node when the second is a clear walk on the same floor, or the
+                // Zombie is already on the edge between them (a ramp changes floor on the way), so
+                // it never doubles back to the node behind it.
                 if let [first, second, ..] = route.waypoints[..]
-                    && (second.y - feet.y).abs() < 0.5
-                    && (first.y - feet.y).abs() < 0.5
-                    && clear_walk(spatial, &probe, transform.translation, second + Vec3::Y * half)
+                    && (already_past(first, second, feet)
+                        || ((second.y - feet.y).abs() < 0.5
+                            && (first.y - feet.y).abs() < 0.5
+                            && clear_walk(spatial, &probe, transform.translation, second + Vec3::Y * half)))
                 {
                     route.waypoints.remove(0);
                 }
