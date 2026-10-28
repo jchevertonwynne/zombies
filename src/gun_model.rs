@@ -106,6 +106,14 @@ impl GunModels {
         self.attachments[id as usize][slot].as_ref()
     }
 
+    /// How far above its origin the eye looks along when it's aimed: a fitted optic's centre, or
+    /// the tops of the iron sights, which stand about as high.
+    pub fn sight_height(&self, id: WeaponId) -> f32 {
+        // Every model marks where an optic sits, and fits every optic there.
+        let receiver = self.attachment(id, Attachment::RedDotSight).map_or(0.05, |optic| optic.rest.translation.y);
+        receiver + 0.03
+    }
+
     pub fn left_hand(&self, id: WeaponId) -> Option<&Part> {
         self.left_hand[id as usize].as_ref()
     }
