@@ -1449,6 +1449,14 @@ pub const USE_ANGLE: f32 = 45.0_f32.to_radians();
 pub const BARRIER_REBUILD_RANGE: f32 = 2.5;
 /// A Door's range override: its use point sits mid-Door, so this reaches the Door's full width.
 pub const DOOR_USE_RANGE: f32 = USE_RANGE + 1.2;
+/// An opening Door shakes for this long, then sinks into the floor over `DOOR_SINK_SECS`.
+pub const DOOR_SHAKE_SECS: f32 = 0.25;
+/// How long an opening Door takes to sink out of sight.
+pub const DOOR_SINK_SECS: f32 = 0.6;
+/// How far an opening Door sinks: a little more than its height, so it ends fully underground.
+pub const DOOR_SINK_DEPTH: f32 = 3.2;
+/// How far an opening Door shakes side to side, at most.
+pub const DOOR_SHAKE_AMPLITUDE: f32 = 0.04;
 pub const CANT_AFFORD_FLASH_SECS: f32 = 0.5;
 /// An ammo buy costs half the Wall Weapon's price, rounded up to a multiple of this.
 pub const AMMO_PRICE_STEP: u64 = 10;
