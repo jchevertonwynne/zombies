@@ -132,9 +132,9 @@ _Avoid_: bleed out, downed state
 
 **Game Over**: The end of a Run, triggered by a Down without Quick Revive. It shows the Round reached and the Run Record.
 
-**Run Record**: The saved summary of one finished Run: Map, Mode, date, Round reached, Kills, Headshots, Downs, Points Earned and time survived. A Gauntlet Run Record also lists the Boons held at the end, in the order they were picked, and how many Upgrade Track Ranks were switched on.
+**Run Record**: The saved summary of one finished Run: Map, Mode, date, Round reached, Kills, Headshots, Downs, Points Earned and time survived. A Gauntlet Run Record also lists the Boons held at the end, in the order they were picked, how many Upgrade Track Ranks were switched on, whether it reached its Win, and its Heat and Heat Conditions.
 
-**Records**: The best ten Run Records for a Map and Mode, ranked by Round reached and then by shorter time survived.
+**Records**: The best ten Run Records for a Map and Mode, ranked by Round reached and then by shorter time survived. Gauntlet Records rank Wins above other Runs, then by higher Heat, before Round reached and time.
 _Avoid_: high scores, leaderboard
 
 **Lifetime Stats**: Running totals across every Run the Player has finished.
@@ -179,6 +179,20 @@ _Avoid_: game type, difficulty
 **Gauntlet**: The Mode that plays exactly like Classic but offers a Boon after every Round.
 _Avoid_: roguelite mode
 
+**Act**: One of the three ten-Round stretches of a Gauntlet Run (Rounds 1–10, 11–20, 21–30). Each Act ends in a Boss Round.
+
+**Boss Round**: A Gauntlet Round built around a boss: the last Round of each Act, and every tenth Round in Endless.
+
+**Win**: Clearing the Boss Round that ends the third Act. The Player then chooses to end the Run or keep going into Endless; a Run that has reached its Win stays a Win whatever happens after.
+
+**Endless**: The Rounds a Gauntlet Run plays after its Win, when the Player keeps going. Endless keeps the Act rhythm, with a Boss Round every tenth Round and a Pact Offer between, but has no Acts and no further Win.
+
+**Boss Offer**: The Boon Offer that replaces the usual one after a cleared Boss Round, offering only the strongest Boons.
+
+**Heat**: Opt-in difficulty for Gauntlet, put together before a Run from Heat Conditions and unlocked by the first Win. A Run's Heat is the total of its Conditions' ranks, and higher Heat pays more Scrip.
+
+**Heat Condition**: One ranked rule that makes a Gauntlet Run harder with no upside, such as dearer prices or faster Zombies.
+
 **Boon**: A lasting upgrade the Player picks from an offer after completing a Round in Gauntlet. Boons are picked, never bought, and unlike Perks they survive a Down.
 _Avoid_: skill, buff, upgrade
 
@@ -194,7 +208,19 @@ _Avoid_: level, rank
 **Requirement**: A condition a Boon must meet before it can appear in a Boon Offer, such as holding another Boon.
 _Avoid_: prerequisite, unlock
 
-**Pact**: A cursed Boon: stronger than any Legendary but carrying a Drawback. Pacts are offered in place of Boons every fifth Round, may be skipped, and each can be held only once.
+**Proc Boon**: A Boon made of a Trigger and an Effect: whenever the Player does the Trigger, the Effect may fire and is seen working on screen. It belongs to the Player, not a Weapon, so it works with any Weapon, the Knife or a Lethal, and survives a Down. Each Stack makes its Effect bigger, never more likely.
+_Avoid_: on-hit boon, passive
+
+**Trigger**: The Player action that can fire a Proc Boon, such as a Headshot kill, a Knife kill or taking a hit.
+_Avoid_: condition, event
+
+**Effect**: What a Proc Boon does when it fires, drawn from the Ammo Mod elements (chain shock, burn, knockback, phantom gun, Turned) or a few of Gauntlet's own.
+_Avoid_: ability, power
+
+**Proc**: One firing of a Proc Boon's Effect. A Proc's damage never fires another Proc or an Ammo Mod.
+_Avoid_: activation, trigger (for the firing itself)
+
+**Pact**: A cursed Boon: stronger than any Legendary but carrying a Drawback. Pacts are offered in place of Boons in the middle Round of each Act, may be skipped, and each can be held only once.
 _Avoid_: cursed boon, curse, bargain
 
 **Drawback**: The lasting cost a Pact puts on the Run, such as dearer prices or faster Zombies.
