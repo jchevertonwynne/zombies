@@ -58,6 +58,8 @@ pub const HIP_SIDE: f32 = 0.22;
 pub const HIP_DROP: f32 = 0.2;
 /// How much closer to the camera the Weapon is pulled when it's aimed.
 const AIM_CLOSER: f32 = 0.06;
+/// How far forward the Weapon is pushed at the machine's slot as it goes in.
+const MACHINE_PUSH: f32 = 0.2;
 /// How much of its kick is left when it's fully aimed.
 const AIMED_KICK: f32 = 0.35;
 
@@ -196,6 +198,12 @@ pub fn rebuild_pose(up: f32, reach: f32) -> (f32, Option<Transform>) {
     (up, Some(Transform::from_translation(at).with_rotation(rotation)))
 }
 
+/// How far forward the view model is pushed `t` of the way (0 to 1) through being put away into
+/// the Pack-a-Punch machine: out toward the slot, before the drop takes it out of sight.
+pub fn machine_push(t: f32) -> f32 {
+    MACHINE_PUSH * smoothstep(t / 0.6)
+}
+
 /// The Ballistic Knife's stab, `t` of the way through: how far forward the view model lunges.
 pub fn stab_lunge(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
@@ -319,6 +327,18 @@ mod tests {
     use super::*;
 
     const GRAB: Vec3 = Vec3::new(0.0, -0.05, 0.1);
+
+    #[test]
+    fn the_push_into_the_machine_starts_at_rest_and_only_moves_forward() {
+        assert_eq!(machine_push(0.0), 0.0);
+        let mut last = 0.0;
+        for step in 1..=20 {
+            let push = machine_push(step as f32 / 20.0);
+            assert!(push >= last && push <= MACHINE_PUSH + 1e-6);
+            last = push;
+        }
+        assert!((machine_push(1.0) - MACHINE_PUSH).abs() < 1e-6);
+    }
 
     #[test]
     fn a_reload_starts_and_ends_at_rest() {

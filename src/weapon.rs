@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use crate::hands::{
     HIP_DROP, HIP_SIDE, ReloadPose, ReloadStyle, aim_shift, aimed_kick, carry_pose, drink_pose, knife_pose, rebuild_pose, reload_pose,
-    stab_lunge,
+    machine_push, stab_lunge,
 };
 use crate::barrier::Rebuild;
 use crate::controls::{Action, Controls};
@@ -174,6 +174,9 @@ pub struct Swap {
     pub elapsed: f32,
     pub drop_secs: f32,
     pub raise_secs: f32,
+    /// Whether the Weapon being put away is going into the Pack-a-Punch machine, so it's pushed
+    /// forward as it goes.
+    pub into_machine: bool,
 }
 
 impl Swap {
@@ -185,6 +188,7 @@ impl Swap {
             elapsed: 0.0,
             drop_secs: from.handling().drop_secs,
             raise_secs: to.handling().raise_secs,
+            into_machine: false,
         }
     }
 
@@ -591,6 +595,9 @@ impl Loadout {
         let taken = self.slots[self.held].take().expect("the held slot is always filled");
         self.held = other;
         self.begin_swap(&taken);
+        if let Some(swap) = &mut self.swap {
+            swap.into_machine = true;
+        }
         Some(taken)
     }
 
@@ -1261,6 +1268,8 @@ fn animate_view_model(
     let mut shown = glint_of(loadout.held());
     // A Perk drink puts the Weapon out of sight while the bottle comes up.
     let (drink_dip, bottle) = drinking.map_or((0.0, None), |drinking| drink_pose(drinking.progress()));
+    // The Weapon going into the Pack-a-Punch machine is pushed forward as it drops.
+    let mut push = 0.0;
     let dip = if drinking.is_some() {
         0.6 * drink_dip
     } else if let Some(swap) = &loadout.swap {
@@ -1268,6 +1277,9 @@ fn animate_view_model(
             shown_id = swap.from.id;
             class = swap.from.class;
             shown = swap.from_glint;
+            if swap.into_machine {
+                push = machine_push(swap.elapsed / swap.drop_secs);
+            }
             swap.elapsed / swap.drop_secs * 0.4
         } else {
             (1.0 - (swap.elapsed - swap.drop_secs) / swap.raise_secs) * 0.4
@@ -1338,7 +1350,7 @@ fn animate_view_model(
     transform.translation = Vec3::new(
         HIP_SIDE + 0.1 * tucked,
         -HIP_DROP - dip - 0.3 * tucked,
-        -0.45 - 0.15 * (length - 1.0) + kick * 0.05 - lunge,
+        -0.45 - 0.15 * (length - 1.0) + kick * 0.05 - lunge - push,
     ) + reload.shift
         + aim_by
         + carry_by;
