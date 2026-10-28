@@ -6,6 +6,9 @@
 //! the Wonder Weapons) is rolled the other way while the left hand feeds it, again and again. The
 //! Knife is a right hand slashing across the screen while the Weapon drops out of the way; the
 //! Ballistic Knife in hand lunges and stabs with its own blade instead.
+//!
+//! Aiming and sprinting move the whole Weapon: aiming brings the sights up under the crosshair,
+//! and sprinting lets the muzzle drop and roll in to the left, BO1-style.
 
 use bevy::prelude::*;
 
@@ -41,6 +44,15 @@ impl ReloadPose {
 const MAGAZINE_DROP: f32 = 0.5;
 /// Seconds per feed of the left hand.
 const FEED_SECS: f32 = 0.42;
+
+/// Where the view model sits at the hip, from the camera: right and down. (Its depth depends on
+/// the model's length, so that's the view model's own.)
+pub const HIP_SIDE: f32 = 0.22;
+pub const HIP_DROP: f32 = 0.2;
+/// How much closer to the camera the Weapon is pulled when it's aimed.
+const AIM_CLOSER: f32 = 0.06;
+/// How much of its kick is left when it's fully aimed.
+const AIMED_KICK: f32 = 0.35;
 
 fn smoothstep(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
@@ -94,6 +106,35 @@ pub fn reload_pose(style: ReloadStyle, elapsed: f32, secs: f32, grab: Vec3) -> R
             }
         }
     }
+}
+
+/// How much of an aim or a carry is left while another pose (a switch, a Reload, the Knife, a
+/// Perk) has taken over by `busy`, 0 (not at all) to 1 (completely). Never jumps.
+fn left_alone(busy: f32) -> f32 {
+    1.0 - smoothstep(busy)
+}
+
+/// How far the view model moves from the hip when `aim` (0 hip to 1 aimed) of the way up: over to
+/// the middle, raised until the sights (`sight_height` above the model's origin) are at the screen
+/// centre, and a little closer. Zero at the hip.
+pub fn aim_shift(aim: f32, sight_height: f32, busy: f32) -> Vec3 {
+    let amount = smoothstep(aim) * left_alone(busy);
+    Vec3::new(-HIP_SIDE, HIP_DROP - sight_height, AIM_CLOSER) * amount
+}
+
+/// How much of its kick the Weapon keeps at `aim`: all of it at the hip, less when aimed.
+pub fn aimed_kick(kick: f32, aim: f32) -> f32 {
+    kick * (1.0 - (1.0 - AIMED_KICK) * smoothstep(aim))
+}
+
+/// The carry while sprinting, `carry` of the way (0 to 1) there: the Weapon sinks, its muzzle
+/// drops and it rolls in to the left. Returns how far it moves, and how it turns.
+pub fn carry_pose(carry: f32, busy: f32) -> (Vec3, Quat) {
+    let amount = smoothstep(carry) * left_alone(busy);
+    let turn = Quat::from_rotation_y(0.25 * amount)
+        * Quat::from_rotation_x(-0.45 * amount)
+        * Quat::from_rotation_z(0.5 * amount);
+    (Vec3::new(-0.04, -0.08, 0.03) * amount, turn)
 }
 
 /// A Knife slash `t` of the way (0 to 1) through: how far the Weapon drops out of the way, and
@@ -176,6 +217,68 @@ mod tests {
         assert!(gone.is_none());
         assert!(dip < 0.2);
         assert!(knife_pose(0.3).0 > 0.9, "the Weapon is out of the way mid-slash");
+    }
+
+    #[test]
+    fn aiming_starts_and_ends_at_the_hip_and_never_jumps() {
+        assert_eq!(aim_shift(0.0, 0.08, 0.0), Vec3::ZERO);
+        let mut last = Vec3::ZERO;
+        for i in 1..=100 {
+            let shift = aim_shift(i as f32 / 100.0, 0.08, 0.0);
+            assert!((shift - last).length() < 0.02, "jumped at {i}");
+            last = shift;
+        }
+    }
+
+    #[test]
+    fn aimed_the_sights_are_centred_and_close() {
+        let sights = 0.08;
+        // The view model's origin, aimed: the hip plus the shift.
+        let at = Vec3::new(HIP_SIDE, -HIP_DROP, 0.0) + aim_shift(1.0, sights, 0.0);
+        assert!(at.x.abs() < 1e-5, "under the crosshair");
+        assert!((at.y + sights).abs() < 1e-5, "so the sights are at the centre: {at}");
+        assert!(aim_shift(1.0, sights, 0.0).z > 0.0, "closer");
+    }
+
+    #[test]
+    fn aiming_gives_way_to_another_pose() {
+        assert_eq!(aim_shift(1.0, 0.08, 1.0), Vec3::ZERO);
+        assert!(aim_shift(1.0, 0.08, 0.5).length() < aim_shift(1.0, 0.08, 0.0).length());
+    }
+
+    #[test]
+    fn kick_shrinks_when_aimed() {
+        assert_eq!(aimed_kick(1.0, 0.0), 1.0);
+        assert!((aimed_kick(1.0, 1.0) - AIMED_KICK).abs() < 1e-5);
+        assert_eq!(aimed_kick(0.0, 1.0), 0.0);
+    }
+
+    #[test]
+    fn the_carry_starts_at_rest_and_never_jumps() {
+        let (shift, turn) = carry_pose(0.0, 0.0);
+        assert_eq!(shift, Vec3::ZERO);
+        assert!(turn.angle_between(Quat::IDENTITY) < 1e-6);
+        let mut last = Quat::IDENTITY;
+        for i in 1..=100 {
+            let (_, turn) = carry_pose(i as f32 / 100.0, 0.0);
+            assert!(turn.angle_between(last) < 0.05, "jumped at {i}");
+            last = turn;
+        }
+    }
+
+    #[test]
+    fn carried_the_muzzle_drops_and_rolls_left() {
+        let (shift, turn) = carry_pose(1.0, 0.0);
+        assert!(shift.y < 0.0, "sunk");
+        assert!((turn * Vec3::NEG_Z).y < -0.2, "muzzle down");
+        assert!((turn * Vec3::Y).x < -0.2, "top rolled to the left");
+    }
+
+    #[test]
+    fn the_carry_gives_way_to_another_pose() {
+        let (shift, turn) = carry_pose(1.0, 1.0);
+        assert_eq!(shift, Vec3::ZERO);
+        assert!(turn.angle_between(Quat::IDENTITY) < 1e-6);
     }
 
     #[test]

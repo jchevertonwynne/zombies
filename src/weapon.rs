@@ -2,7 +2,7 @@ use avian3d::prelude::*;
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
 
-use crate::hands::{ReloadPose, ReloadStyle, knife_pose, reload_pose, stab_lunge};
+use crate::hands::{HIP_DROP, HIP_SIDE, ReloadPose, ReloadStyle, aim_shift, aimed_kick, carry_pose, knife_pose, reload_pose, stab_lunge};
 use crate::controls::{Action, Controls};
 use crate::ammo_mod::{AmmoModHit, AmmoMods, glint_colour, pick_ammo_mod};
 use crate::arsenal::{Burn, FireMode, Splash, WeaponId, WeaponStats};
@@ -204,6 +204,8 @@ pub struct Loadout {
     bloom: f32,
     /// Seconds of sprint-out left before the Weapon can fire or aim.
     sprint_out: f32,
+    /// How far the Weapon has eased into its sprint carry, 0 (ready) to 1 (carried).
+    carry: f32,
     /// Whether the held Weapon's Underbarrel is up instead of its main gun.
     underbarrel_up: bool,
     /// Seconds left of a toggle to or from the Underbarrel.
@@ -225,6 +227,7 @@ impl Loadout {
             aim: 0.0,
             bloom: 0.0,
             sprint_out: 0.0,
+            carry: 0.0,
             underbarrel_up: false,
             toggle: 0.0,
         }
@@ -447,6 +450,11 @@ impl Loadout {
         self.held().stats().ads_fov().is_some()
     }
 
+    /// How far the Weapon has eased into its sprint carry, 0 (ready) to 1 (carried).
+    pub fn carry(&self) -> f32 {
+        self.carry
+    }
+
     /// Advance sprint-out, aiming and spread recovery. Sprinting holds the Weapon down; aiming
     /// waits out the sprint-out, a switch and a Reload.
     pub fn update_stance(&mut self, dt: f32, sprinting: bool, wants_aim: bool) {
@@ -455,6 +463,9 @@ impl Loadout {
         } else {
             self.sprint_out = (self.sprint_out - dt).max(0.0);
         }
+        // The carry eases in and back out over the sprint-out time.
+        let out_secs = self.held().stats().handling().sprint_out_secs.max(0.05);
+        self.carry = move_towards(self.carry, if sprinting { 1.0 } else { 0.0 }, dt / out_secs);
         let aiming = wants_aim
             && self.can_aim()
             && !sprinting
@@ -1279,13 +1290,23 @@ fn animate_view_model(
     };
     let lunge = knife.swing().filter(|_| stabbing).map_or(0.0, stab_lunge);
 
+    // Aiming and the sprint carry give way to a switch, a Perk, the Knife and a Reload; the carry
+    // to the sights coming up too.
+    let busy = knife_dip.max((dip * 5.0).min(1.0)).max((reload.turn.angle_between(Quat::IDENTITY) / 0.4).min(1.0));
+    let aim_by = aim_shift(loadout.aim, guns.sight_height(shown_id), busy);
+    let (carry_by, carry_turn) = carry_pose(loadout.carry() * (1.0 - loadout.aim), busy);
+    let kick = aimed_kick(model.kick, loadout.aim);
+
     transform.translation = Vec3::new(
-        0.22 + 0.1 * knife_dip,
-        -0.2 - dip - 0.3 * knife_dip,
-        -0.45 - 0.15 * (length - 1.0) + model.kick * 0.05 - lunge,
-    ) + reload.shift;
-    transform.rotation = Quat::from_rotation_x(model.kick * 0.25 - dip * 2.0)
+        HIP_SIDE + 0.1 * knife_dip,
+        -HIP_DROP - dip - 0.3 * knife_dip,
+        -0.45 - 0.15 * (length - 1.0) + kick * 0.05 - lunge,
+    ) + reload.shift
+        + aim_by
+        + carry_by;
+    transform.rotation = Quat::from_rotation_x(kick * 0.25 - dip * 2.0)
         * Quat::from_rotation_z(-0.6 * knife_dip)
+        * carry_turn
         * reload.turn;
 
     for (part, mut part_transform, part_mesh, mut visibility) in &mut parts {
