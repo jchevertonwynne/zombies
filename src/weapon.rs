@@ -20,6 +20,7 @@ use crate::combat::{Crossing, Sights, hit_damage, pierce, spread_direction};
 use crate::explosive::{Explosion, Explosive, Launched, flight, makes_crawlers};
 use crate::gun_model::{GunModels, Part, model_length};
 use crate::layers::GameLayer;
+use crate::muzzle::{BulletImpact, ImpactKind};
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve, resolve_count};
 use crate::perk::{Drinking, hands_free};
 use crate::player::{Locomotion, Player, PlayerCamera};
@@ -969,6 +970,7 @@ fn fire(
     mut wonders: MessageWriter<WonderFired>,
     mut flames: MessageWriter<FlameFired>,
     mut cues: MessageWriter<PlayCue>,
+    mut impacts: MessageWriter<BulletImpact>,
 ) {
     let (entity, mut loadout, modifiers) = player.into_inner();
     let entries = &modifiers.0;
@@ -1107,6 +1109,18 @@ fn fire(
             true
         });
         crossed.sort_by(|a, b| a.distance.total_cmp(&b.distance));
+        // The first thing the line crosses gets the puffs.
+        if let Some(first) = crossed.first() {
+            impacts.write(BulletImpact {
+                at: camera.translation() + *direction * first.distance,
+                normal: first.normal,
+                kind: match zombie_for(first.entity, &hit_areas) {
+                    Some((_, HitZone::Head)) => ImpactKind::Headshot,
+                    Some(_) => ImpactKind::Zombie,
+                    None => ImpactKind::World,
+                },
+            });
+        }
         let crossings = crossed.iter().map(|hit| match zombie_for(hit.entity, &hit_areas) {
             Some((zombie, zone)) => Crossing::Zombie {
                 zombie,

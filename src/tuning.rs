@@ -1924,3 +1924,30 @@ pub const TRACK_MOVE_SPEED_INCREASE_PER_RANK: f32 = 0.02;
 pub const TRACK_BOX_PRICE_FACTOR_PER_RANK: f32 = 0.95;
 /// Extra seconds on timed Power-ups per Rank.
 pub const TRACK_POWER_UP_DURATION_SECS_PER_RANK: f32 = 2.0;
+
+// Muzzle flash, tracers and impact puffs
+/// How long the muzzle flash and its light last after a shot, in seconds.
+pub const MUZZLE_FLASH_SECS: f32 = 0.06;
+/// The muzzle flash's size (edge of its cube, in metres) per class of Weapon.
+pub const MUZZLE_FLASH_SIZE_SMALL: f32 = 0.05;
+pub const MUZZLE_FLASH_SIZE_MEDIUM: f32 = 0.075;
+pub const MUZZLE_FLASH_SIZE_LARGE: f32 = 0.115;
+/// The muzzle light's brightness (lumens) at the instant of the shot, and how far it reaches.
+pub const MUZZLE_LIGHT_INTENSITY: f32 = 120_000.0;
+pub const MUZZLE_LIGHT_RANGE: f32 = 9.0;
+/// How long an impact puff lasts, and the fastest it flies out, in metres per second.
+pub const IMPACT_PUFF_SECS: f32 = 0.25;
+pub const IMPACT_PUFF_SPEED: f32 = 2.5;
+/// Puffs thrown by one impact on the world, on a Zombie, and on a Zombie's head.
+pub const IMPACT_PUFFS_WORLD: u32 = 3;
+pub const IMPACT_PUFFS_ZOMBIE: u32 = 4;
+pub const IMPACT_PUFFS_HEADSHOT: u32 = 10;
+/// Puff cube edge, in metres, for a normal impact and for a Headshot.
+pub const IMPACT_PUFF_SIZE: f32 = 0.06;
+pub const IMPACT_PUFF_SIZE_HEADSHOT: f32 = 0.09;
+/// The most puffs alive at once, so a Train with an LMG stays cheap.
+pub const IMPACT_PUFF_CAP: usize = 64;
+/// Every this-many impacts draws a tracer from the muzzle, which lasts this long.
+pub const TRACER_EVERY: u32 = 3;
+pub const TRACER_SECS: f32 = 0.05;
+pub const TRACER_WIDTH: f32 = 0.012;

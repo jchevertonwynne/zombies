@@ -25,6 +25,7 @@ mod map;
 mod menu;
 mod modifier;
 mod mode;
+mod muzzle;
 mod pack_a_punch;
 mod perk;
 mod mystery_box;
@@ -109,6 +110,7 @@ fn main() {
         .add_plugins((
             hud::HudPlugin,
             sway::SwayPlugin,
+            muzzle::MuzzlePlugin,
             audio::AudioPlugin,
             debug::DebugPlugin,
         ))
