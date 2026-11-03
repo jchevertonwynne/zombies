@@ -5,15 +5,15 @@ use bevy::prelude::*;
 use bevy_transform_interpolation::{TransformEasingSystems, TranslationEasingState};
 
 use crate::door::Door;
-use crate::last_stand::LastStand;
 use crate::layers::GameLayer;
-use crate::modifier::{Modifiers, Stat, resolve};
+use crate::modifier::{Stat, resolve};
 use crate::barrier::{Barriers, Entering};
 use crate::explosive::in_sight;
 use crate::hellhound::Telegraph;
 use crate::nav::{NavGraph, Route, repath_interval};
+use crate::target::{Players, nearest_up_player};
 use crate::nova::NovaCrawlerKilled;
-use crate::player::{Player, PlayerHit};
+use crate::player::PlayerHit;
 use crate::power_up::{ActivePowerUps, PowerUp};
 use crate::round::CarriesOver;
 use crate::special::{SpecialCue, SpecialKind, hit_pays};
@@ -825,9 +825,10 @@ fn already_past(first: Vec3, second: Vec3, feet: Vec3) -> bool {
     along > 0.0 && feet.distance(first + edge * along.min(1.0)) < ZOMBIE_WAYPOINT_REACH
 }
 
-/// Zombies find the Player (or the Monkey Bomb pulling them) anywhere on the Map: they re-plan a route over the path-node graph
-/// every so often, steer straight at the Player when there's a clear walk or they share a node
-/// area, and move under gravity with grounded move-and-slide.
+/// Zombies find a Player (or the Monkey Bomb pulling them) anywhere on the Map: every so often they
+/// pick the nearest Player by path who is up, and re-plan a route over the path-node graph. They
+/// steer straight at the Player when there's a clear walk or they share a node area, and move
+/// under gravity with grounded move-and-slide.
 fn chase(
     mut zombies: Query<
         (Entity, &mut Zombie, &mut Route, &mut Transform, &Collider, Option<&Lured>, Option<&Seeking>),
@@ -840,16 +841,14 @@ fn chase(
             Without<Telegraph>,
         ),
     >,
-    player: Single<(&Transform, Has<LastStand>, &Modifiers), (With<Player>, Without<Zombie>)>,
+    players: Players,
     graph: Res<NavGraph>,
     doors: Query<&Door>,
     barriers: Res<Barriers>,
     move_and_slide: MoveAndSlide,
     time: Res<Time>,
 ) {
-    let (player, last_stand, modifiers) = *player;
     let dt = time.delta_secs();
-    let player_feet = player.translation - Vec3::Y * (PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0);
     let open_doors: Vec<_> = doors.iter().filter(|door| door.open).filter_map(|door| door.joins).collect();
     let probe = Collider::sphere(ZOMBIE_RADIUS * 0.8);
     let filter_mask = [GameLayer::World, GameLayer::Zombie, GameLayer::Player];
@@ -858,11 +857,33 @@ fn chase(
     for (entity, mut zombie, mut route, mut transform, collider, lured, seeking) in &mut zombies {
         let half = zombie.half_height();
         let feet = transform.translation - Vec3::Y * half;
+
+        // Picks the nearest Player who is up, again every so often so a Train can pass between
+        // Players, and at once when its Player goes down. With none up (a solo Last Stand) it
+        // stays with the nearest, and leaves them alone.
+        route.retarget_in -= dt;
+        let held = route.target.and_then(|target| players.get(target));
+        if route.retarget_in <= 0.0 || held.is_none_or(|player| !player.up) {
+            route.retarget_in = ZOMBIE_RETARGET_SECS;
+            let picked = nearest_up_player(&graph, feet, players.iter(), &open_doors, |b| barriers.is_open(b))
+                .or_else(|| players.nearest(feet));
+            if let Some(picked) = picked
+                && route.target != Some(picked.entity)
+            {
+                route.target = Some(picked.entity);
+                route.repath_in = 0.0;
+            }
+        }
+        let Some(player) = route.target.and_then(|target| players.get(target)) else {
+            continue;
+        };
+        let modifiers = players.modifiers(player.entity).map_or(&[][..], |modifiers| &modifiers.0[..]);
+
         // A point of its own beats everything; then a Monkey Bomb's pull, even over a Player in
         // Last Stand.
         let goal_feet = seeking.map(|seek| seek.0).or(lured.map(|lure| lure.0));
-        let target_feet = goal_feet.unwrap_or(player_feet);
-        let last_stand = last_stand && goal_feet.is_none();
+        let target_feet = goal_feet.unwrap_or(player.feet);
+        let last_stand = !player.up && goal_feet.is_none();
         let rise = target_feet.y - feet.y;
 
         route.repath_in -= dt;
@@ -923,7 +944,7 @@ fn chase(
         if facing.length_squared() > 1e-4 {
             transform.rotation = Quat::from_rotation_y(f32::atan2(-facing.x, -facing.z));
         }
-        let speed = resolve(Stat::ZombieSpeed, zombie.speed(), &modifiers.0);
+        let speed = resolve(Stat::ZombieSpeed, zombie.speed(), modifiers);
         let stride = if planted { Vec3::ZERO } else { heading * speed };
         let velocity = stride + Vec3::Y * (zombie.fall_speed - GRAVITY * dt);
 
@@ -978,7 +999,7 @@ fn clean_up_stuck(
         (Entity, &mut Zombie, &Transform, Option<&Entering>),
         (Without<Dying>, Without<Rising>, Without<Telegraph>, Without<CarriesOver>),
     >,
-    player: Single<&Transform, (With<Player>, Without<Zombie>)>,
+    players: Players,
     barriers: Res<Barriers>,
     mut cleaned: MessageWriter<ZombieCleanedUp>,
     time: Res<Time>,
@@ -996,7 +1017,10 @@ fn clean_up_stuck(
             }
             continue;
         }
-        if zombie.stuck.update(transform.translation, player.translation, dt) {
+        let Some(player) = players.nearest(transform.translation) else {
+            continue;
+        };
+        if zombie.stuck.update(transform.translation, player.centre, dt) {
             commands.entity(entity).despawn();
             cleaned.write(ZombieCleanedUp);
         }
@@ -1017,7 +1041,7 @@ pub fn slam_reaches(from: Vec3, forward: Vec3, to: Vec3) -> bool {
 /// Barriers).
 fn attack(
     mut zombies: Query<
-        (&mut Zombie, &Transform),
+        (&mut Zombie, &Transform, Option<&Route>),
         (
             Without<Dying>,
             Without<Rising>,
@@ -1027,17 +1051,19 @@ fn attack(
             Without<Telegraph>,
         ),
     >,
-    player: Single<(&Transform, Has<LastStand>), With<Player>>,
+    players: Players,
     spatial: SpatialQuery,
     mut hits: MessageWriter<PlayerHit>,
     mut cues: MessageWriter<SpecialCue>,
     time: Res<Time>,
 ) {
-    let (player, last_stand) = *player;
     let dt = time.delta_secs();
-    for (mut zombie, transform) in &mut zombies {
+    for (mut zombie, transform, route) in &mut zombies {
+        let Some(player) = players.target_of(route.and_then(|route| route.target), transform.translation) else {
+            continue;
+        };
         // Zombies leave a Player in Last Stand alone.
-        if last_stand {
+        if !player.up {
             zombie.wind_up = None;
             continue;
         }
@@ -1045,10 +1071,10 @@ fn attack(
         // Same floor only: a Zombie under the Balcony can't swipe the Player standing on it. The
         // line runs chest to chest (both transforms are capsule centres), so low cover like a
         // Yard crate doesn't block it, but a wall does.
-        let in_reach = horizontal(player.translation - transform.translation).length() <= reach
-            && (player.translation.y - transform.translation.y).abs() < 1.5
-            && (!zombie.is_sapper() || slam_reaches(transform.translation, *transform.forward(), player.translation))
-            && in_sight(&spatial, transform.translation, player.translation);
+        let in_reach = horizontal(player.centre - transform.translation).length() <= reach
+            && (player.centre.y - transform.translation.y).abs() < 1.5
+            && (!zombie.is_sapper() || slam_reaches(transform.translation, *transform.forward(), player.centre))
+            && in_sight(&spatial, transform.translation, player.centre);
         let at = Some(transform.translation);
         zombie.attack_cooldown = (zombie.attack_cooldown - dt).max(0.0);
 
@@ -1062,7 +1088,10 @@ fn attack(
                 }
                 // A Zombie that lands a swipe is ignored for a moment; other Zombies can still hit.
                 if in_reach {
-                    hits.write(PlayerHit { damage });
+                    hits.write(PlayerHit {
+                        player: player.entity,
+                        damage,
+                    });
                     // The Sapper's slam has its own sound, above.
                     if !zombie.is_sapper() {
                         let cue = if zombie.hellhound {

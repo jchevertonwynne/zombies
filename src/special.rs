@@ -21,10 +21,10 @@ use crate::audio::cues::Cue;
 use crate::burn::Burning;
 use crate::explosive::in_sight;
 use crate::hud::overlay::{Overlay, Overlays};
-use crate::last_stand::LastStand;
 use crate::map::{SpawnKind, SpawnPoint};
 use crate::nav::Route;
 use crate::player::{LocalPlayer, Player, PlayerCamera, PlayerHit};
+use crate::target::Players;
 use crate::points::BonusPoints;
 use crate::round::{CarriesOver, Round, RoundPhase, alive_cap, zombie_health};
 use crate::settings::{Settings, SpecialType, SpecialZombies};
@@ -35,7 +35,7 @@ use crate::zombie::{
     Attack, DamageZombie, Dying, HitZone, KnockedDown, Pay, Rising, SpeedTier, StuckWatch, Zombie, ZombieAssetsParam,
     spawn_zombie,
 };
-use crate::zone::{ActiveZones, PlayerZone, ZoneId, ZoneSet};
+use crate::zone::{ActiveZones, ZoneId, ZoneSet};
 
 /// The Special Zombies with a kind of their own: the two of the special slot, and the Sapper.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -408,8 +408,7 @@ fn spawn_special(
     mut round: ResMut<Round>,
     alive: Query<(), (With<Zombie>, Without<Dying>)>,
     spawn_points: Query<(&Transform, &SpawnPoint)>,
-    player: Single<&Transform, With<Player>>,
-    player_zone: Single<&PlayerZone, With<Player>>,
+    players: Players,
     active: Res<ActiveZones>,
     zombie_assets: ZombieAssetsParam,
     assets: Res<SpecialAssets>,
@@ -417,6 +416,10 @@ fn spawn_special(
     mut cues: MessageWriter<SpecialCue>,
 ) {
     let Some(kind) = plan.kind else {
+        return;
+    };
+    // It spawns relative to the first Player: there's no Zombie yet to say which it is after.
+    let Some(player) = players.first() else {
         return;
     };
     if !settings.special_zombies.is_on(kind.switch()) {
@@ -434,9 +437,9 @@ fn spawn_special(
             .iter()
             .filter(|(_, point)| point.kind == SpawnKind::Special)
             .map(|(t, point)| (point.zone, t.translation)),
-        player_zone.0,
+        player.zone,
         active.0,
-        player.translation,
+        player.centre,
     );
     if points.is_empty() || !round.take_from_horde() {
         return;
@@ -522,16 +525,18 @@ fn spawn_pool(commands: &mut Commands, assets: &SpecialAssets, at: Vec3, damage:
 
 /// A Napalm near the Player winds up and blows itself up, an Unpaid death that pays nothing.
 fn detonate(
-    mut napalms: Query<(Entity, &mut Napalm, &Transform, Has<Rising>, Has<KnockedDown>), Without<Dying>>,
-    player: Single<(&Transform, Has<LastStand>), (With<Player>, Without<Napalm>)>,
+    mut napalms: Query<(Entity, &mut Napalm, &Transform, Option<&Route>, Has<Rising>, Has<KnockedDown>), Without<Dying>>,
+    players: Players,
     mut damage: MessageWriter<DamageZombie>,
     mut cues: MessageWriter<SpecialCue>,
     time: Res<Time>,
 ) {
-    let (player, last_stand) = *player;
     let dt = time.delta_secs();
-    for (entity, mut napalm, transform, rising, down) in &mut napalms {
+    for (entity, mut napalm, transform, route, rising, down) in &mut napalms {
         napalm.age += dt;
+        let Some(player) = players.target_of(route.and_then(|route| route.target), transform.translation) else {
+            continue;
+        };
         match napalm.wind_up {
             Some(left) if left - dt <= 0.0 => {
                 napalm.wind_up = None;
@@ -545,8 +550,8 @@ fn detonate(
             Some(left) => napalm.wind_up = Some(left - dt),
             None if !rising
                 && !down
-                && !last_stand
-                && napalm_triggers(player.translation - transform.translation, napalm.age) =>
+                && player.up
+                && napalm_triggers(player.centre - transform.translation, napalm.age) =>
             {
                 napalm.wind_up = Some(NAPALM_WIND_UP_SECS);
                 cues.write(SpecialCue {
@@ -562,18 +567,18 @@ fn detonate(
 /// A Shrieker with the Player in front of it winds up and screams, blurring and shaking their
 /// view (a Shellshock) and shaking it, then waits out its cooldown. It gasps every few seconds meanwhile.
 fn shriek(
-    mut shriekers: Query<(&mut Shrieker, &Transform, Has<Rising>, Has<KnockedDown>), Without<Dying>>,
-    player: Single<(&Transform, Has<LastStand>), (With<Player>, Without<Shrieker>)>,
+    mut shriekers: Query<(&mut Shrieker, &Transform, Option<&Route>, Has<Rising>, Has<KnockedDown>), Without<Dying>>,
+    players: Players,
     spatial: SpatialQuery,
     mut shellshocks: MessageWriter<Shellshock>,
     mut shake: ResMut<ScreamShake>,
     mut cues: MessageWriter<SpecialCue>,
     time: Res<Time>,
 ) {
-    let (player, last_stand) = *player;
     let dt = time.delta_secs();
-    for (mut shrieker, transform, rising, down) in &mut shriekers {
+    for (mut shrieker, transform, route, rising, down) in &mut shriekers {
         let at = transform.translation;
+        let target = players.target_of(route.and_then(|route| route.target), at);
         shrieker.idle_in -= dt;
         if shrieker.idle_in <= 0.0 {
             shrieker.idle_in = rand::random_range(SHRIEKER_IDLE_SECS);
@@ -587,9 +592,9 @@ fn shriek(
             continue;
         }
         shrieker.cooldown = (shrieker.cooldown - dt).max(0.0);
-        let reaches = !last_stand
-            && scream_reaches(at, *transform.forward(), player.translation)
-            && in_sight(&spatial, at, player.translation);
+        let reaches = target.filter(|player| {
+            player.up && scream_reaches(at, *transform.forward(), player.centre) && in_sight(&spatial, at, player.centre)
+        });
         match shrieker.wind_up {
             Some(left) if left - dt <= 0.0 => {
                 shrieker.wind_up = None;
@@ -598,8 +603,9 @@ fn shriek(
                     cue: Cue::ShriekerScream,
                     at: Some(at),
                 });
-                // Stepping out of reach during the wind-up dodges it.
-                if reaches {
+                // Stepping out of reach during the wind-up dodges it. The haze and shake are on
+                // the screen of the Player it reached.
+                if reaches.is_some_and(|player| player.local) {
                     shellshocks.write(Shellshock {
                         secs: SHRIEKER_BLUR_SECS,
                     });
@@ -611,7 +617,7 @@ fn shriek(
                 }
             }
             Some(left) => shrieker.wind_up = Some(left - dt),
-            None if reaches && shrieker.cooldown <= 0.0 => {
+            None if reaches.is_some() && shrieker.cooldown <= 0.0 => {
                 shrieker.wind_up = Some(SHRIEKER_WIND_UP_SECS);
                 cues.write(SpecialCue {
                     cue: Cue::ShriekerWindup,
@@ -629,7 +635,7 @@ fn special_deaths(
     mut commands: Commands,
     deaths: Query<(&Zombie, &Transform, &Dying), Added<Dying>>,
     zombies: Query<(Entity, &Transform), (With<Zombie>, Without<Dying>)>,
-    player: Single<&Transform, (With<Player>, Without<Zombie>)>,
+    players: Players,
     spatial: SpatialQuery,
     round: Option<Res<Round>>,
     mut slot: ResMut<SpecialSlot>,
@@ -672,14 +678,21 @@ fn special_deaths(
                         });
                     }
                 }
-                let distance = player.translation.distance(at);
-                if let Some(amount) = napalm_blast_damage(distance)
-                    && in_sight(&spatial, at, player.translation)
-                {
-                    player_hits.write(PlayerHit { damage: amount });
-                    shellshocks.write(Shellshock {
-                        secs: napalm_shellshock_secs(distance),
-                    });
+                for player in players.iter() {
+                    let distance = player.centre.distance(at);
+                    if let Some(amount) = napalm_blast_damage(distance)
+                        && in_sight(&spatial, at, player.centre)
+                    {
+                        player_hits.write(PlayerHit {
+                            player: player.entity,
+                            damage: amount,
+                        });
+                        if player.local {
+                            shellshocks.write(Shellshock {
+                                secs: napalm_shellshock_secs(distance),
+                            });
+                        }
+                    }
                 }
                 cues.write(SpecialCue {
                     cue: Cue::NapalmExplode,
@@ -752,7 +765,7 @@ fn death_screams(
 fn fire_pools(
     mut commands: Commands,
     mut pools: Query<(Entity, &mut FirePool, &Transform)>,
-    player: Single<&Transform, (With<Player>, Without<FirePool>)>,
+    players: Players,
     zombies: Query<
         (Entity, &Transform, &Zombie),
         (Without<Dying>, Without<PoolBurning>, Without<Rising>, Without<FirePool>),
@@ -763,17 +776,23 @@ fn fire_pools(
     mut cues: MessageWriter<SpecialCue>,
     time: Res<Time>,
 ) {
-    let feet = player.translation - Vec3::Y * (PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0);
     let mut alight = burning.iter().count();
     for (entity, mut pool, transform) in &mut pools {
         let at = transform.translation;
         let due = pool.ticks.advance(time.delta_secs());
-        if due > 0.0 && in_fire(at, feet) {
-            hits.write(PlayerHit { damage: due });
-            cues.write(SpecialCue {
-                cue: Cue::FireBurn,
-                at: None,
-            });
+        if due > 0.0 {
+            for player in players.iter().filter(|player| in_fire(at, player.feet)) {
+                hits.write(PlayerHit {
+                    player: player.entity,
+                    damage: due,
+                });
+                if player.local {
+                    cues.write(SpecialCue {
+                        cue: Cue::FireBurn,
+                        at: None,
+                    });
+                }
+            }
         }
         for (zombie, zombie_at, body) in &zombies {
             if alight >= NAPALM_POOL_MAX_BURNING {
@@ -823,7 +842,7 @@ fn pool_burns(
 /// The heat tint shows near a living Napalm, stronger the closer it is.
 fn heat_tint(
     napalms: Query<&Transform, (With<Napalm>, Without<Dying>)>,
-    player: Single<&Transform, (With<Player>, Without<Napalm>)>,
+    player: Single<&Transform, (With<LocalPlayer>, Without<Napalm>)>,
     mut overlays: ResMut<Overlays>,
 ) {
     let nearest = napalms
@@ -873,16 +892,18 @@ fn fade_fireballs(mut commands: Commands, mut fireballs: Query<(Entity, &mut Fir
 fn unstick(
     mut specials: Query<
         (&mut SpecialWatch, &mut Transform, &mut TranslationEasingState, &mut Route),
-        (Without<Dying>, Without<Rising>),
+        (Without<Dying>, Without<Rising>, Without<Player>),
     >,
-    player: Single<&Transform, (With<Player>, Without<SpecialWatch>)>,
+    players: Players,
     spawn_points: Query<(&Transform, &SpawnPoint), (Without<SpecialWatch>, Without<Player>)>,
-    player_zone: Single<&PlayerZone, With<Player>>,
     active: Res<ActiveZones>,
     time: Res<Time>,
 ) {
     for (mut watch, mut transform, mut easing, mut route) in &mut specials {
-        if !watch.0.update(transform.translation, player.translation, time.delta_secs()) {
+        let Some(player) = players.nearest(transform.translation) else {
+            continue;
+        };
+        if !watch.0.update(transform.translation, player.centre, time.delta_secs()) {
             continue;
         }
         let points = special_spawn_candidates(
@@ -890,9 +911,9 @@ fn unstick(
                 .iter()
                 .filter(|(_, point)| point.kind == SpawnKind::Special)
                 .map(|(t, point)| (point.zone, t.translation)),
-            player_zone.0,
+            player.zone,
             active.0,
-            player.translation,
+            player.centre,
         );
         if !points.is_empty() {
             let at = points[rand::random_range(0..points.len())];

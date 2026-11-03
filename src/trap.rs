@@ -442,11 +442,11 @@ fn electrocute(
     }
 }
 
-/// A running Trap Downs the Player without Juggernog, and shocks them through it, again each
+/// A running Trap Downs a Player without Juggernog, and shocks them through it, again each
 /// time a shock ends with them still inside.
 fn shock_player(
     mut commands: Commands,
-    player: Single<
+    mut players: Query<
         (Entity, &Transform, &Perks, &mut Modifiers, Option<&mut Shocked>, Has<LastStand>),
         With<Player>,
     >,
@@ -454,44 +454,50 @@ fn shock_player(
     mut hits: MessageWriter<PlayerHit>,
     time: Res<Time>,
 ) {
-    let (entity, transform, perks, mut modifiers, shocked, last_stand) = player.into_inner();
-    let mut still_shocked = false;
-    if let Some(mut shocked) = shocked {
-        shocked.left -= time.delta_secs();
-        if shocked.left <= 0.0 {
-            modifiers.0.retain(|entry| entry.source != SHOCK_SOURCE);
-            commands.entity(entity).remove::<Shocked>();
-        } else {
-            still_shocked = true;
-        }
-    }
-
+    let running = running_volumes(traps.iter());
     let half_height = PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0;
-    let inside = running_volumes(traps.iter())
-        .iter()
-        .any(|&(centre, half)| touches(centre, half, transform.translation, PLAYER_RADIUS, half_height));
-    if !inside {
-        return;
-    }
-    match player_touch(perks.has(Perk::Juggernog), last_stand, still_shocked) {
-        PlayerTouch::Nothing => {}
-        // Enough to empty any Health; the Down itself is the Last Stand module's.
-        PlayerTouch::Down => {
-            hits.write(PlayerHit { damage: f32::MAX });
+    for (entity, transform, perks, mut modifiers, shocked, last_stand) in &mut players {
+        let mut still_shocked = false;
+        if let Some(mut shocked) = shocked {
+            shocked.left -= time.delta_secs();
+            if shocked.left <= 0.0 {
+                modifiers.0.retain(|entry| entry.source != SHOCK_SOURCE);
+                commands.entity(entity).remove::<Shocked>();
+            } else {
+                still_shocked = true;
+            }
         }
-        PlayerTouch::Shock => {
-            hits.write(PlayerHit {
-                damage: TRAP_PLAYER_DAMAGE,
-            });
-            modifiers.0.retain(|entry| entry.source != SHOCK_SOURCE);
-            modifiers.0.push(Modifier {
-                stat: Stat::MoveSpeed,
-                source: SHOCK_SOURCE,
-                effect: Effect::Mult(TRAP_SHOCK_SPEED_MULT),
-            });
-            commands.entity(entity).insert(Shocked {
-                left: TRAP_SHOCK_SECS,
-            });
+
+        let inside = running
+            .iter()
+            .any(|&(centre, half)| touches(centre, half, transform.translation, PLAYER_RADIUS, half_height));
+        if !inside {
+            continue;
+        }
+        match player_touch(perks.has(Perk::Juggernog), last_stand, still_shocked) {
+            PlayerTouch::Nothing => {}
+            // Enough to empty any Health; the Down itself is the Last Stand module's.
+            PlayerTouch::Down => {
+                hits.write(PlayerHit {
+                    player: entity,
+                    damage: f32::MAX,
+                });
+            }
+            PlayerTouch::Shock => {
+                hits.write(PlayerHit {
+                    player: entity,
+                    damage: TRAP_PLAYER_DAMAGE,
+                });
+                modifiers.0.retain(|entry| entry.source != SHOCK_SOURCE);
+                modifiers.0.push(Modifier {
+                    stat: Stat::MoveSpeed,
+                    source: SHOCK_SOURCE,
+                    effect: Effect::Mult(TRAP_SHOCK_SPEED_MULT),
+                });
+                commands.entity(entity).insert(Shocked {
+                    left: TRAP_SHOCK_SECS,
+                });
+            }
         }
     }
 }

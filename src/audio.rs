@@ -396,6 +396,7 @@ fn play_player_sounds(
     mut kills: MessageReader<ZombieKilled>,
     mut explosions: MessageReader<Explosion>,
     mut hurts: MessageReader<PlayerHit>,
+    local_player: Query<(), With<LocalPlayer>>,
     mut loops: Query<&mut FlatLoop>,
     loadout: Query<&Loadout, With<LocalPlayer>>,
     claymores: Query<(), Added<Claymore>>,
@@ -428,8 +429,10 @@ fn play_player_sounds(
     for explosion in explosions.read() {
         sounds.play(&mut commands, Cue::Explosion, Some(explosion.at));
     }
-    for _ in hurts.read() {
-        sounds.play(&mut commands, Cue::PlayerHurt, None);
+    for hurt in hurts.read() {
+        if local_player.contains(hurt.player) {
+            sounds.play(&mut commands, Cue::PlayerHurt, None);
+        }
     }
     if let Ok(loadout) = loadout.single() {
         let now = (loadout.reload.is_some(), loadout.swap.is_some());

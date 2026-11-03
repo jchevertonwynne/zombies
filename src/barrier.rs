@@ -11,11 +11,11 @@ use crate::controls::{Action, Controls};
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
 use crate::buy::{Buyable, Focus, Held, Nearby};
-use crate::last_stand::LastStand;
 use crate::map::{BarrierId, WINDOWS};
 use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_points};
 use crate::nav::Route;
-use crate::player::{LocalPlayer, Player, PlayerHit};
+use crate::player::{LocalPlayer, PlayerHit};
+use crate::target::Players;
 use crate::points::{Points, PointsAwarded};
 use crate::round::{Round, zombie_health};
 use crate::state::{GameState, InRun, Pause};
@@ -524,7 +524,7 @@ fn enter_through_windows(
         (Entity, &Zombie, &mut Entering, &mut Transform),
         (Without<Dying>, Without<KnockedDown>, Without<Stunned>),
     >,
-    player: Single<(&Transform, &Modifiers, Has<LastStand>), (With<Player>, Without<Zombie>)>,
+    players: Players,
     mut barriers: ResMut<Barriers>,
     mut hits: MessageWriter<PlayerHit>,
     mut torn: MessageWriter<PlankTorn>,
@@ -533,8 +533,8 @@ fn enter_through_windows(
     round: Res<Round>,
     time: Res<Time>,
 ) {
-    let (player, modifiers, last_stand) = *player;
-    let tear_damage = plank_tear_damage(round.number, &modifiers.0);
+    let entries = players.first().and_then(|player| players.modifiers(player.entity)).map_or(&[][..], |modifiers| &modifiers.0[..]);
+    let tear_damage = plank_tear_damage(round.number, entries);
     let dt = time.delta_secs();
     let mut taken: Vec<(BarrierId, usize)> = zombies
         .iter()
@@ -578,8 +578,10 @@ fn enter_through_windows(
                     continue;
                 }
                 face(&mut transform, -out);
-                let in_reach =
-                    !last_stand && reach_through(player.translation, transform.translation, centre);
+                let victim = players
+                    .iter()
+                    .find(|player| player.up && reach_through(player.centre, transform.translation, centre));
+                let in_reach = victim.is_some();
                 let planks = barriers.planks(barrier);
                 let action = spot_action(in_reach, planks, zombie.is_crawler());
                 // An open window is climbed at once, unless there's a Player to swipe at first.
@@ -590,8 +592,11 @@ fn enter_through_windows(
                 }
                 match action {
                     SpotAction::Swipe => {
-                        if rand::random_bool(BARRIER_SWIPE_CHANCE) {
+                        if let Some(victim) = victim
+                            && rand::random_bool(BARRIER_SWIPE_CHANCE)
+                        {
                             hits.write(PlayerHit {
+                                player: victim.entity,
                                 damage: ZOMBIE_SWIPE_DAMAGE,
                             });
                             cues.write(PlayCue {

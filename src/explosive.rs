@@ -284,7 +284,7 @@ fn explode(
     mut explosions: MessageReader<Explosion>,
     spatial: SpatialQuery,
     zombies: Query<(Entity, &Zombie, &GlobalTransform), Without<Dying>>,
-    player: Single<(&Transform, &Health), With<Player>>,
+    players: Query<(Entity, &Transform, &Health), With<Player>>,
     mut damage: MessageWriter<DamageZombie>,
     mut ammo_mod_hits: MessageWriter<AmmoModHit>,
     mut gibbed: MessageWriter<Gibbed>,
@@ -292,10 +292,9 @@ fn explode(
     assets: Res<ExplosiveAssets>,
     settings: Res<Settings>,
 ) {
-    let (player_transform, health) = *player;
     let crawlers_on = settings.special_zombies.crawlers;
     // Several blasts in one frame each see the Health the last one left.
-    let mut health_left = health.current;
+    let mut health_left: Vec<_> = players.iter().map(|(player, _, health)| (player, health.current)).collect();
     // Likewise each Zombie's, and whether it can't lose its legs: already a Crawler, or a
     // Special Zombie, which is never a normal Zombie.
     let mut blasted: Vec<(Entity, f32, bool)> = Vec::new();
@@ -334,14 +333,19 @@ fn explode(
             blasted[i].1 = before - amount;
         }
 
-        let centre = player_transform.translation;
-        if explosion.hurts_player
-            && let Some(amount) = splash.damage(centre.distance(explosion.at))
-            && in_sight(&spatial, explosion.at, centre)
-        {
-            let taken = self_explosive_damage(health_left, amount);
-            health_left -= taken;
-            player_hits.write(PlayerHit { damage: taken });
+        // It doesn't yet say whose it is, so a blast that hurts the Player hurts every Player it reaches.
+        if explosion.hurts_player {
+            for (player, transform, _) in &players {
+                let centre = transform.translation;
+                if let Some(amount) = splash.damage(centre.distance(explosion.at))
+                    && in_sight(&spatial, explosion.at, centre)
+                {
+                    let left = &mut health_left.iter_mut().find(|(entity, _)| *entity == player).expect("listed above").1;
+                    let taken = self_explosive_damage(*left, amount);
+                    *left -= taken;
+                    player_hits.write(PlayerHit { player, damage: taken });
+                }
+            }
         }
 
         commands.spawn((
