@@ -1,0 +1,259 @@
+//! What carries messages between a Host and its Players.
+//!
+//! The game speaks to a `Link` and doesn't know what is behind it: the real thing
+//! (`transport`), or for tests one in memory that can be made as slow and as lossy as
+//! a bad connection.
+
+use serde::{Deserialize, Serialize};
+
+use super::protocol::Peer;
+
+/// How good the way to another game is.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct Quality {
+    /// There and back, in milliseconds.
+    pub ping: u16,
+    /// Straight between the two games, and not by way of a relay.
+    pub direct: bool,
+}
+
+/// Something a link has to tell.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Event {
+    /// A Player has connected to the Host, or a Player's game has reached its Host.
+    Joined(Peer),
+    Left(Peer),
+    /// The way to the other game has broken without its saying it was going: it
+    /// may yet be dialled again.
+    Lost(Peer),
+    /// Bytes sent with `send`: all of them arrive, in the order they were sent.
+    Message(Peer, Vec<u8>),
+    /// Bytes sent with `datagram`: some may not arrive, and not in order.
+    Datagram(Peer, Vec<u8>),
+    /// The link itself couldn't be made, or has broken: why.
+    Failed(String),
+}
+
+pub trait Link: Send + Sync + 'static {
+    fn send(&mut self, to: Peer, bytes: Vec<u8>);
+    fn datagram(&mut self, to: Peer, bytes: Vec<u8>);
+    /// The next thing to have happened, if anything has.
+    fn poll(&mut self) -> Option<Event>;
+    /// What another game dials to reach this end, if it can be dialled and once that
+    /// is known.
+    fn address(&self) -> Option<String> {
+        None
+    }
+    /// How good the way to `peer` is, once that is known.
+    fn quality(&self, _peer: Peer) -> Option<Quality> {
+        None
+    }
+    /// Lets go of a Player, once what has been sent them has gone. Nothing says
+    /// they have `Left`: whoever closes it knows.
+    fn close(&mut self, _peer: Peer) {}
+    /// A Player's end dials its Host again, the way there having broken, and says
+    /// `Joined` or `Failed` as it did the first time. False if it can't dial.
+    fn redial(&mut self) -> bool {
+        false
+    }
+}
+
+#[cfg(test)]
+pub use memory::Hub;
+
+#[cfg(test)]
+mod memory {
+    use super::*;
+    use rand::rngs::StdRng;
+    use rand::{RngExt, SeedableRng};
+    use crate::net::protocol::HOST;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    struct Inner {
+        now: u32,
+        sent: u64,
+        /// What is on its way to each end: when it arrives, the order it was sent in,
+        /// and what it is.
+        queues: HashMap<Peer, Vec<(u32, u64, Event)>>,
+        joined: Peer,
+        /// The Players whose way to the Host has been cut.
+        cut: Vec<Peer>,
+    }
+
+    /// A network in memory. Everything takes `delay` steps to arrive, a datagram up to
+    /// `jitter` more, and `loss` of the datagrams don't. A datagram sent while the
+    /// network is held up (`stalls`, from when to when) goes once it is going again.
+    #[derive(Clone)]
+    pub struct Hub {
+        inner: Arc<Mutex<Inner>>,
+        pub delay: u32,
+        pub loss: f32,
+        pub jitter: u32,
+        pub stalls: Arc<Vec<(u32, u32)>>,
+    }
+
+    pub struct Memory {
+        hub: Hub,
+        me: Peer,
+        dice: StdRng,
+    }
+
+    impl Hub {
+        pub fn new(delay: u32, loss: f32) -> Self {
+            Hub {
+                inner: Arc::default(),
+                delay,
+                loss,
+                jitter: 0,
+                stalls: Arc::default(),
+            }
+        }
+
+        /// Time passes.
+        pub fn step(&self) {
+            self.pass(1);
+        }
+
+        /// So much time passes.
+        pub fn pass(&self, time: u32) {
+            self.inner.lock().unwrap().now += time;
+        }
+
+        pub fn host(&self) -> Memory {
+            Memory {
+                hub: self.clone(),
+                me: HOST,
+                dice: StdRng::seed_from_u64(0x5eed),
+            }
+        }
+
+        /// A Player's end, which the Host hears has joined.
+        pub fn join(&self) -> Memory {
+            let me = {
+                let mut inner = self.inner.lock().unwrap();
+                inner.joined += 1;
+                inner.joined
+            };
+            let link = Memory {
+                hub: self.clone(),
+                me,
+                dice: StdRng::seed_from_u64(0xfeed + me as u64),
+            };
+            link.post(HOST, Event::Joined(me));
+            link.post(me, Event::Joined(HOST));
+            link
+        }
+
+        /// The way between a Player and the Host breaks: each hears of it, and
+        /// nothing more that was on its way arrives.
+        pub fn cut(&self, peer: Peer) {
+            let mut inner = self.inner.lock().unwrap();
+            inner.sent += 2;
+            let (due, order) = (inner.now + self.delay, inner.sent);
+            let ours = |event: &Event| matches!(event, Event::Message(from, _) | Event::Datagram(from, _) if *from == peer);
+            let host = inner.queues.entry(HOST).or_default();
+            host.retain(|(.., event)| !ours(event));
+            host.push((due, order - 1, Event::Left(peer)));
+            inner
+                .queues
+                .insert(peer, vec![(due, order, Event::Lost(HOST))]);
+            inner.cut.push(peer);
+        }
+    }
+
+    impl Memory {
+        pub fn peer(&self) -> Peer {
+            self.me
+        }
+
+        fn post(&self, to: Peer, event: Event) {
+            self.post_late(to, event, 0);
+        }
+
+        /// Posts something that takes `late` longer than the network's delay.
+        fn post_late(&self, to: Peer, event: Event, late: u32) {
+            let mut inner = self.hub.inner.lock().unwrap();
+            // Nothing goes by a way that has been cut, either way along it.
+            if inner.cut.contains(&self.me) || inner.cut.contains(&to) {
+                return;
+            }
+            inner.sent += 1;
+            let (due, order) = (inner.now + self.hub.delay + late, inner.sent);
+            inner
+                .queues
+                .entry(to)
+                .or_default()
+                .push((due, order, event));
+        }
+    }
+
+    impl Link for Memory {
+        fn send(&mut self, to: Peer, bytes: Vec<u8>) {
+            self.post(to, Event::Message(self.me, bytes));
+        }
+
+        fn datagram(&mut self, to: Peer, bytes: Vec<u8>) {
+            if self.dice.random::<f32>() >= self.hub.loss {
+                let mut late = if self.hub.jitter > 0 {
+                    (self.dice.random::<f32>() *(self.hub.jitter + 1) as f32) as u32
+                } else {
+                    0
+                };
+                let now = self.hub.inner.lock().unwrap().now;
+                if let Some(&(_, until)) = self
+                    .hub
+                    .stalls
+                    .iter()
+                    .find(|(from, until)| (*from..*until).contains(&now))
+                {
+                    late += until - now;
+                }
+                self.post_late(to, Event::Datagram(self.me, bytes), late);
+            }
+        }
+
+        fn quality(&self, _peer: Peer) -> Option<Quality> {
+            Some(Quality {
+                ping: (self.hub.delay * 2 * 1000 / 64) as u16,
+                direct: true,
+            })
+        }
+
+        fn redial(&mut self) -> bool {
+            // Dialled again, a Player is someone new to the Host.
+            *self = self.hub.join();
+            true
+        }
+
+        fn poll(&mut self) -> Option<Event> {
+            let mut inner = self.hub.inner.lock().unwrap();
+            let now = inner.now;
+            let queue = inner.queues.get_mut(&self.me)?;
+            let next = queue
+                .iter()
+                .enumerate()
+                .filter(|(_, e)| e.0 <= now)
+                .min_by_key(|(_, e)| e.1)?
+                .0;
+            Some(queue.remove(next).2)
+        }
+    }
+
+    #[test]
+    fn messages_arrive_late_and_in_order() {
+        let hub = Hub::new(2, 0.0);
+        let (mut host, mut player) = (hub.host(), hub.join());
+        player.send(HOST, vec![1]);
+        player.send(HOST, vec![2]);
+        assert_eq!(host.poll(), None);
+        hub.step();
+        hub.step();
+        assert_eq!(host.poll(), Some(Event::Joined(player.peer())));
+        assert_eq!(host.poll(), Some(Event::Message(player.peer(), vec![1])));
+        assert_eq!(host.poll(), Some(Event::Message(player.peer(), vec![2])));
+        assert_eq!(host.poll(), None);
+        assert_eq!(player.poll(), Some(Event::Joined(HOST)));
+    }
+}

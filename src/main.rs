@@ -30,6 +30,7 @@ mod pack_a_punch;
 mod perk;
 mod mystery_box;
 mod nav;
+mod net;
 mod nova;
 mod player;
 mod points;
