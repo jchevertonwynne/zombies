@@ -603,8 +603,8 @@ fn use_teleporter(
 fn run_trips(
     mut teleporter: ResMut<Teleporter>,
     mut aftermath: ResMut<Aftermath>,
-    player: Single<(&Transform, Has<LastStand>), With<Player>>,
-    mut teleport: ResMut<Teleport>,
+    player: Single<(Entity, &Transform, Has<LastStand>, &mut PlayerZone), With<Player>>,
+    mut teleport: MessageWriter<Teleport>,
     zombies: Query<
         (Entity, &Transform),
         (
@@ -614,7 +614,6 @@ fn run_trips(
             Without<Player>,
         ),
     >,
-    mut zone: ResMut<PlayerZone>,
     mut damage: MessageWriter<DamageZombie>,
     mut overlays: ResMut<Overlays>,
     mut shellshocks: MessageWriter<Shellshock>,
@@ -626,7 +625,7 @@ fn run_trips(
     let Some(event) = teleporter.advance(time.delta_secs()) else {
         return;
     };
-    let (transform, last_stand) = player.into_inner();
+    let (player, transform, last_stand, mut zone) = player.into_inner();
     let mut kill = |centre: Vec3, radius: f32, max: usize| {
         let near = victims(
             centre,
@@ -651,7 +650,11 @@ fn run_trips(
                 TELEPORTER_CHARGE_KILL_MAX,
             );
             if stays_for_trip(pad.at(), transform.translation, last_stand) {
-                teleport.send(HOLDING_AT, None);
+                teleport.write(Teleport {
+                    player,
+                    feet: HOLDING_AT,
+                    facing: None,
+                });
                 cues.write(PlayCue {
                     cue: Cue::TeleporterFire,
                     at: Some(pad.at()),
@@ -662,7 +665,11 @@ fn run_trips(
         }
         TripEvent::Arrived { since_last } => {
             // Facing into the room, away from the Mainframe.
-            teleport.send(ARRIVAL_AT, Some(Quat::from_rotation_arc(Vec3::NEG_Z, MAINFRAME_FACING)));
+            teleport.write(Teleport {
+                player,
+                feet: ARRIVAL_AT,
+                facing: Some(Quat::from_rotation_arc(Vec3::NEG_Z, MAINFRAME_FACING)),
+            });
             zone.0 = ZoneId::StartRoom;
             kill(MAINFRAME_AT, TELEPORTER_ARRIVAL_KILL_RADIUS, usize::MAX);
             cues.write(PlayCue {

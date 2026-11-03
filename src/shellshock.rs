@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use crate::hud::overlay::{Overlay, Overlays};
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat};
 use crate::player::Player;
-use crate::state::{GameState, Pause};
+use crate::state::Pause;
 use crate::tuning::*;
 
 /// Where the Shellshock's move speed entry comes from.
@@ -24,8 +24,8 @@ pub struct Shellshock {
 #[derive(Message, Debug, Clone, Copy)]
 pub struct ShellshockStarted;
 
-/// How long the Player stays Shellshocked.
-#[derive(Resource, Debug, Default, Clone, Copy, PartialEq)]
+/// How long a Player stays Shellshocked.
+#[derive(Component, Debug, Default, Clone, Copy, PartialEq)]
 pub struct Shellshocked {
     left: f32,
 }
@@ -59,13 +59,6 @@ impl Plugin for ShellshockPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Shellshock>()
             .add_message::<ShellshockStarted>()
-            .init_resource::<Shellshocked>()
-            .add_systems(
-                OnEnter(GameState::Playing),
-                |mut shocked: ResMut<Shellshocked>| {
-                    *shocked = Shellshocked::default();
-                },
-            )
             .add_systems(Update, shellshock_player.run_if(in_state(Pause::Running)));
     }
 }
@@ -75,12 +68,11 @@ impl Plugin for ShellshockPlugin {
 fn shellshock_player(
     mut shocks: MessageReader<Shellshock>,
     mut started: MessageWriter<ShellshockStarted>,
-    mut shocked: ResMut<Shellshocked>,
     mut overlays: ResMut<Overlays>,
-    player: Single<&mut Modifiers, With<Player>>,
+    player: Single<(&mut Shellshocked, &mut Modifiers), With<Player>>,
     time: Res<Time>,
 ) {
-    let mut modifiers = player.into_inner();
+    let (mut shocked, mut modifiers) = player.into_inner();
     if shocked.tick(time.delta_secs()) {
         modifiers
             .0

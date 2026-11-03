@@ -2,8 +2,7 @@ use bevy::prelude::*;
 
 use crate::last_stand::LastStand;
 use crate::modifier::{Modifiers, RunModifiers, Stat, resolve, resolve_points};
-use crate::player::Player;
-use crate::state::GameState;
+use crate::player::{LocalPlayer, Player};
 use crate::tuning::*;
 use crate::zombie::{Attack, HitZone, Pay, ZombieHit, ZombieKilled};
 
@@ -37,7 +36,8 @@ pub fn award_amount(amount: u64, double: bool, extra: f32) -> u64 {
     }
 }
 
-#[derive(Resource, Default)]
+/// A Player's Points.
+#[derive(Component, Default)]
 pub struct Points {
     /// What the Player can spend.
     pub balance: u64,
@@ -70,62 +70,77 @@ impl Points {
     }
 }
 
-/// Points paid by a rule layered on Classic, awarded like any other Points (so none in Last
-/// Stand).
-#[derive(Message)]
-pub struct BonusPoints(pub u64);
+impl Points {
+    /// A new Run's Points: the starting balance and nothing Earned.
+    pub fn starting(run: &[crate::modifier::Modifier]) -> Self {
+        Self {
+            balance: resolve_points(Stat::StartingPoints, STARTING_POINTS, run),
+            ..default()
+        }
+    }
+}
 
-/// Points were awarded (for HUD popups).
+/// Points paid to `player` by a rule layered on Classic, awarded like any other Points (so none in
+/// Last Stand).
 #[derive(Message)]
-pub struct PointsAwarded(pub u64);
+pub struct BonusPoints {
+    pub player: Entity,
+    pub amount: u64,
+}
+
+/// Points were awarded to `player` (for HUD popups).
+#[derive(Message)]
+pub struct PointsAwarded {
+    pub player: Entity,
+    pub amount: u64,
+}
 
 pub struct PointsPlugin;
 
 impl Plugin for PointsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Points>()
-            .init_resource::<RunModifiers>()
+        app.init_resource::<RunModifiers>()
             .add_message::<PointsAwarded>()
             .add_message::<BonusPoints>()
-            .add_systems(
-                OnEnter(GameState::Playing),
-                |mut points: ResMut<Points>, run: Res<RunModifiers>| {
-                    *points = Points {
-                        balance: resolve_points(Stat::StartingPoints, STARTING_POINTS, &run.0),
-                        ..default()
-                    };
-                },
-            )
             .add_systems(Update, (resolve_rate, earn).chain());
     }
 }
 
 /// Every award's extra multiples follow the Player's stat entries.
-fn resolve_rate(player: Query<&Modifiers, With<Player>>, mut points: ResMut<Points>) {
-    let extra = resolve(Stat::PointsRate, 0.0, player.iter().flat_map(|modifiers| &modifiers.0));
-    if points.extra_rate != extra {
-        points.extra_rate = extra;
+fn resolve_rate(mut players: Query<(&Modifiers, &mut Points), With<Player>>) {
+    for (modifiers, mut points) in &mut players {
+        let extra = resolve(Stat::PointsRate, 0.0, &modifiers.0);
+        if points.extra_rate != extra {
+            points.extra_rate = extra;
+        }
     }
 }
 
-/// Hits, kills and bonus Points pay, except in Last Stand, which earns nothing.
+/// Hits, kills and bonus Points pay, except in Last Stand, which earns nothing. Hits and kills pay
+/// the `LocalPlayer`; a bonus pays the Player it names.
 fn earn(
     mut hits: MessageReader<ZombieHit>,
     mut kills: MessageReader<ZombieKilled>,
     mut bonus: MessageReader<BonusPoints>,
-    last_stand: Query<(), (With<Player>, With<LastStand>)>,
-    mut points: ResMut<Points>,
+    local: Single<Entity, With<LocalPlayer>>,
+    mut players: Query<(&mut Points, Has<LastStand>), With<Player>>,
     mut awarded: MessageWriter<PointsAwarded>,
 ) {
-    let earning = last_stand.is_empty();
+    let local = *local;
     let amounts = hits
         .read()
-        .map(|hit| points_for(*hit))
-        .chain(kills.read().map(kill_points))
-        .chain(bonus.read().map(|bonus| bonus.0));
-    for amount in amounts.filter(|&amount| amount > 0 && earning) {
+        .map(|hit| (local, points_for(*hit)))
+        .chain(kills.read().map(|kill| (local, kill_points(kill))))
+        .chain(bonus.read().map(|bonus| (bonus.player, bonus.amount)));
+    for (player, amount) in amounts.filter(|&(_, amount)| amount > 0) {
+        let Ok((mut points, last_stand)) = players.get_mut(player) else {
+            continue;
+        };
+        if last_stand {
+            continue;
+        }
         let paid = points.award(amount);
-        awarded.write(PointsAwarded(paid));
+        awarded.write(PointsAwarded { player, amount: paid });
     }
 }
 

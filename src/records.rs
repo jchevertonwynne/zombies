@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::map::MapId;
 use crate::mode::Mode;
+use crate::player::LocalPlayer;
 use crate::points::Points;
 use crate::round::Round;
 use crate::save::{self, SaveFile};
@@ -349,13 +350,13 @@ pub fn record_run(
     map: Res<MapId>,
     mode: Res<Mode>,
     round: Res<Round>,
-    stats: Res<RunStats>,
-    points: Res<Points>,
+    player: Single<(&RunStats, &Points), With<LocalPlayer>>,
     extras: Res<RecordExtras>,
     switches: Res<RunSpecialZombies>,
     mut file: ResMut<RecordsFile>,
     dir: Res<SaveDir>,
 ) {
+    let (stats, points) = *player;
     let date = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |since| since.as_secs());

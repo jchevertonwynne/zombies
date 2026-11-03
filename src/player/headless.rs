@@ -25,9 +25,13 @@ struct Steps(u32);
 #[derive(Resource, Default)]
 struct SendTeleport(Option<(Vec3, Option<Quat>)>);
 
-fn send_teleport(mut request: ResMut<SendTeleport>, mut teleport: ResMut<Teleport>) {
+fn send_teleport(
+    mut request: ResMut<SendTeleport>,
+    player: Single<Entity, With<Player>>,
+    mut teleport: MessageWriter<Teleport>,
+) {
     if let Some((feet, facing)) = request.0.take() {
-        teleport.send(feet, facing);
+        teleport.write(Teleport { player: *player, feet, facing });
     }
 }
 
@@ -53,7 +57,9 @@ impl Sim {
         .init_resource::<AccumulatedMouseMotion>()
         .init_resource::<Steps>()
         .init_resource::<SendTeleport>()
-        .init_resource::<Teleport>()
+        .add_message::<Teleport>()
+        .init_resource::<PendingTeleports>()
+        .add_systems(PostUpdate, queue_teleports)
         .init_resource::<crate::modifier::RunModifiers>()
         .add_systems(Update, send_teleport)
         .insert_resource(Settings::default())
@@ -79,7 +85,13 @@ impl Sim {
     pub fn place(&mut self, feet: Vec3, yaw: f32) {
         self.hold(&[]);
         self.mouse(Vec2::ZERO);
-        self.app.world_mut().resource_mut::<Teleport>().send(feet, Some(Quat::from_rotation_y(yaw)));
+        let world = self.app.world_mut();
+        let player = world.query_filtered::<Entity, With<Player>>().single(world).unwrap();
+        world.write_message(Teleport {
+            player,
+            feet,
+            facing: Some(Quat::from_rotation_y(yaw)),
+        });
         self.run(20);
     }
 

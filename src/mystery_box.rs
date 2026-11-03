@@ -412,11 +412,10 @@ fn spawn_boxes(mut commands: Commands, assets: Res<BoxAssets>, mut run: ResMut<B
 fn buy_boxes(
     mut purchases: MessageReader<Purchased>,
     mut boxes: Query<&mut MysteryBox>,
-    player: Single<(&mut Loadout, &Modifiers, &mut Equipment), With<Player>>,
-    mut points: ResMut<Points>,
+    player: Single<(&mut Loadout, &Modifiers, &mut Equipment, &mut Points), With<Player>>,
     mut run: ResMut<BoxRun>,
 ) {
-    let (mut loadout, modifiers, mut equipment) = player.into_inner();
+    let (mut loadout, modifiers, mut equipment, mut points) = player.into_inner();
     for Purchased(entity) in purchases.read() {
         let Ok(mut mystery_box) = boxes.get_mut(*entity) else { continue };
         match mystery_box.state {
@@ -458,14 +457,13 @@ fn run_boxes(
     mut commands: Commands,
     time: Res<Time>,
     mut boxes: Query<(Entity, &mut MysteryBox, &mut Transform, &mut Visibility)>,
-    player: Single<(&Loadout, &Equipment, &Modifiers), With<Player>>,
+    player: Single<(&Loadout, &Equipment, &Modifiers, &mut Points), With<Player>>,
     pack_a_punch: Query<&PackAPunch>,
-    mut points: ResMut<Points>,
     mut run: ResMut<BoxRun>,
     mut teddies: MessageWriter<TeddyBear>,
 ) {
     let dt = time.delta_secs();
-    let (loadout, equipment, modifiers) = *player;
+    let (loadout, equipment, modifiers, mut points) = player.into_inner();
     let held: Vec<WeaponId> = loadout.weapons().map(|weapon| weapon.id).collect();
     // A Weapon waiting in a Box or inside Pack-a-Punch is in play.
     let mut in_play: Vec<WeaponId> = boxes

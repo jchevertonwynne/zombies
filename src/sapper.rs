@@ -23,7 +23,7 @@ use crate::mystery_box::{BoxState, MysteryBox, box_use_point};
 use crate::nav::{NavGraph, Route, zone_at};
 use crate::pack_a_punch::{self, PackAPunch};
 use crate::perk::{Drinking, Perk, PerkMachine};
-use crate::player::Player;
+use crate::player::{LocalPlayer, Player};
 use crate::points::BonusPoints;
 use crate::power::Power;
 use crate::power_up::DropPowerUp;
@@ -373,7 +373,7 @@ fn spawn_sapper(
     mut barriers: ResMut<Barriers>,
     alive: Query<(), (With<Zombie>, Without<Dying>)>,
     spawn_points: Query<(&Transform, &SpawnPoint)>,
-    player_zone: Res<PlayerZone>,
+    player_zone: Single<&PlayerZone, With<Player>>,
     active: Res<ActiveZones>,
     zombie_assets: ZombieAssetsParam,
     assets: Res<SapperAssets>,
@@ -806,6 +806,7 @@ fn sapper_deaths(
     restores: Query<(Entity, &Restore)>,
     mut teleporter: ResMut<Teleporter>,
     mut bonus: MessageWriter<BonusPoints>,
+    credited: Single<Entity, With<LocalPlayer>>,
     mut drops: MessageWriter<DropPowerUp>,
     mut cues: MessageWriter<SpecialCue>,
 ) {
@@ -819,7 +820,10 @@ fn sapper_deaths(
             commands.entity(restore_entity).despawn();
         }
         if dying.killed_by().map_or(Pay::Unpaid, Attack::pay) == Pay::Paid {
-            bonus.write(BonusPoints(SAPPER_KILL_BONUS));
+            bonus.write(BonusPoints {
+                player: *credited,
+                amount: SAPPER_KILL_BONUS,
+            });
         }
         let feet = transform.translation - Vec3::Y * (ZOMBIE_RADIUS + ZOMBIE_CAPSULE_LENGTH / 2.0);
         drops.write(DropPowerUp {

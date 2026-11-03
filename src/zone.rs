@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use crate::debug::DebugView;
 use crate::door::Door;
-use crate::player::Player;
+use crate::player::{LocalPlayer, Player};
 use crate::state::GameState;
 use crate::tuning::*;
 
@@ -97,6 +97,11 @@ impl ZoneSet {
         self.0 |= zone.bit();
     }
 
+    /// Every Zone in either set.
+    pub fn union(self, other: ZoneSet) -> ZoneSet {
+        ZoneSet(self.0 | other.0)
+    }
+
     pub fn contains(self, zone: ZoneId) -> bool {
         self.0 & zone.bit() != 0
     }
@@ -154,11 +159,17 @@ pub fn active_zones(player: ZoneId, open_joins: impl IntoIterator<Item = (ZoneId
     active
 }
 
-/// The Zone the Player is standing in.
-#[derive(Resource)]
+/// The Zone a Player is standing in.
+#[derive(Component)]
 pub struct PlayerZone(pub ZoneId);
 
-/// Zones whose Spawn Points send in Zombies.
+impl Default for PlayerZone {
+    fn default() -> Self {
+        Self(ZoneId::StartRoom)
+    }
+}
+
+/// Zones whose Spawn Points send in Zombies: every Player's Zone and its open neighbours.
 #[derive(Resource)]
 pub struct ActiveZones(pub ZoneSet);
 
@@ -173,9 +184,8 @@ pub struct ZonePlugin;
 impl Plugin for ZonePlugin {
     fn build(&self, app: &mut App) {
         app.init_gizmo_group::<ZoneGizmos>()
-            .insert_resource(PlayerZone(ZoneId::StartRoom))
             .insert_resource(ActiveZones(ZoneSet::default()))
-            .add_systems(OnEnter(GameState::Playing), (reset, spawn_debug_text))
+            .add_systems(OnEnter(GameState::Playing), spawn_debug_text)
             .add_systems(
                 Update,
                 (
@@ -189,28 +199,31 @@ impl Plugin for ZonePlugin {
     }
 }
 
-fn reset(mut zone: ResMut<PlayerZone>) {
-    zone.0 = ZoneId::StartRoom;
-}
-
-fn track_player(player: Single<&Transform, With<Player>>, mut zone: ResMut<PlayerZone>) {
+fn track_player(mut players: Query<(&Transform, &mut PlayerZone), With<Player>>) {
     let half = Vec3::new(PLAYER_RADIUS, PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0, PLAYER_RADIUS);
-    let at = player.translation;
-    let tracked = track_zone(zone.0, at - half, at + half);
-    if tracked != zone.0 {
-        zone.0 = tracked;
+    for (transform, mut zone) in &mut players {
+        let at = transform.translation;
+        let tracked = track_zone(zone.0, at - half, at + half);
+        if tracked != zone.0 {
+            zone.0 = tracked;
+        }
     }
 }
 
-fn update_active_zones(zone: Res<PlayerZone>, doors: Query<&Door>, mut active: ResMut<ActiveZones>) {
-    let open_doors = doors.iter().filter(|door| door.open).filter_map(|door| door.joins);
-    let set = active_zones(zone.0, FIXED_JOINS.into_iter().chain(open_doors));
+fn update_active_zones(players: Query<&PlayerZone, With<Player>>, doors: Query<&Door>, mut active: ResMut<ActiveZones>) {
+    let joins: Vec<_> = FIXED_JOINS
+        .into_iter()
+        .chain(doors.iter().filter(|door| door.open).filter_map(|door| door.joins))
+        .collect();
+    let set = players
+        .iter()
+        .fold(ZoneSet::default(), |set, zone| set.union(active_zones(zone.0, joins.iter().copied())));
     if set != active.0 {
         active.0 = set;
     }
 }
 
-fn draw_zones(mut gizmos: Gizmos<ZoneGizmos>, zone: Res<PlayerZone>, active: Res<ActiveZones>) {
+fn draw_zones(mut gizmos: Gizmos<ZoneGizmos>, zone: Single<&PlayerZone, With<LocalPlayer>>, active: Res<ActiveZones>) {
     for id in ZoneId::ALL {
         let (lo, hi) = id.volume();
         let colour = if id == zone.0 {
@@ -246,7 +259,11 @@ fn spawn_debug_text(mut commands: Commands) {
     ));
 }
 
-fn debug_text(zone: Res<PlayerZone>, active: Res<ActiveZones>, mut text: Single<&mut Text, With<ZoneDebugText>>) {
+fn debug_text(
+    zone: Single<&PlayerZone, With<LocalPlayer>>,
+    active: Res<ActiveZones>,
+    mut text: Single<&mut Text, With<ZoneDebugText>>,
+) {
     let names: Vec<_> = active.0.iter().map(ZoneId::name).collect();
     text.0 = format!("Zone: {}\nActive: {}", zone.0.name(), names.join(", "));
 }

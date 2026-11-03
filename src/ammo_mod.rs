@@ -179,9 +179,9 @@ pub fn glint_colour(held: AmmoMods, pass: u32, plain: Color) -> Color {
     if colours.is_empty() { plain } else { colours[pass as usize % colours.len()] }
 }
 
-/// Seconds left on each Ammo Mod's cooldown. Solo play has one Player, so a cooldown is shared by
-/// every Weapon holding that Ammo Mod.
-#[derive(Resource, Debug, Default, Clone, PartialEq)]
+/// Seconds left on each Ammo Mod's cooldown, per Player and shared by every Weapon of theirs
+/// holding that Ammo Mod.
+#[derive(Component, Debug, Default, Clone, PartialEq)]
 pub struct Cooldowns([f32; 5]);
 
 impl Cooldowns {
@@ -387,7 +387,6 @@ pub struct AmmoModPlugin;
 impl Plugin for AmmoModPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<AmmoModHit>()
-            .init_resource::<Cooldowns>()
             .init_resource::<DelayedHits>()
             .init_resource::<Flashes>()
             .add_systems(Startup, load_assets)
@@ -419,8 +418,7 @@ fn load_assets(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut mat
     });
 }
 
-fn reset(mut cooldowns: ResMut<Cooldowns>, mut delayed: ResMut<DelayedHits>, mut flashes: ResMut<Flashes>) {
-    *cooldowns = Cooldowns::default();
+fn reset(mut delayed: ResMut<DelayedHits>, mut flashes: ResMut<Flashes>) {
     delayed.0.clear();
     flashes.0.clear();
 }
@@ -441,13 +439,12 @@ fn kill(damage: &mut MessageWriter<DamageZombie>, zombie: Entity, pay: Pay) {
 fn roll_ammo_mods(
     mut commands: Commands,
     mut hits: MessageReader<AmmoModHit>,
-    mut cooldowns: ResMut<Cooldowns>,
     mut delayed: ResMut<DelayedHits>,
     mut flashes: ResMut<Flashes>,
     // A hound still in its lightning strike can't be hurt, so no Ammo Mod touches it.
     zombies: Query<(Entity, &Zombie, &Transform, &Children, Has<Dying>, Has<Rising>), Without<Telegraph>>,
     hit_areas: Query<(), With<HitArea>>,
-    player: Single<&Modifiers, With<Player>>,
+    player: Single<(&Modifiers, &mut Cooldowns), With<Player>>,
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
     spatial: SpatialQuery,
     assets: Res<AmmoModAssets>,
@@ -457,6 +454,7 @@ fn roll_ammo_mods(
     (mut stuns, mut cues): (MessageWriter<StunZombie>, MessageWriter<PlayCue>),
     time: Res<Time>,
 ) {
+    let (modifiers, mut cooldowns) = player.into_inner();
     cooldowns.tick(time.delta_secs());
     // Zombies already killed or turned by a trigger this frame.
     let mut spent: Vec<Entity> = Vec::new();
@@ -488,7 +486,7 @@ fn roll_ammo_mods(
             if ammo_mod == AmmoMod::Turned && zombie.special_kind().is_some() {
                 continue;
             }
-            cooldowns.start(ammo_mod, resolve(Stat::AmmoModCooldown, ammo_mod.cooldown_secs(), &player.0));
+            cooldowns.start(ammo_mod, resolve(Stat::AmmoModCooldown, ammo_mod.cooldown_secs(), &modifiers.0));
             cues.write(PlayCue {
                 cue: ammo_mod.cue(),
                 at: Some(at),

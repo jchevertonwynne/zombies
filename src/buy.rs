@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use crate::controls::{Action, Controls};
 use crate::last_stand::LastStand;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve_points};
-use crate::player::{Player, PlayerCamera};
+use crate::player::{LocalPlayer, PlayerCamera};
 use crate::points::Points;
 use crate::state::{GameState, Pause};
 use crate::tuning::*;
@@ -259,12 +259,12 @@ fn buyer(points: &Points, down: bool, pause: &State<Pause>) -> Buyer {
 fn focus(
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
     buyables: Query<(Entity, &Buyable, Has<Nearby>)>,
-    down: Single<Has<LastStand>, With<Player>>,
-    points: Res<Points>,
+    player: Single<(Has<LastStand>, &Points), With<LocalPlayer>>,
     pause: Res<State<Pause>>,
     mut focus: ResMut<Focus>,
 ) {
-    let picked = if buyer(&points, *down, &pause).blocked() {
+    let (down, points) = *player;
+    let picked = if buyer(points, down, &pause).blocked() {
         None
     } else {
         let eye = camera.translation();
@@ -282,9 +282,8 @@ pub fn buy(
     focus: Res<Focus>,
     // A Buyable with a hold half buys through `hold_buy`.
     buyables: Query<(&Buyable, Has<Refused>), (Without<Held>, Without<HoldBuy>)>,
-    player: Single<(Has<LastStand>, &Modifiers), With<Player>>,
+    player: Single<(Has<LastStand>, &Modifiers, &mut Points), With<LocalPlayer>>,
     pause: Res<State<Pause>>,
-    mut points: ResMut<Points>,
     mut purchased: MessageWriter<Purchased>,
     mut cant_afford: MessageWriter<CantAfford>,
     mut refusals: MessageWriter<BuyRefused>,
@@ -294,7 +293,7 @@ pub fn buy(
     }
     let Some(entity) = focus.0 else { return };
     let Ok((buyable, refused)) = buyables.get(entity) else { return };
-    let (down, modifiers) = *player;
+    let (down, modifiers, mut points) = player.into_inner();
     let price = charged(buyable.price, &modifiers.0);
     // Focus already holds only Buyables in reach.
     match decide(buyer(&points, down, &pause), price, true).refused_if(refused) {
@@ -320,11 +319,10 @@ fn hold_buy(
     controls: Controls,
     focus: Res<Focus>,
     buyables: Query<(&Buyable, &HoldBuy, Has<Refused>)>,
-    player: Single<(Has<LastStand>, &Modifiers), With<Player>>,
+    player: Single<(Has<LastStand>, &Modifiers, &mut Points), With<LocalPlayer>>,
     pause: Res<State<Pause>>,
     time: Res<Time>,
     mut timer: ResMut<HoldTimer<Entity>>,
-    mut points: ResMut<Points>,
     mut purchased: MessageWriter<Purchased>,
     mut held: MessageWriter<HoldPurchased>,
     mut cant_afford: MessageWriter<CantAfford>,
@@ -340,7 +338,7 @@ fn hold_buy(
     if !hold && !hold_buy.tap {
         return;
     }
-    let (down, modifiers) = *player;
+    let (down, modifiers, mut points) = player.into_inner();
     let price = charged(if hold { hold_buy.price } else { buyable.price }, &modifiers.0);
     match decide(buyer(&points, down, &pause), price, true).refused_if(refused) {
         Decision::Buy => {

@@ -379,11 +379,13 @@ fn resolve_stats(
     }
 }
 
-fn tick_timers(mut active: ResMut<ActivePowerUps>, mut points: ResMut<Points>, time: Res<Time>) {
+fn tick_timers(mut active: ResMut<ActivePowerUps>, mut players: Query<&mut Points, With<Player>>, time: Res<Time>) {
     active.tick(time.delta_secs());
     let double = active.active(PowerUp::DoublePoints);
-    if points.double != double {
-        points.double = double;
+    for mut points in &mut players {
+        if points.double != double {
+            points.double = double;
+        }
     }
 }
 
@@ -395,8 +397,8 @@ fn drop_power_ups(
     mut rounds: MessageReader<RoundStarted>,
     mut meter: ResMut<DropMeter>,
     mut bag: ResMut<Bag>,
-    points: Res<Points>,
-    zone: Res<PlayerZone>,
+    points: Query<&Points, With<Player>>,
+    zones: Query<&PlayerZone, With<Player>>,
     doors: Query<&Door>,
     barriers: Res<Barriers>,
     box_run: Res<BoxRun>,
@@ -407,13 +409,15 @@ fn drop_power_ups(
     if rounds.read().count() > 0 {
         meter.new_round();
     }
-    meter.watch(points.earned);
+    meter.watch(points.iter().map(|points| points.earned).sum());
 
     let joins: Vec<_> = FIXED_JOINS
         .into_iter()
         .chain(doors.iter().filter(|door| door.open).filter_map(|door| door.joins))
         .collect();
-    let reachable = reachable_zones(zone.0, &joins);
+    let reachable = zones
+        .iter()
+        .fold(ZoneSet::default(), |set, zone| set.union(reachable_zones(zone.0, &joins)));
     let rules = BagRules {
         broken_barriers: barriers.fully_broken(),
         box_moves: box_run.moves,
@@ -476,16 +480,15 @@ fn pick_up(
     mut commands: Commands,
     drops: Query<(Entity, &Dropped)>,
     mut given: MessageReader<GivePowerUp>,
-    player: Single<(&Transform, &mut Loadout, &mut Equipment, Has<LastStand>), With<Player>>,
+    player: Single<(Entity, &Transform, &mut Loadout, &mut Equipment, &mut Points, Has<LastStand>), With<Player>>,
     // The Sapper survives the Nuke.
     zombies: Query<Entity, (With<Zombie>, Without<Dying>, Without<Nuked>, Without<Sapper>)>,
     mut active: ResMut<ActivePowerUps>,
-    mut points: ResMut<Points>,
     mut barriers: ResMut<Barriers>,
     mut awarded: MessageWriter<PointsAwarded>,
     mut taken: MessageWriter<PowerUpTaken>,
 ) {
-    let (transform, mut loadout, mut equipment, last_stand) = player.into_inner();
+    let (player, transform, mut loadout, mut equipment, mut points, last_stand) = player.into_inner();
     let feet = transform.translation;
     let mut takes: Vec<PowerUp> = given.read().map(|GivePowerUp(power_up)| *power_up).collect();
     for (entity, dropped) in &drops {
@@ -527,7 +530,7 @@ fn pick_up(
         // A flat bonus, which Last Stand earns nothing of.
         if bonus > 0 && !last_stand {
             let paid = points.award(bonus);
-            awarded.write(PointsAwarded(paid));
+            awarded.write(PointsAwarded { player, amount: paid });
         }
     }
 }
