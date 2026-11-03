@@ -15,7 +15,7 @@ use crate::last_stand::LastStand;
 use crate::map::{BarrierId, WINDOWS};
 use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_points};
 use crate::nav::Route;
-use crate::player::{Player, PlayerHit};
+use crate::player::{LocalPlayer, Player, PlayerHit};
 use crate::points::{Points, PointsAwarded};
 use crate::round::{Round, zombie_health};
 use crate::state::{GameState, InRun, Pause};
@@ -680,8 +680,7 @@ fn rebuild_planks(
     mut barriers: ResMut<Barriers>,
     mut rebuild: ResMut<Rebuild>,
     round: Res<Round>,
-    player: Query<&Modifiers, With<Player>>,
-    mut points: ResMut<Points>,
+    player: Single<(Entity, &Modifiers, &mut Points), With<LocalPlayer>>,
     mut awarded: MessageWriter<PointsAwarded>,
     mut rebuilt: MessageWriter<PlankRebuilt>,
     time: Res<Time>,
@@ -702,11 +701,11 @@ fn rebuild_planks(
     rebuilt.write(PlankRebuilt {
         at: window_centre(barrier) + Vec3::Y * 1.2,
     });
-    let entries = player.iter().next().map_or(&[][..], |modifiers| &modifiers.0[..]);
-    let reward = rebuild.pay(round.number, PlankRates::resolve(round.number, entries));
+    let (player, modifiers, mut points) = player.into_inner();
+    let reward = rebuild.pay(round.number, PlankRates::resolve(round.number, &modifiers.0));
     if reward > 0 {
         let paid = points.award(reward);
-        awarded.write(PointsAwarded(paid));
+        awarded.write(PointsAwarded { player, amount: paid });
     }
 }
 

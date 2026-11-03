@@ -282,8 +282,8 @@ fn hold_flat_loop(commands: &mut Commands, sounds: &mut Sounds, loops: &mut Quer
 }
 
 /// The mix is muffled while the Player is Shellshocked.
-fn muffle(shellshocked: Res<Shellshocked>, mut sounds: ResMut<Sounds>) {
-    let muffled = shellshocked.active();
+fn muffle(shellshocked: Query<&Shellshocked, With<LocalPlayer>>, mut sounds: ResMut<Sounds>) {
+    let muffled = shellshocked.iter().any(Shellshocked::active);
     if sounds.muffled != muffled {
         sounds.muffled = muffled;
     }

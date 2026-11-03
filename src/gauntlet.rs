@@ -26,7 +26,7 @@ use crate::mode::Mode;
 use crate::modifier::{Modifiers, RunModifiers};
 use crate::mystery_box::{MysteryBox, TeddyBear};
 use crate::perk::{Perk, PerkMachine};
-use crate::player::Player;
+use crate::player::{LocalPlayer, Player};
 use crate::points::BonusPoints;
 use crate::power::Power;
 use crate::power_up::{DropPowerUp, GivePowerUp, PowerUp, PowerUpTaken};
@@ -413,12 +413,16 @@ fn blood_money(
     mut kills: MessageReader<ZombieKilled>,
     held: Res<HeldBoons>,
     mut bonus: MessageWriter<BonusPoints>,
+    player: Single<Entity, With<LocalPlayer>>,
 ) {
     let stacks = held.stacks(BLOOD_MONEY);
     for kill in kills.read() {
         let points = blood_money_points(kill.pay, stacks);
         if points > 0 {
-            bonus.write(BonusPoints(points));
+            bonus.write(BonusPoints {
+                player: *player,
+                amount: points,
+            });
         }
     }
 }
@@ -428,11 +432,15 @@ fn teddys_tithe(
     mut teddies: MessageReader<TeddyBear>,
     held: Res<HeldBoons>,
     mut bonus: MessageWriter<BonusPoints>,
+    player: Single<Entity, With<LocalPlayer>>,
 ) {
     let points = teddys_tithe_points(held.stacks(TEDDYS_TITHE));
     for _ in teddies.read() {
         if points > 0 {
-            bonus.write(BonusPoints(points));
+            bonus.write(BonusPoints {
+                player: *player,
+                amount: points,
+            });
         }
     }
 }
@@ -463,12 +471,16 @@ fn war_bonds(
     held: Res<HeldBoons>,
     round: Res<Round>,
     mut bonus: MessageWriter<BonusPoints>,
+    player: Single<Entity, With<LocalPlayer>>,
 ) {
     let stacks = held.stacks(WAR_BONDS);
     for _ in ended.read() {
         let points = war_bonds_points(round.number, stacks);
         if points > 0 {
-            bonus.write(BonusPoints(points));
+            bonus.write(BonusPoints {
+                player: *player,
+                amount: points,
+            });
         }
     }
 }
@@ -478,12 +490,16 @@ fn bounty(
     mut kills: MessageReader<ZombieKilled>,
     held: Res<HeldBoons>,
     mut bonus: MessageWriter<BonusPoints>,
+    player: Single<Entity, With<LocalPlayer>>,
 ) {
     let stacks = held.stacks(BOUNTY);
     for kill in kills.read() {
         let points = bounty_points(kill.attack, stacks);
         if points > 0 {
-            bonus.write(BonusPoints(points));
+            bonus.write(BonusPoints {
+                player: *player,
+                amount: points,
+            });
         }
     }
 }

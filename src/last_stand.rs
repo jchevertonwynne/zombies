@@ -46,8 +46,8 @@ pub fn spares_left(player: &[Modifier], used: u32) -> u32 {
     resolve_count(Stat::SelfRevives, 0, player).saturating_sub(used)
 }
 
-/// Spare Self-Revives used this Run: Last Stands started without Quick Revive.
-#[derive(Resource, Default)]
+/// Spare Self-Revives a Player has used this Run: Last Stands started without Quick Revive.
+#[derive(Component, Default)]
 pub struct SparesUsed(pub u32);
 
 /// What the Player holds through a Last Stand: Mustang & Sally, with a full Magazine and
@@ -99,8 +99,6 @@ impl Plugin for LastStandPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Down>()
             .add_message::<SelfRevived>()
-            .init_resource::<SparesUsed>()
-            .add_systems(OnEnter(GameState::Playing), |mut used: ResMut<SparesUsed>| used.0 = 0)
             .add_systems(
                 Update,
                 // A drink that ends in the frame of a Down is still lost, and nothing can be bought
@@ -116,14 +114,13 @@ impl Plugin for LastStandPlugin {
 pub fn go_down(
     mut commands: Commands,
     player: Single<
-        (Entity, &mut Health, &mut Perks, &mut Modifiers, &mut Loadout),
+        (Entity, &mut Health, &mut Perks, &mut Modifiers, &mut Loadout, &mut SparesUsed),
         (With<Player>, Without<LastStand>),
     >,
     mut downs: MessageWriter<Down>,
     mut next: ResMut<NextState<GameState>>,
-    mut spares: ResMut<SparesUsed>,
 ) {
-    let (entity, mut health, mut perks, mut modifiers, mut loadout) = player.into_inner();
+    let (entity, mut health, mut perks, mut modifiers, mut loadout, mut spares) = player.into_inner();
     if health.current > 0.0 {
         return;
     }

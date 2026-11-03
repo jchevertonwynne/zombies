@@ -16,6 +16,12 @@ use crate::layers::GameLayer;
 use crate::map::PLAYER_START;
 use crate::modifier::{Modifier, Modifiers, RunModifiers, Stat, resolve};
 use crate::perk::Drinking;
+use crate::points::Points;
+use crate::ammo_mod::Cooldowns;
+use crate::last_stand::SparesUsed;
+use crate::shellshock::Shellshocked;
+use crate::stats::RunStats;
+use crate::zone::PlayerZone;
 use crate::round::{Round, RoundPhase};
 use crate::settings::Settings;
 use crate::state::{GameState, InRun, Pause};
@@ -138,24 +144,26 @@ impl Default for FovWarp {
     }
 }
 
-/// A request to move the Player somewhere else at once (the Teleporter). Writing the Transform
-/// from `Update` doesn't work: whenever the next frame runs a physics step, the interpolation
-/// first completes its last easing and puts the Player straight back. The move is made at the
-/// start of the next physics step instead, as a clean cut with no smear, and stops the Player.
-#[derive(Resource, Default)]
-pub struct Teleport(Option<TeleportTo>);
-
-#[derive(Debug, Clone, Copy)]
-struct TeleportTo {
-    feet: Vec3,
-    facing: Option<Quat>,
+/// A request to move `player` somewhere else at once (the Teleporter), putting their feet on
+/// `feet`, turned to `facing` if given. Writing the Transform from `Update` doesn't work:
+/// whenever the next frame runs a physics step, the interpolation first completes its last easing
+/// and puts the Player straight back. The move is made at the start of the next physics step
+/// instead, as a clean cut with no smear, and stops the Player.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct Teleport {
+    pub player: Entity,
+    pub feet: Vec3,
+    pub facing: Option<Quat>,
 }
 
-impl Teleport {
-    /// Puts the Player's feet on `feet`, turned to `facing` if given.
-    pub fn send(&mut self, feet: Vec3, facing: Option<Quat>) {
-        self.0 = Some(TeleportTo { feet, facing });
-    }
+/// The Teleports waiting for the next physics step. A frame can pass with no step, and a message
+/// would be gone by the next one.
+#[derive(Resource, Default)]
+struct PendingTeleports(Vec<Teleport>);
+
+/// Holds each `Teleport` until a physics step carries it out.
+fn queue_teleports(mut teleports: MessageReader<Teleport>, mut pending: ResMut<PendingTeleports>) {
+    pending.0.extend(teleports.read().copied());
 }
 
 /// A Zombie's swing connected.
@@ -198,7 +206,9 @@ impl Plugin for PlayerPlugin {
             .add_systems(OnExit(Pause::Running), release_cursor)
             // Settings apply immediately, even from Pause.
             .add_systems(Update, apply_fov)
-            .init_resource::<Teleport>()
+            .add_message::<Teleport>()
+            .init_resource::<PendingTeleports>()
+            .add_systems(PostUpdate, queue_teleports)
             .add_systems(
                 FixedUpdate,
                 (teleport_player, fill_move_input, move_player).chain().run_if(in_state(Pause::Running)),
@@ -218,6 +228,18 @@ impl Plugin for PlayerPlugin {
     }
 }
 
+/// A new Run's Points, counters and timers for a Player.
+fn run_state(run: &[Modifier]) -> impl Bundle {
+    (
+        Points::starting(run),
+        RunStats::default(),
+        PlayerZone::default(),
+        Shellshocked::default(),
+        Cooldowns::default(),
+        SparesUsed::default(),
+    )
+}
+
 fn spawn_player(mut commands: Commands, settings: Res<Settings>, run: Res<RunModifiers>) {
     let half_height = PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0;
     commands
@@ -234,7 +256,7 @@ fn spawn_player(mut commands: Commands, settings: Res<Settings>, run: Res<RunMod
             Visibility::default(),
             Loadout::new(STARTING_WEAPON),
             Modifiers(run.0.clone()),
-            (Knife::default(), Equipment::default()),
+            (Knife::default(), Equipment::default(), run_state(&run.0)),
             Transform::from_translation(PLAYER_START + Vec3::Y * (half_height + 0.05)),
             RigidBody::Kinematic,
             CustomPositionIntegration,
@@ -311,20 +333,21 @@ fn look(
 /// Carries out a `Teleport` at the start of the physics step. The easing starts from the new
 /// spot too, so no frame shows the Player partway there.
 fn teleport_player(
-    mut teleport: ResMut<Teleport>,
-    player: Single<(&mut Transform, &mut Locomotion, &mut TranslationEasingState), With<Player>>,
+    mut pending: ResMut<PendingTeleports>,
+    mut players: Query<(&mut Transform, &mut Locomotion, &mut TranslationEasingState), With<Player>>,
 ) {
-    let Some(to) = teleport.0.take() else {
-        return;
-    };
-    let (mut transform, mut locomotion, mut easing) = player.into_inner();
-    transform.translation = to.feet + Vec3::Y * (PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0 + 0.05);
-    if let Some(facing) = to.facing {
-        transform.rotation = facing;
+    for to in pending.0.drain(..) {
+        let Ok((mut transform, mut locomotion, mut easing)) = players.get_mut(to.player) else {
+            continue;
+        };
+        transform.translation = to.feet + Vec3::Y * (PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0 + 0.05);
+        if let Some(facing) = to.facing {
+            transform.rotation = facing;
+        }
+        easing.start = Some(transform.translation);
+        locomotion.velocity = Vec3::ZERO;
+        locomotion.grounded = false;
     }
-    easing.start = Some(transform.translation);
-    locomotion.velocity = Vec3::ZERO;
-    locomotion.grounded = false;
 }
 
 /// Fills the local Player's `MoveInput` for the tick from the keyboard and the way they're

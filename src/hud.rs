@@ -572,7 +572,7 @@ fn flash_points(mut flash: ResMut<PointsFlash>, mut refused: MessageReader<CantA
 }
 
 fn points_text(
-    points: Res<Points>,
+    points: Single<&Points, With<LocalPlayer>>,
     flash: Res<PointsFlash>,
     text: Single<(&mut Text, &mut TextColor), With<PointsText>>,
 ) {
@@ -588,15 +588,16 @@ fn points_text(
 fn spawn_popups(
     mut commands: Commands,
     mut awarded: MessageReader<PointsAwarded>,
-    points: Res<Points>,
+    local: Single<(Entity, &Points), With<LocalPlayer>>,
     mut last: ResMut<LastBalance>,
     column: Single<Entity, With<PopupColumn>>,
 ) {
+    let (local, points) = *local;
     let mut popups = Vec::new();
     let mut total = 0;
-    for PointsAwarded(amount) in awarded.read() {
-        total += amount;
-        popups.push((format!("+{}", with_commas(*amount)), EARN_GOLD));
+    for award in awarded.read().filter(|award| award.player == local) {
+        total += award.amount;
+        popups.push((format!("+{}", with_commas(award.amount)), EARN_GOLD));
     }
     let before = last.0.unwrap_or(points.balance);
     let change = unexplained_change(before, points.balance, total);
@@ -714,14 +715,14 @@ fn equipment_text(
 fn prompt_text(
     focus: Res<Focus>,
     buyables: Query<(&Buyable, Option<&HoldBuy>)>,
-    player: Single<&Modifiers, With<LocalPlayer>>,
-    points: Res<Points>,
+    player: Single<(&Modifiers, &Points), With<LocalPlayer>>,
     settings: Res<Settings>,
     prompt: Single<(&mut Text, &mut Visibility), With<PromptText>>,
     cost: Single<(&mut TextSpan, &mut TextColor), (With<PromptCost>, Without<PromptHoldCost>)>,
     mut hold_line: Single<&mut TextSpan, (With<PromptHold>, Without<PromptCost>, Without<PromptHoldCost>)>,
     hold_cost: Single<(&mut TextSpan, &mut TextColor), (With<PromptHoldCost>, Without<PromptCost>)>,
 ) {
+    let (modifiers, points) = *player;
     let (mut text, mut visibility) = prompt.into_inner();
     let Some((buyable, hold)) = focus.0.and_then(|e| buyables.get(e).ok()) else {
         visibility.set_if_neq(Visibility::Hidden);
@@ -733,7 +734,7 @@ fn prompt_text(
         text.0 = shown;
     }
     let (mut span, mut color) = cost.into_inner();
-    set_price(&mut span, &mut color, charged(buyable.price, &player.0), points.balance);
+    set_price(&mut span, &mut color, charged(buyable.price, &modifiers.0), points.balance);
     let (mut hold_span, mut hold_color) = hold_cost.into_inner();
     match hold.filter(|hold| hold.tap) {
         Some(hold) => {
@@ -741,7 +742,7 @@ fn prompt_text(
             if hold_line.0 != line {
                 hold_line.0 = line;
             }
-            set_price(&mut hold_span, &mut hold_color, charged(hold.price, &player.0), points.balance);
+            set_price(&mut hold_span, &mut hold_color, charged(hold.price, &modifiers.0), points.balance);
         }
         None => {
             hold_line.0.clear();

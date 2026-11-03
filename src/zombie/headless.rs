@@ -63,6 +63,7 @@ impl Sim {
         app.world_mut().spawn((
             Player,
             Modifiers::default(),
+            crate::zone::PlayerZone::default(),
             Transform::from_translation(crate::map::PLAYER_START + Vec3::Y * half_height),
         ));
         let mut sim = Self {

@@ -3,10 +3,12 @@
 use bevy::prelude::*;
 
 use crate::last_stand::{Down, go_down};
-use crate::state::{GameState, Pause};
+use crate::player::{LocalPlayer, Player};
+use crate::state::Pause;
 use crate::zombie::ZombieKilled;
 
-#[derive(Resource, Default, Debug, PartialEq)]
+/// A Player's counters for the Run.
+#[derive(Component, Default, Debug, PartialEq)]
 pub struct RunStats {
     pub kills: u32,
     pub headshots: u32,
@@ -29,10 +31,7 @@ pub struct StatsPlugin;
 
 impl Plugin for StatsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<RunStats>()
-            .add_systems(OnEnter(GameState::Playing), |mut stats: ResMut<RunStats>| {
-                *stats = RunStats::default()
-            })
+        app
             // Counted in the frame of the Down, so the one that ends the Run is in its Record.
             .add_systems(Update, (count_kills, count_downs.after(go_down)))
             .add_systems(Update, count_time.run_if(in_state(Pause::Running)));
@@ -40,19 +39,28 @@ impl Plugin for StatsPlugin {
 }
 
 /// Every Down counts: one ending in a Self-Revive as much as the one ending the Run.
-fn count_downs(mut downs: MessageReader<Down>, mut stats: ResMut<RunStats>) {
+fn count_downs(mut downs: MessageReader<Down>, mut stats: Query<&mut RunStats, With<LocalPlayer>>) {
     for _ in downs.read() {
+        let Ok(mut stats) = stats.single_mut() else {
+            continue;
+        };
         stats.downs = stats.downs.saturating_add(1);
     }
 }
 
 /// `Time` here is virtual time, which stands still whenever the world is frozen.
-fn count_time(time: Res<Time>, mut stats: ResMut<RunStats>) {
-    stats.survived_secs += time.delta_secs_f64();
+fn count_time(time: Res<Time>, mut stats: Query<&mut RunStats, With<Player>>) {
+    for mut stats in &mut stats {
+        stats.survived_secs += time.delta_secs_f64();
+    }
 }
 
-fn count_kills(mut kills: MessageReader<ZombieKilled>, mut stats: ResMut<RunStats>) {
+/// Kills count for the `LocalPlayer`, who lands them all until kills name their killer.
+fn count_kills(mut kills: MessageReader<ZombieKilled>, mut stats: Query<&mut RunStats, With<LocalPlayer>>) {
     for kill in kills.read() {
+        let Ok(mut stats) = stats.single_mut() else {
+            continue;
+        };
         stats.record_kill(kill);
     }
 }

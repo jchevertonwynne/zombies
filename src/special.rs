@@ -24,7 +24,7 @@ use crate::hud::overlay::{Overlay, Overlays};
 use crate::last_stand::LastStand;
 use crate::map::{SpawnKind, SpawnPoint};
 use crate::nav::Route;
-use crate::player::{Player, PlayerCamera, PlayerHit};
+use crate::player::{LocalPlayer, Player, PlayerCamera, PlayerHit};
 use crate::points::BonusPoints;
 use crate::round::{CarriesOver, Round, RoundPhase, alive_cap, zombie_health};
 use crate::settings::{Settings, SpecialType, SpecialZombies};
@@ -409,7 +409,7 @@ fn spawn_special(
     alive: Query<(), (With<Zombie>, Without<Dying>)>,
     spawn_points: Query<(&Transform, &SpawnPoint)>,
     player: Single<&Transform, With<Player>>,
-    player_zone: Res<PlayerZone>,
+    player_zone: Single<&PlayerZone, With<Player>>,
     active: Res<ActiveZones>,
     zombie_assets: ZombieAssetsParam,
     assets: Res<SpecialAssets>,
@@ -637,6 +637,7 @@ fn special_deaths(
     mut damage: MessageWriter<DamageZombie>,
     mut player_hits: MessageWriter<PlayerHit>,
     mut bonus: MessageWriter<BonusPoints>,
+    credited: Single<Entity, With<LocalPlayer>>,
     mut cues: MessageWriter<SpecialCue>,
     assets: Res<SpecialAssets>,
 ) {
@@ -653,7 +654,10 @@ fn special_deaths(
                 let pay = dying.killed_by().map_or(Pay::Unpaid, Attack::pay);
                 let paid = napalm_kill_bonus(pay);
                 if paid > 0 {
-                    bonus.write(BonusPoints(paid));
+                    bonus.write(BonusPoints {
+                        player: *credited,
+                        amount: paid,
+                    });
                 }
                 // The blast kills every Zombie in sight around it, Unpaid.
                 for (other, other_at) in &zombies {
@@ -873,7 +877,7 @@ fn unstick(
     >,
     player: Single<&Transform, (With<Player>, Without<SpecialWatch>)>,
     spawn_points: Query<(&Transform, &SpawnPoint), (Without<SpecialWatch>, Without<Player>)>,
-    player_zone: Res<PlayerZone>,
+    player_zone: Single<&PlayerZone, With<Player>>,
     active: Res<ActiveZones>,
     time: Res<Time>,
 ) {
@@ -1113,8 +1117,7 @@ mod tests {
         for fps in [144.0, 60.0, 90.0] {
             for offset in 0..3 {
                 let mut sim = Sim::new(fps, |app| {
-                    app.insert_resource(PlayerZone(ZoneId::StartRoom))
-                        .insert_resource(ActiveZones(ZoneId::ALL.into_iter().collect()))
+                    app.insert_resource(ActiveZones(ZoneId::ALL.into_iter().collect()))
                         .add_systems(FixedUpdate, unstick);
                 });
                 let points = special_spawn_points(sim.world_mut());
