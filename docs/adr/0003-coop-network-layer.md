@@ -14,7 +14,7 @@ We chose this over lockstep or a dedicated server because co-op is 2–4 friends
 
 - The simulation stays at **64 Hz** `FixedUpdate`. Inputs go up every tick with the last 4 resent. The host applies them through Block Racers' `Remote` jitter buffer and never rewinds.
 - Each input carries yaw and pitch. `move_player` is pulled out into a step function, so a client can replay its unacknowledged inputs through it. The replay keeps Zombies at their shown positions, so body-blocking feels right, without `meet_ahead` offsetting.
-- Snapshots go down at **32 Hz**, one per Player, each a **full** state of the fast-changing things: Zombies, Hellhounds, the other Players and each Player's Points. The receiver's own Player goes in full and the rest are packed as in Block Racers. There are no deltas and no interest management. A lost snapshot costs nothing, and the worst case (24 Zombies, 2 Hellhounds, 4 Players, about 600 B) fits under **750 B**.
+- Snapshots go down at **32 Hz**, one per Player, each a **full** state of the fast-changing things: Zombies, Hellhounds, the other Players and each Player's Points. The receiver's own Player goes in full and the rest are packed as in Block Racers. There are no deltas and no interest management. A lost snapshot costs nothing, and the worst case (40 Zombies under Overkill's raised Co-op Alive Cap, 2 Hellhounds, 4 Players, about 900–1000 B) fits under **1000 B**, inside one QUIC datagram. The Co-op Alive Cap is set in [Grilling: Rounds and Hordes by Player count](https://github.com/jchevertonwynne/zombies/issues/121).
 - On a client, Zombies and other Players are **puppets**: no AI, no Zombie physics, just interpolation about **2 snapshots** behind.
 
 ## The reliable stream
@@ -33,7 +33,7 @@ We chose this over lockstep or a dedicated server because co-op is 2–4 friends
 ## Testing
 
 - The copied `Hub` (seeded loss, jitter, stalls, cuts) drives two- to four-App headless lockstep tests on top of the existing headless Player and Zombie harnesses.
-- A worst-case snapshot test asserts at most 750 B.
+- A worst-case snapshot test asserts at most 1000 B.
 - The `move_player` step function is tested on its own: replaying the same inputs must reach the same position.
 
 ## Considered options
