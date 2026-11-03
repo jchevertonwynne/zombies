@@ -210,7 +210,7 @@ fn draw(
     root: Single<Entity, With<Root>>,
     variant: Res<Variant>,
     story: Res<Story>,
-    points: Single<&Points, With<Player>>,
+    points: Res<Points>,
     camera: Single<(&Camera, &GlobalTransform), With<PlayerCamera>>,
     window: Single<&Window>,
     boxes: Query<(&MysteryBox, &GlobalTransform)>,
