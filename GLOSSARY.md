@@ -1,6 +1,9 @@
 # Glossary
 
-**Player**: The single human-controlled survivor, viewed in first person.
+**Player**: A human-controlled survivor, viewed in first person. A Run has one Player when solo, or two to four in Co-op, each on their own machine.
+
+**Co-op**: A Run played by two to four Players together online. Whether a Run is solo or Co-op is fixed by how many Players it starts with, and stays fixed even if some leave.
+_Avoid_: multiplayer, online mode
 
 **Zombie**: A hostile undead enemy that finds its way to the Player and attacks in melee.
 
@@ -123,14 +126,20 @@ _Avoid_: debris, gate
 **Run**: One game, from Round 1 until Game Over or quitting.
 _Avoid_: game, match
 
-**Down**: The Player's Health reaching zero. A Down ends the Run unless the Player holds Quick Revive, in which case it starts a Last Stand.
+**Down**: A Player's Health reaching zero. Solo, a Down ends the Run unless the Player holds Quick Revive, in which case it starts a Last Stand. In Co-op, every Down starts a Last Stand.
 
-**Last Stand**: The short time after a Down with Quick Revive. The Player crawls with a pistol and cannot be hurt, then gets back up.
-_Avoid_: bleed out, downed state
+**Last Stand**: The time after a Down when the Player crawls with the Last Stand pistol and cannot be hurt, while Zombies go after anyone else. Solo, it is short and ends in a Self-Revive. In Co-op, it ends in a Revive or a Bleed Out, and the end of a Round doesn't stop it.
+_Avoid_: downed state
 
-**Self-Revive**: Getting back up at the end of a Last Stand.
+**Self-Revive**: Getting back up alone at the end of a solo Last Stand.
 
-**Game Over**: The end of a Run, triggered by a Down without Quick Revive. It shows the Round reached and the Run Record.
+**Revive**: Getting a teammate in a Last Stand back on their feet in Co-op, by holding the Use key beside them. Being hit doesn't stop it, but letting go does. The revived Player gets their Weapons back.
+
+**Bleed Out**: A Co-op Last Stand running out of time with no Revive. The Player loses everything but their Points, and the other Players lose some of theirs. They watch a teammate until the next Round, then Respawn.
+
+**Respawn**: Coming back at the start of the next Round after a Bleed Out, next to a teammate, with only the starting Weapon, the Knife and the starting Equipment.
+
+**Game Over**: The end of a Run. Solo, a Down without Quick Revive triggers it. In Co-op, it comes the moment no connected Player is still up, whatever Last Stand time is left. It shows the Round reached and the Run Record.
 
 **Run Record**: The saved summary of one finished Run: Map, Mode, date, Round reached, Kills, Headshots, Downs, Points Earned and time survived. A Gauntlet Run Record also lists the Boons held at the end, in the order they were picked, how many Upgrade Track Ranks were switched on, whether it reached its Win, and its Heat and Heat Conditions.
 
@@ -152,7 +161,7 @@ _Avoid_: perk-a-cola, buff
 
 **Double Tap**: A Perk that makes Weapons fire faster.
 
-**Quick Revive**: A Perk that, when playing solo, lets the Player get back up from one Down instead of reaching Game Over.
+**Quick Revive**: A Perk. Solo, it lets the Player get back up from one Down instead of reaching Game Over. In Co-op, it only makes the Player's Revives of others faster.
 
 **Power**: A state of the whole Map that starts off and, once turned on, stays on for the rest of the Run. Most Perk Machines, every Power Door and every Trap wait for it.
 
