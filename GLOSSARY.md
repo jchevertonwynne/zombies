@@ -147,12 +147,12 @@ _Avoid_: downed state
 
 **Game Over**: The end of a Run. Solo, a Down without Quick Revive triggers it. In Co-op, it comes the moment no connected Player is still up, whatever Last Stand time is left. It shows the Round reached and the Run Record.
 
-**Run Record**: The saved summary of one finished Run: Map, Mode, date, Round reached, Kills, Headshots, Downs, Points Earned and time survived. A Gauntlet Run Record also lists the Boons held at the end, in the order they were picked, how many Upgrade Track Ranks were switched on, whether it reached its Win, and its Heat and Heat Conditions.
+**Run Record**: The saved summary of one finished Run: Map, Mode, date, Round reached, Kills, Headshots, Downs, Points Earned and time survived. A Gauntlet Run Record also lists the Boons held at the end, in the order they were picked, how many Upgrade Track Ranks were switched on, whether it reached its Win, and its Heat and Heat Conditions. In Co-op each Player saves their own Run Record when their Run ends for them, with their own Kills, Headshots, Downs, Revives and Points Earned, and their teammates listed beside them.
 
-**Records**: The best ten Run Records for a Map and Mode, ranked by Round reached and then by shorter time survived. Gauntlet Records rank Wins above other Runs, then by higher Heat, before Round reached and time.
+**Records**: The best ten Run Records for a Map, Mode and number of Players at the start of the Run, ranked by Round reached and then by shorter time survived. Gauntlet Records rank Wins above other Runs, then by higher Heat, before Round reached and time.
 _Avoid_: high scores, leaderboard
 
-**Lifetime Stats**: Running totals across every Run the Player has finished.
+**Lifetime Stats**: Running totals across every Run the Player has finished, solo and Co-op alike. A Co-op Run adds only that Player's own share.
 
 **Settings**: The Player's saved preferences: sensitivity, volume, field of view, invert-Y, camera sway, and an On/Off switch per Special Zombie type (all On by default).
 
