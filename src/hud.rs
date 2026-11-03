@@ -17,7 +17,7 @@ use crate::equipment::Equipment;
 use crate::last_stand::LastStand;
 use crate::modifier::Modifiers;
 use crate::perk::{Perk, Perks};
-use crate::player::{Health, Player};
+use crate::player::{Health, LocalPlayer};
 use crate::points::{Points, PointsAwarded};
 use crate::power_up::{ActivePowerUps, PowerUp, PowerUpTaken};
 use crate::round::{Round, RoundPhase};
@@ -501,7 +501,7 @@ fn spawn_tallies(counter: &mut ChildSpawnerCommands) {
 }
 
 /// Low-Health redness and the Last Stand, through the overlay layer.
-fn effect_overlays(player: Single<(&Health, Has<LastStand>), With<Player>>, mut overlays: ResMut<Overlays>) {
+fn effect_overlays(player: Single<(&Health, Has<LastStand>), With<LocalPlayer>>, mut overlays: ResMut<Overlays>) {
     let (health, last_stand) = *player;
     overlays.hold(Overlay::LowHealth, 1.0 - health.fraction());
     if last_stand {
@@ -541,7 +541,7 @@ fn round_counter_text(
 }
 
 /// An icon for each Perk held, in the order bought.
-fn perk_row(mut commands: Commands, perks: Single<Ref<Perks>, With<Player>>, row: Single<Entity, With<PerkRow>>) {
+fn perk_row(mut commands: Commands, perks: Single<Ref<Perks>, With<LocalPlayer>>, row: Single<Entity, With<PerkRow>>) {
     if !perks.is_changed() {
         return;
     }
@@ -631,7 +631,7 @@ fn animate_popups(
 /// The Weapon in hand, purple if Upgraded, with what's on it and its ammo. With the Underbarrel
 /// up, its name and ammo show beside the Weapon's.
 fn weapon_text(
-    loadout: Single<&Loadout, With<Player>>,
+    loadout: Single<&Loadout, With<LocalPlayer>>,
     name: Single<(&mut Text, &mut TextColor), (With<WeaponName>, Without<WeaponDetails>, Without<AmmoText>)>,
     details: Single<(&mut Text, &mut Visibility), (With<WeaponDetails>, Without<AmmoText>)>,
     mut ammo: Single<&mut Text, (With<AmmoText>, Without<WeaponName>, Without<WeaponDetails>)>,
@@ -673,7 +673,7 @@ fn weapon_text(
 /// A pip per frag (the Lethal), then the Tactical, Claymores and Bowie Knife once held.
 fn equipment_text(
     mut commands: Commands,
-    player: Single<(&Equipment, &Knife), With<Player>>,
+    player: Single<(&Equipment, &Knife), With<LocalPlayer>>,
     mut text: Single<&mut Text, With<EquipmentText>>,
     pips: Single<(Entity, Option<&Children>), With<LethalPips>>,
 ) {
@@ -714,7 +714,7 @@ fn equipment_text(
 fn prompt_text(
     focus: Res<Focus>,
     buyables: Query<(&Buyable, Option<&HoldBuy>)>,
-    player: Single<&Modifiers, With<Player>>,
+    player: Single<&Modifiers, With<LocalPlayer>>,
     points: Res<Points>,
     settings: Res<Settings>,
     prompt: Single<(&mut Text, &mut Visibility), With<PromptText>>,
@@ -760,7 +760,7 @@ fn set_price(span: &mut TextSpan, color: &mut TextColor, price: Option<u64>, bal
 }
 
 fn reload_hint_text(
-    player: Single<(&Loadout, &Modifiers), With<Player>>,
+    player: Single<(&Loadout, &Modifiers), With<LocalPlayer>>,
     hint: Single<(&mut Text, &mut Visibility), (With<ReloadHint>, Without<PromptText>)>,
 ) {
     let (loadout, modifiers) = *player;

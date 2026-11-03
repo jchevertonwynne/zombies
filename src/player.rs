@@ -24,6 +24,36 @@ use crate::weapon::{Knife, Loadout};
 #[derive(Component)]
 pub struct Player;
 
+/// Which of the four Seats a Player holds for the Run: 0 is the Host's, and solo is always 0. It
+/// names the Player wherever an `Entity` can't (across the network), and sets their colour.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Seat(pub u8);
+
+/// Each Seat's colour, in Seat order: white, blue, yellow, green.
+#[allow(dead_code, reason = "read by the Co-op HUD and teammate bodies once they're built")]
+pub const SEAT_COLOURS: [Color; 4] = [
+    Color::srgb(0.95, 0.95, 0.95),
+    Color::srgb(0.35, 0.6, 1.0),
+    Color::srgb(1.0, 0.85, 0.25),
+    Color::srgb(0.4, 0.9, 0.4),
+];
+
+impl Seat {
+    #[allow(dead_code, reason = "read by the Co-op HUD and teammate bodies once they're built")]
+    pub fn colour(self) -> Color {
+        SEAT_COLOURS[usize::from(self.0) % SEAT_COLOURS.len()]
+    }
+}
+
+/// The name a Player goes by, shown to their teammates.
+#[derive(Component, Debug, Clone, PartialEq, Eq)]
+pub struct PlayerName(pub String);
+
+/// The one Player this machine drives: the only Player solo. The camera, view model and listener
+/// hang off it, and the HUD and screen effects read it alone.
+#[derive(Component)]
+pub struct LocalPlayer;
+
 /// The first-person camera, a child of the Player. It carries the pitch; the Player carries the yaw.
 #[derive(Component)]
 pub struct PlayerCamera;
@@ -177,7 +207,7 @@ fn spawn_player(mut commands: Commands, settings: Res<Settings>, run: Res<RunMod
         .spawn((
             InRun,
             Name::new("Player"),
-            Player,
+            (Player, Seat(0), PlayerName("Player".into()), LocalPlayer),
             Health {
                 current: PLAYER_MAX_HEALTH,
                 max: PLAYER_MAX_HEALTH,
@@ -233,7 +263,7 @@ fn release_cursor(mut cursor: Single<&mut CursorOptions>) {
 fn apply_fov(
     settings: Res<Settings>,
     warp: Res<FovWarp>,
-    loadout: Single<&Loadout, With<Player>>,
+    loadout: Single<&Loadout, With<LocalPlayer>>,
     mut cameras: Query<&mut Projection, With<PlayerCamera>>,
 ) {
     let fov = settings.fov_radians() * loadout.fov_factor() * warp.0;
@@ -490,6 +520,32 @@ mod tests {
         // Rising from a jump, then falling back.
         assert!(!probes_for_ground(false, false, 2.0));
         assert!(probes_for_ground(false, false, -2.0));
+    }
+
+    #[test]
+    fn the_solo_player_is_seat_0_and_local_with_the_camera_on_it() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        world.insert_resource(Settings::default());
+        world.init_resource::<RunModifiers>();
+        world.run_system_once(spawn_player).unwrap();
+        let (player, seat) = world
+            .query_filtered::<(Entity, &Seat), (With<Player>, With<LocalPlayer>)>()
+            .single(&world)
+            .unwrap();
+        assert_eq!(*seat, Seat(0));
+        let camera = world.query_filtered::<&ChildOf, With<PlayerCamera>>().single(&world).unwrap();
+        assert_eq!(camera.parent(), player);
+    }
+
+    #[test]
+    fn each_seat_has_its_own_colour_starting_with_white() {
+        assert_eq!(Seat(0).colour(), Color::srgb(0.95, 0.95, 0.95));
+        for a in 0..4u8 {
+            for b in (a + 1)..4 {
+                assert_ne!(Seat(a).colour(), Seat(b).colour());
+            }
+        }
     }
 
     #[test]
