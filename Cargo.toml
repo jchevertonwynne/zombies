@@ -16,6 +16,8 @@ serde = { version = "1", features = ["derive"] }
 [features]
 # Faster incremental builds while iterating: `cargo run --features dev`
 dev = ["bevy/dynamic_linking"]
+# PROTOTYPE, throw me away: the Co-op HUD variants (#135).
+coop-hud-prototype = []
 
 [profile.dev]
 opt-level = 1

@@ -4,6 +4,8 @@
 //! banner for instant ones. Under it all, the effect overlay layer. No Box, Power or Pack-a-Punch
 //! state shows.
 
+#[cfg(feature = "coop-hud-prototype")]
+mod coop_prototype;
 pub mod overlay;
 
 use bevy::prelude::*;
@@ -220,6 +222,8 @@ pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
+        #[cfg(feature = "coop-hud-prototype")]
+        app.add_plugins(coop_prototype::CoopHudPrototypePlugin);
         app.add_plugins(OverlayPlugin)
             .init_resource::<PointsFlash>()
             .init_resource::<LastBalance>()
