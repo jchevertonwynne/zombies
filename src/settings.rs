@@ -35,6 +35,10 @@ pub struct Settings {
     /// which start with every default.
     #[serde(default)]
     pub bindings: Bindings,
+    /// The Name teammates see in Co-op, at most `PLAYER_NAME_MAX_CHARS` characters. Empty until
+    /// the Player is asked, the first time Co-op opens.
+    #[serde(default)]
+    pub name: String,
 }
 
 impl Default for Settings {
@@ -49,6 +53,7 @@ impl Default for Settings {
             special_zombies: SpecialZombies::default(),
             last_mode: Mode::default(),
             bindings: Bindings::default(),
+            name: String::new(),
         }
     }
 }
@@ -242,6 +247,12 @@ impl Settings {
         self.sensitivity = self.sensitivity.clamp(SENSITIVITY_MIN, SENSITIVITY_MAX);
         self.master_volume = self.master_volume.min(100);
         self.fov = self.fov.clamp(FOV_MIN, FOV_MAX);
+        self.name = self
+            .name
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(PLAYER_NAME_MAX_CHARS)
+            .collect();
         self
     }
 
@@ -527,6 +538,28 @@ mod tests {
             (6, 75, 85)
         );
         assert!(settings.invert_y);
+    }
+
+    #[test]
+    fn the_name_starts_empty_saves_and_is_cut_to_twelve_characters() {
+        assert_eq!(Settings::default().name, "");
+        let old = "(version: 1, sensitivity: 7, master_volume: 50, fov: 90, invert_y: true, last_mode: Classic)";
+        assert_eq!(save::parse::<Settings>(old).unwrap().name, "");
+
+        let dir = TempDir::new("settings-name");
+        let saved = Settings {
+            name: "Ada".into(),
+            ..default()
+        };
+        save::store(&dir.0, &saved).unwrap();
+        assert_eq!(save::load::<Settings>(&dir.0).name, "Ada");
+
+        let long = Settings {
+            name: "a hand-edited name far too long".into(),
+            ..default()
+        }
+        .clamped();
+        assert_eq!(long.name.chars().count(), PLAYER_NAME_MAX_CHARS);
     }
 
     #[test]

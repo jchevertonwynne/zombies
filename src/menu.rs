@@ -29,6 +29,10 @@ const DIM_BACKGROUND: Color = Color::srgba(0.0, 0.0, 0.0, 0.6);
 pub enum MenuButton {
     /// Opens the Mode screen.
     Play,
+    /// Opens the Co-op screen, or asks for a Name first.
+    Coop,
+    /// Opens the Name screen from Settings.
+    EditName,
     /// Highlights a Mode on the Mode screen, remembering it as the last Mode.
     PickMode(Mode),
     /// Starts a Run in the highlighted Mode.
@@ -98,6 +102,24 @@ pub struct ResetGauntletProgress;
 #[derive(Resource, Default)]
 pub struct GameOverLines(pub Vec<String>);
 
+/// Where Back (and Esc) goes from the screens that can be opened from more than one place.
+#[derive(Resource)]
+pub struct BackTo {
+    /// The Armory, from the Mode screen or from a Co-op Room.
+    pub armory: MainMenuScreen,
+    /// The Name screen, from the Co-op screen or Settings.
+    pub name: MainMenuScreen,
+}
+
+impl Default for BackTo {
+    fn default() -> Self {
+        Self {
+            armory: MainMenuScreen::Mode,
+            name: MainMenuScreen::Coop,
+        }
+    }
+}
+
 /// Gives a button the menus' hover and press colours.
 #[derive(Component)]
 pub struct MenuButtonLook;
@@ -151,6 +173,7 @@ impl Plugin for MenuPlugin {
             .init_resource::<RecordsTab>()
             .init_resource::<GameOverLines>()
             .init_resource::<Rebinding>()
+            .init_resource::<BackTo>()
             .add_message::<ResetGauntletProgress>()
             .add_systems(
                 OnEnter(GameState::Playing),
@@ -257,6 +280,7 @@ fn spawn_main_menu(mut commands: Commands) {
             },
         ));
         button(menu, "Play", MenuButton::Play, 280.0);
+        button(menu, "Co-op", MenuButton::Coop, 280.0);
         button(menu, "Records", MenuButton::Records, 280.0);
         button(menu, "Settings", MenuButton::Settings, 280.0);
         button(menu, "Quit", MenuButton::Quit, 280.0);
@@ -579,7 +603,12 @@ fn spawn_pause_menu(mut commands: Commands) {
         .insert(DespawnOnExit(PauseScreen::Root));
 }
 
-fn settings_screen(commands: &mut Commands, settings: &Settings, background: Color) -> Entity {
+fn settings_screen(
+    commands: &mut Commands,
+    settings: &Settings,
+    background: Color,
+    with_name: bool,
+) -> Entity {
     screen(commands, background, |screen| {
         screen.spawn((
             text("SETTINGS", 64.0, Color::WHITE),
@@ -608,6 +637,14 @@ fn settings_screen(commands: &mut Commands, settings: &Settings, background: Col
             height: px(16.0),
             ..default()
         });
+        if with_name {
+            let name = if settings.name.is_empty() {
+                "Name: not set".to_string()
+            } else {
+                format!("Name: {}", settings.name)
+            };
+            button(screen, &name, MenuButton::EditName, 440.0);
+        }
         button(screen, "Controls", MenuButton::Controls, 440.0);
         for reset in [Reset::Records, Reset::Gauntlet] {
             button(screen, reset.button(), MenuButton::AskReset(reset), 440.0);
@@ -884,14 +921,14 @@ fn binding_values(settings: Res<Settings>, rebinding: Res<Rebinding>, mut values
 }
 
 fn spawn_main_menu_settings(mut commands: Commands, settings: Res<Settings>) {
-    let screen = settings_screen(&mut commands, &settings, MENU_BACKGROUND);
+    let screen = settings_screen(&mut commands, &settings, MENU_BACKGROUND, true);
     commands
         .entity(screen)
         .insert((SettingsScreen, DespawnOnExit(MainMenuScreen::Settings)));
 }
 
 fn spawn_pause_settings(mut commands: Commands, settings: Res<Settings>) {
-    let screen = settings_screen(&mut commands, &settings, DIM_BACKGROUND);
+    let screen = settings_screen(&mut commands, &settings, DIM_BACKGROUND, false);
     commands
         .entity(screen)
         .insert((SettingsScreen, DespawnOnExit(PauseScreen::Settings)));
@@ -915,6 +952,7 @@ fn activate_button(
     (mut next_pause, freeze): (ResMut<NextState<Pause>>, Res<Freeze>),
     mut next_pause_screen: ResMut<NextState<PauseScreen>>,
     mut exit: MessageWriter<AppExit>,
+    mut back_to: ResMut<BackTo>,
 ) {
     let main_menu = main_menu.map(|screen| *screen.get());
     let in_main_menu = main_menu.is_some();
@@ -932,14 +970,29 @@ fn activate_button(
             *mode = settings.last_mode;
             next_game.set(GameState::Playing);
         }
-        MenuButton::Armory => next_main_menu.set(MainMenuScreen::Armory),
+        MenuButton::Coop => {
+            back_to.name = MainMenuScreen::Coop;
+            next_main_menu.set(if settings.name.is_empty() {
+                MainMenuScreen::Name
+            } else {
+                MainMenuScreen::Coop
+            });
+        }
+        MenuButton::EditName => {
+            back_to.name = MainMenuScreen::Settings;
+            next_main_menu.set(MainMenuScreen::Name);
+        }
+        MenuButton::Armory => {
+            back_to.armory = MainMenuScreen::Mode;
+            next_main_menu.set(MainMenuScreen::Armory);
+        }
         // The Mode stays as it was.
         MenuButton::PlayAgain => next_game.set(GameState::Playing),
         MenuButton::MainMenu => next_game.set(GameState::MainMenu),
         MenuButton::Records => next_main_menu.set(MainMenuScreen::Records),
         MenuButton::Settings if in_main_menu => next_main_menu.set(MainMenuScreen::Settings),
         MenuButton::Settings => next_pause_screen.set(PauseScreen::Settings),
-        MenuButton::Back if in_main_menu => next_main_menu.set(back_from(main_menu)),
+        MenuButton::Back if in_main_menu => next_main_menu.set(back_from(main_menu, &back_to)),
         MenuButton::Back => next_pause_screen.set(PauseScreen::Root),
         MenuButton::Quit => {
             exit.write(AppExit::Success);
@@ -1014,11 +1067,13 @@ fn setting_values(settings: Res<Settings>, mut values: Query<(&SettingValue, &mu
     }
 }
 
-/// The Main Menu screen Back (or Esc) leads to: the Armory backs out to the Mode screen, the
-/// rest to the Main Menu itself.
-fn back_from(screen: Option<MainMenuScreen>) -> MainMenuScreen {
+/// The Main Menu screen Back (or Esc) leads to: the Armory and the Name screen back out to where
+/// they were opened from, Join and the Room to the Co-op screen, the rest to the Main Menu itself.
+fn back_from(screen: Option<MainMenuScreen>, back_to: &BackTo) -> MainMenuScreen {
     match screen {
-        Some(MainMenuScreen::Armory) => MainMenuScreen::Mode,
+        Some(MainMenuScreen::Armory) => back_to.armory,
+        Some(MainMenuScreen::Name) => back_to.name,
+        Some(MainMenuScreen::Join | MainMenuScreen::Room) => MainMenuScreen::Coop,
         _ => MainMenuScreen::Root,
     }
 }
@@ -1027,9 +1082,10 @@ fn back_from(screen: Option<MainMenuScreen>) -> MainMenuScreen {
 fn main_menu_back(
     input: Res<ButtonInput<KeyCode>>,
     screen: Res<State<MainMenuScreen>>,
+    back_to: Res<BackTo>,
     mut next: ResMut<NextState<MainMenuScreen>>,
 ) {
     if input.just_pressed(KeyCode::Escape) && *screen.get() != MainMenuScreen::Root {
-        next.set(back_from(Some(*screen.get())));
+        next.set(back_from(Some(*screen.get()), &back_to));
     }
 }

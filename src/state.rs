@@ -19,6 +19,14 @@ pub enum MainMenuScreen {
     Armory,
     Records,
     Settings,
+    /// Choosing to Host or Join a Co-op Room.
+    Coop,
+    /// Typing the Player's Name, asked the first time Co-op opens.
+    Name,
+    /// Picking a Room to join, from the lobby's list or by its code.
+    Join,
+    /// A Co-op Room, as its Host or as a joiner.
+    Room,
 }
 
 #[derive(SubStates, Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]

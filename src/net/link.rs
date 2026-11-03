@@ -58,8 +58,33 @@ pub trait Link: Send + Sync + 'static {
     }
 }
 
+/// A link the game holds without knowing which it is.
+impl Link for Box<dyn Link> {
+    fn send(&mut self, to: Peer, bytes: Vec<u8>) {
+        (**self).send(to, bytes)
+    }
+    fn datagram(&mut self, to: Peer, bytes: Vec<u8>) {
+        (**self).datagram(to, bytes)
+    }
+    fn poll(&mut self) -> Option<Event> {
+        (**self).poll()
+    }
+    fn address(&self) -> Option<String> {
+        (**self).address()
+    }
+    fn quality(&self, peer: Peer) -> Option<Quality> {
+        (**self).quality(peer)
+    }
+    fn close(&mut self, peer: Peer) {
+        (**self).close(peer)
+    }
+    fn redial(&mut self) -> bool {
+        (**self).redial()
+    }
+}
+
 #[cfg(test)]
-pub use memory::Hub;
+pub use memory::{Hub, Memory};
 
 #[cfg(test)]
 mod memory {

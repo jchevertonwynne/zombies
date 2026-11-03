@@ -45,6 +45,8 @@ const DIAL_WAIT: Duration = Duration::from_secs(20);
 pub fn runtime() -> &'static Runtime {
     static RUNTIME: OnceLock<Runtime> = OnceLock::new();
     RUNTIME.get_or_init(|| {
+        // The lobby's HTTPS needs a TLS provider; one already there is left be.
+        let _ = rustls::crypto::ring::default_provider().install_default();
         tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()

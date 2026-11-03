@@ -10,6 +10,7 @@ mod buy;
 mod burn;
 mod combat;
 mod controls;
+mod coop;
 mod debug;
 mod door;
 mod equipment;
@@ -75,6 +76,7 @@ fn main() {
             state::StatePlugin,
             settings::SettingsPlugin,
             menu::MenuPlugin,
+            coop::CoopPlugin,
         ))
         // The Map and everything played on it.
         .add_plugins((
