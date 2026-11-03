@@ -1,6 +1,6 @@
 //! PROTOTYPE, throw me away: three Co-op HUD variants over the real HUD, with three fake
 //! teammates, for "Prototype: the Co-op HUD" (#135). Run `cargo run --features coop-hud-prototype`,
-//! start a Run, and press F9 for the next variant (Shift+F9 for the one before).
+//! start a Run, and press ] for the next variant ([ for the one before).
 //! `COOP_HUD_VARIANT=B` picks the variant to start on.
 //!
 //! A scripted story loops every 32 s through four Phases, so each variant shows every case: a
@@ -68,10 +68,12 @@ fn spawn_root(mut commands: Commands, mut story: ResMut<Story>) {
 }
 
 fn switch(keys: Res<ButtonInput<KeyCode>>, mut variant: ResMut<Variant>) {
-    if keys.just_pressed(KeyCode::F9) {
-        let back = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
-        let n = VARIANTS.len();
-        variant.0 = if back { (variant.0 + n - 1) % n } else { (variant.0 + 1) % n };
+    let n = VARIANTS.len();
+    if keys.just_pressed(KeyCode::BracketRight) {
+        variant.0 = (variant.0 + 1) % n;
+    }
+    if keys.just_pressed(KeyCode::BracketLeft) {
+        variant.0 = (variant.0 + n - 1) % n;
     }
 }
 
@@ -504,7 +506,7 @@ fn switcher(ui: &mut ChildSpawnerCommands, key: &str, name: &str, phase: &str) {
             BackgroundColor(Color::srgb(1.0, 0.0, 0.85)),
         ))
         .with_children(|pill| {
-            pill.spawn(text(format!("◀ Shift+F9   {key} ({name})   F9 ▶"), 16.0, Color::BLACK));
+            pill.spawn(text(format!("◀ [   {key} ({name})   ] ▶"), 16.0, Color::BLACK));
             pill.spawn(text(phase, 12.0, Color::BLACK));
         });
     });
