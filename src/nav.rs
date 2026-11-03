@@ -400,9 +400,13 @@ impl NavGraph {
     }
 }
 
-/// A Zombie's current route to the Player.
+/// A Zombie's current route to the Player it's going after.
 #[derive(Component, Default)]
 pub struct Route {
+    /// The Player it's going after, picked every `ZOMBIE_RETARGET_SECS`. `None` until it picks.
+    pub target: Option<Entity>,
+    /// Seconds until it picks again.
+    pub retarget_in: f32,
     /// Path nodes still to reach, nearest first. Empty means head straight for the Player.
     pub waypoints: Vec<Vec3>,
     /// Seconds until the next re-plan.

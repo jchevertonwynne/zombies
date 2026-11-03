@@ -11,6 +11,8 @@ use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
 
 use super::*;
+use crate::modifier::Modifiers;
+use crate::player::Player;
 use crate::state::GameState;
 
 /// A Zombie as one rendered frame shows it.
@@ -317,4 +319,54 @@ fn a_zombie_cannot_swipe_a_player_through_the_gazebo_wall() {
         hits += sim.world_mut().resource_mut::<Messages<PlayerHit>>().drain().count();
     }
     assert_eq!(hits, 0, "the Zombie hit the Player through the wall");
+}
+
+/// A second Player standing at `feet`.
+fn add_player(sim: &mut Sim, feet: Vec3) -> Entity {
+    let half_height = PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0;
+    sim.world_mut()
+        .spawn((
+            Player,
+            Modifiers::default(),
+            crate::zone::PlayerZone::default(),
+            Transform::from_translation(feet + Vec3::Y * half_height),
+        ))
+        .id()
+}
+
+fn hit_players(sim: &mut Sim, secs: f32) -> Vec<Entity> {
+    let mut hit = Vec::new();
+    for _ in 0..sim.frames(secs) {
+        sim.run(1);
+        hit.extend(sim.world_mut().resource_mut::<Messages<PlayerHit>>().drain().map(|hit| hit.player));
+    }
+    hit
+}
+
+/// With two Players up, a Zombie goes after the nearer, and the swipe names them.
+#[test]
+fn a_zombie_swipes_the_nearer_of_two_players() {
+    let mut sim = Sim::new(60.0, |_| {});
+    put_player(&mut sim, Vec3::new(11.0, 0.0, -2.0));
+    let near = add_player(&mut sim, Vec3::new(-5.0, 0.0, 0.0));
+    sim.spawn(Vec3::new(0.0, 0.0, 0.0), None);
+    let hit = hit_players(&mut sim, 20.0);
+    assert!(!hit.is_empty(), "the Zombie never landed a swipe");
+    assert!(hit.iter().all(|&player| player == near), "it swiped the farther Player");
+}
+
+/// A Player who goes down is left alone at once, and the Zombie turns on the other.
+#[test]
+fn a_zombie_leaves_a_player_who_goes_down_for_the_other() {
+    let mut sim = Sim::new(60.0, |_| {});
+    let far = sim.world_mut().query_filtered::<Entity, With<Player>>().single(sim.app.world()).unwrap();
+    put_player(&mut sim, Vec3::new(11.0, 0.0, -2.0));
+    let near = add_player(&mut sim, Vec3::new(-5.0, 0.0, 0.0));
+    sim.spawn(Vec3::new(-2.0, 0.0, 0.0), None);
+    sim.run(sim.frames(0.5));
+    let stand = crate::last_stand::LastStand::begin(&mut crate::weapon::Loadout::new(crate::arsenal::WeaponId::M1911));
+    sim.world_mut().entity_mut(near).insert(stand);
+    let hit = hit_players(&mut sim, 30.0);
+    assert!(!hit.is_empty(), "the Zombie never landed a swipe");
+    assert!(hit.iter().all(|&player| player == far), "it swiped the Player in Last Stand, or never turned");
 }

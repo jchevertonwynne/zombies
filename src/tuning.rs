@@ -1148,6 +1148,12 @@ pub const CRAWLER_PLANKED_STUCK_SECS: f32 = 10.0;
 pub const ZOMBIE_REPATH_SECS: f32 = 0.25;
 pub const ZOMBIE_REPATH_FAR_SECS: f32 = 1.0;
 pub const ZOMBIE_REPATH_FAR_DIST: f32 = 30.0;
+/// Seconds between a Zombie picking which Player to go after. Each pick plans a route to every
+/// Player who is up, which costs more than the one re-plan a Zombie makes every
+/// `ZOMBIE_REPATH_SECS`, so it's as slow as the slowest of those, `ZOMBIE_REPATH_FAR_SECS`: a
+/// pick always lands on a re-plan, and a Train can still pass between Players within a second.
+/// A Zombie whose Player goes down picks again at once.
+pub const ZOMBIE_RETARGET_SECS: f32 = 1.0;
 /// How close (horizontally) a Zombie gets to a path node before heading for the next one.
 pub const ZOMBIE_WAYPOINT_REACH: f32 = 0.6;
 /// The most the Player's feet can be above or below a Zombie's for it to steer straight at them.

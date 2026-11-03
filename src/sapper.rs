@@ -17,10 +17,10 @@ use crate::audio::cues::Cue;
 use crate::barrier::{Barriers, Entering};
 use crate::buy::{Buyable, HoldBuy, HoldPurchased};
 use crate::door::Door;
-use crate::last_stand::LastStand;
 use crate::map::{SpawnKind, SpawnPoint};
 use crate::mystery_box::{BoxState, MysteryBox, box_use_point};
 use crate::nav::{NavGraph, Route, zone_at};
+use crate::target::Players;
 use crate::pack_a_punch::{self, PackAPunch};
 use crate::perk::{Drinking, Perk, PerkMachine};
 use crate::player::{LocalPlayer, Player};
@@ -38,7 +38,7 @@ use crate::zombie::{
     Attack, DamageZombie, Dying, HitArea, HitZone, Pay, Rising, Seeking, SpeedTier, StunZombie,
     Stunned, Zombie, ZombieAssetsParam, apply_damage, spawn_zombie,
 };
-use crate::zone::{ActiveZones, PlayerZone, ZoneId, ZoneSet};
+use crate::zone::{ActiveZones, ZoneId, ZoneSet};
 
 /// The Sapper's cadence: the Round it's next due in. Each time one appears, the next is a drawn
 /// gap after that Round.
@@ -373,7 +373,7 @@ fn spawn_sapper(
     mut barriers: ResMut<Barriers>,
     alive: Query<(), (With<Zombie>, Without<Dying>)>,
     spawn_points: Query<(&Transform, &SpawnPoint)>,
-    player_zone: Single<&PlayerZone, With<Player>>,
+    players: Players,
     active: Res<ActiveZones>,
     zombie_assets: ZombieAssetsParam,
     assets: Res<SapperAssets>,
@@ -417,7 +417,7 @@ fn spawn_sapper(
                 SpawnKind::Window(barrier) => Some((point.zone, (t.translation, barrier))),
                 _ => None,
             }),
-        player_zone.0,
+        players.first().map_or(ZoneId::StartRoom, |player| player.zone),
         active.0,
     );
     if windows.is_empty() || !(round.take_from_horde() || plan.summoned) {
@@ -652,12 +652,14 @@ fn sabotage(
             Entity,
             &mut Sapper,
             &Transform,
+            Option<&Route>,
             Option<&Seeking>,
             Has<Stunned>,
         ),
         (Without<Dying>, Without<Entering>, Without<Rising>),
     >,
-    player: Single<(&Transform, Has<LastStand>, Option<&Drinking>), With<Player>>,
+    players: Players,
+    drinking: Query<&Drinking, With<Player>>,
     boxes: Query<(Entity, &MysteryBox, &Transform), Without<Sabotaged>>,
     perks: Query<(Entity, &PerkMachine), Without<Sabotaged>>,
     traps: Query<(Entity, &Trap, &Transform), Without<Sabotaged>>,
@@ -672,8 +674,6 @@ fn sabotage(
     if sappers.is_empty() {
         return;
     }
-    let (player, last_stand, drinking) = *player;
-    let player_feet = player.translation - Vec3::Y * (PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0);
     let open = candidates(
         &boxes,
         &perks,
@@ -682,11 +682,11 @@ fn sabotage(
         &doors,
         &teleporter,
         power.is_on(),
-        drinking.map(|drinking| drinking.perk),
+        drinking.iter().next().map(|drinking| drinking.perk),
         active.0,
     );
     let dt = time.delta_secs();
-    for (entity, mut sapper, transform, seeking, stunned) in &mut sappers {
+    for (entity, mut sapper, transform, route, seeking, stunned) in &mut sappers {
         if let Some(left) = sapper.working {
             if stunned {
                 continue;
@@ -740,13 +740,16 @@ fn sabotage(
         }
 
         let at = transform.translation;
-        let player_close = !last_stand
-            && (player.translation - at).with_y(0.0).length() <= SAPPER_SLAM_REACH
-            && (player.translation.y - at.y).abs() < 1.5;
+        let Some(player) = players.target_of(route.and_then(|route| route.target), at) else {
+            continue;
+        };
+        let player_close = player.up
+            && (player.centre - at).with_y(0.0).length() <= SAPPER_SLAM_REACH
+            && (player.centre.y - at.y).abs() < 1.5;
         sapper.goal = if player_close {
             None
         } else {
-            pick_target(open.iter().copied(), player_feet)
+            pick_target(open.iter().copied(), player.feet)
         };
         match sapper.goal {
             Some(goal) => {
@@ -868,16 +871,18 @@ fn unstick(
             Option<&Seeking>,
             Has<Stunned>,
         ),
-        (Without<Dying>, Without<Entering>, Without<Rising>),
+        (Without<Dying>, Without<Entering>, Without<Rising>, Without<Player>),
     >,
-    player: Single<&Transform, (With<Player>, Without<Sapper>)>,
+    players: Players,
     graph: Res<NavGraph>,
     time: Res<Time>,
 ) {
     let half = ZOMBIE_RADIUS + ZOMBIE_CAPSULE_LENGTH / 2.0;
-    let player_feet = player.translation - Vec3::Y * (PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0);
     for (mut sapper, mut transform, mut easing, mut route, seeking, stunned) in &mut sappers {
-        let goal = seeking.map_or(player_feet, |seek| seek.0);
+        let Some(player) = players.target_of(route.target, transform.translation) else {
+            continue;
+        };
+        let goal = seeking.map_or(player.feet, |seek| seek.0);
         let feet = transform.translation - Vec3::Y * half;
         let at_goal = stunned
             || sapper.working.is_some()

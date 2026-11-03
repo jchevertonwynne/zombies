@@ -46,6 +46,7 @@ mod shellshock;
 mod state;
 mod stats;
 mod sway;
+mod target;
 mod teleporter;
 mod trap;
 mod tuning;

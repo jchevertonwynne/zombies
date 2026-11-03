@@ -166,9 +166,11 @@ fn queue_teleports(mut teleports: MessageReader<Teleport>, mut pending: ResMut<P
     pending.0.extend(teleports.read().copied());
 }
 
-/// A Zombie's swing connected.
+/// A Player took damage: a Zombie's swing, a blast, a Trap, a fire pool.
 #[derive(Message)]
 pub struct PlayerHit {
+    /// The Player hit.
+    pub player: Entity,
     pub damage: f32,
 }
 
@@ -526,11 +528,13 @@ fn probes_for_ground(was_grounded: bool, jumped: bool, vertical_speed: f32) -> b
     }
 }
 
-/// Zombie swipes take Health. Nothing hurts the Player in Last Stand. Reaching zero is a Down,
-/// which the Last Stand module handles.
-pub fn take_hits(mut hits: MessageReader<PlayerHit>, player: Single<(&mut Health, Has<LastStand>), With<Player>>) {
-    let (mut health, last_stand) = player.into_inner();
+/// Hits take Health. Nothing hurts a Player in Last Stand. Reaching zero is a Down, which the
+/// Last Stand module handles.
+pub fn take_hits(mut hits: MessageReader<PlayerHit>, mut players: Query<(&mut Health, Has<LastStand>), With<Player>>) {
     for hit in hits.read() {
+        let Ok((mut health, last_stand)) = players.get_mut(hit.player) else {
+            continue;
+        };
         if last_stand {
             continue;
         }
