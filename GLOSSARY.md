@@ -5,7 +5,7 @@
 **Co-op**: A Run played by two to four Players together online. Whether a Run is solo or Co-op is fixed by how many Players it starts with, and stays fixed even if some leave.
 _Avoid_: multiplayer, online mode
 
-**Zombie**: A hostile undead enemy that finds its way to the Player and attacks in melee.
+**Zombie**: A hostile undead enemy that finds its way to the nearest Player who is up and attacks in melee.
 
 **Round**: One numbered wave of Zombies. A Round ends once every Zombie it contains has been killed. The next Round has a higher number and is harder.
 
@@ -33,7 +33,7 @@ _Avoid_: multiplayer, online mode
 
 **Weapon Class**: The kind of Weapon, which decides how it fires: for example pistol, SMG, shotgun, sniper rifle or launcher.
 
-**Pack-a-Punch**: The machine that, once the Power is on, upgrades the Weapon in the Player's hand for Points.
+**Pack-a-Punch**: The machine that, once the Power is on, upgrades the Weapon in the Player's hand for Points. Only the Player who put a Weapon in can take it out.
 _Avoid_: upgrade machine
 
 **Upgraded Weapon**: A Weapon that has been through Pack-a-Punch. It has a new name, stronger stats and a glint that marks it out.
@@ -56,7 +56,7 @@ _Avoid_: wall buy, chalk gun
 
 **Box Weapon**: A Weapon that can only be got from the Mystery Box.
 
-**Mystery Box**: A Buyable that sells a random Box Weapon for a fixed price. It sits at one Box Location at a time and moves when it gives a Teddy Bear.
+**Mystery Box**: A Buyable that sells a random Box Weapon for a fixed price. It sits at one Box Location at a time and moves when it gives a Teddy Bear. Only the Player who spun it can take the Weapon it offers.
 _Avoid_: chest, magic box, random box
 
 **Box Location**: One of the fixed places on a Map where the Mystery Box can sit. Every Run starts it at the same one.
@@ -71,7 +71,7 @@ _Avoid_: grenade (when meaning the slot)
 
 **Tactical**: Equipment thrown to control Zombies rather than kill them directly, such as the Monkey Bomb.
 
-**Points**: Currency the Player earns by damaging and killing Zombies and spends on Doors and other buys. Not the same as score.
+**Points**: Currency the Player earns by damaging and killing Zombies and spends on Doors and other buys. Each Player has their own and can't give them to anyone else. Not the same as score.
 
 **Buyable**: Anything in the Map the Player spends Points on with the Use key: a Door, Wall Weapon, Mystery Box, Perk Machine, Pack-a-Punch, Trap or Teleporter Pad. The Power Switch is used but not bought, so it is not a Buyable.
 _Avoid_: purchasable, trigger
@@ -86,7 +86,7 @@ _Avoid_: score
 **Unpaid Kill**: A kill made by the Map or an effect rather than the Player's own attack, such as a Trap, the Teleporter or a Nuke. It pays no kill Points and drops no Power-up, but still counts toward the Round and the Run Record's Kills.
 _Avoid_: free kill, trap kill
 
-**Power-up**: A temporary pickup dropped by a dying Zombie that gives an instant or timed effect.
+**Power-up**: A temporary pickup dropped by a dying Zombie that gives an instant or timed effect to every Player.
 _Avoid_: drop, pickup, perk
 
 **Max Ammo**: A Power-up that refills the Reserve Ammo of every Weapon.
@@ -114,7 +114,7 @@ _Avoid_: board, plank of wood
 
 **Zone**: A named area of a Map, such as a room or a yard. Each Zone is either open or closed to the Player. Opening a Zone (usually by buying a Door) activates its Barriers and Spawn Points. Zones decide where Zombies come from, not how they move.
 
-**Active Zone**: The Zone the Player is standing in, or an open Zone next to it. Only Spawn Points in Active Zones send in Zombies.
+**Active Zone**: A Zone any Player is in, or an open Zone next to one, counting Players in a Last Stand but not those waiting to Respawn. Only Spawn Points in Active Zones send in Zombies.
 
 **Door**: A barrier between two Zones that the Player buys with Points to open for the rest of the Run. Zombies never open Doors.
 _Avoid_: debris, gate
