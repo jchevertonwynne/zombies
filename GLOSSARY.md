@@ -11,6 +11,9 @@ _Avoid_: server
 **Seat**: One of the four places in a Co-op Run, held by one Player for the whole Run. The Host always has the first Seat. A Player who drops and comes back takes their own Seat again, and the Seat sets their spawn point and their colour.
 _Avoid_: slot, player number
 
+**Room**: Where Players gather before a Co-op Run, opened by the Host. The Host picks the Map and Mode there, Players take their Seats and ready up, and the party comes back to it after the Run.
+_Avoid_: lobby, session, party
+
 **Zombie**: A hostile undead enemy that finds its way to the nearest Player who is up and attacks in melee.
 
 **Round**: One numbered wave of Zombies. A Round ends once every Zombie it contains has been killed. The next Round has a higher number and is harder.
