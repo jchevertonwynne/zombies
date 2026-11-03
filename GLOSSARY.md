@@ -5,6 +5,9 @@
 **Co-op**: A Run played by two to four Players together online. Whether a Run is solo or Co-op is fixed by how many Players it starts with, and stays fixed even if some leave.
 _Avoid_: multiplayer, online mode
 
+**Host**: The Player whose machine runs a Co-op Run, and who the others join. If the Host leaves for good, the Run ends for everyone.
+_Avoid_: server
+
 **Zombie**: A hostile undead enemy that finds its way to the nearest Player who is up and attacks in melee.
 
 **Round**: One numbered wave of Zombies. A Round ends once every Zombie it contains has been killed. The next Round has a higher number and is harder.
