@@ -205,10 +205,10 @@ _Avoid_: roguelite mode
 
 **Heat Condition**: One ranked rule that makes a Gauntlet Run harder with no upside, such as dearer prices or faster Zombies.
 
-**Boon**: A lasting upgrade the Player picks from an offer after completing a Round in Gauntlet. Boons are picked, never bought, and unlike Perks they survive a Down.
+**Boon**: A lasting upgrade the Player picks from an offer after completing a Round in Gauntlet. Boons are picked, never bought, and unlike Perks they survive a Down and a Bleed Out. In Co-op each Player holds their own.
 _Avoid_: skill, buff, upgrade
 
-**Boon Offer**: The choice of Boons shown after each Round in Gauntlet. The world is frozen until the Player picks one; there is no skipping or rerolling.
+**Boon Offer**: The choice of Boons shown after each Round in Gauntlet; there is no skipping or rerolling. Solo, the world is frozen until the Player picks one. In Co-op, each Player gets their own during the Intermission, which waits for every pick for a short time and then lets the next Round start; a Player who hasn't picked can do nothing until they do.
 _Avoid_: draft, level-up, card pick
 
 **Rarity**: How often a Boon turns up in Boon Offers: Common, Rare or Legendary. Each Boon has one fixed Rarity, and Rarity never changes how strong it is.
@@ -232,10 +232,10 @@ _Avoid_: ability, power
 **Proc**: One firing of a Proc Boon's Effect. A Proc's damage never fires another Proc or an Ammo Mod.
 _Avoid_: activation, trigger (for the firing itself)
 
-**Pact**: A cursed Boon: stronger than any Legendary but carrying a Drawback. Pacts are offered in place of Boons in the middle Round of each Act, may be skipped, and each can be held only once.
+**Pact**: A cursed Boon: stronger than any Legendary but carrying a Drawback. Pacts are offered in place of Boons in the middle Round of each Act, may be skipped, and each can be held only once in a Run, by one Player.
 _Avoid_: cursed boon, curse, bargain
 
-**Drawback**: The lasting cost a Pact puts on the Run, such as dearer prices or faster Zombies.
+**Drawback**: The lasting cost a Pact puts on the Run, such as dearer prices or faster Zombies. In Co-op, a Drawback that changes the world falls on every Player, not just the one who picked the Pact.
 _Avoid_: downside, penalty, curse
 
 **Scrip**: The currency Gauntlet Runs earn for the Rounds they complete, kept between Runs and spent in the Armory. Classic never earns or uses it. Not the same as Points.
