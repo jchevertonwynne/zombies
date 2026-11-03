@@ -9,7 +9,7 @@
 mod armory;
 mod boon;
 mod pact;
-mod progress;
+pub mod progress;
 mod screen;
 
 use bevy::input::common_conditions::input_just_pressed;

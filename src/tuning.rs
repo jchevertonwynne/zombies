@@ -1986,3 +1986,17 @@ pub const IMPACT_PUFF_CAP: usize = 64;
 pub const TRACER_EVERY: u32 = 3;
 pub const TRACER_SECS: f32 = 0.05;
 pub const TRACER_WIDTH: f32 = 0.012;
+
+// Co-op: the Room
+/// The longest a Player's Name may be, in characters.
+pub const PLAYER_NAME_MAX_CHARS: usize = 12;
+/// The longest a Room's password may be, in characters.
+pub const ROOM_PASSWORD_MAX_CHARS: usize = 16;
+/// How many Players a Room holds: the Seats.
+pub const ROOM_SEATS: usize = 4;
+/// How often the Host tells the lobby the Room is still there, in seconds.
+pub const LOBBY_BEAT_SECS: f32 = 10.0;
+/// How long to wait before asking the lobby again after it couldn't be reached, in seconds.
+pub const LOBBY_RETRY_SECS: f32 = 2.0;
+/// How often the Join screen asks the lobby for the list afresh, in seconds.
+pub const LOBBY_LIST_SECS: f32 = 5.0;

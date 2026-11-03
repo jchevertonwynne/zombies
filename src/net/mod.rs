@@ -5,9 +5,11 @@
 
 #![allow(dead_code, reason = "the Co-op systems that use the network layer are built next")]
 
-mod link;
-mod protocol;
-mod transport;
+pub mod link;
+pub mod lobby;
+pub mod protocol;
+pub mod room;
+pub mod transport;
 
 #[cfg(test)]
 mod tests {
@@ -33,7 +35,16 @@ mod tests {
         let (mut host, mut player) = (hub.host(), hub.join());
         assert_eq!(next(&hub, &mut host), Event::Joined(player.peer()));
         assert_eq!(next(&hub, &mut player), Event::Joined(HOST));
-        player.send(HOST, encode(&ToHost::Hello { version, back: None }));
+        player.send(
+            HOST,
+            encode(&ToHost::Hello {
+                version,
+                back: None,
+                name: "Ada".into(),
+                password: String::new(),
+                unlocks: Default::default(),
+            }),
+        );
         let Event::Message(peer, bytes) = next(&hub, &mut host) else {
             panic!("expected the Hello");
         };

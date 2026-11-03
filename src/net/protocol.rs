@@ -10,6 +10,10 @@ use rand::RngExt;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use crate::map::MapId;
+use crate::mode::Mode;
+use crate::tuning::{PLAYER_NAME_MAX_CHARS, ROOM_SEATS};
+
 /// Who a message is from or for, as the Host numbers them. The Host is `HOST`.
 pub type Peer = u32;
 pub const HOST: Peer = 0;
@@ -44,6 +48,12 @@ pub fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, WireError> {
 pub enum Refusal {
     /// The two games don't speak the same `PROTOCOL`.
     Version,
+    /// Every Seat in the Room is taken.
+    Full,
+    /// The Room has a password and it wasn't the one given.
+    WrongPassword,
+    /// The Run has started, and the Room takes no one new.
+    Started,
 }
 
 impl Refusal {
@@ -51,8 +61,51 @@ impl Refusal {
     pub fn reason(self) -> &'static str {
         match self {
             Refusal::Version => "Host is on a different version",
+            Refusal::Full => "Room is full",
+            Refusal::WrongPassword => "Wrong password",
+            Refusal::Started => "Run already started",
         }
     }
+}
+
+/// What a Player brings from their own Armory: the Boons and Pacts they have Unlocked, and
+/// their Upgrade Tracks' Ranks and toggles. The Host draws that Player's Offers from it.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct Unlocks {
+    /// Stable IDs of the Boons and Pacts bought in the Armory.
+    pub unlocked: Vec<String>,
+    pub tracks: Vec<TrackState>,
+}
+
+/// One Upgrade Track's Ranks and whether it is switched on.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct TrackState {
+    /// The Track's stable ID.
+    pub id: String,
+    pub ranks: u32,
+    pub on: bool,
+}
+
+/// The Room as every Player sees it, sent to all of them whenever it changes.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct RoomView {
+    /// What others type to find the Room. Empty until the lobby has given one.
+    pub code: String,
+    pub mode: Mode,
+    pub map: MapId,
+    /// The Host's Heat. Always 0 until Heat exists.
+    pub heat: u8,
+    /// Whether the Room has a password.
+    pub locked: bool,
+    /// Who sits in each Seat, the Host's first.
+    pub seats: [Option<SeatView>; ROOM_SEATS],
+}
+
+/// One Seat's row in the Room.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SeatView {
+    pub name: String,
+    pub ready: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -63,7 +116,16 @@ pub enum ToHost {
         /// What the Host gave them when they were here before, if they were: by it
         /// they are known for who they were, and take their own Seat again.
         back: Option<u64>,
+        /// Their Name, which the Host cuts to `PLAYER_NAME_MAX_CHARS`.
+        name: String,
+        /// The Room's password, or nothing if it has none.
+        password: String,
+        unlocks: Unlocks,
     },
+    /// Ready or not. Taken back whenever the Room changes.
+    Ready(bool),
+    /// Their Armory has changed. Taken as no longer Ready.
+    Unlocks(Unlocks),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -76,6 +138,29 @@ pub enum ToPlayer {
         seat: Seat,
     },
     Refused(Refusal),
+    /// The Room as it now is.
+    Room(RoomView),
+    /// The Host has sent this Player away.
+    Kicked,
+    /// The Host has left, and the Room with them.
+    Closed,
+}
+
+/// A Name as the Room has it: no control characters, at most `PLAYER_NAME_MAX_CHARS`
+/// characters, and never empty.
+pub fn clean_name(name: &str) -> String {
+    let name: String = name
+        .trim()
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(PLAYER_NAME_MAX_CHARS)
+        .collect();
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        "Player".to_string()
+    } else {
+        name
+    }
 }
 
 /// Something nobody else could guess, for a Player to be known again by. Never 0.
@@ -86,7 +171,9 @@ pub fn token() -> u64 {
 /// What the Host answers a `Hello` with: a `Welcome` into `seat` with a new token, or
 /// a refusal if the Player is on another version.
 pub fn answer(hello: &ToHost, seat: Seat) -> ToPlayer {
-    let ToHost::Hello { version, .. } = hello;
+    let ToHost::Hello { version, .. } = hello else {
+        return ToPlayer::Refused(Refusal::Version);
+    };
     if *version != PROTOCOL {
         return ToPlayer::Refused(Refusal::Version);
     }
@@ -105,11 +192,30 @@ mod tests {
         let hello = ToHost::Hello {
             version: PROTOCOL,
             back: Some(7),
+            name: "Ada".into(),
+            password: String::new(),
+            unlocks: Unlocks::default(),
         };
         assert_eq!(decode::<ToHost>(&encode(&hello)).unwrap(), hello);
         let welcome = ToPlayer::Welcome { token: 9, seat: 2 };
         assert_eq!(decode::<ToPlayer>(&encode(&welcome)).unwrap(), welcome);
         assert!(decode::<ToPlayer>(&[0xff, 0xff, 0xff]).is_err());
+    }
+
+    #[test]
+    fn a_name_is_cut_to_twelve_characters_and_never_empty() {
+        assert_eq!(clean_name("  Ada  "), "Ada");
+        assert_eq!(clean_name("abcdefghijklmnop"), "abcdefghijkl");
+        assert_eq!(clean_name("é".repeat(20).as_str()).chars().count(), 12);
+        assert_eq!(clean_name("a\nb"), "ab");
+        assert_eq!(clean_name("   "), "Player");
+    }
+
+    #[test]
+    fn each_refusal_has_its_reason() {
+        assert_eq!(Refusal::Full.reason(), "Room is full");
+        assert_eq!(Refusal::WrongPassword.reason(), "Wrong password");
+        assert_eq!(Refusal::Started.reason(), "Run already started");
     }
 
     #[test]

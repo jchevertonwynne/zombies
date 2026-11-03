@@ -37,7 +37,6 @@ pub struct Player;
 pub struct Seat(pub u8);
 
 /// Each Seat's colour, in Seat order: white, blue, yellow, green.
-#[allow(dead_code, reason = "read by the Co-op HUD and teammate bodies once they're built")]
 pub const SEAT_COLOURS: [Color; 4] = [
     Color::srgb(0.95, 0.95, 0.95),
     Color::srgb(0.35, 0.6, 1.0),
@@ -46,7 +45,6 @@ pub const SEAT_COLOURS: [Color; 4] = [
 ];
 
 impl Seat {
-    #[allow(dead_code, reason = "read by the Co-op HUD and teammate bodies once they're built")]
     pub fn colour(self) -> Color {
         SEAT_COLOURS[usize::from(self.0) % SEAT_COLOURS.len()]
     }

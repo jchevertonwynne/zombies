@@ -14,6 +14,9 @@ iroh = "1"
 pathfinding = "4"
 postcard = { version = "1", default-features = false, features = ["use-std"] }
 rand = "0.10.3"
+# The lobby is asked over HTTPS; iroh brings the TLS, `rustls` is named to pick its provider.
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 ron = "0.12"
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
