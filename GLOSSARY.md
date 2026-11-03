@@ -198,13 +198,13 @@ _Avoid_: roguelite mode
 
 **Boss Round**: A Gauntlet Round built around a boss: the last Round of each Act, and every tenth Round in Endless.
 
-**Win**: Clearing the Boss Round that ends the third Act. The Player then chooses to end the Run or keep going into Endless; a Run that has reached its Win stays a Win whatever happens after.
+**Win**: Clearing the Boss Round that ends the third Act. The Player then chooses to end the Run or keep going into Endless; a Run that has reached its Win stays a Win whatever happens after. In Co-op each Player chooses for themselves: one who ends the Run leaves with the Win, the others keep going, and the Host ending it ends it for everyone.
 
 **Endless**: The Rounds a Gauntlet Run plays after its Win, when the Player keeps going. Endless keeps the Act rhythm, with a Boss Round every tenth Round and a Pact Offer between, but has no Acts and no further Win.
 
 **Boss Offer**: The Boon Offer that replaces the usual one after a cleared Boss Round, offering only the strongest Boons.
 
-**Heat**: Opt-in difficulty for Gauntlet, put together before a Run from Heat Conditions and unlocked by the first Win. A Run's Heat is the total of its Conditions' ranks, and higher Heat pays more Scrip.
+**Heat**: Opt-in difficulty for Gauntlet, put together before a Run from Heat Conditions and unlocked by the first Win. A Run's Heat is the total of its Conditions' ranks, and higher Heat pays more Scrip. A Co-op Run plays at the Host's Heat, for every Player.
 
 **Heat Condition**: One ranked rule that makes a Gauntlet Run harder with no upside, such as dearer prices or faster Zombies.
 
@@ -241,13 +241,13 @@ _Avoid_: cursed boon, curse, bargain
 **Drawback**: The lasting cost a Pact puts on the Run, such as dearer prices or faster Zombies. In Co-op, a Drawback that changes the world falls on every Player, not just the one who picked the Pact.
 _Avoid_: downside, penalty, curse
 
-**Scrip**: The currency Gauntlet Runs earn for the Rounds they complete, kept between Runs and spent in the Armory. Classic never earns or uses it. Not the same as Points.
+**Scrip**: The currency Gauntlet Runs earn for the Rounds they complete, kept between Runs and spent in the Armory. In Co-op each Player earns their own, as the same Run would pay them solo. Classic never earns or uses it. Not the same as Points.
 _Avoid_: credits, currency, XP
 
 **Unlock**: Buying a Boon or Pact with Scrip so that it can appear in Boon Offers from then on. Every Common and a few Rares are unlocked from the first launch.
 _Avoid_: requirement
 
-**Upgrade Track**: A permanent Gauntlet bonus, such as more starting Points, bought one Rank at a time with Scrip. Each Track can be switched off before a Run.
+**Upgrade Track**: A permanent Gauntlet bonus, such as more starting Points, bought one Rank at a time with Scrip. Each Track can be switched off before a Run. A Player's Tracks help only that Player, in their own Run or someone else's.
 _Avoid_: talent, mirror, upgrade
 
 **Rank**: One bought step on an Upgrade Track. A Track has a fixed number of Ranks.
