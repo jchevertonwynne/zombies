@@ -1,4 +1,5 @@
 use std::f32::consts::FRAC_PI_2;
+use std::time::Duration;
 
 use avian3d::prelude::*;
 use bevy::input::common_conditions::input_just_pressed;
@@ -71,7 +72,23 @@ pub struct Health {
     since_hit: f32,
 }
 
-#[derive(Component)]
+/// What a Player asked for this tick: the one thing `step_move` reads besides their
+/// `Locomotion`. The `LocalPlayer`'s is filled from `Controls` each tick; a teammate's will come
+/// off the network. Stance (crouch, prone) joins it here.
+#[derive(Component, Debug, Clone, Copy, Default, PartialEq)]
+pub struct MoveInput {
+    /// Move axes, each -1, 0 or 1: x is right, y is forward.
+    pub axes: Vec2,
+    pub jump: bool,
+    pub sprint: bool,
+    pub aim: bool,
+    /// Which way the Player faces, in radians about +Y (0 faces -Z).
+    pub yaw: f32,
+    /// How far the Player looks up (positive) or down, in radians.
+    pub pitch: f32,
+}
+
+#[derive(Component, Clone)]
 pub struct Locomotion {
     velocity: Vec3,
     grounded: bool,
@@ -184,7 +201,7 @@ impl Plugin for PlayerPlugin {
             .init_resource::<Teleport>()
             .add_systems(
                 FixedUpdate,
-                (teleport_player, move_player).chain().run_if(in_state(Pause::Running)),
+                (teleport_player, fill_move_input, move_player).chain().run_if(in_state(Pause::Running)),
             )
             .add_systems(RunFixedMainLoop, look.run_if(in_state(Pause::Running)).in_set(LookSystems))
             .add_systems(
@@ -213,7 +230,7 @@ fn spawn_player(mut commands: Commands, settings: Res<Settings>, run: Res<RunMod
                 max: PLAYER_MAX_HEALTH,
                 since_hit: HEALTH_REGEN_DELAY_SECS,
             },
-            Locomotion::default(),
+            (Locomotion::default(), MoveInput::default()),
             Visibility::default(),
             Loadout::new(STARTING_WEAPON),
             Modifiers(run.0.clone()),
@@ -310,37 +327,78 @@ fn teleport_player(
     locomotion.grounded = false;
 }
 
+/// Fills the local Player's `MoveInput` for the tick from the keyboard and the way they're
+/// facing: the yaw is the Player's, the pitch the camera's, both as `look` has turned them.
+fn fill_move_input(
+    controls: Controls,
+    player: Single<(&Transform, &mut MoveInput), With<LocalPlayer>>,
+    camera: Single<&Transform, (With<PlayerCamera>, Without<Player>)>,
+) {
+    let (transform, mut input) = player.into_inner();
+    let forward = controls.pressed(Action::Forward) as i8 - controls.pressed(Action::Back) as i8;
+    let right = controls.pressed(Action::Right) as i8 - controls.pressed(Action::Left) as i8;
+    let (yaw, _, _) = transform.rotation.to_euler(EulerRot::YXZ);
+    let (_, pitch, _) = camera.rotation.to_euler(EulerRot::YXZ);
+    *input = MoveInput {
+        axes: Vec2::new(right as f32, forward as f32),
+        jump: controls.pressed(Action::Jump),
+        sprint: controls.pressed(Action::Sprint),
+        aim: controls.pressed(Action::Aim),
+        yaw,
+        pitch,
+    };
+}
+
+/// What `step_move` needs to know about a Player besides their input and `Locomotion`: who they
+/// are, their shape, and what they're carrying and doing.
+pub struct MoveContext<'a> {
+    pub entity: Entity,
+    pub collider: &'a Collider,
+    pub loadout: &'a Loadout,
+    pub modifiers: &'a Modifiers,
+    pub drinking: bool,
+    pub last_stand: bool,
+}
+
+/// Runs this tick's `MoveInput` for every Player. The step itself is `step_move`.
 fn move_player(
-    player: Single<
-        (
-            Entity,
-            &mut Transform,
-            &mut Locomotion,
-            &Collider,
-            &Loadout,
-            &Modifiers,
-            Has<Drinking>,
-            Has<LastStand>,
-        ),
+    mut players: Query<
+        (Entity, &mut Transform, &mut Locomotion, &MoveInput, &Collider, &Loadout, &Modifiers, Has<Drinking>, Has<LastStand>),
         With<Player>,
     >,
-    controls: Controls,
     move_and_slide: MoveAndSlide,
     time: Res<Time>,
 ) {
-    let (entity, mut transform, mut locomotion, collider, loadout, modifiers, drinking, last_stand) =
-        player.into_inner();
-    let dt = time.delta_secs();
+    for (entity, mut transform, mut locomotion, input, collider, loadout, modifiers, drinking, last_stand) in
+        &mut players
+    {
+        let context = MoveContext { entity, collider, loadout, modifiers, drinking, last_stand };
+        step_move(&mut transform.translation, &mut locomotion, input, &context, time.delta(), &move_and_slide);
+    }
+}
 
-    let forward = controls.pressed(Action::Forward) as i8 - controls.pressed(Action::Back) as i8;
-    let right = controls.pressed(Action::Right) as i8 - controls.pressed(Action::Left) as i8;
-    let wish = Vec2::new(right as f32, forward as f32).normalize_or_zero();
+/// One tick of a Player's movement: advances `position` and `Locomotion` by `delta` under
+/// `input`. It reads no keyboard and no clock, so given the same start, input and world it
+/// reaches the same place every time, which is what lets a client replay inputs through it.
+pub fn step_move(
+    position: &mut Vec3,
+    locomotion: &mut Locomotion,
+    input: &MoveInput,
+    context: &MoveContext,
+    delta: Duration,
+    move_and_slide: &MoveAndSlide,
+) {
+    let MoveContext { entity, collider, loadout, modifiers, drinking, last_stand } = *context;
+    let dt = delta.as_secs_f32();
+    let rotation = Quat::from_rotation_y(input.yaw);
+
+    let wish = input.axes.normalize_or_zero();
 
     // Sprinting only makes sense running forwards on the ground, and it runs out. Aiming stops it,
     // and there's no sprinting with a Perk in hand or in Last Stand.
-    let aiming = controls.pressed(Action::Aim) && loadout.can_aim();
-    let wants_sprint = controls.pressed(Action::Sprint)
-        && forward > 0
+    let aiming = input.aim && loadout.can_aim();
+    let wants_sprint = input.sprint
+        && input.axes.y > 0.0
         && locomotion.grounded
         && !aiming
         && !drinking
@@ -368,14 +426,14 @@ fn move_player(
     };
     let speed = loadout.move_speed(base, &modifiers.0);
 
-    let wish_world = transform.rotation * Vec3::new(wish.x, 0.0, -wish.y) * speed;
+    let wish_world = rotation * Vec3::new(wish.x, 0.0, -wish.y) * speed;
     let horizontal = Vec3::new(locomotion.velocity.x, 0.0, locomotion.velocity.z);
     let horizontal = horizontal.move_towards(wish_world, PLAYER_ACCELERATION * dt);
     // Gravity only pulls in the air; on the floor it would just push the Player into it, and
     // slowly down the ramp while standing still.
     let mut vertical = if locomotion.grounded { 0.0 } else { locomotion.velocity.y - GRAVITY * dt };
     // No jumping from a crawl.
-    let jumped = locomotion.grounded && controls.pressed(Action::Jump) && !last_stand;
+    let jumped = locomotion.grounded && input.jump && !last_stand;
     if jumped {
         vertical = PLAYER_JUMP_SPEED;
     }
@@ -387,10 +445,10 @@ fn move_player(
     let mut grounded = false;
     let out = move_and_slide.move_and_slide(
         collider,
-        transform.translation,
-        transform.rotation,
+        *position,
+        rotation,
         velocity,
-        time.delta(),
+        delta,
         &config,
         &filter,
         |hit| {
@@ -400,7 +458,7 @@ fn move_player(
             MoveAndSlideHitResponse::Accept
         },
     );
-    let mut position = out.position;
+    let mut new_position = out.position;
     let mut velocity = out.projected_velocity;
 
     // Move-and-slide only touches the floor on steps where gravity's pull reaches it through the
@@ -411,15 +469,15 @@ fn move_player(
         && probes_for_ground(locomotion.grounded, jumped, vertical)
         && let Some(hit) = move_and_slide.cast_move(
             collider,
-            position,
-            transform.rotation,
+            new_position,
+            rotation,
             Vec3::NEG_Y * PLAYER_GROUND_PROBE,
             config.skin_width,
             &filter,
         )
         && hit.normal1.y > PLAYER_GROUND_NORMAL_Y
     {
-        position.y -= hit.distance;
+        new_position.y -= hit.distance;
         grounded = true;
     }
     // A jump leaves the floor even if it's still within reach this step.
@@ -430,7 +488,7 @@ fn move_player(
         velocity = velocity.with_y(0.0).normalize_or_zero() * velocity.length();
     }
 
-    transform.translation = position;
+    *position = new_position;
     locomotion.velocity = velocity;
     locomotion.grounded = grounded;
 }

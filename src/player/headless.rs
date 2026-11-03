@@ -58,7 +58,7 @@ impl Sim {
         .add_systems(Update, send_teleport)
         .insert_resource(Settings::default())
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / fps)))
-        .add_systems(FixedUpdate, (teleport_player, move_player, |mut steps: ResMut<Steps>| steps.0 += 1).chain())
+        .add_systems(FixedUpdate, (teleport_player, fill_move_input, move_player, |mut steps: ResMut<Steps>| steps.0 += 1).chain())
         .add_systems(RunFixedMainLoop, look.in_set(LookSystems));
         configure_look(&mut app);
         app.finish();
@@ -303,4 +303,53 @@ fn a_teleport_lands_cleanly_whenever_it_is_sent() {
             assert!(rotation.angle_between(facing) < 1e-4);
         }
     }
+}
+
+/// The step is a plain function of the Player's state and one tick's input: replaying the same
+/// inputs from the same start, as client prediction will, lands on the same position every time.
+#[test]
+fn replaying_the_same_inputs_from_the_same_start_reaches_the_same_position() {
+    let mut sim = Sim::new(60.0);
+    sim.place(Vec3::new(0.0, 0.0, 20.0), 0.0);
+    sim.hold(&[]);
+    let world = sim.app.world_mut();
+    let (start, locomotion) = world
+        .query_filtered::<(&Transform, &Locomotion), With<Player>>()
+        .single(world)
+        .map(|(transform, locomotion)| (transform.translation, locomotion.clone()))
+        .unwrap();
+
+    // Walk, sprint while turning, then jump and land.
+    let inputs: Vec<MoveInput> = (0..120)
+        .map(|tick| MoveInput {
+            axes: if tick < 90 { Vec2::Y } else { Vec2::new(1.0, 1.0) },
+            sprint: (30..70).contains(&tick),
+            jump: tick == 80,
+            yaw: tick as f32 * 0.02,
+            ..default()
+        })
+        .collect();
+
+    let run = |world: &mut World| {
+        let args = (start, locomotion.clone(), inputs.clone());
+        let id = world.register_system(
+            move |player: Single<(Entity, &Collider, &Loadout, &Modifiers), With<Player>>,
+                  move_and_slide: MoveAndSlide| {
+                let (entity, collider, loadout, modifiers) = *player;
+                let context = MoveContext { entity, collider, loadout, modifiers, drinking: false, last_stand: false };
+                let (mut position, mut locomotion, inputs) = args.clone();
+                for input in &inputs {
+                    step_move(&mut position, &mut locomotion, input, &context, Duration::from_secs_f64(1.0 / 64.0), &move_and_slide);
+                }
+                (position, locomotion.velocity, locomotion.grounded)
+            },
+        );
+        let result = world.run_system(id).unwrap();
+        world.unregister_system(id).unwrap();
+        result
+    };
+    let first = run(sim.app.world_mut());
+    let second = run(sim.app.world_mut());
+    assert_eq!(first, second);
+    assert!(first.0.distance(start) > 5.0, "the Player didn't go anywhere: {}", first.0);
 }
