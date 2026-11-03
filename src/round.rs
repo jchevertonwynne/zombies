@@ -49,6 +49,15 @@ pub fn horde_size(round: u32) -> u32 {
     }
 }
 
+/// How many Zombies may be alive at once in a Round: 24 through Round 10, then 2 more each Round,
+/// to 48 from Round 22. A Mode's `floor` holds the cap up until the ramp passes it.
+pub fn alive_cap(round: u32, floor: u32) -> u32 {
+    let grown = ALIVE_CAP
+        .saturating_add(round.saturating_sub(ALIVE_CAP_GROWTH_FROM_ROUND).saturating_mul(ALIVE_CAP_PER_ROUND))
+        .min(ALIVE_CAP_MAX);
+    grown.max(floor)
+}
+
 /// Seconds between Zombie spawns in a Round: 2.0 s, ×0.95 each Round, never below the floor.
 pub fn spawn_delay(round: u32) -> f32 {
     let shrink = SPAWN_DELAY_FACTOR.powf(round.saturating_sub(1) as f32);
@@ -244,7 +253,7 @@ fn spawn_horde(
     let cap = if round.hellhound.is_some() {
         HELLHOUND_ALIVE_CAP
     } else {
-        resolve_count(Stat::AliveCap, ALIVE_CAP, &modifiers.0)
+        resolve_count(Stat::AliveCap, alive_cap(round.number, ALIVE_CAP), &modifiers.0)
     };
     if round.spawn_timer > 0.0 || alive.iter().count() as u32 >= cap {
         return;
@@ -484,6 +493,32 @@ mod tests {
             assert!(horde_size(r + 1) >= horde_size(r), "round {r}");
         }
         assert_eq!(horde_size(u32::MAX), u32::MAX);
+    }
+
+    #[test]
+    fn alive_cap_follows_the_ramp() {
+        let table = [
+            (1, 24),
+            (10, 24),
+            (11, 26),
+            (15, 34),
+            (21, 46),
+            (22, 48),
+            (23, 48),
+            (50, 48),
+            (u32::MAX, 48),
+        ];
+        for (round, cap) in table {
+            assert_eq!(alive_cap(round, ALIVE_CAP), cap, "round {round}");
+        }
+    }
+
+    #[test]
+    fn a_floor_holds_the_alive_cap_up_until_the_ramp_passes_it() {
+        assert_eq!(alive_cap(1, 32), 32);
+        assert_eq!(alive_cap(14, 32), 32);
+        assert_eq!(alive_cap(15, 32), 34);
+        assert_eq!(alive_cap(30, 32), 48);
     }
 
     #[test]

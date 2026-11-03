@@ -26,7 +26,7 @@ use crate::map::{SpawnKind, SpawnPoint};
 use crate::nav::Route;
 use crate::player::{Player, PlayerCamera, PlayerHit};
 use crate::points::BonusPoints;
-use crate::round::{CarriesOver, Round, RoundPhase, zombie_health};
+use crate::round::{CarriesOver, alive_cap, Round, RoundPhase, zombie_health};
 use crate::settings::{Settings, SpecialType, SpecialZombies};
 use crate::shellshock::Shellshock;
 use crate::state::{GameState, InRun, Pause};
@@ -425,7 +425,7 @@ fn spawn_special(
     }
     if round.phase != RoundPhase::Active
         || round.horde_spawned() < plan.at
-        || alive.iter().count() as u32 >= ALIVE_CAP
+        || alive.iter().count() as u32 >= alive_cap(round.number, ALIVE_CAP)
     {
         return;
     }

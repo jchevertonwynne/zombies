@@ -9,6 +9,7 @@ use super::boon::{BoonDef, HeldBoons, effect_line, requirement_line, stack_line}
 use super::pact::{CRIMSON, HeldPacts, PactDef};
 use super::{Choices, Offer};
 use crate::hud::{BOTTOM_LEFT_HEIGHT_PX, full_screen, text};
+use crate::round::Round;
 use crate::state::{InRun, Pause};
 
 const GREY: Color = Color::srgb(0.65, 0.65, 0.65);
@@ -78,7 +79,7 @@ pub fn spawn_offer(
                 }
                 Choices::Pacts(pacts) => {
                     for (index, pact) in pacts.iter().enumerate() {
-                        pact_card(row, index, pact);
+                        pact_card(row, index, pact, offer.round + 1);
                     }
                 }
             });
@@ -159,13 +160,13 @@ fn boon_card(row: &mut ChildSpawnerCommands, index: usize, boon: &BoonDef, stack
 }
 
 /// A Pact's crimson card: its Upside and its Drawback.
-fn pact_card(row: &mut ChildSpawnerCommands, index: usize, pact: &PactDef) {
+fn pact_card(row: &mut ChildSpawnerCommands, index: usize, pact: &PactDef, round: u32) {
     card(row, index, CRIMSON, "PACT", |body| {
         body.spawn(text(pact.name(), 30.0, CRIMSON));
         body.spawn(text("UPSIDE", 14.0, GREY));
         body.spawn(text((pact.upside)(), 18.0, Color::WHITE));
         body.spawn(text("DRAWBACK", 14.0, GREY));
-        body.spawn(text((pact.drawback)(), 18.0, CRIMSON));
+        body.spawn(text((pact.drawback)(round), 18.0, CRIMSON));
         if let Some(requirement) = requirement_line(pact.requirements) {
             body.spawn(text(requirement, 14.0, GREY));
         }
@@ -208,6 +209,7 @@ pub fn refresh_held_column(
     mut commands: Commands,
     held: Res<HeldBoons>,
     pacts: Res<HeldPacts>,
+    round: Option<Res<Round>>,
     column: Query<Entity, With<HeldColumn>>,
 ) {
     for column in &column {
@@ -222,6 +224,7 @@ pub fn refresh_held_column(
                         boon.rarity.colour(),
                     ));
                 }
+                let round = round.as_ref().map_or(1, |round| round.number);
                 for pact in &pacts.0 {
                     // Name and Drawback together, so a wrap never parts them.
                     column
@@ -232,7 +235,7 @@ pub fn refresh_held_column(
                         })
                         .with_children(|entry| {
                             entry.spawn(text(pact.name(), 18.0, CRIMSON));
-                            entry.spawn(text((pact.drawback)(), 13.0, DRAWBACK_CRIMSON));
+                            entry.spawn(text((pact.drawback)(round), 13.0, DRAWBACK_CRIMSON));
                         });
                 }
             });

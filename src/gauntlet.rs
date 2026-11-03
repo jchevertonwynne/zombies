@@ -191,8 +191,16 @@ fn gauntlet(mode: Res<Mode>) -> bool {
 }
 
 /// A Boon or a Pact was just taken (or the Run began).
-fn picks_changed(held: Res<HeldBoons>, pacts: Res<HeldPacts>) -> bool {
-    held.is_changed() || pacts.is_changed()
+/// True when a pick changes, or the Round moves on (a Drawback can quote the Round's numbers).
+fn picks_changed(
+    held: Res<HeldBoons>,
+    pacts: Res<HeldPacts>,
+    round: Option<Res<Round>>,
+    mut seen: Local<u32>,
+) -> bool {
+    let number = round.map_or(0, |round| round.number);
+    let moved = std::mem::replace(&mut *seen, number) != number;
+    held.is_changed() || pacts.is_changed() || moved
 }
 
 fn reset(mut commands: Commands) {
