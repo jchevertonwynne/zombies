@@ -18,9 +18,9 @@ _Avoid_: server
 
 **Headshot**: A hit on a Zombie's head. It does more damage and, if it kills, pays more Points than a body kill.
 
-**Horde**: All the Zombies in a Round, both the ones in play and the ones still waiting to spawn. A Round's Horde is bigger than the number allowed in play at once (the Alive Cap).
+**Horde**: All the Zombies in a Round, both the ones in play and the ones still waiting to spawn. A Round's Horde is bigger than the number allowed in play at once (the Alive Cap). In Co-op the Horde grows with the number of Players at the start of the Round.
 
-**Alive Cap**: The most Zombies that can be in play at the same time. The rest of the Horde waits until there is room.
+**Alive Cap**: The most Zombies that can be in play at the same time. The rest of the Horde waits until there is room. Co-op has a higher Alive Cap than solo, the same for any number of Players.
 
 **Train**: A tightly packed group of Zombies following the Player in a line, which the Player leads around the Map so they can be shot from the front.
 
