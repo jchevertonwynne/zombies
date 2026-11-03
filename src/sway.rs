@@ -10,7 +10,7 @@ use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 
 use crate::last_stand::{LastStand, lower_eye};
-use crate::player::{Eye, Locomotion, Player, PlayerCamera};
+use crate::player::{Eye, LocalPlayer, Locomotion, PlayerCamera};
 use crate::settings::Settings;
 use crate::state::Pause;
 use crate::tuning::*;
@@ -132,7 +132,7 @@ fn add_sway(mut commands: Commands, cameras: Query<Entity, Added<PlayerCamera>>)
 /// Places the camera at the eye plus the sway, and adds the view model's sway on top of its own
 /// animation.
 fn sway(
-    player: Single<(&Locomotion, &Loadout, Has<LastStand>), With<Player>>,
+    player: Single<(&Locomotion, &Loadout, Has<LastStand>), With<LocalPlayer>>,
     camera: Single<(&Eye, &mut Transform, &mut CameraSway), With<PlayerCamera>>,
     mut view_models: Query<&mut Transform, (With<ViewModel>, Without<PlayerCamera>)>,
     settings: Res<Settings>,

@@ -28,7 +28,7 @@ use crate::mystery_box::MysteryBox;
 use crate::nova::{GasCloud, VentDrop};
 use crate::pack_a_punch::{PackAPunch, Stage};
 use crate::perk::{Drinking, PerkMachine};
-use crate::player::{Health, Player, PlayerCamera, PlayerHit};
+use crate::player::{Health, LocalPlayer, PlayerCamera, PlayerHit};
 use crate::power::Power;
 use crate::power_up::{ActivePowerUps, Dropped, PowerUp, PowerUpTaken};
 use crate::round::{Round, RoundEnded, RoundStarted};
@@ -397,9 +397,9 @@ fn play_player_sounds(
     mut explosions: MessageReader<Explosion>,
     mut hurts: MessageReader<PlayerHit>,
     mut loops: Query<&mut FlatLoop>,
-    loadout: Query<&Loadout, With<Player>>,
+    loadout: Query<&Loadout, With<LocalPlayer>>,
     claymores: Query<(), Added<Claymore>>,
-    drinks: Query<(), (With<Player>, Added<Drinking>)>,
+    drinks: Query<(), (With<LocalPlayer>, Added<Drinking>)>,
     // Whether the Player was reloading, and switching, last frame.
     mut was: Local<(bool, bool)>,
 ) {
@@ -720,7 +720,7 @@ fn flat_loops(
     mut commands: Commands,
     mut sounds: ResMut<Sounds>,
     mut loops: Query<(Entity, &mut FlatLoop)>,
-    player: Query<(&Health, &GlobalTransform), With<Player>>,
+    player: Query<(&Health, &GlobalTransform), With<LocalPlayer>>,
     napalms: Query<&GlobalTransform, (With<Napalm>, Without<Dying>)>,
     state: Res<State<GameState>>,
     time: Res<Time>,

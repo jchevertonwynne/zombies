@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use crate::arsenal::WeaponId;
 use crate::equipment::Equipment;
 use crate::hud::overlay::{Overlay, Overlays};
-use crate::player::Player;
+use crate::player::LocalPlayer;
 use crate::power_up::DropPowerUp;
 use crate::sapper::SummonSapper;
 use crate::state::Pause;
@@ -86,13 +86,13 @@ fn toggle(mut view: ResMut<DebugView>, mut store: ResMut<GizmoConfigStore>) {
     store.config_mut::<PhysicsGizmos>().0.enabled = view.0;
 }
 
-fn grant_weapon(mut loadout: Single<&mut Loadout, With<Player>>, mut next: Local<usize>) {
+fn grant_weapon(mut loadout: Single<&mut Loadout, With<LocalPlayer>>, mut next: Local<usize>) {
     loadout.give(GRANTED_WEAPONS[*next % GRANTED_WEAPONS.len()]);
     *next += 1;
 }
 
 /// Swaps the Weapon in hand for its Upgraded copy, to try Upgraded Weapons without the Power.
-fn grant_upgrade(mut loadout: Single<&mut Loadout, With<Player>>) {
+fn grant_upgrade(mut loadout: Single<&mut Loadout, With<LocalPlayer>>) {
     if !loadout.held().upgraded {
         let id = loadout.held().id;
         loadout.give_copy(WeaponCopy::new(id).upgrade());
@@ -100,7 +100,7 @@ fn grant_upgrade(mut loadout: Single<&mut Loadout, With<Player>>) {
 }
 
 /// Drops a Power-up 3 m ahead of the Player, at their feet.
-fn drop_power_up(player: Single<&Transform, With<Player>>, mut drops: MessageWriter<DropPowerUp>) {
+fn drop_power_up(player: Single<&Transform, With<LocalPlayer>>, mut drops: MessageWriter<DropPowerUp>) {
     let ahead = player.forward() * 3.0;
     let feet = player.translation.y - (crate::tuning::PLAYER_RADIUS + crate::tuning::PLAYER_CAPSULE_LENGTH / 2.0);
     drops.write(DropPowerUp {
@@ -109,7 +109,7 @@ fn drop_power_up(player: Single<&Transform, With<Player>>, mut drops: MessageWri
     });
 }
 
-fn grant_monkey_bombs(mut equipment: Single<&mut Equipment, With<Player>>) {
+fn grant_monkey_bombs(mut equipment: Single<&mut Equipment, With<LocalPlayer>>) {
     equipment.take_monkey_bombs();
 }
 
