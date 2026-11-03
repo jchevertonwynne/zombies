@@ -1213,7 +1213,14 @@ pub const HORDE_BASE: u32 = 24;
 pub const HORDE_SOLO_BONUS: f64 = 3.0;
 /// Horde scale for Rounds 1–5.
 pub const HORDE_EARLY_SCALE: [f64; 5] = [0.25, 0.3, 0.5, 0.7, 0.9];
+/// The Alive Cap through Round `ALIVE_CAP_GROWTH_FROM_ROUND`, and the floor Solo plays on.
 pub const ALIVE_CAP: u32 = 24;
+/// The Alive Cap starts growing the Round after this one.
+pub const ALIVE_CAP_GROWTH_FROM_ROUND: u32 = 10;
+/// Added to the Alive Cap each Round past `ALIVE_CAP_GROWTH_FROM_ROUND`.
+pub const ALIVE_CAP_PER_ROUND: u32 = 2;
+/// The most the Round's Alive Cap grows to, from Round 22.
+pub const ALIVE_CAP_MAX: u32 = 48;
 /// Speed roll: `rand[base, base + SPREAD]`, base 1 in Round 1, else `(round − 1) × PER_ROUND`.
 pub const SPEED_ROLL_PER_ROUND: u32 = 8;
 pub const SPEED_ROLL_SPREAD: u32 = 34;
@@ -1934,8 +1941,8 @@ pub const PACT_COLD_STEEL_RESERVE_FACTOR: f32 = 0.5;
 pub const PACT_LIGHTNING_ROD_DROP_CHANCE_FACTOR: f32 = 0.5;
 /// Damage beyond a kill carries to the nearest Zombie this close.
 pub const PACT_OVERKILL_CARRY_RADIUS_M: f32 = 5.0;
-/// The Alive Cap, up from `ALIVE_CAP`.
-pub const PACT_OVERKILL_ALIVE_CAP: u32 = 32;
+/// Added to the Round's Alive Cap.
+pub const PACT_OVERKILL_ALIVE_CAP_BONUS: u32 = 8;
 pub const PACT_DEAD_RUN_MOVE_SPEED_FACTOR: f32 = 1.3;
 
 // Scrip, Unlocks and Upgrade Tracks (Appendix B)

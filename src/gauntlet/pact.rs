@@ -10,6 +10,7 @@ use crate::arsenal::Splash;
 use crate::explosive::Explosion;
 use crate::modifier::{Effect, Modifier, Source, Stat};
 use crate::perk::Perk;
+use crate::round::alive_cap;
 use crate::tuning::*;
 
 /// Pact cards and held Pacts are crimson.
@@ -79,7 +80,8 @@ pub struct PactDef {
     /// Its stat-modifier entries, upside and Drawback alike. The Pact is their one source.
     pub entries: &'static [(Stat, Effect)],
     pub upside: fn() -> String,
-    pub drawback: fn() -> String,
+    /// Its Drawback text, with real numbers for the given Round.
+    pub drawback: fn(round: u32) -> String,
 }
 
 impl PactDef {
@@ -115,7 +117,7 @@ pub const PACTS: &[PactDef] = &[
                 percent_over(PACT_GLASS_JAW_DAMAGE_FACTOR)
             )
         },
-        drawback: || {
+        drawback: |_| {
             format!(
                 "max Health -{:.0} (one swipe Downs without Juggernog)",
                 PACT_GLASS_JAW_MAX_HEALTH_LOSS
@@ -139,7 +141,7 @@ pub const PACTS: &[PactDef] = &[
                 factor + 1.0
             )
         },
-        drawback: || format!("every price x{PACT_GOLD_RUSH_PRICE_FACTOR:.2}"),
+        drawback: |_| format!("every price x{PACT_GOLD_RUSH_PRICE_FACTOR:.2}"),
     },
     PactDef {
         pact: SCORCHED_EARTH,
@@ -156,7 +158,7 @@ pub const PACTS: &[PactDef] = &[
                 PACT_SCORCHED_EARTH_RADIUS_M
             )
         },
-        drawback: || {
+        drawback: |_| {
             format!(
                 "Zombies move +{}% faster",
                 percent_over(PACT_SCORCHED_EARTH_ZOMBIE_SPEED_FACTOR)
@@ -172,7 +174,7 @@ pub const PACTS: &[PactDef] = &[
             (Stat::HordeSize, Effect::Mult(PACT_OPEN_BAR_HORDE_FACTOR)),
         ],
         upside: || "Perks are free and survive a Down".into(),
-        drawback: || format!("Horde +{}%", percent_over(PACT_OPEN_BAR_HORDE_FACTOR)),
+        drawback: |_| format!("Horde +{}%", percent_over(PACT_OPEN_BAR_HORDE_FACTOR)),
     },
     PactDef {
         pact: UNDYING,
@@ -189,7 +191,7 @@ pub const PACTS: &[PactDef] = &[
                 "{PACT_UNDYING_SELF_REVIVES} Self-Revives without Quick Revive (stacks with it)"
             )
         },
-        drawback: || "Health only regenerates in the Intermission".into(),
+        drawback: |_| "Health only regenerates in the Intermission".into(),
     },
     PactDef {
         pact: ARSENAL,
@@ -203,7 +205,7 @@ pub const PACTS: &[PactDef] = &[
             ),
         ],
         upside: || "every Box Weapon comes out Upgraded".into(),
-        drawback: || {
+        drawback: |_| {
             format!(
                 "Box price x{PACT_ARSENAL_BOX_PRICE_FACTOR:.0}; Teddy chance x{PACT_ARSENAL_TEDDY_CHANCE_FACTOR:.0}"
             )
@@ -220,7 +222,7 @@ pub const PACTS: &[PactDef] = &[
             ),
         ],
         upside: || "Ammo Mods have no cooldown".into(),
-        drawback: || format!("Pack-a-Punch and Repack prices x{PACT_OVERCLOCKED_PRICE_FACTOR:.0}"),
+        drawback: |_| format!("Pack-a-Punch and Repack prices x{PACT_OVERCLOCKED_PRICE_FACTOR:.0}"),
     },
     PactDef {
         pact: COLD_STEEL,
@@ -233,7 +235,7 @@ pub const PACTS: &[PactDef] = &[
             ),
         ],
         upside: || "the Knife always kills".into(),
-        drawback: || {
+        drawback: |_| {
             format!(
                 "Reserve Ammo capacity -{:.0}%",
                 (1.0 - f64::from(PACT_COLD_STEEL_RESERVE_FACTOR)) * 100.0
@@ -248,7 +250,7 @@ pub const PACTS: &[PactDef] = &[
             (Stat::MaxAmmoInBag, Effect::Mult(0.0)),
         ],
         upside: || "no Reloads: Weapons fire straight from Reserve Ammo".into(),
-        drawback: || "Max Ammo leaves the Power-up bag".into(),
+        drawback: |_| "Max Ammo leaves the Power-up bag".into(),
     },
     PactDef {
         pact: LIGHTNING_ROD,
@@ -262,14 +264,14 @@ pub const PACTS: &[PactDef] = &[
             ),
         ],
         upside: || "Traps are free, with no cooldown".into(),
-        drawback: || "Power-up drop chance halved".into(),
+        drawback: |_| "Power-up drop chance halved".into(),
     },
     PactDef {
         pact: OVERKILL,
         requirements: &[],
         entries: &[(
             Stat::AliveCap,
-            Effect::Flat((PACT_OVERKILL_ALIVE_CAP - ALIVE_CAP) as f32),
+            Effect::Flat(PACT_OVERKILL_ALIVE_CAP_BONUS as f32),
         )],
         upside: || {
             format!(
@@ -277,7 +279,10 @@ pub const PACTS: &[PactDef] = &[
                 PACT_OVERKILL_CARRY_RADIUS_M
             )
         },
-        drawback: || format!("Alive Cap {ALIVE_CAP} -> {PACT_OVERKILL_ALIVE_CAP}"),
+        drawback: |round| {
+            let cap = alive_cap(round, ALIVE_CAP);
+            format!("Alive Cap {cap} -> {}", cap + PACT_OVERKILL_ALIVE_CAP_BONUS)
+        },
     },
     PactDef {
         pact: DEAD_RUN,
@@ -296,7 +301,7 @@ pub const PACTS: &[PactDef] = &[
                 percent_over(PACT_DEAD_RUN_MOVE_SPEED_FACTOR)
             )
         },
-        drawback: || "every Zombie is a Sprinter from Round 1".into(),
+        drawback: |_| "every Zombie is a Sprinter from Round 1".into(),
     },
 ];
 
@@ -566,11 +571,19 @@ mod tests {
     }
 
     #[test]
+    fn overkill_drawback_quotes_the_rounds_real_cap() {
+        let drawback = PACTS.iter().find(|pact| pact.pact == OVERKILL).unwrap().drawback;
+        assert_eq!(drawback(1), "Alive Cap 24 -> 32");
+        assert_eq!(drawback(15), "Alive Cap 34 -> 42");
+        assert_eq!(drawback(40), "Alive Cap 48 -> 56");
+    }
+
+    #[test]
     fn all_twelve_pacts_have_unique_ids_and_names() {
         assert_eq!(PACTS.len(), 12);
         for (i, a) in PACTS.iter().enumerate() {
             assert_ne!(a.id(), a.name(), "an ID isn't a display name");
-            assert!(!(a.upside)().is_empty() && !(a.drawback)().is_empty());
+            assert!(!(a.upside)().is_empty() && !(a.drawback)(1).is_empty());
             for b in &PACTS[i + 1..] {
                 assert_ne!(a.id(), b.id());
                 assert_ne!(a.name(), b.name());

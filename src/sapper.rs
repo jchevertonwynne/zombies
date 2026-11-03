@@ -27,7 +27,7 @@ use crate::player::Player;
 use crate::points::BonusPoints;
 use crate::power::Power;
 use crate::power_up::DropPowerUp;
-use crate::round::{CarriesOver, Round, RoundPhase, zombie_health};
+use crate::round::{CarriesOver, Round, RoundPhase, alive_cap, zombie_health};
 use crate::settings::Settings;
 use crate::special::{SpecialCue, SpecialKind, special_spawn_at};
 use crate::state::{GameState, InRun, Pause};
@@ -407,7 +407,7 @@ fn spawn_sapper(
         }
         Some(_) => {}
     }
-    if alive.iter().count() as u32 >= ALIVE_CAP {
+    if alive.iter().count() as u32 >= alive_cap(round.number, ALIVE_CAP) {
         return;
     }
     let windows = window_candidates(
