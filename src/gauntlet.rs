@@ -190,8 +190,8 @@ fn gauntlet(mode: Res<Mode>) -> bool {
     *mode == Mode::Gauntlet
 }
 
-/// A Boon or a Pact was just taken (or the Run began).
-/// True when a pick changes, or the Round moves on (a Drawback can quote the Round's numbers).
+/// A Boon or a Pact was just taken (or the Run began), or the Round moved on, since a Drawback
+/// can quote the Round's numbers.
 fn picks_changed(
     held: Res<HeldBoons>,
     pacts: Res<HeldPacts>,

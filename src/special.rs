@@ -26,7 +26,7 @@ use crate::map::{SpawnKind, SpawnPoint};
 use crate::nav::Route;
 use crate::player::{Player, PlayerCamera, PlayerHit};
 use crate::points::BonusPoints;
-use crate::round::{CarriesOver, alive_cap, Round, RoundPhase, zombie_health};
+use crate::round::{CarriesOver, Round, RoundPhase, alive_cap, zombie_health};
 use crate::settings::{Settings, SpecialType, SpecialZombies};
 use crate::shellshock::Shellshock;
 use crate::state::{GameState, InRun, Pause};
