@@ -403,7 +403,7 @@ fn play_buy_sounds(
     for plank in rebuilt.read() {
         sounds.play(&mut commands, Cue::PlankRebuild, Some(plank.at));
     }
-    for PowerUpTaken(power_up) in power_ups.read() {
+    for PowerUpTaken(power_up, _) in power_ups.read() {
         sounds.play(&mut commands, Cue::PowerupPickup, None);
         sounds.play(&mut commands, power_up.announcer(), None);
         if *power_up == PowerUp::Nuke {

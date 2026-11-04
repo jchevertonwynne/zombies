@@ -153,7 +153,8 @@ impl Plugin for LastStandPlugin {
 
 /// Health at zero is a Down. It takes every Perk (but any the Player's stat entries say it leaves),
 /// and a Perk mid-drink with its Points. In Co-op it always starts a Last Stand, and takes a slice
-/// of the Player's Points.
+/// of the Player's Points, unless the Player holds a spare Self-Revive (Undying's): that gives the
+/// solo 10 s Last Stand instead, costing nothing, and they get up alone.
 pub fn go_down(
     mut commands: Commands,
     mut players: Query<
@@ -168,9 +169,13 @@ pub fn go_down(
         if health.current > 0.0 {
             continue;
         }
-        let coop = run.is_coop();
-        let outcome = if coop { DownOutcome::LastStand } else { down_outcome(&perks, spares_left(&modifiers.0, spares.0)) };
-        if !coop && outcome == DownOutcome::LastStand && !perks.has(Perk::QuickRevive) {
+        let spare = spares_left(&modifiers.0, spares.0) > 0;
+        // A Co-op Down is the long Last Stand for a teammate to Revive, unless a spare Self-Revive
+        // turns it into the solo one.
+        let coop = run.is_coop() && !spare;
+        let outcome = if run.is_coop() { DownOutcome::LastStand } else { down_outcome(&perks, spares_left(&modifiers.0, spares.0)) };
+        let uses_spare = if run.is_coop() { spare } else { outcome == DownOutcome::LastStand && !perks.has(Perk::QuickRevive) };
+        if uses_spare {
             spares.0 = spares.0.saturating_add(1);
         }
         let keep = kept_on_down(&modifiers.0);

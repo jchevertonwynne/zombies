@@ -366,7 +366,10 @@ pub struct MysteryBoxPlugin;
 
 /// A spin gave a Teddy Bear, and the Box is leaving.
 #[derive(Message)]
-pub struct TeddyBear;
+pub struct TeddyBear {
+    /// The Player whose spin it was.
+    pub spinner: Entity,
+}
 
 impl Plugin for MysteryBoxPlugin {
     fn build(&self, app: &mut App) {
@@ -519,7 +522,7 @@ fn run_boxes(
                         Spin::Teddy => {
                             points.refund(paid);
                             if teddy {
-                                teddies.write(TeddyBear);
+                                teddies.write(TeddyBear { spinner });
                                 run.pulls = 0;
                                 run.moves = run.moves.saturating_add(1);
                                 BoxState::Leaving { elapsed: 0.0 }

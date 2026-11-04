@@ -1919,6 +1919,9 @@ pub const BOON_OFFER_DELAY_SECS: f32 = 2.0;
 pub const BOON_OFFER_SIZE: usize = 3;
 /// Clicks are ignored for this long after the Offer appears, so a trigger finger can't pick.
 pub const BOON_OFFER_INPUT_LOCKOUT_SECS: f32 = 0.5;
+/// In Co-op the Intermission waits this long at most for every Player's pick, then the next Round
+/// starts with any Offer still open.
+pub const BOON_OFFER_COOP_TIMEOUT_SECS: f32 = 30.0;
 /// A Boon's Offer weight by Rarity: Common, Rare, Legendary.
 pub const BOON_RARITY_WEIGHTS: [f64; 3] = [60.0, 30.0, 10.0];
 /// Each Stack held multiplies a Boon's Offer weight by this.

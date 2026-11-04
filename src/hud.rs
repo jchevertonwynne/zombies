@@ -809,7 +809,7 @@ fn banner_text(
     time: Res<Time>,
 ) {
     banner.tick(time.delta_secs());
-    for PowerUpTaken(power_up) in taken.read() {
+    for PowerUpTaken(power_up, _) in taken.read() {
         banner.taken(*power_up);
     }
     let (mut text, mut colour, mut visibility) = text.into_inner();
