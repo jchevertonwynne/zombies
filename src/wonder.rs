@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use crate::ammo_mod::AmmoMods;
 use crate::arsenal::{Splash, WeaponClass, WeaponId, WeaponStats};
 use crate::equipment::Pull;
-use crate::explosive::{Explosion, Explosive, in_sight, makes_crawlers, world_filter};
+use crate::explosive::{Explosion, Explosive, Launch, Thrown, in_sight, makes_crawlers, world_filter};
 use crate::layers::GameLayer;
 use crate::player::Player;
 use crate::state::{InRun, Pause};
@@ -16,8 +16,9 @@ use crate::tuning::*;
 use crate::weapon::Loadout;
 use crate::zombie::{Attack, DamageZombie, Dying, HitArea, HitZone, KnockDown, Zombie};
 
-/// The held Weapon fired a Thundergun blast, a Crossbow bolt or a Ballistic Knife blade.
-#[derive(Message, Clone, Copy)]
+/// The held Weapon fired a Thundergun blast, a Crossbow bolt or a Ballistic Knife blade, sent in
+/// a `Launch`.
+#[derive(Clone, Copy)]
 pub struct WonderFired {
     pub origin: Vec3,
     pub direction: Dir3,
@@ -72,6 +73,8 @@ struct Stuck {
 /// A Crossbow bolt, burning down its fuse. The Awful Lawton's pulls Zombies meanwhile.
 #[derive(Component)]
 struct Bolt {
+    /// The Player who fired it.
+    player: Entity,
     fuse: f32,
     splash: Splash,
 }
@@ -92,8 +95,7 @@ pub struct WonderPlugin;
 
 impl Plugin for WonderPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<WonderFired>()
-            .add_systems(Startup, load_assets)
+        app.add_systems(Startup, load_assets)
             .add_systems(
                 Update,
                 (fire_wonders, follow_hosts, burn_bolts, pick_up_blades)
@@ -129,8 +131,7 @@ fn load_assets(
 /// stuns it); the bolt and the blade fly as hitscan, hit what they meet and stick there.
 fn fire_wonders(
     mut commands: Commands,
-    mut fired: MessageReader<WonderFired>,
-    player: Single<Entity, With<Player>>,
+    mut launches: MessageReader<Launch>,
     spatial: SpatialQuery,
     hit_areas: Query<(&HitArea, &ChildOf)>,
     zombies: Query<(Entity, &GlobalTransform, &Zombie), Without<Dying>>,
@@ -138,9 +139,13 @@ fn fire_wonders(
     mut knock_downs: MessageWriter<KnockDown>,
     assets: Res<WonderAssets>,
 ) {
-    let filter = SpatialQueryFilter::from_mask([GameLayer::World, GameLayer::ZombieHitArea])
-        .with_excluded_entities([*player]);
-    for shot in fired.read() {
+    for launch in launches.read() {
+        let Thrown::Wonder(shot) = launch.thrown else {
+            continue;
+        };
+        let player = launch.player;
+        let filter = SpatialQueryFilter::from_mask([GameLayer::World, GameLayer::ZombieHitArea])
+            .with_excluded_entities([player]);
         if shot.stats.class == WeaponClass::Thundergun {
             for (zombie, transform, body) in &zombies {
                 let centre = transform.translation();
@@ -167,6 +172,7 @@ fn fire_wonders(
                     }
                 };
                 damage.write(DamageZombie {
+                    player: Some(player),
                     zombie,
                     damage: amount,
                     zone: HitZone::Torso,
@@ -186,6 +192,7 @@ fn fire_wonders(
         if let Ok((area, parent)) = hit_areas.get(hit.entity) {
             let zombie = parent.parent();
             damage.write(DamageZombie {
+                player: Some(player),
                 zombie,
                 damage: shot.damage * shot.stats.zone_multiplier(area.0),
                 zone: area.0,
@@ -203,7 +210,7 @@ fn fire_wonders(
                 let Some(splash) = shot.splash else { continue };
                 let mut bolt = commands.spawn((
                     stuck,
-                    Bolt { fuse, splash },
+                    Bolt { player, fuse, splash },
                     Mesh3d(assets.bolt.clone()),
                     MeshMaterial3d(assets.bolt_mat.clone()),
                 ));
@@ -257,6 +264,7 @@ fn burn_bolts(
         if bolt.fuse <= 0.0 {
             explosions.write(Explosion {
                 at: transform.translation,
+                thrower: Some(bolt.player),
                 splash: bolt.splash,
                 hurts_player: true,
                 ammo_mods: AmmoMods::NONE,

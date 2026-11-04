@@ -290,14 +290,14 @@ fn use_machine(
     mut purchases: MessageReader<Purchased>,
     mut holds: MessageReader<HoldPurchased>,
     mut machines: Query<&mut PackAPunch>,
-    player: Single<(&mut Loadout, &Modifiers), With<Player>>,
+    mut players: Query<(&mut Loadout, &Modifiers), With<Player>>,
 ) {
-    let (mut loadout, modifiers) = player.into_inner();
-    let slots = ammo_mod_slots(&modifiers.0);
-    let taps = purchases.read().map(|Purchased(entity)| (*entity, false));
-    let held = holds.read().map(|HoldPurchased(entity)| (*entity, true));
-    for (entity, hold) in taps.chain(held).collect::<Vec<_>>() {
+    let taps = purchases.read().map(|&Purchased { player, buyable }| (player, buyable, false));
+    let held = holds.read().map(|&HoldPurchased { player, buyable }| (player, buyable, true));
+    for (player, entity, hold) in taps.chain(held).collect::<Vec<_>>() {
         let Ok(mut machine) = machines.get_mut(entity) else { continue };
+        let Ok((mut loadout, modifiers)) = players.get_mut(player) else { continue };
+        let slots = ammo_mod_slots(&modifiers.0);
         match machine.stage() {
             None => {
                 let copy = loadout.held();

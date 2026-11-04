@@ -1,16 +1,17 @@
 //! The Buyable seam: one shared purchase flow for everything bought or used with the Use key.
 //!
 //! Each Buyable's owner rewrites its `prompt` and `price` every frame. This module picks the one
-//! Buyable the Player is aiming at (or, failing that, the nearest one used from nearby, like a
-//! Barrier), checks the Points, spends them, and tells the owner with
-//! `Purchased`. The owner does the rest.
+//! Buyable the `LocalPlayer` is aiming at (or, failing that, the nearest one used from nearby,
+//! like a Barrier) and, when they press Use, sends a `UseRequest` naming them. The handler
+//! checks that Player's Points, spends them, and tells the owner with `Purchased`, which names
+//! the Player too. The owner does the rest.
 
 use bevy::prelude::*;
 
 use crate::controls::{Action, Controls};
 use crate::last_stand::LastStand;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve_points};
-use crate::player::{LocalPlayer, PlayerCamera};
+use crate::player::{LocalPlayer, Player, PlayerCamera};
 use crate::points::Points;
 use crate::state::{GameState, Pause};
 use crate::tuning::*;
@@ -28,9 +29,22 @@ pub struct Buyable {
     pub range: f32,
 }
 
+/// A Player pressed Use on a Buyable (or held it, for its hold half). Nothing is charged until the
+/// handler has checked it. A Barrier's rebuild sends one for each Plank held back on.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct UseRequest {
+    pub player: Entity,
+    pub buyable: Entity,
+    /// Whether it's the hold half of the Buyable that's used.
+    pub hold: bool,
+}
+
 /// The Player bought (or used) this Buyable. Its owner acts on it.
-#[derive(Message)]
-pub struct Purchased(pub Entity);
+#[derive(Message, Debug, Clone, Copy)]
+pub struct Purchased {
+    pub player: Entity,
+    pub buyable: Entity,
+}
 
 /// The Player tried to buy something they can't afford.
 #[derive(Message)]
@@ -65,8 +79,11 @@ pub struct HoldBuy {
 }
 
 /// The Player held the Use key on this Buyable's hold half and bought it.
-#[derive(Message)]
-pub struct HoldPurchased(pub Entity);
+#[derive(Message, Debug, Clone, Copy)]
+pub struct HoldPurchased {
+    pub player: Entity,
+    pub buyable: Entity,
+}
 
 /// What the Use key did on a Buyable with a hold half.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -233,6 +250,7 @@ impl Plugin for BuyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Focus>()
             .init_resource::<HoldTimer<Entity>>()
+            .add_message::<UseRequest>()
             .add_message::<Purchased>()
             .add_message::<HoldPurchased>()
             .add_message::<CantAfford>()
@@ -240,7 +258,7 @@ impl Plugin for BuyPlugin {
             .add_systems(OnEnter(GameState::GameOver), |mut focus: ResMut<Focus>| focus.0 = None)
             .add_systems(
                 Update,
-                (focus, (buy, hold_buy).run_if(in_state(Pause::Running)))
+                (focus, (buy, hold_buy, resolve_use).chain().run_if(in_state(Pause::Running)))
                     .chain()
                     .run_if(in_state(GameState::Playing)),
             );
@@ -277,93 +295,97 @@ fn focus(
     }
 }
 
+/// The Use key on a Buyable asks to use it. The Prompt's pick already holds only Buyables in reach.
 pub fn buy(
     controls: Controls,
     focus: Res<Focus>,
     // A Buyable with a hold half buys through `hold_buy`.
-    buyables: Query<(&Buyable, Has<Refused>), (Without<Held>, Without<HoldBuy>)>,
-    player: Single<(Has<LastStand>, &Modifiers, &mut Points), With<LocalPlayer>>,
-    pause: Res<State<Pause>>,
-    mut purchased: MessageWriter<Purchased>,
-    mut cant_afford: MessageWriter<CantAfford>,
-    mut refusals: MessageWriter<BuyRefused>,
+    buyables: Query<(), (With<Buyable>, Without<Held>, Without<HoldBuy>)>,
+    local: Single<Entity, With<LocalPlayer>>,
+    mut requests: MessageWriter<UseRequest>,
 ) {
     if !controls.just_pressed(Action::Use) {
         return;
     }
-    let Some(entity) = focus.0 else { return };
-    let Ok((buyable, refused)) = buyables.get(entity) else { return };
-    let (down, modifiers, mut points) = player.into_inner();
-    let price = charged(buyable.price, &modifiers.0);
-    // Focus already holds only Buyables in reach.
-    match decide(buyer(&points, down, &pause), price, true).refused_if(refused) {
-        Decision::Buy => {
-            if let Some(price) = price {
-                points.spend(price);
-            }
-            purchased.write(Purchased(entity));
-        }
-        Decision::CantAfford => {
-            cant_afford.write(CantAfford);
-        }
-        Decision::Refused => {
-            refusals.write(BuyRefused);
-        }
-        Decision::NoPrompt => {}
-    }
+    let Some(buyable) = focus.0.filter(|entity| buyables.contains(*entity)) else { return };
+    requests.write(UseRequest { player: *local, buyable, hold: false });
 }
 
-/// The Use key on a Buyable with a hold half: a tap buys the Buyable on release, a hold buys the
-/// hold half. Both go through the same affordability check, spending and refusals as `buy`.
+/// The Use key on a Buyable with a hold half: a tap asks to use the Buyable on release, a hold
+/// asks to use the hold half.
 fn hold_buy(
     controls: Controls,
     focus: Res<Focus>,
-    buyables: Query<(&Buyable, &HoldBuy, Has<Refused>)>,
-    player: Single<(Has<LastStand>, &Modifiers, &mut Points), With<LocalPlayer>>,
-    pause: Res<State<Pause>>,
+    buyables: Query<&HoldBuy, With<Buyable>>,
+    local: Single<Entity, With<LocalPlayer>>,
     time: Res<Time>,
     mut timer: ResMut<HoldTimer<Entity>>,
+    mut requests: MessageWriter<UseRequest>,
+) {
+    let target = focus.0.filter(|entity| buyables.contains(*entity));
+    let (buyable, hold) = match timer.advance(target, controls.pressed(Action::Use), time.delta_secs()) {
+        Press::Nothing => return,
+        Press::Tap(entity) => (entity, false),
+        Press::Hold(entity) => (entity, true),
+    };
+    let Ok(hold_buy) = buyables.get(buyable) else { return };
+    if !hold && !hold_buy.tap {
+        return;
+    }
+    requests.write(UseRequest { player: *local, buyable, hold });
+}
+
+/// Checks each request against the Player it names: their Points, whether they're Down, and
+/// whether the Buyable's owner refuses it. A buy spends the price (if any) and tells the owner;
+/// otherwise the buzzer plays. A Barrier's rebuild isn't a purchase and is left to its owner.
+fn resolve_use(
+    mut requests: MessageReader<UseRequest>,
+    buyables: Query<(&Buyable, Option<&HoldBuy>, Has<Refused>, Has<Held>)>,
+    mut players: Query<(Has<LastStand>, &Modifiers, &mut Points), With<Player>>,
+    pause: Res<State<Pause>>,
     mut purchased: MessageWriter<Purchased>,
     mut held: MessageWriter<HoldPurchased>,
     mut cant_afford: MessageWriter<CantAfford>,
     mut refusals: MessageWriter<BuyRefused>,
 ) {
-    let target = focus.0.filter(|entity| buyables.contains(*entity));
-    let (entity, hold) = match timer.advance(target, controls.pressed(Action::Use), time.delta_secs()) {
-        Press::Nothing => return,
-        Press::Tap(entity) => (entity, false),
-        Press::Hold(entity) => (entity, true),
-    };
-    let Ok((buyable, hold_buy, refused)) = buyables.get(entity) else { return };
-    if !hold && !hold_buy.tap {
-        return;
-    }
-    let (down, modifiers, mut points) = player.into_inner();
-    let price = charged(if hold { hold_buy.price } else { buyable.price }, &modifiers.0);
-    match decide(buyer(&points, down, &pause), price, true).refused_if(refused) {
-        Decision::Buy => {
-            if let Some(price) = price {
-                points.spend(price);
+    for &UseRequest { player, buyable: entity, hold } in requests.read() {
+        let Ok((buyable, hold_buy, refused, rebuild)) = buyables.get(entity) else { continue };
+        let Ok((down, modifiers, mut points)) = players.get_mut(player) else { continue };
+        if rebuild {
+            continue;
+        }
+        let half_price = match (hold, hold_buy) {
+            (true, Some(hold_buy)) => hold_buy.price,
+            (true, None) => continue,
+            (false, _) => buyable.price,
+        };
+        let price = charged(half_price, &modifiers.0);
+        match decide(buyer(&points, down, &pause), price, true).refused_if(refused) {
+            Decision::Buy => {
+                if let Some(price) = price {
+                    points.spend(price);
+                }
+                if hold {
+                    held.write(HoldPurchased { player, buyable: entity });
+                } else {
+                    purchased.write(Purchased { player, buyable: entity });
+                }
             }
-            if hold {
-                held.write(HoldPurchased(entity));
-            } else {
-                purchased.write(Purchased(entity));
+            Decision::CantAfford => {
+                cant_afford.write(CantAfford);
             }
+            Decision::Refused => {
+                refusals.write(BuyRefused);
+            }
+            Decision::NoPrompt => {}
         }
-        Decision::CantAfford => {
-            cant_afford.write(CantAfford);
-        }
-        Decision::Refused => {
-            refusals.write(BuyRefused);
-        }
-        Decision::NoPrompt => {}
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::GameState;
 
     #[test]
     fn letting_go_early_is_a_tap() {
@@ -558,5 +580,80 @@ mod tests {
     #[test]
     fn no_buyables_means_no_prompt() {
         assert_eq!(pick::<()>(EYE, AHEAD, []), None);
+    }
+
+    fn use_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin)
+            .insert_state(GameState::Playing)
+            .add_sub_state::<Pause>()
+            .add_message::<UseRequest>()
+            .add_message::<Purchased>()
+            .add_message::<HoldPurchased>()
+            .add_message::<CantAfford>()
+            .add_message::<BuyRefused>()
+            .add_systems(Update, resolve_use);
+        app
+    }
+
+    fn player_with(app: &mut App, balance: u64) -> Entity {
+        app.world_mut()
+            .spawn((Player, Modifiers::default(), Points { balance, ..default() }))
+            .id()
+    }
+
+    fn drained<M: Message>(app: &mut App) -> Vec<M> {
+        app.world_mut().resource_mut::<Messages<M>>().drain().collect()
+    }
+
+    #[test]
+    fn a_use_request_charges_the_player_it_names() {
+        let mut app = use_app();
+        let (first, second) = (player_with(&mut app, 1000), player_with(&mut app, 1000));
+        let door = app
+            .world_mut()
+            .spawn(Buyable { use_point: Vec3::ZERO, prompt: String::new(), price: Some(750), range: USE_RANGE })
+            .id();
+        app.world_mut().write_message(UseRequest { player: second, buyable: door, hold: false });
+        app.update();
+        let balance = |app: &App, player| app.world().get::<Points>(player).unwrap().balance;
+        assert_eq!(balance(&app, second), 250);
+        assert_eq!(balance(&app, first), 1000, "the other Player pays nothing");
+        let bought = drained::<Purchased>(&mut app);
+        assert_eq!(bought.len(), 1);
+        assert_eq!((bought[0].player, bought[0].buyable), (second, door));
+    }
+
+    #[test]
+    fn a_use_request_from_a_player_who_cant_afford_it_charges_nothing() {
+        let mut app = use_app();
+        let broke = player_with(&mut app, 100);
+        let door = app
+            .world_mut()
+            .spawn(Buyable { use_point: Vec3::ZERO, prompt: String::new(), price: Some(750), range: USE_RANGE })
+            .id();
+        app.world_mut().write_message(UseRequest { player: broke, buyable: door, hold: false });
+        app.update();
+        assert_eq!(app.world().get::<Points>(broke).unwrap().balance, 100);
+        assert!(drained::<Purchased>(&mut app).is_empty());
+        assert_eq!(drained::<CantAfford>(&mut app).len(), 1);
+    }
+
+    #[test]
+    fn a_hold_request_charges_the_hold_halfs_price_and_says_so() {
+        let mut app = use_app();
+        let player = player_with(&mut app, 5000);
+        let machine = app
+            .world_mut()
+            .spawn((
+                Buyable { use_point: Vec3::ZERO, prompt: String::new(), price: Some(5000), range: USE_RANGE },
+                HoldBuy { prompt: String::new(), price: Some(2000), tap: true },
+            ))
+            .id();
+        app.world_mut().write_message(UseRequest { player, buyable: machine, hold: true });
+        app.update();
+        assert_eq!(app.world().get::<Points>(player).unwrap().balance, 3000);
+        assert_eq!(drained::<HoldPurchased>(&mut app).len(), 1);
+        assert!(drained::<Purchased>(&mut app).is_empty());
     }
 }

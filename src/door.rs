@@ -70,9 +70,9 @@ fn open_bought_doors(
     mut purchases: MessageReader<Purchased>,
     mut doors: Query<(&mut Door, &Transform)>,
 ) {
-    for Purchased(entity) in purchases.read() {
-        if let Ok((mut door, transform)) = doors.get_mut(*entity) {
-            open(&mut commands, *entity, &mut door, transform);
+    for &Purchased { buyable, .. } in purchases.read() {
+        if let Ok((mut door, transform)) = doors.get_mut(buyable) {
+            open(&mut commands, buyable, &mut door, transform);
         }
     }
 }

@@ -409,11 +409,12 @@ pub fn draw_pact_offer(
 }
 
 /// Scorched Earth: the blast a killed Zombie goes off with, from its feet at `at`. It never hurts
-/// the Player and can make Crawlers.
-pub fn scorched_earth_blast(at: Vec3, max_health: f32) -> Explosion {
+/// the Player and can make Crawlers. Its kills credit `player`, whose kill set it off.
+pub fn scorched_earth_blast(at: Vec3, max_health: f32, player: Option<Entity>) -> Explosion {
     let damage = max_health * PACT_SCORCHED_EARTH_HEALTH_FRACTION;
     Explosion {
         at: at + Vec3::Y * PACT_SCORCHED_EARTH_BLAST_HEIGHT_M,
+        thrower: player,
         splash: Splash {
             max: damage,
             min: damage,
@@ -685,7 +686,7 @@ mod tests {
 
     #[test]
     fn scorched_earth_blasts_half_max_health_within_two_metres_and_speeds_zombies_up() {
-        let blast = scorched_earth_blast(Vec3::new(3.0, 0.0, 4.0), 1000.0);
+        let blast = scorched_earth_blast(Vec3::new(3.0, 0.0, 4.0), 1000.0, None);
         assert_eq!(blast.splash.damage(0.0), Some(500.0));
         assert_eq!(blast.splash.damage(2.0), Some(500.0));
         assert_eq!(blast.splash.damage(2.1), None);

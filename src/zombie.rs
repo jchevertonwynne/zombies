@@ -128,6 +128,9 @@ pub fn sapper_damage(damage: f32, attack: Attack, max_health: f32, insta_kill: b
 /// Request to damage a Zombie, written by the Player's attacks.
 #[derive(Message)]
 pub struct DamageZombie {
+    /// The Player whose attack this is, who the hit and any kill credit. `None` for damage no
+    /// Player is behind.
+    pub player: Option<Entity>,
     pub zombie: Entity,
     pub damage: f32,
     pub zone: HitZone,
@@ -164,6 +167,8 @@ pub struct KnockDown {
 /// A Zombie took damage and survived.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct ZombieHit {
+    /// The Player whose attack landed it, who is paid for it.
+    pub player: Option<Entity>,
     /// Whether the hit pays hit Points: a Napalm's or the Sapper's never do, a Shrieker's every 2nd.
     pub pays: bool,
     pub headshot: bool,
@@ -193,6 +198,8 @@ pub fn planked_wait(waited: f32, planked: bool, dt: f32) -> (f32, bool) {
 /// The kill message: a Zombie died. Every kill, from any source, is sent as one of these.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct ZombieKilled {
+    /// The Player whose attack killed it, who is paid and counted for it.
+    pub player: Option<Entity>,
     pub pay: Pay,
     pub headshot: bool,
     pub zone: HitZone,
@@ -205,6 +212,8 @@ pub struct ZombieKilled {
 /// it: the dead Zombie's max Health, and the damage beyond what it took to kill it.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct KillDamage {
+    /// The Player whose attack made the kill.
+    pub player: Option<Entity>,
     pub zombie: Entity,
     /// Where the Zombie's feet were when it died.
     pub at: Vec3,
@@ -494,12 +503,19 @@ pub struct Dying {
     sunk: f32,
     /// The attack that killed it, when it was killed rather than falling as a Turned ally.
     killed_by: Option<Attack>,
+    /// The Player whose attack killed it.
+    killer: Option<Entity>,
 }
 
 impl Dying {
     /// The attack that killed it.
     pub fn killed_by(&self) -> Option<Attack> {
         self.killed_by
+    }
+
+    /// The Player whose attack killed it, if one did.
+    pub fn killer(&self) -> Option<Entity> {
+        self.killer
     }
 }
 
@@ -1286,6 +1302,7 @@ pub fn apply_damage(
             if !matches!(request.attack, Attack::Burn | Attack::Barrier) {
                 zombie.hits = zombie.hits.saturating_add(1);
                 hits.write(ZombieHit {
+                    player: request.player,
                     pays: hit_pays(zombie.special, zombie.hits),
                     headshot: is_headshot(request.zone, request.attack),
                 });
@@ -1301,6 +1318,7 @@ pub fn apply_damage(
         }
         let at = centre - Vec3::Y * zombie.half_height();
         kills.write(ZombieKilled {
+            player: request.player,
             pay: request.attack.pay(),
             headshot: is_headshot(request.zone, request.attack),
             zone: request.zone,
@@ -1308,6 +1326,7 @@ pub fn apply_damage(
             at,
         });
         kill_damage.write(KillDamage {
+            player: request.player,
             zombie: request.zombie,
             at,
             max_health: zombie.max_health,
@@ -1316,6 +1335,7 @@ pub fn apply_damage(
         });
         if zombie.nova {
             nova_kills.write(NovaCrawlerKilled {
+                player: request.player,
                 zombie: request.zombie,
                 at: transform.translation,
                 attack: request.attack,
@@ -1325,6 +1345,7 @@ pub fn apply_damage(
             .entity(request.zombie)
             .insert(Dying {
                 killed_by: Some(request.attack),
+                killer: request.player,
                 ..default()
             })
             .remove::<(Collider, CollisionLayers)>();

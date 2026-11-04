@@ -184,14 +184,14 @@ fn buy_wall_weapons(
     mut commands: Commands,
     mut purchases: MessageReader<Purchased>,
     walls: Query<(&WallWeapon, &Transform, &Buyable)>,
-    player: Single<(&mut Loadout, &Modifiers), With<Player>>,
+    mut players: Query<(&mut Loadout, &Modifiers), With<Player>>,
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
     guns: Res<GunModels>,
     mut ammo_buy: ResMut<AmmoBuy>,
 ) {
-    let (mut loadout, modifiers) = player.into_inner();
-    for Purchased(entity) in purchases.read() {
-        let Ok((wall, chalk, buyable)) = walls.get(*entity) else { continue };
+    for &Purchased { player, buyable: entity } in purchases.read() {
+        let Ok((wall, chalk, buyable)) = walls.get(entity) else { continue };
+        let Ok((mut loadout, modifiers)) = players.get_mut(player) else { continue };
         match loadout.slot_of(wall.0) {
             Some(slot) => {
                 loadout.refill(slot, &modifiers.0);

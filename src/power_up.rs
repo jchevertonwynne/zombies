@@ -298,6 +298,8 @@ pub struct Dropped {
 /// A Zombie the Nuke has caught, dying when its moment is up.
 #[derive(Component)]
 struct Nuked {
+    /// The Player who took the Nuke.
+    player: Entity,
     left: f32,
 }
 
@@ -512,6 +514,7 @@ fn pick_up(
                 let rng = &mut rand::rng();
                 for zombie in &zombies {
                     commands.entity(zombie).insert(Nuked {
+                        player,
                         left: rng.random_range(NUKE_DELAY_SECS),
                     });
                 }
@@ -546,6 +549,7 @@ fn nuke(
         nuked.left -= time.delta_secs();
         if nuked.left <= 0.0 {
             damage.write(DamageZombie {
+                player: Some(nuked.player),
                 zombie: entity,
                 damage: f32::INFINITY,
                 zone: HitZone::Torso,

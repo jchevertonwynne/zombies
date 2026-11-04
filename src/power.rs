@@ -130,10 +130,10 @@ fn use_switch(
     mut purchases: MessageReader<Purchased>,
     mut switches: Query<&mut PowerSwitch>,
 ) {
-    for Purchased(entity) in purchases.read() {
-        if let Ok(mut switch) = switches.get_mut(*entity) {
+    for &Purchased { buyable, .. } in purchases.read() {
+        if let Ok(mut switch) = switches.get_mut(buyable) {
             switch.start();
-            commands.entity(*entity).remove::<Buyable>();
+            commands.entity(buyable).remove::<Buyable>();
         }
     }
 }

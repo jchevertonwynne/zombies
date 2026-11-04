@@ -280,6 +280,8 @@ pub fn in_flame(origin: Vec3, forward: Vec3, target: Vec3) -> bool {
 /// The Flamethrower went off for one tick: everything in its cone burns.
 #[derive(Message, Clone, Copy)]
 pub struct FlameFired {
+    /// The Player who fired it.
+    pub player: Entity,
     pub origin: Vec3,
     pub forward: Dir3,
     /// Damage per tick and the Burn it leaves, already resolved through any modifiers.
@@ -329,12 +331,13 @@ fn burn_in_flames(
                 continue;
             }
             damage.write(DamageZombie {
+                player: Some(flame.player),
                 zombie,
                 damage: flame.damage,
                 zone: HitZone::Torso,
                 attack: Attack::Burn,
             });
-            ignite.write(Ignite { zombie, burn: flame.burn });
+            ignite.write(Ignite { player: flame.player, zombie, burn: flame.burn });
         }
     }
 }

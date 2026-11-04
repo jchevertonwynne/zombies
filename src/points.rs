@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 use crate::last_stand::LastStand;
 use crate::modifier::{Modifiers, RunModifiers, Stat, resolve, resolve_points};
-use crate::player::{LocalPlayer, Player};
+use crate::player::Player;
 use crate::tuning::*;
 use crate::zombie::{Attack, HitZone, Pay, ZombieHit, ZombieKilled};
 
@@ -116,21 +116,19 @@ fn resolve_rate(mut players: Query<(&Modifiers, &mut Points), With<Player>>) {
     }
 }
 
-/// Hits, kills and bonus Points pay, except in Last Stand, which earns nothing. Hits and kills pay
-/// the `LocalPlayer`; a bonus pays the Player it names.
+/// Hits, kills and bonus Points pay, except in Last Stand, which earns nothing. Each pays the
+/// Player it names; a hit or kill no Player is behind pays no one.
 fn earn(
     mut hits: MessageReader<ZombieHit>,
     mut kills: MessageReader<ZombieKilled>,
     mut bonus: MessageReader<BonusPoints>,
-    local: Single<Entity, With<LocalPlayer>>,
     mut players: Query<(&mut Points, Has<LastStand>), With<Player>>,
     mut awarded: MessageWriter<PointsAwarded>,
 ) {
-    let local = *local;
     let amounts = hits
         .read()
-        .map(|hit| (local, points_for(*hit)))
-        .chain(kills.read().map(|kill| (local, kill_points(kill))))
+        .filter_map(|hit| hit.player.map(|player| (player, points_for(*hit))))
+        .chain(kills.read().filter_map(|kill| kill.player.map(|player| (player, kill_points(kill)))))
         .chain(bonus.read().map(|bonus| (bonus.player, bonus.amount)));
     for (player, amount) in amounts.filter(|&(_, amount)| amount > 0) {
         let Ok((mut points, last_stand)) = players.get_mut(player) else {
@@ -150,6 +148,7 @@ mod tests {
 
     fn kill(pay: Pay, zone: HitZone, attack: Attack) -> ZombieKilled {
         ZombieKilled {
+            player: None,
             pay,
             headshot: crate::zombie::is_headshot(zone, attack),
             zone,
@@ -160,8 +159,8 @@ mod tests {
 
     #[test]
     fn any_non_lethal_hit_pays_ten() {
-        assert_eq!(points_for(ZombieHit { pays: true, headshot: false }), 10);
-        assert_eq!(points_for(ZombieHit { pays: false, headshot: false }), 0);
+        assert_eq!(points_for(ZombieHit { player: None, pays: true, headshot: false }), 10);
+        assert_eq!(points_for(ZombieHit { player: None, pays: false, headshot: false }), 0);
     }
 
     #[test]
@@ -234,5 +233,35 @@ mod tests {
                 assert_eq!(kill_points(&kill(Pay::Unpaid, zone, attack)), 0);
             }
         }
+    }
+
+    fn earn_app() -> App {
+        let mut app = App::new();
+        app.add_message::<ZombieHit>()
+            .add_message::<ZombieKilled>()
+            .add_message::<BonusPoints>()
+            .add_message::<PointsAwarded>()
+            .add_systems(Update, earn);
+        app
+    }
+
+    #[test]
+    fn hits_and_kills_pay_the_player_they_name() {
+        let mut app = earn_app();
+        let (first, second) = (app.world_mut().spawn((Player, Points::default())).id(), app.world_mut().spawn((Player, Points::default())).id());
+        app.world_mut().write_message(ZombieHit { player: Some(second), pays: true, headshot: false });
+        app.world_mut().write_message(ZombieKilled {
+            player: Some(first),
+            pay: Pay::Paid,
+            headshot: true,
+            zone: HitZone::Head,
+            attack: Attack::Bullet,
+            at: Vec3::ZERO,
+        });
+        // No Player behind it, so no one is paid.
+        app.world_mut().write_message(ZombieHit { player: None, pays: true, headshot: false });
+        app.update();
+        assert_eq!(app.world().get::<Points>(first).unwrap().balance, POINTS_HEADSHOT_KILL);
+        assert_eq!(app.world().get::<Points>(second).unwrap().balance, POINTS_PER_HIT);
     }
 }

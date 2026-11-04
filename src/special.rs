@@ -273,6 +273,8 @@ struct SpecialWatch(StuckWatch);
 /// A Shrieker's death scream, going off once its delay is up.
 #[derive(Component)]
 struct DeathScream {
+    /// The Player whose kill set it off, who its kills credit.
+    killer: Option<Entity>,
     left: f32,
 }
 
@@ -280,6 +282,8 @@ struct DeathScream {
 #[derive(Component)]
 pub struct FirePool {
     ticks: Burning,
+    /// The Player whose kill of the Napalm left it, who the Zombies it burns credit.
+    killer: Option<Entity>,
     /// The short pool a Napalm leaves where it spawns, rather than the one it leaves at death.
     pub spawned: bool,
 }
@@ -287,6 +291,7 @@ pub struct FirePool {
 /// A Zombie that walked into a fire pool, burning to death.
 #[derive(Component)]
 struct PoolBurning {
+    killer: Option<Entity>,
     left: f32,
 }
 
@@ -477,7 +482,7 @@ fn spawn_special(
                     },
                     Transform::from_xyz(0.0, 0.3, 0.0),
                 ));
-            spawn_pool(&mut commands, &assets, at, NAPALM_SPAWN_POOL_DAMAGE, NAPALM_SPAWN_POOL_SECS);
+            spawn_pool(&mut commands, &assets, at, None, NAPALM_SPAWN_POOL_DAMAGE, NAPALM_SPAWN_POOL_SECS);
             cues.write(SpecialCue {
                 cue: Cue::NapalmRise,
                 at: Some(at),
@@ -505,11 +510,12 @@ fn spawn_special(
 }
 
 /// A fire pool on the floor at `at`, burning the Player for `damage` a tick over `secs`.
-fn spawn_pool(commands: &mut Commands, assets: &SpecialAssets, at: Vec3, damage: f32, secs: f32) {
+fn spawn_pool(commands: &mut Commands, assets: &SpecialAssets, at: Vec3, killer: Option<Entity>, damage: f32, secs: f32) {
     commands.spawn((
         InRun,
         Name::new("Fire pool"),
         FirePool {
+            killer,
             ticks: Burning::new(Burn {
                 damage,
                 tick_secs: NAPALM_POOL_TICK_SECS,
@@ -540,7 +546,9 @@ fn detonate(
         match napalm.wind_up {
             Some(left) if left - dt <= 0.0 => {
                 napalm.wind_up = None;
+                // Its own blast, counted for the Player it was after.
                 damage.write(DamageZombie {
+                    player: Some(player.entity),
                     zombie: entity,
                     damage: f32::INFINITY,
                     zone: HitZone::Torso,
@@ -643,7 +651,6 @@ fn special_deaths(
     mut damage: MessageWriter<DamageZombie>,
     mut player_hits: MessageWriter<PlayerHit>,
     mut bonus: MessageWriter<BonusPoints>,
-    credited: Single<Entity, With<LocalPlayer>>,
     mut cues: MessageWriter<SpecialCue>,
     assets: Res<SpecialAssets>,
 ) {
@@ -659,9 +666,11 @@ fn special_deaths(
             SpecialKind::Napalm => {
                 let pay = dying.killed_by().map_or(Pay::Unpaid, Attack::pay);
                 let paid = napalm_kill_bonus(pay);
-                if paid > 0 {
+                if paid > 0
+                    && let Some(killer) = dying.killer()
+                {
                     bonus.write(BonusPoints {
-                        player: *credited,
+                        player: killer,
                         amount: paid,
                     });
                 }
@@ -671,6 +680,7 @@ fn special_deaths(
                         && in_sight(&spatial, at, other_at.translation)
                     {
                         damage.write(DamageZombie {
+                            player: dying.killer(),
                             zombie: other,
                             damage: f32::INFINITY,
                             zone: HitZone::Torso,
@@ -698,7 +708,7 @@ fn special_deaths(
                     cue: Cue::NapalmExplode,
                     at: Some(at),
                 });
-                spawn_pool(&mut commands, &assets, feet, NAPALM_DEATH_POOL_DAMAGE, NAPALM_DEATH_POOL_SECS);
+                spawn_pool(&mut commands, &assets, feet, dying.killer(), NAPALM_DEATH_POOL_DAMAGE, NAPALM_DEATH_POOL_SECS);
                 commands.spawn((
                     InRun,
                     Fireball { age: 0.0 },
@@ -711,6 +721,7 @@ fn special_deaths(
                 commands.spawn((
                     InRun,
                     DeathScream {
+                        killer: dying.killer(),
                         left: rand::random_range(SHRIEKER_DEATH_SCREAM_DELAY_SECS),
                     },
                     Transform::from_translation(at),
@@ -745,6 +756,7 @@ fn death_screams(
             let target = zombie_at.translation;
             if target.distance(at) <= SHRIEKER_DEATH_SCREAM_RADIUS && in_sight(&spatial, at, target) {
                 damage.write(DamageZombie {
+                    player: scream.killer,
                     zombie,
                     damage: f32::INFINITY,
                     zone: HitZone::Head,
@@ -804,6 +816,7 @@ fn fire_pools(
                 commands
                     .entity(zombie)
                     .insert(PoolBurning {
+                        killer: pool.killer,
                         left: NAPALM_POOL_BURN_SECS,
                     })
                     .with_child((
@@ -830,6 +843,7 @@ fn pool_burns(
         burn.left -= time.delta_secs();
         if before > 0.0 && burn.left <= 0.0 {
             damage.write(DamageZombie {
+                player: burn.killer,
                 zombie,
                 damage: f32::INFINITY,
                 zone: HitZone::Torso,

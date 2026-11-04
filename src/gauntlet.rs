@@ -380,7 +380,7 @@ fn scorched_earth(
     let held = pacts.holds(SCORCHED_EARTH.id);
     for kill in kills.read() {
         if held {
-            explosions.write(scorched_earth_blast(kill.at, kill.max_health));
+            explosions.write(scorched_earth_blast(kill.at, kill.max_health, kill.player));
         }
     }
 }
@@ -404,6 +404,7 @@ fn overkill(
             .map(|(zombie, transform)| (zombie, transform.translation()));
         if let Some(zombie) = overkill_target(kill.at, kill.overflow, others) {
             damage.write(DamageZombie {
+                player: kill.player,
                 zombie,
                 damage: kill.overflow,
                 zone: HitZone::Torso,
@@ -456,12 +457,12 @@ fn track_purchases(
     machines: Query<&PerkMachine>,
     mut bought: ResMut<Bought>,
 ) {
-    for Purchased(entity) in purchases.read() {
-        if boxes.contains(*entity) {
+    for &Purchased { buyable, .. } in purchases.read() {
+        if boxes.contains(buyable) {
             bought.from_box = true;
         }
         if machines
-            .get(*entity)
+            .get(buyable)
             .is_ok_and(|machine| machine.perk == Perk::QuickRevive)
         {
             bought.quick_revive = true;
