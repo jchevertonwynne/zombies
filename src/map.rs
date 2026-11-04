@@ -14,7 +14,7 @@ use crate::door::Door;
 use crate::layers::GameLayer;
 use crate::state::{GameState, InRun};
 use crate::tuning::*;
-use crate::wall_weapon::{WallWeapon, wall_price};
+use crate::wall_weapon::{WallWeapon, priced_for, wall_price};
 use crate::zone::ZoneId;
 
 /// Where the Player's feet start: the middle of the Start Room, facing the Yard.
@@ -530,6 +530,7 @@ pub fn spawn_map(
             .spawn((
                 InRun,
                 WallWeapon(weapon),
+                priced_for(weapon),
                 Buyable {
                     use_point: centre + normal * 0.05,
                     prompt: String::new(),

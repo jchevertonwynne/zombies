@@ -642,3 +642,102 @@ mod tests {
         }
     }
 }
+
+/// Traps with two Players: the buyer pays, anyone walking in is Downed, and the kills pay nobody.
+#[cfg(test)]
+mod two_player_tests {
+    use super::*;
+    use crate::buy::UseRequest;
+    use crate::player::two_players::{balance, earned, feet, place, two_players_with};
+    use crate::zombie::headless::Sim;
+
+    /// A Trap standing on the Start Room's floor at the origin, with a switch to buy it.
+    fn setup() -> (Sim, Entity, Entity, Entity, Entity) {
+        let (mut sim, local, teammate) = two_players_with(|app| {
+            app.add_message::<TrapStruck>().add_systems(
+                Update,
+                ((use_switches, run_traps).chain(), (shock_zombies, electrocute).chain(), shock_player),
+            );
+        });
+        for player in [local, teammate] {
+            sim.world_mut().entity_mut(player).insert(Perks::default());
+            sim.world_mut().get_mut::<crate::points::Points>(player).unwrap().balance = 10_000;
+        }
+        let trap = sim
+            .world_mut()
+            .spawn((
+                Trap { joins: (ZoneId::StartRoom, ZoneId::StartRoom), phase: TrapPhase::Idle, activator: None },
+                Transform::from_xyz(0.0, TRAP_SIZE.y / 2.0, 0.0),
+            ))
+            .id();
+        let switch = sim
+            .world_mut()
+            .spawn((
+                TrapSwitch { trap, use_point: Vec3::ZERO },
+                Buyable { use_point: Vec3::ZERO, prompt: String::new(), price: Some(TRAP_PRICE), range: USE_RANGE },
+            ))
+            .id();
+        (sim, local, teammate, trap, switch)
+    }
+
+    /// Moves the Trap to where `player` stands, so they're inside it.
+    fn step_into(sim: &mut Sim, trap: Entity, player: Entity) {
+        let at = sim.world_mut().get::<Transform>(player).unwrap().translation;
+        sim.world_mut().get_mut::<Transform>(trap).unwrap().translation = at;
+    }
+
+    fn downed(sim: &mut Sim, frames: usize) -> Vec<Entity> {
+        let mut hit = Vec::new();
+        for _ in 0..frames {
+            sim.run(1);
+            hit.extend(sim.world_mut().resource_mut::<Messages<PlayerHit>>().drain().map(|hit| hit.player));
+        }
+        hit
+    }
+
+    #[test]
+    fn the_buyer_pays_and_the_trap_is_theirs() {
+        let (mut sim, local, teammate, trap, switch) = setup();
+        let (local_before, teammate_before) = (balance(&mut sim, local), balance(&mut sim, teammate));
+        sim.send(UseRequest { player: teammate, buyable: switch, hold: false });
+        sim.run(2);
+        assert_eq!(balance(&mut sim, teammate), teammate_before - TRAP_PRICE);
+        assert_eq!(balance(&mut sim, local), local_before);
+        assert_eq!(sim.world_mut().get::<Trap>(trap).unwrap().activator, Some(teammate));
+        sim.run(sim.frames(TRAP_FLIP_SECS + 0.5));
+        assert!(sim.world_mut().get::<Trap>(trap).unwrap().running());
+    }
+
+    #[test]
+    fn a_running_trap_downs_any_player_who_walks_in_the_buyer_included() {
+        let (mut sim, local, teammate, trap, _) = setup();
+        let mut trap_state = sim.world_mut().get_mut::<Trap>(trap).unwrap();
+        trap_state.phase = TrapPhase::Running(0.0);
+        trap_state.activator = Some(teammate);
+        // Stand the buyer well clear of the other Player.
+        let clear = feet(&mut sim, local) + Vec3::new(6.0, 0.0, 0.0);
+        place(&mut sim, teammate, clear);
+        assert!(downed(&mut sim, 5).is_empty(), "nobody is in it yet");
+
+        step_into(&mut sim, trap, local);
+        let hit = downed(&mut sim, 3);
+        assert!(hit.contains(&local) && !hit.contains(&teammate), "the Player who walked in is Downed alone");
+
+        step_into(&mut sim, trap, teammate);
+        assert!(downed(&mut sim, 3).contains(&teammate), "the buyer walked in and wasn't Downed");
+    }
+
+    #[test]
+    fn a_trap_kill_pays_nobody() {
+        let (mut sim, local, teammate, trap, _) = setup();
+        let mut trap_state = sim.world_mut().get_mut::<Trap>(trap).unwrap();
+        trap_state.phase = TrapPhase::Running(0.0);
+        trap_state.activator = Some(teammate);
+        sim.spawn(Vec3::ZERO, None);
+        sim.run(sim.frames(TRAP_KILL_DELAY_MAX_SECS + 1.0));
+        let world = sim.world_mut();
+        assert_eq!(world.query_filtered::<(), (With<Zombie>, Without<Dying>)>().iter(world).count(), 0, "it lived");
+        assert_eq!(earned(&mut sim, teammate), 0, "the buyer was paid for a Trap kill");
+        assert_eq!(earned(&mut sim, local), 0);
+    }
+}

@@ -5,7 +5,7 @@ use bevy::prelude::*;
 
 use crate::arsenal::{Availability, WeaponId};
 use crate::authority::HostSimulation;
-use crate::buy::{Buyable, Purchased, Refused};
+use crate::buy::{Buyable, PricedFor, Purchased, Refused};
 use crate::gun_model::GunModels;
 use crate::hands::ammo_buy_pose;
 use crate::modifier::Modifiers;
@@ -69,6 +69,19 @@ pub fn offer(wall_price: u64, carried: Option<Carried>) -> Offer {
             full,
         },
     }
+}
+
+/// A chalk's price for whoever uses it: the Weapon if they lack it, otherwise ammo for their copy.
+pub fn priced_for(id: WeaponId) -> PricedFor {
+    PricedFor(Box::new(move |loadout, modifiers, _| {
+        let price = wall_price(id)?;
+        let slot = loadout.slot_of(id);
+        let carried = slot.map(|slot| Carried {
+            upgraded: loadout.slot(slot).is_some_and(|weapon| weapon.upgraded),
+            full: loadout.ammo_full(slot, modifiers),
+        });
+        Some(offer(price, carried).price())
+    }))
 }
 
 /// How far along (0 to 1) a bought Wall Weapon's copy is `t` of the way (0 to 1) through its
@@ -185,25 +198,29 @@ fn buy_wall_weapons(
     mut commands: Commands,
     mut purchases: MessageReader<Purchased>,
     walls: Query<(&WallWeapon, &Transform, &Buyable)>,
-    mut players: Query<(&mut Loadout, &Modifiers), With<Player>>,
-    camera: Single<&GlobalTransform, With<PlayerCamera>>,
+    mut players: Query<(&mut Loadout, &Modifiers, &Transform, Has<LocalPlayer>), With<Player>>,
+    camera: Query<&GlobalTransform, With<PlayerCamera>>,
     guns: Res<GunModels>,
     mut ammo_buy: ResMut<AmmoBuy>,
 ) {
     for &Purchased { player, buyable: entity } in purchases.read() {
         let Ok((wall, chalk, buyable)) = walls.get(entity) else { continue };
-        let Ok((mut loadout, modifiers)) = players.get_mut(player) else { continue };
+        let Ok((mut loadout, modifiers, body, local)) = players.get_mut(player) else { continue };
         match loadout.slot_of(wall.0) {
             Some(slot) => {
                 loadout.refill(slot, &modifiers.0);
-                ammo_buy.0 = Some(0.0);
+                if local {
+                    ammo_buy.0 = Some(0.0);
+                }
             }
             // Into the empty slot, or in place of the Weapon in hand. Either way a Reload ends.
             None => {
                 loadout.give(wall.0);
                 // A copy of it lifts off the chalk toward the Player, lying along the wall.
                 let from = chalk.translation + (buyable.use_point - chalk.translation) * 0.5;
-                let toward = (camera.translation() - from).normalize_or_zero();
+                // Toward the buyer's eye, or their body when they have no camera.
+                let at = camera.single().ok().filter(|_| local).map_or(body.translation, |eye| eye.translation());
+                let toward = (at - from).normalize_or_zero();
                 commands.spawn((
                     InRun,
                     LiftingOff { elapsed: 0.0, from, to: from + toward * WALL_LIFT_REACH },
@@ -308,5 +325,43 @@ mod tests {
         let full = offer(500, Some(Carried { full: true, ..upgraded }));
         assert_eq!(full.price(), 4500);
         assert!(full.refused());
+    }
+}
+
+/// Wall Weapons with two Players: each buys the Weapon or its ammo by what they carry.
+#[cfg(test)]
+mod two_player_tests {
+    use super::*;
+    use crate::buy::UseRequest;
+    use crate::player::two_players::{balance, two_players_with};
+
+    #[test]
+    fn each_player_pays_the_weapon_or_the_ammo_by_what_they_carry() {
+        let (mut sim, local, teammate) = two_players_with(|app| {
+            app.init_resource::<GunModels>().init_resource::<AmmoBuy>().add_systems(Update, buy_wall_weapons);
+        });
+        let id = WeaponId::M14;
+        let price = wall_price(id).unwrap();
+        let chalk = sim
+            .world_mut()
+            .spawn((
+                WallWeapon(id),
+                priced_for(id),
+                Buyable { use_point: Vec3::ZERO, prompt: String::new(), price: Some(price), range: USE_RANGE },
+                Transform::default(),
+            ))
+            .id();
+        sim.world_mut().get_mut::<Loadout>(local).unwrap().give(id);
+        let (local_before, teammate_before) = (balance(&mut sim, local), balance(&mut sim, teammate));
+
+        sim.send(UseRequest { player: teammate, buyable: chalk, hold: false });
+        sim.run(2);
+        assert_eq!(balance(&mut sim, teammate), teammate_before - price, "the teammate buys the Weapon");
+        assert!(sim.world_mut().get::<Loadout>(teammate).unwrap().slot_of(id).is_some());
+        assert_eq!(balance(&mut sim, local), local_before);
+
+        sim.send(UseRequest { player: local, buyable: chalk, hold: false });
+        sim.run(2);
+        assert_eq!(balance(&mut sim, local), local_before - ammo_price(price), "the local Player buys ammo");
     }
 }

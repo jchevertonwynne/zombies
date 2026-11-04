@@ -19,12 +19,12 @@ use crate::zombie::{Attack, DamageZombie, HitZone, Zombie};
 
 /// The Map, the Zombie systems, Points and the buy handler, with Seat 0's `LocalPlayer` and
 /// Seat 1's teammate in the Start Room. Returns the Sim and the two Players.
-fn two_players() -> (Sim, Entity, Entity) {
+pub(crate) fn two_players() -> (Sim, Entity, Entity) {
     two_players_with(|_| {})
 }
 
-/// The same, with `configure` adding whatever else the test needs.
-fn two_players_with(configure: impl FnOnce(&mut App)) -> (Sim, Entity, Entity) {
+/// The same, with `configure` adding what a module under test needs to the `App`.
+pub(crate) fn two_players_with(configure: impl FnOnce(&mut App)) -> (Sim, Entity, Entity) {
     let mut sim = Sim::new(60.0, |app| {
         configure(app);
         app.add_plugins(PointsPlugin)
@@ -35,7 +35,10 @@ fn two_players_with(configure: impl FnOnce(&mut App)) -> (Sim, Entity, Entity) {
             .add_message::<CantAfford>()
             .add_message::<BuyRefused>()
             .add_systems(Update, resolve_use)
-            .add_systems(FixedUpdate, move_player);
+            .add_message::<Teleport>()
+            .init_resource::<PendingTeleports>()
+            .add_systems(PostUpdate, queue_teleports)
+            .add_systems(FixedUpdate, (teleport_player, move_player).chain());
     });
     let world = sim.world_mut();
     // The Sim's stand-in Player gives way to two real ones.
@@ -49,16 +52,22 @@ fn two_players_with(configure: impl FnOnce(&mut App)) -> (Sim, Entity, Entity) {
 
 mod revive;
 
-fn feet(sim: &mut Sim, player: Entity) -> Vec3 {
+/// Carries `player` to stand with their feet at `feet`, the way a Teleport does.
+pub(crate) fn place(sim: &mut Sim, player: Entity, feet: Vec3) {
+    sim.send(Teleport { player, feet, facing: None });
+    sim.run(4);
+}
+
+pub(crate) fn feet(sim: &mut Sim, player: Entity) -> Vec3 {
     let half_height = PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0;
     sim.world_mut().get::<Transform>(player).unwrap().translation - Vec3::Y * half_height
 }
 
-fn earned(sim: &mut Sim, player: Entity) -> u64 {
+pub(crate) fn earned(sim: &mut Sim, player: Entity) -> u64 {
     sim.world_mut().get::<Points>(player).unwrap().earned
 }
 
-fn balance(sim: &mut Sim, player: Entity) -> u64 {
+pub(crate) fn balance(sim: &mut Sim, player: Entity) -> u64 {
     sim.world_mut().get::<Points>(player).unwrap().balance
 }
 

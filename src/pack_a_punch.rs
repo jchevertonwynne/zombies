@@ -14,7 +14,7 @@ use crate::arsenal::WeaponId;
 use crate::attachment::attachment_repack_price;
 use crate::authority::HostSimulation;
 use crate::gun_model::GunModels;
-use crate::buy::{Buyable, HoldBuy, HoldPurchased, Purchased, Refused};
+use crate::buy::{Buyable, HoldBuy, HoldPurchased, PricedFor, Purchased, Refused};
 use crate::layers::GameLayer;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve_points};
 use crate::perk::Drinking;
@@ -125,6 +125,18 @@ pub fn machine_price(base: u64, player: &[Modifier]) -> u64 {
     resolve_points(Stat::PackAPunchPrice, base, player)
 }
 
+/// What the machine charges `loadout`'s Weapon in hand: the upgrade, or the Repack whose price
+/// rose with that Weapon's own Repacks (the tap's, or the hold's), after the Player's entries.
+pub fn price_for(loadout: &Loadout, player: &[Modifier], hold: bool) -> Option<u64> {
+    let copy = loadout.held();
+    let base = match (copy.upgraded, hold) {
+        (false, _) => PAP_PRICE,
+        (true, false) => repack_price(copy.repacks),
+        (true, true) => attachment_repack_price(copy.repacks),
+    };
+    Some(machine_price(base, player))
+}
+
 /// What the machine does to a Weapon put inside.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Work {
@@ -140,6 +152,9 @@ pub enum Work {
 struct Inside {
     weapon: WeaponCopy,
     elapsed: f32,
+    /// The Player who put it in, the only one who can take it out. `None` for a Weapon nobody
+    /// owns, which anyone takes.
+    owner: Option<Entity>,
 }
 
 /// The Pack-a-Punch machine. It holds one Weapon at a time.
@@ -152,6 +167,11 @@ impl PackAPunch {
     /// The Weapon inside, if any, so the Box can count it as in play.
     pub fn inside(&self) -> Option<WeaponId> {
         self.inside.as_ref().map(|inside| inside.weapon.id)
+    }
+
+    /// Whether `player` may take the Weapon inside out.
+    pub fn is_owned_by(&self, player: Entity) -> bool {
+        self.inside.as_ref().is_some_and(|inside| inside.owner.is_none_or(|owner| owner == player))
     }
 
     /// The stage of the Weapon inside, if any.
@@ -175,7 +195,15 @@ impl PackAPunch {
             Work::AmmoMod(roll, slots) => weapon.repack(roll, slots),
             Work::Attachment(mount_roll, attachment_roll) => weapon.repack_attachment(mount_roll, attachment_roll),
         };
-        self.inside = Some(Inside { weapon, elapsed: 0.0 });
+        self.inside = Some(Inside { weapon, elapsed: 0.0, owner: None });
+    }
+
+    /// Take in a Weapon from `owner` (see `insert`), who alone takes it back out.
+    pub fn insert_for(&mut self, owner: Entity, weapon: WeaponCopy, work: Work) {
+        self.insert(weapon, work);
+        if let Some(inside) = &mut self.inside {
+            inside.owner = Some(owner);
+        }
     }
 
     /// Advance the clock. A Weapon left past its pickup window is lost.
@@ -253,6 +281,7 @@ fn spawn_machine(
         InRun,
         Name::new("Pack-a-Punch"),
         PackAPunch::default(),
+        PricedFor(Box::new(price_for)),
         Mesh3d(meshes.add(body)),
         MeshMaterial3d(materials.add(Color::srgb(0.25, 0.18, 0.3))),
         Transform::from_translation(centre),
@@ -286,7 +315,8 @@ fn spawn_machine(
 }
 
 /// A bought upgrade or Repack takes the Weapon in hand and brings up the other; a used Ready
-/// machine hands the Upgraded Weapon back.
+/// machine hands the Upgraded Weapon back to the Player who put it in. Busy for everyone else
+/// meanwhile.
 fn use_machine(
     mut purchases: MessageReader<Purchased>,
     mut holds: MessageReader<HoldPurchased>,
@@ -309,10 +339,11 @@ fn use_machine(
                     _ => continue,
                 };
                 if let Some(weapon) = loadout.take_held() {
-                    machine.insert(weapon, work);
+                    machine.insert_for(player, weapon, work);
                 }
             }
-            Some(Stage::Ready) if !hold => {
+            // Only the Player who put the Weapon in takes it out.
+            Some(Stage::Ready) if !hold && machine.is_owned_by(player) => {
                 if let Some(weapon) = machine.take() {
                     loadout.give_copy(weapon);
                 }
@@ -346,10 +377,10 @@ fn prompt_machine(
         Has<Refused>,
         Has<Sabotaged>,
     )>,
-    player: Single<(&Loadout, &Modifiers, Has<Drinking>), With<LocalPlayer>>,
+    player: Single<(Entity, &Loadout, &Modifiers, Has<Drinking>), With<LocalPlayer>>,
     power: Res<Power>,
 ) {
-    let (loadout, modifiers, drinking) = *player;
+    let (local, loadout, modifiers, drinking) = *player;
     let copy = loadout.held();
     let held = Held {
         upgraded: copy.upgraded,
@@ -391,6 +422,9 @@ fn prompt_machine(
                 } else {
                     (hold_prompt.clone(), Some(hold_price), refuse)
                 }
+            }
+            MachinePrompt::Take if !machine.is_owned_by(local) => {
+                ("Pack-a-Punch is busy".to_string(), None, false)
             }
             MachinePrompt::Take => {
                 let name = machine.inside.as_ref().map_or("", |inside| inside.weapon.stats().name);
@@ -758,5 +792,87 @@ mod tests {
     fn the_players_only_weapon_is_refused() {
         let only = Held { spare: false, ..FRESH };
         assert_eq!(machine_prompt(true, None, only, true), MachinePrompt::OnlyWeapon);
+    }
+}
+
+/// Pack-a-Punch with two Players: busy for everyone while it works, its Weapon only back to the
+/// Player who put it in, and a Repack priced by the Weapon of the Player paying.
+#[cfg(test)]
+mod two_player_tests {
+    use super::*;
+    use crate::buy::UseRequest;
+    use crate::player::two_players::{balance, two_players_with};
+    use crate::points::Points;
+    use crate::zombie::headless::Sim;
+
+    fn setup() -> (Sim, Entity, Entity, Entity) {
+        let (mut sim, local, teammate) = two_players_with(|app| {
+            app.add_systems(Update, (use_machine, run_machine).chain());
+        });
+        let world = sim.world_mut();
+        for player in [local, teammate] {
+            world.get_mut::<Points>(player).unwrap().balance = 20_000;
+        }
+        let machine = world
+            .spawn((
+                PackAPunch::default(),
+                PricedFor(Box::new(price_for)),
+                Buyable { use_point: Vec3::ZERO, prompt: String::new(), price: Some(PAP_PRICE), range: USE_RANGE },
+            ))
+            .id();
+        (sim, local, teammate, machine)
+    }
+
+    fn has_upgraded(sim: &mut Sim, player: Entity, id: WeaponId) -> bool {
+        sim.world_mut().get::<Loadout>(player).unwrap().weapons().any(|weapon| weapon.id == id && weapon.upgraded)
+    }
+
+    #[test]
+    fn the_machine_is_busy_and_gives_the_weapon_only_to_its_owner() {
+        let (mut sim, local, teammate, machine) = setup();
+        sim.world_mut().get_mut::<Loadout>(teammate).unwrap().give(WeaponId::M14);
+        sim.world_mut().get_mut::<Loadout>(local).unwrap().give(WeaponId::Olympia);
+        let teammate_before = balance(&mut sim, teammate);
+        sim.send(UseRequest { player: teammate, buyable: machine, hold: false });
+        sim.run(2);
+        assert_eq!(sim.world_mut().get::<PackAPunch>(machine).unwrap().inside(), Some(WeaponId::M14));
+        assert_eq!(balance(&mut sim, teammate), teammate_before - PAP_PRICE);
+
+        // Busy: the other Player's use leaves what's inside alone.
+        sim.send(UseRequest { player: local, buyable: machine, hold: false });
+        sim.run(2);
+        assert_eq!(sim.world_mut().get::<PackAPunch>(machine).unwrap().inside(), Some(WeaponId::M14));
+
+        // Ready, but not theirs to take. (A Ready machine's Buyable is free.)
+        sim.run(sim.frames(PAP_PROCESS_SECS + 0.5));
+        assert_eq!(sim.world_mut().get::<PackAPunch>(machine).unwrap().stage(), Some(Stage::Ready));
+        sim.world_mut().get_mut::<Buyable>(machine).unwrap().price = None;
+        sim.send(UseRequest { player: local, buyable: machine, hold: false });
+        sim.run(2);
+        assert_eq!(sim.world_mut().get::<PackAPunch>(machine).unwrap().stage(), Some(Stage::Ready));
+        assert!(!has_upgraded(&mut sim, local, WeaponId::M14));
+
+        sim.send(UseRequest { player: teammate, buyable: machine, hold: false });
+        sim.run(2);
+        assert_eq!(sim.world_mut().get::<PackAPunch>(machine).unwrap().inside(), None);
+        assert!(has_upgraded(&mut sim, teammate, WeaponId::M14));
+        assert!(!has_upgraded(&mut sim, local, WeaponId::M14));
+    }
+
+    #[test]
+    fn a_repack_costs_what_its_owners_weapon_costs() {
+        let (mut sim, local, teammate, machine) = setup();
+        // The teammate holds an Upgraded Weapon already Repacked twice; the local Player's is fresh.
+        let mut worn = WeaponCopy::new(WeaponId::M14).upgrade();
+        worn.repacks = 2;
+        sim.world_mut().get_mut::<Loadout>(teammate).unwrap().give_copy(worn);
+        sim.world_mut().get_mut::<Loadout>(local).unwrap().give(WeaponId::Olympia);
+        let (local_before, teammate_before) = (balance(&mut sim, local), balance(&mut sim, teammate));
+        // The Prompt's price is the upgrade's, whatever the teammate holds.
+        sim.send(UseRequest { player: teammate, buyable: machine, hold: false });
+        sim.run(2);
+        assert_ne!(repack_price(2), PAP_PRICE);
+        assert_eq!(balance(&mut sim, teammate), teammate_before - repack_price(2));
+        assert_eq!(balance(&mut sim, local), local_before, "the local Player paid for the teammate's Repack");
     }
 }

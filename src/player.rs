@@ -619,7 +619,7 @@ impl Health {
 mod headless;
 
 #[cfg(test)]
-mod two_players;
+pub(crate) mod two_players;
 
 #[cfg(test)]
 mod tests {

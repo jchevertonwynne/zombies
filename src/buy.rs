@@ -12,10 +12,12 @@ use crate::authority::HostSimulation;
 use crate::controls::{Action, Controls};
 use crate::last_stand::LastStand;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve_points};
+use crate::perk::{Drinking, OncePerPlayer, Perks};
 use crate::player::{LocalPlayer, Player, PlayerCamera};
 use crate::points::Points;
 use crate::revive::ReviveFocus;
 use crate::state::{GameState, Pause, world_runs};
+use crate::weapon::Loadout;
 use crate::tuning::*;
 
 /// Something in the Map the Use key buys or uses.
@@ -30,6 +32,13 @@ pub struct Buyable {
     /// How far from the use point it can be bought. Usually `USE_RANGE`.
     pub range: f32,
 }
+
+/// A Buyable whose price depends on what the Player using it holds, like a Repack's, which rises
+/// with the Weapon. Its owner still writes the Prompt's price for the `LocalPlayer`; the handler
+/// asks this for the Player who made the request, whenever the Buyable (or its hold half) has a
+/// price. The hold half is asked with `hold` on.
+#[derive(Component)]
+pub struct PricedFor(pub Box<dyn Fn(&Loadout, &[Modifier], bool) -> Option<u64> + Send + Sync>);
 
 /// A Player pressed Use on a Buyable (or held it, for its hold half). Nothing is charged until the
 /// handler has checked it. A Barrier's rebuild sends one for each Plank held back on.
@@ -344,8 +353,8 @@ fn hold_buy(
 /// otherwise the buzzer plays. A Barrier's rebuild isn't a purchase and is left to its owner.
 pub(crate) fn resolve_use(
     mut requests: MessageReader<UseRequest>,
-    buyables: Query<(&Buyable, Option<&HoldBuy>, Has<Refused>, Has<Held>)>,
-    mut players: Query<(Has<LastStand>, &Modifiers, &mut Points), With<Player>>,
+    buyables: Query<(&Buyable, Option<&HoldBuy>, Has<Refused>, Has<Held>, Option<&PricedFor>, Option<&OncePerPlayer>)>,
+    mut players: Query<(Has<LastStand>, &Modifiers, Option<&Loadout>, Option<&Perks>, Option<&Drinking>, &mut Points), With<Player>>,
     pause: Res<State<Pause>>,
     mut purchased: MessageWriter<Purchased>,
     mut held: MessageWriter<HoldPurchased>,
@@ -353,8 +362,9 @@ pub(crate) fn resolve_use(
     mut refusals: MessageWriter<BuyRefused>,
 ) {
     for &UseRequest { player, buyable: entity, hold } in requests.read() {
-        let Ok((buyable, hold_buy, refused, rebuild)) = buyables.get(entity) else { continue };
-        let Ok((down, modifiers, mut points)) = players.get_mut(player) else { continue };
+        let Ok((buyable, hold_buy, refused, rebuild, priced_for, once)) = buyables.get(entity) else { continue };
+        let Ok((down, modifiers, loadout, perks, drinking, mut points)) = players.get_mut(player) else { continue };
+        let refused = refused || once.is_some_and(|once| once.refuses(perks, drinking));
         if rebuild {
             continue;
         }
@@ -362,6 +372,12 @@ pub(crate) fn resolve_use(
             (true, Some(hold_buy)) => hold_buy.price,
             (true, None) => continue,
             (false, _) => buyable.price,
+        };
+        let half_price = match (half_price, priced_for) {
+            (Some(_), Some(PricedFor(price_for))) if loadout.is_some() => {
+                price_for(loadout.unwrap(), &modifiers.0, hold)
+            }
+            _ => half_price,
         };
         let price = charged(half_price, &modifiers.0);
         match decide(buyer(&points, down, &pause), price, true).refused_if(refused) {

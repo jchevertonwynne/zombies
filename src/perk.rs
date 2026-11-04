@@ -214,6 +214,18 @@ pub fn hands_free(drinking: Query<(), (With<Player>, With<Drinking>)>) -> bool {
     drinking.is_empty()
 }
 
+/// A machine that sells its Perk to each Player once: a Player who holds it, or is drinking it,
+/// is refused. The purchase flow checks it before charging.
+#[derive(Component)]
+pub struct OncePerPlayer(pub Perk);
+
+impl OncePerPlayer {
+    /// Whether the Player has this Perk already, or is drinking it.
+    pub fn refuses(&self, perks: Option<&Perks>, drinking: Option<&Drinking>) -> bool {
+        perks.is_some_and(|perks| perks.has(self.0)) || drinking.is_some_and(|drinking| drinking.perk == self.0)
+    }
+}
+
 /// The machine that sells one Perk. A Sabotaged machine shows no Prompt until it's restored.
 #[derive(Component)]
 pub struct PerkMachine {
@@ -286,7 +298,7 @@ fn spawn_machines(
             emissive: LinearRgba::from(perk.colour()) * 6.0,
             ..default()
         });
-        commands
+        let machine = commands
             .spawn((
                 InRun,
                 Name::new(perk.name()),
@@ -310,7 +322,12 @@ fn spawn_machines(
                 Transform::from_xyz(0.0, 0.75, body.half_size.z + 0.03),
                 // Quick Revive is lit from the start, solo; `light_machines` fixes it for Co-op.
                 if perk == Perk::QuickRevive { Visibility::Inherited } else { Visibility::Hidden },
-            ));
+            ))
+            .id();
+        // Quick Revive's rebuys are its own rule (see `quick_revive_buys`).
+        if perk != Perk::QuickRevive {
+            commands.entity(machine).insert(OncePerPlayer(perk));
+        }
     }
 }
 
@@ -393,18 +410,28 @@ pub fn drink(
 fn prompt_machines(
     mut commands: Commands,
     machines: Query<(Entity, &PerkMachine, Option<&Buyable>, Has<Refused>, Has<Sabotaged>), Without<Leaving>>,
-    player: Single<(&Perks, &Modifiers, Has<Drinking>), With<LocalPlayer>>,
+    players: Query<(&Perks, &Modifiers, Has<Drinking>, Has<LocalPlayer>), With<Player>>,
     power: Res<Power>,
     run: Res<RunType>,
 ) {
-    let (perks, modifiers, drinking) = *player;
+    // The price is the one the `LocalPlayer` sees.
+    let Some(modifiers) = players.iter().find(|player| player.3).map(|player| player.1) else { return };
     for (entity, machine, buyable, refused, sabotaged) in &machines {
         let perk = machine.perk;
         let price = resolve_points(Stat::PerkPrice, perk.price(*run), &modifiers.0);
         let want = if sabotaged {
             MachinePrompt::NoPrompt
         } else {
-            machine_prompt(perk, power.is_on(), perks.has(perk), drinking, *run)
+            // Offered while any Player can still buy it; each is refused for their own Perk.
+            let prompts = players.iter().map(|(perks, _, drinking, _)| {
+                machine_prompt(perk, power.is_on(), perks.has(perk), drinking, *run)
+            });
+            prompts.max_by_key(|&prompt| match prompt {
+                MachinePrompt::Buy => 2,
+                MachinePrompt::NeedsPower => 1,
+                MachinePrompt::NoPrompt => 0,
+            })
+            .unwrap_or(MachinePrompt::NoPrompt)
         };
         let current = match (buyable, refused) {
             (None, _) => MachinePrompt::NoPrompt,
@@ -694,5 +721,52 @@ mod tests {
             resolve(Stat::MaxHealth, PLAYER_MAX_HEALTH, &modifiers.0),
             PLAYER_MAX_HEALTH
         ));
+    }
+}
+
+/// Perk Machines with two Players: each Perk once per Player, from the one machine.
+#[cfg(test)]
+mod two_player_tests {
+    use super::*;
+    use crate::buy::UseRequest;
+    use crate::player::two_players::{balance, two_players_with};
+
+    #[test]
+    fn each_player_buys_each_perk_once() {
+        let (mut sim, local, teammate) = two_players_with(|app| {
+            app.insert_resource(RunType::Coop).add_systems(Update, (buy_perks, drink).chain());
+        });
+        for player in [local, teammate] {
+            sim.world_mut().entity_mut(player).insert(Perks::default());
+            sim.world_mut().get_mut::<crate::points::Points>(player).unwrap().balance = 10_000;
+        }
+        let perk = Perk::Juggernog;
+        let machine = sim
+            .world_mut()
+            .spawn((
+                PerkMachine { perk, use_point: Vec3::ZERO, buys: 0 },
+                OncePerPlayer(perk),
+                Buyable { use_point: Vec3::ZERO, prompt: String::new(), price: Some(perk.price(RunType::Coop)), range: USE_RANGE },
+                Transform::default(),
+            ))
+            .id();
+        let (local_before, teammate_before) = (balance(&mut sim, local), balance(&mut sim, teammate));
+        sim.send(UseRequest { player: local, buyable: machine, hold: false });
+        sim.run(sim.frames(PERK_DRINK_SECS + 0.5));
+        assert!(sim.world_mut().get::<Perks>(local).unwrap().has(perk));
+        assert!(!sim.world_mut().get::<Perks>(teammate).unwrap().has(perk), "the teammate got the local Player's Perk");
+        assert_eq!(balance(&mut sim, local), local_before - perk.price(RunType::Coop));
+
+        // A second buy by the same Player is refused and charges nothing.
+        sim.send(UseRequest { player: local, buyable: machine, hold: false });
+        sim.run(2);
+        assert_eq!(balance(&mut sim, local), local_before - perk.price(RunType::Coop));
+        assert_eq!(sim.world_mut().get::<Perks>(local).unwrap().0, [perk]);
+
+        // The other Player still can, from the same machine.
+        sim.send(UseRequest { player: teammate, buyable: machine, hold: false });
+        sim.run(sim.frames(PERK_DRINK_SECS + 0.5));
+        assert!(sim.world_mut().get::<Perks>(teammate).unwrap().has(perk));
+        assert_eq!(balance(&mut sim, teammate), teammate_before - perk.price(RunType::Coop));
     }
 }
