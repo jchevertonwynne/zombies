@@ -2012,6 +2012,15 @@ pub const IMPACT_PUFF_CAP: usize = 64;
 pub const TRACER_EVERY: u32 = 3;
 pub const TRACER_SECS: f32 = 0.05;
 pub const TRACER_WIDTH: f32 = 0.012;
+/// How far a teammate's tracer reaches along their aim, in metres. Theirs has no impact to end at.
+pub const TEAMMATE_TRACER_LENGTH: f32 = 14.0;
+
+// Co-op: teammate footsteps
+/// Seconds between a walking teammate's footsteps, and a sprinting one's.
+pub const TEAMMATE_STEP_SECS: f32 = 0.5;
+pub const TEAMMATE_SPRINT_STEP_SECS: f32 = 0.3;
+/// A teammate slower than this, in metres per second, makes no footsteps.
+pub const TEAMMATE_STEP_MIN_SPEED: f32 = 0.5;
 
 // Co-op: the Room
 /// The longest a Player's Name may be, in characters.

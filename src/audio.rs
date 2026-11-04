@@ -21,6 +21,7 @@ use crate::barrier::{PlankRebuilt, PlankTorn};
 use crate::buy::{BuyRefused, CantAfford, HoldPurchased, Purchased};
 use crate::door::Door;
 use crate::equipment::{Claymore, MonkeyBomb};
+use crate::arsenal::WeaponId;
 use crate::explosive::Explosion;
 use crate::hellhound::Telegraph;
 use crate::last_stand::{Down, SelfRevived};
@@ -28,7 +29,7 @@ use crate::mystery_box::MysteryBox;
 use crate::nova::{GasCloud, VentDrop};
 use crate::pack_a_punch::{PackAPunch, Stage};
 use crate::perk::{Drinking, PerkMachine};
-use crate::player::{Health, LocalPlayer, PlayerCamera, PlayerHit};
+use crate::player::{Health, LocalPlayer, Player, PlayerCamera, PlayerHit};
 use crate::power::Power;
 use crate::power_up::{ActivePowerUps, Dropped, PowerUp, PowerUpTaken};
 use crate::round::{Round, RoundEnded, RoundStarted};
@@ -36,9 +37,10 @@ use crate::sapper::{Sabotaged, Sabotaging, Sapper};
 use crate::shellshock::{ShellshockStarted, Shellshocked};
 use crate::special::{FirePool, Napalm, SpecialCue};
 use crate::state::{GameState, InRun};
+use crate::teammate::{HeldWeapon, Pose, Shots};
 use crate::teleporter::{MAINFRAME_AT, Teleporter};
 use crate::trap::Trap;
-use crate::tuning::{IDLE_VOCAL_CAP, IDLE_VOCAL_RETRY_SECS, LOW_HEALTH_FRACTION, NAPALM_HEAT_DIST, SHELLSHOCK_MUFFLE_GAIN, SHRIEKER_BLUR_SECS};
+use crate::tuning::{PLAYER_CAPSULE_LENGTH, PLAYER_RADIUS, IDLE_VOCAL_CAP, IDLE_VOCAL_RETRY_SECS, LOW_HEALTH_FRACTION, NAPALM_HEAT_DIST, SHELLSHOCK_MUFFLE_GAIN, SHRIEKER_BLUR_SECS};
 use crate::weapon::{Loadout, ShotFired};
 use crate::zombie::{Attack, Dying, Gibbed, Rising, Zombie, ZombieHit, ZombieKilled};
 use cues::{AUDIO_DIR, Cue, Mix};
@@ -104,6 +106,17 @@ struct Jingle {
     next: f32,
 }
 
+/// What a teammate looked like last frame, for hearing what they've done since.
+#[derive(Component)]
+struct Heard {
+    pose: Pose,
+    shots: u8,
+    weapon: WeaponId,
+    last: Vec3,
+    /// Seconds since their last footstep.
+    step: f32,
+}
+
 /// Where a Crawler was last frame, and how long it has stood still, for its drag.
 #[derive(Component)]
 struct Drag {
@@ -148,6 +161,7 @@ impl Plugin for AudioPlugin {
                     play_round_sounds,
                     play_buy_sounds,
                     play_player_sounds,
+                    play_teammate_sounds,
                     play_zombie_sounds,
                     play_map_sounds,
                     idle_vocals,
@@ -220,6 +234,16 @@ impl Sounds {
                 commands.spawn((player, settings));
             }
         }
+    }
+
+    /// Plays `cue` heard from `at` whatever its mix: how a teammate's own-Player cue is heard from
+    /// where they stand, at a playback `speed`.
+    fn play_from(&mut self, commands: &mut Commands, cue: Cue, at: Vec3, speed: f32) {
+        let settings = PlaybackSettings::DESPAWN
+            .with_volume(Volume::Linear(self.gain(cue)))
+            .with_speed(speed)
+            .with_spatial(true);
+        commands.spawn((AudioPlayer::new(self.next(cue)), settings, Transform::from_translation(at)));
     }
 
     /// `cue` played once as a child of an entity, heard from wherever it goes.
@@ -328,6 +352,7 @@ fn play_round_sounds(
     mut ended: MessageReader<RoundEnded>,
     mut downs: MessageReader<Down>,
     mut revives: MessageReader<SelfRevived>,
+    local_player: Query<(), With<LocalPlayer>>,
     round: Option<Res<Round>>,
 ) {
     for _ in started.read() {
@@ -342,8 +367,11 @@ fn play_round_sounds(
     for _ in ended.read() {
         sounds.play(&mut commands, Cue::RoundEnd, None);
     }
-    for _ in downs.read() {
-        sounds.play(&mut commands, Cue::Down, None);
+    // A teammate's Down is heard from them instead (see `play_teammate_sounds`).
+    for down in downs.read() {
+        if local_player.contains(down.player) {
+            sounds.play(&mut commands, Cue::Down, None);
+        }
     }
     for _ in revives.read() {
         sounds.play(&mut commands, Cue::SelfRevive, None);
@@ -399,7 +427,7 @@ fn play_player_sounds(
     local_player: Query<(), With<LocalPlayer>>,
     mut loops: Query<&mut FlatLoop>,
     loadout: Query<&Loadout, With<LocalPlayer>>,
-    claymores: Query<(), Added<Claymore>>,
+    claymores: Query<(&Claymore, &Transform), Added<Claymore>>,
     drinks: Query<(), (With<LocalPlayer>, Added<Drinking>)>,
     // Whether the Player was reloading, and switching, last frame.
     mut was: Local<(bool, bool)>,
@@ -414,13 +442,17 @@ fn play_player_sounds(
     if flames.read().count() > 0 {
         hold_flat_loop(&mut commands, &mut sounds, &mut loops, Cue::Flamethrower, FLAME_LINGER_SECS);
     }
-    for hit in hits.read() {
+    // Hits and kills are heard by whoever made them.
+    let own = |player: Option<Entity>| player.is_none_or(|player| local_player.contains(player));
+    for hit in hits.read().filter(|hit| own(hit.player)) {
         sounds.play(&mut commands, if hit.headshot { Cue::Headshot } else { Cue::Hit }, None);
     }
     for kill in kills.read() {
-        sounds.play(&mut commands, Cue::Kill, None);
-        if kill.headshot {
-            sounds.play(&mut commands, Cue::Headshot, None);
+        if own(kill.player) {
+            sounds.play(&mut commands, Cue::Kill, None);
+            if kill.headshot {
+                sounds.play(&mut commands, Cue::Headshot, None);
+            }
         }
         if kill.attack == Attack::Trap {
             sounds.play(&mut commands, Cue::TrapKill, Some(kill.at));
@@ -444,11 +476,68 @@ fn play_player_sounds(
         }
         *was = now;
     }
-    for _ in &claymores {
-        sounds.play(&mut commands, Cue::ClaymorePlant, None);
+    for (claymore, at) in &claymores {
+        if local_player.contains(claymore.thrower()) {
+            sounds.play(&mut commands, Cue::ClaymorePlant, None);
+        } else {
+            sounds.play_from(&mut commands, Cue::ClaymorePlant, at.translation, 1.0);
+        }
     }
     for _ in &drinks {
         sounds.play(&mut commands, Cue::PerkDrink, None);
+    }
+}
+
+/// A teammate's sounds, heard from where they stand: their gunshots, Reloads, Weapon switches,
+/// Knife swings, Perk drinks, Downs and getting back up, and their footsteps (the Player's own are
+/// silent), quicker when they sprint. The same cues the Player hears flat from themselves.
+fn play_teammate_sounds(
+    mut commands: Commands,
+    mut sounds: ResMut<Sounds>,
+    mut teammates: Query<
+        (Entity, &Transform, &Pose, &Shots, &HeldWeapon, Option<&mut Heard>),
+        (With<Player>, Without<LocalPlayer>),
+    >,
+    time: Res<Time>,
+) {
+    let dt = time.delta_secs();
+    for (teammate, transform, pose, shots, held, heard) in &mut teammates {
+        let at = transform.translation;
+        let Some(mut heard) = heard else {
+            let heard = Heard { pose: *pose, shots: shots.count(), weapon: held.id, last: at, step: 0.0 };
+            commands.entity(teammate).insert(heard);
+            continue;
+        };
+        if shots.count() != heard.shots {
+            let (cue, speed) = mix::shot_cue(held.id, None);
+            sounds.play_from(&mut commands, cue, at, speed);
+            if held.glint.is_some() {
+                sounds.play_from(&mut commands, Cue::PapShotLayer, at, 1.0);
+            }
+        }
+        if held.id != heard.weapon {
+            sounds.play_from(&mut commands, Cue::WeaponSwap, at, 1.0);
+        }
+        if let Some(cue) = mix::pose_cue(&heard.pose, pose) {
+            sounds.play_from(&mut commands, cue, at, 1.0);
+        }
+        if dt > 0.0 {
+            let speed = Vec2::new(at.x - heard.last.x, at.z - heard.last.z).length() / dt;
+            heard.step += dt;
+            match mix::footstep_interval(pose, speed) {
+                Some(interval) if heard.step >= interval => {
+                    heard.step = 0.0;
+                    let feet = at - Vec3::Y * (PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0);
+                    sounds.play_from(&mut commands, Cue::Footstep, feet, 1.0);
+                }
+                Some(_) => {}
+                None => heard.step = 0.0,
+            }
+        }
+        heard.pose = *pose;
+        heard.shots = shots.count();
+        heard.weapon = held.id;
+        heard.last = at;
     }
 }
 
