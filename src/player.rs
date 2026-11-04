@@ -15,6 +15,7 @@ use crate::equipment::Equipment;
 use crate::last_stand::LastStand;
 use crate::layers::GameLayer;
 use crate::map::seat_start;
+use crate::net::play::Puppet;
 use crate::modifier::{Modifier, Modifiers, RunModifiers, Stat, resolve};
 use crate::perk::Drinking;
 use crate::points::Points;
@@ -96,13 +97,13 @@ pub struct MoveInput {
 
 #[derive(Component, Clone)]
 pub struct Locomotion {
-    velocity: Vec3,
-    grounded: bool,
+    pub(crate) velocity: Vec3,
+    pub(crate) grounded: bool,
     pub sprinting: bool,
     /// Seconds of sprint left.
-    stamina: f32,
+    pub(crate) stamina: f32,
     /// Sprint ran out; it can't start again until fully recharged.
-    winded: bool,
+    pub(crate) winded: bool,
 }
 
 impl Locomotion {
@@ -250,7 +251,7 @@ fn seat_spawn(seat: Seat) -> Transform {
 
 /// Everything a Player is at the start of a Run, in `seat`, whoever drives them. What makes one the
 /// `LocalPlayer` (the camera and view model) is added by the caller.
-fn player_body(seat: Seat, name: &str, run: &[Modifier]) -> impl Bundle {
+pub(crate) fn player_body(seat: Seat, name: &str, run: &[Modifier]) -> impl Bundle {
     (
         InRun,
         Name::new(name.to_string()),
@@ -386,7 +387,7 @@ fn teleport_player(
 
 /// Fills the local Player's `MoveInput` for the tick from the keyboard and the way they're
 /// facing: the yaw is the Player's, the pitch the camera's, both as `look` has turned them.
-fn fill_move_input(
+pub(crate) fn fill_move_input(
     controls: Controls,
     player: Single<(&Transform, &mut MoveInput), With<LocalPlayer>>,
     camera: Single<&Transform, (With<PlayerCamera>, Without<LocalPlayer>)>,
@@ -417,11 +418,12 @@ pub struct MoveContext<'a> {
     pub last_stand: bool,
 }
 
-/// Runs this tick's `MoveInput` for every Player. The step itself is `step_move`.
-fn move_player(
+/// Runs this tick's `MoveInput` for every Player but a client's puppets, which move as the Host
+/// says. The step itself is `step_move`.
+pub(crate) fn move_player(
     mut players: Query<
         (Entity, &mut Transform, &mut Locomotion, &MoveInput, &Collider, &Loadout, &Modifiers, Has<Drinking>, Has<LastStand>),
-        With<Player>,
+        (With<Player>, Without<Puppet>),
     >,
     move_and_slide: MoveAndSlide,
     time: Res<Time>,

@@ -1,0 +1,461 @@
+//! A Run played over a `Link`: Players' movement. Solo adds none of this.
+//!
+//! Every tick a client sends the input its Player is stepped by, the last few ticks over again in
+//! case one was lost, and steps its own Player by it at once. The Host steps each remote Player by
+//! their input through the jitter buffer (`Remote`), never rewinding, and 32 times a second tells
+//! each Player how things stand: their own Player in full, the others packed. A client puts its
+//! Player where the Host says, then steps it again by the input the Host hadn't heard yet, which
+//! mostly lands where it already was. The other Players are puppets: not stepped at all, but
+//! shown where the Host had them a couple of snapshots ago.
+
+use std::collections::VecDeque;
+
+use avian3d::prelude::*;
+use bevy::prelude::*;
+
+use super::link::{Event, Link};
+use super::protocol::{DATAGRAM, HOST, Peer, Seat, decode, encode};
+use super::remote::{Next, Remote};
+use super::state::{
+    Inputs, Own, Sight, Snapshot, Step, Tick, pack_pitch, pack_position, pack_yaw, unpack_pitch, unpack_yaw,
+};
+use crate::authority::Authority;
+use crate::last_stand::LastStand;
+use crate::perk::Drinking;
+use crate::player::{
+    LocalPlayer, Locomotion, MoveContext, MoveInput, Player, Seat as PlayerSeat, fill_move_input, move_player,
+    step_move,
+};
+use crate::modifier::Modifiers;
+use crate::points::Points;
+use crate::state::world_runs;
+use crate::teammate::{Pose, Shots, Told};
+use crate::tuning::*;
+use crate::weapon::Loadout;
+
+/// How many ticks a snapshot comes after the one before.
+pub const SNAPSHOT_EVERY: Tick = FIXED_HZ / SNAPSHOT_HZ;
+
+/// The `Link` of a Run in Co-op, whichever end this is.
+#[derive(Resource)]
+pub struct Wire(pub Box<dyn Link>);
+
+/// This machine's count of ticks, from 1. Not shared: the Host maps a client's ticks through
+/// `Remote`, and says which of them it has used.
+#[derive(Resource, Default)]
+pub struct Clock {
+    pub tick: Tick,
+}
+
+/// What has come in over the `Wire` and not been read yet.
+#[derive(Resource, Default)]
+pub struct Inbox {
+    inputs: Vec<(Peer, Inputs)>,
+    snapshots: Vec<Snapshot>,
+}
+
+/// Which Player is whose to the Host: a Peer and the Seat they hold.
+#[derive(Resource, Default)]
+pub struct Roster(pub Vec<(Peer, Seat)>);
+
+/// A Player on a client who is someone else's: not stepped here, but shown where the Host says.
+#[derive(Component)]
+pub struct Puppet;
+
+/// Makes this machine the Host of a Run with `remotes` joined: they are stepped by what they send.
+pub fn install_host(app: &mut App, link: impl Link, remotes: Vec<(Peer, Seat)>) {
+    app.insert_resource(Wire(Box::new(link)))
+        .insert_resource(Roster(remotes))
+        .init_resource::<Clock>()
+        .init_resource::<Inbox>()
+        .add_systems(PreUpdate, pump_host)
+        .add_systems(
+            FixedUpdate,
+            (tick, adopt_remotes, hear_inputs, drive_remotes)
+                .chain()
+                .before(move_player)
+                .run_if(world_runs),
+        )
+        .add_systems(FixedUpdate, send_snapshots.after(move_player).run_if(world_runs));
+}
+
+/// Makes this machine a client of a Run: its `LocalPlayer` is stepped here, and every other Player
+/// is a puppet.
+pub fn install_client(app: &mut App, link: impl Link) {
+    app.insert_resource(Wire(Box::new(link)))
+        .init_resource::<Clock>()
+        .init_resource::<Inbox>()
+        .init_resource::<Prediction>()
+        .add_systems(PreUpdate, pump_client)
+        .add_systems(
+            FixedUpdate,
+            (tick, adopt_puppets, reconcile, send_inputs)
+                .chain()
+                .after(fill_move_input)
+                .before(move_player)
+                .run_if(world_runs),
+        )
+        .add_systems(FixedUpdate, show_puppets.after(move_player).run_if(world_runs));
+    if let Some(mut next) = app.world_mut().get_resource_mut::<NextState<Authority>>() {
+        next.set(Authority::Client);
+    }
+}
+
+/// Reads what the Host's Players have sent.
+fn pump_host(mut wire: ResMut<Wire>, mut inbox: ResMut<Inbox>) {
+    while let Some(event) = wire.0.poll() {
+        // What goes by the reliable stream is read by whoever sent it for.
+        if let Event::Datagram(peer, bytes) = event {
+            match decode::<Inputs>(&bytes) {
+                Ok(inputs) => inbox.inputs.push((peer, inputs)),
+                Err(error) => debug!("player {peer}: {error}"),
+            }
+        }
+    }
+}
+
+/// Reads what the Host has sent.
+fn pump_client(mut wire: ResMut<Wire>, mut inbox: ResMut<Inbox>) {
+    while let Some(event) = wire.0.poll() {
+        if let Event::Datagram(HOST, bytes) = event {
+            match decode::<Snapshot>(&bytes) {
+                Ok(snapshot) => inbox.snapshots.push(snapshot),
+                Err(error) => debug!("host: {error}"),
+            }
+        }
+    }
+}
+
+fn tick(mut clock: ResMut<Clock>) {
+    clock.tick += 1;
+}
+
+/// Hands each Player in the roster to the Peer whose game steps them.
+fn adopt_remotes(
+    mut commands: Commands,
+    roster: Res<Roster>,
+    players: Query<(Entity, &PlayerSeat), (With<Player>, Without<Remote>, Without<LocalPlayer>)>,
+) {
+    for (entity, seat) in &players {
+        if let Some(&(peer, _)) = roster.0.iter().find(|(_, held)| *held == seat.0) {
+            commands.entity(entity).insert((Remote::new(peer), Told));
+        }
+    }
+}
+
+/// Takes in what the remote Players say they pressed, and what their bodies are doing.
+fn hear_inputs(mut inbox: ResMut<Inbox>, mut remotes: Query<(&mut Remote, &mut Pose, &mut Shots, Has<LastStand>)>) {
+    for (peer, inputs) in inbox.inputs.drain(..) {
+        let Some((mut remote, mut pose, mut shots, last_stand)) =
+            remotes.iter_mut().find(|(remote, ..)| remote.peer == peer)
+        else {
+            continue;
+        };
+        remote.hear(inputs.last, &inputs.steps);
+        // Whether they are in Last Stand is the Host's to say.
+        pose.set_if_neq(Pose { last_stand, ..Pose::unpack(inputs.pose) });
+        shots.set(inputs.shots);
+    }
+}
+
+/// Sets each remote Player's input for the tick to what they pressed in the next of theirs. A tick
+/// that hasn't come is stepped as the last was, with no Jump newly pressed; when none has come for
+/// a while the Player stands still.
+fn drive_remotes(mut players: Query<(&mut Remote, &mut MoveInput, &mut Transform)>) {
+    for (mut remote, mut input, mut transform) in &mut players {
+        match remote.next() {
+            Next::Step(step) => *input = step.input(),
+            Next::Nothing => {}
+            Next::Missing | Next::Held => input.jump = false,
+        }
+        if remote.stalled() {
+            *input = MoveInput { yaw: input.yaw, pitch: input.pitch, ..default() };
+        }
+        // `step_move` reads the yaw from the input; the body and the others' view of it read the
+        // Transform.
+        transform.rotation = Quat::from_rotation_y(input.yaw);
+    }
+}
+
+/// Tells each remote Player how things stand: themselves in full, and the other Players packed.
+fn send_snapshots(
+    clock: Res<Clock>,
+    mut wire: ResMut<Wire>,
+    players: Query<
+        (&PlayerSeat, &Transform, &Locomotion, &MoveInput, &Pose, &Shots, Option<&Points>, Option<&Remote>),
+        With<Player>,
+    >,
+) {
+    if !clock.tick.is_multiple_of(SNAPSHOT_EVERY) {
+        return;
+    }
+    let balance = |points: Option<&Points>| points.map_or(0, |points| points.balance);
+    let sights: Vec<Sight> = players
+        .iter()
+        .map(|(seat, transform, _, input, pose, shots, points, _)| Sight {
+            seat: seat.0,
+            position: pack_position(transform.translation),
+            yaw: pack_yaw(input.yaw),
+            pitch: pack_pitch(input.pitch),
+            pose: pose.pack(),
+            shots: shots.count(),
+            points: balance(points).min(u64::from(u32::MAX)) as u32,
+        })
+        .collect();
+    for (seat, transform, locomotion, _, _, _, points, remote) in &players {
+        let Some(remote) = remote else { continue };
+        let snapshot = Snapshot {
+            tick: clock.tick,
+            used: remote.used(),
+            own: Own::of(transform.translation, locomotion, balance(points)),
+            players: sights.iter().filter(|sight| sight.seat != seat.0).copied().collect(),
+        };
+        let bytes = encode(&snapshot);
+        debug_assert!(bytes.len() + SNAPSHOT_ZOMBIE_RESERVE <= DATAGRAM, "a snapshot of {}", bytes.len());
+        wire.0.datagram(remote.peer, bytes);
+    }
+}
+
+/// What the client remembers between ticks.
+#[derive(Resource, Default)]
+pub struct Prediction {
+    /// The ticks sent that the Host hasn't yet said it used.
+    sent: VecDeque<(Tick, Step)>,
+    /// The Host's tick of the newest snapshot heard.
+    latest: Option<Tick>,
+    /// Where each Seat's Player has been said to be, oldest first.
+    seen: [VecDeque<Seen>; ROOM_SEATS],
+    /// The Host's tick the puppets are being shown at.
+    shown: f32,
+    /// How far the last snapshot moved the `LocalPlayer`, in metres.
+    pub corrected: f32,
+}
+
+/// Another Player as the Host said they were at one of its ticks.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Seen {
+    tick: Tick,
+    position: Vec3,
+    yaw: f32,
+    pitch: f32,
+    pose: Pose,
+    shots: u8,
+}
+
+impl Seen {
+    fn of(tick: Tick, sight: &Sight) -> Self {
+        Seen {
+            tick,
+            position: sight.position(),
+            yaw: unpack_yaw(sight.yaw),
+            pitch: unpack_pitch(sight.pitch),
+            pose: Pose::unpack(sight.pose),
+            shots: sight.shots,
+        }
+    }
+}
+
+/// Where a Player is shown at the Host's tick `shown`: between the two things said of them either
+/// side of it, or at the only one, or at the newest if `shown` is past it. A snapshot lost on the
+/// way is a longer way between its neighbours, and nothing else.
+fn show(seen: &VecDeque<Seen>, shown: f32) -> Option<Seen> {
+    let (&a, &b) = match (seen.front(), seen.get(1)) {
+        (Some(a), Some(b)) => (a, b),
+        (Some(&only), None) => return Some(only),
+        _ => return None,
+    };
+    let t = ((shown - a.tick as f32) / (b.tick - a.tick) as f32).clamp(0.0, 1.0);
+    let turn = (b.yaw - a.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+    let (pose, shots) = if t < 1.0 { (a.pose, a.shots) } else { (b.pose, b.shots) };
+    Some(Seen {
+        tick: a.tick,
+        position: a.position.lerp(b.position, t),
+        yaw: a.yaw + turn * t,
+        pitch: a.pitch + (b.pitch - a.pitch) * t,
+        pose,
+        shots,
+    })
+}
+
+/// Lets go of what was said of a Player before the pair either side of `shown`.
+fn forget_before(seen: &mut VecDeque<Seen>, shown: f32) {
+    while seen.len() > 2 && seen[1].tick as f32 <= shown {
+        seen.pop_front();
+    }
+}
+
+/// Marks every Player but the `LocalPlayer` as a puppet.
+fn adopt_puppets(
+    mut commands: Commands,
+    players: Query<Entity, (With<Player>, Without<LocalPlayer>, Without<Puppet>)>,
+) {
+    for entity in &players {
+        commands.entity(entity).insert((Puppet, Told));
+    }
+}
+
+/// Takes in what the Host has said: everyone's Points and where the others are, and where the
+/// `LocalPlayer` was when the Host had stepped it as far as it had heard. Then the `LocalPlayer` is
+/// put there and stepped again by the input sent since, which mostly lands where it already was.
+fn reconcile(
+    clock: Res<Clock>,
+    time: Res<Time>,
+    mut inbox: ResMut<Inbox>,
+    mut prediction: ResMut<Prediction>,
+    mut local: Query<
+        (Entity, &mut Transform, &mut Locomotion, &Collider, &Loadout, &Modifiers, Has<Drinking>, Has<LastStand>),
+        With<LocalPlayer>,
+    >,
+    mut points: Query<(&PlayerSeat, &mut Points), With<Player>>,
+    move_and_slide: MoveAndSlide,
+) {
+    let mut heard = std::mem::take(&mut inbox.snapshots);
+    heard.retain(|snapshot| prediction.latest.is_none_or(|latest| snapshot.tick > latest));
+    heard.sort_by_key(|snapshot| snapshot.tick);
+    for snapshot in &heard {
+        for sight in &snapshot.players {
+            if let Some(seen) = prediction.seen.get_mut(usize::from(sight.seat)) {
+                seen.push_back(Seen::of(snapshot.tick, sight));
+            }
+        }
+    }
+    prediction.corrected = 0.0;
+    let Some(snapshot) = heard.pop() else { return };
+    prediction.latest = Some(snapshot.tick);
+    for (seat, mut points) in &mut points {
+        let balance = snapshot.players.iter().find(|sight| sight.seat == seat.0).map(|sight| sight.points);
+        if let Some(balance) = balance.map(u64::from)
+            && points.balance != balance
+        {
+            points.balance = balance;
+        }
+    }
+    let Ok((entity, mut transform, mut locomotion, collider, loadout, modifiers, drinking, last_stand)) =
+        local.single_mut()
+    else {
+        return;
+    };
+    if let Ok((_, mut own)) = points.get_mut(entity) {
+        own.balance = u64::from(snapshot.own.points);
+    }
+    // A word that has the Player stepped further than this game has (in the place of ticks the
+    // Host hadn't heard while this game was stopped) is of a moment this game hasn't come to.
+    if snapshot.used >= clock.tick {
+        return;
+    }
+    let was = transform.translation;
+    let mut position = was;
+    snapshot.own.put(&mut position, &mut locomotion);
+    prediction.sent.retain(|(tick, _)| *tick > snapshot.used);
+    let context = MoveContext { entity, collider, loadout, modifiers, drinking, last_stand };
+    for (_, step) in &prediction.sent {
+        step_move(&mut position, &mut locomotion, &step.input(), &context, time.delta(), &move_and_slide);
+    }
+    transform.translation = position;
+    prediction.corrected = was.distance(position);
+}
+
+/// Sends this tick's input, with the last few ticks' again in case they were lost.
+fn send_inputs(
+    clock: Res<Clock>,
+    mut wire: ResMut<Wire>,
+    mut prediction: ResMut<Prediction>,
+    local: Single<(&mut MoveInput, &Pose, &Shots), With<LocalPlayer>>,
+) {
+    let (mut input, pose, shots) = local.into_inner();
+    let step = Step::of(&input);
+    // The Player is stepped by exactly what the Host is told.
+    *input = step.input();
+    prediction.sent.push_back((clock.tick, step));
+    while prediction.sent.len() > REPLAY_TICKS {
+        prediction.sent.pop_front();
+    }
+    let steps: Vec<Step> =
+        prediction.sent.iter().rev().take(INPUT_RESEND).rev().map(|(_, step)| *step).collect();
+    wire.0.datagram(
+        HOST,
+        encode(&Inputs { last: clock.tick, steps, pose: pose.pack(), shots: shots.count() }),
+    );
+}
+
+/// Puts the puppets where the Host had them a moment ago.
+fn show_puppets(
+    mut prediction: ResMut<Prediction>,
+    mut puppets: Query<(&PlayerSeat, &mut Transform, &mut MoveInput, &mut Pose, &mut Shots), With<Puppet>>,
+) {
+    let Some(latest) = prediction.latest else { return };
+    // The moment shown moves on a tick each tick. The Host's word comes every other tick, so
+    // where the moment should be goes in twos; it is left to run evenly within that, and only
+    // drawn back, gently, when it has strayed farther.
+    let behind = (INTERPOLATION_SNAPSHOTS * SNAPSHOT_EVERY) as f32;
+    let wanted = latest as f32 - behind;
+    let astray = wanted - (prediction.shown + 1.0);
+    prediction.shown = if astray.abs() > PUPPET_JUMP_TICKS {
+        wanted
+    } else if astray.abs() > PUPPET_SLACK_TICKS {
+        prediction.shown + 1.0 + (astray - PUPPET_SLACK_TICKS.copysign(astray)) * 0.05
+    } else {
+        prediction.shown + 1.0
+    };
+    let shown = prediction.shown;
+    for (seat, mut transform, mut input, mut pose, mut shots) in &mut puppets {
+        let Some(seen) = prediction.seen.get_mut(usize::from(seat.0)) else { continue };
+        forget_before(seen, shown);
+        let Some(at) = show(seen, shown) else { continue };
+        transform.translation = at.position;
+        transform.rotation = Quat::from_rotation_y(at.yaw);
+        input.yaw = at.yaw;
+        input.pitch = at.pitch;
+        pose.set_if_neq(at.pose);
+        shots.set(at.shots);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn seen(tick: Tick, x: f32) -> Seen {
+        Seen { tick, position: Vec3::new(x, 0.0, 0.0), yaw: 0.0, pitch: 0.0, pose: Pose::default(), shots: 0 }
+    }
+
+    #[test]
+    fn the_snapshot_rate_divides_the_tick_rate() {
+        assert_eq!(FIXED_HZ % SNAPSHOT_HZ, 0);
+        assert_eq!(Time::<Fixed>::default().timestep().as_secs_f64(), 1.0 / f64::from(FIXED_HZ));
+    }
+
+    /// A snapshot lost on the way shows nothing: the Player is where a straight line between its
+    /// neighbours has them.
+    #[test]
+    fn a_dropped_snapshot_costs_nothing_visible() {
+        let whole: VecDeque<Seen> = (0..4).map(|i| seen(i * 2, i as f32 * 0.2)).collect();
+        let dropped: VecDeque<Seen> = [whole[0], whole[2]].into();
+        for shown in [0.0, 0.5, 1.0, 2.0, 3.5] {
+            let (mut whole, mut dropped) = (whole.clone(), dropped.clone());
+            forget_before(&mut whole, shown);
+            forget_before(&mut dropped, shown);
+            let a = show(&whole, shown).unwrap().position;
+            let b = show(&dropped, shown).unwrap().position;
+            assert!(a.distance(b) < 1e-5, "at {shown}: {a} against {b}");
+        }
+    }
+
+    #[test]
+    fn a_puppet_is_shown_between_two_snapshots_and_held_at_the_newest() {
+        let two: VecDeque<Seen> = [seen(10, 0.0), seen(12, 1.0)].into();
+        assert_eq!(show(&two, 11.0).unwrap().position.x, 0.5);
+        assert_eq!(show(&two, 20.0).unwrap().position.x, 1.0);
+        assert_eq!(show(&two, 0.0).unwrap().position.x, 0.0);
+        assert!(show(&VecDeque::new(), 1.0).is_none());
+    }
+
+    #[test]
+    fn a_puppet_turns_the_short_way_round() {
+        let mut a = seen(0, 0.0);
+        let mut b = seen(2, 0.0);
+        (a.yaw, b.yaw) = (3.0, -3.0);
+        let yaw = show(&[a, b].into(), 1.0).unwrap().yaw;
+        assert!(yaw.abs() > 3.0, "went the long way to {yaw}");
+    }
+}

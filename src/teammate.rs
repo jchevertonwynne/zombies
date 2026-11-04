@@ -61,7 +61,6 @@ pub struct Pose {
     pub action: Action,
 }
 
-#[allow(dead_code, reason = "packed into snapshots by the netcode (#163)")]
 impl Pose {
     /// The two bytes a snapshot carries: stance in bits 0-1, then sprinting, aiming, airborne and
     /// Last Stand, then the action in bits 6-8.
@@ -113,12 +112,21 @@ pub struct Shots {
     since: f32,
 }
 
-#[allow(dead_code, reason = "packed into snapshots by the netcode (#163)")]
 impl Shots {
     pub fn count(&self) -> u8 {
         self.count
     }
+
+    /// Sets the count to what the network says it is.
+    pub fn set(&mut self, count: u8) {
+        self.count = count;
+    }
 }
+
+/// A Player whose `Pose`, `Shots` and `HeldWeapon` come over the network, not from their own state:
+/// a remote Player on the Host, and every puppet on a client.
+#[derive(Component)]
+pub struct Told;
 
 /// The Weapon a Player holds, as a teammate sees it.
 #[derive(Component, Debug, Clone, PartialEq)]
@@ -161,7 +169,7 @@ fn fill_poses(
             &mut Shots,
             &mut HeldWeapon,
         ),
-        With<Player>,
+        (With<Player>, Without<Told>),
     >,
 ) {
     for (locomotion, loadout, knife, throwing, drinking, last_stand, mut pose, mut shots, mut held) in &mut players {
