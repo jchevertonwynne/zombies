@@ -35,7 +35,7 @@ use crate::buy::{
 use crate::door::{Door, open};
 use crate::equipment::Equipment;
 use crate::map::BarrierId;
-use crate::mystery_box::{BoxState, MysteryBox, Prize, TeddyBear};
+use crate::mystery_box::{BoxState, MysteryBox, Prize};
 use crate::pack_a_punch::PackAPunch;
 use crate::perk::{Drinking, Perk, PerkMachine, Perks};
 use crate::player::{LocalPlayer, Player, Seat as PlayerSeat};
@@ -48,7 +48,7 @@ use crate::teammate::HeldWeapon;
 use crate::teleporter::{Mainframe, Pad, TeleporterView, mainframe_use_point};
 use crate::trap::{Trap, TrapPhase, TrapSwitch};
 use crate::tuning::*;
-use crate::modifier::Modifiers;
+use crate::modifier::{Modifiers, Stat, resolve};
 use crate::weapon::{HostOp, Knife, Loadout, WeaponCopy};
 
 /// What a machine or Buyable is called on the wire.
@@ -191,8 +191,9 @@ pub enum WorldEvent {
     DropAppeared { id: u32, power_up: PowerUp, at: [f32; 3] },
     /// A Power-up on the ground is taken, or has gone.
     DropGone { id: u32 },
-    /// A Power-up was taken.
-    PowerUp(PowerUp),
+    /// A Power-up was taken by the Player in `taker`, if a Player did; a timed one lasts
+    /// `extra_secs` longer for their Boons.
+    PowerUp { power_up: PowerUp, taker: Option<Seat>, extra_secs: f32 },
     /// Round `number` has begun.
     Round { number: u32, hellhound: Option<u32> },
     /// The Round's Horde is dead.
@@ -284,7 +285,6 @@ pub fn add(app: &mut App) {
         .add_message::<BuyRefused>()
         .add_message::<PlankTorn>()
         .add_message::<PlankRebuilt>()
-        .add_message::<TeddyBear>()
         .add_message::<PowerUpTaken>()
         .add_message::<RoundStarted>()
         .add_message::<RoundEnded>()
@@ -584,6 +584,7 @@ fn tell_drops(
     drops: Query<(Entity, &Dropped)>,
     mut gone: RemovedComponents<Dropped>,
     mut taken: MessageReader<PowerUpTaken>,
+    players: Query<(&PlayerSeat, &Modifiers), With<Player>>,
 ) {
     for (entity, dropped) in &drops {
         if mirror.drops.contains_key(&entity) {
@@ -599,8 +600,10 @@ fn tell_drops(
             tell.all(&WorldEvent::DropGone { id });
         }
     }
-    for &PowerUpTaken(power_up) in taken.read() {
-        tell.all(&WorldEvent::PowerUp(power_up));
+    for &PowerUpTaken(power_up, taker) in taken.read() {
+        let taker = taker.and_then(|taker| players.get(taker).ok());
+        let extra_secs = taker.map_or(0.0, |(_, modifiers)| resolve(Stat::PowerUpDuration, 0.0, &modifiers.0));
+        tell.all(&WorldEvent::PowerUp { power_up, taker: taker.map(|(seat, _)| seat.0), extra_secs });
     }
 }
 
@@ -862,7 +865,6 @@ fn hear_boxes(
     ids: Res<NetIds>,
     mut boxes: Query<(&mut MysteryBox, &mut Transform, &mut Visibility)>,
     seats: Query<(Entity, &PlayerSeat), With<Player>>,
-    mut teddies: MessageWriter<TeddyBear>,
 ) {
     let player = |seat: Seat| seats.iter().find(|(_, held)| held.0 == seat).map(|(entity, _)| entity);
     for Heard(event) in heard.read() {
@@ -883,10 +885,7 @@ fn hear_boxes(
                 None => BoxState::Idle,
             },
             BoxPhase::Rearming => BoxState::Rearming { left: BOX_REARM_SECS },
-            BoxPhase::Leaving => {
-                teddies.write(TeddyBear);
-                BoxState::Leaving { elapsed: 0.0 }
-            }
+            BoxPhase::Leaving => BoxState::Leaving { elapsed: 0.0 },
             BoxPhase::Away { to } => BoxState::Away { left: BOX_MOVE_SECS, to: usize::from(to) },
         };
         mystery_box.show(&mut commands, entity, &mut transform, &mut visibility, usize::from(location), state);
@@ -953,6 +952,7 @@ fn hear_drops(
     assets: Option<Res<PowerUpAssets>>,
     mut active: ResMut<ActivePowerUps>,
     mut taken: MessageWriter<PowerUpTaken>,
+    players: Query<(Entity, &PlayerSeat), With<Player>>,
 ) {
     for Heard(event) in heard.read() {
         match *event {
@@ -967,9 +967,10 @@ fn hear_drops(
                     commands.entity(entity).try_despawn();
                 }
             }
-            WorldEvent::PowerUp(power_up) => {
-                active.start(power_up);
-                taken.write(PowerUpTaken(power_up));
+            WorldEvent::PowerUp { power_up, taker, extra_secs } => {
+                active.start(power_up, extra_secs);
+                let taker = taker.and_then(|taker| players.iter().find(|(_, seat)| seat.0 == taker)).map(|(entity, _)| entity);
+                taken.write(PowerUpTaken(power_up, taker));
             }
             _ => {}
         }
