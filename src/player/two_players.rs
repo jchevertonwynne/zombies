@@ -10,7 +10,13 @@ use crate::zombie::{Attack, DamageZombie, HitZone, Zombie};
 /// The Map, the Zombie systems, Points and the buy handler, with Seat 0's `LocalPlayer` and
 /// Seat 1's teammate in the Start Room. Returns the Sim and the two Players.
 fn two_players() -> (Sim, Entity, Entity) {
+    two_players_with(|_| {})
+}
+
+/// The same, with `configure` adding whatever else the test needs.
+fn two_players_with(configure: impl FnOnce(&mut App)) -> (Sim, Entity, Entity) {
     let mut sim = Sim::new(60.0, |app| {
+        configure(app);
         app.add_plugins(PointsPlugin)
             .init_resource::<RunModifiers>()
             .add_message::<UseRequest>()
@@ -30,6 +36,8 @@ fn two_players() -> (Sim, Entity, Entity) {
     sim.run(30);
     (sim, local, teammate)
 }
+
+mod revive;
 
 fn feet(sim: &mut Sim, player: Entity) -> Vec3 {
     let half_height = PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0;

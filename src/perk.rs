@@ -13,7 +13,7 @@ use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve_count, 
 use crate::player::{LocalPlayer, Player};
 use crate::power::Power;
 use crate::sapper::Sabotaged;
-use crate::state::{GameState, InRun, world_runs};
+use crate::state::{GameState, InRun, RunType, world_runs};
 use crate::tuning::*;
 use crate::weapon::Loadout;
 
@@ -22,7 +22,8 @@ pub enum Perk {
     Juggernog,
     SpeedCola,
     DoubleTap,
-    /// One solo Self-Revive: the next Down starts a Last Stand instead of ending the Run.
+    /// Solo, one Self-Revive: the next Down starts a Last Stand instead of ending the Run. In
+    /// Co-op, it only makes the Player's Revives of others faster.
     QuickRevive,
 }
 
@@ -38,8 +39,9 @@ impl Perk {
         }
     }
 
-    pub fn price(self) -> u64 {
+    pub fn price(self, run: RunType) -> u64 {
         match self {
+            Perk::QuickRevive if run.is_coop() => PERK_PRICE_QUICK_REVIVE_COOP,
             Perk::Juggernog => PERK_PRICE_JUGGERNOG,
             Perk::SpeedCola => PERK_PRICE_SPEED_COLA,
             Perk::DoubleTap => PERK_PRICE_DOUBLE_TAP,
@@ -47,11 +49,11 @@ impl Perk {
         }
     }
 
-    /// Whether its machine waits for the Power.
-    pub fn needs_power(self) -> bool {
+    /// Whether its machine waits for the Power. Quick Revive does in Co-op.
+    pub fn needs_power(self, run: RunType) -> bool {
         match self {
             Perk::Juggernog | Perk::SpeedCola | Perk::DoubleTap => true,
-            Perk::QuickRevive => false,
+            Perk::QuickRevive => run.is_coop(),
         }
     }
 
@@ -141,11 +143,12 @@ pub enum MachinePrompt {
 }
 
 /// A Perk Machine's Prompt, given the Power and what the Player holds. There's no Perk limit.
-/// Holding Quick Revive is holding an unused life, so it can't be bought again until a Down.
-pub fn machine_prompt(perk: Perk, power_on: bool, owned: bool, drinking: bool) -> MachinePrompt {
+/// Holding Quick Revive is holding an unused life (solo) or a faster Revive (Co-op), so it can't
+/// be bought again until a Down.
+pub fn machine_prompt(perk: Perk, power_on: bool, owned: bool, drinking: bool, run: RunType) -> MachinePrompt {
     if owned || drinking {
         MachinePrompt::NoPrompt
-    } else if perk.needs_power() && !power_on {
+    } else if perk.needs_power(run) && !power_on {
         MachinePrompt::NeedsPower
     } else {
         MachinePrompt::Buy
@@ -244,9 +247,9 @@ pub fn leaving_rise(elapsed: f32) -> Option<f32> {
     }
 }
 
-/// The sign on a machine, lit once the Power is on.
+/// The sign on a machine, lit once the Power is on (or from the start, if its Perk needs none).
 #[derive(Component)]
-struct MachineLight;
+struct MachineLight(Perk);
 
 pub struct PerkPlugin;
 
@@ -301,12 +304,12 @@ fn spawn_machines(
             ))
             // The machine's +Z faces out into the room.
             .with_child((
-                MachineLight,
+                MachineLight(perk),
                 Mesh3d(meshes.add(sign)),
                 MeshMaterial3d(lit),
                 Transform::from_xyz(0.0, 0.75, body.half_size.z + 0.03),
-                // Quick Revive is lit from the start.
-                if perk.needs_power() { Visibility::Hidden } else { Visibility::Inherited },
+                // Quick Revive is lit from the start, solo; `light_machines` fixes it for Co-op.
+                if perk == Perk::QuickRevive { Visibility::Inherited } else { Visibility::Hidden },
             ));
     }
 }
@@ -324,6 +327,7 @@ fn buy_perks(
     mut purchases: MessageReader<Purchased>,
     mut machines: Query<(&mut PerkMachine, &Transform)>,
     mut players: Query<(&mut Loadout, &Modifiers), With<Player>>,
+    run: Res<RunType>,
 ) {
     for &Purchased { player: entity, buyable: bought } in purchases.read() {
         let Ok((mut loadout, modifiers)) = players.get_mut(entity) else { continue };
@@ -332,7 +336,8 @@ fn buy_perks(
             loadout.reload = None;
             commands.entity(entity).insert(Drinking::new(machine.perk));
             machine.buys = machine.buys.saturating_add(1);
-            if machine.perk.machine_leaves(machine.buys, solo_buys) {
+            // In Co-op the machine never flies away.
+            if !run.is_coop() && machine.perk.machine_leaves(machine.buys, solo_buys) {
                 commands.entity(bought).remove::<(Buyable, Refused)>().insert(Leaving {
                     elapsed: 0.0,
                     from: transform.translation,
@@ -390,15 +395,16 @@ fn prompt_machines(
     machines: Query<(Entity, &PerkMachine, Option<&Buyable>, Has<Refused>, Has<Sabotaged>), Without<Leaving>>,
     player: Single<(&Perks, &Modifiers, Has<Drinking>), With<LocalPlayer>>,
     power: Res<Power>,
+    run: Res<RunType>,
 ) {
     let (perks, modifiers, drinking) = *player;
     for (entity, machine, buyable, refused, sabotaged) in &machines {
         let perk = machine.perk;
-        let price = resolve_points(Stat::PerkPrice, perk.price(), &modifiers.0);
+        let price = resolve_points(Stat::PerkPrice, perk.price(*run), &modifiers.0);
         let want = if sabotaged {
             MachinePrompt::NoPrompt
         } else {
-            machine_prompt(perk, power.is_on(), perks.has(perk), drinking)
+            machine_prompt(perk, power.is_on(), perks.has(perk), drinking, *run)
         };
         let current = match (buyable, refused) {
             (None, _) => MachinePrompt::NoPrompt,
@@ -437,12 +443,13 @@ fn prompt_machines(
     }
 }
 
-fn light_machines(power: Res<Power>, mut lights: Query<&mut Visibility, With<MachineLight>>) {
-    if !power.is_changed() || !power.is_on() {
-        return;
-    }
-    for mut light in &mut lights {
-        *light = Visibility::Inherited;
+fn light_machines(power: Res<Power>, run: Res<RunType>, mut lights: Query<(&MachineLight, &mut Visibility)>) {
+    for (&MachineLight(perk), mut light) in &mut lights {
+        let lit = power.is_on() || !perk.needs_power(*run);
+        let want = if lit { Visibility::Inherited } else { Visibility::Hidden };
+        if *light != want {
+            *light = want;
+        }
     }
 }
 
@@ -523,17 +530,17 @@ mod tests {
 
     #[test]
     fn perks_cost_their_bo1_prices() {
-        assert_eq!(Perk::Juggernog.price(), 2500);
-        assert_eq!(Perk::SpeedCola.price(), 3000);
-        assert_eq!(Perk::DoubleTap.price(), 2000);
-        assert_eq!(Perk::QuickRevive.price(), 500);
+        assert_eq!(Perk::Juggernog.price(RunType::Solo), 2500);
+        assert_eq!(Perk::SpeedCola.price(RunType::Solo), 3000);
+        assert_eq!(Perk::DoubleTap.price(RunType::Solo), 2000);
+        assert_eq!(Perk::QuickRevive.price(RunType::Solo), 500);
     }
 
     #[test]
     fn before_power_the_machines_refuse() {
         for perk in [Perk::Juggernog, Perk::SpeedCola, Perk::DoubleTap] {
             assert_eq!(
-                machine_prompt(perk, false, false, false),
+                machine_prompt(perk, false, false, false, RunType::Solo),
                 MachinePrompt::NeedsPower
             );
         }
@@ -542,7 +549,7 @@ mod tests {
     #[test]
     fn with_power_an_unheld_perk_is_buyable() {
         for perk in Perk::ALL {
-            assert_eq!(machine_prompt(perk, true, false, false), MachinePrompt::Buy);
+            assert_eq!(machine_prompt(perk, true, false, false, RunType::Solo), MachinePrompt::Buy);
         }
     }
 
@@ -550,7 +557,7 @@ mod tests {
     fn a_held_perk_shows_no_prompt() {
         for power_on in [false, true] {
             assert_eq!(
-                machine_prompt(Perk::Juggernog, power_on, true, false),
+                machine_prompt(Perk::Juggernog, power_on, true, false, RunType::Solo),
                 MachinePrompt::NoPrompt
             );
         }
@@ -559,7 +566,7 @@ mod tests {
     #[test]
     fn no_machine_sells_while_drinking() {
         assert_eq!(
-            machine_prompt(Perk::DoubleTap, true, false, true),
+            machine_prompt(Perk::DoubleTap, true, false, true, RunType::Solo),
             MachinePrompt::NoPrompt
         );
     }
@@ -574,7 +581,7 @@ mod tests {
     #[test]
     fn quick_revive_sells_without_power() {
         assert_eq!(
-            machine_prompt(Perk::QuickRevive, false, false, false),
+            machine_prompt(Perk::QuickRevive, false, false, false, RunType::Solo),
             MachinePrompt::Buy
         );
     }
@@ -583,9 +590,26 @@ mod tests {
     fn quick_revive_cannot_be_bought_while_its_life_is_unused() {
         for power_on in [false, true] {
             assert_eq!(
-                machine_prompt(Perk::QuickRevive, power_on, true, false),
+                machine_prompt(Perk::QuickRevive, power_on, true, false, RunType::Solo),
                 MachinePrompt::NoPrompt
             );
+        }
+    }
+
+    #[test]
+    fn co_op_quick_revive_costs_1500_and_waits_for_the_power() {
+        assert_eq!(Perk::QuickRevive.price(RunType::Coop), 1500);
+        assert_eq!(
+            machine_prompt(Perk::QuickRevive, false, false, false, RunType::Coop),
+            MachinePrompt::NeedsPower
+        );
+        assert_eq!(machine_prompt(Perk::QuickRevive, true, false, false, RunType::Coop), MachinePrompt::Buy);
+        // Held, it can't be bought again, until a Down takes it.
+        assert_eq!(machine_prompt(Perk::QuickRevive, true, true, false, RunType::Coop), MachinePrompt::NoPrompt);
+        // The other Perks are the same in both.
+        for perk in [Perk::Juggernog, Perk::SpeedCola, Perk::DoubleTap] {
+            assert_eq!(perk.price(RunType::Coop), perk.price(RunType::Solo));
+            assert!(perk.needs_power(RunType::Coop));
         }
     }
 

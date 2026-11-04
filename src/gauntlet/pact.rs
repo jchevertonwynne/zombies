@@ -702,7 +702,7 @@ mod tests {
     fn open_bar_makes_perks_free_and_kept_and_the_horde_bigger() {
         let entries = holding(OPEN_BAR);
         for perk in Perk::ALL {
-            assert_eq!(resolve_points(Stat::PerkPrice, perk.price(), &entries), 0);
+            assert_eq!(resolve_points(Stat::PerkPrice, perk.price(crate::state::RunType::Solo), &entries), 0);
         }
         assert_eq!(crate::perk::kept_on_down(&entries), Perk::ALL.len());
         assert_eq!(resolve_count(Stat::HordeSize, 24, &entries), 30);

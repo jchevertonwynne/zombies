@@ -14,6 +14,7 @@ use crate::last_stand::LastStand;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve_points};
 use crate::player::{LocalPlayer, Player, PlayerCamera};
 use crate::points::Points;
+use crate::revive::ReviveFocus;
 use crate::state::{GameState, Pause, world_runs};
 use crate::tuning::*;
 
@@ -275,15 +276,17 @@ fn buyer(points: &Points, down: bool, pause: &State<Pause>) -> Buyer {
     }
 }
 
-fn focus(
+pub(crate) fn focus(
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
     buyables: Query<(Entity, &Buyable, Has<Nearby>)>,
     player: Single<(Has<LastStand>, &Points), With<LocalPlayer>>,
     pause: Res<State<Pause>>,
+    reviving: Res<ReviveFocus>,
     mut focus: ResMut<Focus>,
 ) {
     let (down, points) = *player;
-    let picked = if buyer(points, down, &pause).blocked() {
+    // A teammate to Revive takes the Use key before any Buyable.
+    let picked = if buyer(points, down, &pause).blocked() || reviving.0.is_some() {
         None
     } else {
         let eye = camera.translation();
