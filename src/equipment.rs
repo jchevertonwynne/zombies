@@ -1043,6 +1043,7 @@ mod tests {
             monkey_bombs: 0,
             cooking: None,
             frag_limits: FragLimits::default(),
+            host_dirty: false,
         };
         bought.max_ammo();
         assert_eq!((bought.frags, bought.claymores, bought.monkey_bombs), (4, 2, 3));

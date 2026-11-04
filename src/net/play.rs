@@ -18,6 +18,7 @@ use super::hits::{self, Hits};
 use super::link::{Event, Link};
 use super::protocol::{HOST, Peer, Refusal, Seat, ToHost, ToPlayer, decode, encode};
 use super::remote::{Next, Remote};
+use super::world::{self, Mirror, NetIds};
 use super::state::{
     Inputs, Own, Sight, Snapshot, Step, Tick, pack_pitch, pack_position, pack_yaw, unpack_pitch, unpack_yaw,
 };
@@ -86,6 +87,7 @@ pub struct PlayPlugin;
 impl Plugin for PlayPlugin {
     fn build(&self, app: &mut App) {
         hits::add(app);
+        world::add(app);
         app.add_message::<PlayerLeft>()
             .add_message::<HostSaid>()
             .add_systems(PreUpdate, (pump_host.run_if(resource_exists::<Roster>), pump_client.run_if(resource_exists::<Prediction>)))
@@ -141,6 +143,8 @@ pub fn begin_host(world: &mut World, link: Box<dyn Link>, remotes: Vec<(Peer, Se
     world.insert_resource(Clock::default());
     world.insert_resource(Inbox::default());
     world.insert_resource(Hits::default());
+    world.insert_resource(Mirror::default());
+    world.insert_resource(NetIds::default());
     world.insert_resource(ZombieIds::default());
     world.insert_resource(Horde::default());
 }
@@ -152,6 +156,8 @@ pub fn begin_client(world: &mut World, link: Box<dyn Link>) {
     world.insert_resource(Clock::default());
     world.insert_resource(Inbox::default());
     world.insert_resource(Hits::default());
+    world.insert_resource(Mirror::default());
+    world.insert_resource(NetIds::default());
     world.insert_resource(Prediction::default());
     world.insert_resource(ZombieIds::default());
     world.insert_resource(Crowd::default());
@@ -167,6 +173,8 @@ pub fn end_run(world: &mut World) -> Option<Box<dyn Link>> {
     world.remove_resource::<Clock>();
     world.remove_resource::<Inbox>();
     world.remove_resource::<Hits>();
+    world.remove_resource::<Mirror>();
+    world.remove_resource::<NetIds>();
     world.remove_resource::<Wire>().map(|wire| wire.0)
 }
 
@@ -193,6 +201,7 @@ fn pump_host(
     mut inbox: ResMut<Inbox>,
     mut roster: ResMut<Roster>,
     mut hits: ResMut<Hits>,
+    mut mirror: ResMut<Mirror>,
     mut left: MessageWriter<PlayerLeft>,
 ) {
     while let Some(event) = wire.0.poll() {
@@ -209,6 +218,7 @@ fn pump_host(
                         left.write(PlayerLeft { seat: PlayerSeat(seat) });
                     }
                     (Ok(message @ (ToHost::Hit(_) | ToHost::Launch(_))), Some(_)) => hits.hear_player(peer, &message),
+                    (Ok(ToHost::Request(request)), Some(_)) => mirror.hear_player(peer, request),
                     // The Room has no Seat for someone who comes after the Run has begun.
                     (Ok(ToHost::Hello { .. }), None) => {
                         wire.0.send(peer, encode(&ToPlayer::Refused(Refusal::Started)));
@@ -227,6 +237,7 @@ fn pump_client(
     mut wire: ResMut<Wire>,
     mut inbox: ResMut<Inbox>,
     mut hits: ResMut<Hits>,
+    mut mirror: ResMut<Mirror>,
     mut said: MessageWriter<HostSaid>,
 ) {
     while let Some(event) = wire.0.poll() {
@@ -248,6 +259,7 @@ fn pump_client(
                     break;
                 }
                 Ok(message @ (ToPlayer::Launched(_) | ToPlayer::Burst(_))) => hits.hear_host(&message),
+                Ok(ToPlayer::Event(event)) => mirror.hear_host(event),
                 _ => {}
             },
             _ => {}

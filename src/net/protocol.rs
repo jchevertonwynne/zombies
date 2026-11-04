@@ -11,6 +11,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use super::hits::{Burst, Hit, Launched, Throw};
+use super::world::{Request, WorldEvent};
 use crate::map::MapId;
 use crate::mode::Mode;
 use crate::tuning::{PLAYER_NAME_MAX_CHARS, ROOM_SEATS};
@@ -133,6 +134,8 @@ pub enum ToHost {
     Hit(Hit),
     /// They threw, planted or fired something the Host is to simulate.
     Launch(Throw),
+    /// They used something in the world, or switched Weapon.
+    Request(Request),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -161,6 +164,8 @@ pub enum ToPlayer {
     Launched(Launched),
     /// Something went off.
     Burst(Burst),
+    /// Something changed in the world, or in what a Player holds.
+    Event(WorldEvent),
 }
 
 /// A Name as the Room has it: no control characters, at most `PLAYER_NAME_MAX_CHARS`
