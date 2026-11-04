@@ -5,6 +5,7 @@ mod ammo_mod;
 mod arsenal;
 mod attachment;
 mod audio;
+mod authority;
 mod barrier;
 mod buy;
 mod burn;
@@ -74,6 +75,7 @@ fn main() {
         ))
         .add_plugins((
             state::StatePlugin,
+            authority::AuthorityPlugin,
             settings::SettingsPlugin,
             menu::MenuPlugin,
             coop::CoopPlugin,

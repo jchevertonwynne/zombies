@@ -10,6 +10,7 @@ use std::f32::consts::{FRAC_PI_2, TAU};
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+use crate::authority::HostSimulation;
 use crate::layers::GameLayer;
 use crate::nav::Route;
 use crate::player::PlayerCamera;
@@ -190,7 +191,7 @@ impl Plugin for HellhoundPlugin {
             .add_systems(Startup, load_assets)
             .add_systems(
                 Update,
-                (spawn_around, strike, pull_in_fog).run_if(in_state(Pause::Running)),
+                ((spawn_around, strike).in_set(HostSimulation), pull_in_fog).run_if(in_state(Pause::Running)),
             );
     }
 }

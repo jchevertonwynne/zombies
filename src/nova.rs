@@ -11,6 +11,7 @@ use std::f32::consts::FRAC_PI_2;
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+use crate::authority::HostSimulation;
 use crate::hud::overlay::{Overlay, Overlays};
 use crate::layers::GameLayer;
 use crate::map::SpawnKind;
@@ -119,7 +120,7 @@ impl Plugin for NovaPlugin {
             .add_systems(Startup, load_assets)
             .add_systems(
                 Update,
-                (burst, linger).chain().run_if(in_state(Pause::Running)),
+                (burst.in_set(HostSimulation), linger).chain().run_if(in_state(Pause::Running)),
             );
     }
 }

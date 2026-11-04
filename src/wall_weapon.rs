@@ -4,6 +4,7 @@
 use bevy::prelude::*;
 
 use crate::arsenal::{Availability, WeaponId};
+use crate::authority::HostSimulation;
 use crate::buy::{Buyable, Purchased, Refused};
 use crate::gun_model::GunModels;
 use crate::hands::ammo_buy_pose;
@@ -109,7 +110,7 @@ impl Plugin for WallWeaponPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AmmoBuy>().add_systems(
             Update,
-            (buy_wall_weapons, price_wall_weapons, lift_off_wall_weapons)
+            (buy_wall_weapons.in_set(HostSimulation), price_wall_weapons, lift_off_wall_weapons)
                 .chain()
                 .run_if(in_state(Pause::Running)),
         );

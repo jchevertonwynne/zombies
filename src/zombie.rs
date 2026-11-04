@@ -4,6 +4,7 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy_transform_interpolation::{TransformEasingSystems, TranslationEasingState};
 
+use crate::authority::HostSimulation;
 use crate::door::Door;
 use crate::layers::GameLayer;
 use crate::modifier::{Stat, resolve};
@@ -567,7 +568,10 @@ impl Plugin for ZombiePlugin {
                     .after(TransformEasingSystems::Ease)
                     .before(TransformEasingSystems::UpdateEasingTick),
             )
-            .add_systems(FixedUpdate, (rise, chase, tumble, sink).run_if(in_state(Pause::Running)))
+            .add_systems(
+                FixedUpdate,
+                (rise, chase, tumble, sink).in_set(HostSimulation).run_if(in_state(Pause::Running)),
+            )
             .add_systems(
                 RunFixedMainLoop,
                 fall_over.run_if(in_state(Pause::Running)).in_set(FrameTurnSystems),
@@ -584,6 +588,7 @@ impl Plugin for ZombiePlugin {
                     apply_damage,
                     clean_up_stuck,
                 )
+                    .in_set(HostSimulation)
                     .run_if(in_state(Pause::Running)),
             );
     }

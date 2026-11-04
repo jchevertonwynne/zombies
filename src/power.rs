@@ -5,6 +5,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+use crate::authority::HostSimulation;
 use crate::buy::{Buyable, Purchased};
 use crate::layers::GameLayer;
 use crate::state::{GameState, InRun, Pause};
@@ -78,6 +79,7 @@ impl Plugin for PowerPlugin {
                 Update,
                 (use_switch, flip_switch)
                     .chain()
+                    .in_set(HostSimulation)
                     .run_if(in_state(Pause::Running)),
             );
     }

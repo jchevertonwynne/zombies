@@ -3,6 +3,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+use crate::authority::HostSimulation;
 use crate::buy::{Buyable, Purchased};
 use crate::power::Power;
 use crate::state::Pause;
@@ -46,7 +47,7 @@ impl Plugin for DoorPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (price_doors, open_bought_doors, open_power_doors, slide_open_doors)
+            (price_doors, open_bought_doors.in_set(HostSimulation), open_power_doors.in_set(HostSimulation), slide_open_doors)
                 .chain()
                 .run_if(in_state(Pause::Running)),
         );

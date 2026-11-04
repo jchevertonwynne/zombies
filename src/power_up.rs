@@ -10,6 +10,7 @@ use rand::seq::SliceRandom;
 use rand::{Rng, RngExt};
 
 use crate::audio::cues::Cue;
+use crate::authority::HostSimulation;
 use crate::barrier::Barriers;
 use crate::door::Door;
 use crate::equipment::Equipment;
@@ -349,6 +350,7 @@ impl Plugin for PowerUpPlugin {
                 Update,
                 (resolve_stats, tick_timers, drop_power_ups, age_drops, pick_up, nuke, fire_sale)
                     .chain()
+                    .in_set(HostSimulation)
                     .run_if(in_state(Pause::Running)),
             );
     }

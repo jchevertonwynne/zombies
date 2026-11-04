@@ -18,6 +18,7 @@ use bevy_transform_interpolation::TranslationEasingState;
 
 use crate::arsenal::Burn;
 use crate::audio::cues::Cue;
+use crate::authority::HostSimulation;
 use crate::burn::Burning;
 use crate::explosive::in_sight;
 use crate::hud::overlay::{Overlay, Overlays};
@@ -329,17 +330,12 @@ impl Plugin for SpecialPlugin {
             .insert_resource(SpecialSlot::new(*NAPALM_FIRST_ROUNDS.start(), *SHRIEKER_FIRST_ROUNDS.start()))
             .add_systems(Startup, load_assets)
             .add_systems(OnEnter(GameState::Playing), reset)
-            .add_systems(FixedUpdate, unstick.run_if(in_state(Pause::Running)))
+            .add_systems(FixedUpdate, unstick.in_set(HostSimulation).run_if(in_state(Pause::Running)))
             .add_systems(
                 Update,
                 (
-                    (plan_special, spawn_special).chain(),
-                    detonate,
-                    shriek,
-                    special_deaths,
-                    death_screams,
-                    fire_pools,
-                    pool_burns,
+                    (plan_special, spawn_special).chain().in_set(HostSimulation),
+                    (detonate, shriek, special_deaths, death_screams, fire_pools, pool_burns).in_set(HostSimulation),
                     heat_tint,
                     shake_view,
                     fade_fireballs,

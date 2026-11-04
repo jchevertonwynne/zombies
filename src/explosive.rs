@@ -7,6 +7,7 @@ use bevy::prelude::*;
 
 use crate::ammo_mod::{AmmoModHit, AmmoMods};
 use crate::arsenal::{Splash, WeaponId};
+use crate::authority::HostSimulation;
 use crate::layers::GameLayer;
 use crate::player::{Health, Player, PlayerHit};
 use crate::settings::Settings;
@@ -173,7 +174,7 @@ impl Plugin for ExplosivePlugin {
             .add_systems(Startup, load_assets)
             .add_systems(
                 Update,
-                (launch, fly, explode, fade_fireballs)
+                ((launch, fly, explode).chain().in_set(HostSimulation), fade_fireballs)
                     .chain()
                     .run_if(in_state(Pause::Running)),
             );

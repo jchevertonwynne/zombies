@@ -11,6 +11,7 @@ use rand::RngExt;
 
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
+use crate::authority::HostSimulation;
 use crate::shellshock::Shellshock;
 use crate::buy::{Buyable, Purchased, Refused};
 use crate::hellhound::SpawnHellhounds;
@@ -426,9 +427,7 @@ impl Plugin for TeleporterPlugin {
             .add_systems(
                 Update,
                 (
-                    use_teleporter,
-                    run_trips,
-                    aftermath,
+                    (use_teleporter, run_trips, aftermath).chain().in_set(HostSimulation),
                     prompt_teleporter,
                     show_teleporter,
                 )

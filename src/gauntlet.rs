@@ -18,6 +18,7 @@ use bevy::ui_widgets::Activate;
 
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
+use crate::authority::HostSimulation;
 use crate::buy::Purchased;
 use crate::explosive::Explosion;
 use crate::last_stand::LastStand;
@@ -154,14 +155,17 @@ impl Plugin for GauntletPlugin {
             .add_systems(
                 Update,
                 (
-                    schedule_offer,
-                    open_offer.run_if(in_state(Pause::Running)),
+                    (
+                        schedule_offer,
+                        open_offer.run_if(in_state(Pause::Running)),
+                        track_purchases,
+                        blood_money,
+                        teddys_tithe,
+                        (war_bonds, bounty, butchers_bill, lucky_strike),
+                        (scorched_earth, overkill),
+                    )
+                        .in_set(HostSimulation),
                     apply_entries,
-                    track_purchases,
-                    blood_money,
-                    teddys_tithe,
-                    (war_bonds, bounty, butchers_bill, lucky_strike),
-                    (scorched_earth, overkill),
                     (record_picks, screen::refresh_held_column).run_if(picks_changed),
                 )
                     .run_if(in_state(GameState::Playing))

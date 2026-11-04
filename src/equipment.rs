@@ -4,6 +4,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+use crate::authority::HostSimulation;
 use crate::controls::{Action, Controls};
 use crate::ammo_mod::AmmoMods;
 use crate::barrier::Entering;
@@ -399,9 +400,15 @@ impl Plugin for EquipmentPlugin {
                 (
                     resolve_frag_limits,
                     restock,
-                    (buy_walls, price_walls).chain(),
-                    (throw_frags, throw_monkey_bombs, plant_claymores, release_handled, launch_equipment),
-                    (burn_frags, land_monkey_bombs, lure_zombies, trigger_claymores),
+                    (buy_walls.in_set(HostSimulation), price_walls).chain(),
+                    (
+                        throw_frags,
+                        throw_monkey_bombs,
+                        plant_claymores,
+                        release_handled,
+                        launch_equipment.in_set(HostSimulation),
+                    ),
+                    (burn_frags, land_monkey_bombs, lure_zombies, trigger_claymores).in_set(HostSimulation),
                 )
                     .chain()
                     .run_if(in_state(Pause::Running)),

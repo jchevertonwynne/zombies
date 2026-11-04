@@ -7,6 +7,7 @@
 
 use bevy::prelude::*;
 
+use crate::authority::HostSimulation;
 use crate::controls::{Action, Controls};
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
@@ -400,11 +401,11 @@ impl Plugin for BarrierPlugin {
             )
             .add_systems(
                 FixedUpdate,
-                enter_through_windows.run_if(in_state(Pause::Running)),
+                enter_through_windows.in_set(HostSimulation).run_if(in_state(Pause::Running)),
             )
             .add_systems(
                 Update,
-                ((rebuild_planks, rebuild_barriers, show_planks, slide_planks).chain(), (toss_torn_planks, fly_torn_planks).chain())
+                ((rebuild_planks, rebuild_barriers.in_set(HostSimulation), show_planks, slide_planks).chain(), (toss_torn_planks, fly_torn_planks).chain())
                     .run_if(in_state(Pause::Running)),
             );
     }

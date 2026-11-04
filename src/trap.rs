@@ -4,6 +4,7 @@
 
 use bevy::prelude::*;
 
+use crate::authority::HostSimulation;
 use crate::buy::{Buyable, Purchased, Refused};
 use crate::door::Door;
 use crate::last_stand::LastStand;
@@ -216,9 +217,14 @@ impl Plugin for TrapPlugin {
             .add_systems(
                 Update,
                 (
-                    (use_switches, run_traps, prompt_switches, show_fields).chain(),
-                    (shock_zombies, electrocute).chain(),
-                    shock_player.before(take_hits),
+                    (
+                        (use_switches, run_traps).chain().in_set(HostSimulation),
+                        prompt_switches,
+                        show_fields,
+                    )
+                        .chain(),
+                    (shock_zombies, electrocute).chain().in_set(HostSimulation),
+                    shock_player.before(take_hits).in_set(HostSimulation),
                 )
                     .run_if(in_state(Pause::Running)),
             );

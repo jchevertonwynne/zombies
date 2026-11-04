@@ -8,6 +8,7 @@
 
 use bevy::prelude::*;
 
+use crate::authority::HostSimulation;
 use crate::controls::{Action, Controls};
 use crate::last_stand::LastStand;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve_points};
@@ -258,7 +259,7 @@ impl Plugin for BuyPlugin {
             .add_systems(OnEnter(GameState::GameOver), |mut focus: ResMut<Focus>| focus.0 = None)
             .add_systems(
                 Update,
-                (focus, (buy, hold_buy, resolve_use).chain().run_if(in_state(Pause::Running)))
+                (focus, (buy, hold_buy, resolve_use.in_set(HostSimulation)).chain().run_if(in_state(Pause::Running)))
                     .chain()
                     .run_if(in_state(GameState::Playing)),
             );
