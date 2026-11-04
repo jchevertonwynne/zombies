@@ -19,7 +19,7 @@ use crate::nav::Route;
 use crate::player::LocalPlayer;
 use crate::round::zombie_health;
 use crate::shellshock::Shellshock;
-use crate::state::{InRun, Pause};
+use crate::state::{InRun, world_runs};
 use crate::tuning::*;
 use crate::zombie::{Attack, DamageZombie, Dying, HitArea, HitZone, Rising, Zombie};
 
@@ -120,7 +120,7 @@ impl Plugin for NovaPlugin {
             .add_systems(Startup, load_assets)
             .add_systems(
                 Update,
-                (burst.in_set(HostSimulation), linger).chain().run_if(in_state(Pause::Running)),
+                (burst.in_set(HostSimulation), linger).chain().run_if(world_runs),
             );
     }
 }

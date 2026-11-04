@@ -14,7 +14,9 @@ use crate::records::{
     record_run,
 };
 use crate::settings::{Setting, Settings};
-use crate::state::{Freeze, GameState, MainMenuScreen, Pause, PauseScreen, resume_to};
+use crate::authority::Authority;
+use crate::leave_run::{LEAVE_HOST_TEXT, LEAVE_JOINER_TEXT, LeaveRun};
+use crate::state::{Freeze, GameState, MainMenuScreen, Pause, PauseScreen, RunType, resume_to};
 
 const BUTTON_IDLE: Color = Color::srgba(0.15, 0.15, 0.15, 0.9);
 const BUTTON_HOVER: Color = Color::srgba(0.3, 0.08, 0.06, 0.95);
@@ -45,6 +47,10 @@ pub enum MenuButton {
     Back,
     Resume,
     QuitToMainMenu,
+    /// Co-op's replacement for it: asks first.
+    LeaveRun,
+    /// Yes, leave (or end) the Run.
+    ConfirmLeave,
     /// Step a Setting up (`true`) or down.
     Adjust(Setting, bool),
     /// Show this Mode's Records.
@@ -186,6 +192,7 @@ impl Plugin for MenuPlugin {
             .add_systems(OnEnter(MainMenuScreen::Settings), spawn_main_menu_settings)
             .add_systems(OnEnter(PauseScreen::Root), spawn_pause_menu)
             .add_systems(OnEnter(PauseScreen::Settings), spawn_pause_settings)
+            .add_systems(OnEnter(PauseScreen::LeaveRun), spawn_leave_confirm)
             .add_systems(
                 OnEnter(GameState::GameOver),
                 spawn_game_over.after(record_run),
@@ -585,7 +592,7 @@ fn play_again_key(input: Res<ButtonInput<KeyCode>>, mut next: ResMut<NextState<G
     }
 }
 
-fn spawn_pause_menu(mut commands: Commands) {
+fn spawn_pause_menu(mut commands: Commands, run_type: Res<RunType>) {
     let menu = screen(&mut commands, DIM_BACKGROUND, |menu| {
         menu.spawn((
             text("PAUSED", 64.0, Color::WHITE),
@@ -596,11 +603,37 @@ fn spawn_pause_menu(mut commands: Commands) {
         ));
         button(menu, "Resume", MenuButton::Resume, 320.0);
         button(menu, "Settings", MenuButton::Settings, 320.0);
-        button(menu, "Quit to Main Menu", MenuButton::QuitToMainMenu, 320.0);
+        if run_type.is_coop() {
+            button(menu, "Leave Run", MenuButton::LeaveRun, 320.0);
+        } else {
+            button(menu, "Quit to Main Menu", MenuButton::QuitToMainMenu, 320.0);
+        }
     });
     commands
         .entity(menu)
         .insert(DespawnOnExit(PauseScreen::Root));
+}
+
+/// Co-op's "Leave Run?" confirm, asking the Host whether to end the Run for everyone.
+fn spawn_leave_confirm(mut commands: Commands, authority: Res<State<Authority>>) {
+    let question = match authority.get() {
+        Authority::Host => LEAVE_HOST_TEXT,
+        Authority::Client => LEAVE_JOINER_TEXT,
+    };
+    let menu = screen(&mut commands, DIM_BACKGROUND, |menu| {
+        menu.spawn((
+            text(question, 36.0, Color::WHITE),
+            Node {
+                margin: UiRect::bottom(px(24.0)),
+                ..default()
+            },
+        ));
+        button(menu, "Leave Run", MenuButton::ConfirmLeave, 320.0);
+        button(menu, "Stay", MenuButton::Back, 320.0);
+    });
+    commands
+        .entity(menu)
+        .insert(DespawnOnExit(PauseScreen::LeaveRun));
 }
 
 fn settings_screen(
@@ -949,8 +982,13 @@ fn activate_button(
     mut settings: ResMut<Settings>,
     mut next_game: ResMut<NextState<GameState>>,
     mut next_main_menu: ResMut<NextState<MainMenuScreen>>,
-    (mut next_pause, freeze): (ResMut<NextState<Pause>>, Res<Freeze>),
-    mut next_pause_screen: ResMut<NextState<PauseScreen>>,
+    (mut next_pause, freeze, run_type, authority): (
+        ResMut<NextState<Pause>>,
+        Res<Freeze>,
+        Res<RunType>,
+        Res<State<Authority>>,
+    ),
+    (mut next_pause_screen, mut leaves): (ResMut<NextState<PauseScreen>>, MessageWriter<LeaveRun>),
     mut exit: MessageWriter<AppExit>,
     mut back_to: ResMut<BackTo>,
 ) {
@@ -997,8 +1035,16 @@ fn activate_button(
         MenuButton::Quit => {
             exit.write(AppExit::Success);
         }
-        MenuButton::Resume => next_pause.set(resume_to(&freeze)),
+        MenuButton::Resume => next_pause.set(resume_to(&freeze, *run_type)),
         MenuButton::QuitToMainMenu => next_game.set(GameState::MainMenu),
+        MenuButton::LeaveRun => next_pause_screen.set(PauseScreen::LeaveRun),
+        // The Record is saved on the way out, as for any quit. The network layer reads `LeaveRun`.
+        MenuButton::ConfirmLeave => {
+            leaves.write(LeaveRun {
+                ends_run: *authority.get() == Authority::Host,
+            });
+            next_game.set(GameState::MainMenu);
+        }
         MenuButton::Adjust(setting, up) => settings.adjust(setting, up),
         MenuButton::RecordsTab(mode) => tab.0 = mode,
         MenuButton::Controls => {

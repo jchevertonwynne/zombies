@@ -21,7 +21,7 @@ use crate::last_stand::LastStand;
 use crate::layers::GameLayer;
 use crate::perk::{Drinking, Perk};
 use crate::player::{LocalPlayer, Locomotion, MoveInput, Player, PlayerCamera, PlayerName, Seat};
-use crate::state::{InRun, Pause};
+use crate::state::{InRun, world_runs};
 use crate::tuning::*;
 use crate::weapon::{Knife, Loadout, UPGRADED_PURPLE, WeaponCopy, glint_of};
 
@@ -815,7 +815,7 @@ impl Plugin for TeammatePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (fill_poses, spawn_bodies, animate, place_name_tags).chain().run_if(in_state(Pause::Running)),
+            (fill_poses, spawn_bodies, animate, place_name_tags).chain().run_if(world_runs),
         );
     }
 }

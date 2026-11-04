@@ -25,7 +25,7 @@ use crate::stats::RunStats;
 use crate::zone::PlayerZone;
 use crate::round::{Round, RoundPhase};
 use crate::settings::Settings;
-use crate::state::{GameState, InRun, Pause};
+use crate::state::{GameState, InRun, Pause, input_runs, world_runs};
 use crate::teammate::{HeldWeapon, Pose, Shots};
 use crate::tuning::*;
 use crate::weapon::{Knife, Loadout};
@@ -213,18 +213,18 @@ impl Plugin for PlayerPlugin {
             .add_systems(PostUpdate, queue_teleports)
             .add_systems(
                 FixedUpdate,
-                (teleport_player, fill_move_input, move_player).chain().run_if(in_state(Pause::Running)),
+                (teleport_player, fill_move_input, move_player).chain().run_if(world_runs),
             )
-            .add_systems(RunFixedMainLoop, look.run_if(in_state(Pause::Running)).in_set(LookSystems))
+            .add_systems(RunFixedMainLoop, look.run_if(input_runs).in_set(LookSystems))
             .add_systems(
                 Update,
-                (take_hits, regenerate).in_set(HostSimulation).run_if(in_state(Pause::Running)),
+                (take_hits, regenerate).in_set(HostSimulation).run_if(world_runs),
             )
             // The OS can drop the grab (e.g. on focus loss); clicking takes it back.
             .add_systems(
                 Update,
                 grab_cursor
-                    .run_if(in_state(Pause::Running))
+                    .run_if(input_runs)
                     .run_if(input_just_pressed(MouseButton::Left)),
             );
     }

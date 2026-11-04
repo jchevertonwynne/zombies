@@ -23,7 +23,7 @@ use crate::player::{LocalPlayer, Player, SpawnPlayers};
 use crate::points::{Points, PointsAwarded};
 use crate::round::RoundStarted;
 use crate::sapper::Sapper;
-use crate::state::{GameState, InRun, Pause};
+use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 use crate::weapon::Loadout;
 use crate::zombie::{Attack, DamageZombie, Dying, HitZone, Pay, Zombie, ZombieKilled};
@@ -362,7 +362,7 @@ impl Plugin for PowerUpPlugin {
                 (resolve_stats, tick_timers, drop_power_ups, age_drops, pick_up, nuke, fire_sale)
                     .chain()
                     .in_set(HostSimulation)
-                    .run_if(in_state(Pause::Running)),
+                    .run_if(world_runs),
             );
     }
 }

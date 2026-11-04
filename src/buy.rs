@@ -14,7 +14,7 @@ use crate::last_stand::LastStand;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve_points};
 use crate::player::{LocalPlayer, Player, PlayerCamera};
 use crate::points::Points;
-use crate::state::{GameState, Pause};
+use crate::state::{GameState, Pause, world_runs};
 use crate::tuning::*;
 
 /// Something in the Map the Use key buys or uses.
@@ -259,7 +259,7 @@ impl Plugin for BuyPlugin {
             .add_systems(OnEnter(GameState::GameOver), |mut focus: ResMut<Focus>| focus.0 = None)
             .add_systems(
                 Update,
-                (focus, (buy, hold_buy, resolve_use.in_set(HostSimulation)).chain().run_if(in_state(Pause::Running)))
+                (focus, (buy, hold_buy, resolve_use.in_set(HostSimulation)).chain().run_if(world_runs))
                     .chain()
                     .run_if(in_state(GameState::Playing)),
             );

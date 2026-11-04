@@ -10,7 +10,7 @@ use crate::gun_model::GunModels;
 use crate::hands::ammo_buy_pose;
 use crate::modifier::Modifiers;
 use crate::player::{LocalPlayer, Player, PlayerCamera};
-use crate::state::{InRun, Pause};
+use crate::state::{InRun, world_runs};
 use crate::tuning::*;
 use crate::weapon::Loadout;
 
@@ -112,7 +112,7 @@ impl Plugin for WallWeaponPlugin {
             Update,
             (buy_wall_weapons.in_set(HostSimulation), price_wall_weapons, lift_off_wall_weapons)
                 .chain()
-                .run_if(in_state(Pause::Running)),
+                .run_if(world_runs),
         );
     }
 }

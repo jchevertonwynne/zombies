@@ -24,7 +24,7 @@ use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_count};
 use crate::barrier::Barriers;
 use crate::nav::{NavGraph, Route};
 use crate::player::{Player, PlayerCamera};
-use crate::state::{GameState, InRun, Pause};
+use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 use crate::zombie::{
     Attack, DamageZombie, Dying, HitArea, HitZone, Lured, Pay, Rising, StunZombie, Zombie, ZombieKilled, apply_damage,
@@ -404,11 +404,11 @@ impl Plugin for AmmoModPlugin {
                     (roll_ammo_mods, run_delayed_hits, fire_phantoms).chain().in_set(HostSimulation).before(apply_damage),
                     draw_flashes,
                 )
-                    .run_if(in_state(Pause::Running)),
+                    .run_if(world_runs),
             )
             // Turned allies and flung bodies are Zombies' bodies, which are interpolated, so they
             // move in the physics step (see `crate::zombie::FrameTurnSystems`).
-            .add_systems(FixedUpdate, (run_allies, fling).in_set(HostSimulation).run_if(in_state(Pause::Running)));
+            .add_systems(FixedUpdate, (run_allies, fling).in_set(HostSimulation).run_if(world_runs));
     }
 }
 

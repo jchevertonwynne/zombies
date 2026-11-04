@@ -21,7 +21,7 @@ use crate::perk::Drinking;
 use crate::player::{LocalPlayer, Player};
 use crate::power::Power;
 use crate::sapper::Sabotaged;
-use crate::state::{GameState, InRun, Pause};
+use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 use crate::weapon::{Loadout, UPGRADED_PURPLE, WeaponCopy};
 
@@ -225,7 +225,7 @@ impl Plugin for PackAPunchPlugin {
             Update,
             ((use_machine, run_machine).chain().in_set(HostSimulation), prompt_machine, show_machine)
                 .chain()
-                .run_if(in_state(Pause::Running)),
+                .run_if(world_runs),
         );
     }
 }

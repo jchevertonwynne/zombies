@@ -12,7 +12,7 @@ use crate::equipment::Pull;
 use crate::explosive::{Explosion, Explosive, Launch, Thrown, in_sight, makes_crawlers, world_filter};
 use crate::layers::GameLayer;
 use crate::player::LocalPlayer;
-use crate::state::{InRun, Pause};
+use crate::state::{InRun, world_runs};
 use crate::tuning::*;
 use crate::weapon::Loadout;
 use crate::zombie::{Attack, DamageZombie, Dying, HitArea, HitZone, KnockDown, Zombie};
@@ -102,7 +102,7 @@ impl Plugin for WonderPlugin {
                 (fire_wonders, follow_hosts, burn_bolts, pick_up_blades)
                     .chain()
                     .in_set(HostSimulation)
-                    .run_if(in_state(Pause::Running)),
+                    .run_if(world_runs),
             );
     }
 }

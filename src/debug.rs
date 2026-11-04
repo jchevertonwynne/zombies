@@ -8,7 +8,7 @@ use crate::hud::overlay::{Overlay, Overlays};
 use crate::player::{LocalPlayer, spawn_debug_player};
 use crate::power_up::DropPowerUp;
 use crate::sapper::SummonSapper;
-use crate::state::Pause;
+use crate::state::input_runs;
 use crate::weapon::{Loadout, WeaponCopy};
 
 /// The Weapons F2 hands over in turn: one to try switching with, then the special Box Weapons,
@@ -44,25 +44,25 @@ impl Plugin for DebugPlugin {
             .add_systems(
                 Update,
                 grant_weapon
-                    .run_if(in_state(Pause::Running))
+                    .run_if(input_runs)
                     .run_if(input_just_pressed(KeyCode::F2)),
             )
             .add_systems(
                 Update,
                 grant_monkey_bombs
-                    .run_if(in_state(Pause::Running))
+                    .run_if(input_runs)
                     .run_if(input_just_pressed(KeyCode::F3)),
             )
             .add_systems(
                 Update,
                 grant_upgrade
-                    .run_if(in_state(Pause::Running))
+                    .run_if(input_runs)
                     .run_if(input_just_pressed(KeyCode::F6)),
             )
             .add_systems(
                 Update,
                 drop_power_up
-                    .run_if(in_state(Pause::Running))
+                    .run_if(input_runs)
                     .run_if(input_just_pressed(KeyCode::F7)),
             )
             .add_systems(
@@ -70,19 +70,19 @@ impl Plugin for DebugPlugin {
                 (|mut summons: MessageWriter<SummonSapper>| {
                     summons.write(SummonSapper);
                 })
-                .run_if(in_state(Pause::Running))
+                .run_if(input_runs)
                 .run_if(input_just_pressed(KeyCode::F10)),
             )
             .add_systems(
                 Update,
                 spawn_debug_player
-                    .run_if(in_state(Pause::Running))
+                    .run_if(input_runs)
                     .run_if(input_just_pressed(KeyCode::F4)),
             )
             .add_systems(
                 Update,
                 pulse_overlay
-                    .run_if(in_state(Pause::Running))
+                    .run_if(input_runs)
                     .run_if(input_just_pressed(KeyCode::F8)),
             );
     }

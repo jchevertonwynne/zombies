@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use crate::authority::HostSimulation;
 use crate::buy::{Buyable, Purchased};
 use crate::power::Power;
-use crate::state::Pause;
+use crate::state::world_runs;
 use crate::tuning::*;
 
 /// A Door in the Map. While closed it is solid to the Player and to Zombies alike.
@@ -49,7 +49,7 @@ impl Plugin for DoorPlugin {
             Update,
             (price_doors, open_bought_doors.in_set(HostSimulation), open_power_doors.in_set(HostSimulation), slide_open_doors)
                 .chain()
-                .run_if(in_state(Pause::Running)),
+                .run_if(world_runs),
         );
     }
 }

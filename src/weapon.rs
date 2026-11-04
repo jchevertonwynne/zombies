@@ -28,7 +28,7 @@ use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve, resolv
 use crate::equipment::{Equipment, Handling, arms_free, hand_pose};
 use crate::perk::{Drinking, hands_free};
 use crate::player::{LocalPlayer, Locomotion, Player, PlayerCamera};
-use crate::state::Pause;
+use crate::state::world_runs;
 use crate::tuning::*;
 use crate::wonder::{WonderFired, is_wonder};
 use crate::zombie::{Attack, DamageZombie, HitArea, HitZone, ZombieKilled, apply_damage};
@@ -860,7 +860,7 @@ impl Plugin for WeaponPlugin {
                 // Equipment in the hand.
                 ((switch_weapons, reload, aim, fire.run_if(arms_free), knife.run_if(arms_free)).chain().run_if(hands_free), animate_view_model.in_set(AnimateViewModel))
                     .chain()
-                    .run_if(in_state(Pause::Running)),
+                    .run_if(world_runs),
             )
             .add_systems(
                 Update,
@@ -869,9 +869,9 @@ impl Plugin for WeaponPlugin {
                     .after(fire)
                     .after(knife)
                     .before(apply_damage)
-                    .run_if(in_state(Pause::Running)),
+                    .run_if(world_runs),
             )
-            .add_systems(Update, (resolve_slots, refill_on_kill).run_if(in_state(Pause::Running)));
+            .add_systems(Update, (resolve_slots, refill_on_kill).run_if(world_runs));
     }
 }
 

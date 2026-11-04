@@ -35,7 +35,7 @@ use crate::records::{RecordExtra, RecordExtras};
 use crate::round::{IntermissionHold, Round, RoundEnded, RoundPhase};
 use crate::save;
 use crate::settings::SaveDir;
-use crate::state::{Freeze, GameState, MainMenuScreen, Pause};
+use crate::state::{Freeze, GameState, MainMenuScreen, Pause, input_runs};
 use crate::tuning::*;
 use crate::weapon::Loadout;
 use crate::zombie::{DamageZombie, Dying, HitZone, KillDamage, Zombie, ZombieKilled};
@@ -157,7 +157,7 @@ impl Plugin for GauntletPlugin {
                 (
                     (
                         schedule_offer,
-                        open_offer.run_if(in_state(Pause::Running)),
+                        open_offer.run_if(input_runs),
                         track_purchases,
                         blood_money,
                         teddys_tithe,

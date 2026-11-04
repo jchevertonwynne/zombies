@@ -13,7 +13,7 @@ use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve_count, 
 use crate::player::{LocalPlayer, Player};
 use crate::power::Power;
 use crate::sapper::Sabotaged;
-use crate::state::{GameState, InRun, Pause};
+use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 use crate::weapon::Loadout;
 
@@ -263,7 +263,7 @@ impl Plugin for PerkPlugin {
                     float_away,
                 )
                     .chain()
-                    .run_if(in_state(Pause::Running)),
+                    .run_if(world_runs),
             );
     }
 }

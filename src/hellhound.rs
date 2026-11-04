@@ -15,7 +15,7 @@ use crate::layers::GameLayer;
 use crate::nav::Route;
 use crate::player::PlayerCamera;
 use crate::round::{Round, RoundPhase};
-use crate::state::{InRun, Pause};
+use crate::state::{InRun, world_runs};
 use crate::tuning::*;
 use crate::zombie::{HitArea, HitZone, Zombie};
 use crate::zone::{ZoneId, ZoneSet};
@@ -199,7 +199,7 @@ impl Plugin for HellhoundPlugin {
             .add_systems(Startup, load_assets)
             .add_systems(
                 Update,
-                ((spawn_around, strike).in_set(HostSimulation), pull_in_fog).run_if(in_state(Pause::Running)),
+                ((spawn_around, strike).in_set(HostSimulation), pull_in_fog).run_if(world_runs),
             );
     }
 }
