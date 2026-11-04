@@ -100,6 +100,7 @@ fn recipe(cue: Cue) -> Recipe {
         Cue::SelfRevive => Recipe::Synth(rising_whoosh(1.0, 0x6a00_0014)),
         Cue::MonkeyBomb => Recipe::Synth(monkey_march()),
         Cue::ClaymorePlant => Recipe::Synth(claymore_plant()),
+        Cue::Footstep => Recipe::Synth(footstep()),
         Cue::DoorOpen => Recipe::Synth(door_open()),
         Cue::PowerOn => Recipe::Synth(power_on()),
         Cue::PerkJingleJuggernog => Recipe::Synth(chiptune(&[48, 0, 48, 51, 55, 0, 53, 51, 50, 0, 50, 53, 51, 0, 48, 0], 0.3)),
@@ -626,6 +627,18 @@ fn sapper_idle() -> Vec<f32> {
             let breath = (TAU * t / secs).sin().abs() * noise(&mut seed) * 0.25;
             let clank = if (t * 2.5).fract() < 0.03 { (TAU * 900.0 * t).sin() * 0.3 } else { 0.0 };
             breath + clank
+        })
+        .collect()
+}
+
+/// A soft boot on concrete: a short low thud with a scuff of grit.
+fn footstep() -> Vec<f32> {
+    let mut seed = 0x6a00_0030;
+    samples(0.18)
+        .map(|t| {
+            let thud = (TAU * 95.0 * t).sin() * (-t * 28.0).exp() * 0.6;
+            let scuff = noise(&mut seed) * (-t * 40.0).exp() * 0.25;
+            (thud + scuff).clamp(-1.0, 1.0)
         })
         .collect()
 }

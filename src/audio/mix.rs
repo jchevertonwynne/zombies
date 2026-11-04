@@ -9,6 +9,7 @@ use crate::attachment::Underbarrel;
 use crate::mystery_box::BoxState;
 use crate::pack_a_punch::Stage;
 use crate::perk::Perk;
+use crate::teammate::{Action, Pose};
 use crate::tuning::*;
 use crate::zombie::{SpeedTier, Zombie};
 
@@ -50,6 +51,38 @@ pub fn shot_cue(weapon: WeaponId, underbarrel: Option<Underbarrel>) -> (Cue, f32
         // The Flamethrower roars as a loop instead.
         Some(Underbarrel::Flamethrower) => (Cue::Flamethrower, 1.0),
         None => (class_gunshot(weapon.stats().class), weapon_pitch(weapon)),
+    }
+}
+
+/// The sound a teammate's body makes going from `before` to `now`: the groan of going Down, the
+/// rush of getting back up, or the start of a Reload, Knife swing or Perk drink. Throws, and the
+/// Revive's kneel, have no sound of their own.
+pub fn pose_cue(before: &Pose, now: &Pose) -> Option<Cue> {
+    match (before.last_stand, now.last_stand) {
+        (false, true) => return Some(Cue::Down),
+        (true, false) => return Some(Cue::SelfRevive),
+        _ => {}
+    }
+    if before.action == now.action {
+        return None;
+    }
+    match now.action {
+        Action::Reload => Some(Cue::Reload),
+        Action::Knife => Some(Cue::KnifeSwing),
+        Action::Drink => Some(Cue::PerkDrink),
+        Action::None | Action::Throw | Action::Revive => None,
+    }
+}
+
+/// Seconds between a teammate's footsteps at `speed` m/s, or `None` while they make none: still,
+/// in the air or crawling. A sprint steps faster.
+pub fn footstep_interval(pose: &Pose, speed: f32) -> Option<f32> {
+    if speed < TEAMMATE_STEP_MIN_SPEED || pose.airborne || pose.last_stand {
+        None
+    } else if pose.sprinting {
+        Some(TEAMMATE_SPRINT_STEP_SECS)
+    } else {
+        Some(TEAMMATE_STEP_SECS)
     }
 }
 
@@ -213,6 +246,32 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_teammates_hands_and_falls_make_their_sounds() {
+        let plain = Pose::default();
+        let doing = |action| Pose { action, ..plain };
+        assert_eq!(pose_cue(&plain, &doing(Action::Reload)), Some(Cue::Reload));
+        assert_eq!(pose_cue(&doing(Action::Reload), &doing(Action::Reload)), None, "once per reload");
+        assert_eq!(pose_cue(&plain, &doing(Action::Knife)), Some(Cue::KnifeSwing));
+        assert_eq!(pose_cue(&plain, &doing(Action::Drink)), Some(Cue::PerkDrink));
+        assert_eq!(pose_cue(&doing(Action::Drink), &plain), None, "nothing as it ends");
+        let down = Pose { last_stand: true, ..plain };
+        assert_eq!(pose_cue(&plain, &down), Some(Cue::Down));
+        assert_eq!(pose_cue(&down, &plain), Some(Cue::SelfRevive));
+        assert_eq!(pose_cue(&down, &down), None);
+    }
+
+    #[test]
+    fn footsteps_quicken_on_a_sprint_and_stop_when_still_airborne_or_crawling() {
+        let grounded = Pose { airborne: false, ..Pose::default() };
+        let walk = footstep_interval(&grounded, 3.0).unwrap();
+        let sprint = footstep_interval(&Pose { sprinting: true, ..grounded }, 6.0).unwrap();
+        assert!(sprint < walk);
+        assert_eq!(footstep_interval(&grounded, 0.0), None);
+        assert_eq!(footstep_interval(&Pose { airborne: true, ..grounded }, 3.0), None);
+        assert_eq!(footstep_interval(&Pose { last_stand: true, ..grounded }, 1.0), None);
     }
 
     #[test]

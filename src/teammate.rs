@@ -13,12 +13,13 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 
 use crate::ammo_mod::{AmmoMods, glint_colour};
-use crate::arsenal::WeaponId;
+use crate::arsenal::{WeaponClass, WeaponId};
 use crate::attachment::Attachment;
 use crate::equipment::Handling;
 use crate::gun_model::{GunModels, Handheld, WORLD_SCALE, model_length};
 use crate::last_stand::LastStand;
 use crate::layers::GameLayer;
+use crate::muzzle::{aim_direction, muzzle_position};
 use crate::perk::{Drinking, Perk};
 use crate::player::{LocalPlayer, Locomotion, MoveInput, Player, PlayerCamera, PlayerName, Seat};
 use crate::state::{InRun, world_runs};
@@ -140,6 +141,21 @@ impl Default for HeldWeapon {
         Self { id: STARTING_WEAPON, glint: None, attachments: Vec::new() }
     }
 }
+
+/// A teammate's gun went off: where its muzzle is and which way they aim, for `muzzle` to draw a
+/// flash on the gun and, on some shots, a tracer.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct TeammateShot {
+    pub gun: Entity,
+    pub class: WeaponClass,
+    pub muzzle: Vec3,
+    pub aim: Vec3,
+    pub tracer: bool,
+}
+
+/// The pivot a teammate's Weapon hangs from, where their muzzle flash is attached.
+#[derive(Component)]
+pub struct TeammateGun;
 
 /// A Player waiting to Respawn: they have no body and no name tag. Nothing adds it until
 /// Respawning exists (#155).
@@ -531,6 +547,7 @@ fn spawn_bodies(
 
         // The Weapon, as it floats over the Mystery Box but with its muzzle forward.
         let gun = pivot(&mut commands, GUN_READY, aim);
+        commands.entity(gun).insert(TeammateGun);
         let gun_model = commands
             .spawn((
                 Mesh3d(guns.world(STARTING_WEAPON)),
@@ -622,6 +639,8 @@ fn animate(
     guns: Res<GunModels>,
     time: Res<Time>,
     mut commands: Commands,
+    global: Query<&GlobalTransform>,
+    mut fired: MessageWriter<TeammateShot>,
 ) {
     let dt = time.delta_secs();
     if dt <= 0.0 {
@@ -649,6 +668,16 @@ fn animate(
         if shots.count() != rig.shots {
             rig.shots = shots.count();
             rig.kick = 1.0;
+            if let Ok(gun) = global.get(rig.gun) {
+                let class = held.id.stats().class;
+                fired.write(TeammateShot {
+                    gun: rig.gun,
+                    class,
+                    muzzle: gun.transform_point(muzzle_position(class) * WORLD_SCALE),
+                    aim: aim_direction(input.yaw, input.pitch),
+                    tracer: u32::from(shots.count()).is_multiple_of(TRACER_EVERY),
+                });
+            }
         } else {
             rig.kick = (rig.kick - dt / KICK_SECS).max(0.0);
         }
@@ -813,7 +842,7 @@ pub struct TeammatePlugin;
 
 impl Plugin for TeammatePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.add_message::<TeammateShot>().add_systems(
             Update,
             (fill_poses, spawn_bodies, animate, place_name_tags).chain().run_if(world_runs),
         );

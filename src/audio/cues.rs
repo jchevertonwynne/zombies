@@ -97,6 +97,8 @@ cues! {
     SelfRevive => "self_revive", Root, Flat, 0.8;
     MonkeyBomb => "monkey_bomb", Root, Spatial, 0.8;
     ClaymorePlant => "claymore_plant", Root, Flat, 0.6;
+    // Only teammates make footsteps; the Player's own are silent.
+    Footstep => "footstep", Root, Spatial, 0.4;
 
     // Buying and the Map
     Buy => "buy", Root, Flat, 0.7;
@@ -261,6 +263,8 @@ mod tests {
             "shrieker_idle", "shrieker_windup", "shrieker_scream", "scream_hit", "shrieker_death", "scream_pop",
             "sapper_smash", "sapper_idle", "sapper_step", "sapper_sabotage", "sapper_windup", "sapper_slam",
             "helmet_off", "sapper_stun", "sapper_death",
+            // Not in the appendix: a teammate's footstep, for Co-op.
+            "footstep",
         ];
         let declared: Vec<_> = Cue::ALL.iter().map(|cue| cue.spec().name).collect();
         for slot in APPENDIX_C {

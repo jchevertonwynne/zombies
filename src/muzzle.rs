@@ -1,12 +1,14 @@
 //! What a shot looks like: a short muzzle flash and light on the held Weapon, puffs where hitscan
 //! bullets land (grey on the world, red on a Zombie, a bigger burst on a Headshot), and a faint
 //! tracer on every few bullets. All of it is cosmetic and reads `ShotFired` and `BulletImpact`.
+//! A teammate's gun gets its flash and tracers from `TeammateShot` instead, with no puffs.
 
 use bevy::prelude::*;
 
 use crate::arsenal::WeaponClass;
-use crate::gun_model::model_length;
+use crate::gun_model::{WORLD_SCALE, model_length};
 use crate::state::world_runs;
+use crate::teammate::{TeammateGun, TeammateShot};
 use crate::tuning::*;
 use crate::weapon::{ShotFired, ViewModel};
 
@@ -78,6 +80,11 @@ pub fn puffs_allowed(alive: usize, wanted: u32) -> u32 {
     (IMPACT_PUFF_CAP.saturating_sub(alive) as u32).min(wanted)
 }
 
+/// The way a Player looks, as a unit vector: turned `yaw` about +Y (0 faces -Z), then raised `pitch`.
+pub fn aim_direction(yaw: f32, pitch: f32) -> Vec3 {
+    Quat::from_rotation_y(yaw) * Quat::from_rotation_x(pitch) * Vec3::NEG_Z
+}
+
 /// A transform for a unit cube stretched into a line from `from` to `to`, `width` across.
 pub fn tracer_transform(from: Vec3, to: Vec3, width: f32) -> Transform {
     let line = to - from;
@@ -96,6 +103,10 @@ struct MuzzleFlash {
     size: f32,
     age: f32,
 }
+
+/// Marks the flash on a teammate's gun, which only their shots light.
+#[derive(Component)]
+struct TeammateFlash;
 
 /// A flying puff of dust or blood.
 #[derive(Component)]
@@ -129,7 +140,16 @@ impl Plugin for MuzzlePlugin {
             .add_systems(Startup, setup_assets)
             .add_systems(
                 Update,
-                (attach_flash, start_flash, update_flash, spawn_impacts, update_puffs, update_tracers)
+                (
+                    attach_flash,
+                    attach_teammate_flash,
+                    start_flash,
+                    start_teammate_flash,
+                    update_flash,
+                    spawn_impacts,
+                    update_puffs,
+                    update_tracers,
+                )
                     .chain()
                     .run_if(world_runs),
             );
@@ -155,6 +175,23 @@ fn setup_assets(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut ma
     });
 }
 
+/// A flash with its light, dark until a shot lights it.
+fn new_flash(assets: &EffectAssets, materials: &mut Assets<StandardMaterial>) -> impl Bundle {
+    let material = materials.add(unlit(Color::WHITE));
+    (
+        MuzzleFlash { material: material.clone(), size: 0.0, age: MUZZLE_FLASH_SECS },
+        Mesh3d(assets.cube.clone()),
+        MeshMaterial3d(material),
+        PointLight {
+            intensity: 0.0,
+            range: MUZZLE_LIGHT_RANGE,
+            ..default()
+        },
+        Transform::default(),
+        Visibility::Hidden,
+    )
+}
+
 /// Gives each new view model its flash, as a child.
 fn attach_flash(
     mut commands: Commands,
@@ -163,26 +200,56 @@ fn attach_flash(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for view_model in &view_models {
-        let material = materials.add(unlit(Color::WHITE));
-        commands.entity(view_model).with_child((
-            MuzzleFlash { material: material.clone(), size: 0.0, age: MUZZLE_FLASH_SECS },
-            Mesh3d(assets.cube.clone()),
-            MeshMaterial3d(material),
-            PointLight {
-                intensity: 0.0,
-                range: MUZZLE_LIGHT_RANGE,
-                ..default()
-            },
-            Transform::default(),
-            Visibility::Hidden,
-        ));
+        commands.entity(view_model).with_child(new_flash(&assets, &mut materials));
     }
 }
 
-/// A shot lights the flash at the muzzle, turned a random way so no two look alike.
+/// Gives each teammate's gun its flash, as a child.
+fn attach_teammate_flash(
+    mut commands: Commands,
+    guns: Query<Entity, Added<TeammateGun>>,
+    assets: Res<EffectAssets>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for gun in &guns {
+        commands.entity(gun).with_child((TeammateFlash, new_flash(&assets, &mut materials)));
+    }
+}
+
+/// Lights `flash` for a shot of `class` from a gun whose muzzle sits `muzzle_scale` times as far
+/// out as on the view model, turned a random way so no two look alike.
+fn light_flash(
+    look: FlashLook,
+    class: WeaponClass,
+    muzzle_scale: f32,
+    (mut flash, mut transform, mut visibility, mut light): (
+        Mut<MuzzleFlash>,
+        Mut<Transform>,
+        Mut<Visibility>,
+        Mut<PointLight>,
+    ),
+    materials: &mut Assets<StandardMaterial>,
+) {
+    flash.age = 0.0;
+    flash.size = look.size;
+    *visibility = Visibility::Inherited;
+    // Centred a little past the muzzle so the flash sits in front of the barrel.
+    let at = muzzle_position(class) * muzzle_scale - Vec3::Z * look.size * 0.5;
+    *transform = Transform::from_translation(at)
+        .with_rotation(Quat::from_rotation_z(rand::random::<f32>() * std::f32::consts::TAU))
+        .with_scale(Vec3::new(look.size, look.size, look.size * 0.6));
+    light.color = look.colour;
+    light.intensity = MUZZLE_LIGHT_INTENSITY;
+    if let Some(mut material) = materials.get_mut(&flash.material) {
+        material.base_color = look.colour;
+        material.emissive = LinearRgba::from(look.colour) * 4.0;
+    }
+}
+
+/// A shot lights the flash at the muzzle.
 fn start_flash(
     mut shots: MessageReader<ShotFired>,
-    mut flashes: Query<(&mut MuzzleFlash, &mut Transform, &mut Visibility, &mut PointLight)>,
+    flashes: Query<(&mut MuzzleFlash, &mut Transform, &mut Visibility, &mut PointLight), Without<TeammateFlash>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let Some(shot) = shots.read().last() else { return };
@@ -192,20 +259,40 @@ fn start_flash(
         None => shot.weapon.stats().class,
     };
     let Some(look) = flash_look(class) else { return };
-    for (mut flash, mut transform, mut visibility, mut light) in &mut flashes {
-        flash.age = 0.0;
-        flash.size = look.size;
-        *visibility = Visibility::Inherited;
-        // Centred a little past the muzzle so the flash sits in front of the barrel.
-        let at = muzzle_position(class) - Vec3::Z * look.size * 0.5;
-        *transform = Transform::from_translation(at)
-            .with_rotation(Quat::from_rotation_z(rand::random::<f32>() * std::f32::consts::TAU))
-            .with_scale(Vec3::new(look.size, look.size, look.size * 0.6));
-        light.color = look.colour;
-        light.intensity = MUZZLE_LIGHT_INTENSITY;
-        if let Some(mut material) = materials.get_mut(&flash.material) {
-            material.base_color = look.colour;
-            material.emissive = LinearRgba::from(look.colour) * 4.0;
+    for flash in flashes {
+        light_flash(look, class, 1.0, flash, &mut materials);
+    }
+}
+
+/// A teammate's shot lights the flash on their gun, and every few draw a tracer along their aim.
+fn start_teammate_flash(
+    mut commands: Commands,
+    mut shots: MessageReader<TeammateShot>,
+    children: Query<&Children>,
+    mut flashes: Query<
+        (&mut MuzzleFlash, &mut Transform, &mut Visibility, &mut PointLight),
+        With<TeammateFlash>,
+    >,
+    assets: Res<EffectAssets>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for shot in shots.read() {
+        if let Some(look) = flash_look(shot.class)
+            && let Ok(kids) = children.get(shot.gun)
+        {
+            for &kid in kids {
+                if let Ok((flash, transform, visibility, light)) = flashes.get_mut(kid) {
+                    light_flash(look, shot.class, WORLD_SCALE, (flash, transform, visibility, light), &mut materials);
+                }
+            }
+        }
+        if shot.tracer {
+            commands.spawn((
+                Tracer { age: 0.0 },
+                Mesh3d(assets.cube.clone()),
+                MeshMaterial3d(assets.tracer.clone()),
+                tracer_transform(shot.muzzle, shot.muzzle + shot.aim * TEAMMATE_TRACER_LENGTH, TRACER_WIDTH),
+            ));
         }
     }
 }
@@ -350,6 +437,13 @@ mod tests {
         assert_eq!(puffs_allowed(0, 5), 5);
         assert_eq!(puffs_allowed(IMPACT_PUFF_CAP - 2, 5), 2);
         assert_eq!(puffs_allowed(IMPACT_PUFF_CAP + 10, 5), 0);
+    }
+
+    #[test]
+    fn aim_follows_yaw_and_pitch() {
+        assert!((aim_direction(0.0, 0.0) - Vec3::NEG_Z).length() < 1e-5);
+        assert!(aim_direction(0.0, 0.5).y > 0.4, "looking up aims up");
+        assert!((aim_direction(std::f32::consts::FRAC_PI_2, 0.0) - Vec3::NEG_X).length() < 1e-5);
     }
 
     #[test]

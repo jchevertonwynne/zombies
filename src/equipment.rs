@@ -268,6 +268,13 @@ pub struct Claymore {
     countdown: Option<f32>,
 }
 
+impl Claymore {
+    /// The Player who planted it.
+    pub fn thrower(&self) -> Entity {
+        self.thrower
+    }
+}
+
 #[derive(Resource)]
 struct EquipmentAssets {
     frag: Handle<Mesh>,
