@@ -390,7 +390,6 @@ fn play_buy_sounds(
     mut torn: MessageReader<PlankTorn>,
     mut rebuilt: MessageReader<PlankRebuilt>,
     mut power_ups: MessageReader<PowerUpTaken>,
-    local: Query<Entity, With<LocalPlayer>>,
 ) {
     for _ in 0..purchases.read().count() + holds.read().count() {
         sounds.play(&mut commands, Cue::Buy, None);
