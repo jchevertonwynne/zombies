@@ -9,6 +9,7 @@ use bevy::render::view::ColorGrading;
 use bevy::window::{CursorGrabMode, CursorOptions};
 use bevy_transform_interpolation::TranslationEasingState;
 
+use crate::authority::HostSimulation;
 use crate::controls::{Action, Controls};
 use crate::equipment::Equipment;
 use crate::last_stand::LastStand;
@@ -216,7 +217,7 @@ impl Plugin for PlayerPlugin {
             .add_systems(RunFixedMainLoop, look.run_if(in_state(Pause::Running)).in_set(LookSystems))
             .add_systems(
                 Update,
-                (take_hits, regenerate).run_if(in_state(Pause::Running)),
+                (take_hits, regenerate).in_set(HostSimulation).run_if(in_state(Pause::Running)),
             )
             // The OS can drop the grab (e.g. on focus loss); clicking takes it back.
             .add_systems(

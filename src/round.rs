@@ -2,6 +2,7 @@ use std::ops::RangeInclusive;
 
 use bevy::prelude::*;
 
+use crate::authority::HostSimulation;
 use crate::barrier::Entering;
 use crate::hellhound::{
     HellhoundAssetsParam, HellhoundSchedule, hellhound_health, hellhound_horde, hellhound_spawn_candidates,
@@ -202,11 +203,12 @@ impl Plugin for RoundPlugin {
         app.add_message::<RoundStarted>()
             .add_message::<RoundEnded>()
             .init_resource::<IntermissionHold>()
-            .add_systems(OnEnter(GameState::Playing), start_first_round)
+            .add_systems(OnEnter(GameState::Playing), start_first_round.in_set(HostSimulation))
             .add_systems(
                 Update,
                 (requeue_cleaned_up, spawn_horde, last_zombie_sprints, end_round, run_intermission)
                     .chain()
+                    .in_set(HostSimulation)
                     .run_if(in_state(Pause::Running)),
             );
     }

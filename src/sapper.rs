@@ -14,6 +14,7 @@ use bevy::prelude::*;
 use bevy_transform_interpolation::TranslationEasingState;
 
 use crate::audio::cues::Cue;
+use crate::authority::HostSimulation;
 use crate::barrier::{Barriers, Entering};
 use crate::buy::{Buyable, HoldBuy, HoldPurchased};
 use crate::door::Door;
@@ -263,13 +264,13 @@ impl Plugin for SapperPlugin {
             .insert_resource(SapperCadence::new(*SAPPER_FIRST_ROUNDS.start()))
             .add_systems(Startup, load_assets)
             .add_systems(OnEnter(GameState::Playing), reset)
-            .add_systems(FixedUpdate, unstick.run_if(in_state(Pause::Running)))
+            .add_systems(FixedUpdate, unstick.in_set(HostSimulation).run_if(in_state(Pause::Running)))
             .add_systems(
                 Update,
                 (
-                    (plan_sapper, spawn_sapper).chain(),
+                    (plan_sapper, spawn_sapper).chain().in_set(HostSimulation),
                     dress_sappers,
-                    (trap_hits, helmets.after(apply_damage)),
+                    (trap_hits, helmets.after(apply_damage)).in_set(HostSimulation),
                     (
                         stun_restarts,
                         sabotage,
@@ -277,7 +278,8 @@ impl Plugin for SapperPlugin {
                         sapper_deaths,
                         prune_restores,
                     )
-                        .chain(),
+                        .chain()
+                        .in_set(HostSimulation),
                     footsteps,
                 )
                     .run_if(in_state(Pause::Running)),

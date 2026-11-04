@@ -6,6 +6,7 @@ use bevy::prelude::*;
 
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
+use crate::authority::HostSimulation;
 use crate::buy::{Buyable, Purchased, Refused};
 use crate::layers::GameLayer;
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve_count, resolve_points};
@@ -255,7 +256,12 @@ impl Plugin for PerkPlugin {
             .add_systems(Update, give_perks)
             .add_systems(
                 Update,
-                (buy_perks, drink, prompt_machines, light_machines, float_away)
+                (
+                    (buy_perks, drink).chain().in_set(HostSimulation),
+                    prompt_machines,
+                    light_machines,
+                    float_away,
+                )
                     .chain()
                     .run_if(in_state(Pause::Running)),
             );

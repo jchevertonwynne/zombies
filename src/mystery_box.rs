@@ -11,6 +11,7 @@ use rand::seq::SliceRandom;
 use rand::{Rng, RngExt};
 
 use crate::arsenal::{Availability, WeaponId};
+use crate::authority::HostSimulation;
 use crate::buy::{Buyable, Purchased, charged};
 use crate::equipment::Equipment;
 use crate::gun_model::GunModels;
@@ -375,7 +376,12 @@ impl Plugin for MysteryBoxPlugin {
             .add_systems(OnEnter(GameState::Playing), spawn_boxes)
             .add_systems(
                 Update,
-                (buy_boxes, run_boxes, price_boxes, animate_boxes, show_rubble)
+                (
+                    (buy_boxes, run_boxes).chain().in_set(HostSimulation),
+                    price_boxes,
+                    animate_boxes,
+                    show_rubble,
+                )
                     .chain()
                     .run_if(in_state(Pause::Running)),
             );

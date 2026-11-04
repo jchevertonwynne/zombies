@@ -14,6 +14,7 @@ use bevy::prelude::*;
 use crate::arsenal::Burn;
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
+use crate::authority::HostSimulation;
 use crate::burn::{Burning, Ignite};
 use crate::door::Door;
 use crate::explosive::{in_sight, world_filter};
@@ -400,14 +401,14 @@ impl Plugin for AmmoModPlugin {
             .add_systems(
                 Update,
                 (
-                    (roll_ammo_mods, run_delayed_hits, fire_phantoms).chain().before(apply_damage),
+                    (roll_ammo_mods, run_delayed_hits, fire_phantoms).chain().in_set(HostSimulation).before(apply_damage),
                     draw_flashes,
                 )
                     .run_if(in_state(Pause::Running)),
             )
             // Turned allies and flung bodies are Zombies' bodies, which are interpolated, so they
             // move in the physics step (see `crate::zombie::FrameTurnSystems`).
-            .add_systems(FixedUpdate, (run_allies, fling).run_if(in_state(Pause::Running)));
+            .add_systems(FixedUpdate, (run_allies, fling).in_set(HostSimulation).run_if(in_state(Pause::Running)));
     }
 }
 

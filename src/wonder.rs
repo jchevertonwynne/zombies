@@ -7,6 +7,7 @@ use bevy::prelude::*;
 
 use crate::ammo_mod::AmmoMods;
 use crate::arsenal::{Splash, WeaponClass, WeaponId, WeaponStats};
+use crate::authority::HostSimulation;
 use crate::equipment::Pull;
 use crate::explosive::{Explosion, Explosive, Launch, Thrown, in_sight, makes_crawlers, world_filter};
 use crate::layers::GameLayer;
@@ -100,6 +101,7 @@ impl Plugin for WonderPlugin {
                 Update,
                 (fire_wonders, follow_hosts, burn_bolts, pick_up_blades)
                     .chain()
+                    .in_set(HostSimulation)
                     .run_if(in_state(Pause::Running)),
             );
     }

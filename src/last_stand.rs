@@ -4,6 +4,7 @@
 
 use bevy::prelude::*;
 
+use crate::authority::HostSimulation;
 use crate::buy::buy;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve_count};
 use crate::perk::{Drinking, Perk, Perks, drink, kept_on_down};
@@ -105,7 +106,7 @@ impl Plugin for LastStandPlugin {
                 Update,
                 // A drink that ends in the frame of a Down is still lost, and nothing can be bought
                 // in that frame either.
-                (go_down.after(take_hits).after(drink).before(buy), self_revive, lower_eye)
+                ((go_down.after(take_hits).after(drink).before(buy), self_revive).in_set(HostSimulation), lower_eye)
                     .run_if(in_state(Pause::Running)),
             );
     }

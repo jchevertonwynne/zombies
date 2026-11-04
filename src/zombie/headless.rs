@@ -11,6 +11,7 @@ use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
 
 use super::*;
+use crate::authority::{Authority, AuthorityPlugin};
 use crate::modifier::Modifiers;
 use crate::player::Player;
 use crate::state::GameState;
@@ -34,6 +35,11 @@ impl Sim {
     /// The Map, the Zombie systems, and a stand-in Player at `PLAYER_START`, rendering at `fps`
     /// while physics runs at its fixed rate. `configure` adds anything else under test.
     pub fn new(fps: f64, configure: impl FnOnce(&mut App)) -> Self {
+        Self::new_as(Authority::Host, fps, configure)
+    }
+
+    /// The same, running as `authority`.
+    pub fn new_as(authority: Authority, fps: f64, configure: impl FnOnce(&mut App)) -> Self {
         let mut app = App::new();
         app.add_plugins((
             MinimalPlugins,
@@ -45,6 +51,8 @@ impl Sim {
         .init_asset::<Mesh>()
         .init_asset::<StandardMaterial>()
         .insert_state(GameState::Playing)
+        .insert_state(authority)
+        .add_plugins(AuthorityPlugin)
         .add_sub_state::<Pause>()
         .add_message::<PlayerHit>()
         .add_message::<SpecialCue>()

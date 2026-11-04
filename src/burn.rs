@@ -5,6 +5,7 @@
 use bevy::prelude::*;
 
 use crate::arsenal::Burn;
+use crate::authority::HostSimulation;
 use crate::state::Pause;
 use crate::zombie::{Attack, DamageZombie, Dying, HitZone, Zombie};
 
@@ -75,7 +76,7 @@ pub struct BurnPlugin;
 impl Plugin for BurnPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Ignite>()
-            .add_systems(Update, (ignite, burn).chain().run_if(in_state(Pause::Running)));
+            .add_systems(Update, (ignite, burn).chain().in_set(HostSimulation).run_if(in_state(Pause::Running)));
     }
 }
 

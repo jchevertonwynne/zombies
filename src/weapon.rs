@@ -2,6 +2,7 @@ use avian3d::prelude::*;
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
 
+use crate::authority::HostSimulation;
 use crate::hands::{
     HIP_DROP, HIP_SIDE, ReloadPose, ReloadStyle, aim_shift, aimed_kick, carry_pose, drink_pose, knife_pose, rebuild_pose, reload_pose,
     machine_push, stab_lunge,
@@ -859,6 +860,7 @@ impl Plugin for WeaponPlugin {
             .add_systems(
                 Update,
                 apply_hit_reports
+                    .in_set(HostSimulation)
                     .after(fire)
                     .after(knife)
                     .before(apply_damage)

@@ -12,6 +12,7 @@ use bevy::prelude::*;
 use crate::ammo_mod::{ammo_mod_slots, repack_price};
 use crate::arsenal::WeaponId;
 use crate::attachment::attachment_repack_price;
+use crate::authority::HostSimulation;
 use crate::gun_model::GunModels;
 use crate::buy::{Buyable, HoldBuy, HoldPurchased, Purchased, Refused};
 use crate::layers::GameLayer;
@@ -222,7 +223,7 @@ impl Plugin for PackAPunchPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(OnEnter(GameState::Playing), spawn_machine).add_systems(
             Update,
-            (use_machine, run_machine, prompt_machine, show_machine)
+            ((use_machine, run_machine).chain().in_set(HostSimulation), prompt_machine, show_machine)
                 .chain()
                 .run_if(in_state(Pause::Running)),
         );

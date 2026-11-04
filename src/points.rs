@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 
+use crate::authority::HostSimulation;
 use crate::last_stand::LastStand;
 use crate::modifier::{Modifiers, RunModifiers, Stat, resolve, resolve_points};
 use crate::player::Player;
@@ -102,7 +103,7 @@ impl Plugin for PointsPlugin {
         app.init_resource::<RunModifiers>()
             .add_message::<PointsAwarded>()
             .add_message::<BonusPoints>()
-            .add_systems(Update, (resolve_rate, earn).chain());
+            .add_systems(Update, (resolve_rate, earn).chain().in_set(HostSimulation));
     }
 }
 
