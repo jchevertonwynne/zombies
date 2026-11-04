@@ -20,8 +20,9 @@ use super::protocol::{Peer, ToHost, ToPlayer, encode};
 use super::remote::Remote;
 use super::state::Tick;
 use super::zombies::ZombieIds;
-use crate::ammo_mod::AmmoMods;
-use crate::arsenal::{Splash, WeaponId};
+use crate::ammo_mod::{AmmoModHit, AmmoMods};
+use crate::arsenal::{Burn, Splash, WeaponId};
+use crate::burn::Ignite;
 use crate::authority::HostSimulation;
 use crate::combat::HitReport;
 use crate::explosive::{
@@ -44,6 +45,10 @@ pub struct Hit {
     pub damage: f32,
     /// The Knife, or else a bullet.
     pub knife: bool,
+    /// The Ammo Mods of the Weapon that landed it, one bit each (`AmmoMods::bits`).
+    pub ammo_mods: u8,
+    /// How the Weapon sets what it hits alight: damage, seconds between ticks, seconds in all.
+    pub burn: Option<[f32; 3]>,
 }
 
 /// Something a client's Player threw, planted or fired that the Host is to simulate. Positions and
@@ -83,6 +88,16 @@ fn splash_out(splash: Splash) -> [f32; 3] {
 
 fn splash_in([max, min, radius]: [f32; 3]) -> Splash {
     Splash { max, min, radius }
+}
+
+fn burn_out(burn: Burn) -> [f32; 3] {
+    [burn.damage, burn.tick_secs, burn.secs]
+}
+
+/// The `Burn` a client says, if it is one that can tick.
+fn burn_in([damage, tick_secs, secs]: [f32; 3]) -> Option<Burn> {
+    (damage.is_finite() && secs.is_finite() && secs >= 0.0 && tick_secs.is_finite() && tick_secs > 0.0)
+        .then_some(Burn { damage, tick_secs, secs })
 }
 
 impl Throw {
@@ -254,6 +269,9 @@ pub struct Burst {
 pub struct Hits {
     hits: Vec<(Peer, Hit)>,
     throws: Vec<(Peer, Throw)>,
+    /// Where this machine's own Player's blasts went off, which it has already heard, and seconds
+    /// left to wait for the Host's `Burst` of each.
+    heard: Vec<(Vec3, f32)>,
     launched: Vec<Launched>,
     bursts: Vec<Burst>,
 }
@@ -284,6 +302,8 @@ pub fn add(app: &mut App) {
         .add_message::<Launch>()
         .add_message::<Explosion>()
         .add_message::<ZombieHit>()
+        .add_message::<AmmoModHit>()
+        .add_message::<Ignite>()
         .add_systems(
             Update,
             (receive.before(apply_hit_reports), announce)
@@ -313,6 +333,8 @@ fn receive(
     mut reports: MessageWriter<HitReport>,
     mut launches: MessageWriter<Launch>,
     mut explosions: MessageWriter<Explosion>,
+    mut ammo_mod_hits: MessageWriter<AmmoModHit>,
+    mut ignite: MessageWriter<Ignite>,
 ) {
     let who = |peer: Peer| players.iter().find(|(_, remote)| remote.peer == peer).map(|(player, _)| player);
     for (peer, hit) in std::mem::take(&mut inbox.hits) {
@@ -331,7 +353,17 @@ fn receive(
             zone: hit.zone,
             damage: hit.damage,
             attack: if hit.knife { Attack::Knife } else { Attack::Bullet },
+            ammo_mods: AmmoMods::from_bits(hit.ammo_mods),
+            burn: hit.burn.and_then(burn_in),
         });
+        // The same rolls the Host's own hits make, for this Player's Cooldowns and Modifiers.
+        let ammo_mods = AmmoMods::from_bits(hit.ammo_mods);
+        if !ammo_mods.is_empty() {
+            ammo_mod_hits.write(AmmoModHit { player, zombie, damage: hit.damage, ammo_mods });
+        }
+        if let Some(burn) = hit.burn.and_then(burn_in) {
+            ignite.write(Ignite { player, zombie, burn });
+        }
     }
     for (peer, throw) in std::mem::take(&mut inbox.throws) {
         let Some(player) = who(peer) else { continue };
@@ -371,6 +403,7 @@ fn announce(
 fn report(
     clock: Res<Clock>,
     ids: Res<ZombieIds>,
+    mut inbox: ResMut<Hits>,
     mut wire: ResMut<Wire>,
     local: Query<Entity, With<LocalPlayer>>,
     mut reports: MessageReader<HitReport>,
@@ -387,6 +420,8 @@ fn report(
             zone: report.zone,
             damage: report.damage,
             knife: report.attack == Attack::Knife,
+            ammo_mods: report.ammo_mods.bits(),
+            burn: report.burn.map(burn_out),
         };
         wire.0.send(super::protocol::HOST, encode(&ToHost::Hit(hit)));
         landed.write(ZombieHit {
@@ -408,6 +443,8 @@ fn report(
             hurts_player: explosion.hurts_player,
         };
         wire.0.send(super::protocol::HOST, encode(&ToHost::Launch(blast)));
+        // Its sound is playing already; the Host's `Burst` only adds the fireball.
+        inbox.heard.push((explosion.at, COSMETIC_FLIGHT_SECS));
     }
 }
 
@@ -428,7 +465,12 @@ fn hear(
     assets: Option<Res<ExplosiveAssets>>,
     cosmetics: Query<(Entity, &Transform), With<Cosmetic>>,
     mut explosions: MessageWriter<Explosion>,
+    time: Res<Time>,
 ) {
+    inbox.heard.retain_mut(|(_, left)| {
+        *left -= time.delta_secs();
+        *left > 0.0
+    });
     for launched in std::mem::take(&mut inbox.launched) {
         let start = Vec3::from(launched.start);
         let mut thing = commands.spawn((
@@ -484,7 +526,11 @@ fn hear(
         if let Some(assets) = &assets {
             commands.spawn(fireball(assets, at, burst.radius));
         }
-        // For the sound; no one's blast, so it is not sent back.
+        // For the sound, unless the shooter has heard it; no one's blast, so it is not sent back.
+        if let Some(heard) = inbox.heard.iter().position(|&(went, _)| went.distance(at) < HEARD_BLAST_MATCH_METRES) {
+            inbox.heard.swap_remove(heard);
+            continue;
+        }
         explosions.write(Explosion {
             at,
             thrower: None,
@@ -531,15 +577,22 @@ fn fly_cosmetics(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::gizmos::AppGizmoBuilder;
+    use crate::ammo_mod::{AmmoMod, AmmoModPlugin};
+    use crate::burn::{Burning, BurnPlugin};
     use crate::net::movement::{IDLE, Run};
-    use crate::player::Seat;
+    use crate::player::{PlayerCamera, Seat};
     use crate::points::{Points, PointsPlugin};
     use crate::zombie::{ZombieKilled, apply_damage};
 
     /// What the Host's Weapons would have done for the Players: hits become damage.
     fn extra(app: &mut App) {
-        app.add_plugins(PointsPlugin)
+        app.add_plugins((PointsPlugin, AmmoModPlugin, BurnPlugin))
+            .init_asset::<bevy::gizmos::GizmoAsset>()
+            .init_gizmo_group::<DefaultGizmoConfigGroup>()
             .add_message::<ZombieKilled>()
+            .add_message::<crate::zombie::StunZombie>()
+            .add_message::<crate::audio::PlayCue>()
             .insert_resource(Noted::default())
             .add_systems(Update, (apply_hit_reports.in_set(HostSimulation).before(apply_damage), note));
     }
@@ -548,13 +601,26 @@ mod tests {
     struct Noted {
         launches: Vec<(Entity, Thrown)>,
         kills: u32,
+        /// Who each kill was credited to, and by what.
+        killers: Vec<(Option<Entity>, Attack)>,
+        /// Blasts heard on this machine, whoever's.
+        blasts: u32,
     }
 
-    fn note(mut noted: ResMut<Noted>, mut launches: MessageReader<Launch>, mut kills: MessageReader<ZombieKilled>) {
+    fn note(
+        mut noted: ResMut<Noted>,
+        mut launches: MessageReader<Launch>,
+        mut kills: MessageReader<ZombieKilled>,
+        mut blasts: MessageReader<Explosion>,
+    ) {
+        noted.blasts += blasts.read().count() as u32;
         for launch in launches.read() {
             noted.launches.push((launch.player, launch.thrown));
         }
-        noted.kills += kills.read().count() as u32;
+        for kill in kills.read() {
+            noted.kills += 1;
+            noted.killers.push((kill.player, kill.attack));
+        }
     }
 
     fn run(clients: u8) -> Run {
@@ -596,7 +662,18 @@ mod tests {
         let shooter = player(run, on, on as u8);
         let world = run.apps[on].world_mut();
         let puppet = world.resource::<ZombieIds>().entity(id).expect("the client has the Zombie");
-        world.write_message(HitReport { player: shooter, zombie: puppet, zone: HitZone::Head, damage, attack: Attack::Bullet });
+        world.write_message(HitReport { player: shooter, zombie: puppet, zone: HitZone::Head, damage, attack: Attack::Bullet, ammo_mods: AmmoMods::NONE, burn: None });
+    }
+
+    /// The machine `on` lands `times` bullets of `damage` from a Weapon with `ammo_mods` and `burn`.
+    fn shoot_with(run: &mut Run, on: usize, zombie: Entity, times: u32, damage: f32, ammo_mods: AmmoMods, burn: Option<Burn>) {
+        let id = run.apps[0].world().resource::<ZombieIds>().id(zombie).unwrap();
+        let shooter = player(run, on, on as u8);
+        let world = run.apps[on].world_mut();
+        let puppet = world.resource::<ZombieIds>().entity(id).expect("the client has the Zombie");
+        for _ in 0..times {
+            world.write_message(HitReport { player: shooter, zombie: puppet, zone: HitZone::Torso, damage, attack: Attack::Bullet, ammo_mods, burn });
+        }
     }
 
     fn health(run: &Run, zombie: Entity) -> f32 {
@@ -624,6 +701,64 @@ mod tests {
         assert_eq!(kills(&run), 1);
         assert!(earned(&mut run, 0, 1) > hit_only, "the kill pays the shooter");
         assert_eq!(earned(&mut run, 0, 0), 0);
+    }
+
+    #[test]
+    fn a_clients_ammo_mod_procs_on_the_host_and_its_kill_pays_the_client() {
+        let mut run = run(1);
+        // The Host's roll wants a camera to cast Dead Wire's sight lines from.
+        run.apps[0].world_mut().spawn((PlayerCamera, GlobalTransform::default()));
+        let zombie = run.zombie_with(crate::map::PLAYER_START + Vec3::new(8.0, 0.0, 4.0), 1.0e6);
+        run.step(IDLE, 40);
+        // Each bullet does next to nothing; only a proc can kill it.
+        let ammo_mods = AmmoMods::NONE.with(AmmoMod::BlastFurnace);
+        shoot_with(&mut run, 1, zombie, 200, 1.0, ammo_mods, None);
+        run.step(IDLE, 40);
+        assert_eq!(kills(&run), 1, "the proc killed it");
+        let host_copy = player(&mut run, 0, 1);
+        assert_eq!(run.apps[0].world().resource::<Noted>().killers, [(Some(host_copy), Attack::AmmoMod(crate::zombie::Pay::Paid))]);
+        assert!(earned(&mut run, 0, 1) > 0);
+        assert_eq!(earned(&mut run, 0, 0), 0);
+        // And it is that Player's own Cooldown that the proc started.
+        let world = run.apps[0].world();
+        assert!(!world.get::<crate::ammo_mod::Cooldowns>(host_copy).unwrap().ready(AmmoMod::BlastFurnace));
+        let hosts_own = player(&mut run, 0, 0);
+        assert!(run.apps[0].world().get::<crate::ammo_mod::Cooldowns>(hosts_own).unwrap().ready(AmmoMod::BlastFurnace));
+    }
+
+    #[test]
+    fn a_clients_fire_bullet_ignites_the_host_zombie() {
+        let mut run = run(1);
+        let zombie = run.zombie_with(crate::map::PLAYER_START + Vec3::new(8.0, 0.0, 4.0), 1000.0);
+        run.step(IDLE, 40);
+        shoot_with(&mut run, 1, zombie, 1, 1.0, AmmoMods::NONE, Some(Burn { damage: 20.0, tick_secs: 0.5, secs: 4.0 }));
+        run.step(IDLE, 20);
+        assert!(run.apps[0].world().get::<Burning>(zombie).is_some(), "set alight");
+        let early = health(&run, zombie);
+        run.step(IDLE, 120);
+        assert!(health(&run, zombie) < early - 20.0, "burned from {early} to {}", health(&run, zombie));
+        // A burn that cannot tick is not believed.
+        assert!(burn_in([5.0, 0.0, 3.0]).is_none() && burn_in([f32::NAN, 0.5, 3.0]).is_none());
+    }
+
+    #[test]
+    fn a_client_hears_its_own_blast_once() {
+        let mut run = run(1);
+        run.step(IDLE, 10);
+        let at = crate::map::PLAYER_START + Vec3::new(5.0, 1.0, 5.0);
+        let thrower = player(&mut run, 1, 1);
+        run.apps[1].world_mut().write_message(Explosion {
+            at,
+            thrower: Some(thrower),
+            splash: Splash { max: 1.0, min: 1.0, radius: 3.0 },
+            hurts_player: false,
+            ammo_mods: AmmoMods::NONE,
+            crawlers: false,
+        });
+        // The local blast, then the Host's burst of it.
+        run.step(IDLE, 30);
+        let heard = run.apps[1].world().resource::<Noted>().blasts;
+        assert_eq!(heard, 1, "one sound, not two");
     }
 
     #[test]
@@ -738,7 +873,15 @@ mod tests {
         assert!(nan.launch().is_none());
         let blast = Throw::Blast { at: [0.0; 3], splash: [1.0, 1.0, 1.0], ammo_mods: 0, crawlers: false, hurts_player: true };
         assert!(blast.launch().is_none() && blast.blast(Entity::PLACEHOLDER).is_some());
-        let hit = Hit { tick: 4, zombie: 9, zone: HitZone::Head, damage: f32::INFINITY, knife: true };
+        let hit = Hit {
+            tick: 4,
+            zombie: 9,
+            zone: HitZone::Head,
+            damage: f32::INFINITY,
+            knife: true,
+            ammo_mods: 0b101,
+            burn: Some([3.0, 0.5, 4.0]),
+        };
         assert_eq!(decode::<ToHost>(&encode(&ToHost::Hit(hit))).unwrap(), ToHost::Hit(hit));
     }
 }
