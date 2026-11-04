@@ -1759,6 +1759,16 @@ pub const LAST_STAND_SECS: f32 = 10.0;
 pub const LAST_STAND_COOP_SECS: f32 = 45.0;
 /// A Co-op Down takes this percent of the Player's Points, and a Revive gives it to the reviver.
 pub const LAST_STAND_COOP_POINTS_LOSS_PERCENT: u64 = 5;
+/// A Bleed Out takes this fraction of every other Player's Points.
+pub const BLEED_OUT_TEAM_LOSS_FRACTION: f32 = 0.10;
+/// From this Round on, a Player who Respawns has at least `RESPAWN_POINTS_FLOOR` Points.
+pub const RESPAWN_FLOOR_FROM_ROUND: u32 = 7;
+pub const RESPAWN_POINTS_FLOOR: u64 = 1500;
+/// A Respawned Player appears this far to the side of the teammate they come back beside, in metres.
+pub const RESPAWN_BESIDE_DISTANCE: f32 = 1.5;
+/// A Player waiting to Respawn watches from this far behind, and this far above, the teammate they follow.
+pub const SPECTATE_BEHIND_DISTANCE: f32 = 2.5;
+pub const SPECTATE_LIFT: f32 = 0.6;
 /// How close a reviver must stand to the Player in Last Stand, in metres (BO1's 75 units).
 pub const REVIVE_REACH: f32 = 2.0;
 /// How long the reviver holds Use to Revive, and with Quick Revive.

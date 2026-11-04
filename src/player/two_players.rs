@@ -50,6 +50,7 @@ pub(crate) fn two_players_with(configure: impl FnOnce(&mut App)) -> (Sim, Entity
     (sim, local, teammate)
 }
 
+mod respawn;
 mod revive;
 
 /// Carries `player` to stand with their feet at `feet`, the way a Teleport does.

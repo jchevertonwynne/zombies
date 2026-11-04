@@ -18,6 +18,7 @@ use crate::attachment::Attachment;
 use crate::equipment::Handling;
 use crate::gun_model::{GunModels, Handheld, WORLD_SCALE, model_length};
 use crate::last_stand::LastStand;
+use crate::respawn::AwaitingRespawn;
 use crate::layers::GameLayer;
 use crate::muzzle::{aim_direction, muzzle_position};
 use crate::perk::{Drinking, Perk};
@@ -164,12 +165,6 @@ pub struct TeammateShot {
 /// The pivot a teammate's Weapon hangs from, where their muzzle flash is attached.
 #[derive(Component)]
 pub struct TeammateGun;
-
-/// A Player waiting to Respawn: they have no body and no name tag. Nothing adds it until
-/// Respawning exists (#155).
-#[derive(Component)]
-#[allow(dead_code, reason = "inserted by Respawning (#155)")]
-pub struct AwaitingRespawn;
 
 /// Fills each Player's `Pose`, `Shots` and `HeldWeapon` from their own state.
 fn fill_poses(

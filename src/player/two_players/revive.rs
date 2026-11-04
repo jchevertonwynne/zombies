@@ -11,8 +11,14 @@ use crate::stats::{RunStats, StatsPlugin};
 
 /// Two Players in a Co-op Run, standing a metre apart, each with a Quick Revive's worth of nothing
 /// yet: no Perks. Returns the Sim, the reviver (the local Player) and the teammate.
-fn co_op() -> (Sim, Entity, Entity) {
+pub(super) fn co_op() -> (Sim, Entity, Entity) {
+    co_op_with(|_| {})
+}
+
+/// The same, with `configure` adding whatever else the test needs.
+pub(super) fn co_op_with(configure: impl FnOnce(&mut App)) -> (Sim, Entity, Entity) {
     let (mut sim, local, teammate) = two_players_with(|app| {
+        configure(app);
         app.insert_resource(RunType::Coop)
             .add_plugins((LastStandPlugin, StatsPlugin))
             .add_message::<Revived>()
@@ -29,7 +35,7 @@ fn co_op() -> (Sim, Entity, Entity) {
 
 /// Walks the local Player along the row the Seats stand in until they're about `gap` metres from
 /// the teammate. The Seats start three metres apart, out of Revive reach.
-fn set_gap(sim: &mut Sim, local: Entity, teammate: Entity, gap: f32) {
+pub(super) fn set_gap(sim: &mut Sim, local: Entity, teammate: Entity, gap: f32) {
     let x = |sim: &mut Sim, player| sim.world_mut().get::<Transform>(player).unwrap().translation.x;
     for _ in 0..sim.frames(5.0) {
         let (from, to) = (x(sim, local), x(sim, teammate));
@@ -53,17 +59,17 @@ fn see_revives(mut revived: MessageReader<Revived>, mut seen: ResMut<Seen>) {
     seen.0.extend(revived.read().map(|r| (r.player, r.reviver)));
 }
 
-fn down(sim: &mut Sim, player: Entity) {
+pub(super) fn down(sim: &mut Sim, player: Entity) {
     sim.world_mut().get_mut::<Health>(player).unwrap().current = 0.0;
     sim.run(2);
 }
 
-fn in_last_stand(sim: &mut Sim, player: Entity) -> bool {
+pub(super) fn in_last_stand(sim: &mut Sim, player: Entity) -> bool {
     sim.world_mut().get::<LastStand>(player).is_some()
 }
 
 /// `reviver` holds Use on `target` for `secs`.
-fn hold(sim: &mut Sim, reviver: Entity, target: Entity, secs: f32) {
+pub(super) fn hold(sim: &mut Sim, reviver: Entity, target: Entity, secs: f32) {
     for _ in 0..sim.frames(secs) {
         sim.send(UseRequest { player: reviver, buyable: target, hold: true });
         sim.run(1);

@@ -15,6 +15,7 @@ use crate::last_stand::{LastStand, go_down};
 use crate::perk::{Perk, Perks};
 use crate::player::{Health, LocalPlayer, Player};
 use crate::points::Points;
+use crate::respawn::AwaitingRespawn;
 use crate::state::{GameState, input_runs, world_runs};
 use crate::tuning::*;
 use crate::weapon::Loadout;
@@ -89,11 +90,12 @@ impl Plugin for RevivePlugin {
 
 /// Picks the teammate in Last Stand within reach of the `LocalPlayer`, who must be up themselves.
 fn aim_revive(
-    local: Single<(&Transform, Has<LastStand>), With<LocalPlayer>>,
+    local: Single<(&Transform, Has<LastStand>, Has<AwaitingRespawn>), With<LocalPlayer>>,
     downed: Query<(Entity, &Transform, &LastStand), With<Player>>,
     mut aim: ResMut<ReviveFocus>,
 ) {
-    let (transform, down) = *local;
+    let (transform, last_stand, awaiting) = *local;
+    let down = last_stand || awaiting;
     let picked = if down {
         None
     } else {
@@ -125,7 +127,7 @@ fn ask_revive(
 pub(crate) fn revive(
     mut commands: Commands,
     mut requests: MessageReader<UseRequest>,
-    mut revivers: Query<(Entity, &Transform, &Perks, &mut Points, Option<&mut Reviving>), (With<Player>, Without<LastStand>)>,
+    mut revivers: Query<(Entity, &Transform, &Perks, &mut Points, Option<&mut Reviving>), (With<Player>, Without<LastStand>, Without<AwaitingRespawn>)>,
     mut downed: Query<(&Transform, &mut LastStand, &mut Loadout, &mut Health), With<Player>>,
     mut revived: MessageWriter<Revived>,
     time: Res<Time>,
