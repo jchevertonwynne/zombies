@@ -56,13 +56,21 @@ impl HellhoundSchedule {
     }
 }
 
-/// The Horde of Hellhound Round `count` (1 for the first).
-pub fn hellhound_horde(count: u32) -> u32 {
-    if count <= HELLHOUND_HORDE_EARLY_ROUNDS {
+/// The Horde of Hellhound Round `count` (1 for the first) with `players` Players: that many
+/// hounds each.
+pub fn hellhound_horde(count: u32, players: u32) -> u32 {
+    let each = if count <= HELLHOUND_HORDE_EARLY_ROUNDS {
         HELLHOUND_HORDE_EARLY
     } else {
         HELLHOUND_HORDE
-    }
+    };
+    each.saturating_mul(players.max(1))
+}
+
+/// How many hounds may be alive at once with `up` Players up: `HELLHOUND_ALIVE_PER_PLAYER` each,
+/// and at least one Player's worth.
+pub fn hellhound_alive_cap(up: u32) -> u32 {
+    HELLHOUND_ALIVE_PER_PLAYER * up.max(1)
 }
 
 /// Seconds between hounds in Hellhound Round `count`.
@@ -96,12 +104,12 @@ pub fn mixed_hound_chance(round: u32, hounds_on: bool) -> f64 {
 }
 
 /// The Hellhound Spawn Points a hound picks from, uniformly: those in Active Zones between
-/// `HELLHOUND_SPAWN_MIN_DIST` and `HELLHOUND_SPAWN_MAX_DIST` of the Player. If none is, the one
-/// nearest that band, so a Hellhound Round never stalls for want of a spot.
+/// `HELLHOUND_SPAWN_MIN_DIST` of every Player in `players` and within `HELLHOUND_SPAWN_MAX_DIST`
+/// of one. If none is, the one nearest that band, so a Hellhound Round never stalls for want of a spot.
 pub fn hellhound_spawn_candidates(
     points: impl IntoIterator<Item = (ZoneId, Vec3)>,
     active: ZoneSet,
-    player: Vec3,
+    players: &[Vec3],
 ) -> Vec<Vec3> {
     let active: Vec<Vec3> = points
         .into_iter()
@@ -109,7 +117,7 @@ pub fn hellhound_spawn_candidates(
         .map(|(_, at)| at)
         .collect();
     let off_band = |at: &Vec3| {
-        let d = at.distance(player);
+        let d = players.iter().map(|player| at.distance(*player)).fold(f32::INFINITY, f32::min);
         (HELLHOUND_SPAWN_MIN_DIST - d)
             .max(d - HELLHOUND_SPAWN_MAX_DIST)
             .max(0.0)
@@ -459,7 +467,32 @@ mod tests {
 
     #[test]
     fn hordes_are_six_then_eight() {
-        assert_eq!([1, 2, 3, 4, 10].map(hellhound_horde), [6, 6, 8, 8, 8]);
+        assert_eq!([1, 2, 3, 4, 10].map(|count| hellhound_horde(count, 1)), [6, 6, 8, 8, 8]);
+    }
+
+    #[test]
+    fn a_hellhound_horde_is_six_or_eight_hounds_for_every_player() {
+        assert_eq!([2, 3, 4].map(|n| hellhound_horde(1, n)), [12, 18, 24]);
+        assert_eq!([2, 3, 4].map(|n| hellhound_horde(3, n)), [16, 24, 32]);
+    }
+
+    #[test]
+    fn two_hounds_are_alive_for_every_player_up_and_never_fewer_than_one_players_worth() {
+        assert_eq!([0, 1, 2, 3, 4].map(hellhound_alive_cap), [2, 2, 4, 6, 8]);
+    }
+
+    #[test]
+    fn hounds_spawn_clear_of_every_player_and_near_one() {
+        use ZoneId::*;
+        let points = [
+            (StartRoom, Vec3::new(12.0, 0.0, 0.0)),
+            (StartRoom, Vec3::new(-20.0, 0.0, 0.0)),
+            (StartRoom, Vec3::new(60.0, 0.0, 0.0)),
+        ];
+        let active = ZoneSet::from_iter([StartRoom]);
+        // Only 3 m from the second Player, the first point is out; the far one is in reach of neither.
+        let players = [Vec3::ZERO, Vec3::new(15.0, 0.0, 0.0), Vec3::new(-20.0, 0.0, 15.0)];
+        assert_eq!(hellhound_spawn_candidates(points, active, &players), [Vec3::new(-20.0, 0.0, 0.0)]);
     }
 
     #[test]
@@ -513,7 +546,7 @@ mod tests {
         ];
         let active = ZoneSet::from_iter([StartRoom, Yard]);
         assert_eq!(
-            hellhound_spawn_candidates(points, active, player),
+            hellhound_spawn_candidates(points, active, &[player]),
             [Vec3::new(12.0, 0.0, 0.0), Vec3::new(0.0, 0.0, -24.0)]
         );
     }
@@ -528,10 +561,10 @@ mod tests {
         ];
         let active = ZoneSet::from_iter([StartRoom]);
         assert_eq!(
-            hellhound_spawn_candidates(points, active, Vec3::ZERO),
+            hellhound_spawn_candidates(points, active, &[Vec3::ZERO]),
             [Vec3::new(8.0, 0.0, 0.0)]
         );
-        assert!(hellhound_spawn_candidates(points, ZoneSet::default(), Vec3::ZERO).is_empty());
+        assert!(hellhound_spawn_candidates(points, ZoneSet::default(), &[Vec3::ZERO]).is_empty());
     }
 
     #[test]

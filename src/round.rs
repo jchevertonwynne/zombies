@@ -5,17 +5,18 @@ use bevy::prelude::*;
 use crate::authority::HostSimulation;
 use crate::barrier::Entering;
 use crate::hellhound::{
-    HellhoundAssetsParam, HellhoundSchedule, hellhound_health, hellhound_horde, hellhound_spawn_candidates,
+    HellhoundAssetsParam, HellhoundSchedule, hellhound_alive_cap, hellhound_health, hellhound_horde, hellhound_spawn_candidates,
     hellhound_spawn_gap, mixed_hound_chance, spawn_hellhound,
 };
 use crate::map::{SpawnKind, SpawnPoint};
 use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_count};
 use crate::nova::{NovaAssetsParam, nova_crawler_entry, nova_crawler_health, spawn_nova_crawler, spawns_nova_crawler};
-use crate::player::{LocalPlayer, Player};
+use crate::player::{LocalPlayer, Player, SpawnPlayers};
 use crate::power::Power;
 use crate::power_up::{DropPowerUp, PowerUp};
 use crate::settings::Settings;
 use crate::state::{GameState, Pause};
+use crate::target::Players;
 use crate::tuning::*;
 use crate::zombie::{Dying, SpeedTier, Zombie, ZombieAssetsParam, ZombieCleanedUp, ZombieKilled, spawn_zombie};
 use crate::zone::{ActiveZones, ZoneId, ZoneSet};
@@ -34,16 +35,24 @@ pub fn zombie_health(round: u32) -> u64 {
     health
 }
 
-/// How many Zombies make up a Round's solo Horde:
-/// `24 + int(3 × max(1, r/5) × (r ≥ 10 ? r × 0.15 : 1))`, scaled down in Rounds 1–5.
+/// How many Zombies make up a Round's solo Horde: `horde_size_for(round, 1)`.
+#[cfg(test)]
 pub fn horde_size(round: u32) -> u32 {
+    horde_size_for(round, 1)
+}
+
+/// How many Zombies make up a Round's Horde with `players` Players (N), where
+/// `m = max(1, r/5) × (r ≥ 10 ? r × 0.15 : 1)`: `24 + int(3m)` solo, `24 + int((N − 1) × 6 × m)`
+/// in Co-op, scaled down in Rounds 1–5.
+pub fn horde_size_for(round: u32, players: u32) -> u32 {
     let r = round.max(1) as f64;
     let mut multiplier = (r / 5.0).max(1.0);
     if round >= 10 {
         multiplier *= r * 0.15;
     }
+    let bonus = if players <= 1 { HORDE_SOLO_BONUS } else { f64::from(players - 1) * HORDE_COOP_PER_PLAYER };
     // Float-to-int casts saturate, so huge Rounds pin at u32::MAX instead of wrapping.
-    let size = HORDE_BASE.saturating_add((HORDE_SOLO_BONUS * multiplier) as u32);
+    let size = HORDE_BASE.saturating_add((bonus * multiplier) as u32);
     match HORDE_EARLY_SCALE.get(round.max(1) as usize - 1) {
         Some(scale) => (size as f64 * scale) as u32,
         None => size,
@@ -51,7 +60,7 @@ pub fn horde_size(round: u32) -> u32 {
 }
 
 /// How many Zombies may be alive at once in a Round: 24 through Round 10, then 2 more each Round,
-/// to 48 from Round 22. A Mode's `floor` holds the cap up until the ramp passes it.
+/// to 48 from Round 22. A Mode's (or a Co-op Run's) `floor` holds the cap up until the ramp passes it.
 pub fn alive_cap(round: u32, floor: u32) -> u32 {
     let grown = ALIVE_CAP
         .saturating_add(round.saturating_sub(ALIVE_CAP_GROWTH_FROM_ROUND).saturating_mul(ALIVE_CAP_PER_ROUND))
@@ -120,6 +129,8 @@ pub struct Round {
     pub phase: RoundPhase,
     /// Which Hellhound Round this is (1 for the first), if it is one. Its Horde is all hounds.
     pub hellhound: Option<u32>,
+    /// The Players connected when the Round began (N). Fixed for the Round.
+    players: u32,
     /// How many Zombies make up this Round's Horde.
     horde: u32,
     /// Zombies in this Round's Horde that haven't spawned yet.
@@ -133,17 +144,19 @@ pub struct Round {
 impl Round {
     /// Round `number` begins, Hellhound Round or not by the Run's `schedule` (never with
     /// Hellhounds switched off). Its Horde follows the Player's stat entries.
-    fn begin(number: u32, mut schedule: HellhoundSchedule, player: &[Modifier], hounds_on: bool) -> Self {
+    /// `players` is N, the Players connected now.
+    fn begin(number: u32, mut schedule: HellhoundSchedule, player: &[Modifier], hounds_on: bool, players: u32) -> Self {
         let hellhound = schedule.begin(number, rand::random_range(HELLHOUND_ROUND_GAPS), hounds_on);
         let (horde, spawn_timer) = match hellhound {
-            Some(count) => (hellhound_horde(count), HELLHOUND_FIRST_SPAWN_SECS),
-            None => (horde_size(number), 0.0),
+            Some(count) => (hellhound_horde(count, players), HELLHOUND_FIRST_SPAWN_SECS),
+            None => (horde_size_for(number, players), 0.0),
         };
         let left_to_spawn = resolve_count(Stat::HordeSize, horde, player);
         Self {
             number,
             phase: RoundPhase::Active,
             hellhound,
+            players,
             horde: left_to_spawn,
             left_to_spawn,
             spawn_timer,
@@ -156,6 +169,18 @@ impl Round {
     /// one so far.
     pub fn hellhound_tier(&self) -> u32 {
         self.schedule.played()
+    }
+
+    /// The Players connected when this Round began.
+    #[allow(dead_code, reason = "later Co-op rules read N too")]
+    pub fn players(&self) -> u32 {
+        self.players
+    }
+
+    /// The most Zombies alive at once this Round, before any stat entries: the ramp, held up by
+    /// `ALIVE_CAP_COOP` when more than one Player is in.
+    pub fn alive_cap(&self) -> u32 {
+        alive_cap(self.number, if self.players > 1 { ALIVE_CAP_COOP } else { ALIVE_CAP })
     }
 
     /// How many Zombies make up this Round's Horde.
@@ -203,7 +228,10 @@ impl Plugin for RoundPlugin {
         app.add_message::<RoundStarted>()
             .add_message::<RoundEnded>()
             .init_resource::<IntermissionHold>()
-            .add_systems(OnEnter(GameState::Playing), start_first_round.in_set(HostSimulation))
+            .add_systems(
+                OnEnter(GameState::Playing),
+                start_first_round.in_set(HostSimulation).after(SpawnPlayers),
+            )
             .add_systems(
                 Update,
                 (requeue_cleaned_up, spawn_horde, last_zombie_sprints, end_round, run_intermission)
@@ -214,9 +242,15 @@ impl Plugin for RoundPlugin {
     }
 }
 
-fn start_first_round(mut commands: Commands, settings: Res<Settings>, mut started: MessageWriter<RoundStarted>) {
+fn start_first_round(
+    mut commands: Commands,
+    settings: Res<Settings>,
+    players: Query<(), With<Player>>,
+    mut started: MessageWriter<RoundStarted>,
+) {
     let schedule = HellhoundSchedule::new(rand::random_range(HELLHOUND_FIRST_ROUNDS));
-    commands.insert_resource(Round::begin(1, schedule, &[], settings.special_zombies.hellhounds));
+    let hounds_on = settings.special_zombies.hellhounds;
+    commands.insert_resource(Round::begin(1, schedule, &[], hounds_on, players.iter().count() as u32));
     commands.insert_resource(IntermissionHold::default());
     started.write(RoundStarted);
 }
@@ -238,7 +272,8 @@ fn spawn_horde(
     mut round: ResMut<Round>,
     alive: Query<&Zombie, Without<Dying>>,
     spawn_points: Query<(&Transform, &SpawnPoint)>,
-    player: Single<(&Transform, &Modifiers), With<LocalPlayer>>,
+    modifiers: Single<&Modifiers, With<LocalPlayer>>,
+    players: Players,
     active: Res<ActiveZones>,
     assets: ZombieAssetsParam,
     hound_assets: HellhoundAssetsParam,
@@ -251,11 +286,10 @@ fn spawn_horde(
         return;
     }
     round.spawn_timer -= time.delta_secs();
-    let (player, modifiers) = *player;
     let cap = if round.hellhound.is_some() {
-        HELLHOUND_ALIVE_CAP
+        hellhound_alive_cap(players.up_count())
     } else {
-        resolve_count(Stat::AliveCap, alive_cap(round.number, ALIVE_CAP), &modifiers.0)
+        resolve_count(Stat::AliveCap, round.alive_cap(), &modifiers.0)
     };
     if round.spawn_timer > 0.0 || alive.iter().count() as u32 >= cap {
         return;
@@ -266,7 +300,8 @@ fn spawn_horde(
             .iter()
             .filter(|(_, point)| point.kind == SpawnKind::Hellhound)
             .map(|(t, point)| (point.zone, t.translation));
-        hellhound_spawn_candidates(points, active.0, player.translation)
+        let anchors: Vec<Vec3> = players.spawn_anchors().iter().map(|spot| spot.centre).collect();
+        hellhound_spawn_candidates(points, active.0, &anchors)
     };
     let on = settings.special_zombies;
     if let Some(count) = round.hellhound {
@@ -410,6 +445,7 @@ fn run_intermission(
             round.schedule,
             &entries,
             settings.special_zombies.hellhounds,
+            player.iter().count() as u32,
         );
         started.write(RoundStarted);
     } else {
@@ -490,6 +526,21 @@ mod tests {
     }
 
     #[test]
+    fn coop_horde_follows_the_player_count() {
+        // (round, [N = 2, 3, 4])
+        let table = [(10, [42, 60, 78]), (20, [96, 168, 240])];
+        for (round, sizes) in table {
+            assert_eq!([2, 3, 4].map(|n| horde_size_for(round, n)), sizes, "round {round}");
+        }
+        for round in [1, 5, 10, 20, 50] {
+            assert_eq!(horde_size_for(round, 1), horde_size(round), "round {round}");
+            assert_eq!(horde_size_for(round, 0), horde_size(round), "round {round}");
+        }
+        assert_eq!(horde_size(10), 24 + (3.0 * 3.0) as u32);
+        assert_eq!(horde_size_for(u32::MAX, 4), u32::MAX);
+    }
+
+    #[test]
     fn horde_never_shrinks_or_wraps() {
         for r in 1..10_000 {
             assert!(horde_size(r + 1) >= horde_size(r), "round {r}");
@@ -521,6 +572,27 @@ mod tests {
         assert_eq!(alive_cap(14, 32), 32);
         assert_eq!(alive_cap(15, 32), 34);
         assert_eq!(alive_cap(30, 32), 48);
+    }
+
+    #[test]
+    fn the_coop_alive_cap_is_at_least_32_and_follows_the_ramp_above_it() {
+        let round = |number, players| Round::begin(number, HellhoundSchedule::new(99), &[], false, players);
+        assert_eq!(round(1, 1).alive_cap(), 24);
+        assert_eq!(round(1, 2).alive_cap(), 32);
+        assert_eq!(round(14, 4).alive_cap(), 32);
+        assert_eq!(round(15, 3).alive_cap(), 34);
+        assert_eq!(round(30, 2).alive_cap(), 48);
+        // Overkill's flat +8 goes on top: the ceiling is 56.
+        let overkill = [Modifier { stat: Stat::AliveCap, source: crate::modifier::Source("A"), effect: crate::modifier::Effect::Flat(PACT_OVERKILL_ALIVE_CAP_BONUS as f32) }];
+        assert_eq!(resolve_count(Stat::AliveCap, round(50, 4).alive_cap(), &overkill), 56);
+    }
+
+    #[test]
+    fn a_round_keeps_the_player_count_it_began_with() {
+        let round = Round::begin(10, HellhoundSchedule::new(99), &[], false, 3);
+        assert_eq!((round.players(), round.horde()), (3, 60));
+        let hounds = Round::begin(5, HellhoundSchedule::new(5), &[], true, 3);
+        assert_eq!((hounds.hellhound, hounds.horde()), (Some(1), 18));
     }
 
     #[test]

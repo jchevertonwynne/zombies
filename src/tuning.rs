@@ -1217,10 +1217,15 @@ pub const ZOMBIE_HEALTH_GROWTH: f64 = 0.1;
 /// Solo Horde: `HORDE_BASE + int(HORDE_SOLO_BONUS × multiplier)`.
 pub const HORDE_BASE: u32 = 24;
 pub const HORDE_SOLO_BONUS: f64 = 3.0;
+/// Each Player past the first adds this much to the Horde bonus's multiplier:
+/// `HORDE_BASE + int((N − 1) × HORDE_COOP_PER_PLAYER × m)`.
+pub const HORDE_COOP_PER_PLAYER: f64 = 6.0;
 /// Horde scale for Rounds 1–5.
 pub const HORDE_EARLY_SCALE: [f64; 5] = [0.25, 0.3, 0.5, 0.7, 0.9];
 /// The Alive Cap through Round `ALIVE_CAP_GROWTH_FROM_ROUND`, and the floor Solo plays on.
 pub const ALIVE_CAP: u32 = 24;
+/// The floor a Co-op Run's Alive Cap holds up until the Round ramp passes it.
+pub const ALIVE_CAP_COOP: u32 = 32;
 /// The Alive Cap starts growing the Round after this one.
 pub const ALIVE_CAP_GROWTH_FROM_ROUND: u32 = 10;
 /// Added to the Alive Cap each Round past `ALIVE_CAP_GROWTH_FROM_ROUND`.
@@ -1250,7 +1255,9 @@ pub const HELLHOUND_ROUND_GAPS: std::ops::RangeInclusive<u32> = 4..=5;
 pub const HELLHOUND_HORDE_EARLY: u32 = 6;
 pub const HELLHOUND_HORDE_EARLY_ROUNDS: u32 = 2;
 pub const HELLHOUND_HORDE: u32 = 8;
-pub const HELLHOUND_ALIVE_CAP: u32 = 2;
+// (each is per Player: a Hellhound Round's Horde is N times these)
+/// Hounds alive at once in a Hellhound Round, for each Player who is up (at least 1 in all).
+pub const HELLHOUND_ALIVE_PER_PLAYER: u32 = 2;
 /// The wait before a Hellhound Round's first hound.
 pub const HELLHOUND_FIRST_SPAWN_SECS: f32 = 7.0;
 /// Seconds between hounds in Hellhound Round #1, #2, #3 and #4 on.
@@ -1785,8 +1792,10 @@ pub const BOX_MOVE_SECS: f32 = 12.0;
 
 // Power-ups
 /// A drop is armed once Points Earned passes the threshold: first `START`, then each gap is the
-/// last ×`GROWTH`, counted from the Points Earned when it armed.
+/// last ×`GROWTH`, counted from the Points Earned when it armed. A Co-op Run's first threshold is
+/// `START + PER_PLAYER × N`, N the Players it starts with; Solo's is `START`.
 pub const POWER_UP_THRESHOLD_START: f64 = 2000.0;
+pub const POWER_UP_THRESHOLD_PER_PLAYER: f64 = 500.0;
 pub const POWER_UP_THRESHOLD_GROWTH: f64 = 1.14;
 /// The chance any eligible kill drops one anyway.
 pub const POWER_UP_KILL_CHANCE: f64 = 0.03;
