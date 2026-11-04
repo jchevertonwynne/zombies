@@ -158,7 +158,7 @@ struct Fireball {
 const FIREBALL_SECS: f32 = 0.3;
 
 #[derive(Resource)]
-struct ExplosiveAssets {
+pub(crate) struct ExplosiveAssets {
     ball: Handle<Mesh>,
     fire: Handle<StandardMaterial>,
     projectile: Handle<Mesh>,
@@ -181,7 +181,7 @@ impl Plugin for ExplosivePlugin {
     }
 }
 
-fn load_assets(
+pub(crate) fn load_assets(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -314,7 +314,7 @@ fn fly(
 /// Every blast hurts the Zombies in sight within its radius, and the Player if it's theirs. One
 /// that can make Crawlers may blow the legs off a Zombie it doesn't kill, while Crawlers are
 /// switched on in Settings.
-fn explode(
+pub(crate) fn explode(
     mut commands: Commands,
     mut explosions: MessageReader<Explosion>,
     spatial: SpatialQuery,

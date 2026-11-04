@@ -188,9 +188,27 @@ pub struct Rebuild {
     /// far it's pushed forward (0 to 1, following the Plank in progress).
     hand: f32,
     reach: f32,
+}
+
+/// The rebuild Points a Player has been paid this Round, counted against their cap.
+#[derive(Component, Default)]
+pub struct PlankTally {
     /// Rebuild Points paid in Round `paid_round`.
     paid: u64,
     paid_round: u32,
+}
+
+impl PlankTally {
+    /// The Points for the Plank just put back in Round `round`, counted against that Round's cap.
+    pub fn pay(&mut self, round: u32, rates: PlankRates) -> u64 {
+        if round != self.paid_round {
+            self.paid_round = round;
+            self.paid = 0;
+        }
+        let reward = plank_reward(self.paid, rates);
+        self.paid = self.paid.saturating_add(reward);
+        reward
+    }
 }
 
 impl Rebuild {
@@ -233,17 +251,6 @@ impl Rebuild {
     /// The hand's state for the view model: how far up it is, and how far it's pushed.
     pub fn hand(&self) -> (f32, f32) {
         (self.hand, self.reach)
-    }
-
-    /// The Points for the Plank just put back in Round `round`, counted against that Round's cap.
-    pub fn pay(&mut self, round: u32, rates: PlankRates) -> u64 {
-        if round != self.paid_round {
-            self.paid_round = round;
-            self.paid = 0;
-        }
-        let reward = plank_reward(self.paid, rates);
-        self.paid = self.paid.saturating_add(reward);
-        reward
     }
 }
 
@@ -708,13 +715,12 @@ fn rebuild_planks(
 
 /// Puts a Plank back for each request at a Barrier still missing some, paying the Player who made
 /// it up to the Round cap.
-fn rebuild_barriers(
+pub(crate) fn rebuild_barriers(
     mut requests: MessageReader<UseRequest>,
     windows: Query<&Barrier>,
     mut barriers: ResMut<Barriers>,
-    mut rebuild: ResMut<Rebuild>,
     round: Res<Round>,
-    mut players: Query<(&Modifiers, &mut Points), With<Player>>,
+    mut players: Query<(&Modifiers, &mut Points, &mut PlankTally), With<Player>>,
     mut awarded: MessageWriter<PointsAwarded>,
     mut rebuilt: MessageWriter<PlankRebuilt>,
 ) {
@@ -724,12 +730,12 @@ fn rebuild_barriers(
         if barriers.planks(barrier) >= BARRIER_PLANKS {
             continue;
         }
-        let Ok((modifiers, mut points)) = players.get_mut(request.player) else { continue };
+        let Ok((modifiers, mut points, mut tally)) = players.get_mut(request.player) else { continue };
         barriers.rebuild(barrier);
         rebuilt.write(PlankRebuilt {
             at: window_centre(barrier) + Vec3::Y * 1.2,
         });
-        let reward = rebuild.pay(round.number, PlankRates::resolve(round.number, &modifiers.0));
+        let reward = tally.pay(round.number, PlankRates::resolve(round.number, &modifiers.0));
         if reward > 0 {
             let paid = points.award(reward);
             awarded.write(PointsAwarded { player: request.player, amount: paid });
@@ -972,7 +978,7 @@ mod tests {
 
     /// The Points a Round pays for putting back `planks` Planks.
     fn paid_for(planks: u32, round: u32) -> u64 {
-        let mut rebuild = Rebuild::default();
+        let mut rebuild = PlankTally::default();
         (0..planks).map(|_| rebuild.pay(round, classic(round))).sum()
     }
 
@@ -996,7 +1002,7 @@ mod tests {
 
     #[test]
     fn the_cap_resets_each_round() {
-        let mut rebuild = Rebuild::default();
+        let mut rebuild = PlankTally::default();
         let round_one: u64 = (0..10).map(|_| rebuild.pay(1, classic(1))).sum();
         assert_eq!(round_one, 40);
         assert_eq!(rebuild.pay(1, classic(1)), 0);

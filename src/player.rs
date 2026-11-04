@@ -10,6 +10,7 @@ use bevy::window::{CursorGrabMode, CursorOptions};
 use bevy_transform_interpolation::TranslationEasingState;
 
 use crate::authority::HostSimulation;
+use crate::barrier::PlankTally;
 use crate::controls::{Action, Controls};
 use crate::equipment::Equipment;
 use crate::last_stand::LastStand;
@@ -264,7 +265,7 @@ fn player_body(seat: Seat, name: &str, run: &[Modifier]) -> impl Bundle {
         Visibility::default(),
         Loadout::new(STARTING_WEAPON),
         Modifiers(run.to_vec()),
-        (Knife::default(), Equipment::default(), run_state(run)),
+        (Knife::default(), Equipment::default(), run_state(run), PlankTally::default()),
         seat_spawn(seat),
         RigidBody::Kinematic,
         CustomPositionIntegration,

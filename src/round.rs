@@ -454,6 +454,14 @@ fn run_intermission(
 }
 
 #[cfg(test)]
+impl Round {
+    /// Round `number`, under way, for headless tests of rules that depend on the Round.
+    pub fn in_progress(number: u32) -> Self {
+        Self::begin(number, HellhoundSchedule::new(1000), &[], false, 2)
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

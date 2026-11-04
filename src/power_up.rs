@@ -307,11 +307,19 @@ pub struct Dropped {
     at: Vec3,
 }
 
+#[cfg(test)]
+impl Dropped {
+    /// A fresh `power_up` lying at `at`, for headless tests.
+    pub fn new(power_up: PowerUp, at: Vec3) -> Self {
+        Self { power_up, age: 0.0, at }
+    }
+}
+
 /// A Zombie the Nuke has caught, dying when its moment is up.
 #[derive(Component)]
-struct Nuked {
-    /// The Player who took the Nuke.
-    player: Entity,
+pub(crate) struct Nuked {
+    /// The Player who took the Nuke, if a Player did.
+    player: Option<Entity>,
     left: f32,
 }
 
@@ -499,12 +507,15 @@ fn age_drops(
     }
 }
 
-/// Walking into a Power-up takes it, and so does being given one.
-fn pick_up(
+/// Walking into a Power-up takes it, and so does being given one. Whoever takes it, it works for
+/// every Player: Max Ammo refills each Player not in a Last Stand, and the Nuke's and Carpenter's
+/// flat bonuses pay each Player that isn't in one. A Power-up on the ground goes to the first
+/// Player to reach it.
+pub(crate) fn pick_up(
     mut commands: Commands,
     drops: Query<(Entity, &Dropped)>,
     mut given: MessageReader<GivePowerUp>,
-    player: Single<(Entity, &Transform, &mut Loadout, &mut Equipment, &mut Points, Has<LastStand>), With<LocalPlayer>>,
+    mut players: Query<(Entity, &Transform, &mut Loadout, &mut Equipment, &mut Points, Has<LastStand>), With<Player>>,
     // The Sapper survives the Nuke.
     zombies: Query<Entity, (With<Zombie>, Without<Dying>, Without<Nuked>, Without<Sapper>)>,
     mut active: ResMut<ActivePowerUps>,
@@ -512,31 +523,27 @@ fn pick_up(
     mut awarded: MessageWriter<PointsAwarded>,
     mut taken: MessageWriter<PowerUpTaken>,
 ) {
-    let (player, transform, mut loadout, mut equipment, mut points, last_stand) = player.into_inner();
-    let feet = transform.translation;
-    let mut takes: Vec<PowerUp> = given.read().map(|GivePowerUp(power_up)| *power_up).collect();
+    // A given Power-up has no taker, so a Nuke it sets off credits no one.
+    let mut takes: Vec<(Option<Entity>, PowerUp)> = given.read().map(|GivePowerUp(power_up)| (None, *power_up)).collect();
     for (entity, dropped) in &drops {
-        let offset = dropped.at - feet;
-        if Vec2::new(offset.x, offset.z).length() > POWER_UP_PICKUP_RADIUS || offset.y.abs() > 2.0 {
-            continue;
+        let reached_by = players.iter().find(|(_, transform, ..)| {
+            let offset = dropped.at - transform.translation;
+            Vec2::new(offset.x, offset.z).length() <= POWER_UP_PICKUP_RADIUS && offset.y.abs() <= 2.0
+        });
+        if let Some((taker, ..)) = reached_by {
+            commands.entity(entity).despawn();
+            takes.push((Some(taker), dropped.power_up));
         }
-        commands.entity(entity).despawn();
-        takes.push(dropped.power_up);
     }
-    for power_up in takes {
+    for (taker, power_up) in takes {
         taken.write(PowerUpTaken(power_up));
         active.start(power_up);
         let bonus = match power_up {
-            PowerUp::MaxAmmo => {
-                loadout.max_ammo();
-                equipment.max_ammo();
-                0
-            }
             PowerUp::Nuke => {
                 let rng = &mut rand::rng();
                 for zombie in &zombies {
                     commands.entity(zombie).insert(Nuked {
-                        player,
+                        player: taker,
                         left: rng.random_range(NUKE_DELAY_SECS),
                     });
                 }
@@ -546,16 +553,22 @@ fn pick_up(
                 barriers.restore_all();
                 CARPENTER_POINTS
             }
-            PowerUp::DoublePoints => {
-                points.double = true;
-                0
-            }
-            PowerUp::InstaKill | PowerUp::FireSale => 0,
+            _ => 0,
         };
-        // A flat bonus, which Last Stand earns nothing of.
-        if bonus > 0 && !last_stand {
-            let paid = points.award(bonus);
-            awarded.write(PointsAwarded { player, amount: paid });
+        for (player, _, mut loadout, mut equipment, mut points, last_stand) in &mut players {
+            match power_up {
+                PowerUp::MaxAmmo if !last_stand => {
+                    loadout.max_ammo();
+                    equipment.max_ammo();
+                }
+                PowerUp::DoublePoints => points.double = true,
+                _ => {}
+            }
+            // A flat bonus, which Last Stand earns nothing of.
+            if bonus > 0 && !last_stand {
+                let paid = points.award(bonus);
+                awarded.write(PointsAwarded { player, amount: paid });
+            }
         }
     }
 }
@@ -571,7 +584,7 @@ fn nuke(
         nuked.left -= time.delta_secs();
         if nuked.left <= 0.0 {
             damage.write(DamageZombie {
-                player: Some(nuked.player),
+                player: nuked.player,
                 zombie: entity,
                 damage: f32::INFINITY,
                 zone: HitZone::Torso,
