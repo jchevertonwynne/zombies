@@ -1766,6 +1766,8 @@ pub const RESPAWN_FLOOR_FROM_ROUND: u32 = 7;
 pub const RESPAWN_POINTS_FLOOR: u64 = 1500;
 /// A Respawned Player appears this far to the side of the teammate they come back beside, in metres.
 pub const RESPAWN_BESIDE_DISTANCE: f32 = 1.5;
+/// A Respawn spot needs floor within this far below the Player's feet, in metres.
+pub const RESPAWN_FLOOR_REACH: f32 = 1.0;
 /// A Player waiting to Respawn watches from this far behind, and this far above, the teammate they follow.
 pub const SPECTATE_BEHIND_DISTANCE: f32 = 2.5;
 pub const SPECTATE_LIFT: f32 = 0.6;

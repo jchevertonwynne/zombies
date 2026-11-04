@@ -9,6 +9,7 @@ use bevy::prelude::*;
 
 use crate::authority::HostSimulation;
 use crate::equipment::{Equipment, FragLimits};
+use crate::explosive::world_filter;
 use crate::last_stand::{LastStand, go_down, self_revive};
 use crate::modifier::Modifiers;
 use crate::perk::Perks;
@@ -100,6 +101,7 @@ fn bleed_out(
 fn respawn(
     mut started: MessageReader<RoundStarted>,
     mut commands: Commands,
+    spatial: SpatialQuery,
     round: Res<Round>,
     mut players: Query<
         (
@@ -135,7 +137,10 @@ fn respawn(
         if !awaiting {
             continue;
         }
-        transform.translation = beside.translation + beside.right() * RESPAWN_BESIDE_DISTANCE;
+        let spot = respawn_spot(&beside, &spatial);
+        transform.translation = spot;
+        // The body's physics position moves with it, or the old one wins when it's enabled again.
+        commands.entity(entity).insert(Position(spot));
         transform.rotation = beside.rotation;
         health.current = health.max;
         *loadout = Loadout::new(STARTING_WEAPON);
@@ -147,6 +152,27 @@ fn respawn(
         commands.entity(entity).remove::<(AwaitingRespawn, ColliderDisabled)>();
         respawned.write(Respawned { player: entity });
     }
+}
+
+/// Where a Player comes back beside the teammate at `beside`: the first of right, left, behind and
+/// in front of them, `RESPAWN_BESIDE_DISTANCE` away, where the Player's capsule fits clear of the
+/// World and there's floor under it. If none does, the teammate's own spot.
+fn respawn_spot(beside: &Transform, spatial: &SpatialQuery) -> Vec3 {
+    let half_height = PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0;
+    // A little slimmer than the Player, so standing on the floor or against a wall isn't a hit.
+    let capsule = Collider::capsule(PLAYER_RADIUS - 0.05, PLAYER_CAPSULE_LENGTH);
+    let filter = world_filter();
+    [beside.right(), beside.left(), beside.back(), beside.forward()]
+        .into_iter()
+        .map(|side| beside.translation + *side * RESPAWN_BESIDE_DISTANCE)
+        .find(|&spot| {
+            // Nothing solid between the teammate and the spot, so it isn't through a wall.
+            let between = spot - beside.translation;
+            Dir3::new(between).is_ok_and(|dir| spatial.cast_ray(beside.translation, dir, between.length(), true, &filter).is_none())
+                && spatial.shape_intersections(&capsule, spot, Quat::IDENTITY, &filter).is_empty()
+                && spatial.cast_ray(spot, Dir3::NEG_Y, half_height + RESPAWN_FLOOR_REACH, true, &filter).is_some()
+        })
+        .unwrap_or(beside.translation)
 }
 
 /// Co-op Game Over comes the moment no Player is up, whatever Last Stand time is left. Solo's

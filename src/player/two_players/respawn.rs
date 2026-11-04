@@ -134,6 +134,7 @@ fn a_player_respawns_at_the_next_round_beside_a_teammate_with_the_starting_loado
     assert!(waiting(&mut sim, teammate));
 
     start_round(&mut sim);
+    sim.run(5);
     let world = sim.world_mut();
     assert!(world.get::<AwaitingRespawn>(teammate).is_none(), "still waiting");
     assert!(world.get::<ColliderDisabled>(teammate).is_none(), "no body");
@@ -165,6 +166,27 @@ fn a_respawn_from_round_seven_raises_the_points_to_the_floor() {
     bleed_out(&mut sim, teammate);
     start_round(&mut sim);
     assert_eq!(balance(&mut sim, teammate), 8_550, "the floor took Points away");
+}
+
+/// With the teammate standing against a wall on their right, the Player comes back on another
+/// side, not inside the wall.
+#[test]
+fn a_respawn_beside_a_teammate_against_a_wall_picks_a_spot_that_fits() {
+    let (mut sim, local, teammate) = co_op(3);
+    // Walk the teammate east until the wall stops them (they face north, so east is their right).
+    sim.world_mut().get_mut::<MoveInput>(teammate).unwrap().axes = Vec2::X;
+    sim.run(sim.frames(10.0));
+    sim.world_mut().get_mut::<MoveInput>(teammate).unwrap().axes = Vec2::ZERO;
+    sim.run(5);
+    bleed_out(&mut sim, local);
+    start_round(&mut sim);
+    sim.run(3);
+    let world = sim.world_mut();
+    let at = world.get::<Transform>(local).unwrap().translation;
+    let beside = world.get::<Transform>(teammate).unwrap().translation;
+    let right = beside + Vec3::X * RESPAWN_BESIDE_DISTANCE;
+    assert!(at.distance(right) > 0.5, "came back on the wall side, at {at}");
+    assert!((at.distance(beside) - RESPAWN_BESIDE_DISTANCE).abs() < 0.2, "{} m away, so not a free side spot", at.distance(beside));
 }
 
 #[test]
