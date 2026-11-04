@@ -1,5 +1,7 @@
 use bevy::prelude::*;
 
+use crate::player::{Player, SpawnPlayers};
+
 #[derive(States, Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum GameState {
     #[default]
@@ -69,12 +71,37 @@ pub enum PauseScreen {
 #[derive(Component, Default)]
 pub struct InRun;
 
+/// Whether the Run is solo or Co-op, fixed at Run start by how many Players it starts with and
+/// never changed during it: a Co-op Run that drops to one Player keeps Co-op rules, and a Player
+/// added later (the debug key's) doesn't make a solo Run Co-op. Of the current (or just-ended) Run.
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RunType {
+    #[default]
+    Solo,
+    Coop,
+}
+
+impl RunType {
+    #[allow(dead_code, reason = "the Co-op rules that branch on it come in later tickets")]
+    pub fn is_coop(self) -> bool {
+        self == RunType::Coop
+    }
+}
+
+/// Fixes the Run's type from the Players it starts with. The one place the Player count decides
+/// it; it runs once, as the Run begins, after the Players are spawned.
+fn fix_run_type(mut commands: Commands, players: Query<(), With<Player>>) {
+    let run_type = if players.iter().count() >= 2 { RunType::Coop } else { RunType::Solo };
+    commands.insert_resource(run_type);
+}
+
 pub struct StatePlugin;
 
 impl Plugin for StatePlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<GameState>()
             .init_resource::<Freeze>()
+            .init_resource::<RunType>()
             .add_sub_state::<MainMenuScreen>()
             .add_sub_state::<Pause>()
             .add_sub_state::<PauseScreen>()
@@ -84,6 +111,7 @@ impl Plugin for StatePlugin {
             .add_systems(OnExit(Pause::Paused), resume_time)
             .add_systems(OnEnter(Pause::Frozen), pause_time)
             .add_systems(OnExit(Pause::Frozen), resume_time)
+            .add_systems(OnEnter(GameState::Playing), fix_run_type.after(SpawnPlayers))
             .add_systems(OnEnter(GameState::Playing), |mut freeze: ResMut<Freeze>| {
                 freeze.0 = false
             })
@@ -138,4 +166,53 @@ fn pause_time(mut time: ResMut<Time<Virtual>>) {
 
 fn resume_time(mut time: ResMut<Time<Virtual>>) {
     time.unpause();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn one_player_makes_a_solo_run_and_two_a_co_op_one() {
+        let mut world = World::new();
+        world.spawn(Player);
+        world.run_system_once(fix_run_type).unwrap();
+        assert_eq!(*world.resource::<RunType>(), RunType::Solo);
+        world.spawn(Player);
+        world.run_system_once(fix_run_type).unwrap();
+        assert_eq!(*world.resource::<RunType>(), RunType::Coop);
+    }
+
+    /// The type is read once, as the Run begins: Players added or lost after don't change it.
+    #[test]
+    fn the_runs_type_is_fixed_at_its_start() {
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin)
+            .init_state::<GameState>()
+            .init_resource::<RunType>()
+            .add_systems(OnEnter(GameState::Playing), fix_run_type);
+        app.world_mut().spawn(Player);
+        app.world_mut().resource_mut::<NextState<GameState>>().set(GameState::Playing);
+        app.update();
+        assert_eq!(*app.world().resource::<RunType>(), RunType::Solo);
+        // A second Player joins mid-Run, as the debug key's does.
+        app.world_mut().spawn(Player);
+        app.update();
+        assert_eq!(*app.world().resource::<RunType>(), RunType::Solo);
+
+        // And a Co-op Run that drops to one Player stays Co-op.
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin)
+            .init_state::<GameState>()
+            .init_resource::<RunType>()
+            .add_systems(OnEnter(GameState::Playing), fix_run_type);
+        app.world_mut().spawn(Player);
+        let second = app.world_mut().spawn(Player).id();
+        app.world_mut().resource_mut::<NextState<GameState>>().set(GameState::Playing);
+        app.update();
+        app.world_mut().entity_mut(second).despawn();
+        app.update();
+        assert_eq!(*app.world().resource::<RunType>(), RunType::Coop);
+    }
 }

@@ -18,7 +18,7 @@ use crate::burn::Ignite;
 use crate::explosive::{Flight, in_sight};
 use crate::modifier::{Effect, Modifier, Source, Stat};
 use crate::perk::hands_free;
-use crate::player::Player;
+use crate::player::LocalPlayer;
 use crate::state::Pause;
 use crate::tuning::*;
 use crate::gun_model::GunModels;
@@ -309,7 +309,7 @@ impl Plugin for AttachmentPlugin {
 }
 
 /// The Underbarrel key toggles between the main gun and its Underbarrel.
-fn toggle_underbarrel(mut loadout: Single<&mut Loadout, With<Player>>, controls: Controls) {
+fn toggle_underbarrel(mut loadout: Single<&mut Loadout, With<LocalPlayer>>, controls: Controls) {
     if controls.just_pressed(Action::Underbarrel) {
         loadout.toggle_underbarrel();
     }
@@ -380,7 +380,7 @@ pub fn shown_attachments(copy: &WeaponCopy) -> Vec<Attachment> {
 /// The held Weapon's Attachments on the view model, fitted where its model has them; hidden while
 /// it's put away. Magazines aren't here: they replace the Weapon's own (see `GunModels`).
 fn show_attachments(
-    player: Single<&Loadout, With<Player>>,
+    player: Single<&Loadout, With<LocalPlayer>>,
     mut models: Query<(&AttachmentModel, &mut Mesh3d, &mut Transform, &mut Visibility)>,
     guns: Res<GunModels>,
 ) {

@@ -27,7 +27,7 @@ use crate::muzzle::{BulletImpact, ImpactKind};
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve, resolve_count};
 use crate::equipment::{Equipment, Handling, arms_free, hand_pose};
 use crate::perk::{Drinking, hands_free};
-use crate::player::{Locomotion, Player, PlayerCamera};
+use crate::player::{LocalPlayer, Locomotion, Player, PlayerCamera};
 use crate::state::Pause;
 use crate::tuning::*;
 use crate::wonder::{WonderFired, is_wonder};
@@ -955,7 +955,7 @@ fn apply_hit_reports(mut reports: MessageReader<HitReport>, mut damage: MessageW
 
 /// Scroll, the Switch Weapon key, or the Weapon 1/2 (and 3, with a third slot) keys switch Weapons.
 fn switch_weapons(
-    mut loadout: Single<&mut Loadout, With<Player>>,
+    mut loadout: Single<&mut Loadout, With<LocalPlayer>>,
     controls: Controls,
     scroll: Res<AccumulatedMouseScroll>,
     time: Res<Time>,
@@ -973,7 +973,7 @@ fn switch_weapons(
 }
 
 fn reload(
-    player: Single<(&mut Loadout, &Modifiers), With<Player>>,
+    player: Single<(&mut Loadout, &Modifiers), With<LocalPlayer>>,
     controls: Controls,
     time: Res<Time>,
 ) {
@@ -987,7 +987,7 @@ fn reload(
 
 /// The Aim key aims down the sights.
 fn aim(
-    player: Single<(&mut Loadout, &Locomotion), With<Player>>,
+    player: Single<(&mut Loadout, &Locomotion), With<LocalPlayer>>,
     controls: Controls,
     time: Res<Time>,
 ) {
@@ -996,7 +996,7 @@ fn aim(
 }
 
 fn fire(
-    player: Single<(Entity, &mut Loadout, &Modifiers), With<Player>>,
+    player: Single<(Entity, &mut Loadout, &Modifiers), With<LocalPlayer>>,
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
     mut view_model: Single<&mut ViewModel>,
     controls: Controls,
@@ -1198,7 +1198,7 @@ fn fire(
 }
 
 fn knife(
-    player: Single<(Entity, &mut Knife, &Loadout, &Modifiers), With<Player>>,
+    player: Single<(Entity, &mut Knife, &Loadout, &Modifiers), With<LocalPlayer>>,
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
     controls: Controls,
     spatial: SpatialQuery,
@@ -1248,7 +1248,7 @@ pub fn knife_hit(base: f32, player: &[Modifier], roll: f64) -> f32 {
 
 /// The Player's Weapon slots, and how much Reserve Ammo each Weapon carries, follow their stat
 /// entries.
-fn resolve_slots(mut player: Single<(&mut Loadout, &Modifiers), With<Player>>) {
+fn resolve_slots(mut player: Single<(&mut Loadout, &Modifiers), With<LocalPlayer>>) {
     let (ref mut loadout, modifiers) = *player;
     let count = resolve_count(Stat::WeaponSlots, WEAPON_SLOTS, &modifiers.0) as usize;
     if loadout.slot_count() != count {
@@ -1283,7 +1283,7 @@ fn animate_view_model(
         (Without<ViewModel>, Without<Glint>),
     >,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    player: Single<(&Loadout, &Modifiers, &Knife, Option<&Drinking>, &Equipment, Option<&Handling>), With<Player>>,
+    player: Single<(&Loadout, &Modifiers, &Knife, Option<&Drinking>, &Equipment, Option<&Handling>), With<LocalPlayer>>,
     guns: Res<GunModels>,
     rebuild: Res<Rebuild>,
     ammo_buy: Res<AmmoBuy>,

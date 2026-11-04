@@ -20,6 +20,20 @@ use crate::zone::ZoneId;
 /// Where the Player's feet start: the middle of the Start Room, facing the Yard.
 pub const PLAYER_START: Vec3 = Vec3::new(0.0, 0.0, 20.0);
 
+/// Where each Seat's Player starts, in Seat order: the first is `PLAYER_START`, the rest stand in
+/// the Start Room beside it, clear of the Box, the Wall Weapons and the Yard Door.
+pub const SEAT_STARTS: [Vec3; 4] = [
+    PLAYER_START,
+    Vec3::new(-3.0, 0.0, 20.0),
+    Vec3::new(3.0, 0.0, 20.0),
+    Vec3::new(0.0, 0.0, 17.0),
+];
+
+/// Where the Player in Seat `seat` starts.
+pub fn seat_start(seat: u8) -> Vec3 {
+    SEAT_STARTS[usize::from(seat) % SEAT_STARTS.len()]
+}
+
 /// One storey.
 const STOREY: f32 = 4.0;
 const WALL_THICKNESS: f32 = 0.4;
@@ -695,6 +709,28 @@ mod tests {
                 let gap = Vec2::new(at_a.x - at_b.x, at_a.z - at_b.z).length();
                 assert!(gap >= clear_a + clear_b + 0.3, "{a} and {b} are only {gap:.2} m apart");
             }
+        }
+    }
+
+    #[test]
+    fn every_seat_starts_in_the_start_room_on_open_floor_and_can_walk_out() {
+        use crate::nav::NavGraph;
+        use crate::target::path_distance;
+        assert_eq!(SEAT_STARTS[0], PLAYER_START, "solo starts where it always did");
+        let graph = NavGraph::new();
+        let all_open: Vec<_> = ZoneId::ALL.iter().flat_map(|&a| ZoneId::ALL.iter().map(move |&b| (a, b))).collect();
+        let yard = Vec3::new(0.0, 0.0, 0.0);
+        for (i, &seat) in SEAT_STARTS.iter().enumerate() {
+            let (lo, hi) = ZoneId::StartRoom.volume();
+            assert!((lo.x + 2.0..=hi.x - 2.0).contains(&seat.x) && (lo.z + 2.0..=hi.z - 2.0).contains(&seat.z), "Seat {i} is by a wall");
+            for (name, at, clear) in fixtures() {
+                let gap = Vec2::new(at.x - seat.x, at.z - seat.z).length();
+                assert!(gap >= clear + PLAYER_RADIUS + 0.5, "Seat {i} is only {gap:.2} m from {name}");
+            }
+            for &other in &SEAT_STARTS[i + 1..] {
+                assert!(seat.distance(other) >= 2.5, "Seats are only {:.2} m apart", seat.distance(other));
+            }
+            assert!(path_distance(&graph, seat, yard, &all_open, |_| true).is_some(), "Seat {i} can't reach the Yard");
         }
     }
 

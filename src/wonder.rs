@@ -11,7 +11,7 @@ use crate::authority::HostSimulation;
 use crate::equipment::Pull;
 use crate::explosive::{Explosion, Explosive, Launch, Thrown, in_sight, makes_crawlers, world_filter};
 use crate::layers::GameLayer;
-use crate::player::Player;
+use crate::player::LocalPlayer;
 use crate::state::{InRun, Pause};
 use crate::tuning::*;
 use crate::weapon::Loadout;
@@ -291,7 +291,7 @@ fn burn_bolts(
 fn pick_up_blades(
     mut commands: Commands,
     blades: Query<(Entity, &Transform, &Stuck), With<Blade>>,
-    player: Single<(&Transform, &mut Loadout), With<Player>>,
+    player: Single<(&Transform, &mut Loadout), With<LocalPlayer>>,
 ) {
     let (player_transform, mut loadout) = player.into_inner();
     for (entity, transform, stuck) in &blades {

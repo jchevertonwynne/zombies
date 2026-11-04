@@ -7,7 +7,7 @@ use bevy::prelude::*;
 
 use crate::hud::overlay::{Overlay, Overlays};
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat};
-use crate::player::Player;
+use crate::player::LocalPlayer;
 use crate::state::Pause;
 use crate::tuning::*;
 
@@ -69,7 +69,7 @@ fn shellshock_player(
     mut shocks: MessageReader<Shellshock>,
     mut started: MessageWriter<ShellshockStarted>,
     mut overlays: ResMut<Overlays>,
-    player: Single<(&mut Shellshocked, &mut Modifiers), With<Player>>,
+    player: Single<(&mut Shellshocked, &mut Modifiers), With<LocalPlayer>>,
     time: Res<Time>,
 ) {
     let (mut shocked, mut modifiers) = player.into_inner();

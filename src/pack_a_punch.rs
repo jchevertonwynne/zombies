@@ -18,7 +18,7 @@ use crate::buy::{Buyable, HoldBuy, HoldPurchased, Purchased, Refused};
 use crate::layers::GameLayer;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve_points};
 use crate::perk::Drinking;
-use crate::player::Player;
+use crate::player::{LocalPlayer, Player};
 use crate::power::Power;
 use crate::sapper::Sabotaged;
 use crate::state::{GameState, InRun, Pause};
@@ -346,7 +346,7 @@ fn prompt_machine(
         Has<Refused>,
         Has<Sabotaged>,
     )>,
-    player: Single<(&Loadout, &Modifiers, Has<Drinking>), With<Player>>,
+    player: Single<(&Loadout, &Modifiers, Has<Drinking>), With<LocalPlayer>>,
     power: Res<Power>,
 ) {
     let (loadout, modifiers, drinking) = *player;

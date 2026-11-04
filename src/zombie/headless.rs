@@ -13,7 +13,7 @@ use bevy::time::TimeUpdateStrategy;
 use super::*;
 use crate::authority::{Authority, AuthorityPlugin};
 use crate::modifier::Modifiers;
-use crate::player::Player;
+use crate::player::{LocalPlayer, Player};
 use crate::state::GameState;
 
 /// A Zombie as one rendered frame shows it.
@@ -72,6 +72,7 @@ impl Sim {
         let half_height = PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0;
         app.world_mut().spawn((
             Player,
+            LocalPlayer,
             Modifiers::default(),
             crate::zone::PlayerZone::default(),
             Transform::from_translation(crate::map::PLAYER_START + Vec3::Y * half_height),

@@ -10,7 +10,7 @@ use crate::authority::HostSimulation;
 use crate::buy::{Buyable, Purchased, Refused};
 use crate::layers::GameLayer;
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve_count, resolve_points};
-use crate::player::Player;
+use crate::player::{LocalPlayer, Player};
 use crate::power::Power;
 use crate::sapper::Sabotaged;
 use crate::state::{GameState, InRun, Pause};
@@ -367,19 +367,20 @@ fn float_away(
 /// The Perk applies when the drink ends.
 pub fn drink(
     mut commands: Commands,
-    player: Single<(Entity, &mut Drinking, &mut Perks, &mut Modifiers), With<Player>>,
+    mut players: Query<(Entity, &mut Drinking, &mut Perks, &mut Modifiers), With<Player>>,
     time: Res<Time>,
 ) {
-    let (entity, mut drinking, mut perks, mut modifiers) = player.into_inner();
-    if !drinking.advance(time.delta_secs()) {
-        return;
+    for (entity, mut drinking, mut perks, mut modifiers) in &mut players {
+        if !drinking.advance(time.delta_secs()) {
+            continue;
+        }
+        let perk = drinking.perk;
+        if !perks.has(perk) {
+            perks.0.push(perk);
+            modifiers.0.extend_from_slice(perk.modifiers());
+        }
+        commands.entity(entity).remove::<Drinking>();
     }
-    let perk = drinking.perk;
-    if !perks.has(perk) {
-        perks.0.push(perk);
-        modifiers.0.extend_from_slice(perk.modifiers());
-    }
-    commands.entity(entity).remove::<Drinking>();
 }
 
 /// Machines own their Buyables: a buy, the Power refusal, or no Prompt at all (always, while
@@ -387,7 +388,7 @@ pub fn drink(
 fn prompt_machines(
     mut commands: Commands,
     machines: Query<(Entity, &PerkMachine, Option<&Buyable>, Has<Refused>, Has<Sabotaged>), Without<Leaving>>,
-    player: Single<(&Perks, &Modifiers, Has<Drinking>), With<Player>>,
+    player: Single<(&Perks, &Modifiers, Has<Drinking>), With<LocalPlayer>>,
     power: Res<Power>,
 ) {
     let (perks, modifiers, drinking) = *player;

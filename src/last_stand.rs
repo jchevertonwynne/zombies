@@ -116,30 +116,31 @@ impl Plugin for LastStandPlugin {
 /// and a Perk mid-drink with its Points.
 pub fn go_down(
     mut commands: Commands,
-    player: Single<
+    mut players: Query<
         (Entity, &mut Health, &mut Perks, &mut Modifiers, &mut Loadout, &mut SparesUsed),
         (With<Player>, Without<LastStand>),
     >,
     mut downs: MessageWriter<Down>,
     mut next: ResMut<NextState<GameState>>,
 ) {
-    let (entity, mut health, mut perks, mut modifiers, mut loadout, mut spares) = player.into_inner();
-    if health.current > 0.0 {
-        return;
-    }
-    let outcome = down_outcome(&perks, spares_left(&modifiers.0, spares.0));
-    if outcome == DownOutcome::LastStand && !perks.has(Perk::QuickRevive) {
-        spares.0 = spares.0.saturating_add(1);
-    }
-    let keep = kept_on_down(&modifiers.0);
-    perks.lose_on_down(keep, &mut modifiers);
-    commands.entity(entity).remove::<Drinking>();
-    downs.write(Down { player: entity, outcome });
-    match outcome {
-        DownOutcome::GameOver => next.set(GameState::GameOver),
-        DownOutcome::LastStand => {
-            health.current = 0.0;
-            commands.entity(entity).insert(LastStand::begin(&mut loadout));
+    for (entity, mut health, mut perks, mut modifiers, mut loadout, mut spares) in &mut players {
+        if health.current > 0.0 {
+            continue;
+        }
+        let outcome = down_outcome(&perks, spares_left(&modifiers.0, spares.0));
+        if outcome == DownOutcome::LastStand && !perks.has(Perk::QuickRevive) {
+            spares.0 = spares.0.saturating_add(1);
+        }
+        let keep = kept_on_down(&modifiers.0);
+        perks.lose_on_down(keep, &mut modifiers);
+        commands.entity(entity).remove::<Drinking>();
+        downs.write(Down { player: entity, outcome });
+        match outcome {
+            DownOutcome::GameOver => next.set(GameState::GameOver),
+            DownOutcome::LastStand => {
+                health.current = 0.0;
+                commands.entity(entity).insert(LastStand::begin(&mut loadout));
+            }
         }
     }
 }
@@ -147,18 +148,19 @@ pub fn go_down(
 /// The end of a Last Stand: 100 Health, the old Weapons back, no Points taken.
 fn self_revive(
     mut commands: Commands,
-    player: Single<(Entity, &mut LastStand, &mut Loadout, &mut Health), With<Player>>,
+    mut players: Query<(Entity, &mut LastStand, &mut Loadout, &mut Health), With<Player>>,
     mut revived: MessageWriter<SelfRevived>,
     time: Res<Time>,
 ) {
-    let (entity, mut stand, mut loadout, mut health) = player.into_inner();
-    if !stand.advance(time.delta_secs()) {
-        return;
+    for (entity, mut stand, mut loadout, mut health) in &mut players {
+        if !stand.advance(time.delta_secs()) {
+            continue;
+        }
+        stand.self_revive(&mut loadout);
+        health.current = SELF_REVIVE_HEALTH.min(health.max);
+        commands.entity(entity).remove::<LastStand>();
+        revived.write(SelfRevived);
     }
-    stand.self_revive(&mut loadout);
-    health.current = SELF_REVIVE_HEALTH.min(health.max);
-    commands.entity(entity).remove::<LastStand>();
-    revived.write(SelfRevived);
 }
 
 /// The view drops to the floor for the crawl and comes back up after.
