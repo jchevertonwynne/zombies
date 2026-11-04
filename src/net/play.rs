@@ -341,6 +341,7 @@ fn send_snapshots(
             players: sights.iter().filter(|sight| sight.seat != seat.0).copied().collect(),
             zombies: horde.zombies.clone(),
             hellhounds: horde.hellhounds.clone(),
+            specials: horde.specials.clone(),
         };
         let bytes = encode(&snapshot);
         debug_assert!(bytes.len() <= SNAPSHOT_MAX_BYTES, "a snapshot of {}", bytes.len());

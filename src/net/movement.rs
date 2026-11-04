@@ -18,7 +18,11 @@ use crate::authority::{Authority, AuthorityPlugin};
 use crate::barrier::Barriers;
 use crate::hellhound::{HellhoundAssetsParam, HellhoundPlugin, spawn_hellhound};
 use crate::nav::NavGraph;
-use crate::nova::NovaCrawlerKilled;
+use crate::hellhound::Telegraph;
+use crate::map::SpawnKind;
+use crate::nova::{Burst, GasCloud, NovaAssetsParam, NovaCrawlerKilled, spawn_nova_crawler};
+use crate::sapper::{self, Sapper, SapperAssetsParam};
+use crate::special::{self, Napalm, SpecialAssetsParam, SpecialKind};
 use crate::player::PlayerHit;
 use crate::power_up::ActivePowerUps;
 use crate::special::SpecialCue;
@@ -46,6 +50,7 @@ pub(super) fn machine(local: u8, seats: u8, install: impl FnOnce(&mut App)) -> A
         .insert_resource(NavGraph::new())
         .insert_resource(Barriers::default())
         .add_plugins((ZombiePlugin, HellhoundPlugin))
+        .add_systems(Startup, (special::load_assets, sapper::load_assets, crate::nova::load_assets))
         .add_systems(FixedUpdate, move_player.run_if(world_runs))
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / f64::from(FIXED_HZ))));
     install(&mut app);
@@ -244,6 +249,8 @@ struct Puppeted {
     crawler: bool,
     hellhound: bool,
     dying: bool,
+    special: Option<SpecialKind>,
+    nova: bool,
 }
 
 impl Run {
@@ -286,6 +293,8 @@ impl Run {
                         crawler: zombie.is_crawler(),
                         hellhound: zombie.is_hellhound(),
                         dying,
+                        special: zombie.special_kind(),
+                        nova: zombie.is_nova_crawler(),
                     },
                 )
             })
@@ -393,4 +402,117 @@ fn a_puppet_is_posed_as_the_host_has_its_zombie() {
     let puppet = &run.puppets(1)[0].1;
     assert!(puppet.crawler && run.puppets(0)[0].1.crawler, "{puppet:?}");
     assert_eq!(puppet.shown, Activity::Moving);
+}
+
+impl Run {
+    /// A Special Zombie of `kind` on the Host's floor at `feet`, dressed as the game does.
+    fn special(&mut self, feet: Vec3, kind: SpecialKind) -> Entity {
+        let zombie = self.zombie(feet);
+        let world = self.apps[0].world_mut();
+        world
+            .run_system_once(
+                move |mut commands: Commands,
+                      special: SpecialAssetsParam,
+                      sapper: SapperAssetsParam,
+                      zombies: Query<&Transform>| {
+                    let at = zombies.get(zombie).unwrap().translation;
+                    match kind {
+                        SpecialKind::Sapper => sapper::dress_puppet(&mut commands, &sapper, zombie, at, true),
+                        _ => special::dress_puppet(&mut commands, &special, zombie, kind),
+                    }
+                },
+            )
+            .unwrap();
+        zombie
+    }
+
+    fn nova_crawler(&mut self, floor: Vec3) -> Entity {
+        let world = self.apps[0].world_mut();
+        world
+            .run_system_once(move |mut commands: Commands, assets: NovaAssetsParam| {
+                spawn_nova_crawler(&mut commands, &assets, SpawnKind::Riser, floor, 1000.0)
+            })
+            .unwrap()
+    }
+}
+
+/// Each Special Zombie on the Host has its own body on a client, and a Zombie that is none has not.
+#[test]
+fn each_special_zombie_has_its_own_body_on_the_client() {
+    let mut run = Run::new(2, 2, 0.0, 0);
+    let start = crate::map::PLAYER_START;
+    let napalm = run.special(start + Vec3::new(8.0, 0.0, 4.0), SpecialKind::Napalm);
+    let shrieker = run.special(start + Vec3::new(9.5, 0.0, 4.0), SpecialKind::Shrieker);
+    let sapper = run.special(start + Vec3::new(11.0, 0.0, 4.0), SpecialKind::Sapper);
+    let nova = run.nova_crawler(start + Vec3::new(12.5, 0.0, 4.0));
+    run.zombie(start + Vec3::new(14.0, 0.0, 4.0));
+    run.step(IDLE, 150);
+    let ids: Vec<u16> = [napalm, shrieker, sapper, nova]
+        .map(|zombie| run.apps[0].world().resource::<ZombieIds>().id(zombie).unwrap())
+        .into();
+    for on in 1..=2 {
+        let seen = run.puppets(on);
+        assert_eq!(seen.len(), 5, "machine {on}");
+        let kinds: Vec<_> = ids.iter().map(|id| seen.iter().find(|(held, _)| held == id).map(|(_, p)| (p.special, p.nova))).collect();
+        assert_eq!(
+            kinds,
+            [
+                Some((Some(SpecialKind::Napalm), false)),
+                Some((Some(SpecialKind::Shrieker), false)),
+                Some((Some(SpecialKind::Sapper), false)),
+                Some((None, true)),
+            ],
+            "machine {on}"
+        );
+        assert_eq!(seen.iter().filter(|(_, puppet)| puppet.special.is_none() && !puppet.nova).count(), 1);
+        // The bodies the Host has: a Napalm glows with heat, the Sapper wears a helmet.
+        let world = run.apps[on].world_mut();
+        assert_eq!(world.query::<&Napalm>().iter(world).count(), 1, "machine {on}");
+        let mut sappers = world.query::<&Sapper>();
+        assert!(sappers.single(world).is_ok_and(|sapper| !sapper.helmet_lost()), "machine {on}");
+    }
+
+    // The Sapper loses its helmet on the Host, and the Nova Crawler is killed by a bullet and bursts.
+    run.apps[0]
+        .world_mut()
+        .run_system_once(move |mut commands: Commands, mut sappers: Query<&mut Sapper>| {
+            sappers.single_mut().unwrap().lose_helmet(&mut commands);
+        })
+        .unwrap();
+    run.apps[0].world_mut().entity_mut(nova).insert((Burst, Dying::default()));
+    run.step(IDLE, 80);
+    for on in 1..=2 {
+        let world = run.apps[on].world_mut();
+        let mut sappers = world.query::<&Sapper>();
+        assert!(sappers.single(world).is_ok_and(Sapper::helmet_lost), "machine {on}");
+        assert_eq!(world.query::<&GasCloud>().iter(world).count(), 1, "machine {on} has no gas");
+        let mut novas = world.query::<(&Zombie, Has<Burst>, Has<Dying>)>();
+        let burst: Vec<_> = novas.iter(world).filter(|(zombie, ..)| zombie.is_nova_crawler()).collect();
+        assert!(burst.len() == 1 && burst[0].1 && burst[0].2, "machine {on}");
+    }
+}
+
+/// A Hellhound still in its lightning strike on the Host is in it on a client, and out when the
+/// Host has it out.
+#[test]
+fn a_hellhound_puppet_shows_its_lightning_strike() {
+    let mut run = Run::new(1, 2, 0.0, 0);
+    let bolts = |run: &mut Run| {
+        let world = run.apps[1].world_mut();
+        let mut query = world.query::<&PointLight>();
+        query.iter(world).count()
+    };
+    let lights = bolts(&mut run);
+    run.hellhound(crate::map::PLAYER_START + Vec3::new(-8.0, 0.0, 4.0));
+    run.step(IDLE, 45);
+    let strikes = |run: &mut Run, on: usize| {
+        let world = run.apps[on].world_mut();
+        let mut query = world.query_filtered::<&Telegraph, With<ZombieId>>();
+        query.iter(world).count()
+    };
+    assert_eq!((strikes(&mut run, 0), strikes(&mut run, 1)), (1, 1));
+    assert_eq!(bolts(&mut run), lights + 1, "no bolt on the client");
+    run.step(IDLE, 150);
+    assert_eq!((strikes(&mut run, 0), strikes(&mut run, 1)), (0, 0));
+    assert_eq!(bolts(&mut run), lights, "the bolt stayed");
 }

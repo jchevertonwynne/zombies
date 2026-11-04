@@ -2100,6 +2100,9 @@ pub const SNAPSHOT_MAX_BYTES: usize = 1000;
 /// then the highest ids are left out.
 pub const SNAPSHOT_MAX_ZOMBIES: usize = 56;
 pub const SNAPSHOT_MAX_HELLHOUNDS: usize = 8;
+/// The most Special Zombies a snapshot names: the special slot's one, the Sapper, and the most Nova
+/// Crawlers alive, with room to spare.
+pub const SNAPSHOT_MAX_SPECIALS: usize = 12;
 /// A Zombie that a snapshot has farther from where the one before had it than this has been
 /// moved, not walked, and is shown there at once.
 pub const PUPPET_SNAP_METRES: f32 = 6.0;

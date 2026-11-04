@@ -326,6 +326,10 @@ struct SpecialAssets {
     flame: Handle<Mesh>,
 }
 
+/// Lets a client dress its puppets as a Napalm or a Shrieker without knowing about the asset handles.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct SpecialAssetsParam<'w>(Res<'w, SpecialAssets>);
+
 pub struct SpecialPlugin;
 
 impl Plugin for SpecialPlugin {
@@ -351,7 +355,7 @@ impl Plugin for SpecialPlugin {
     }
 }
 
-fn load_assets(
+pub(crate) fn load_assets(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -475,15 +479,7 @@ fn spawn_special(
                     },
                     MeshMaterial3d(assets.napalm.clone()),
                 ))
-                .with_child((
-                    PointLight {
-                        color: Color::srgb(1.0, 0.5, 0.15),
-                        intensity: 60_000.0,
-                        range: 6.0,
-                        ..default()
-                    },
-                    Transform::from_xyz(0.0, 0.3, 0.0),
-                ));
+                .with_child(napalm_glow());
             spawn_pool(&mut commands, &assets, at, None, NAPALM_SPAWN_POOL_DAMAGE, NAPALM_SPAWN_POOL_SECS);
             cues.write(SpecialCue {
                 cue: Cue::NapalmRise,
@@ -509,6 +505,42 @@ fn spawn_special(
         SpecialKind::Sapper => {}
     }
     plan.kind = None;
+}
+
+/// The light a living Napalm gives off.
+fn napalm_glow() -> (PointLight, Transform) {
+    (
+        PointLight {
+            color: Color::srgb(1.0, 0.5, 0.15),
+            intensity: 60_000.0,
+            range: 6.0,
+            ..default()
+        },
+        Transform::from_xyz(0.0, 0.3, 0.0),
+    )
+}
+
+/// Dresses a puppet Zombie as a Napalm or a Shrieker, as the Host's is. Neither has any AI here:
+/// all a client needs of them is how they look, and for a Napalm the heat it gives off.
+pub fn dress_puppet(commands: &mut Commands, assets: &SpecialAssetsParam, entity: Entity, kind: SpecialKind) {
+    let assets = &assets.0;
+    let mut zombie = commands.entity(entity);
+    zombie.entry::<Zombie>().and_modify(move |mut zombie| zombie.become_special(kind));
+    match kind {
+        SpecialKind::Napalm => {
+            zombie
+                .insert((Name::new("Napalm"), Napalm { age: 0.0, wind_up: None }, MeshMaterial3d(assets.napalm.clone())))
+                .with_child(napalm_glow());
+        }
+        SpecialKind::Shrieker => {
+            zombie.insert((
+                Name::new("Shrieker"),
+                Shrieker { cooldown: 0.0, wind_up: None, idle_in: 0.0 },
+                MeshMaterial3d(assets.shrieker.clone()),
+            ));
+        }
+        SpecialKind::Sapper => {}
+    }
 }
 
 /// A fire pool on the floor at `at`, burning the Player for `damage` a tick over `secs`.

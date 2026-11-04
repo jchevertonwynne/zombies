@@ -404,6 +404,11 @@ impl Zombie {
         self.special
     }
 
+    /// A puppet Zombie that the Host says is a Napalm, a Shrieker or the Sapper is one here.
+    pub fn become_special(&mut self, kind: SpecialKind) {
+        self.special = Some(kind);
+    }
+
     pub fn is_sapper(&self) -> bool {
         self.special == Some(SpecialKind::Sapper)
     }
