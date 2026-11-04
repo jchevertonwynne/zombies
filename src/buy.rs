@@ -59,8 +59,10 @@ pub struct Purchased {
 }
 
 /// The Player tried to buy something they can't afford.
-#[derive(Message)]
-pub struct CantAfford;
+#[derive(Message, Debug, Clone, Copy)]
+pub struct CantAfford {
+    pub player: Entity,
+}
 
 /// Its owner refuses this Buyable for now, like an ammo buy with full ammo or a Perk machine
 /// before Power. The Prompt still shows, but the Use key charges nothing and plays the buzzer.
@@ -158,8 +160,10 @@ impl<T: PartialEq + Copy> HoldTimer<T> {
 }
 
 /// The Player tried to buy something its owner refuses.
-#[derive(Message)]
-pub struct BuyRefused;
+#[derive(Message, Debug, Clone, Copy)]
+pub struct BuyRefused {
+    pub player: Entity,
+}
 
 /// The Buyable whose Prompt is showing, if any.
 #[derive(Resource, Default)]
@@ -398,10 +402,10 @@ pub(crate) fn resolve_use(
                 }
             }
             Decision::CantAfford => {
-                cant_afford.write(CantAfford);
+                cant_afford.write(CantAfford { player });
             }
             Decision::Refused => {
-                refusals.write(BuyRefused);
+                refusals.write(BuyRefused { player });
             }
             Decision::NoPrompt => {}
         }
@@ -662,7 +666,9 @@ mod tests {
         app.update();
         assert_eq!(app.world().get::<Points>(broke).unwrap().balance, 100);
         assert!(drained::<Purchased>(&mut app).is_empty());
-        assert_eq!(drained::<CantAfford>(&mut app).len(), 1);
+        let refused = drained::<CantAfford>(&mut app);
+        assert_eq!(refused.len(), 1);
+        assert_eq!(refused[0].player, broke, "the buzzer names the Player who was refused");
     }
 
     #[test]

@@ -157,6 +157,16 @@ struct Inside {
     owner: Option<Entity>,
 }
 
+/// A Weapon out of the machine and waiting to be taken.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Waiting {
+    pub weapon: &'static str,
+    /// Who alone can take it; `None` if anyone can.
+    pub owner: Option<Entity>,
+    /// Seconds left before it's lost.
+    pub left: f32,
+}
+
 /// The Pack-a-Punch machine. It holds one Weapon at a time.
 #[derive(Component, Default)]
 pub struct PackAPunch {
@@ -172,6 +182,16 @@ impl PackAPunch {
     /// Whether `player` may take the Weapon inside out.
     pub fn is_owned_by(&self, player: Entity) -> bool {
         self.inside.as_ref().is_some_and(|inside| inside.owner.is_none_or(|owner| owner == player))
+    }
+
+    /// The Weapon waiting to be taken, if it's out of the machine and not yet lost.
+    pub fn waiting(&self) -> Option<Waiting> {
+        let inside = self.inside.as_ref()?;
+        (stage(inside.elapsed) == Stage::Ready).then(|| Waiting {
+            weapon: inside.weapon.stats().name,
+            owner: inside.owner,
+            left: PAP_PROCESS_SECS + PAP_PICKUP_SECS - inside.elapsed,
+        })
     }
 
     /// The stage of the Weapon inside, if any.

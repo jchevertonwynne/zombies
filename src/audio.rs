@@ -386,6 +386,7 @@ fn play_buy_sounds(
     mut holds: MessageReader<HoldPurchased>,
     mut cant_afford: MessageReader<CantAfford>,
     mut refusals: MessageReader<BuyRefused>,
+    local: Query<Entity, With<LocalPlayer>>,
     mut torn: MessageReader<PlankTorn>,
     mut rebuilt: MessageReader<PlankRebuilt>,
     mut power_ups: MessageReader<PowerUpTaken>,
@@ -393,8 +394,10 @@ fn play_buy_sounds(
     for _ in 0..purchases.read().count() + holds.read().count() {
         sounds.play(&mut commands, Cue::Buy, None);
     }
-    // Not affording a buy and a refused buy share the buzzer.
-    for _ in 0..cant_afford.read().count() + refusals.read().count() {
+    // Not affording a buy and a refused buy share the buzzer, heard only by the one refused.
+    let buzzes = cant_afford.read().filter(|refused| local.contains(refused.player)).count()
+        + refusals.read().filter(|refused| local.contains(refused.player)).count();
+    for _ in 0..buzzes {
         sounds.play(&mut commands, Cue::CantAfford, None);
     }
     for plank in torn.read() {
