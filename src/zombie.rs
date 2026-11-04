@@ -1259,16 +1259,50 @@ fn become_crawler(
         transform.translation -= drop;
         easing.start = easing.start.map(|start| start - drop);
         easing.end = easing.end.map(|end| end - drop);
-        let mut body = None;
-        commands
-            .entity(entity)
-            .insert((Mesh3d(assets.crawler_body.clone()), Collider::sphere(CRAWLER_RADIUS)))
-            .despawn_children()
-            .with_children(|crawler| body = Some(spawn_crawler_parts(crawler, &assets, entity)));
-        if let Some(body) = body {
-            commands.entity(entity).insert(body);
-        }
+        give_crawler_body(&mut commands, &assets, entity);
     }
+}
+
+/// Swaps a Zombie's standing body for a Crawler's, hit areas and all.
+fn give_crawler_body(commands: &mut Commands, assets: &ZombieAssets, entity: Entity) {
+    let mut body = None;
+    commands
+        .entity(entity)
+        .insert((Mesh3d(assets.crawler_body.clone()), Collider::sphere(CRAWLER_RADIUS)))
+        .despawn_children()
+        .with_children(|crawler| body = Some(spawn_crawler_parts(crawler, assets, entity)));
+    if let Some(body) = body {
+        commands.entity(entity).insert(body);
+    }
+}
+
+/// Spawns the body of a Zombie the Host has, on a client: standing, or a Crawler, its centre at
+/// `centre` and facing `yaw`. It has no Health to speak of and nothing moves it.
+pub fn spawn_puppet(
+    commands: &mut Commands,
+    assets: &ZombieAssetsParam,
+    centre: Vec3,
+    yaw: f32,
+    crawler: bool,
+) -> Entity {
+    let feet = centre - Vec3::Y * (body_half_height() + 0.02);
+    let entity = spawn_zombie(commands, assets, feet, 1.0, SpeedTier::Walker, None);
+    commands
+        .entity(entity)
+        .insert(Transform::from_translation(centre).with_rotation(Quat::from_rotation_y(yaw)));
+    if crawler {
+        make_puppet_crawler(commands, assets, entity);
+    }
+    entity
+}
+
+/// A puppet Zombie that has lost its legs on the Host loses them here.
+pub fn make_puppet_crawler(commands: &mut Commands, assets: &ZombieAssetsParam, entity: Entity) {
+    commands.entity(entity).entry::<Zombie>().and_modify(|mut zombie| {
+        zombie.crawler = true;
+        zombie.wind_up = None;
+    });
+    give_crawler_body(commands, &assets.0, entity);
 }
 
 /// A hound in its lightning strike can't be hurt. Insta-Kill only doubles a Napalm's or the
@@ -1406,7 +1440,7 @@ fn sink(mut dying: Query<(&mut Dying, &mut Transform, Option<&Zombie>)>, time: R
     }
 }
 
-mod rig;
+pub mod rig;
 
 #[cfg(test)]
 pub mod headless;

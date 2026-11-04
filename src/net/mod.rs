@@ -13,6 +13,7 @@ pub mod remote;
 pub mod room;
 pub mod state;
 pub mod transport;
+pub mod zombies;
 
 #[cfg(test)]
 mod movement;

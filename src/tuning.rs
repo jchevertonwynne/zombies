@@ -2071,6 +2071,13 @@ pub const WIRE_POSITION_STEP: f32 = 0.01;
 /// before it jumps.
 pub const PUPPET_SLACK_TICKS: f32 = 2.0;
 pub const PUPPET_JUMP_TICKS: f32 = 8.0;
-/// What a snapshot leaves room for Zombies and Hellhounds: 56 Zombies and 2 Hellhounds, at most
-/// 12 bytes each, and their length.
-pub const SNAPSHOT_ZOMBIE_RESERVE: usize = 58 * 12 + 2;
+/// The most a snapshot may come to, in bytes: one QUIC datagram.
+pub const SNAPSHOT_MAX_BYTES: usize = 1000;
+/// The most Zombies a snapshot tells of (the Alive Cap's top end of 48 and Overkill's 8), and the
+/// most Hellhounds (`HELLHOUND_ALIVE_PER_PLAYER` for each of 4 Players). Past that the dead and
+/// then the highest ids are left out.
+pub const SNAPSHOT_MAX_ZOMBIES: usize = 56;
+pub const SNAPSHOT_MAX_HELLHOUNDS: usize = 8;
+/// A Zombie that a snapshot has farther from where the one before had it than this has been
+/// moved, not walked, and is shown there at once.
+pub const PUPPET_SNAP_METRES: f32 = 6.0;
