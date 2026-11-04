@@ -11,6 +11,7 @@ use bevy::prelude::*;
 use crate::authority::HostSimulation;
 use crate::controls::{Action, Controls};
 use crate::last_stand::LastStand;
+use crate::respawn::AwaitingRespawn;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve_points};
 use crate::perk::{Drinking, OncePerPlayer, Perks};
 use crate::player::{LocalPlayer, Player, PlayerCamera};
@@ -288,12 +289,13 @@ fn buyer(points: &Points, down: bool, pause: &State<Pause>) -> Buyer {
 pub(crate) fn focus(
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
     buyables: Query<(Entity, &Buyable, Has<Nearby>)>,
-    player: Single<(Has<LastStand>, &Points), With<LocalPlayer>>,
+    player: Single<(Has<LastStand>, Has<AwaitingRespawn>, &Points), With<LocalPlayer>>,
     pause: Res<State<Pause>>,
     reviving: Res<ReviveFocus>,
     mut focus: ResMut<Focus>,
 ) {
-    let (down, points) = *player;
+    let (last_stand, awaiting, points) = *player;
+    let down = last_stand || awaiting;
     // A teammate to Revive takes the Use key before any Buyable.
     let picked = if buyer(points, down, &pause).blocked() || reviving.0.is_some() {
         None
@@ -354,7 +356,10 @@ fn hold_buy(
 pub(crate) fn resolve_use(
     mut requests: MessageReader<UseRequest>,
     buyables: Query<(&Buyable, Option<&HoldBuy>, Has<Refused>, Has<Held>, Option<&PricedFor>, Option<&OncePerPlayer>)>,
-    mut players: Query<(Has<LastStand>, &Modifiers, Option<&Loadout>, Option<&Perks>, Option<&Drinking>, &mut Points), With<Player>>,
+    mut players: Query<
+        (Has<LastStand>, Has<AwaitingRespawn>, &Modifiers, Option<&Loadout>, Option<&Perks>, Option<&Drinking>, &mut Points),
+        With<Player>,
+    >,
     pause: Res<State<Pause>>,
     mut purchased: MessageWriter<Purchased>,
     mut held: MessageWriter<HoldPurchased>,
@@ -363,7 +368,8 @@ pub(crate) fn resolve_use(
 ) {
     for &UseRequest { player, buyable: entity, hold } in requests.read() {
         let Ok((buyable, hold_buy, refused, rebuild, priced_for, once)) = buyables.get(entity) else { continue };
-        let Ok((down, modifiers, loadout, perks, drinking, mut points)) = players.get_mut(player) else { continue };
+        let Ok((last_stand, awaiting, modifiers, loadout, perks, drinking, mut points)) = players.get_mut(player) else { continue };
+        let down = last_stand || awaiting;
         let refused = refused || once.is_some_and(|once| once.refuses(perks, drinking));
         if rebuild {
             continue;

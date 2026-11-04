@@ -14,6 +14,7 @@ use crate::barrier::PlankTally;
 use crate::controls::{Action, Controls};
 use crate::equipment::Equipment;
 use crate::last_stand::LastStand;
+use crate::respawn::AwaitingRespawn;
 use crate::layers::GameLayer;
 use crate::map::seat_start;
 use crate::net::play::Puppet;
@@ -565,12 +566,15 @@ fn probes_for_ground(was_grounded: bool, jumped: bool, vertical_speed: f32) -> b
 
 /// Hits take Health. Nothing hurts a Player in Last Stand. Reaching zero is a Down, which the
 /// Last Stand module handles.
-pub fn take_hits(mut hits: MessageReader<PlayerHit>, mut players: Query<(&mut Health, Has<LastStand>), With<Player>>) {
+pub fn take_hits(
+    mut hits: MessageReader<PlayerHit>,
+    mut players: Query<(&mut Health, Has<LastStand>, Has<AwaitingRespawn>), With<Player>>,
+) {
     for hit in hits.read() {
-        let Ok((mut health, last_stand)) = players.get_mut(hit.player) else {
+        let Ok((mut health, last_stand, awaiting)) = players.get_mut(hit.player) else {
             continue;
         };
-        if last_stand {
+        if last_stand || awaiting {
             continue;
         }
         health.current -= hit.damage;

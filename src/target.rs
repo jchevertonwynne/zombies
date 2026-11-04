@@ -8,6 +8,7 @@ use crate::map::BarrierId;
 use crate::modifier::Modifiers;
 use crate::nav::NavGraph;
 use crate::player::{LocalPlayer, Player};
+use crate::respawn::AwaitingRespawn;
 use crate::zone::PlayerZone;
 use crate::tuning::*;
 use crate::zombie::Zombie;
@@ -23,33 +24,33 @@ pub struct PlayerSpot {
     pub feet: Vec3,
     /// The Zone they stand in.
     pub zone: ZoneId,
-    /// Not in a Last Stand. The one place that decides it is `is_up`.
+    /// Not in a Last Stand and not waiting to Respawn. The one place that decides it is `is_up`.
     pub up: bool,
     /// The Player this machine drives.
     pub local: bool,
 }
 
-/// Whether a Player can be gone after. Not in a Last Stand today; waiting to Respawn and
-/// disconnected join the test here.
-fn is_up(last_stand: bool) -> bool {
-    !last_stand
+/// Whether a Player can be gone after: not in a Last Stand and not waiting to Respawn.
+/// Disconnected joins the test here.
+pub fn is_up(last_stand: bool, awaiting_respawn: bool) -> bool {
+    !last_stand && !awaiting_respawn
 }
 
 /// The Players on the Map.
 #[derive(SystemParam)]
 pub struct Players<'w, 's> {
-    players: Query<'w, 's, (Entity, &'static Transform, &'static PlayerZone, Has<LastStand>, Has<LocalPlayer>), (With<Player>, Without<Zombie>)>,
+    players: Query<'w, 's, (Entity, &'static Transform, &'static PlayerZone, Has<LastStand>, Has<AwaitingRespawn>, Has<LocalPlayer>), (With<Player>, Without<Zombie>)>,
     modifiers: Query<'w, 's, &'static Modifiers, With<Player>>,
 }
 
 impl Players<'_, '_> {
-    fn spot((entity, transform, zone, last_stand, local): (Entity, &Transform, &PlayerZone, bool, bool)) -> PlayerSpot {
+    fn spot((entity, transform, zone, last_stand, awaiting, local): (Entity, &Transform, &PlayerZone, bool, bool, bool)) -> PlayerSpot {
         PlayerSpot {
             entity,
             centre: transform.translation,
             feet: transform.translation - Vec3::Y * (PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0),
             zone: zone.0,
-            up: is_up(last_stand),
+            up: is_up(last_stand, awaiting),
             local,
         }
     }

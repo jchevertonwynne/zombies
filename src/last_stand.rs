@@ -12,6 +12,7 @@ use crate::modifier::{Modifier, Modifiers, Stat, resolve_count};
 use crate::perk::{Drinking, Perk, Perks, drink, kept_on_down};
 use crate::player::{Eye, Health, LocalPlayer, Player, take_hits};
 use crate::points::Points;
+use crate::respawn::{AwaitingRespawn, BledOut};
 use crate::revive::Reviving;
 use crate::state::{GameState, RunType, world_runs};
 use crate::tuning::*;
@@ -138,6 +139,7 @@ pub struct LastStandPlugin;
 impl Plugin for LastStandPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Down>()
+            .add_message::<BledOut>()
             .add_message::<SelfRevived>()
             .add_systems(
                 Update,
@@ -156,7 +158,7 @@ pub fn go_down(
     mut commands: Commands,
     mut players: Query<
         (Entity, &mut Health, &mut Perks, &mut Modifiers, &mut Loadout, &mut SparesUsed, &mut Points),
-        (With<Player>, Without<LastStand>),
+        (With<Player>, Without<LastStand>, Without<AwaitingRespawn>),
     >,
     mut downs: MessageWriter<Down>,
     mut next: ResMut<NextState<GameState>>,
@@ -192,16 +194,22 @@ pub fn go_down(
     }
 }
 
-/// The end of a Last Stand: 100 Health, the old Weapons back, no Points taken.
-fn self_revive(
+/// The end of a Last Stand: 100 Health, the old Weapons back, no Points taken. A Co-op one that
+/// runs out is a Bleed Out instead (see `crate::respawn`).
+pub(crate) fn self_revive(
     mut commands: Commands,
     mut players: Query<(Entity, &mut LastStand, &mut Loadout, &mut Health), With<Player>>,
     mut revived: MessageWriter<SelfRevived>,
+    mut bled_out: MessageWriter<BledOut>,
     time: Res<Time>,
 ) {
     for (entity, mut stand, mut loadout, mut health) in &mut players {
+        if !stand.advance(time.delta_secs()) {
+            continue;
+        }
         // A Co-op Last Stand ends in a Revive or a Bleed Out, never a Self-Revive.
-        if !stand.advance(time.delta_secs()) || stand.is_coop() {
+        if stand.is_coop() {
+            bled_out.write(BledOut { player: entity });
             continue;
         }
         stand.self_revive(&mut loadout);

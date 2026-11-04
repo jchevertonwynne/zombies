@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use crate::debug::DebugView;
 use crate::door::Door;
 use crate::player::{LocalPlayer, Player};
+use crate::respawn::AwaitingRespawn;
 use crate::state::GameState;
 use crate::tuning::*;
 
@@ -210,7 +211,7 @@ fn track_player(mut players: Query<(&Transform, &mut PlayerZone), With<Player>>)
     }
 }
 
-fn update_active_zones(players: Query<&PlayerZone, With<Player>>, doors: Query<&Door>, mut active: ResMut<ActiveZones>) {
+pub(crate) fn update_active_zones(players: Query<&PlayerZone, (With<Player>, Without<AwaitingRespawn>)>, doors: Query<&Door>, mut active: ResMut<ActiveZones>) {
     let joins: Vec<_> = FIXED_JOINS
         .into_iter()
         .chain(doors.iter().filter(|door| door.open).filter_map(|door| door.joins))
