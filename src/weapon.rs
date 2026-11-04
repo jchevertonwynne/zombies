@@ -948,7 +948,7 @@ fn attack_filter(player: Entity) -> SpatialQueryFilter {
 }
 
 /// Each Zombie a Player's bullet or Knife hit takes the damage, credited to that Player.
-fn apply_hit_reports(mut reports: MessageReader<HitReport>, mut damage: MessageWriter<DamageZombie>) {
+pub(crate) fn apply_hit_reports(mut reports: MessageReader<HitReport>, mut damage: MessageWriter<DamageZombie>) {
     for report in reports.read() {
         damage.write(DamageZombie {
             player: Some(report.player),

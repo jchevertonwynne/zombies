@@ -10,6 +10,7 @@ use rand::RngExt;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use super::hits::{Burst, Hit, Launched, Throw};
 use crate::map::MapId;
 use crate::mode::Mode;
 use crate::tuning::{PLAYER_NAME_MAX_CHARS, ROOM_SEATS};
@@ -128,6 +129,10 @@ pub enum ToHost {
     Unlocks(Unlocks),
     /// They have left the Run for good, and give up their Seat.
     LeftRun,
+    /// Their bullet or Knife landed on a Zombie.
+    Hit(Hit),
+    /// They threw, planted or fired something the Host is to simulate.
+    Launch(Throw),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -152,6 +157,10 @@ pub enum ToPlayer {
     RunOver,
     /// The Host is back in the Room, and the party with it.
     BackToRoom,
+    /// Something was thrown, planted or fired by someone in the Run.
+    Launched(Launched),
+    /// Something went off.
+    Burst(Burst),
 }
 
 /// A Name as the Room has it: no control characters, at most `PLAYER_NAME_MAX_CHARS`

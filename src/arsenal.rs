@@ -7,7 +7,7 @@ use crate::tuning::{
 use crate::zombie::HitZone;
 
 /// Every base Weapon in Appendix A1. The Monkey Bomb is a Tactical, so it isn't here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum WeaponId {
     M1911,
     Olympia,
