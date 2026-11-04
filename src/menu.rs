@@ -15,6 +15,7 @@ use crate::records::{
 };
 use crate::settings::{Setting, Settings};
 use crate::authority::Authority;
+use crate::party::Party;
 use crate::leave_run::{LEAVE_HOST_TEXT, LEAVE_JOINER_TEXT, LeaveRun};
 use crate::state::{Freeze, GameState, MainMenuScreen, Pause, PauseScreen, RunType, resume_to};
 
@@ -63,6 +64,8 @@ pub enum MenuButton {
     PlayAgain,
     /// From Game Over.
     MainMenu,
+    /// From a Co-op Game Over: the party returns to the Room it started from.
+    BackToRoom,
     /// Opens the Controls page over the Settings screen.
     Controls,
     /// Waits for the key or mouse button to bind an Action to.
@@ -211,7 +214,10 @@ impl Plugin for MenuPlugin {
                     .run_if(in_state(MainMenuScreen::Mode))
                     .run_if(resource_changed::<Settings>),
             )
-            .add_systems(Update, play_again_key.run_if(in_state(GameState::GameOver)))
+            .add_systems(
+                Update,
+                play_again_key.run_if(in_state(GameState::GameOver)).run_if(crate::state::solo),
+            )
             .add_systems(Update, setting_values.run_if(resource_changed::<Settings>))
             // Before anything else reads the keys, so Esc closes the page instead of backing out.
             .add_systems(PreUpdate, capture_binding.after(bevy::input::InputSystems))
@@ -517,7 +523,12 @@ fn refresh_records(
         });
 }
 
-fn spawn_game_over(mut commands: Commands, last: Res<LastRun>, more: Res<GameOverLines>) {
+fn spawn_game_over(
+    mut commands: Commands,
+    last: Res<LastRun>,
+    more: Res<GameOverLines>,
+    run_type: Res<RunType>,
+) {
     let LastRun { record, rank } = &*last;
     let screen = screen(&mut commands, DIM_BACKGROUND, |screen| {
         screen.spawn(text("GAME OVER", 80.0, ROUND_RED));
@@ -577,8 +588,13 @@ fn spawn_game_over(mut commands: Commands, last: Res<LastRun>, more: Res<GameOve
                     HINT_GREY,
                 ));
             });
-        button(screen, "Play Again", MenuButton::PlayAgain, 280.0);
-        button(screen, "Main Menu", MenuButton::MainMenu, 280.0);
+        if run_type.is_coop() {
+            button(screen, "Back to the room", MenuButton::BackToRoom, 320.0);
+            button(screen, "Leave", MenuButton::MainMenu, 320.0);
+        } else {
+            button(screen, "Play Again", MenuButton::PlayAgain, 280.0);
+            button(screen, "Main Menu", MenuButton::MainMenu, 280.0);
+        }
     });
     commands
         .entity(screen)
@@ -990,7 +1006,7 @@ fn activate_button(
     ),
     (mut next_pause_screen, mut leaves): (ResMut<NextState<PauseScreen>>, MessageWriter<LeaveRun>),
     mut exit: MessageWriter<AppExit>,
-    mut back_to: ResMut<BackTo>,
+    (mut back_to, mut party): (ResMut<BackTo>, Option<ResMut<Party>>),
 ) {
     let main_menu = main_menu.map(|screen| *screen.get());
     let in_main_menu = main_menu.is_some();
@@ -1026,7 +1042,18 @@ fn activate_button(
         }
         // The Mode stays as it was.
         MenuButton::PlayAgain => next_game.set(GameState::Playing),
-        MenuButton::MainMenu => next_game.set(GameState::MainMenu),
+        MenuButton::MainMenu => {
+            // Leaving a Co-op party goes to the Co-op screen.
+            if party.is_some() {
+                next_main_menu.set(MainMenuScreen::Coop);
+            }
+            next_game.set(GameState::MainMenu);
+        }
+        MenuButton::BackToRoom => {
+            if let Some(party) = party.as_mut() {
+                party.back_to_room();
+            }
+        }
         MenuButton::Records => next_main_menu.set(MainMenuScreen::Records),
         MenuButton::Settings if in_main_menu => next_main_menu.set(MainMenuScreen::Settings),
         MenuButton::Settings => next_pause_screen.set(PauseScreen::Settings),

@@ -2032,6 +2032,8 @@ pub const PLAYER_NAME_MAX_CHARS: usize = 12;
 pub const ROOM_PASSWORD_MAX_CHARS: usize = 16;
 /// How many Players a Room holds: the Seats.
 pub const ROOM_SEATS: usize = 4;
+/// How many Players a Room needs before its Host can Start: a lone Host plays solo.
+pub const ROOM_MIN_PLAYERS: usize = 2;
 /// How often the Host tells the lobby the Room is still there, in seconds.
 pub const LOBBY_BEAT_SECS: f32 = 10.0;
 /// How long to wait before asking the lobby again after it couldn't be reached, in seconds.

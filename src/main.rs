@@ -30,6 +30,7 @@ mod modifier;
 mod mode;
 mod muzzle;
 mod pack_a_punch;
+mod party;
 mod perk;
 mod mystery_box;
 mod nav;
@@ -80,6 +81,7 @@ fn main() {
             state::StatePlugin,
             authority::AuthorityPlugin,
             leave_run::LeaveRunPlugin,
+            party::PartyPlugin,
             settings::SettingsPlugin,
             menu::MenuPlugin,
             coop::CoopPlugin,

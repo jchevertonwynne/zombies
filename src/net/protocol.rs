@@ -126,6 +126,8 @@ pub enum ToHost {
     Ready(bool),
     /// Their Armory has changed. Taken as no longer Ready.
     Unlocks(Unlocks),
+    /// They have left the Run for good, and give up their Seat.
+    LeftRun,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -144,6 +146,12 @@ pub enum ToPlayer {
     Kicked,
     /// The Host has left, and the Room with them.
     Closed,
+    /// The Host has started the Run, with the Room as it stood.
+    Start(RoomView),
+    /// Every Player is down: the Run is over.
+    RunOver,
+    /// The Host is back in the Room, and the party with it.
+    BackToRoom,
 }
 
 /// A Name as the Room has it: no control characters, at most `PLAYER_NAME_MAX_CHARS`
