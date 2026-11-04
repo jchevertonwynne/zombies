@@ -40,7 +40,7 @@ impl SpeedTier {
 }
 
 /// Where on a Zombie a hit landed, which decides damage and kill Points.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum HitZone {
     Limb,
     Torso,

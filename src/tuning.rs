@@ -1074,6 +1074,14 @@ pub const LAW_ROCKET_SPEED: f32 = 60.0;
 pub const CHINA_LAKE_GRENADE_SPEED: f32 = 30.0;
 /// A projectile that hits nothing bursts in the air after this long.
 pub const PROJECTILE_LIFETIME_SECS: f32 = 5.0;
+/// On a client, a thrown or launched thing the Host has said goes up flies for show until its
+/// burst arrives, and is let go of after this long if none does.
+pub const COSMETIC_FLIGHT_SECS: f32 = 12.0;
+/// A burst the Host reports ends the nearest thing flying for show within this many metres.
+pub const COSMETIC_BURST_MATCH_METRES: f32 = 6.0;
+/// How fast a Wonder Weapon's shot is drawn flying on a machine that did not fire it (it is
+/// instant on the Host).
+pub const COSMETIC_WONDER_SPEED: f32 = 90.0;
 
 // Special Box Weapons
 /// The Thundergun's blast hits every Zombie in sight inside a cylinder this long and this wide

@@ -30,7 +30,7 @@ use crate::teammate::{Action, Pose, Shots};
 use crate::tuning::*;
 
 /// One machine of the Run: the Map and all `seats` Players, the one in `local` the `LocalPlayer`.
-fn machine(local: u8, seats: u8, install: impl FnOnce(&mut App)) -> App {
+pub(super) fn machine(local: u8, seats: u8, install: impl FnOnce(&mut App)) -> App {
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, AssetPlugin::default(), TransformPlugin, PhysicsPlugins::default(), StatesPlugin))
         .init_asset::<Mesh>()
@@ -63,24 +63,35 @@ fn machine(local: u8, seats: u8, install: impl FnOnce(&mut App)) -> App {
 
 /// A Host and `clients` clients over a network of `delay` ticks each way, losing `loss` of the
 /// datagrams and delaying each up to `jitter` more.
-struct Run {
-    hub: Hub,
-    apps: Vec<App>,
-    tick: u32,
+pub(super) struct Run {
+    pub(super) hub: Hub,
+    pub(super) apps: Vec<App>,
+    pub(super) tick: u32,
 }
 
 impl Run {
     fn new(clients: u8, delay: u32, loss: f32, jitter: u32) -> Self {
+        Self::with(clients, delay, loss, jitter, &|_| {})
+    }
+
+    /// The same, with `extra` added to every machine.
+    pub(super) fn with(clients: u8, delay: u32, loss: f32, jitter: u32, extra: &dyn Fn(&mut App)) -> Self {
         let mut hub = Hub::new(delay, loss);
         hub.jitter = jitter;
         let seats = clients + 1;
         let host_link = hub.host();
         let links: Vec<_> = (0..clients).map(|_| hub.join()).collect();
         let remotes: Vec<(Peer, u8)> = links.iter().map(|link| (link.peer(), link.peer() as u8)).collect();
-        let mut apps = vec![machine(0, seats, |app| install_host(app, host_link, remotes))];
+        let mut apps = vec![machine(0, seats, |app| {
+            extra(app);
+            install_host(app, host_link, remotes);
+        })];
         for link in links {
             let seat = link.peer() as u8;
-            apps.push(machine(seat, seats, |app| install_client(app, link)));
+            apps.push(machine(seat, seats, |app| {
+                extra(app);
+                install_client(app, link);
+            }));
         }
         let mut run = Run { hub, apps, tick: 0 };
         run.step(&|_, _| MoveInput::default(), 20);
@@ -88,7 +99,7 @@ impl Run {
     }
 
     /// Runs `ticks` ticks, each client's input being `script(seat, tick)`.
-    fn step(&mut self, script: &dyn Fn(u8, u32) -> MoveInput, ticks: u32) {
+    pub(super) fn step(&mut self, script: &dyn Fn(u8, u32) -> MoveInput, ticks: u32) {
         for _ in 0..ticks {
             self.tick += 1;
             for seat in 1..self.apps.len() as u8 {
@@ -238,10 +249,15 @@ struct Puppeted {
 impl Run {
     /// A Walker standing on the Host's floor at `feet`.
     fn zombie(&mut self, feet: Vec3) -> Entity {
+        self.zombie_with(feet, 1000.0)
+    }
+
+    /// The same with `health`.
+    pub(super) fn zombie_with(&mut self, feet: Vec3, health: f32) -> Entity {
         let world = self.apps[0].world_mut();
         world
             .run_system_once(move |mut commands: Commands, assets: ZombieAssetsParam| {
-                spawn_zombie(&mut commands, &assets, feet, 1000.0, SpeedTier::Walker, None)
+                spawn_zombie(&mut commands, &assets, feet, health, SpeedTier::Walker, None)
             })
             .unwrap()
     }
@@ -279,7 +295,7 @@ impl Run {
     }
 }
 
-const IDLE: &dyn Fn(u8, u32) -> MoveInput = &|_, _| MoveInput::default();
+pub(super) const IDLE: &dyn Fn(u8, u32) -> MoveInput = &|_, _| MoveInput::default();
 
 /// The Zombies and Hellhounds the Host has are on every client, in the same places, and gone when
 /// they are.

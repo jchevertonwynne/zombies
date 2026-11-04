@@ -363,7 +363,7 @@ impl<L: Link> Hosting<L> {
             }
             ToHost::Ready(ready) => self.room.set_ready(peer, ready),
             ToHost::Unlocks(unlocks) => self.room.set_unlocks(peer, unlocks),
-            ToHost::LeftRun => {}
+            ToHost::LeftRun | ToHost::Hit(_) | ToHost::Launch(_) => {}
         }
     }
 
@@ -539,7 +539,7 @@ impl<L: Link> Joining<L> {
                     *state = Joined::Started { seat, view };
                 }
             }
-            (ToPlayer::Room(_) | ToPlayer::RunOver | ToPlayer::BackToRoom, _) => {}
+            (ToPlayer::Room(_) | ToPlayer::RunOver | ToPlayer::BackToRoom | ToPlayer::Launched(_) | ToPlayer::Burst(_), _) => {}
         }
     }
 

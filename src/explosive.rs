@@ -159,10 +159,10 @@ const FIREBALL_SECS: f32 = 0.3;
 
 #[derive(Resource)]
 pub(crate) struct ExplosiveAssets {
-    ball: Handle<Mesh>,
+    pub(crate) ball: Handle<Mesh>,
     fire: Handle<StandardMaterial>,
-    projectile: Handle<Mesh>,
-    casing: Handle<StandardMaterial>,
+    pub(crate) projectile: Handle<Mesh>,
+    pub(crate) casing: Handle<StandardMaterial>,
 }
 
 pub struct ExplosivePlugin;
@@ -389,17 +389,19 @@ pub(crate) fn explode(
             }
         }
 
-        commands.spawn((
-            InRun,
-            Fireball {
-                age: 0.0,
-                radius: splash.radius,
-            },
-            Mesh3d(assets.ball.clone()),
-            MeshMaterial3d(assets.fire.clone()),
-            Transform::from_translation(explosion.at).with_scale(Vec3::splat(0.01)),
-        ));
+        commands.spawn(fireball(&assets, explosion.at, splash.radius));
     }
+}
+
+/// The fireball of a blast of `radius` at `at`.
+pub(crate) fn fireball(assets: &ExplosiveAssets, at: Vec3, radius: f32) -> impl Bundle {
+    (
+        InRun,
+        Fireball { age: 0.0, radius },
+        Mesh3d(assets.ball.clone()),
+        MeshMaterial3d(assets.fire.clone()),
+        Transform::from_translation(at).with_scale(Vec3::splat(0.01)),
+    )
 }
 
 fn fade_fireballs(mut commands: Commands, mut fireballs: Query<(Entity, &mut Fireball, &mut Transform)>, time: Res<Time>) {

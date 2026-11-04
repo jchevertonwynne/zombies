@@ -125,6 +125,16 @@ pub struct AmmoMods(u8);
 impl AmmoMods {
     pub const NONE: AmmoMods = AmmoMods(0);
 
+    /// The Mods held, one bit each, for the wire.
+    pub fn bits(self) -> u8 {
+        self.0
+    }
+
+    /// The Mods a Player's game said they hold. A bit with no Ammo Mod behind it is ignored.
+    pub fn from_bits(bits: u8) -> Self {
+        Self(bits & ((1u16 << AmmoMod::ALL.len()) - 1) as u8)
+    }
+
     pub fn contains(self, ammo_mod: AmmoMod) -> bool {
         self.0 & (1 << ammo_mod.index()) != 0
     }
