@@ -245,6 +245,11 @@ impl Loadout {
         }
     }
 
+    /// Seconds since the held gun last fired; infinite before the first shot.
+    pub fn since_shot(&self) -> f32 {
+        self.since_shot
+    }
+
     pub fn held(&self) -> &WeaponCopy {
         self.slots[self.held].as_ref().expect("the held slot is always filled")
     }

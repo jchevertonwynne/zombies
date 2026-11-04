@@ -37,7 +37,7 @@ pub fn model_length(class: WeaponClass) -> f32 {
 }
 
 /// How much bigger a Weapon shows floating over the Mystery Box than in the Player's hands.
-const WORLD_SCALE: f32 = 1.5;
+pub const WORLD_SCALE: f32 = 1.5;
 
 const METAL: Color = Color::srgb(0.2, 0.2, 0.22);
 const DARK: Color = Color::srgb(0.08, 0.08, 0.09);

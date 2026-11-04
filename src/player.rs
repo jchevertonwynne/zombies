@@ -26,6 +26,7 @@ use crate::zone::PlayerZone;
 use crate::round::{Round, RoundPhase};
 use crate::settings::Settings;
 use crate::state::{GameState, InRun, Pause};
+use crate::teammate::{HeldWeapon, Pose, Shots};
 use crate::tuning::*;
 use crate::weapon::{Knife, Loadout};
 
@@ -259,7 +260,7 @@ fn player_body(seat: Seat, name: &str, run: &[Modifier]) -> impl Bundle {
             max: PLAYER_MAX_HEALTH,
             since_hit: HEALTH_REGEN_DELAY_SECS,
         },
-        (Locomotion::default(), MoveInput::default()),
+        (Locomotion::default(), MoveInput::default(), Pose::default(), Shots::default(), HeldWeapon::default()),
         Visibility::default(),
         Loadout::new(STARTING_WEAPON),
         Modifiers(run.to_vec()),
@@ -307,23 +308,18 @@ fn spawn_player(mut commands: Commands, settings: Res<Settings>, run: Res<RunMod
 
 /// A debug convenience: puts a second Player in Seat 1, standing on its spawn point and driven
 /// only through `MoveInput` and Player-tagged messages. It has no camera, no `LocalPlayer` and no
-/// view model; a capsule in the Seat's colour stands in for a body. It does nothing if Seat 1 is
+/// view model; `teammate` gives it a body. It does nothing if Seat 1 is
 /// taken. The Run's type is already fixed, so a Player added here doesn't make it Co-op.
 pub fn spawn_debug_player(
     mut commands: Commands,
     run: Res<RunModifiers>,
     seats: Query<&Seat, With<Player>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let seat = Seat(1);
     if seats.iter().any(|&taken| taken == seat) {
         return;
     }
-    commands.spawn(player_body(seat, "Player 2", &run.0)).with_child((
-        Mesh3d(meshes.add(Capsule3d::new(PLAYER_RADIUS, PLAYER_CAPSULE_LENGTH))),
-        MeshMaterial3d(materials.add(seat.colour())),
-    ));
+    commands.spawn(player_body(seat, "Player 2", &run.0));
 }
 
 fn grab_cursor(mut cursor: Single<&mut CursorOptions>) {

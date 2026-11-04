@@ -49,6 +49,7 @@ mod state;
 mod stats;
 mod sway;
 mod target;
+mod teammate;
 mod teleporter;
 mod trap;
 mod tuning;
@@ -133,5 +134,6 @@ fn main() {
         ))
         // Gauntlet, layered on top of everything above.
         .add_plugins(gauntlet::GauntletPlugin)
+        .add_plugins(teammate::TeammatePlugin)
         .run();
 }
