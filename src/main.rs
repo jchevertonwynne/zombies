@@ -40,6 +40,7 @@ mod points;
 mod records;
 mod power;
 mod power_up;
+mod revive;
 mod round;
 mod sapper;
 mod save;
@@ -127,6 +128,7 @@ fn main() {
             power::PowerPlugin,
             perk::PerkPlugin,
             last_stand::LastStandPlugin,
+            revive::RevivePlugin,
             pack_a_punch::PackAPunchPlugin,
             burn::BurnPlugin,
             trap::TrapPlugin,

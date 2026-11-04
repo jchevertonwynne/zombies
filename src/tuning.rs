@@ -1678,6 +1678,8 @@ pub const SPEED_COLA_RELOAD_MULT: f32 = 0.5;
 pub const DOUBLE_TAP_FIRE_INTERVAL_MULT: f32 = 0.75;
 /// Quick Revive needs no Power.
 pub const PERK_PRICE_QUICK_REVIVE: u64 = 500;
+/// In Co-op, Quick Revive costs this and needs the Power.
+pub const PERK_PRICE_QUICK_REVIVE_COOP: u64 = 1500;
 /// Solo Quick Revive sells this many times, then its machine leaves.
 pub const QUICK_REVIVE_SOLO_BUYS: u32 = 3;
 /// After the last buy, the machine waits this long, then floats away over `QUICK_REVIVE_FLOAT_SECS`.
@@ -1750,6 +1752,15 @@ pub const TELEPORTER_PAD_USE_RANGE: f32 = 2.5;
 
 // Last Stand
 pub const LAST_STAND_SECS: f32 = 10.0;
+/// A Co-op Last Stand lasts this long, then the Player Bleeds Out.
+pub const LAST_STAND_COOP_SECS: f32 = 45.0;
+/// A Co-op Down takes this percent of the Player's Points, and a Revive gives it to the reviver.
+pub const LAST_STAND_COOP_POINTS_LOSS_PERCENT: u64 = 5;
+/// How close a reviver must stand to the Player in Last Stand, in metres (BO1's 75 units).
+pub const REVIVE_REACH: f32 = 2.0;
+/// How long the reviver holds Use to Revive, and with Quick Revive.
+pub const REVIVE_SECS: f32 = 3.0;
+pub const REVIVE_QUICK_SECS: f32 = 1.5;
 /// The crawl's factor on walk speed.
 pub const LAST_STAND_CRAWL_MULT: f32 = 0.15;
 /// The Last Stand's pistol, Upgraded (Mustang & Sally), with a full Magazine and this many more

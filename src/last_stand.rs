@@ -1,6 +1,8 @@
-//! The Down and the Last Stand. Every Down takes every Perk (unless a stat entry keeps some). Holding Quick Revive, a Down starts
-//! a Last Stand: the Player crawls with Mustang & Sally and can't be hurt, then Self-Revives.
-//! Without it (or a spare Self-Revive a stat entry gives), the Run is over.
+//! The Down and the Last Stand. Every Down takes every Perk (unless a stat entry keeps some). Solo,
+//! holding Quick Revive, a Down starts a Last Stand: the Player crawls with Mustang & Sally and
+//! can't be hurt, then Self-Revives. Without it (or a spare Self-Revive a stat entry gives), the
+//! Run is over. In Co-op every Down starts a longer Last Stand that costs a slice of Points and
+//! ends in a teammate's Revive (see `crate::revive`).
 
 use bevy::prelude::*;
 
@@ -9,7 +11,9 @@ use crate::buy::buy;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve_count};
 use crate::perk::{Drinking, Perk, Perks, drink, kept_on_down};
 use crate::player::{Eye, Health, LocalPlayer, Player, take_hits};
-use crate::state::{GameState, world_runs};
+use crate::points::Points;
+use crate::revive::Reviving;
+use crate::state::{GameState, RunType, world_runs};
 use crate::tuning::*;
 use crate::weapon::{Loadout, WeaponCopy};
 
@@ -64,27 +68,60 @@ pub fn last_stand_loadout() -> Loadout {
     loadout
 }
 
+/// What a Co-op Down takes from a Player holding `balance` Points: `LAST_STAND_COOP_POINTS_LOSS_PERCENT`
+/// of them, rounded down.
+pub fn coop_down_cost(balance: u64) -> u64 {
+    balance / 100 * LAST_STAND_COOP_POINTS_LOSS_PERCENT + balance % 100 * LAST_STAND_COOP_POINTS_LOSS_PERCENT / 100
+}
+
 /// The Player is in Last Stand: crawling, untouchable, earning nothing and buying nothing. Their
-/// own Weapons wait here until the Self-Revive.
+/// own Weapons wait here until the Self-Revive, or a teammate's Revive in Co-op.
 #[derive(Component)]
 pub struct LastStand {
     elapsed: f32,
+    secs: f32,
     saved: Option<Loadout>,
+    /// The Points the Down took, which the Revive gives the reviver. Nothing solo.
+    cost: u64,
+    coop: bool,
 }
 
 impl LastStand {
-    /// Starts a Last Stand, swapping the Player's Weapons for Mustang & Sally.
+    /// Starts a solo Last Stand, swapping the Player's Weapons for Mustang & Sally.
     pub fn begin(loadout: &mut Loadout) -> Self {
         Self {
             elapsed: 0.0,
+            secs: LAST_STAND_SECS,
             saved: Some(std::mem::replace(loadout, last_stand_loadout())),
+            cost: 0,
+            coop: false,
         }
     }
 
-    /// Advance the Last Stand. True once it's over.
+    /// Starts a Co-op Last Stand for a Down that took `cost` Points.
+    pub fn begin_coop(loadout: &mut Loadout, cost: u64) -> Self {
+        Self { secs: LAST_STAND_COOP_SECS, cost, coop: true, ..Self::begin(loadout) }
+    }
+
+    /// Whether it ends in a teammate's Revive, not a Self-Revive.
+    pub fn is_coop(&self) -> bool {
+        self.coop
+    }
+
+    /// Advance the Last Stand. True once its time is up.
     pub fn advance(&mut self, dt: f32) -> bool {
         self.elapsed += dt;
-        self.elapsed >= LAST_STAND_SECS
+        self.elapsed >= self.secs
+    }
+
+    #[allow(dead_code, reason = "read by the HUD for a Downed teammate's Bleed Out time")]
+    pub fn remaining_secs(&self) -> f32 {
+        (self.secs - self.elapsed).max(0.0)
+    }
+
+    /// The Points the Down took, handed over once: to whoever Revives the Player.
+    pub fn take_cost(&mut self) -> u64 {
+        std::mem::take(&mut self.cost)
     }
 
     /// Gives back the Weapons held at the Down, with the one in hand coming up again.
@@ -113,33 +150,43 @@ impl Plugin for LastStandPlugin {
 }
 
 /// Health at zero is a Down. It takes every Perk (but any the Player's stat entries say it leaves),
-/// and a Perk mid-drink with its Points.
+/// and a Perk mid-drink with its Points. In Co-op it always starts a Last Stand, and takes a slice
+/// of the Player's Points.
 pub fn go_down(
     mut commands: Commands,
     mut players: Query<
-        (Entity, &mut Health, &mut Perks, &mut Modifiers, &mut Loadout, &mut SparesUsed),
+        (Entity, &mut Health, &mut Perks, &mut Modifiers, &mut Loadout, &mut SparesUsed, &mut Points),
         (With<Player>, Without<LastStand>),
     >,
     mut downs: MessageWriter<Down>,
     mut next: ResMut<NextState<GameState>>,
+    run: Res<RunType>,
 ) {
-    for (entity, mut health, mut perks, mut modifiers, mut loadout, mut spares) in &mut players {
+    for (entity, mut health, mut perks, mut modifiers, mut loadout, mut spares, mut points) in &mut players {
         if health.current > 0.0 {
             continue;
         }
-        let outcome = down_outcome(&perks, spares_left(&modifiers.0, spares.0));
-        if outcome == DownOutcome::LastStand && !perks.has(Perk::QuickRevive) {
+        let coop = run.is_coop();
+        let outcome = if coop { DownOutcome::LastStand } else { down_outcome(&perks, spares_left(&modifiers.0, spares.0)) };
+        if !coop && outcome == DownOutcome::LastStand && !perks.has(Perk::QuickRevive) {
             spares.0 = spares.0.saturating_add(1);
         }
         let keep = kept_on_down(&modifiers.0);
         perks.lose_on_down(keep, &mut modifiers);
-        commands.entity(entity).remove::<Drinking>();
+        commands.entity(entity).remove::<(Drinking, Reviving)>();
         downs.write(Down { player: entity, outcome });
         match outcome {
             DownOutcome::GameOver => next.set(GameState::GameOver),
             DownOutcome::LastStand => {
                 health.current = 0.0;
-                commands.entity(entity).insert(LastStand::begin(&mut loadout));
+                let stand = if coop {
+                    let cost = coop_down_cost(points.balance);
+                    points.spend(cost);
+                    LastStand::begin_coop(&mut loadout, cost)
+                } else {
+                    LastStand::begin(&mut loadout)
+                };
+                commands.entity(entity).insert(stand);
             }
         }
     }
@@ -153,7 +200,8 @@ fn self_revive(
     time: Res<Time>,
 ) {
     for (entity, mut stand, mut loadout, mut health) in &mut players {
-        if !stand.advance(time.delta_secs()) {
+        // A Co-op Last Stand ends in a Revive or a Bleed Out, never a Self-Revive.
+        if !stand.advance(time.delta_secs()) || stand.is_coop() {
             continue;
         }
         stand.self_revive(&mut loadout);
@@ -244,6 +292,25 @@ mod tests {
         // It comes back up with the Reload cancelled.
         assert!(loadout.reload.is_none());
         assert!(loadout.swap.is_some());
+    }
+
+    #[test]
+    fn a_co_op_down_takes_five_percent_of_the_points_rounded_down() {
+        assert_eq!(coop_down_cost(0), 0);
+        assert_eq!(coop_down_cost(500), 25);
+        assert_eq!(coop_down_cost(10_000), 500);
+        assert_eq!(coop_down_cost(1_234), 61);
+        assert_eq!(coop_down_cost(19), 0);
+    }
+
+    #[test]
+    fn a_co_op_last_stand_lasts_forty_five_seconds_and_holds_the_cost_once() {
+        let mut stand = LastStand::begin_coop(&mut Loadout::new(WeaponId::M1911), 75);
+        assert!(stand.is_coop());
+        assert!(!stand.advance(LAST_STAND_COOP_SECS - 0.1));
+        assert!(stand.advance(0.1));
+        assert_eq!(stand.take_cost(), 75);
+        assert_eq!(stand.take_cost(), 0);
     }
 
     #[test]
