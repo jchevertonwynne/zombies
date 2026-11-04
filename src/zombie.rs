@@ -19,7 +19,7 @@ use crate::power_up::{ActivePowerUps, PowerUp};
 use crate::round::CarriesOver;
 use crate::special::{SpecialCue, SpecialKind, hit_pays};
 use crate::audio::cues::Cue;
-use crate::state::{InRun, Pause};
+use crate::state::{InRun, world_runs};
 use crate::tuning::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -570,13 +570,13 @@ impl Plugin for ZombiePlugin {
             )
             .add_systems(
                 FixedUpdate,
-                (rise, chase, tumble, sink).in_set(HostSimulation).run_if(in_state(Pause::Running)),
+                (rise, chase, tumble, sink).in_set(HostSimulation).run_if(world_runs),
             )
             .add_systems(
                 RunFixedMainLoop,
-                fall_over.run_if(in_state(Pause::Running)).in_set(FrameTurnSystems),
+                fall_over.run_if(world_runs).in_set(FrameTurnSystems),
             )
-            .add_systems(Update, (rig::animate.run_if(in_state(Pause::Running)), rig::wear_outfits))
+            .add_systems(Update, (rig::animate.run_if(world_runs), rig::wear_outfits))
             .add_systems(
                 Update,
                 (
@@ -589,7 +589,7 @@ impl Plugin for ZombiePlugin {
                     clean_up_stuck,
                 )
                     .in_set(HostSimulation)
-                    .run_if(in_state(Pause::Running)),
+                    .run_if(world_runs),
             );
     }
 }

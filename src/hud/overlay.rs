@@ -5,7 +5,7 @@
 
 use bevy::prelude::*;
 
-use crate::state::{GameState, InRun, Pause};
+use crate::state::{GameState, InRun, world_runs};
 
 /// How long a pulsed overlay takes to fade out at the end of its time.
 const OVERLAY_FADE_SECS: f32 = 1.0;
@@ -149,10 +149,10 @@ impl Plugin for OverlayPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Overlays>()
             .add_systems(OnEnter(GameState::Playing), (reset, spawn_layer))
-            .add_systems(Update, tick.run_if(in_state(Pause::Running)))
+            .add_systems(Update, tick.run_if(world_runs))
             .add_systems(
                 PostUpdate,
-                (draw, end_frame.run_if(in_state(Pause::Running)))
+                (draw, end_frame.run_if(world_runs))
                     .chain()
                     .run_if(in_state(GameState::Playing)),
             );

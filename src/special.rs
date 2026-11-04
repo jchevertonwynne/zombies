@@ -30,7 +30,7 @@ use crate::points::BonusPoints;
 use crate::round::{CarriesOver, Round, RoundPhase, zombie_health};
 use crate::settings::{Settings, SpecialType, SpecialZombies};
 use crate::shellshock::Shellshock;
-use crate::state::{GameState, InRun, Pause};
+use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 use crate::zombie::{
     Attack, DamageZombie, Dying, HitZone, KnockedDown, Pay, Rising, SpeedTier, StuckWatch, Zombie, ZombieAssetsParam,
@@ -336,7 +336,7 @@ impl Plugin for SpecialPlugin {
             .insert_resource(SpecialSlot::new(*NAPALM_FIRST_ROUNDS.start(), *SHRIEKER_FIRST_ROUNDS.start()))
             .add_systems(Startup, load_assets)
             .add_systems(OnEnter(GameState::Playing), reset)
-            .add_systems(FixedUpdate, unstick.in_set(HostSimulation).run_if(in_state(Pause::Running)))
+            .add_systems(FixedUpdate, unstick.in_set(HostSimulation).run_if(world_runs))
             .add_systems(
                 Update,
                 (
@@ -346,7 +346,7 @@ impl Plugin for SpecialPlugin {
                     shake_view,
                     fade_fireballs,
                 )
-                    .run_if(in_state(Pause::Running)),
+                    .run_if(world_runs),
             );
     }
 }

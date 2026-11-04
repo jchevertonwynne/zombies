@@ -18,7 +18,7 @@ use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_count};
 use crate::player::{LocalPlayer, Player, PlayerCamera};
 use crate::round::{Round, RoundStarted};
 use crate::sapper::Sapper;
-use crate::state::{GameState, InRun, Pause};
+use crate::state::{GameState, InRun, input_runs, world_runs};
 use crate::tuning::*;
 use crate::weapon::Knife;
 use crate::zombie::{Dying, Lured, Zombie};
@@ -402,7 +402,8 @@ impl Plugin for EquipmentPlugin {
                     restock,
                     (buy_walls.in_set(HostSimulation), price_walls).chain(),
                     (
-                        throw_frags,
+                        // A paused Player's cook waits in the hand.
+                        throw_frags.run_if(input_runs),
                         throw_monkey_bombs,
                         plant_claymores,
                         release_handled,
@@ -411,7 +412,7 @@ impl Plugin for EquipmentPlugin {
                     (burn_frags, land_monkey_bombs, lure_zombies, trigger_claymores).in_set(HostSimulation),
                 )
                     .chain()
-                    .run_if(in_state(Pause::Running)),
+                    .run_if(world_runs),
             );
     }
 }

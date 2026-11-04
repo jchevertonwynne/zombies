@@ -12,7 +12,7 @@ use bevy::prelude::*;
 use crate::last_stand::{LastStand, lower_eye};
 use crate::player::{Eye, LocalPlayer, Locomotion, PlayerCamera};
 use crate::settings::Settings;
-use crate::state::Pause;
+use crate::state::input_runs;
 use crate::tuning::*;
 use crate::weapon::{AnimateViewModel, Loadout, ViewModel};
 
@@ -118,7 +118,7 @@ impl Plugin for SwayPlugin {
             Update,
             sway.after(lower_eye)
                 .after(AnimateViewModel)
-                .run_if(in_state(Pause::Running)),
+                .run_if(input_runs),
         );
     }
 }

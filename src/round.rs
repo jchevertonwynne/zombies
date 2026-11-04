@@ -15,7 +15,7 @@ use crate::player::{LocalPlayer, Player, SpawnPlayers};
 use crate::power::Power;
 use crate::power_up::{DropPowerUp, PowerUp};
 use crate::settings::Settings;
-use crate::state::{GameState, Pause};
+use crate::state::{GameState, world_runs};
 use crate::target::Players;
 use crate::tuning::*;
 use crate::zombie::{Dying, SpeedTier, Zombie, ZombieAssetsParam, ZombieCleanedUp, ZombieKilled, spawn_zombie};
@@ -237,7 +237,7 @@ impl Plugin for RoundPlugin {
                 (requeue_cleaned_up, spawn_horde, last_zombie_sprints, end_round, run_intermission)
                     .chain()
                     .in_set(HostSimulation)
-                    .run_if(in_state(Pause::Running)),
+                    .run_if(world_runs),
             );
     }
 }

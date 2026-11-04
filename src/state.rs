@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::player::{Player, SpawnPlayers};
+use crate::player::{LocalPlayer, Player, SpawnPlayers};
 
 #[derive(States, Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum GameState {
@@ -48,9 +48,10 @@ pub enum Pause {
 #[derive(Resource, Default)]
 pub struct Freeze(pub bool);
 
-/// Where leaving the Pause menu goes: back to a frozen world if something still holds it.
-pub fn resume_to(freeze: &Freeze) -> Pause {
-    if freeze.0 {
+/// Where leaving the Pause menu goes: back to a frozen world if something still holds it. A Co-op
+/// Run is never frozen.
+pub fn resume_to(freeze: &Freeze, run_type: RunType) -> Pause {
+    if freeze.0 && !run_type.is_coop() {
         Pause::Frozen
     } else {
         Pause::Running
@@ -64,7 +65,15 @@ pub enum PauseScreen {
     #[default]
     Root,
     Settings,
+    /// Co-op's "Leave Run?" confirm.
+    LeaveRun,
 }
+
+/// A Player who has the Pause menu open. In Co-op the world runs on around them, so this is what
+/// the HUD and the network read; a teammate's is set from what the Host sends. Solo, the whole
+/// world is paused and nothing needs it.
+#[derive(Component, Debug, Clone, Copy, Default)]
+pub struct Paused;
 
 /// Everything spawned for a Run. Despawned when leaving Game Over or returning to the Main Menu,
 /// so the next Run starts clean.
@@ -82,10 +91,28 @@ pub enum RunType {
 }
 
 impl RunType {
-    #[allow(dead_code, reason = "the Co-op rules that branch on it come in later tickets")]
     pub fn is_coop(self) -> bool {
         self == RunType::Coop
     }
+}
+
+/// Whether the world runs, which is what every system that advances it asks instead of
+/// `in_state(Pause::Running)`: always while the Run is Co-op (Pause is only a local overlay there),
+/// otherwise only while nothing pauses or freezes it. This and [`pause_time`] are the one switch on
+/// [`RunType`] that Co-op Pause is.
+pub fn world_runs(pause: Option<Res<State<Pause>>>, run_type: Option<Res<RunType>>) -> bool {
+    let Some(pause) = pause else { return false };
+    runs(*pause.get(), run_type.is_some_and(|run_type| run_type.is_coop()))
+}
+
+fn runs(pause: Pause, coop: bool) -> bool {
+    pause == Pause::Running || coop
+}
+
+/// Whether this machine's own Player takes input: only while nothing is open over the Run. In
+/// Co-op that is what Pause stops; the world keeps running (see [`world_runs`]).
+pub fn input_runs(pause: Option<Res<State<Pause>>>) -> bool {
+    pause.is_some_and(|pause| *pause.get() == Pause::Running)
 }
 
 /// Fixes the Run's type from the Players it starts with. The one place the Player count decides
@@ -107,7 +134,10 @@ impl Plugin for StatePlugin {
             .add_sub_state::<PauseScreen>()
             .add_systems(OnExit(GameState::GameOver), despawn_run)
             .add_systems(OnEnter(GameState::MainMenu), despawn_run)
-            .add_systems(OnEnter(Pause::Paused), pause_time)
+            // Co-op's Pause leaves time alone: the world runs on under the menu.
+            .add_systems(OnEnter(Pause::Paused), pause_time.run_if(solo))
+            .add_systems(OnEnter(Pause::Paused), mark_paused)
+            .add_systems(OnExit(Pause::Paused), unmark_paused)
             .add_systems(OnExit(Pause::Paused), resume_time)
             .add_systems(OnEnter(Pause::Frozen), pause_time)
             .add_systems(OnExit(Pause::Frozen), resume_time)
@@ -125,6 +155,22 @@ impl Plugin for StatePlugin {
     }
 }
 
+pub(crate) fn solo(run_type: Res<RunType>) -> bool {
+    !run_type.is_coop()
+}
+
+fn mark_paused(mut commands: Commands, local: Query<Entity, With<LocalPlayer>>) {
+    for player in &local {
+        commands.entity(player).insert(Paused);
+    }
+}
+
+fn unmark_paused(mut commands: Commands, local: Query<Entity, With<LocalPlayer>>) {
+    for player in &local {
+        commands.entity(player).remove::<Paused>();
+    }
+}
+
 fn despawn_run(mut commands: Commands, run: Query<Entity, With<InRun>>) {
     for entity in &run {
         commands.entity(entity).despawn();
@@ -132,10 +178,15 @@ fn despawn_run(mut commands: Commands, run: Query<Entity, With<InRun>>) {
 }
 
 /// The world freezes while a [`Freeze`] is held and runs again once it's let go. Pause is left
-/// alone: leaving it checks the Freeze itself.
-fn apply_freeze(freeze: Res<Freeze>, pause: Res<State<Pause>>, mut next: ResMut<NextState<Pause>>) {
+/// alone: leaving it checks the Freeze itself. A Co-op Run is never frozen, whatever holds it.
+fn apply_freeze(
+    freeze: Res<Freeze>,
+    run_type: Res<RunType>,
+    pause: Res<State<Pause>>,
+    mut next: ResMut<NextState<Pause>>,
+) {
     match (pause.get(), freeze.0) {
-        (Pause::Running, true) => next.set(Pause::Frozen),
+        (Pause::Running, true) if !run_type.is_coop() => next.set(Pause::Frozen),
         (Pause::Frozen, false) => next.set(Pause::Running),
         _ => {}
     }
@@ -145,7 +196,7 @@ fn apply_freeze(freeze: Res<Freeze>, pause: Res<State<Pause>>, mut next: ResMut<
 fn toggle_pause(
     input: Res<ButtonInput<KeyCode>>,
     pause: Res<State<Pause>>,
-    freeze: Res<Freeze>,
+    (freeze, run_type): (Res<Freeze>, Res<RunType>),
     screen: Option<Res<State<PauseScreen>>>,
     mut next: ResMut<NextState<Pause>>,
     mut next_screen: ResMut<NextState<PauseScreen>>,
@@ -154,13 +205,15 @@ fn toggle_pause(
         return;
     }
     match (pause.get(), screen.map(|screen| *screen.get())) {
-        (Pause::Paused, Some(PauseScreen::Settings)) => next_screen.set(PauseScreen::Root),
-        (Pause::Paused, _) => next.set(resume_to(&freeze)),
+        (Pause::Paused, Some(PauseScreen::Settings | PauseScreen::LeaveRun)) => {
+            next_screen.set(PauseScreen::Root)
+        }
+        (Pause::Paused, _) => next.set(resume_to(&freeze, *run_type)),
         (Pause::Running | Pause::Frozen, _) => next.set(Pause::Paused),
     }
 }
 
-fn pause_time(mut time: ResMut<Time<Virtual>>) {
+pub(crate) fn pause_time(mut time: ResMut<Time<Virtual>>) {
     time.pause();
 }
 
@@ -172,6 +225,22 @@ fn resume_time(mut time: ResMut<Time<Virtual>>) {
 mod tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
+
+    /// Co-op's world runs under every Pause state; solo's only when nothing pauses it.
+    #[test]
+    fn only_a_solo_run_stops_its_world_for_pause() {
+        for pause in [Pause::Running, Pause::Paused, Pause::Frozen] {
+            assert!(runs(pause, true), "{pause:?}");
+            assert_eq!(runs(pause, false), pause == Pause::Running, "{pause:?}");
+        }
+    }
+
+    /// Resuming from a Co-op Pause never lands in a frozen world.
+    #[test]
+    fn a_co_op_run_resumes_to_running_even_with_a_freeze_held() {
+        assert_eq!(resume_to(&Freeze(true), RunType::Solo), Pause::Frozen);
+        assert_eq!(resume_to(&Freeze(true), RunType::Coop), Pause::Running);
+    }
 
     #[test]
     fn one_player_makes_a_solo_run_and_two_a_co_op_one() {

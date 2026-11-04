@@ -23,7 +23,7 @@ use crate::power::Power;
 use crate::power_up::DropPowerUp;
 use crate::round::Round;
 use crate::settings::Settings;
-use crate::state::{GameState, InRun, Pause};
+use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 use crate::zombie::{Attack, DamageZombie, Dying, HitZone, Zombie};
 use crate::zone::{PlayerZone, ZoneId};
@@ -432,7 +432,7 @@ impl Plugin for TeleporterPlugin {
                     show_teleporter,
                 )
                     .chain()
-                    .run_if(in_state(Pause::Running)),
+                    .run_if(world_runs),
             );
     }
 }

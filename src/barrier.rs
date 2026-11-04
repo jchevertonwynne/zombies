@@ -19,7 +19,7 @@ use crate::player::{LocalPlayer, Player, PlayerHit};
 use crate::target::Players;
 use crate::points::{Points, PointsAwarded};
 use crate::round::{Round, zombie_health};
-use crate::state::{GameState, InRun, Pause};
+use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 use crate::zombie::{Attack, DamageZombie, Dying, HitZone, KnockedDown, Stunned, Zombie};
 
@@ -401,12 +401,12 @@ impl Plugin for BarrierPlugin {
             )
             .add_systems(
                 FixedUpdate,
-                enter_through_windows.in_set(HostSimulation).run_if(in_state(Pause::Running)),
+                enter_through_windows.in_set(HostSimulation).run_if(world_runs),
             )
             .add_systems(
                 Update,
                 ((rebuild_planks, rebuild_barriers.in_set(HostSimulation), show_planks, slide_planks).chain(), (toss_torn_planks, fly_torn_planks).chain())
-                    .run_if(in_state(Pause::Running)),
+                    .run_if(world_runs),
             );
     }
 }

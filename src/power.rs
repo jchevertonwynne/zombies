@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use crate::authority::HostSimulation;
 use crate::buy::{Buyable, Purchased};
 use crate::layers::GameLayer;
-use crate::state::{GameState, InRun, Pause};
+use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 
 /// Whether the Power is on. It never goes back off during a Run.
@@ -80,7 +80,7 @@ impl Plugin for PowerPlugin {
                 (use_switch, flip_switch)
                     .chain()
                     .in_set(HostSimulation)
-                    .run_if(in_state(Pause::Running)),
+                    .run_if(world_runs),
             );
     }
 }

@@ -23,6 +23,7 @@ mod hellhound;
 mod hud;
 mod last_stand;
 mod layers;
+mod leave_run;
 mod map;
 mod menu;
 mod modifier;
@@ -77,6 +78,7 @@ fn main() {
         .add_plugins((
             state::StatePlugin,
             authority::AuthorityPlugin,
+            leave_run::LeaveRunPlugin,
             settings::SettingsPlugin,
             menu::MenuPlugin,
             coop::CoopPlugin,

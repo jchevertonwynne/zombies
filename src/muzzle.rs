@@ -6,7 +6,7 @@ use bevy::prelude::*;
 
 use crate::arsenal::WeaponClass;
 use crate::gun_model::model_length;
-use crate::state::Pause;
+use crate::state::world_runs;
 use crate::tuning::*;
 use crate::weapon::{ShotFired, ViewModel};
 
@@ -131,7 +131,7 @@ impl Plugin for MuzzlePlugin {
                 Update,
                 (attach_flash, start_flash, update_flash, spawn_impacts, update_puffs, update_tracers)
                     .chain()
-                    .run_if(in_state(Pause::Running)),
+                    .run_if(world_runs),
             );
     }
 }

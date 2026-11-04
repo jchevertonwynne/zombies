@@ -13,7 +13,7 @@ use crate::perk::{Perk, Perks};
 use crate::player::{Player, PlayerHit, take_hits};
 use crate::power::Power;
 use crate::sapper::Sabotaged;
-use crate::state::{GameState, InRun, Pause};
+use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 use crate::zombie::{Attack, DamageZombie, Dying, HitZone, Rising, Zombie};
 use crate::zone::ZoneId;
@@ -226,7 +226,7 @@ impl Plugin for TrapPlugin {
                     (shock_zombies, electrocute).chain().in_set(HostSimulation),
                     shock_player.before(take_hits).in_set(HostSimulation),
                 )
-                    .run_if(in_state(Pause::Running)),
+                    .run_if(world_runs),
             );
     }
 }

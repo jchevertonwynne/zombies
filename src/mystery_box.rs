@@ -22,7 +22,7 @@ use crate::pack_a_punch::PackAPunch;
 use crate::player::{LocalPlayer, Player};
 use crate::points::Points;
 use crate::sapper::Sabotaged;
-use crate::state::{GameState, InRun, Pause};
+use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 use crate::weapon::{Loadout, WeaponCopy};
 
@@ -383,7 +383,7 @@ impl Plugin for MysteryBoxPlugin {
                     show_rubble,
                 )
                     .chain()
-                    .run_if(in_state(Pause::Running)),
+                    .run_if(world_runs),
             );
     }
 }

@@ -14,7 +14,7 @@ use super::*;
 use crate::authority::{Authority, AuthorityPlugin};
 use crate::modifier::Modifiers;
 use crate::player::{LocalPlayer, Player};
-use crate::state::GameState;
+use crate::state::{GameState, Pause};
 
 /// A Zombie as one rendered frame shows it.
 #[derive(Debug, Clone, Copy)]
@@ -380,4 +380,37 @@ fn a_zombie_leaves_a_player_who_goes_down_for_the_other() {
     let hit = hit_players(&mut sim, 30.0);
     assert!(!hit.is_empty(), "the Zombie never landed a swipe");
     assert!(hit.iter().all(|&player| player == far), "it swiped the Player in Last Stand, or never turned");
+}
+
+/// How far a Zombie walks in three seconds of a Run whose Player has the Pause menu open, and
+/// whether time stopped.
+fn walked_while_paused(run_type: crate::state::RunType) -> (f32, bool) {
+    use crate::state::{pause_time, solo};
+    let mut sim = Sim::new(60.0, |app| {
+        app.insert_resource(run_type)
+            .add_systems(OnEnter(Pause::Paused), pause_time.run_if(solo));
+    });
+    let zombie = sim.spawn(Vec3::new(-3.0, 0.0, 8.0), None);
+    let start = sim.world_mut().get::<Transform>(zombie).unwrap().translation;
+    sim.world_mut().resource_mut::<NextState<Pause>>().set(Pause::Paused);
+    sim.run(sim.frames(3.0));
+    let at = sim.world_mut().get::<Transform>(zombie).unwrap().translation;
+    let time_paused = sim.world_mut().resource::<Time<Virtual>>().is_paused();
+    (at.distance(start), time_paused)
+}
+
+/// In Co-op the Pause menu is only an overlay: time and the Zombies go on.
+#[test]
+fn a_co_op_run_advances_while_a_player_is_paused() {
+    let (walked, time_paused) = walked_while_paused(crate::state::RunType::Coop);
+    assert!(!time_paused, "Co-op Pause stopped time");
+    assert!(walked > 1.0, "the Zombie only walked {walked}");
+}
+
+/// Solo Pause stops the world.
+#[test]
+fn a_solo_run_stands_still_while_paused() {
+    let (walked, time_paused) = walked_while_paused(crate::state::RunType::Solo);
+    assert!(time_paused);
+    assert!(walked < 0.1, "the Zombie walked {walked}");
 }

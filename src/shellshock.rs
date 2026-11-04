@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use crate::hud::overlay::{Overlay, Overlays};
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat};
 use crate::player::LocalPlayer;
-use crate::state::Pause;
+use crate::state::world_runs;
 use crate::tuning::*;
 
 /// Where the Shellshock's move speed entry comes from.
@@ -59,7 +59,7 @@ impl Plugin for ShellshockPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Shellshock>()
             .add_message::<ShellshockStarted>()
-            .add_systems(Update, shellshock_player.run_if(in_state(Pause::Running)));
+            .add_systems(Update, shellshock_player.run_if(world_runs));
     }
 }
 

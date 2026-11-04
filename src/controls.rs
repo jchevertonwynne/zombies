@@ -9,6 +9,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::settings::Settings;
+use crate::state::Pause;
 
 /// Something the Player does with a key or mouse button.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -324,16 +325,26 @@ pub fn with_use_key(prompt: &str, bindings: &Bindings) -> String {
     prompt.replace("Press F ", &format!("Press {key} ")).replace("Hold F ", &format!("Hold {key} "))
 }
 
-/// The Player's actions, read through their bindings.
+/// The Player's actions, read through their bindings. With the Pause menu open nothing is pressed,
+/// which is how a Co-op Player stops while the world runs on: no movement, firing, Knife, Use or
+/// Equipment, and any hold lets go.
 #[derive(SystemParam)]
 pub struct Controls<'w> {
+    pause: Option<Res<'w, State<Pause>>>,
     settings: Res<'w, Settings>,
     keys: Res<'w, ButtonInput<KeyCode>>,
     mouse: Res<'w, ButtonInput<MouseButton>>,
 }
 
 impl Controls<'_> {
+    fn paused(&self) -> bool {
+        self.pause.as_ref().is_some_and(|pause| *pause.get() == Pause::Paused)
+    }
+
     pub fn pressed(&self, action: Action) -> bool {
+        if self.paused() {
+            return false;
+        }
         match self.settings.bindings.get(action) {
             Binding::Key(key) => self.keys.pressed(key),
             Binding::Mouse(button) => self.mouse.pressed(button),
@@ -341,6 +352,9 @@ impl Controls<'_> {
     }
 
     pub fn just_pressed(&self, action: Action) -> bool {
+        if self.paused() {
+            return false;
+        }
         match self.settings.bindings.get(action) {
             Binding::Key(key) => self.keys.just_pressed(key),
             Binding::Mouse(button) => self.mouse.just_pressed(button),

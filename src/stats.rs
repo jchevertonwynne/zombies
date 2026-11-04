@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use crate::last_stand::{Down, go_down};
 use crate::player::Player;
-use crate::state::Pause;
+use crate::state::world_runs;
 use crate::zombie::ZombieKilled;
 
 /// A Player's counters for the Run.
@@ -34,7 +34,7 @@ impl Plugin for StatsPlugin {
         app
             // Counted in the frame of the Down, so the one that ends the Run is in its Record.
             .add_systems(Update, (count_kills, count_downs.after(go_down)))
-            .add_systems(Update, count_time.run_if(in_state(Pause::Running)));
+            .add_systems(Update, count_time.run_if(world_runs));
     }
 }
 

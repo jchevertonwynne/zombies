@@ -6,7 +6,7 @@ use bevy::prelude::*;
 
 use crate::arsenal::Burn;
 use crate::authority::HostSimulation;
-use crate::state::Pause;
+use crate::state::world_runs;
 use crate::zombie::{Attack, DamageZombie, Dying, HitZone, Zombie};
 
 /// Set a Zombie alight. `burn.damage` is already resolved through the stat-modifier seam.
@@ -76,7 +76,7 @@ pub struct BurnPlugin;
 impl Plugin for BurnPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Ignite>()
-            .add_systems(Update, (ignite, burn).chain().in_set(HostSimulation).run_if(in_state(Pause::Running)));
+            .add_systems(Update, (ignite, burn).chain().in_set(HostSimulation).run_if(world_runs));
     }
 }
 

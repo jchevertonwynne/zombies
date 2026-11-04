@@ -11,7 +11,7 @@ use crate::authority::HostSimulation;
 use crate::layers::GameLayer;
 use crate::player::{Health, Player, PlayerHit};
 use crate::settings::Settings;
-use crate::state::{InRun, Pause};
+use crate::state::{InRun, world_runs};
 use crate::tuning::*;
 use crate::wonder::WonderFired;
 use crate::zombie::{Attack, DamageZombie, Dying, Gibbed, HitArea, HitZone, Zombie, blows_legs_off};
@@ -176,7 +176,7 @@ impl Plugin for ExplosivePlugin {
                 Update,
                 ((launch, fly, explode).chain().in_set(HostSimulation), fade_fireballs)
                     .chain()
-                    .run_if(in_state(Pause::Running)),
+                    .run_if(world_runs),
             );
     }
 }

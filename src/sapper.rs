@@ -31,7 +31,7 @@ use crate::power_up::DropPowerUp;
 use crate::round::{CarriesOver, Round, RoundPhase, zombie_health};
 use crate::settings::Settings;
 use crate::special::{SpecialCue, SpecialKind, special_spawn_at};
-use crate::state::{GameState, InRun, Pause};
+use crate::state::{GameState, InRun, world_runs};
 use crate::teleporter::{PadId, ResistsTeleporter, Teleporter, mainframe_use_point};
 use crate::trap::{ResistsTraps, Trap, TrapStruck, sapper_trap_hit};
 use crate::tuning::*;
@@ -264,7 +264,7 @@ impl Plugin for SapperPlugin {
             .insert_resource(SapperCadence::new(*SAPPER_FIRST_ROUNDS.start()))
             .add_systems(Startup, load_assets)
             .add_systems(OnEnter(GameState::Playing), reset)
-            .add_systems(FixedUpdate, unstick.in_set(HostSimulation).run_if(in_state(Pause::Running)))
+            .add_systems(FixedUpdate, unstick.in_set(HostSimulation).run_if(world_runs))
             .add_systems(
                 Update,
                 (
@@ -282,7 +282,7 @@ impl Plugin for SapperPlugin {
                         .in_set(HostSimulation),
                     footsteps,
                 )
-                    .run_if(in_state(Pause::Running)),
+                    .run_if(world_runs),
             );
     }
 }

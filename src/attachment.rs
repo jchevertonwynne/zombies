@@ -19,7 +19,7 @@ use crate::explosive::{Flight, in_sight};
 use crate::modifier::{Effect, Modifier, Source, Stat};
 use crate::perk::hands_free;
 use crate::player::LocalPlayer;
-use crate::state::Pause;
+use crate::state::world_runs;
 use crate::tuning::*;
 use crate::gun_model::GunModels;
 use crate::weapon::{Loadout, ViewModel, WeaponCopy};
@@ -303,7 +303,7 @@ impl Plugin for AttachmentPlugin {
             .add_systems(
                 Update,
                 (toggle_underbarrel.run_if(hands_free), burn_in_flames, show_attachments)
-                    .run_if(in_state(Pause::Running)),
+                    .run_if(world_runs),
             );
     }
 }
