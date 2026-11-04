@@ -6,8 +6,9 @@ use bevy::prelude::*;
 use bevy::ui_widgets::Button;
 
 use super::boon::{BoonDef, HeldBoons, effect_line, requirement_line, stack_line};
-use super::pact::{CRIMSON, HeldPacts, PactDef};
+use super::pact::{CRIMSON, HeldPact, HeldPacts, PactDef};
 use super::{Choices, Offer};
+use crate::player::LocalPlayer;
 use crate::hud::{BOTTOM_LEFT_HEIGHT_PX, full_screen, text};
 use crate::round::Round;
 use crate::state::{InRun, Pause};
@@ -35,11 +36,10 @@ pub struct HeldColumn;
 /// The input lockout starts again each time they appear.
 pub fn spawn_offer(
     mut commands: Commands,
-    offer: Option<ResMut<Offer>>,
-    held: Res<HeldBoons>,
+    mut player: Query<(&mut Offer, &HeldBoons), With<LocalPlayer>>,
     real: Res<Time<Real>>,
 ) {
-    let Some(mut offer) = offer else {
+    let Ok((mut offer, held)) = player.single_mut() else {
         return;
     };
     offer.shown_at = real.elapsed_secs();
@@ -207,11 +207,14 @@ pub fn spawn_held_column(mut commands: Commands) {
 /// in crimson, with its Drawback beneath.
 pub fn refresh_held_column(
     mut commands: Commands,
-    held: Res<HeldBoons>,
+    held: Query<&HeldBoons, With<LocalPlayer>>,
     pacts: Res<HeldPacts>,
     round: Option<Res<Round>>,
     column: Query<Entity, With<HeldColumn>>,
 ) {
+    let Ok(held) = held.single() else {
+        return;
+    };
     for column in &column {
         commands
             .entity(column)
@@ -225,7 +228,7 @@ pub fn refresh_held_column(
                     ));
                 }
                 let round = round.as_ref().map_or(1, |round| round.number);
-                for pact in &pacts.0 {
+                for &HeldPact { pact, .. } in &pacts.0 {
                     // Name and Drawback together, so a wrap never parts them.
                     column
                         .spawn(Node {

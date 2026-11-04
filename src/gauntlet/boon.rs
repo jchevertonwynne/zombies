@@ -638,9 +638,9 @@ pub fn stacked(effect: Effect, n: u32) -> Effect {
     }
 }
 
-/// The Boons held this Run with their Stacks, in pick order. Unlimited, never removed, and kept
+/// The Boons a Player holds this Run with their Stacks, in pick order. Unlimited, never removed, and kept
 /// through a Down.
-#[derive(Resource, Default)]
+#[derive(Component, Default)]
 pub struct HeldBoons(pub Vec<(&'static BoonDef, u32)>);
 
 impl HeldBoons {
