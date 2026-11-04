@@ -17,6 +17,7 @@ use crate::last_stand::LastStand;
 use crate::respawn::AwaitingRespawn;
 use crate::layers::GameLayer;
 use crate::map::seat_start;
+use crate::party::Party;
 use crate::net::play::Puppet;
 use crate::modifier::{Modifier, Modifiers, RunModifiers, Stat, resolve};
 use crate::perk::Drinking;
@@ -282,31 +283,48 @@ pub(crate) fn player_body(seat: Seat, name: &str, run: &[Modifier]) -> impl Bund
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SpawnPlayers;
 
-fn spawn_player(mut commands: Commands, settings: Res<Settings>, run: Res<RunModifiers>) {
-    commands
-        .spawn((player_body(Seat(0), "Player", &run.0), LocalPlayer))
-        .with_child((
-            PlayerCamera,
-            Eye {
-                height: PLAYER_EYE_HEIGHT,
-            },
-            Camera3d::default(),
-            Projection::Perspective(PerspectiveProjection {
-                fov: settings.fov_radians(),
-                ..default()
-            }),
-            // Neutral, so effects (the Teleporter's black and white) can grade it.
-            ColorGrading::default(),
-            DistanceFog {
-                color: Color::srgb(0.02, 0.02, 0.04),
-                falloff: FogFalloff::Linear {
-                    start: FOG_START,
-                    end: FOG_END,
+pub(crate) fn spawn_player(
+    mut commands: Commands,
+    settings: Res<Settings>,
+    run: Res<RunModifiers>,
+    party: Option<Res<Party>>,
+) {
+    // Solo is a party of one. In a Co-op Run every Seat has a Player, and only this machine's is
+    // the `LocalPlayer`.
+    let (seats, local) = match &party {
+        Some(party) => (party.seats().to_vec(), party.local),
+        None => (vec![(Seat(0), "Player".to_string())], Seat(0)),
+    };
+    for (seat, name) in seats {
+        if seat != local {
+            commands.spawn(player_body(seat, &name, &[]));
+            continue;
+        }
+        commands
+            .spawn((player_body(seat, &name, &run.0), LocalPlayer))
+            .with_child((
+                PlayerCamera,
+                Eye {
+                    height: PLAYER_EYE_HEIGHT,
                 },
-                ..default()
-            },
-            Transform::from_xyz(0.0, PLAYER_EYE_HEIGHT, 0.0),
-        ));
+                Camera3d::default(),
+                Projection::Perspective(PerspectiveProjection {
+                    fov: settings.fov_radians(),
+                    ..default()
+                }),
+                // Neutral, so effects (the Teleporter's black and white) can grade it.
+                ColorGrading::default(),
+                DistanceFog {
+                    color: Color::srgb(0.02, 0.02, 0.04),
+                    falloff: FogFalloff::Linear {
+                        start: FOG_START,
+                        end: FOG_END,
+                    },
+                    ..default()
+                },
+                Transform::from_xyz(0.0, PLAYER_EYE_HEIGHT, 0.0),
+            ));
+    }
 }
 
 /// A debug convenience: puts a second Player in Seat 1, standing on its spawn point and driven

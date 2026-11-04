@@ -102,7 +102,7 @@ impl Room {
         self.seats.get(seat as usize)?.as_ref().map(|m| &m.unlocks)
     }
 
-    fn seat_of(&self, peer: Peer) -> Option<usize> {
+    pub fn seat_of(&self, peer: Peer) -> Option<usize> {
         self.seats
             .iter()
             .position(|seat| seat.as_ref().is_some_and(|m| m.peer == peer))
@@ -114,9 +114,38 @@ impl Room {
     }
 
     /// The Run has begun (or the party is back for the next).
-    #[allow(dead_code, reason = "Start, which begins the Run, is built next")]
     pub fn set_started(&mut self, started: bool) {
         self.started = started;
+    }
+
+    /// Whether the Host may Start: enough Players, and every joiner Ready.
+    pub fn can_start(&self) -> bool {
+        self.players() >= ROOM_MIN_PLAYERS
+            && !self.started
+            && self.seats.iter().flatten().all(|member| member.ready)
+    }
+
+    /// The Players with a Seat and a Name, in Seat order.
+    pub fn seated(&self) -> Vec<(Seat, String)> {
+        (0..ROOM_SEATS)
+            .filter_map(|at| Some((at as Seat, self.seats[at].as_ref()?.name.clone())))
+            .collect()
+    }
+
+    /// Who is away from the Host and in which Seat, in Seat order.
+    pub fn remotes(&self) -> Vec<(Peer, Seat)> {
+        (0..ROOM_SEATS)
+            .filter_map(|at| {
+                let member = self.seats[at].as_ref()?;
+                (member.peer != HOST).then_some((member.peer, at as Seat))
+            })
+            .collect()
+    }
+
+    /// The party is back from a Run: the Room takes new Players again, and no one is Ready.
+    pub fn return_to_room(&mut self) {
+        self.started = false;
+        self.unready();
     }
 
     /// Everyone's Ready is taken back: the Room is not what they agreed to.
@@ -334,6 +363,7 @@ impl<L: Link> Hosting<L> {
             }
             ToHost::Ready(ready) => self.room.set_ready(peer, ready),
             ToHost::Unlocks(unlocks) => self.room.set_unlocks(peer, unlocks),
+            ToHost::LeftRun => {}
         }
     }
 
@@ -369,6 +399,33 @@ impl<L: Link> Hosting<L> {
         }
     }
 
+    /// Starts the Run if the Room may: every Player is told, and the Room is kept as it stood.
+    /// Returns the link, the Room, and who is in which Seat, ready for the Run to use.
+    pub fn start(mut self) -> Result<(L, Room, Vec<(Peer, Seat)>), Self> {
+        if !self.room.can_start() {
+            return Err(self);
+        }
+        self.room.set_started(true);
+        let roster = self.room.remotes();
+        let view = self.room.view();
+        for &(peer, _) in &roster {
+            self.link.send(peer, encode(&ToPlayer::Start(view.clone())));
+        }
+        Ok((self.link, self.room, roster))
+    }
+
+    /// The party is back from a Run: the Room is as it was, with no one Ready, and every Player
+    /// still in it is told to come back.
+    pub fn resume(link: L, mut room: Room) -> Self {
+        room.return_to_room();
+        let mut hosting = Hosting::new(link, room);
+        for (peer, _) in hosting.room.remotes() {
+            hosting.link.send(peer, encode(&ToPlayer::BackToRoom));
+        }
+        hosting.tell();
+        hosting
+    }
+
     /// The Host leaves: the Room closes, and every Player is told.
     pub fn close(&mut self) {
         if self.closed {
@@ -401,6 +458,8 @@ pub enum Joined {
     In { seat: Seat, view: Option<RoomView> },
     Refused(Refusal),
     Kicked,
+    /// The Host has started the Run: the Seat, and the Room as it stood.
+    Started { seat: Seat, view: RoomView },
     /// "Host closed the room".
     Closed,
     /// The way to the Host is gone: why.
@@ -412,7 +471,7 @@ impl Joined {
     pub fn is_over(&self) -> bool {
         !matches!(
             self,
-            Joined::Dialling | Joined::Waiting | Joined::In { .. }
+            Joined::Dialling | Joined::Waiting | Joined::In { .. } | Joined::Started { .. }
         )
     }
 }
@@ -444,7 +503,9 @@ impl<L: Link> Joining<L> {
 
     /// Takes in whatever the Host has said.
     pub fn poll(&mut self) {
-        while let Some(event) = self.link.poll() {
+        // Once the Run has started, what comes next is the Run's to read.
+        while !matches!(self.state, Joined::Started { .. }) {
+            let Some(event) = self.link.poll() else { break };
             if self.state.is_over() {
                 continue;
             }
@@ -473,7 +534,12 @@ impl<L: Link> Joining<L> {
             (ToPlayer::Room(room), Joined::In { view, .. }) => *view = Some(room),
             (ToPlayer::Kicked, state) => *state = Joined::Kicked,
             (ToPlayer::Closed, state) => *state = Joined::Closed,
-            (ToPlayer::Room(_), _) => {}
+            (ToPlayer::Start(view), state) => {
+                if let Joined::In { seat, .. } = *state {
+                    *state = Joined::Started { seat, view };
+                }
+            }
+            (ToPlayer::Room(_) | ToPlayer::RunOver | ToPlayer::BackToRoom, _) => {}
         }
     }
 
@@ -489,6 +555,18 @@ impl<L: Link> Joining<L> {
             self.sent = unlocks.clone();
             self.link.send(HOST, encode(&ToHost::Unlocks(unlocks.clone())));
         }
+    }
+
+    /// The party is back from a Run in `seat`: the Host sends the Room again.
+    pub fn resume(link: L, seat: Seat, unlocks: Unlocks) -> Self {
+        let mut joining = Joining::new(link, "", "", unlocks);
+        joining.state = Joined::In { seat, view: None };
+        joining
+    }
+
+    /// The link, once the Run has started and it is the Run's.
+    pub fn into_link(self) -> L {
+        self.link
     }
 
     /// The Player leaves the Room.

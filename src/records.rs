@@ -349,7 +349,7 @@ pub fn record_run(
     mut commands: Commands,
     map: Res<MapId>,
     mode: Res<Mode>,
-    round: Res<Round>,
+    round: Option<Res<Round>>,
     player: Single<(&RunStats, &Points), With<LocalPlayer>>,
     extras: Res<RecordExtras>,
     switches: Res<RunSpecialZombies>,
@@ -364,7 +364,8 @@ pub fn record_run(
         map: *map,
         mode: *mode,
         date,
-        round: round.number,
+        // A client has no Round of its own to read.
+        round: round.map_or(0, |round| round.number),
         kills: stats.kills,
         headshots: stats.headshots,
         downs: stats.downs,

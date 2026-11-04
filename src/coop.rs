@@ -25,7 +25,7 @@ use crate::net::room::{Hosting, Joined, Joining, Room};
 use crate::net::transport::Transport;
 use crate::player::Seat;
 use crate::settings::Settings;
-use crate::state::MainMenuScreen;
+use crate::state::{GameState, MainMenuScreen};
 use crate::tuning::*;
 
 const BUTTON_IDLE: Color = Color::srgba(0.15, 0.15, 0.15, 0.9);
@@ -70,11 +70,11 @@ impl CoopSession {
 /// What the Co-op and Join screens say went wrong or happened: a refusal and its reason, "Host
 /// closed the room".
 #[derive(Resource, Default)]
-struct Notice(String);
+pub(crate) struct Notice(pub String);
 
 /// The Room the Join screen is asking a password for.
 #[derive(Resource, Default)]
-struct JoinTarget(Option<Listed>);
+pub(crate) struct JoinTarget(Option<Listed>);
 
 /// Whether the Join screen is waiting on a code it asked the lobby about.
 #[derive(Resource, Default)]
@@ -132,6 +132,8 @@ enum CoopButton {
     ToggleListed,
     SetPassword,
     Ready,
+    /// The Host begins the Run.
+    Start,
     Kick(u8),
     Armory,
     Leave,
@@ -150,6 +152,7 @@ enum RoomLabel {
     Map,
     Listed,
     Ready,
+    Start,
     Lobby,
 }
 
@@ -196,6 +199,7 @@ impl Plugin for CoopPlugin {
                     type_text,
                     show_inputs,
                     run_actions,
+                    direct_join.run_if(in_state(GameState::MainMenu)),
                     pump_session,
                     keep_lobby,
                     close_unused_session,
@@ -361,7 +365,9 @@ fn spawn_room(mut commands: Commands, session: Res<CoopSession>) {
                 ..default()
             },
         ));
-        if !host {
+        if host {
+            label_button(room, RoomLabel::Start, "Start", CoopButton::Start, 280.0);
+        } else {
             label_button(room, RoomLabel::Ready, "Ready", CoopButton::Ready, 280.0);
         }
         room.spawn((
@@ -596,6 +602,7 @@ fn run_actions(
     ),
     (mut settings, file, mut back_to): (ResMut<Settings>, Res<GauntletFile>, ResMut<BackTo>),
     mut next: ResMut<NextState<MainMenuScreen>>,
+    mut commands: Commands,
 ) {
     for Do(action) in actions.read() {
         match *action {
@@ -677,6 +684,18 @@ fn run_actions(
                     joining.ready(!now);
                 }
             }
+            CoopButton::Start => {
+                let may = matches!(&*session, CoopSession::Host(hosting) if hosting.room.can_start());
+                if may && let CoopSession::Host(hosting) = std::mem::take(&mut *session) {
+                    // The Room comes off the lobby's list as the Run begins.
+                    lobby.close();
+                    commands.queue(move |world: &mut World| {
+                        if let Err(hosting) = crate::party::start_hosted(world, *hosting) {
+                            *world.resource_mut::<CoopSession>() = CoopSession::Host(hosting);
+                        }
+                    });
+                }
+            }
             CoopButton::Kick(seat) => {
                 if let CoopSession::Host(hosting) = &mut *session {
                     hosting.kick(seat);
@@ -695,7 +714,8 @@ fn run_actions(
 
 /// Takes in what the other end has said, and sends the Player back to the Co-op screens
 /// when the Room is over for them.
-fn pump_session(
+pub(crate) fn pump_session(
+    mut commands: Commands,
     mut session: ResMut<CoopSession>,
     mut notice: ResMut<Notice>,
     mut target: ResMut<JoinTarget>,
@@ -716,6 +736,15 @@ fn pump_session(
         }
         CoopSession::Join(joining) => {
             joining.poll();
+            if let Joined::Started { seat, view } = &joining.state {
+                let (seat, view) = (*seat, view.clone());
+                if let CoopSession::Join(joining) = std::mem::take(&mut *session) {
+                    commands.queue(move |world: &mut World| {
+                        crate::party::start_joined(world, *joining, seat, view);
+                    });
+                }
+                return;
+            }
             let (message, back, keep_target) = match &joining.state {
                 Joined::Refused(why) => (
                     why.reason().to_string(),
@@ -739,12 +768,45 @@ fn pump_session(
     }
 }
 
+/// A debug direct connect: with `ZOMBIES_JOIN=<address>` set, the game opens straight into the Room
+/// at that address, with no lobby, so two copies can be tried on one machine. A Host's address is
+/// logged once its Room has one.
+fn direct_join(
+    mut done: Local<bool>,
+    settings: Res<Settings>,
+    file: Res<GauntletFile>,
+    mut session: ResMut<CoopSession>,
+    mut next: ResMut<NextState<MainMenuScreen>>,
+) {
+    if std::mem::replace(&mut *done, true) {
+        return;
+    }
+    let Ok(address) = std::env::var("ZOMBIES_JOIN") else { return };
+    let name = if settings.name.is_empty() { "Guest" } else { &settings.name };
+    let joining = Joining::new(
+        Box::new(Transport::join(address.trim())) as Box<dyn Link>,
+        name,
+        "",
+        armory_of(&file),
+    );
+    *session = CoopSession::Join(Box::new(joining));
+    next.set(MainMenuScreen::Room);
+}
+
 /// Keeps a hosted Room on the lobby's list while it is open and not yet started.
 fn keep_lobby(
     time: Res<Time<Real>>,
     mut session: ResMut<CoopSession>,
     mut lobby: ResMut<LobbyClient>,
+    mut said: Local<Option<String>>,
 ) {
+    if let CoopSession::Host(hosting) = &*session
+        && let Some(address) = hosting.address()
+        && said.as_ref() != Some(&address)
+    {
+        info!("Room address, for ZOMBIES_JOIN: {address}");
+        *said = Some(address);
+    }
     let listing = match &*session {
         CoopSession::Host(hosting) if !hosting.room.is_started() => {
             hosting.address().map(|endpoint| Listing {
@@ -777,13 +839,19 @@ fn keep_lobby(
 
 /// A Room is open only while its screen is, or the Armory opened from it. Once a Run begins
 /// there is no Main Menu screen, and the Room stays.
-fn close_unused_session(
+pub(crate) fn close_unused_session(
     mut session: ResMut<CoopSession>,
     screen: Option<Res<State<MainMenuScreen>>>,
+    next: Res<NextState<MainMenuScreen>>,
     back_to: Res<BackTo>,
 ) {
     let Some(screen) = screen else { return };
-    let wanted = match *screen.get() {
+    // A screen already asked for is the one that counts: the Room is made as it is moved to.
+    let screen = match *next {
+        NextState::Pending(pending) | NextState::PendingIfDifferent(pending) => pending,
+        NextState::Unchanged => *screen.get(),
+    };
+    let wanted = match screen {
         MainMenuScreen::Room => true,
         MainMenuScreen::Armory => back_to.armory == MainMenuScreen::Room,
         _ => false,
@@ -940,6 +1008,7 @@ fn refresh_room(
         }
     }
     let ready = session.is_ready();
+    let may_start = matches!(&*session, CoopSession::Host(hosting) if hosting.room.can_start());
     let (code, summary, mode_text, map_text, listed_text) = match &current {
         Some((view, _)) => {
             let mut summary = status_line(view.map, view.mode, view.heat);
@@ -976,6 +1045,8 @@ fn refresh_room(
             RoomLabel::Map => map_text.clone(),
             RoomLabel::Listed => listed_text.clone(),
             RoomLabel::Ready => if ready { "Ready" } else { "Not Ready" }.to_string(),
+            RoomLabel::Start if may_start => "Start".to_string(),
+            RoomLabel::Start => format!("Start (needs {ROOM_MIN_PLAYERS}+ Players, all Ready)"),
             RoomLabel::Lobby => lobby_note.clone(),
         };
         if text.0 != value {

@@ -15,7 +15,7 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 
 use super::link::{Event, Link};
-use super::protocol::{HOST, Peer, Seat, decode, encode};
+use super::protocol::{HOST, Peer, Refusal, Seat, ToHost, ToPlayer, decode, encode};
 use super::remote::{Next, Remote};
 use super::state::{
     Inputs, Own, Sight, Snapshot, Step, Tick, pack_pitch, pack_position, pack_yaw, unpack_pitch, unpack_yaw,
@@ -25,6 +25,7 @@ use super::zombies::{
 };
 use crate::authority::Authority;
 use crate::last_stand::LastStand;
+use crate::leave_run::PlayerLeft;
 use crate::perk::Drinking;
 use crate::player::{
     LocalPlayer, Locomotion, MoveContext, MoveInput, Player, Seat as PlayerSeat, fill_move_input, move_player,
@@ -66,82 +67,177 @@ pub struct Roster(pub Vec<(Peer, Seat)>);
 #[derive(Component)]
 pub struct Puppet;
 
+/// What the Host said over the reliable stream that the Run reacts to, as a client hears it.
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostSaid {
+    /// Every Player is down.
+    RunOver,
+    /// The Host has left: the Run and the Room are over.
+    Closed,
+    /// The Host is back in the Room.
+    BackToRoom,
+}
+
+/// Puts a Run's systems in the app. Each end's run only while that end's resources are there
+/// (`Roster` is the Host's, `Prediction` a client's), so the app can be either, run after run.
+pub struct PlayPlugin;
+
+impl Plugin for PlayPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_message::<PlayerLeft>()
+            .add_message::<HostSaid>()
+            .add_systems(PreUpdate, (pump_host.run_if(resource_exists::<Roster>), pump_client.run_if(resource_exists::<Prediction>)))
+            .add_systems(
+                FixedUpdate,
+                (tick, adopt_remotes, hear_inputs, drive_remotes)
+                    .chain()
+                    .before(move_player)
+                    .run_if(world_runs)
+                    .run_if(resource_exists::<Roster>),
+            )
+            .add_systems(
+                FixedUpdate,
+                (forget_zombies, name_zombies, describe_horde)
+                    .chain()
+                    .after(move_player)
+                    .before(send_snapshots)
+                    .run_if(world_runs)
+                    .run_if(resource_exists::<Roster>),
+            )
+            .add_systems(
+                FixedUpdate,
+                send_snapshots.after(move_player).run_if(world_runs).run_if(resource_exists::<Roster>),
+            )
+            .add_systems(
+                FixedUpdate,
+                (tick, adopt_puppets, reconcile, send_inputs)
+                    .chain()
+                    .after(fill_move_input)
+                    .before(move_player)
+                    .run_if(world_runs)
+                    .run_if(resource_exists::<Prediction>),
+            )
+            .add_systems(
+                FixedUpdate,
+                show_puppets.after(move_player).run_if(world_runs).run_if(resource_exists::<Prediction>),
+            )
+            .add_systems(
+                FixedUpdate,
+                (forget_zombies, show_zombies)
+                    .chain()
+                    .after(show_puppets)
+                    .run_if(world_runs)
+                    .run_if(resource_exists::<Prediction>),
+            );
+    }
+}
+
+/// Makes this machine the Host of a Run with `remotes` joined: they are stepped by what they send.
+pub fn begin_host(world: &mut World, link: Box<dyn Link>, remotes: Vec<(Peer, Seat)>) {
+    world.insert_resource(Wire(link));
+    world.insert_resource(Roster(remotes));
+    world.insert_resource(Clock::default());
+    world.insert_resource(Inbox::default());
+    world.insert_resource(ZombieIds::default());
+    world.insert_resource(Horde::default());
+}
+
+/// Makes this machine a client of a Run: its `LocalPlayer` is stepped here, and every other Player
+/// is a puppet.
+pub fn begin_client(world: &mut World, link: Box<dyn Link>) {
+    world.insert_resource(Wire(link));
+    world.insert_resource(Clock::default());
+    world.insert_resource(Inbox::default());
+    world.insert_resource(Prediction::default());
+    world.insert_resource(ZombieIds::default());
+    world.insert_resource(Crowd::default());
+    if let Some(mut next) = world.get_resource_mut::<NextState<Authority>>() {
+        next.set(Authority::Client);
+    }
+}
+
+/// The Run is over for this machine: its link is given back, for the Room (or nothing) to keep.
+pub fn end_run(world: &mut World) -> Option<Box<dyn Link>> {
+    world.remove_resource::<Roster>();
+    world.remove_resource::<Prediction>();
+    world.remove_resource::<Clock>();
+    world.remove_resource::<Inbox>();
+    world.remove_resource::<Wire>().map(|wire| wire.0)
+}
+
 /// Makes this machine the Host of a Run with `remotes` joined: they are stepped by what they send.
 pub fn install_host(app: &mut App, link: impl Link, remotes: Vec<(Peer, Seat)>) {
-    app.insert_resource(Wire(Box::new(link)))
-        .insert_resource(Roster(remotes))
-        .init_resource::<Clock>()
-        .init_resource::<Inbox>()
-        .init_resource::<ZombieIds>()
-        .init_resource::<Horde>()
-        .add_systems(PreUpdate, pump_host)
-        .add_systems(
-            FixedUpdate,
-            (tick, adopt_remotes, hear_inputs, drive_remotes)
-                .chain()
-                .before(move_player)
-                .run_if(world_runs),
-        )
-        .add_systems(
-            FixedUpdate,
-            (forget_zombies, name_zombies, describe_horde)
-                .chain()
-                .after(move_player)
-                .before(send_snapshots)
-                .run_if(world_runs),
-        )
-        .add_systems(FixedUpdate, send_snapshots.after(move_player).run_if(world_runs));
+    begin_host(app.world_mut(), Box::new(link), remotes);
+    if !app.is_plugin_added::<PlayPlugin>() {
+        app.add_plugins(PlayPlugin);
+    }
 }
 
 /// Makes this machine a client of a Run: its `LocalPlayer` is stepped here, and every other Player
 /// is a puppet.
 pub fn install_client(app: &mut App, link: impl Link) {
-    app.insert_resource(Wire(Box::new(link)))
-        .init_resource::<Clock>()
-        .init_resource::<Inbox>()
-        .init_resource::<Prediction>()
-        .init_resource::<ZombieIds>()
-        .init_resource::<Crowd>()
-        .add_systems(PreUpdate, pump_client)
-        .add_systems(
-            FixedUpdate,
-            (tick, adopt_puppets, reconcile, send_inputs)
-                .chain()
-                .after(fill_move_input)
-                .before(move_player)
-                .run_if(world_runs),
-        )
-        .add_systems(FixedUpdate, show_puppets.after(move_player).run_if(world_runs))
-        .add_systems(
-            FixedUpdate,
-            (forget_zombies, show_zombies).chain().after(show_puppets).run_if(world_runs),
-        );
-    if let Some(mut next) = app.world_mut().get_resource_mut::<NextState<Authority>>() {
-        next.set(Authority::Client);
+    begin_client(app.world_mut(), Box::new(link));
+    if !app.is_plugin_added::<PlayPlugin>() {
+        app.add_plugins(PlayPlugin);
     }
 }
 
 /// Reads what the Host's Players have sent.
-fn pump_host(mut wire: ResMut<Wire>, mut inbox: ResMut<Inbox>) {
+fn pump_host(
+    mut wire: ResMut<Wire>,
+    mut inbox: ResMut<Inbox>,
+    mut roster: ResMut<Roster>,
+    mut left: MessageWriter<PlayerLeft>,
+) {
     while let Some(event) = wire.0.poll() {
-        // What goes by the reliable stream is read by whoever sent it for.
-        if let Event::Datagram(peer, bytes) = event {
-            match decode::<Inputs>(&bytes) {
+        match event {
+            Event::Datagram(peer, bytes) => match decode::<Inputs>(&bytes) {
                 Ok(inputs) => inbox.inputs.push((peer, inputs)),
                 Err(error) => debug!("player {peer}: {error}"),
+            },
+            Event::Message(peer, bytes) => {
+                let known = roster.0.iter().find(|(held, _)| *held == peer).map(|&(_, seat)| seat);
+                match (decode::<ToHost>(&bytes), known) {
+                    (Ok(ToHost::LeftRun), Some(seat)) => {
+                        roster.0.retain(|(held, _)| *held != peer);
+                        left.write(PlayerLeft { seat: PlayerSeat(seat) });
+                    }
+                    // The Room has no Seat for someone who comes after the Run has begun.
+                    (Ok(ToHost::Hello { .. }), None) => {
+                        wire.0.send(peer, encode(&ToPlayer::Refused(Refusal::Started)));
+                        wire.0.close(peer);
+                    }
+                    _ => {}
+                }
             }
+            _ => {}
         }
     }
 }
 
 /// Reads what the Host has sent.
-fn pump_client(mut wire: ResMut<Wire>, mut inbox: ResMut<Inbox>) {
+fn pump_client(mut wire: ResMut<Wire>, mut inbox: ResMut<Inbox>, mut said: MessageWriter<HostSaid>) {
     while let Some(event) = wire.0.poll() {
-        if let Event::Datagram(HOST, bytes) = event {
-            match decode::<Snapshot>(&bytes) {
+        match event {
+            Event::Datagram(HOST, bytes) => match decode::<Snapshot>(&bytes) {
                 Ok(snapshot) => inbox.snapshots.push(snapshot),
                 Err(error) => debug!("host: {error}"),
-            }
+            },
+            Event::Message(HOST, bytes) => match decode::<ToPlayer>(&bytes) {
+                Ok(ToPlayer::RunOver) => {
+                    said.write(HostSaid::RunOver);
+                }
+                Ok(ToPlayer::Closed) => {
+                    said.write(HostSaid::Closed);
+                }
+                // What comes after it is the Room's to read.
+                Ok(ToPlayer::BackToRoom) => {
+                    said.write(HostSaid::BackToRoom);
+                    break;
+                }
+                _ => {}
+            },
+            _ => {}
         }
     }
 }

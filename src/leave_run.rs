@@ -22,8 +22,7 @@ pub struct LeaveRun {
 }
 
 /// A joiner has left the Run for good, as the Host hears it: their Player is removed, and
-/// teammates are told "*name* left". The network layer writes it.
-#[allow(dead_code, reason = "nothing hears a joiner leave until the netcode lands")]
+/// teammates are told "*name* left". The network layer writes it (`net::play`) when a joiner's `LeftRun` arrives.
 #[derive(Message, Debug, Clone, PartialEq, Eq)]
 pub struct PlayerLeft {
     pub seat: Seat,
