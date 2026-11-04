@@ -19,7 +19,7 @@ use crate::layers::GameLayer;
 use crate::map::BOX_LOCATIONS;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_points};
 use crate::pack_a_punch::PackAPunch;
-use crate::player::{LocalPlayer, Player};
+use crate::player::Player;
 use crate::points::Points;
 use crate::sapper::Sabotaged;
 use crate::state::{GameState, InRun, world_runs};
@@ -95,11 +95,12 @@ pub enum Spin {
 pub enum BoxState {
     /// Ready to spin.
     Idle,
-    /// Cycling through the pool. `paid` is refunded on a Teddy; `teddy` is whether this spin can
-    /// give one (and counts toward the Teddy table).
-    Spinning { elapsed: f32, paid: u64, teddy: bool },
-    /// A Prize waits to be taken. An `upgraded` Weapon Prize comes out already Pack-a-Punched.
-    Offering { prize: Prize, left: f32, counts: bool, upgraded: bool },
+    /// Cycling through the pool for the `spinner`. `paid` is refunded to them on a Teddy; `teddy`
+    /// is whether this spin can give one (and counts toward the Teddy table).
+    Spinning { spinner: Entity, elapsed: f32, paid: u64, teddy: bool },
+    /// A Prize waits for the `spinner` alone to take. An `upgraded` Weapon Prize comes out already
+    /// Pack-a-Punched.
+    Offering { spinner: Entity, prize: Prize, left: f32, counts: bool, upgraded: bool },
     /// Waiting to be spun again.
     Rearming { left: f32 },
     /// The Teddy Bear rises and flies off, then the Box shakes.
@@ -413,8 +414,8 @@ fn spawn_boxes(mut commands: Commands, assets: Res<BoxAssets>, mut run: ResMut<B
     spawn_box(&mut commands, &assets, 0, BOX_PRICE, true);
 }
 
-/// A bought Box starts spinning (refunded at once if the spin is free); a bought Prize goes to
-/// the Player.
+/// A bought Box starts spinning for the Player who bought it (refunded at once if the spin is
+/// free); a bought Prize goes to that spinner and nobody else.
 fn buy_boxes(
     mut purchases: MessageReader<Purchased>,
     mut boxes: Query<&mut MysteryBox>,
@@ -433,12 +434,14 @@ fn buy_boxes(
                     paid = 0;
                 }
                 mystery_box.state = BoxState::Spinning {
+                    spinner: player,
                     elapsed: 0.0,
                     paid,
                     teddy: mystery_box.teddy,
                 };
             }
-            BoxState::Offering { prize, counts, upgraded, .. } => {
+            // Only the Player who spun can take it; anyone else is refused.
+            BoxState::Offering { spinner, prize, counts, upgraded, .. } if spinner == player => {
                 match prize {
                     Prize::Weapon(id) => match loadout.slot_of(id) {
                         Some(slot) => loadout.refill(slot, &modifiers.0),
@@ -463,14 +466,12 @@ fn run_boxes(
     mut commands: Commands,
     time: Res<Time>,
     mut boxes: Query<(Entity, &mut MysteryBox, &mut Transform, &mut Visibility)>,
-    player: Single<(&Loadout, &Equipment, &Modifiers, &mut Points), With<LocalPlayer>>,
+    mut players: Query<(&Loadout, &Equipment, &Modifiers, &mut Points), With<Player>>,
     pack_a_punch: Query<&PackAPunch>,
     mut run: ResMut<BoxRun>,
     mut teddies: MessageWriter<TeddyBear>,
 ) {
     let dt = time.delta_secs();
-    let (loadout, equipment, modifiers, mut points) = player.into_inner();
-    let held: Vec<WeaponId> = loadout.weapons().map(|weapon| weapon.id).collect();
     // A Weapon waiting in a Box or inside Pack-a-Punch is in play.
     let mut in_play: Vec<WeaponId> = boxes
         .iter()
@@ -481,19 +482,21 @@ fn run_boxes(
         .chain(pack_a_punch.iter().filter_map(PackAPunch::inside))
         .collect();
     // The Monkey Bomb comes up only while none are left, and from one Box at a time.
-    let mut monkey_bomb = equipment.monkey_bomb_in_pool()
-        && !boxes.iter().any(|(_, mystery_box, ..)| {
-            matches!(mystery_box.state, BoxState::Offering { prize: Prize::MonkeyBomb, .. })
-        });
+    let mut monkey_bomb_free = !boxes.iter().any(|(_, mystery_box, ..)| {
+        matches!(mystery_box.state, BoxState::Offering { prize: Prize::MonkeyBomb, .. })
+    });
     let rng = &mut rand::rng();
     for (entity, mut mystery_box, mut transform, mut visibility) in &mut boxes {
         mystery_box.state = match mystery_box.state {
             BoxState::Idle => continue,
-            BoxState::Spinning { elapsed, paid, teddy } => {
+            BoxState::Spinning { spinner, elapsed, paid, teddy } => {
                 let elapsed = elapsed + dt;
                 if elapsed < BOX_SPIN_SECS {
-                    BoxState::Spinning { elapsed, paid, teddy }
-                } else {
+                    BoxState::Spinning { spinner, elapsed, paid, teddy }
+                } else if let Ok((loadout, equipment, modifiers, mut points)) = players.get_mut(spinner) {
+                    // The spinner's own Weapons and Perks shape the spin, and a Teddy refunds them.
+                    let held: Vec<WeaponId> = loadout.weapons().map(|weapon| weapon.id).collect();
+                    let monkey_bomb = monkey_bomb_free && equipment.monkey_bomb_in_pool();
                     let chance = if teddy {
                         teddy_chance_for(teddy_chance(run.pulls, run.moves == 0), &modifiers.0)
                     } else {
@@ -503,9 +506,10 @@ fn run_boxes(
                         Spin::Prize(prize) => {
                             match prize {
                                 Prize::Weapon(id) => in_play.push(id),
-                                Prize::MonkeyBomb => monkey_bomb = false,
+                                Prize::MonkeyBomb => monkey_bomb_free = false,
                             }
                             BoxState::Offering {
+                                spinner,
                                 prize,
                                 left: BOX_PICKUP_SECS,
                                 counts: teddy,
@@ -525,12 +529,15 @@ fn run_boxes(
                             }
                         }
                     }
+                } else {
+                    // The spinner is gone: nobody to pay or to offer to.
+                    BoxState::Idle
                 }
             }
-            BoxState::Offering { prize, left, counts, upgraded } => {
+            BoxState::Offering { spinner, prize, left, counts, upgraded } => {
                 let left = left - dt;
                 if left > 0.0 {
-                    BoxState::Offering { prize, left, counts, upgraded }
+                    BoxState::Offering { spinner, prize, left, counts, upgraded }
                 } else {
                     // Lost, with no refund. It still finishes the pull.
                     if counts {
@@ -932,3 +939,92 @@ mod tests {
     }
 }
 
+
+/// The Box with two Players: whoever spins is the only one who can take the Prize, and a Teddy
+/// refunds them.
+#[cfg(test)]
+mod two_player_tests {
+    use super::*;
+    use crate::buy::UseRequest;
+    use crate::player::two_players::{balance, two_players_with};
+    use crate::zombie::headless::Sim;
+
+    fn state(sim: &mut Sim, mystery_box: Entity) -> BoxState {
+        sim.world_mut().get::<MysteryBox>(mystery_box).unwrap().state
+    }
+
+    fn setup() -> (Sim, Entity, Entity, Entity) {
+        let (mut sim, local, teammate) = two_players_with(|app| {
+            app.add_message::<TeddyBear>()
+                .init_resource::<BoxRun>()
+                .add_systems(Update, (buy_boxes, run_boxes).chain());
+        });
+        for player in [local, teammate] {
+            sim.world_mut().get_mut::<crate::points::Points>(player).unwrap().balance = 10_000;
+        }
+        let mystery_box = sim
+            .world_mut()
+            .spawn((
+                MysteryBox { location: 0, price: BOX_PRICE, teddy: true, state: BoxState::Idle },
+                Buyable { use_point: Vec3::ZERO, prompt: String::new(), price: Some(BOX_PRICE), range: USE_RANGE },
+                Transform::default(),
+                Visibility::default(),
+            ))
+            .id();
+        (sim, local, teammate, mystery_box)
+    }
+
+    #[test]
+    fn a_spin_belongs_to_the_player_who_bought_it() {
+        let (mut sim, local, teammate, mystery_box) = setup();
+        let (local_before, teammate_before) = (balance(&mut sim, local), balance(&mut sim, teammate));
+        sim.send(UseRequest { player: teammate, buyable: mystery_box, hold: false });
+        sim.run(2);
+        assert!(matches!(state(&mut sim, mystery_box), BoxState::Spinning { spinner, .. } if spinner == teammate));
+        assert_eq!(balance(&mut sim, teammate), teammate_before - BOX_PRICE);
+        assert_eq!(balance(&mut sim, local), local_before);
+        sim.run(sim.frames(BOX_SPIN_SECS + 0.5));
+        assert!(matches!(state(&mut sim, mystery_box), BoxState::Offering { spinner, .. } if spinner == teammate));
+    }
+
+    #[test]
+    fn only_the_spinner_takes_the_prize() {
+        let (mut sim, local, teammate, mystery_box) = setup();
+        let prize = box_pool(&[], &[], false)[0];
+        let Prize::Weapon(id) = prize else { panic!("the pool starts with a Weapon") };
+        sim.world_mut().get_mut::<MysteryBox>(mystery_box).unwrap().state = BoxState::Offering {
+            spinner: teammate,
+            prize,
+            left: BOX_PICKUP_SECS,
+            counts: true,
+            upgraded: false,
+        };
+        // A waiting Prize is free to take.
+        sim.world_mut().get_mut::<Buyable>(mystery_box).unwrap().price = None;
+        let local_before = balance(&mut sim, local);
+        sim.send(UseRequest { player: local, buyable: mystery_box, hold: false });
+        sim.run(2);
+        assert!(matches!(state(&mut sim, mystery_box), BoxState::Offering { .. }), "the other Player took it");
+        assert!(sim.world_mut().get::<Loadout>(local).unwrap().slot_of(id).is_none());
+        assert_eq!(balance(&mut sim, local), local_before);
+
+        sim.send(UseRequest { player: teammate, buyable: mystery_box, hold: false });
+        sim.run(2);
+        assert!(matches!(state(&mut sim, mystery_box), BoxState::Rearming { .. }));
+        assert!(sim.world_mut().get::<Loadout>(teammate).unwrap().slot_of(id).is_some());
+        assert!(sim.world_mut().get::<Loadout>(local).unwrap().slot_of(id).is_none());
+    }
+
+    #[test]
+    fn a_teddy_bear_refunds_the_spinner() {
+        let (mut sim, local, teammate, mystery_box) = setup();
+        sim.world_mut().resource_mut::<BoxRun>().pulls = 100;
+        sim.world_mut().get_mut::<MysteryBox>(mystery_box).unwrap().state =
+            BoxState::Spinning { spinner: teammate, elapsed: BOX_SPIN_SECS - 0.001, paid: BOX_PRICE, teddy: true };
+        let (local_before, teammate_before) = (balance(&mut sim, local), balance(&mut sim, teammate));
+        sim.run(3);
+        assert!(matches!(state(&mut sim, mystery_box), BoxState::Leaving { .. }));
+        assert_eq!(balance(&mut sim, teammate), teammate_before + BOX_PRICE);
+        assert_eq!(balance(&mut sim, local), local_before, "the refund went to the wrong Player");
+    }
+}

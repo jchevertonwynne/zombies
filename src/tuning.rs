@@ -1723,6 +1723,9 @@ pub const TELEPORTER_CHARGE_KILL_MAX: usize = 20;
 /// The Player must still be this close to the Pad when the charge ends (176 in), or the Points
 /// are lost.
 pub const TELEPORTER_STAY_RADIUS: f32 = 4.5;
+/// How far apart, along the floor, a trip sets down the Players it carries in the holding space
+/// and at the Mainframe.
+pub const TELEPORTER_RIDER_SPACING: f32 = 1.2;
 /// Seconds in the black holding space between the Pad and the Mainframe.
 pub const TELEPORTER_HOLDING_SECS: f32 = 2.0;
 /// On arrival, every Zombie within this of the Mainframe dies (300 in).

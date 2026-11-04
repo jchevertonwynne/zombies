@@ -99,6 +99,10 @@ pub struct Teleporter {
     /// Seconds since the last arrival, once there's been one.
     since_last_trip: Option<f32>,
     sabotaged: bool,
+    /// The Player who paid for the trip under way, whose kills it credits.
+    payer: Option<Entity>,
+    /// The Players the trip carries: those standing on the Pad when it charged.
+    riders: Vec<Entity>,
 }
 
 impl Teleporter {
@@ -163,6 +167,8 @@ impl Teleporter {
     /// The Player left the Pad before the charge ended: the trip is off and the Points are lost.
     pub fn abort(&mut self) {
         self.trip = None;
+        self.payer = None;
+        self.riders.clear();
         self.cooldown = TELEPORTER_COOLDOWN_SECS;
     }
 
@@ -563,7 +569,8 @@ fn spawn_teleporter(
     commands.insert_resource(looks);
 }
 
-/// A bought Pad activates or starts a trip; a used Mainframe Links.
+/// A bought Pad activates or starts a trip, paid by the Player who bought it; a used Mainframe
+/// Links, for whichever Player uses it.
 fn use_teleporter(
     mut purchases: MessageReader<Purchased>,
     pads: Query<&Pad>,
@@ -571,12 +578,13 @@ fn use_teleporter(
     mut teleporter: ResMut<Teleporter>,
     mut cues: MessageWriter<PlayCue>,
 ) {
-    for &Purchased { buyable, .. } in purchases.read() {
+    for &Purchased { player, buyable } in purchases.read() {
         if let Ok(pad) = pads.get(buyable) {
             if teleporter.linked(pad.pad) {
                 let idle = !teleporter.in_use();
                 teleporter.depart(pad.pad);
                 if idle && teleporter.in_use() {
+                    teleporter.payer = Some(player);
                     cues.write(PlayCue {
                         cue: Cue::TeleporterCharge,
                         at: Some(pad.pad.at()),
@@ -597,12 +605,17 @@ fn use_teleporter(
     }
 }
 
+/// Where the `index`th Player a trip carries stands, from where the first does.
+fn rider_offset(index: usize) -> Vec3 {
+    Vec3::X * (index as f32 * TELEPORTER_RIDER_SPACING)
+}
+
 /// Runs the trip: the charge's kills and the leap into the holding space, then the arrival's kills,
 /// aftereffect and drop.
 fn run_trips(
     mut teleporter: ResMut<Teleporter>,
     mut aftermath: ResMut<Aftermath>,
-    player: Single<(Entity, &Transform, Has<LastStand>, &mut PlayerZone), With<LocalPlayer>>,
+    mut players: Query<(Entity, &Transform, Has<LastStand>, &mut PlayerZone, Has<LocalPlayer>), With<Player>>,
     mut teleport: MessageWriter<Teleport>,
     zombies: Query<
         (Entity, &Transform),
@@ -624,7 +637,8 @@ fn run_trips(
     let Some(event) = teleporter.advance(time.delta_secs()) else {
         return;
     };
-    let (player, transform, last_stand, mut zone) = player.into_inner();
+    // The Player who paid is credited with the trip's kills.
+    let payer = teleporter.payer;
     let mut kill = |centre: Vec3, radius: f32, max: usize| {
         let near = victims(
             centre,
@@ -634,7 +648,7 @@ fn run_trips(
         );
         for zombie in near {
             damage.write(DamageZombie {
-                player: Some(player),
+                player: payer,
                 zombie,
                 damage: f32::INFINITY,
                 zone: HitZone::Torso,
@@ -649,12 +663,21 @@ fn run_trips(
                 TELEPORTER_CHARGE_KILL_RADIUS,
                 TELEPORTER_CHARGE_KILL_MAX,
             );
-            if stays_for_trip(pad.at(), transform.translation, last_stand) {
-                teleport.write(Teleport {
-                    player,
-                    feet: HOLDING_AT,
-                    facing: None,
-                });
+            // Everyone standing on the Pad goes; the trip is off if the Player who paid isn't.
+            let riders: Vec<Entity> = players
+                .iter()
+                .filter(|&(_, transform, last_stand, ..)| stays_for_trip(pad.at(), transform.translation, last_stand))
+                .map(|(entity, ..)| entity)
+                .collect();
+            if payer.is_none_or(|payer| riders.contains(&payer)) && !riders.is_empty() {
+                for (index, &rider) in riders.iter().enumerate() {
+                    teleport.write(Teleport {
+                        player: rider,
+                        feet: HOLDING_AT + rider_offset(index),
+                        facing: None,
+                    });
+                }
+                teleporter.riders = riders;
                 cues.write(PlayCue {
                     cue: Cue::TeleporterFire,
                     at: Some(pad.at()),
@@ -665,12 +688,19 @@ fn run_trips(
         }
         TripEvent::Arrived { since_last } => {
             // Facing into the room, away from the Mainframe.
-            teleport.write(Teleport {
-                player,
-                feet: ARRIVAL_AT,
-                facing: Some(Quat::from_rotation_arc(Vec3::NEG_Z, MAINFRAME_FACING)),
-            });
-            zone.0 = ZoneId::StartRoom;
+            let riders = std::mem::take(&mut teleporter.riders);
+            teleporter.payer = None;
+            let mut local_rides = false;
+            for (index, &rider) in riders.iter().enumerate() {
+                let Ok((.., mut zone, local)) = players.get_mut(rider) else { continue };
+                teleport.write(Teleport {
+                    player: rider,
+                    feet: ARRIVAL_AT + rider_offset(index),
+                    facing: Some(Quat::from_rotation_arc(Vec3::NEG_Z, MAINFRAME_FACING)),
+                });
+                zone.0 = ZoneId::StartRoom;
+                local_rides |= local;
+            }
             kill(MAINFRAME_AT, TELEPORTER_ARRIVAL_KILL_RADIUS, usize::MAX);
             cues.write(PlayCue {
                 cue: Cue::TeleporterArrive,
@@ -679,17 +709,20 @@ fn run_trips(
 
             let rng = &mut rand::rng();
             let effect = Aftereffect::ALL[rng.random_range(0..Aftereffect::ALL.len())];
-            match effect {
-                // The shared Shellshock: its haze, slow-down, muffle and cue.
-                Aftereffect::ShellshockBlur => {
-                    shellshocks.write(Shellshock { secs: TELEPORTER_AFTEREFFECT_SECS });
+            // The aftereffect is on the `LocalPlayer`'s screen, so only if they rode.
+            if local_rides {
+                match effect {
+                    // The shared Shellshock: its haze, slow-down, muffle and cue.
+                    Aftereffect::ShellshockBlur => {
+                        shellshocks.write(Shellshock { secs: TELEPORTER_AFTEREFFECT_SECS });
+                    }
+                    Aftereffect::FovWarp => {
+                        overlays.pulse(Overlay::TeleporterDaze, 1.0, TELEPORTER_AFTEREFFECT_SECS)
+                    }
+                    Aftereffect::BlackAndWhite => {}
                 }
-                Aftereffect::FovWarp => {
-                    overlays.pulse(Overlay::TeleporterDaze, 1.0, TELEPORTER_AFTEREFFECT_SECS)
-                }
-                Aftereffect::BlackAndWhite => {}
+                aftermath.aftereffect = Some((effect, TELEPORTER_AFTEREFFECT_SECS));
             }
-            aftermath.aftereffect = Some((effect, TELEPORTER_AFTEREFFECT_SECS));
 
             let round = round.map_or(1, |round| round.number);
             let re_teleport = re_teleport_hounds(round, since_last, teleporter.both_linked());
@@ -1192,5 +1225,110 @@ mod tests {
         let reach = HELLHOUND_AROUND_MAX_DIST + 0.5;
         assert!(HOUNDS_AROUND.x - reach > lo.x && HOUNDS_AROUND.x + reach < hi.x);
         assert!(HOUNDS_AROUND.z - reach > lo.z && HOUNDS_AROUND.z + reach < hi.z);
+    }
+}
+
+/// The Teleporter with two Players: a Link one Player starts any can finish, and a trip is paid by
+/// one Player and carries everyone standing on the Pad.
+#[cfg(test)]
+mod two_player_tests {
+    use super::*;
+    use crate::buy::UseRequest;
+    use crate::player::two_players::{balance, place, two_players_with};
+    use crate::points::Points;
+    use crate::shellshock::Shellshock;
+    use crate::zombie::headless::Sim;
+
+    const PAD: PadId = PadId::Workshop;
+
+    fn setup() -> (Sim, Entity, Entity, Entity, Entity) {
+        let (mut sim, local, teammate) = two_players_with(|app| {
+            app.add_message::<Shellshock>()
+                .add_message::<PlayCue>()
+                .init_resource::<Teleporter>()
+                .init_resource::<Aftermath>()
+                .init_resource::<Overlays>()
+                .init_resource::<Settings>()
+                .add_systems(Update, (use_teleporter, run_trips).chain());
+        });
+        for player in [local, teammate] {
+            sim.world_mut().get_mut::<Points>(player).unwrap().balance = 10_000;
+        }
+        let buyable = |price| Buyable { use_point: Vec3::ZERO, prompt: String::new(), price, range: USE_RANGE };
+        let pad = sim.world_mut().spawn((Pad { pad: PAD, shown: TeleporterPrompt::NoPrompt }, buyable(Some(TELEPORTER_PRICE)))).id();
+        let mainframe = sim.world_mut().spawn((Mainframe { shown: TeleporterPrompt::NoPrompt }, buyable(None))).id();
+        (sim, local, teammate, pad, mainframe)
+    }
+
+    fn stand_on_pad(sim: &mut Sim, player: Entity) {
+        place(sim, player, PAD.at());
+    }
+
+    /// Everyone a `Teleport` was sent for over `frames`, with where to.
+    fn teleported(sim: &mut Sim, frames: usize) -> Vec<(Entity, Vec3)> {
+        let mut sent = Vec::new();
+        for _ in 0..frames {
+            sim.run(1);
+            sent.extend(sim.world_mut().resource_mut::<Messages<Teleport>>().drain().map(|t| (t.player, t.feet)));
+        }
+        sent
+    }
+
+    #[test]
+    fn one_player_starts_a_link_and_the_other_finishes_it() {
+        let (mut sim, local, teammate, pad, mainframe) = setup();
+        sim.send(UseRequest { player: local, buyable: pad, hold: false });
+        sim.run(2);
+        assert_eq!(sim.world_mut().resource::<Teleporter>().linking(), Some(PAD));
+        sim.run(sim.frames(TELEPORTER_LINK_SECS / 2.0));
+        sim.send(UseRequest { player: teammate, buyable: mainframe, hold: false });
+        sim.run(2);
+        assert!(sim.world_mut().resource::<Teleporter>().linked(PAD));
+    }
+
+    #[test]
+    fn a_trip_is_paid_by_one_player_and_carries_everyone_on_the_pad() {
+        let (mut sim, local, teammate, pad, _) = setup();
+        {
+            let mut teleporter = sim.world_mut().resource_mut::<Teleporter>();
+            teleporter.activate(PAD);
+            teleporter.link();
+        }
+        stand_on_pad(&mut sim, local);
+        stand_on_pad(&mut sim, teammate);
+        let (local_before, teammate_before) = (balance(&mut sim, local), balance(&mut sim, teammate));
+        sim.send(UseRequest { player: teammate, buyable: pad, hold: false });
+        let frames = sim.frames(TELEPORTER_CHARGE_SECS + 0.5);
+        let sent = teleported(&mut sim, frames);
+        assert_eq!(balance(&mut sim, teammate), teammate_before - TELEPORTER_PRICE);
+        assert_eq!(balance(&mut sim, local), local_before, "the rider paid for the trip");
+        let mut riders: Vec<Entity> = sent.iter().map(|&(player, _)| player).collect();
+        riders.sort();
+        let mut both = [local, teammate];
+        both.sort();
+        assert_eq!(riders, both, "the trip left someone standing on the Pad behind");
+        assert!(sent.iter().all(|&(_, feet)| feet.z > 200.0), "they went to the holding space");
+
+        let frames = sim.frames(TELEPORTER_HOLDING_SECS + 0.5);
+        let arrived = teleported(&mut sim, frames);
+        assert_eq!(arrived.len(), 2);
+        assert!(arrived.iter().all(|&(_, feet)| feet.distance(ARRIVAL_AT) < 3.0), "they landed at the Mainframe");
+        assert_ne!(arrived[0].1, arrived[1].1, "they landed on top of each other");
+    }
+
+    #[test]
+    fn a_player_off_the_pad_stays_behind() {
+        let (mut sim, local, _, pad, _) = setup();
+        {
+            let mut teleporter = sim.world_mut().resource_mut::<Teleporter>();
+            teleporter.activate(PAD);
+            teleporter.link();
+        }
+        stand_on_pad(&mut sim, local);
+        sim.send(UseRequest { player: local, buyable: pad, hold: false });
+        let frames = sim.frames(TELEPORTER_CHARGE_SECS + 0.5);
+        let sent = teleported(&mut sim, frames);
+        assert!(sent.iter().all(|&(player, _)| player == local));
+        assert_eq!(sent.len(), 1);
     }
 }
