@@ -2006,3 +2006,11 @@ pub const LOBBY_BEAT_SECS: f32 = 10.0;
 pub const LOBBY_RETRY_SECS: f32 = 2.0;
 /// How often the Join screen asks the lobby for the list afresh, in seconds.
 pub const LOBBY_LIST_SECS: f32 = 5.0;
+
+/// How far from a teammate a name tag is at full strength, and how far it has faded away to nothing.
+pub const NAME_TAG_FADE_START: f32 = 12.0;
+pub const NAME_TAG_FADE_END: f32 = 32.0;
+/// How far above a teammate's head their name tag floats.
+pub const NAME_TAG_LIFT: f32 = 0.3;
+/// The size of a name tag's letters, in pixels.
+pub const NAME_TAG_FONT_PX: f32 = 18.0;
