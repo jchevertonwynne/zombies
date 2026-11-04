@@ -165,6 +165,21 @@ impl Round {
         }
     }
 
+    /// Round `number` as a client shows it, as the Host says: nothing of the Horde is known here.
+    pub fn shown(number: u32, hellhound: Option<u32>) -> Self {
+        Self {
+            number,
+            phase: RoundPhase::Active,
+            hellhound,
+            players: 1,
+            horde: 0,
+            left_to_spawn: 0,
+            spawn_timer: 0.0,
+            schedule: HellhoundSchedule::new(u32::MAX),
+            last_kill: None,
+        }
+    }
+
     /// The Hellhound Round count whose health hounds outside a Hellhound Round use: the latest
     /// one so far.
     pub fn hellhound_tier(&self) -> u32 {

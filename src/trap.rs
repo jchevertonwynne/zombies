@@ -34,7 +34,7 @@ const SWITCH_HEIGHT: f32 = 1.3;
 const SHOCK_SOURCE: Source = Source("Trap Shock");
 
 /// Where a Trap is in its cycle, with the seconds spent in that phase.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TrapPhase {
     /// Ready to be bought.
     Idle,
@@ -160,6 +160,21 @@ impl Trap {
         self.joins
     }
 
+    /// Where it is in its cycle.
+    pub fn phase(&self) -> TrapPhase {
+        self.phase
+    }
+
+    /// Shows the phase the Host says it is in.
+    pub fn show(&mut self, phase: TrapPhase) {
+        self.phase = phase;
+    }
+
+    /// Runs the shown phase on, so it plays out until the Host says what comes next.
+    pub fn advance_shown(&mut self, dt: f32) {
+        self.phase.advance(dt, TRAP_COOLDOWN_SECS);
+    }
+
     /// Whether it's running, zapping everything inside.
     pub fn running(&self) -> bool {
         self.phase.running()
@@ -168,7 +183,7 @@ impl Trap {
 
 /// One of a Trap's two switches, the Buyable that runs it.
 #[derive(Component)]
-struct TrapSwitch {
+pub(crate) struct TrapSwitch {
     trap: Entity,
     use_point: Vec3,
 }

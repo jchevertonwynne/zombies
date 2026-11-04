@@ -14,6 +14,7 @@ pub mod remote;
 pub mod room;
 pub mod state;
 pub mod transport;
+pub mod world;
 pub mod zombies;
 
 #[cfg(test)]

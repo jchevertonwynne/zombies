@@ -36,6 +36,7 @@ use crate::wonder::{WonderFired, is_wonder};
 use crate::zombie::{Attack, DamageZombie, HitArea, HitZone, ZombieKilled, apply_damage};
 
 /// One Weapon the Player carries: its ammo and its own modifier entries.
+#[derive(Clone)]
 pub struct WeaponCopy {
     pub id: WeaponId,
     /// Whether it has been through Pack-a-Punch, which swaps in its upgraded row.
@@ -201,12 +202,32 @@ impl Swap {
     }
 }
 
+/// What was done to a Player's Weapons by buying, Max Ammo or Pack-a-Punch, kept so the Host can
+/// tell that Player's game (see `net::world`). A slot is named by its place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostOp {
+    /// A Weapon went into a slot, whole.
+    Put(usize),
+    /// The Weapon in hand went into Pack-a-Punch.
+    Take,
+    /// A slot's Weapon was filled to the brim.
+    Refill(usize),
+    /// Max Ammo.
+    MaxAmmo,
+    /// The slots grew or shrank to this many.
+    Slots(usize),
+}
+
+/// The most `HostOp`s kept at once; a game that never reads them (a Host's own) drops the oldest.
+const HOST_OPS_KEPT: usize = 32;
+
 /// The Player's Weapon slots: `WEAPON_SLOTS` of them, or as many as the stat entries say. The held
 /// slot is always filled; the Knife is separate.
 #[derive(Component)]
 pub struct Loadout {
     slots: Vec<Option<WeaponCopy>>,
     held: usize,
+    host_ops: Vec<HostOp>,
     pub reload: Option<Reload>,
     pub swap: Option<Swap>,
     since_shot: f32,
@@ -234,6 +255,7 @@ impl Loadout {
                 .take(WEAPON_SLOTS as usize)
                 .collect(),
             held: 0,
+            host_ops: Vec::new(),
             reload: None,
             swap: None,
             since_shot: f32::INFINITY,
@@ -250,6 +272,33 @@ impl Loadout {
     /// Seconds since the held gun last fired; infinite before the first shot.
     pub fn since_shot(&self) -> f32 {
         self.since_shot
+    }
+
+    /// The slot of the Weapon in hand.
+    pub fn held_slot(&self) -> usize {
+        self.held
+    }
+
+    /// Takes what was done to these Weapons since last asked, oldest first.
+    pub fn drain_host_ops(&mut self) -> Vec<HostOp> {
+        std::mem::take(&mut self.host_ops)
+    }
+
+    fn did(&mut self, op: HostOp) {
+        if self.host_ops.len() >= HOST_OPS_KEPT {
+            self.host_ops.remove(0);
+        }
+        self.host_ops.push(op);
+    }
+
+    /// Takes a filled slot in hand with no swap shown, as a teammate's switch is heard: the Host's
+    /// copy of a remote Player's Loadout never animates. False if the slot is empty.
+    pub fn set_held(&mut self, slot: usize) -> bool {
+        if self.slot(slot).is_none() {
+            return false;
+        }
+        self.held = slot;
+        true
     }
 
     pub fn held(&self) -> &WeaponCopy {
@@ -281,6 +330,7 @@ impl Loadout {
         if count == self.slots.len() {
             return;
         }
+        self.did(HostOp::Slots(count));
         if count > self.slots.len() {
             self.slots.resize_with(count, || None);
             return;
@@ -376,6 +426,7 @@ impl Loadout {
     /// buy or Max Ammo does. A Reload of that Weapon has nothing left to do, so it ends.
     pub fn refill(&mut self, slot: usize, player: &[Modifier]) {
         let size = self.slot_magazine_size(slot, player);
+        self.did(HostOp::Refill(slot));
         let weapon = self.slots[slot].as_mut().expect("a filled slot");
         weapon.magazine = weapon.magazine.max(size);
         weapon.reserve = weapon.reserve.max(weapon.reserve_cap(player));
@@ -390,6 +441,7 @@ impl Loadout {
     /// Max Ammo: every Weapon carried gets full Reserve Ammo (Extended Mag's included) and a full
     /// Underbarrel. Magazines are left as they are.
     pub fn max_ammo(&mut self) {
+        self.did(HostOp::MaxAmmo);
         for weapon in self.slots.iter_mut().flatten() {
             weapon.reserve = weapon.reserve.max(weapon.reserve_max());
             if let Some(underbarrel) = &mut weapon.underbarrel {
@@ -590,10 +642,16 @@ impl Loadout {
         } else if let Some(empty) = self.slots.iter().position(Option::is_none) {
             target = empty;
         }
+        self.put_copy(target, copy);
+    }
+
+    /// Takes a Weapon copy into `slot` and brings it up, as `give_copy` does into the slot it picks.
+    pub fn put_copy(&mut self, slot: usize, copy: WeaponCopy) {
         self.swap = Some(Swap::between(self.held(), copy.stats()));
-        self.held = target;
-        self.slots[target] = Some(copy);
+        self.held = slot;
+        self.slots[slot] = Some(copy);
         self.reset_for_swap();
+        self.did(HostOp::Put(slot));
     }
 
     /// Hand over the Weapon in hand, as Pack-a-Punch takes it, and bring up the next one. Its
@@ -602,6 +660,7 @@ impl Loadout {
     pub fn take_held(&mut self) -> Option<WeaponCopy> {
         let other = self.next_filled()?;
         let taken = self.slots[self.held].take().expect("the held slot is always filled");
+        self.did(HostOp::Take);
         self.held = other;
         self.begin_swap(&taken);
         if let Some(swap) = &mut self.swap {

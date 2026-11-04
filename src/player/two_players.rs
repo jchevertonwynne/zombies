@@ -34,6 +34,7 @@ pub(crate) fn two_players_with(configure: impl FnOnce(&mut App)) -> (Sim, Entity
             .add_message::<HoldPurchased>()
             .add_message::<CantAfford>()
             .add_message::<BuyRefused>()
+            .add_message::<crate::buy::RefusedByPlayer>()
             .add_systems(Update, resolve_use)
             .add_message::<Teleport>()
             .init_resource::<PendingTeleports>()

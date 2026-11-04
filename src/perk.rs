@@ -17,7 +17,7 @@ use crate::state::{GameState, InRun, RunType, world_runs};
 use crate::tuning::*;
 use crate::weapon::Loadout;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Perk {
     Juggernog,
     SpeedCola,
@@ -162,6 +162,20 @@ pub struct Perks(pub Vec<Perk>);
 impl Perks {
     pub fn has(&self, perk: Perk) -> bool {
         self.0.contains(&perk)
+    }
+
+    /// Shows the Perks the Host says are held: those it names are held with their entries, and
+    /// any other goes, with its entries.
+    pub fn show(&mut self, held: &[Perk], modifiers: &mut Modifiers) {
+        for &perk in Perk::ALL.iter() {
+            let has = self.has(perk);
+            if held.contains(&perk) && !has {
+                modifiers.0.extend_from_slice(perk.modifiers());
+            } else if !held.contains(&perk) && has {
+                modifiers.0.retain(|entry| entry.source != Source(perk.name()));
+            }
+        }
+        self.0 = held.to_vec();
     }
 
     /// A Down takes every Perk but the `keep` earliest bought (see `kept_on_down`), and with them

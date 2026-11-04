@@ -30,7 +30,7 @@ use crate::zombie::{Attack, DamageZombie, Dying, HitZone, Pay, Zombie, ZombieKil
 use crate::zone::{FIXED_JOINS, PlayerZone, ZoneId, ZoneSet};
 
 /// The six Power-ups.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum PowerUp {
     MaxAmmo,
     InstaKill,
@@ -307,6 +307,17 @@ pub struct Dropped {
     at: Vec3,
 }
 
+impl Dropped {
+    pub fn power_up(&self) -> PowerUp {
+        self.power_up
+    }
+
+    /// Where it floats.
+    pub fn at(&self) -> Vec3 {
+        self.at
+    }
+}
+
 #[cfg(test)]
 impl Dropped {
     /// A fresh `power_up` lying at `at`, for headless tests.
@@ -329,7 +340,7 @@ struct FireSaleBox;
 
 
 #[derive(Resource)]
-struct PowerUpAssets {
+pub(crate) struct PowerUpAssets {
     mesh: Handle<Mesh>,
     materials: Vec<Handle<StandardMaterial>>,
 }
@@ -367,9 +378,13 @@ impl Plugin for PowerUpPlugin {
             .add_systems(OnEnter(GameState::Playing), reset.after(SpawnPlayers))
             .add_systems(
                 Update,
-                (resolve_stats, tick_timers, drop_power_ups, age_drops, pick_up, nuke, fire_sale)
+                (
+                    (resolve_stats, tick_timers, drop_power_ups).chain().in_set(HostSimulation),
+                    // Every machine ages what lies on the ground; the Host's word is what takes it.
+                    age_drops,
+                    (pick_up, nuke, fire_sale).chain().in_set(HostSimulation),
+                )
                     .chain()
-                    .in_set(HostSimulation)
                     .run_if(world_runs),
             );
     }
@@ -462,8 +477,14 @@ fn drop_power_ups(
     }
     for (at, power_up) in drops {
         let power_up = power_up.unwrap_or_else(|| next_power_up(&mut bag.0, rules, rng));
-        let at = at + Vec3::Y * POWER_UP_FLOAT_HEIGHT;
-        commands.spawn((
+        spawn_drop(&mut commands, &assets, power_up, at + Vec3::Y * POWER_UP_FLOAT_HEIGHT);
+    }
+}
+
+/// A Power-up lying on the ground, floating at `at`.
+pub(crate) fn spawn_drop(commands: &mut Commands, assets: &PowerUpAssets, power_up: PowerUp, at: Vec3) -> Entity {
+    commands
+        .spawn((
             InRun,
             Name::new(power_up.name()),
             Dropped { power_up, age: 0.0, at },
@@ -480,8 +501,8 @@ fn drop_power_ups(
                 },
                 Transform::default(),
             )],
-        ));
-    }
+        ))
+        .id()
 }
 
 /// A Power-up on the ground spins and bobs, blinks near the end, then vanishes.

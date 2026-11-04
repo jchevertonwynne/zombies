@@ -5,7 +5,7 @@ use bevy::prelude::*;
 
 use crate::arsenal::{Availability, WeaponId};
 use crate::authority::HostSimulation;
-use crate::buy::{Buyable, PricedFor, Purchased, Refused};
+use crate::buy::{Buyable, Offers, PricedFor, Purchased, Refused};
 use crate::gun_model::GunModels;
 use crate::hands::ammo_buy_pose;
 use crate::modifier::Modifiers;
@@ -123,7 +123,11 @@ impl Plugin for WallWeaponPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AmmoBuy>().add_systems(
             Update,
-            (buy_wall_weapons.in_set(HostSimulation), price_wall_weapons, lift_off_wall_weapons)
+            (
+                (offer_wall_weapons, buy_wall_weapons).chain().in_set(HostSimulation),
+                price_wall_weapons,
+                lift_off_wall_weapons,
+            )
                 .chain()
                 .run_if(world_runs),
         );
@@ -151,6 +155,29 @@ fn lift_off_wall_weapons(
     }
     if let Some(elapsed) = ammo_buy.0 {
         ammo_buy.0 = (elapsed + dt < AMMO_BUY_SECS).then_some(elapsed + dt);
+    }
+}
+
+/// Judges what each chalk sells every Player but the `LocalPlayer`, by what they carry, for the
+/// Host to hold a request against (see `Offers`). Whether a copy's ammo is full is only known to
+/// the Player's own game, which says so with the request.
+fn offer_wall_weapons(
+    mut walls: Query<(&WallWeapon, &mut Offers)>,
+    players: Query<(Entity, &Loadout), (With<Player>, Without<LocalPlayer>)>,
+) {
+    for (wall, mut offers) in &mut walls {
+        let Some(price) = wall_price(wall.0) else { continue };
+        for (player, loadout) in &players {
+            let carried = loadout.slot_of(wall.0).map(|slot| Carried {
+                upgraded: loadout.slot(slot).is_some_and(|weapon| weapon.upgraded),
+                full: false,
+            });
+            let sold = offer(price, carried);
+            let judged = crate::buy::Offer { price: Some(sold.price()), tap: true, hold: None, refused: false };
+            if offers.get(player) != Some(Some(judged)) {
+                offers.set(player, Some(judged));
+            }
+        }
     }
 }
 

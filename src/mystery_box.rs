@@ -38,7 +38,7 @@ const PRIZE_LOW: f32 = 0.45;
 const PRIZE_HIGH: f32 = 1.0;
 
 /// What the Box can give: a Box Weapon, or the Monkey Bomb, which fills the Tactical slot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Prize {
     Weapon(WeaponId),
     MonkeyBomb,
@@ -125,6 +125,49 @@ impl MysteryBox {
     /// Whether the Box is standing anywhere, rather than between locations.
     pub fn present(&self) -> bool {
         !matches!(self.state, BoxState::Away { .. })
+    }
+
+    /// Runs the clock of the state the Host last said, for the show, never to its end: only the
+    /// Host's word moves the Box on.
+    pub fn tick_shown(&mut self, dt: f32) {
+        const SHORT: f32 = 0.001;
+        self.state = match self.state {
+            BoxState::Spinning { spinner, elapsed, paid, teddy } => {
+                BoxState::Spinning { spinner, elapsed: (elapsed + dt).min(BOX_SPIN_SECS - SHORT), paid, teddy }
+            }
+            BoxState::Offering { spinner, prize, left, counts, upgraded } => {
+                BoxState::Offering { spinner, prize, left: (left - dt).max(SHORT), counts, upgraded }
+            }
+            BoxState::Rearming { left } => BoxState::Rearming { left: (left - dt).max(SHORT) },
+            BoxState::Leaving { elapsed } => BoxState::Leaving { elapsed: (elapsed + dt).min(LEAVING_SECS - SHORT) },
+            BoxState::Away { left, to } => BoxState::Away { left: (left - dt).max(SHORT), to },
+            idle => idle,
+        };
+    }
+
+    /// Puts the Box in the state the Host says, standing at `location`: gone and untouchable
+    /// while it is away, solid and in sight otherwise.
+    pub fn show(
+        &mut self,
+        commands: &mut Commands,
+        entity: Entity,
+        transform: &mut Transform,
+        visibility: &mut Visibility,
+        location: usize,
+        state: BoxState,
+    ) {
+        if matches!(state, BoxState::Away { .. }) {
+            commands.entity(entity).insert(ColliderDisabled);
+            *visibility = Visibility::Hidden;
+        } else {
+            if self.location != location || !self.present() {
+                *transform = location_transform(location);
+            }
+            commands.entity(entity).remove::<ColliderDisabled>();
+            *visibility = Visibility::Inherited;
+        }
+        self.location = location;
+        self.state = state;
     }
 }
 

@@ -131,7 +131,7 @@ impl Shots {
 pub struct Told;
 
 /// The Weapon a Player holds, as a teammate sees it.
-#[derive(Component, Debug, Clone, PartialEq)]
+#[derive(Component, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HeldWeapon {
     pub id: WeaponId,
     /// What colours its glint, if it's Upgraded.

@@ -165,6 +165,48 @@ pub struct BuyRefused {
     pub player: Entity,
 }
 
+/// A Player's own game says it refuses this Buyable for them (their ammo is full, say), which only
+/// that game knows. The Host takes its word, for a request it is about to judge.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct RefusedByPlayer {
+    pub player: Entity,
+    pub buyable: Entity,
+}
+
+/// What a Buyable offers one Player.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Offer {
+    /// What using the Buyable itself costs this Player, or `None` for nothing.
+    pub price: Option<u64>,
+    /// Whether a tap buys the Buyable itself. Without it only the hold half is offered.
+    pub tap: bool,
+    /// What the hold half costs this Player, if there is a hold half on offer.
+    pub hold: Option<u64>,
+    /// Whether the buy is refused for them with the buzzer.
+    pub refused: bool,
+}
+
+/// What a Buyable offers each Player other than the `LocalPlayer`. The Buyable's own `price`,
+/// `HoldBuy` and `Refused` are written from the `LocalPlayer`'s view, so for anyone else on the
+/// Host the owner writes this, and the request is judged by it. A Player with no entry yet is
+/// judged by the Buyable as it stands.
+#[derive(Component, Default)]
+pub struct Offers(Vec<(Entity, Option<Offer>)>);
+
+impl Offers {
+    /// What `player` is offered from now on: `None` for nothing, no Prompt.
+    pub fn set(&mut self, player: Entity, offer: Option<Offer>) {
+        match self.0.iter_mut().find(|(held, _)| *held == player) {
+            Some((_, held)) => *held = offer,
+            None => self.0.push((player, offer)),
+        }
+    }
+
+    pub fn get(&self, player: Entity) -> Option<Option<Offer>> {
+        self.0.iter().find(|(held, _)| *held == player).map(|&(_, offer)| offer)
+    }
+}
+
 /// The Buyable whose Prompt is showing, if any.
 #[derive(Resource, Default)]
 pub struct Focus(pub Option<Entity>);
@@ -271,6 +313,7 @@ impl Plugin for BuyPlugin {
             .add_message::<HoldPurchased>()
             .add_message::<CantAfford>()
             .add_message::<BuyRefused>()
+            .add_message::<RefusedByPlayer>()
             .add_systems(OnEnter(GameState::GameOver), |mut focus: ResMut<Focus>| focus.0 = None)
             .add_systems(
                 Update,
@@ -359,36 +402,77 @@ fn hold_buy(
 /// otherwise the buzzer plays. A Barrier's rebuild isn't a purchase and is left to its owner.
 pub(crate) fn resolve_use(
     mut requests: MessageReader<UseRequest>,
-    buyables: Query<(&Buyable, Option<&HoldBuy>, Has<Refused>, Has<Held>, Option<&PricedFor>, Option<&OncePerPlayer>)>,
+    buyables: Query<(
+        &Buyable,
+        Option<&HoldBuy>,
+        Has<Refused>,
+        Has<Held>,
+        Option<&PricedFor>,
+        Option<&OncePerPlayer>,
+        Option<&Offers>,
+    )>,
     mut players: Query<
-        (Has<LastStand>, Has<AwaitingRespawn>, &Modifiers, Option<&Loadout>, Option<&Perks>, Option<&Drinking>, &mut Points),
+        (
+            Has<LastStand>,
+            Has<AwaitingRespawn>,
+            &Modifiers,
+            Option<&Loadout>,
+            Option<&Perks>,
+            Option<&Drinking>,
+            &mut Points,
+            Has<LocalPlayer>,
+        ),
         With<Player>,
     >,
     pause: Res<State<Pause>>,
+    mut claims: MessageReader<RefusedByPlayer>,
     mut purchased: MessageWriter<Purchased>,
     mut held: MessageWriter<HoldPurchased>,
     mut cant_afford: MessageWriter<CantAfford>,
     mut refusals: MessageWriter<BuyRefused>,
 ) {
+    let claimed: Vec<(Entity, Entity)> = claims.read().map(|claim| (claim.player, claim.buyable)).collect();
     for &UseRequest { player, buyable: entity, hold } in requests.read() {
-        let Ok((buyable, hold_buy, refused, rebuild, priced_for, once)) = buyables.get(entity) else { continue };
-        let Ok((last_stand, awaiting, modifiers, loadout, perks, drinking, mut points)) = players.get_mut(player) else { continue };
+        let Ok((buyable, hold_buy, refused, rebuild, priced_for, once, offers)) = buyables.get(entity) else { continue };
+        let Ok((last_stand, awaiting, modifiers, loadout, perks, drinking, mut points, local)) = players.get_mut(player)
+        else {
+            continue;
+        };
         let down = last_stand || awaiting;
-        let refused = refused || once.is_some_and(|once| once.refuses(perks, drinking));
+        let mut refused = refused || once.is_some_and(|once| once.refuses(perks, drinking));
         if rebuild {
             continue;
         }
-        let half_price = match (hold, hold_buy) {
-            (true, Some(hold_buy)) => hold_buy.price,
-            (true, None) => continue,
-            (false, _) => buyable.price,
-        };
-        let half_price = match (half_price, priced_for) {
-            (Some(_), Some(PricedFor(price_for))) if loadout.is_some() => {
-                price_for(loadout.unwrap(), &modifiers.0, hold)
+        // The Buyable's own state is the `LocalPlayer`'s view; anyone else is judged by the offer
+        // its owner made them, where there is one.
+        let offer = offers.filter(|_| !local).and_then(|offers| offers.get(player));
+        let half_price = match offer {
+            Some(None) => continue,
+            Some(Some(offer)) => {
+                refused = offer.refused || once.is_some_and(|once| once.refuses(perks, drinking));
+                match (hold, offer.hold) {
+                    (true, Some(price)) => Some(price),
+                    (true, None) => continue,
+                    (false, _) if !offer.tap => continue,
+                    (false, _) => offer.price,
+                }
             }
-            _ => half_price,
+            None => {
+                let half_price = match (hold, hold_buy) {
+                    (true, Some(hold_buy)) => hold_buy.price,
+                    (true, None) => continue,
+                    (false, _) => buyable.price,
+                };
+                match (half_price, priced_for) {
+                    (Some(_), Some(PricedFor(price_for))) if loadout.is_some() => {
+                        price_for(loadout.unwrap(), &modifiers.0, hold)
+                    }
+                    _ => half_price,
+                }
+            }
         };
+        // A Player's own game knows their ammo; if it says the buy is refused, it is.
+        refused |= !local && claimed.contains(&(player, entity));
         let price = charged(half_price, &modifiers.0);
         match decide(buyer(&points, down, &pause), price, true).refused_if(refused) {
             Decision::Buy => {
@@ -622,6 +706,7 @@ mod tests {
             .add_message::<HoldPurchased>()
             .add_message::<CantAfford>()
             .add_message::<BuyRefused>()
+            .add_message::<RefusedByPlayer>()
             .add_systems(Update, resolve_use);
         app
     }
