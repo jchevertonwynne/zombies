@@ -1,15 +1,21 @@
 //! Co-op's network layer: how a Host and its Players talk. Solo builds none of it.
 //!
-//! Nothing here is added to the app yet. The Link and the wire format come first;
-//! the Run's systems that use them follow.
+//! Nothing here is added to the app by itself: `play` is installed as the Host or a client of a
+//! Run, and the Room that starts one is yet to do it.
 
 #![allow(dead_code, reason = "the Co-op systems that use the network layer are built next")]
 
 pub mod link;
 pub mod lobby;
+pub mod play;
 pub mod protocol;
+pub mod remote;
 pub mod room;
+pub mod state;
 pub mod transport;
+
+#[cfg(test)]
+mod movement;
 
 #[cfg(test)]
 mod tests {

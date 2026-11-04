@@ -2023,3 +2023,31 @@ pub const NAME_TAG_FADE_END: f32 = 32.0;
 pub const NAME_TAG_LIFT: f32 = 0.3;
 /// The size of a name tag's letters, in pixels.
 pub const NAME_TAG_FONT_PX: f32 = 18.0;
+
+// Co-op: movement over the network
+/// How often the simulation steps: Bevy's default fixed rate, which the game never changes.
+pub const FIXED_HZ: u32 = 64;
+/// How often the Host tells each Player how things stand.
+pub const SNAPSHOT_HZ: u32 = 32;
+/// How many of a Player's last ticks of input each datagram carries, so one lost costs nothing.
+pub const INPUT_RESEND: usize = 4;
+/// How many snapshots behind the newest the other Players are shown, to always have two to
+/// show between.
+pub const INTERPOLATION_SNAPSHOTS: u32 = 2;
+/// How many ticks of a remote Player's input the Host keeps in hand to start with, and how many
+/// ticks it watches before keeping more or fewer.
+pub const REMOTE_INPUT_DEPTH: u32 = 2;
+pub const REMOTE_INPUT_WINDOW: u32 = 60;
+/// A remote Player whose input has stopped coming for this many ticks stands still.
+pub const REMOTE_STALL_TICKS: u32 = 32;
+/// How many ticks of its own input a client keeps to replay, two seconds' worth.
+pub const REPLAY_TICKS: usize = 128;
+/// How far a position is told to, in metres: the 1 cm that three `i16`s give a 650 m box.
+pub const WIRE_POSITION_STEP: f32 = 0.01;
+/// How far a puppet may stray from where it should be, in ticks, before it eases back, and how far
+/// before it jumps.
+pub const PUPPET_SLACK_TICKS: f32 = 2.0;
+pub const PUPPET_JUMP_TICKS: f32 = 8.0;
+/// What a snapshot leaves room for Zombies and Hellhounds: 56 Zombies and 2 Hellhounds, at most
+/// 12 bytes each, and their length.
+pub const SNAPSHOT_ZOMBIE_RESERVE: usize = 58 * 12 + 2;
