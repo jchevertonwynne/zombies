@@ -14,7 +14,7 @@ use crate::arsenal::WeaponId;
 use crate::attachment::attachment_repack_price;
 use crate::authority::HostSimulation;
 use crate::gun_model::GunModels;
-use crate::buy::{Buyable, HoldBuy, HoldPurchased, PricedFor, Purchased, Refused};
+use crate::buy::{Buyable, HoldBuy, HoldPurchased, Offer, Offers, PricedFor, Purchased, Refused};
 use crate::layers::GameLayer;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve_points};
 use crate::perk::Drinking;
@@ -179,6 +179,17 @@ impl PackAPunch {
         self.inside.as_ref().map(|inside| inside.weapon.id)
     }
 
+    /// The Weapon inside, how long it has been there and who put it in, for the Host to tell the
+    /// other games.
+    pub fn view(&self) -> Option<(&WeaponCopy, f32, Option<Entity>)> {
+        self.inside.as_ref().map(|inside| (&inside.weapon, inside.elapsed, inside.owner))
+    }
+
+    /// Shows what the Host says is inside: a Weapon already worked on, `elapsed` seconds in.
+    pub fn show(&mut self, inside: Option<(WeaponCopy, f32, Option<Entity>)>) {
+        self.inside = inside.map(|(weapon, elapsed, owner)| Inside { weapon, elapsed, owner });
+    }
+
     /// Whether `player` may take the Weapon inside out.
     pub fn is_owned_by(&self, player: Entity) -> bool {
         self.inside.as_ref().is_some_and(|inside| inside.owner.is_none_or(|owner| owner == player))
@@ -271,7 +282,7 @@ impl Plugin for PackAPunchPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(OnEnter(GameState::Playing), spawn_machine).add_systems(
             Update,
-            ((use_machine, run_machine).chain().in_set(HostSimulation), prompt_machine, show_machine)
+            ((offer_machines, use_machine).chain().in_set(HostSimulation), run_machine, prompt_machine, show_machine)
                 .chain()
                 .run_if(world_runs),
         );
@@ -302,6 +313,7 @@ fn spawn_machine(
         Name::new("Pack-a-Punch"),
         PackAPunch::default(),
         PricedFor(Box::new(price_for)),
+        Offers::default(),
         Mesh3d(meshes.add(body)),
         MeshMaterial3d(materials.add(Color::srgb(0.25, 0.18, 0.3))),
         Transform::from_translation(centre),
@@ -386,6 +398,117 @@ pub fn use_point(at: Vec3) -> Vec3 {
 
 /// The machine owns its Buyable, so it keeps the Prompt, price and refusal current, and the hold
 /// half of a Repack with them. A Sabotaged machine shows no Prompt.
+/// What the machine's Prompt reads for one Player.
+struct Shown {
+    prompt: String,
+    price: Option<u64>,
+    /// Whether the buy is refused with the buzzer.
+    refuse: bool,
+    /// Whether it has a hold half, and if so whether a tap still buys alongside it.
+    hold: Option<bool>,
+}
+
+/// The Player's side of the machine's Prompt: the Weapon in hand and what it costs to work on it.
+struct Hands<'a> {
+    player: Entity,
+    held: Held,
+    drinking: bool,
+    copy: &'a WeaponCopy,
+    modifiers: &'a [Modifier],
+}
+
+impl Hands<'_> {
+    fn new<'a>(
+        player: Entity,
+        loadout: &'a Loadout,
+        modifiers: &'a Modifiers,
+        drinking: bool,
+    ) -> Hands<'a> {
+        let copy = loadout.held();
+        let held = Held {
+            upgraded: copy.upgraded,
+            ammo_mod_room: copy.ammo_mods.has_room(ammo_mod_slots(&modifiers.0)),
+            free_mount: copy.has_free_mount(),
+            spare: loadout.has_spare(),
+        };
+        Hands { player, held, drinking, copy, modifiers: &modifiers.0 }
+    }
+
+    fn price(&self, base: u64) -> u64 {
+        machine_price(base, self.modifiers)
+    }
+
+    fn upgrade_price(&self) -> u64 {
+        self.price(PAP_PRICE)
+    }
+
+    fn tap_price(&self) -> u64 {
+        self.price(repack_price(self.copy.repacks))
+    }
+
+    fn hold_price(&self) -> u64 {
+        self.price(attachment_repack_price(self.copy.repacks))
+    }
+}
+
+/// What the machine shows `hands`, if anything.
+fn shown(machine: &PackAPunch, hands: &Hands, sabotaged: bool, power_on: bool) -> Option<Shown> {
+    let want = if sabotaged {
+        MachinePrompt::NoPrompt
+    } else {
+        machine_prompt(power_on, machine.stage(), hands.held, !hands.drinking)
+    };
+    // The hold half, if this Prompt has one, and whether a tap buys alongside it.
+    let mut hold = None;
+    let (prompt, price, refuse) = match want {
+        MachinePrompt::NoPrompt => return None,
+        MachinePrompt::NeedsPower => ("You must turn on the Power first".to_string(), None, true),
+        MachinePrompt::Upgrade => ("Press F to Pack-a-Punch your Weapon".to_string(), Some(hands.upgrade_price()), false),
+        MachinePrompt::OnlyWeapon => ("Press F to Pack-a-Punch your Weapon".to_string(), Some(hands.upgrade_price()), true),
+        MachinePrompt::Repack { tap, hold: holds } | MachinePrompt::RepackOnlyWeapon { tap, hold: holds } => {
+            let refuse = matches!(want, MachinePrompt::RepackOnlyWeapon { .. });
+            if holds {
+                hold = Some(tap);
+            }
+            // With only the hold on offer, the Prompt's own line is the hold's.
+            if tap {
+                ("Press F to Repack your Weapon".to_string(), Some(hands.tap_price()), refuse)
+            } else {
+                ("Hold F to Repack an Attachment".to_string(), Some(hands.hold_price()), refuse)
+            }
+        }
+        MachinePrompt::Take if !machine.is_owned_by(hands.player) => ("Pack-a-Punch is busy".to_string(), None, false),
+        MachinePrompt::Take => {
+            let name = machine.inside.as_ref().map_or("", |inside| inside.weapon.stats().name);
+            (format!("Press F to take {name}"), None, false)
+        }
+    };
+    Some(Shown { prompt, price, refuse, hold })
+}
+
+/// Judges what the machine offers each Player but the `LocalPlayer`, from their own Weapons and
+/// Perks, for the Host to hold a request against (see `Offers`).
+fn offer_machines(
+    mut machines: Query<(&PackAPunch, &mut Offers, Has<Sabotaged>)>,
+    players: Query<(Entity, &Loadout, &Modifiers, Has<Drinking>), (With<Player>, Without<LocalPlayer>)>,
+    power: Res<Power>,
+) {
+    for (machine, mut offers, sabotaged) in &mut machines {
+        for (player, loadout, modifiers, drinking) in &players {
+            let hands = Hands::new(player, loadout, modifiers, drinking);
+            let offer = shown(machine, &hands, sabotaged, power.is_on()).map(|shown| Offer {
+                price: shown.price,
+                tap: shown.hold.unwrap_or(true),
+                hold: shown.hold.map(|_| hands.hold_price()),
+                refused: shown.refuse,
+            });
+            if offers.get(player) != Some(offer) {
+                offers.set(player, offer);
+            }
+        }
+    }
+}
+
 fn prompt_machine(
     mut commands: Commands,
     mut machines: Query<(
@@ -401,55 +524,15 @@ fn prompt_machine(
     power: Res<Power>,
 ) {
     let (local, loadout, modifiers, drinking) = *player;
-    let copy = loadout.held();
-    let held = Held {
-        upgraded: copy.upgraded,
-        ammo_mod_room: copy.ammo_mods.has_room(ammo_mod_slots(&modifiers.0)),
-        free_mount: copy.has_free_mount(),
-        spare: loadout.has_spare(),
-    };
-    let tap_prompt = "Press F to Repack your Weapon".to_string();
+    let hands = Hands::new(local, loadout, modifiers, drinking);
+    let hold_price = hands.hold_price();
     let hold_prompt = "Hold F to Repack an Attachment".to_string();
-    let price = |base| machine_price(base, &modifiers.0);
-    let upgrade_price = price(PAP_PRICE);
-    let (tap_price, hold_price) = (price(repack_price(copy.repacks)), price(attachment_repack_price(copy.repacks)));
     for (entity, machine, transform, buyable, hold_buy, refused, sabotaged) in &mut machines {
-        let want = if sabotaged {
-            MachinePrompt::NoPrompt
-        } else {
-            machine_prompt(power.is_on(), machine.stage(), held, !drinking)
-        };
-        // The hold half, if this Prompt has one, and whether a tap buys alongside it.
-        let mut hold = None;
-        let (prompt, price, refuse) = match want {
-            MachinePrompt::NoPrompt => {
-                if buyable.is_some() {
-                    commands.entity(entity).remove::<(Buyable, HoldBuy, Refused)>();
-                }
-                continue;
+        let Some(Shown { prompt, price, refuse, hold }) = shown(machine, &hands, sabotaged, power.is_on()) else {
+            if buyable.is_some() {
+                commands.entity(entity).remove::<(Buyable, HoldBuy, Refused)>();
             }
-            MachinePrompt::NeedsPower => ("You must turn on the Power first".to_string(), None, true),
-            MachinePrompt::Upgrade => ("Press F to Pack-a-Punch your Weapon".to_string(), Some(upgrade_price), false),
-            MachinePrompt::OnlyWeapon => ("Press F to Pack-a-Punch your Weapon".to_string(), Some(upgrade_price), true),
-            MachinePrompt::Repack { tap, hold: holds } | MachinePrompt::RepackOnlyWeapon { tap, hold: holds } => {
-                let refuse = matches!(want, MachinePrompt::RepackOnlyWeapon { .. });
-                if holds {
-                    hold = Some(tap);
-                }
-                // With only the hold on offer, the Prompt's own line is the hold's.
-                if tap {
-                    (tap_prompt.clone(), Some(tap_price), refuse)
-                } else {
-                    (hold_prompt.clone(), Some(hold_price), refuse)
-                }
-            }
-            MachinePrompt::Take if !machine.is_owned_by(local) => {
-                ("Pack-a-Punch is busy".to_string(), None, false)
-            }
-            MachinePrompt::Take => {
-                let name = machine.inside.as_ref().map_or("", |inside| inside.weapon.stats().name);
-                (format!("Press F to take {name}"), None, false)
-            }
+            continue;
         };
         match (hold, hold_buy) {
             (Some(tap), Some(mut hold_buy)) => {

@@ -91,6 +91,15 @@ impl Barriers {
         self.planks.iter().filter(|&&planks| planks == 0).count()
     }
 
+    /// Sets a Barrier's Planks to what the Host says they are, and says which way they went: the
+    /// Planks torn off (the topmost first) or the one put back.
+    pub fn show(&mut self, barrier: BarrierId, planks: u8) -> std::cmp::Ordering {
+        let held = &mut self.planks[barrier.0 as usize];
+        let way = planks.cmp(held);
+        *held = planks.min(BARRIER_PLANKS);
+        way
+    }
+
     /// Puts every Plank back on every Barrier, as Carpenter does. It pays nothing here and never
     /// touches the rebuild cap.
     pub fn restore_all(&mut self) {
@@ -261,6 +270,17 @@ pub struct Barrier(pub BarrierId);
 /// One Plank on a Barrier, by its place in the stack from the bottom up.
 #[derive(Component)]
 struct Plank(u8);
+
+/// The messages for a Plank gone from or put back on `barrier`, as the Host says, for the sounds
+/// and the torn Plank's toss.
+pub fn plank_news(barrier: BarrierId, way: std::cmp::Ordering, left: u8) -> (Option<PlankTorn>, Option<PlankRebuilt>) {
+    let at = window_centre(barrier) + Vec3::Y * 1.2;
+    match way {
+        std::cmp::Ordering::Less => (Some(PlankTorn { at, barrier, plank: left }), None),
+        std::cmp::Ordering::Greater => (None, Some(PlankRebuilt { at })),
+        std::cmp::Ordering::Equal => (None, None),
+    }
+}
 
 /// A Zombie tore a Plank off a Barrier, at `at`: the `plank`th from the bottom.
 #[derive(Message)]

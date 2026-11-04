@@ -35,7 +35,7 @@ pub enum Mount {
     Grip,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Attachment {
     RedDotSight,
     AcogSight,

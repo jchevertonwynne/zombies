@@ -95,7 +95,7 @@ fn open_power_doors(
 }
 
 /// Opens a Door for the rest of the Run: it stops being solid at once, then shakes and sinks away.
-fn open(commands: &mut Commands, entity: Entity, door: &mut Door, transform: &Transform) {
+pub(crate) fn open(commands: &mut Commands, entity: Entity, door: &mut Door, transform: &Transform) {
     door.open = true;
     commands
         .entity(entity)

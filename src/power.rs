@@ -21,6 +21,11 @@ impl Power {
     pub fn is_on(&self) -> bool {
         self.on
     }
+
+    /// The Power is on, as the Host says.
+    pub fn switch_on(&mut self) {
+        self.on = true;
+    }
 }
 
 /// The Power Switch's spot on the Power Room's east wall, and the way it faces.
@@ -52,6 +57,11 @@ impl PowerSwitch {
         *elapsed >= POWER_SWITCH_FLIP_SECS
     }
 
+    /// Whether the lever has been thrown, or is being.
+    pub fn started(&self) -> bool {
+        self.flip.is_some()
+    }
+
     /// How far the lever has been thrown, 0 to 1.
     pub fn fraction(&self) -> f32 {
         self.flip
@@ -77,10 +87,8 @@ impl Plugin for PowerPlugin {
             )
             .add_systems(
                 Update,
-                (use_switch, flip_switch)
-                    .chain()
-                    .in_set(HostSimulation)
-                    .run_if(world_runs),
+                // Every machine swings the lever; the Host's bought use starts it.
+                (use_switch.in_set(HostSimulation), flip_switch).chain().run_if(world_runs),
             );
     }
 }

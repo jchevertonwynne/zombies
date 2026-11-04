@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::arsenal::WeaponId;
-use crate::buy::Buyable;
+use crate::buy::{Buyable, Offers};
 use crate::door::Door;
 use crate::layers::GameLayer;
 use crate::state::{GameState, InRun};
@@ -531,6 +531,7 @@ pub fn spawn_map(
                 InRun,
                 WallWeapon(weapon),
                 priced_for(weapon),
+                Offers::default(),
                 Buyable {
                     use_point: centre + normal * 0.05,
                     prompt: String::new(),

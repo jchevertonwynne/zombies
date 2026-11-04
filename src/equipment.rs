@@ -39,6 +39,8 @@ pub struct Equipment {
     /// The most frags carried and how many a new Round restocks, kept resolved from the Player's
     /// modifier entries.
     pub frag_limits: FragLimits,
+    /// Whether the Host has given or refilled some since it last told this Player's game.
+    pub host_dirty: bool,
 }
 
 /// The most frags carried, and how many each new Round restocks.
@@ -74,6 +76,7 @@ impl Default for Equipment {
             monkey_bombs: 0,
             cooking: None,
             frag_limits: FragLimits::default(),
+            host_dirty: false,
         }
     }
 }
@@ -124,6 +127,7 @@ impl Equipment {
 
     /// Max Ammo refills every piece of Equipment the Player has.
     pub fn max_ammo(&mut self) {
+        self.host_dirty = true;
         self.frags = self.frags.max(self.frag_limits.max);
         if self.claymores_owned {
             self.claymores = self.claymores.max(CLAYMORE_PER_ROUND);
@@ -135,6 +139,7 @@ impl Equipment {
 
     /// Taking the Monkey Bomb from the Mystery Box fills the Tactical slot to 3.
     pub fn take_monkey_bombs(&mut self) {
+        self.host_dirty = true;
         self.monkey_bombs_owned = true;
         self.monkey_bombs = self.monkey_bombs.max(MONKEY_BOMB_CARRY);
     }
@@ -183,6 +188,7 @@ pub fn equipment_offer(wall: EquipmentWall, equipment: &Equipment, bowie: bool) 
 
 /// Gives what an Equipment wall sells.
 pub fn buy_equipment(wall: EquipmentWall, equipment: &mut Equipment, bowie: &mut bool) {
+    equipment.host_dirty = true;
     match wall {
         EquipmentWall::Frags => equipment.frags = equipment.frags.max(equipment.frag_limits.max),
         EquipmentWall::Claymore => {

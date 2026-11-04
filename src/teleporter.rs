@@ -29,7 +29,7 @@ use crate::zombie::{Attack, DamageZombie, Dying, HitZone, Zombie};
 use crate::zone::{PlayerZone, ZoneId};
 
 /// One of the two Pads.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum PadId {
     Workshop,
     Generator,
@@ -87,6 +87,17 @@ pub enum TripEvent {
     Arrived { since_last: Option<f32> },
 }
 
+/// What the Host tells the other games of the Teleporter: the parts that change rarely, whose
+/// clocks each game runs on its own between the Host's words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TeleporterView {
+    pub linked: [bool; 2],
+    pub linking: Option<PadId>,
+    /// The Pad a trip is from, and whether it is already in the holding space.
+    pub trip: Option<(PadId, bool)>,
+    pub sabotaged: bool,
+}
+
 /// The Teleporter's state for the Run: which Pads are Linked, the Link attempt under way, the
 /// trip under way, and the shared cooldown. Public so the Sapper can Sabotage it.
 #[derive(Resource, Debug, Clone, Default, PartialEq)]
@@ -106,6 +117,39 @@ pub struct Teleporter {
 }
 
 impl Teleporter {
+    /// What the Host tells the other games.
+    pub fn view(&self) -> TeleporterView {
+        TeleporterView {
+            linked: self.linked,
+            linking: self.linking(),
+            trip: self.trip.map(|(pad, phase)| (pad, matches!(phase, TripPhase::Holding(_)))),
+            sabotaged: self.sabotaged,
+        }
+    }
+
+    /// Shows what the Host says, each clock starting over where its phase begins.
+    pub fn show(&mut self, view: TeleporterView) {
+        let before = self.view();
+        self.linked = view.linked;
+        self.sabotaged = view.sabotaged;
+        if before.linking != view.linking {
+            self.linking = view.linking.map(|pad| (pad, TELEPORTER_LINK_SECS));
+        }
+        if before.trip != view.trip {
+            self.trip = view.trip.map(|(pad, holding)| {
+                let phase = if holding {
+                    TripPhase::Holding(TELEPORTER_HOLDING_SECS)
+                } else {
+                    TripPhase::Charging(TELEPORTER_CHARGE_SECS)
+                };
+                (pad, phase)
+            });
+            if view.trip.is_none() {
+                self.cooldown = TELEPORTER_COOLDOWN_SECS;
+            }
+        }
+    }
+
     pub fn linked(&self, pad: PadId) -> bool {
         self.linked[pad.index()]
     }
@@ -388,14 +432,14 @@ pub struct ResistsTeleporter;
 
 /// A Pad, the Buyable that activates it and then starts trips. `shown` is the Prompt it has now.
 #[derive(Component)]
-struct Pad {
+pub(crate) struct Pad {
     pad: PadId,
     shown: TeleporterPrompt,
 }
 
 /// The Mainframe, the Buyable that Links a Pad.
 #[derive(Component)]
-struct Mainframe {
+pub(crate) struct Mainframe {
     shown: TeleporterPrompt,
 }
 

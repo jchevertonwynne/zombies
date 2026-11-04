@@ -119,7 +119,7 @@ impl AmmoMod {
 }
 
 /// The Ammo Mods one Weapon copy holds.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct AmmoMods(u8);
 
 impl AmmoMods {
