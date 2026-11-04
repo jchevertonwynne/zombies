@@ -10,7 +10,7 @@ use crate::barrier::Entering;
 use crate::buy::{Buyable, Purchased, Refused};
 use crate::gun_model::Handheld;
 use crate::hands::{cook_pose, cook_raise, plant_pose, throw_pose};
-use crate::explosive::{Explosion, Explosive, in_sight, makes_crawlers, world_filter};
+use crate::explosive::{Explosion, Explosive, Launch, Thrown, in_sight, makes_crawlers, world_filter};
 use crate::layers::GameLayer;
 use crate::arsenal::Splash;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_count};
@@ -236,12 +236,16 @@ pub struct Pull {
 /// A thrown frag, burning down its fuse.
 #[derive(Component)]
 struct Frag {
+    /// The Player who threw it.
+    thrower: Entity,
     fuse: f32,
 }
 
 /// A thrown Monkey Bomb. Its fuse starts when it lands.
 #[derive(Component)]
 pub struct MonkeyBomb {
+    /// The Player who threw it.
+    thrower: Entity,
     fuse: Option<f32>,
     /// Seconds since it was thrown.
     age: f32,
@@ -257,6 +261,8 @@ impl MonkeyBomb {
 /// A planted Claymore, and the countdown once a Zombie sets it off.
 #[derive(Component)]
 pub struct Claymore {
+    /// The Player who planted it.
+    thrower: Entity,
     facing: Vec3,
     countdown: Option<f32>,
 }
@@ -394,7 +400,7 @@ impl Plugin for EquipmentPlugin {
                     resolve_frag_limits,
                     restock,
                     (buy_walls, price_walls).chain(),
-                    (throw_frags, throw_monkey_bombs, plant_claymores, release_handled),
+                    (throw_frags, throw_monkey_bombs, plant_claymores, release_handled, launch_equipment),
                     (burn_frags, land_monkey_bombs, lure_zombies, trigger_claymores),
                 )
                     .chain()
@@ -517,11 +523,12 @@ fn price_walls(
 fn buy_walls(
     mut purchases: MessageReader<Purchased>,
     walls: Query<&EquipmentWall>,
-    player: Single<(&mut Equipment, &mut Knife), With<Player>>,
+    mut players: Query<(&mut Equipment, &mut Knife), With<Player>>,
 ) {
-    let (mut equipment, mut knife) = player.into_inner();
-    for Purchased(entity) in purchases.read() {
-        if let Ok(wall) = walls.get(*entity) {
+    for &Purchased { player, buyable } in purchases.read() {
+        if let Ok(wall) = walls.get(buyable)
+            && let Ok((mut equipment, mut knife)) = players.get_mut(player)
+        {
             buy_equipment(*wall, &mut equipment, &mut knife.bowie);
         }
     }
@@ -589,6 +596,7 @@ fn throw_frags(
             equipment.cooking = None;
             explosions.write(Explosion {
                 at: camera.translation(),
+                thrower: Some(entity),
                 splash: equipment_splash(FRAG_SPLASH, entries),
                 hurts_player: true,
                 ammo_mods: AmmoMods::NONE,
@@ -636,14 +644,15 @@ fn floor_below(from: Vec3, spatial: &SpatialQuery) -> Option<f32> {
 }
 
 /// Plays out each throw or plant: the frag, Monkey Bomb or Claymore leaves the hand when it lets
-/// go. A thrown one leaves from where the hand is and flies to the crosshair; a Claymore goes on
-/// the floor at the Player's feet, facing where they look, and is given back if there's none by then.
+/// go, as a `Launch`. A thrown one leaves from where the hand is and flies to the crosshair; a
+/// Claymore goes on the floor at the Player's feet, facing where they look, and is given back if
+/// there's none by then.
 fn release_handled(
     mut commands: Commands,
     player: Option<Single<(Entity, &mut Equipment, &mut Handling, &Transform), With<Player>>>,
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
     spatial: SpatialQuery,
-    assets: Res<EquipmentAssets>,
+    mut launches: MessageWriter<Launch>,
     time: Res<Time>,
 ) {
     let Some(player) = player else {
@@ -653,13 +662,9 @@ fn release_handled(
     if handling.advance(time.delta_secs()) {
         let from = camera.transform_point(handling.release_point());
         let aim = (camera.translation() + *camera.forward() * THROW_AIM_DISTANCE - from).normalize_or(*camera.forward());
-        match handling.what {
-            Handled::Frag(fuse) => {
-                commands.spawn((Frag { fuse }, thrown(&assets.frag, &assets.frag_mat, from, aim)));
-            }
-            Handled::MonkeyBomb => {
-                commands.spawn((MonkeyBomb { fuse: None, age: 0.0 }, thrown(&assets.monkey, &assets.monkey_mat, from, aim)));
-            }
+        let thrown = match handling.what {
+            Handled::Frag(fuse) => Thrown::Frag { from, aim, fuse },
+            Handled::MonkeyBomb => Thrown::MonkeyBomb { from, aim },
             Handled::Claymore => {
                 let Some(floor) = floor_below(transform.translation, &spatial) else {
                     equipment.claymores += 1;
@@ -668,34 +673,59 @@ fn release_handled(
                 };
                 let facing = transform.forward().with_y(0.0).normalize_or(Vec3::NEG_Z);
                 let at = transform.translation - Vec3::Y * floor + facing * 0.5 + Vec3::Y * 0.08;
-                commands.spawn((
-                    InRun,
-                    Claymore { facing, countdown: None },
-                    Mesh3d(assets.claymore.clone()),
-                    MeshMaterial3d(assets.claymore_mat.clone()),
-                    Transform::from_translation(at).looking_to(facing, Vec3::Y),
-                ));
+                Thrown::Claymore { at, facing }
             }
-        }
+        };
+        launches.write(Launch { player: entity, thrown });
     }
     if handling.finished() {
         commands.entity(entity).remove::<Handling>();
     }
 }
 
+/// Makes what a `Launch` threw or planted: a frag or Monkey Bomb in flight, or a Claymore on the
+/// floor, each remembering who it's from.
+fn launch_equipment(mut commands: Commands, mut launches: MessageReader<Launch>, assets: Res<EquipmentAssets>) {
+    for launch in launches.read() {
+        let thrower = launch.player;
+        match launch.thrown {
+            Thrown::Frag { from, aim, fuse } => {
+                commands.spawn((Frag { thrower, fuse }, thrown(&assets.frag, &assets.frag_mat, from, aim)));
+            }
+            Thrown::MonkeyBomb { from, aim } => {
+                commands.spawn((
+                    MonkeyBomb { thrower, fuse: None, age: 0.0 },
+                    thrown(&assets.monkey, &assets.monkey_mat, from, aim),
+                ));
+            }
+            Thrown::Claymore { at, facing } => {
+                commands.spawn((
+                    InRun,
+                    Claymore { thrower, facing, countdown: None },
+                    Mesh3d(assets.claymore.clone()),
+                    MeshMaterial3d(assets.claymore_mat.clone()),
+                    Transform::from_translation(at).looking_to(facing, Vec3::Y),
+                ));
+            }
+            Thrown::LauncherRound(_) | Thrown::Wonder(_) => {}
+        }
+    }
+}
+
 fn burn_frags(
     mut commands: Commands,
     mut frags: Query<(Entity, &mut Frag, &Transform)>,
-    player: Single<&Modifiers, With<Player>>,
+    players: Query<&Modifiers, With<Player>>,
     mut explosions: MessageWriter<Explosion>,
     time: Res<Time>,
 ) {
-    let entries = &player.0;
     for (entity, mut frag, transform) in &mut frags {
         frag.fuse -= time.delta_secs();
         if frag.fuse <= 0.0 {
+            let entries = players.get(frag.thrower).map_or(&[][..], |modifiers| &modifiers.0);
             explosions.write(Explosion {
                 at: transform.translation + Vec3::Y * 0.1,
+                thrower: Some(frag.thrower),
                 splash: equipment_splash(FRAG_SPLASH, entries),
                 hurts_player: true,
                 ammo_mods: AmmoMods::NONE,
@@ -710,7 +740,7 @@ fn burn_frags(
 fn land_monkey_bombs(
     mut commands: Commands,
     mut bombs: Query<(Entity, &mut MonkeyBomb, &Transform)>,
-    player: Single<&Modifiers, With<Player>>,
+    players: Query<&Modifiers, With<Player>>,
     spatial: SpatialQuery,
     mut explosions: MessageWriter<Explosion>,
     time: Res<Time>,
@@ -730,9 +760,11 @@ fn land_monkey_bombs(
                 }
             }
             Some(left) if left - dt <= 0.0 => {
+                let entries = players.get(bomb.thrower).map_or(&[][..], |modifiers| &modifiers.0);
                 explosions.write(Explosion {
                     at: transform.translation + Vec3::Y * 0.1,
-                    splash: equipment_splash(MONKEY_BOMB_SPLASH, &player.0),
+                    thrower: Some(bomb.thrower),
+                    splash: equipment_splash(MONKEY_BOMB_SPLASH, entries),
                     hurts_player: true,
                     ammo_mods: AmmoMods::NONE,
                     crawlers: makes_crawlers(Explosive::MonkeyBomb),
@@ -794,7 +826,7 @@ fn trigger_claymores(
     mut commands: Commands,
     mut claymores: Query<(Entity, &mut Claymore, &Transform)>,
     zombies: Query<&GlobalTransform, (With<Zombie>, Without<Dying>)>,
-    player: Single<&Modifiers, With<Player>>,
+    players: Query<&Modifiers, With<Player>>,
     spatial: SpatialQuery,
     mut explosions: MessageWriter<Explosion>,
     time: Res<Time>,
@@ -815,9 +847,11 @@ fn trigger_claymores(
                 }
             }
             Some(left) if left - dt <= 0.0 => {
+                let entries = players.get(claymore.thrower).map_or(&[][..], |modifiers| &modifiers.0);
                 explosions.write(Explosion {
                     at: at + Vec3::Y * 0.3,
-                    splash: equipment_splash(CLAYMORE_SPLASH, &player.0),
+                    thrower: Some(claymore.thrower),
+                    splash: equipment_splash(CLAYMORE_SPLASH, entries),
                     hurts_player: false,
                     ammo_mods: AmmoMods::NONE,
                     crawlers: makes_crawlers(Explosive::Claymore),

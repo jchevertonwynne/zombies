@@ -412,12 +412,12 @@ fn spawn_boxes(mut commands: Commands, assets: Res<BoxAssets>, mut run: ResMut<B
 fn buy_boxes(
     mut purchases: MessageReader<Purchased>,
     mut boxes: Query<&mut MysteryBox>,
-    player: Single<(&mut Loadout, &Modifiers, &mut Equipment, &mut Points), With<Player>>,
+    mut players: Query<(&mut Loadout, &Modifiers, &mut Equipment, &mut Points), With<Player>>,
     mut run: ResMut<BoxRun>,
 ) {
-    let (mut loadout, modifiers, mut equipment, mut points) = player.into_inner();
-    for Purchased(entity) in purchases.read() {
-        let Ok(mut mystery_box) = boxes.get_mut(*entity) else { continue };
+    for &Purchased { player, buyable } in purchases.read() {
+        let Ok(mut mystery_box) = boxes.get_mut(buyable) else { continue };
+        let Ok((mut loadout, modifiers, mut equipment, mut points)) = players.get_mut(player) else { continue };
         match mystery_box.state {
             BoxState::Idle => {
                 // What the purchase flow charged, so a refund gives it all back.

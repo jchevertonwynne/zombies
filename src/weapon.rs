@@ -18,8 +18,8 @@ use crate::attachment::{
     shown_attachments,
 };
 use crate::burn::Ignite;
-use crate::combat::{Crossing, Sights, hit_damage, pierce, spread_direction};
-use crate::explosive::{Explosion, Explosive, Launched, flight, makes_crawlers};
+use crate::combat::{Crossing, HitReport, Sights, hit_damage, pierce, spread_direction};
+use crate::explosive::{Explosion, Explosive, Launch, LauncherRound, Thrown, flight, makes_crawlers};
 use crate::gun_model::{GunModels, Part, model_length};
 use crate::layers::GameLayer;
 use crate::muzzle::{BulletImpact, ImpactKind};
@@ -30,7 +30,7 @@ use crate::player::{Locomotion, Player, PlayerCamera};
 use crate::state::Pause;
 use crate::tuning::*;
 use crate::wonder::{WonderFired, is_wonder};
-use crate::zombie::{Attack, DamageZombie, HitArea, HitZone, ZombieKilled};
+use crate::zombie::{Attack, DamageZombie, HitArea, HitZone, ZombieKilled, apply_damage};
 
 /// One Weapon the Player carries: its ammo and its own modifier entries.
 pub struct WeaponCopy {
@@ -845,6 +845,7 @@ pub struct WeaponPlugin;
 impl Plugin for WeaponPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<ShotFired>()
+            .add_message::<HitReport>()
             .init_resource::<GunModels>()
             .add_systems(Update, spawn_view_model)
             .add_systems(
@@ -853,6 +854,14 @@ impl Plugin for WeaponPlugin {
                 // Equipment in the hand.
                 ((switch_weapons, reload, aim, fire.run_if(arms_free), knife.run_if(arms_free)).chain().run_if(hands_free), animate_view_model.in_set(AnimateViewModel))
                     .chain()
+                    .run_if(in_state(Pause::Running)),
+            )
+            .add_systems(
+                Update,
+                apply_hit_reports
+                    .after(fire)
+                    .after(knife)
+                    .before(apply_damage)
                     .run_if(in_state(Pause::Running)),
             )
             .add_systems(Update, (resolve_slots, refill_on_kill).run_if(in_state(Pause::Running)));
@@ -929,6 +938,19 @@ fn attack_filter(player: Entity) -> SpatialQueryFilter {
     SpatialQueryFilter::from_mask([GameLayer::World, GameLayer::ZombieHitArea]).with_excluded_entities([player])
 }
 
+/// Each Zombie a Player's bullet or Knife hit takes the damage, credited to that Player.
+fn apply_hit_reports(mut reports: MessageReader<HitReport>, mut damage: MessageWriter<DamageZombie>) {
+    for report in reports.read() {
+        damage.write(DamageZombie {
+            player: Some(report.player),
+            zombie: report.zombie,
+            damage: report.damage,
+            zone: report.zone,
+            attack: report.attack,
+        });
+    }
+}
+
 /// Scroll, the Switch Weapon key, or the Weapon 1/2 (and 3, with a third slot) keys switch Weapons.
 fn switch_weapons(
     mut loadout: Single<&mut Loadout, With<Player>>,
@@ -978,13 +1000,12 @@ fn fire(
     controls: Controls,
     spatial: SpatialQuery,
     hit_areas: Query<(&HitArea, &ChildOf)>,
-    mut damage: MessageWriter<DamageZombie>,
+    mut reports: MessageWriter<HitReport>,
     mut ammo_mod_hits: MessageWriter<AmmoModHit>,
     mut ignite: MessageWriter<Ignite>,
     mut shots: MessageWriter<ShotFired>,
-    mut launched: MessageWriter<Launched>,
+    mut launches: MessageWriter<Launch>,
     mut explosions: MessageWriter<Explosion>,
-    mut wonders: MessageWriter<WonderFired>,
     mut flames: MessageWriter<FlameFired>,
     mut cues: MessageWriter<PlayCue>,
     mut impacts: MessageWriter<BulletImpact>,
@@ -1010,6 +1031,7 @@ fn fire(
     if underbarrel == Some(Underbarrel::Flamethrower) {
         // Each tick burns everything in the cone.
         flames.write(FlameFired {
+            player: entity,
             origin: camera.translation(),
             forward: camera.forward(),
             damage: loadout.damage_at(0.0, entries),
@@ -1030,7 +1052,7 @@ fn fire(
     let ammo_mods = loadout.held().ammo_mods;
     let mut roll = |zombie, damage| {
         if !ammo_mods.is_empty() {
-            ammo_mod_hits.write(AmmoModHit { zombie, damage, ammo_mods });
+            ammo_mod_hits.write(AmmoModHit { player: entity, zombie, damage, ammo_mods });
         }
     };
     // Incendiary Weapons set every Zombie they hit alight.
@@ -1040,16 +1062,19 @@ fn fire(
     });
     // The Thundergun, Crossbow and Ballistic Knife fire their own way.
     if is_wonder(stats.class) {
-        wonders.write(WonderFired {
-            origin: camera.translation(),
-            direction: spread_direction(camera.forward(), spread, rand::random(), rand::random()),
-            stats,
-            upgraded: loadout.held().upgraded,
-            damage: loadout.damage_at(0.0, entries),
-            splash: stats.splash.map(|splash| Splash {
-                max: loadout.resolve(Stat::Damage, splash.max, entries),
-                min: loadout.resolve(Stat::Damage, splash.min, entries),
-                ..splash
+        launches.write(Launch {
+            player: entity,
+            thrown: Thrown::Wonder(WonderFired {
+                origin: camera.translation(),
+                direction: spread_direction(camera.forward(), spread, rand::random(), rand::random()),
+                stats,
+                upgraded: loadout.held().upgraded,
+                damage: loadout.damage_at(0.0, entries),
+                splash: stats.splash.map(|splash| Splash {
+                    max: loadout.resolve(Stat::Damage, splash.max, entries),
+                    min: loadout.resolve(Stat::Damage, splash.min, entries),
+                    ..splash
+                }),
             }),
         });
     }
@@ -1070,7 +1095,7 @@ fn fire(
         };
         if let (Some(flight), Some(splash)) = (flight, splash) {
             // Launchers fire a real projectile, which bursts on the first thing it touches.
-            launched.write(Launched {
+            launches.write(Launch { player: entity, thrown: Thrown::LauncherRound(LauncherRound {
                 origin: camera.translation() + *direction * 0.5,
                 direction,
                 flight,
@@ -1085,7 +1110,7 @@ fn fire(
                     Some(_) => Explosive::GrenadeLauncher,
                     None => Explosive::Weapon(stats.id),
                 }),
-            });
+            }) });
             continue;
         }
         if let Some(splash) = splash {
@@ -1095,10 +1120,11 @@ fn fire(
             };
             if let Some((zombie, zone)) = zombie_for(hit.entity, &hit_areas) {
                 let amount = loadout.damage_at(hit.distance, entries);
-                damage.write(DamageZombie {
+                reports.write(HitReport {
+                    player: entity,
                     zombie,
-                    damage: amount,
                     zone,
+                    damage: amount,
                     attack: Attack::Bullet,
                 });
                 roll(zombie, amount);
@@ -1107,6 +1133,7 @@ fn fire(
             let impact = camera.translation() + *direction * (hit.distance - 0.1).max(0.0);
             explosions.write(Explosion {
                 at: impact,
+                thrower: Some(entity),
                 splash,
                 hurts_player: true,
                 ammo_mods,
@@ -1148,15 +1175,16 @@ fn fire(
         });
         for hit in pierce(crossings, loadout.penetration(entries) + sights.extra_pierce) {
             let amount = hit_damage(loadout.zone_multiplier(hit.zone, entries), loadout.damage_at(hit.distance, entries), &hit, sights);
-            damage.write(DamageZombie {
+            reports.write(HitReport {
+                player: entity,
                 zombie: hit.zombie,
-                damage: amount,
                 zone: hit.zone,
+                damage: amount,
                 attack: Attack::Bullet,
             });
             roll(hit.zombie, amount);
             if let Some(burn) = burn {
-                ignite.write(Ignite { zombie: hit.zombie, burn });
+                ignite.write(Ignite { player: entity, zombie: hit.zombie, burn });
             }
         }
     }
@@ -1173,7 +1201,7 @@ fn knife(
     controls: Controls,
     spatial: SpatialQuery,
     hit_areas: Query<(&HitArea, &ChildOf)>,
-    mut damage: MessageWriter<DamageZombie>,
+    mut reports: MessageWriter<HitReport>,
     mut cues: MessageWriter<PlayCue>,
     time: Res<Time>,
 ) {
@@ -1195,10 +1223,11 @@ fn knife(
     ) && let Some((zombie, zone)) = zombie_for(hit.entity, &hit_areas)
     {
         let base = knife_damage(knife.bowie, ballistic_in_hand(loadout));
-        damage.write(DamageZombie {
+        reports.write(HitReport {
+            player: entity,
             zombie,
-            damage: knife_hit(base, &modifiers.0, rand::random()),
             zone,
+            damage: knife_hit(base, &modifiers.0, rand::random()),
             attack: Attack::Knife,
         });
         cues.write(PlayCue { cue: Cue::KnifeHit, at: None });
@@ -1228,13 +1257,11 @@ fn resolve_slots(mut player: Single<(&mut Loadout, &Modifiers), With<Player>>) {
 
 /// Kills can put bullets back in the held Weapon's Magazine, through the modifier seam. A Trap's,
 /// a Barrier's, the Teleporter's or a Nova Crawler blast's kill is the Map's, not the Player's.
-fn refill_on_kill(
-    mut kills: MessageReader<ZombieKilled>,
-    player: Single<(&mut Loadout, &Modifiers), With<Player>>,
-) {
-    let (mut loadout, modifiers) = player.into_inner();
+fn refill_on_kill(mut kills: MessageReader<ZombieKilled>, mut players: Query<(&mut Loadout, &Modifiers), With<Player>>) {
     for kill in kills.read() {
-        if !matches!(kill.attack, Attack::Trap | Attack::Barrier | Attack::Teleporter | Attack::NovaBlast) {
+        if !matches!(kill.attack, Attack::Trap | Attack::Barrier | Attack::Teleporter | Attack::NovaBlast)
+            && let Some(Ok((mut loadout, modifiers))) = kill.player.map(|player| players.get_mut(player))
+        {
             loadout.refill_on_kill(&modifiers.0);
         }
     }

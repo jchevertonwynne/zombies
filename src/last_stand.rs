@@ -22,6 +22,8 @@ pub enum DownOutcome {
 /// The Player went Down. Sent for every Down, whether it starts a Last Stand or ends the Run.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct Down {
+    /// The Player who went Down.
+    pub player: Entity,
     #[allow(dead_code, reason = "read by the HUD, audio and Gauntlet once they react to Downs")]
     pub outcome: DownOutcome,
 }
@@ -131,7 +133,7 @@ pub fn go_down(
     let keep = kept_on_down(&modifiers.0);
     perks.lose_on_down(keep, &mut modifiers);
     commands.entity(entity).remove::<Drinking>();
-    downs.write(Down { outcome });
+    downs.write(Down { player: entity, outcome });
     match outcome {
         DownOutcome::GameOver => next.set(GameState::GameOver),
         DownOutcome::LastStand => {

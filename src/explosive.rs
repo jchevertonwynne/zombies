@@ -12,16 +12,20 @@ use crate::player::{Health, Player, PlayerHit};
 use crate::settings::Settings;
 use crate::state::{InRun, Pause};
 use crate::tuning::*;
+use crate::wonder::WonderFired;
 use crate::zombie::{Attack, DamageZombie, Dying, Gibbed, HitArea, HitZone, Zombie, blows_legs_off};
 
 /// A blast going off. Every explosive, from a frag to a launcher's rocket, sends one.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct Explosion {
     pub at: Vec3,
+    /// The Player who threw or fired it, whose Zombie hits and kills it credits. `None` for a
+    /// blast no Player is behind.
+    pub thrower: Option<Entity>,
     /// Damage from centre to edge, already resolved through any modifiers.
     pub splash: Splash,
-    /// Whether the blast hurts the Player. Their own frags, launchers and Monkey Bombs do;
-    /// Claymores never do.
+    /// Whether the blast hurts its thrower, and only them. Their own frags, launchers and Monkey
+    /// Bombs do; Claymores never do.
     pub hurts_player: bool,
     /// The Ammo Mods of the Weapon that fired it, which each Zombie it hurts rolls. None for
     /// Equipment.
@@ -88,9 +92,30 @@ pub fn flight(id: WeaponId) -> Option<Flight> {
     }
 }
 
+/// A Player threw, planted or fired something that flies or waits on its own. The Host's handlers
+/// make it: each of this module, `equipment` and `wonder` takes the kinds it owns.
+#[derive(Message, Clone, Copy)]
+pub struct Launch {
+    pub player: Entity,
+    pub thrown: Thrown,
+}
+
+/// What a `Launch` is.
+#[derive(Clone, Copy)]
+pub enum Thrown {
+    LauncherRound(LauncherRound),
+    /// A Thundergun blast, a Crossbow bolt or a Ballistic Knife blade.
+    Wonder(WonderFired),
+    /// A frag leaving the hand from `from` toward `aim`, with `fuse` seconds left.
+    Frag { from: Vec3, aim: Vec3, fuse: f32 },
+    MonkeyBomb { from: Vec3, aim: Vec3 },
+    /// A Claymore going down at `at`, facing `facing`.
+    Claymore { at: Vec3, facing: Vec3 },
+}
+
 /// A launcher fired: its projectile leaves from `origin`.
-#[derive(Message, Debug, Clone, Copy)]
-pub struct Launched {
+#[derive(Debug, Clone, Copy)]
+pub struct LauncherRound {
     pub origin: Vec3,
     pub direction: Dir3,
     pub flight: Flight,
@@ -109,6 +134,8 @@ pub struct Launched {
 /// A launcher's projectile in flight. It bursts on the first thing it touches.
 #[derive(Component)]
 struct Projectile {
+    /// The Player who fired it.
+    player: Entity,
     velocity: Vec3,
     gravity: f32,
     impact: f32,
@@ -142,7 +169,7 @@ pub struct ExplosivePlugin;
 impl Plugin for ExplosivePlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Explosion>()
-            .add_message::<Launched>()
+            .add_message::<Launch>()
             .add_systems(Startup, load_assets)
             .add_systems(
                 Update,
@@ -191,11 +218,15 @@ pub fn in_sight(spatial: &SpatialQuery, from: Vec3, to: Vec3) -> bool {
         .is_none_or(|hit| hit.distance >= distance - 0.05)
 }
 
-fn launch(mut commands: Commands, mut launched: MessageReader<Launched>, assets: Res<ExplosiveAssets>) {
-    for shot in launched.read() {
+fn launch(mut commands: Commands, mut launches: MessageReader<Launch>, assets: Res<ExplosiveAssets>) {
+    for launch in launches.read() {
+        let Thrown::LauncherRound(shot) = launch.thrown else {
+            continue;
+        };
         commands.spawn((
             InRun,
             Projectile {
+                player: launch.player,
                 velocity: *shot.direction * shot.flight.speed,
                 gravity: shot.flight.gravity,
                 impact: shot.impact,
@@ -237,6 +268,7 @@ fn fly(
                         let multiplier = if area.0 == HitZone::Head { projectile.impact_headshot } else { 1.0 };
                         let (zombie, amount) = (parent.parent(), projectile.impact * multiplier);
                         damage.write(DamageZombie {
+                            player: Some(projectile.player),
                             zombie,
                             damage: amount,
                             zone: if projectile.headshots { area.0 } else { HitZone::Torso },
@@ -244,6 +276,7 @@ fn fly(
                         });
                         if !projectile.ammo_mods.is_empty() {
                             ammo_mod_hits.write(AmmoModHit {
+                                player: projectile.player,
                                 zombie,
                                 damage: amount,
                                 ammo_mods: projectile.ammo_mods,
@@ -259,6 +292,7 @@ fn fly(
         if let Some(at) = burst_at {
             explosions.write(Explosion {
                 at,
+                thrower: Some(projectile.player),
                 splash: projectile.splash,
                 hurts_player: true,
                 ammo_mods: projectile.ammo_mods,
@@ -309,13 +343,17 @@ fn explode(
                 continue;
             }
             damage.write(DamageZombie {
+                player: explosion.thrower,
                 zombie,
                 damage: amount,
                 zone: HitZone::Torso,
                 attack: Attack::Bullet,
             });
-            if !explosion.ammo_mods.is_empty() {
+            if let Some(player) = explosion.thrower
+                && !explosion.ammo_mods.is_empty()
+            {
                 ammo_mod_hits.write(AmmoModHit {
+                    player,
                     zombie,
                     damage: amount,
                     ammo_mods: explosion.ammo_mods,
@@ -333,9 +371,11 @@ fn explode(
             blasted[i].1 = before - amount;
         }
 
-        // It doesn't yet say whose it is, so a blast that hurts the Player hurts every Player it reaches.
-        if explosion.hurts_player {
-            for (player, transform, _) in &players {
+        // A blast that hurts its thrower hurts only them, however many Players it reaches.
+        if explosion.hurts_player
+            && let Some(thrower) = explosion.thrower
+        {
+            for (player, transform, _) in players.iter().filter(|(player, ..)| *player == thrower) {
                 let centre = transform.translation;
                 if let Some(amount) = splash.damage(centre.distance(explosion.at))
                     && in_sight(&spatial, explosion.at, centre)
@@ -448,5 +488,39 @@ mod tests {
         assert!(flight(WeaponId::ChinaLake).unwrap().gravity > 0.0, "the grenade arcs");
         assert_eq!(flight(WeaponId::M1911), None);
         assert_eq!(flight(WeaponId::RayGun), None);
+    }
+
+    #[test]
+    fn a_blast_hurts_only_the_player_who_threw_it() {
+        use avian3d::prelude::PhysicsPlugins;
+        use crate::player::PlayerHit;
+
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default(), TransformPlugin, PhysicsPlugins::default()))
+            .init_asset::<Mesh>()
+            .init_asset::<StandardMaterial>()
+            .insert_resource(Settings::default())
+            .add_message::<Explosion>()
+            .add_message::<DamageZombie>()
+            .add_message::<AmmoModHit>()
+            .add_message::<Gibbed>()
+            .add_message::<PlayerHit>()
+            .add_systems(Startup, load_assets)
+            .add_systems(Update, explode);
+        let health = || Health { current: 100.0, max: 100.0, since_hit: 0.0 };
+        let thrower = app.world_mut().spawn((Player, health(), Transform::from_xyz(0.0, 1.0, 0.0))).id();
+        let teammate = app.world_mut().spawn((Player, health(), Transform::from_xyz(1.0, 1.0, 0.0))).id();
+        app.world_mut().write_message(Explosion {
+            at: Vec3::new(0.5, 1.0, 0.0),
+            thrower: Some(thrower),
+            splash: FRAG_SPLASH,
+            hurts_player: true,
+            ammo_mods: AmmoMods::NONE,
+            crawlers: false,
+        });
+        app.update();
+        let hit: Vec<_> = app.world_mut().resource_mut::<Messages<PlayerHit>>().drain().map(|hit| hit.player).collect();
+        assert_eq!(hit, [thrower], "the Player standing as close to the blast is not hurt");
+        assert_ne!(thrower, teammate);
     }
 }

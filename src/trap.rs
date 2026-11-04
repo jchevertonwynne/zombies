@@ -149,6 +149,8 @@ pub fn touches(centre: Vec3, half: Vec3, at: Vec3, radius: f32, half_height: f32
 pub struct Trap {
     joins: (ZoneId, ZoneId),
     phase: TrapPhase,
+    /// The Player who threw the switch that is running it, whose kills it credits.
+    activator: Option<Entity>,
 }
 
 impl Trap {
@@ -177,6 +179,8 @@ struct SwitchLight;
 /// A Zombie that touched a running Trap, dying in `left` seconds.
 #[derive(Component)]
 pub struct Electrocuted {
+    /// The Player whose Trap it was.
+    player: Option<Entity>,
     left: f32,
 }
 
@@ -198,6 +202,8 @@ struct InTrap;
 /// `sapper_trap_hit`.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct TrapStruck {
+    /// The Player whose Trap it was.
+    pub player: Option<Entity>,
     pub zombie: Entity,
 }
 
@@ -249,6 +255,7 @@ fn spawn_traps(
                 Trap {
                     joins,
                     phase: TrapPhase::Idle,
+                    activator: None,
                 },
                 Mesh3d(field.clone()),
                 MeshMaterial3d(field_mat.clone()),
@@ -288,11 +295,12 @@ fn use_switches(
     switches: Query<&TrapSwitch>,
     mut traps: Query<&mut Trap>,
 ) {
-    for Purchased(entity) in purchases.read() {
-        if let Ok(switch) = switches.get(*entity)
+    for &Purchased { player, buyable } in purchases.read() {
+        if let Ok(switch) = switches.get(buyable)
             && let Ok(mut trap) = traps.get_mut(switch.trap)
         {
             trap.phase.start();
+            trap.activator = Some(player);
         }
     }
 }
@@ -397,21 +405,28 @@ fn shock_zombies(
     traps: Query<(&Trap, &Transform)>,
     mut struck: MessageWriter<TrapStruck>,
 ) {
-    let volumes = running_volumes(traps.iter());
+    let volumes: Vec<_> = traps
+        .iter()
+        .filter(|(trap, _)| trap.phase.running())
+        .map(|(trap, transform)| (transform.translation, TRAP_SIZE / 2.0, trap.activator))
+        .collect();
     let half_height = ZOMBIE_RADIUS + ZOMBIE_CAPSULE_LENGTH / 2.0;
     for (entity, transform, resists, in_trap) in &zombies {
-        let inside = volumes
+        let touched = volumes
             .iter()
-            .any(|&(centre, half)| touches(centre, half, transform.translation, ZOMBIE_RADIUS, half_height));
+            .find(|&&(centre, half, _)| touches(centre, half, transform.translation, ZOMBIE_RADIUS, half_height));
+        let inside = touched.is_some();
+        let player = touched.and_then(|&(.., activator)| activator);
         match (inside, resists) {
             (true, false) => {
                 commands.entity(entity).insert(Electrocuted {
+                    player,
                     left: kill_delay(rand::random()),
                 });
             }
             (true, true) if !in_trap => {
                 commands.entity(entity).insert(InTrap);
-                struck.write(TrapStruck { zombie: entity });
+                struck.write(TrapStruck { player, zombie: entity });
             }
             (false, true) if in_trap => {
                 commands.entity(entity).remove::<InTrap>();
@@ -432,6 +447,7 @@ fn electrocute(
         electrocuted.left -= time.delta_secs();
         if electrocuted.left <= 0.0 {
             damage.write(DamageZombie {
+                player: electrocuted.player,
                 zombie: entity,
                 damage: f32::INFINITY,
                 zone: HitZone::Torso,

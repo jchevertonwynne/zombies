@@ -10,11 +10,11 @@ use bevy::prelude::*;
 use crate::controls::{Action, Controls};
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
-use crate::buy::{Buyable, Focus, Held, Nearby};
+use crate::buy::{Buyable, Focus, Held, Nearby, UseRequest};
 use crate::map::{BarrierId, WINDOWS};
 use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_points};
 use crate::nav::Route;
-use crate::player::{LocalPlayer, PlayerHit};
+use crate::player::{LocalPlayer, Player, PlayerHit};
 use crate::target::Players;
 use crate::points::{Points, PointsAwarded};
 use crate::round::{Round, zombie_health};
@@ -404,7 +404,7 @@ impl Plugin for BarrierPlugin {
             )
             .add_systems(
                 Update,
-                ((rebuild_planks, show_planks, slide_planks).chain(), (toss_torn_planks, fly_torn_planks).chain())
+                ((rebuild_planks, rebuild_barriers, show_planks, slide_planks).chain(), (toss_torn_planks, fly_torn_planks).chain())
                     .run_if(in_state(Pause::Running)),
             );
     }
@@ -535,6 +535,8 @@ fn enter_through_windows(
 ) {
     let entries = players.first().and_then(|player| players.modifiers(player.entity)).map_or(&[][..], |modifiers| &modifiers.0[..]);
     let tear_damage = plank_tear_damage(round.number, entries);
+    // The Player whose entries decide the tear's damage is the one it credits.
+    let tearing_for = players.first().map(|player| player.entity);
     let dt = time.delta_secs();
     let mut taken: Vec<(BarrierId, usize)> = zombies
         .iter()
@@ -615,6 +617,7 @@ fn enter_through_windows(
                         });
                         if tear_damage > 0.0 {
                             damage.write(DamageZombie {
+                                player: tearing_for,
                                 zombie: entity,
                                 damage: tear_damage,
                                 zone: HitZone::Torso,
@@ -676,41 +679,60 @@ fn face(transform: &mut Transform, direction: Vec3) {
     }
 }
 
-/// Holding the Use key at a Barrier missing Planks puts them back one at a time, paying Points
-/// up to the Round cap. Its Prompt comes from the shared pick, so it never shows while Down.
+/// Holding the Use key at a Barrier missing Planks asks to put them back one at a time. Its Prompt
+/// comes from the shared pick, so it never shows while Down.
 fn rebuild_planks(
     controls: Controls,
     focus: Res<Focus>,
     windows: Query<&Barrier>,
-    mut barriers: ResMut<Barriers>,
+    barriers: Res<Barriers>,
     mut rebuild: ResMut<Rebuild>,
-    round: Res<Round>,
-    player: Single<(Entity, &Modifiers, &mut Points), With<LocalPlayer>>,
-    mut awarded: MessageWriter<PointsAwarded>,
-    mut rebuilt: MessageWriter<PlankRebuilt>,
+    local: Single<Entity, With<LocalPlayer>>,
+    mut requests: MessageWriter<UseRequest>,
     time: Res<Time>,
 ) {
     let target = focus
         .0
         .filter(|_| controls.pressed(Action::Use))
-        .and_then(|entity| windows.get(entity).ok())
-        .map(|window| window.0)
-        .filter(|&barrier| barriers.planks(barrier) < BARRIER_PLANKS);
-    let advanced = rebuild.advance(target, time.delta_secs());
+        .and_then(|entity| windows.get(entity).ok().map(|window| (entity, window.0)))
+        .filter(|&(_, barrier)| barriers.planks(barrier) < BARRIER_PLANKS);
+    let advanced = rebuild.advance(target.map(|(_, barrier)| barrier), time.delta_secs());
     rebuild.animate(time.delta_secs());
-    if !advanced {
-        return;
+    if let Some((buyable, _)) = target
+        && advanced
+    {
+        requests.write(UseRequest { player: *local, buyable, hold: false });
     }
-    let Some(barrier) = target else { return };
-    barriers.rebuild(barrier);
-    rebuilt.write(PlankRebuilt {
-        at: window_centre(barrier) + Vec3::Y * 1.2,
-    });
-    let (player, modifiers, mut points) = player.into_inner();
-    let reward = rebuild.pay(round.number, PlankRates::resolve(round.number, &modifiers.0));
-    if reward > 0 {
-        let paid = points.award(reward);
-        awarded.write(PointsAwarded { player, amount: paid });
+}
+
+/// Puts a Plank back for each request at a Barrier still missing some, paying the Player who made
+/// it up to the Round cap.
+fn rebuild_barriers(
+    mut requests: MessageReader<UseRequest>,
+    windows: Query<&Barrier>,
+    mut barriers: ResMut<Barriers>,
+    mut rebuild: ResMut<Rebuild>,
+    round: Res<Round>,
+    mut players: Query<(&Modifiers, &mut Points), With<Player>>,
+    mut awarded: MessageWriter<PointsAwarded>,
+    mut rebuilt: MessageWriter<PlankRebuilt>,
+) {
+    for request in requests.read() {
+        let Ok(window) = windows.get(request.buyable) else { continue };
+        let barrier = window.0;
+        if barriers.planks(barrier) >= BARRIER_PLANKS {
+            continue;
+        }
+        let Ok((modifiers, mut points)) = players.get_mut(request.player) else { continue };
+        barriers.rebuild(barrier);
+        rebuilt.write(PlankRebuilt {
+            at: window_centre(barrier) + Vec3::Y * 1.2,
+        });
+        let reward = rebuild.pay(round.number, PlankRates::resolve(round.number, &modifiers.0));
+        if reward > 0 {
+            let paid = points.award(reward);
+            awarded.write(PointsAwarded { player: request.player, amount: paid });
+        }
     }
 }
 

@@ -171,6 +171,7 @@ fn measure() {
         let walking = sim.track(zombie, sim.frames(0.5));
         print(&format!("{fps} fps: walking"), &walking, sim.frame_secs);
         sim.send(DamageZombie {
+            player: None,
             zombie,
             damage: 1e6,
             zone: HitZone::Torso,
@@ -223,6 +224,7 @@ fn a_killed_zombie_falls_all_the_way_to_the_floor() {
         sim.run(sim.frames(0.5));
         let killed_at = sim.frame(zombie).pos;
         sim.send(DamageZombie {
+            player: None,
             zombie,
             damage: 1e6,
             zone: HitZone::Torso,

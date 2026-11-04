@@ -627,7 +627,7 @@ fn perk_jingles(
     power: Res<Power>,
     time: Res<Time>,
 ) {
-    let bought: Vec<Entity> = purchases.read().map(|Purchased(entity)| *entity).collect();
+    let bought: Vec<Entity> = purchases.read().map(|purchase| purchase.buyable).collect();
     for (entity, machine, at, jingle, sabotaged) in &mut machines {
         let Some(mut jingle) = jingle else {
             commands.entity(entity).insert(Jingle {

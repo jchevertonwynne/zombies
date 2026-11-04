@@ -572,8 +572,8 @@ fn use_teleporter(
     mut teleporter: ResMut<Teleporter>,
     mut cues: MessageWriter<PlayCue>,
 ) {
-    for Purchased(entity) in purchases.read() {
-        if let Ok(pad) = pads.get(*entity) {
+    for &Purchased { buyable, .. } in purchases.read() {
+        if let Ok(pad) = pads.get(buyable) {
             if teleporter.linked(pad.pad) {
                 let idle = !teleporter.in_use();
                 teleporter.depart(pad.pad);
@@ -586,7 +586,7 @@ fn use_teleporter(
             } else {
                 teleporter.activate(pad.pad);
             }
-        } else if mainframes.contains(*entity) {
+        } else if mainframes.contains(buyable) {
             if teleporter.linking().is_some() {
                 cues.write(PlayCue {
                     cue: Cue::MainframeLink,
@@ -635,6 +635,7 @@ fn run_trips(
         );
         for zombie in near {
             damage.write(DamageZombie {
+                player: Some(player),
                 zombie,
                 damage: f32::INFINITY,
                 zone: HitZone::Torso,

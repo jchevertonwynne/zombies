@@ -11,6 +11,8 @@ use crate::zombie::{Attack, DamageZombie, Dying, HitZone, Zombie};
 /// Set a Zombie alight. `burn.damage` is already resolved through the stat-modifier seam.
 #[derive(Message)]
 pub struct Ignite {
+    /// The Player who set it alight, who its burn credits.
+    pub player: Entity,
     pub zombie: Entity,
     pub burn: Burn,
 }
@@ -18,6 +20,8 @@ pub struct Ignite {
 /// A Zombie on fire.
 #[derive(Component, Debug)]
 pub struct Burning {
+    /// The Player who set it alight.
+    player: Option<Entity>,
     burn: Burn,
     elapsed: f32,
     /// Ticks already dealt.
@@ -27,6 +31,7 @@ pub struct Burning {
 impl Burning {
     pub fn new(burn: Burn) -> Self {
         Self {
+            player: None,
             burn,
             elapsed: 0.0,
             ticks: 0,
@@ -38,10 +43,16 @@ impl Burning {
         (self.burn.secs / self.burn.tick_secs).floor() as u32
     }
 
-    /// Being set alight again restarts the Burn, keeping the stronger damage.
-    pub fn reignite(&mut self, burn: Burn) {
+    /// The same Burn, credited to `player`.
+    pub fn by(self, player: Entity) -> Self {
+        Self { player: Some(player), ..self }
+    }
+
+    /// Being set alight again restarts the Burn, keeping the stronger damage. The latest to set it
+    /// alight is credited.
+    pub fn reignite(&mut self, burn: Burn, player: Entity) {
         let damage = self.burn.damage.max(burn.damage);
-        *self = Self::new(Burn { damage, ..burn });
+        *self = Self::new(Burn { damage, ..burn }).by(player);
     }
 
     /// Advance the Burn. Returns the damage due this frame (several ticks on a long frame).
@@ -73,11 +84,11 @@ fn ignite(
     mut requests: MessageReader<Ignite>,
     mut zombies: Query<Option<&mut Burning>, (With<Zombie>, Without<Dying>)>,
 ) {
-    for Ignite { zombie, burn } in requests.read() {
+    for Ignite { player, zombie, burn } in requests.read() {
         match zombies.get_mut(*zombie) {
-            Ok(Some(mut burning)) => burning.reignite(*burn),
+            Ok(Some(mut burning)) => burning.reignite(*burn, *player),
             Ok(None) => {
-                commands.entity(*zombie).insert(Burning::new(*burn));
+                commands.entity(*zombie).insert(Burning::new(*burn).by(*player));
             }
             Err(_) => {}
         }
@@ -94,6 +105,7 @@ fn burn(
         let due = if dying { 0.0 } else { burning.advance(time.delta_secs()) };
         if due > 0.0 {
             damage.write(DamageZombie {
+                player: burning.player,
                 zombie,
                 damage: due,
                 zone: HitZone::Torso,
@@ -140,7 +152,7 @@ mod tests {
     fn reigniting_restarts_the_burn_and_keeps_the_stronger_damage() {
         let mut burning = Burning::new(BURN);
         burning.advance(2.9);
-        burning.reignite(Burn { damage: 20.0, ..BURN });
+        burning.reignite(Burn { damage: 20.0, ..BURN }, Entity::PLACEHOLDER);
         assert!(!burning.done());
         assert_eq!(burning.advance(3.0), 300.0, "a fresh six ticks at the stronger 50");
     }

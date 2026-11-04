@@ -73,6 +73,8 @@ pub fn shellshocks(distance: f32) -> bool {
 /// A Nova Crawler died, from its centre at `at`. Sent beside its `ZombieKilled`.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct NovaCrawlerKilled {
+    /// The Player whose attack killed it, who the burst's kills credit.
+    pub player: Option<Entity>,
     pub zombie: Entity,
     pub at: Vec3,
     pub attack: Attack,
@@ -284,6 +286,7 @@ fn burst(
             .map(|(zombie, transform)| (zombie, transform.translation));
         for zombie in blast_victims(kill.at, kill.zombie, around) {
             damage.write(DamageZombie {
+                player: kill.player,
                 zombie,
                 damage: f32::INFINITY,
                 zone: HitZone::Torso,

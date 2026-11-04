@@ -317,17 +317,17 @@ fn buy_perks(
     mut commands: Commands,
     mut purchases: MessageReader<Purchased>,
     mut machines: Query<(&mut PerkMachine, &Transform)>,
-    player: Single<(Entity, &mut Loadout, &Modifiers), With<Player>>,
+    mut players: Query<(&mut Loadout, &Modifiers), With<Player>>,
 ) {
-    let (entity, mut loadout, modifiers) = player.into_inner();
-    let solo_buys = quick_revive_buys(&modifiers.0);
-    for Purchased(bought) in purchases.read() {
-        if let Ok((mut machine, transform)) = machines.get_mut(*bought) {
+    for &Purchased { player: entity, buyable: bought } in purchases.read() {
+        let Ok((mut loadout, modifiers)) = players.get_mut(entity) else { continue };
+        let solo_buys = quick_revive_buys(&modifiers.0);
+        if let Ok((mut machine, transform)) = machines.get_mut(bought) {
             loadout.reload = None;
             commands.entity(entity).insert(Drinking::new(machine.perk));
             machine.buys = machine.buys.saturating_add(1);
             if machine.perk.machine_leaves(machine.buys, solo_buys) {
-                commands.entity(*bought).remove::<(Buyable, Refused)>().insert(Leaving {
+                commands.entity(bought).remove::<(Buyable, Refused)>().insert(Leaving {
                     elapsed: 0.0,
                     from: transform.translation,
                 });

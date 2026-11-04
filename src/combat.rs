@@ -2,9 +2,22 @@
 //! much damage each hit does, and where spread sends it.
 
 use bevy::math::{Dir3, Vec3};
+use bevy::prelude::{Entity, Message};
 
 use crate::tuning::PENETRATION_DAMAGE_FACTOR;
-use crate::zombie::HitZone;
+use crate::zombie::{Attack, HitZone};
+
+/// A Player's hitscan bullet or Knife landed on a Zombie. The shooter judges the hit; the handler
+/// turns it into damage the Player is credited for.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct HitReport {
+    pub player: Entity,
+    pub zombie: Entity,
+    pub zone: HitZone,
+    pub damage: f32,
+    /// A bullet, or the Knife.
+    pub attack: Attack,
+}
 
 /// Something a bullet's line crossed, nearest first: a Zombie's hit area, or the world.
 #[derive(Debug, Clone, Copy, PartialEq)]

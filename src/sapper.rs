@@ -23,7 +23,7 @@ use crate::nav::{NavGraph, Route, zone_at};
 use crate::target::Players;
 use crate::pack_a_punch::{self, PackAPunch};
 use crate::perk::{Drinking, Perk, PerkMachine};
-use crate::player::{LocalPlayer, Player};
+use crate::player::Player;
 use crate::points::BonusPoints;
 use crate::power::Power;
 use crate::power_up::DropPowerUp;
@@ -496,12 +496,13 @@ fn trap_hits(
     mut damage: MessageWriter<DamageZombie>,
     mut stuns: MessageWriter<StunZombie>,
 ) {
-    for &TrapStruck { zombie } in struck.read() {
+    for &TrapStruck { player, zombie } in struck.read() {
         let Ok(body) = sappers.get(zombie) else {
             continue;
         };
         let (amount, secs) = sapper_trap_hit(body.max_health());
         damage.write(DamageZombie {
+            player,
             zombie,
             damage: amount,
             zone: HitZone::Torso,
@@ -793,10 +794,10 @@ fn restore_bought(
     restores: Query<&Restore>,
     mut teleporter: ResMut<Teleporter>,
 ) {
-    for HoldPurchased(entity) in holds.read() {
-        if let Ok(bought) = restores.get(*entity) {
+    for &HoldPurchased { buyable, .. } in holds.read() {
+        if let Ok(bought) = restores.get(buyable) {
             restore(&mut commands, &mut teleporter, bought.target);
-            commands.entity(*entity).despawn();
+            commands.entity(buyable).despawn();
         }
     }
 }
@@ -809,7 +810,6 @@ fn sapper_deaths(
     restores: Query<(Entity, &Restore)>,
     mut teleporter: ResMut<Teleporter>,
     mut bonus: MessageWriter<BonusPoints>,
-    credited: Single<Entity, With<LocalPlayer>>,
     mut drops: MessageWriter<DropPowerUp>,
     mut cues: MessageWriter<SpecialCue>,
 ) {
@@ -822,9 +822,11 @@ fn sapper_deaths(
             restore(&mut commands, &mut teleporter, pending.target);
             commands.entity(restore_entity).despawn();
         }
-        if dying.killed_by().map_or(Pay::Unpaid, Attack::pay) == Pay::Paid {
+        if dying.killed_by().map_or(Pay::Unpaid, Attack::pay) == Pay::Paid
+            && let Some(killer) = dying.killer()
+        {
             bonus.write(BonusPoints {
-                player: *credited,
+                player: killer,
                 amount: SAPPER_KILL_BONUS,
             });
         }

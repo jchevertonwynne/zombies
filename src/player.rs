@@ -73,7 +73,7 @@ pub struct Eye {
 pub struct Health {
     pub current: f32,
     pub max: f32,
-    since_hit: f32,
+    pub(crate) since_hit: f32,
 }
 
 /// What a Player asked for this tick: the one thing `step_move` reads besides their
