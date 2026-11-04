@@ -15,7 +15,7 @@ use crate::explosive::{Explosion, Explosive, Launch, Thrown, in_sight, makes_cra
 use crate::layers::GameLayer;
 use crate::arsenal::Splash;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_count};
-use crate::player::{Player, PlayerCamera};
+use crate::player::{LocalPlayer, Player, PlayerCamera};
 use crate::round::{Round, RoundStarted};
 use crate::sapper::Sapper;
 use crate::state::{GameState, InRun, Pause};
@@ -473,7 +473,7 @@ fn spawn_walls(
 }
 
 /// The frag limits follow the Player's modifier entries.
-fn resolve_frag_limits(mut player: Single<(&mut Equipment, &Modifiers), With<Player>>) {
+fn resolve_frag_limits(mut player: Single<(&mut Equipment, &Modifiers), With<LocalPlayer>>) {
     let (ref mut equipment, modifiers) = *player;
     let limits = FragLimits::resolve(&modifiers.0);
     if equipment.frag_limits != limits {
@@ -485,7 +485,7 @@ fn resolve_frag_limits(mut player: Single<(&mut Equipment, &Modifiers), With<Pla
 fn restock(
     mut started: MessageReader<RoundStarted>,
     round: Option<Res<Round>>,
-    mut equipment: Single<&mut Equipment, With<Player>>,
+    mut equipment: Single<&mut Equipment, With<LocalPlayer>>,
 ) {
     if started.read().count() == 0 {
         return;
@@ -499,7 +499,7 @@ fn restock(
 /// offering a one-time buy once it's owned.
 fn price_walls(
     mut commands: Commands,
-    player: Single<(&Equipment, &Knife), With<Player>>,
+    player: Single<(&Equipment, &Knife), With<LocalPlayer>>,
     mut walls: Query<(Entity, &EquipmentWall, &mut Buyable, Has<Refused>)>,
 ) {
     let (equipment, knife) = *player;
@@ -574,7 +574,7 @@ pub fn equipment_splash(base: Splash, player: &[Modifier]) -> Splash {
 /// what's left of the fuse. Held too long, it goes off in the hand.
 fn throw_frags(
     mut commands: Commands,
-    player: Single<(Entity, &mut Equipment, &Modifiers, Has<Handling>), With<Player>>,
+    player: Single<(Entity, &mut Equipment, &Modifiers, Has<Handling>), With<LocalPlayer>>,
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
     controls: Controls,
     mut explosions: MessageWriter<Explosion>,
@@ -616,7 +616,7 @@ fn throw_frags(
 /// The Monkey Bomb key starts throwing one.
 fn throw_monkey_bombs(
     mut commands: Commands,
-    player: Single<(Entity, &mut Equipment, Has<Handling>), With<Player>>,
+    player: Single<(Entity, &mut Equipment, Has<Handling>), With<LocalPlayer>>,
     controls: Controls,
 ) {
     let (entity, mut equipment, handling) = player.into_inner();
@@ -630,7 +630,7 @@ fn throw_monkey_bombs(
 /// The Claymore key starts planting one, if there's a floor to plant it on.
 fn plant_claymores(
     mut commands: Commands,
-    player: Single<(Entity, &mut Equipment, &Transform, Has<Handling>), With<Player>>,
+    player: Single<(Entity, &mut Equipment, &Transform, Has<Handling>), With<LocalPlayer>>,
     controls: Controls,
     spatial: SpatialQuery,
 ) {
@@ -656,7 +656,7 @@ fn floor_below(from: Vec3, spatial: &SpatialQuery) -> Option<f32> {
 /// there's none by then.
 fn release_handled(
     mut commands: Commands,
-    player: Option<Single<(Entity, &mut Equipment, &mut Handling, &Transform), With<Player>>>,
+    player: Option<Single<(Entity, &mut Equipment, &mut Handling, &Transform), With<LocalPlayer>>>,
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
     spatial: SpatialQuery,
     mut launches: MessageWriter<Launch>,

@@ -19,7 +19,7 @@ use crate::map::BOX_LOCATIONS;
 use crate::modifier::{Modifiers, Stat, resolve, resolve_count};
 use crate::mystery_box::{BoxAssets, BoxRun, BoxState, MysteryBox, spawn_box};
 use crate::nav::zone_at;
-use crate::player::Player;
+use crate::player::{LocalPlayer, Player};
 use crate::points::{Points, PointsAwarded};
 use crate::round::RoundStarted;
 use crate::sapper::Sapper;
@@ -365,7 +365,7 @@ fn reset(mut active: ResMut<ActivePowerUps>, mut meter: ResMut<DropMeter>, mut b
 /// Timed Power-ups run down, and Double Points follows its timer.
 /// Timed Power-up length and the per-Round cap follow the Player's stat entries.
 fn resolve_stats(
-    player: Single<&Modifiers, With<Player>>,
+    player: Single<&Modifiers, With<LocalPlayer>>,
     mut active: ResMut<ActivePowerUps>,
     mut meter: ResMut<DropMeter>,
 ) {
@@ -408,7 +408,7 @@ fn drop_power_ups(
     box_run: Res<BoxRun>,
     active: Res<ActivePowerUps>,
     assets: Res<PowerUpAssets>,
-    player: Single<&Modifiers, With<Player>>,
+    player: Single<&Modifiers, With<LocalPlayer>>,
 ) {
     if rounds.read().count() > 0 {
         meter.new_round();
@@ -484,7 +484,7 @@ fn pick_up(
     mut commands: Commands,
     drops: Query<(Entity, &Dropped)>,
     mut given: MessageReader<GivePowerUp>,
-    player: Single<(Entity, &Transform, &mut Loadout, &mut Equipment, &mut Points, Has<LastStand>), With<Player>>,
+    player: Single<(Entity, &Transform, &mut Loadout, &mut Equipment, &mut Points, Has<LastStand>), With<LocalPlayer>>,
     // The Sapper survives the Nuke.
     zombies: Query<Entity, (With<Zombie>, Without<Dying>, Without<Nuked>, Without<Sapper>)>,
     mut active: ResMut<ActivePowerUps>,

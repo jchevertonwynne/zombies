@@ -16,7 +16,7 @@ use crate::hud::overlay::{Overlay, Overlays};
 use crate::layers::GameLayer;
 use crate::map::SpawnKind;
 use crate::nav::Route;
-use crate::player::Player;
+use crate::player::LocalPlayer;
 use crate::round::zombie_health;
 use crate::shellshock::Shellshock;
 use crate::state::{InRun, Pause};
@@ -258,7 +258,7 @@ fn burst(
     mut commands: Commands,
     mut killed: MessageReader<NovaCrawlerKilled>,
     zombies: Query<(Entity, &Transform), (With<Zombie>, Without<Dying>)>,
-    player: Single<&Transform, With<Player>>,
+    player: Single<&Transform, With<LocalPlayer>>,
     mut shocks: MessageWriter<Shellshock>,
     mut damage: MessageWriter<DamageZombie>,
     assets: Res<NovaAssets>,
@@ -301,7 +301,7 @@ fn burst(
 fn linger(
     mut commands: Commands,
     mut clouds: Query<(Entity, &mut GasCloud, &Transform)>,
-    player: Single<&Transform, With<Player>>,
+    player: Single<&Transform, With<LocalPlayer>>,
     mut overlays: ResMut<Overlays>,
     time: Res<Time>,
 ) {

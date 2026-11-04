@@ -9,7 +9,7 @@ use crate::buy::{Buyable, Purchased, Refused};
 use crate::gun_model::GunModels;
 use crate::hands::ammo_buy_pose;
 use crate::modifier::Modifiers;
-use crate::player::{Player, PlayerCamera};
+use crate::player::{LocalPlayer, Player, PlayerCamera};
 use crate::state::{InRun, Pause};
 use crate::tuning::*;
 use crate::weapon::Loadout;
@@ -144,7 +144,7 @@ fn lift_off_wall_weapons(
 /// Each chalk owns its Buyable, so it keeps the price, Prompt and refusal current.
 fn price_wall_weapons(
     mut commands: Commands,
-    player: Single<(&Loadout, &Modifiers), With<Player>>,
+    player: Single<(&Loadout, &Modifiers), With<LocalPlayer>>,
     mut walls: Query<(Entity, &WallWeapon, &mut Buyable, Has<Refused>)>,
 ) {
     let (loadout, modifiers) = *player;

@@ -14,7 +14,7 @@ use crate::controls::{Action, Controls};
 use crate::equipment::Equipment;
 use crate::last_stand::LastStand;
 use crate::layers::GameLayer;
-use crate::map::PLAYER_START;
+use crate::map::seat_start;
 use crate::modifier::{Modifier, Modifiers, RunModifiers, Stat, resolve};
 use crate::perk::Drinking;
 use crate::points::Points;
@@ -201,7 +201,7 @@ impl Plugin for PlayerPlugin {
             .init_resource::<RunModifiers>()
             .add_systems(
                 OnEnter(GameState::Playing),
-                (spawn_player, |mut warp: ResMut<FovWarp>| *warp = FovWarp::default()),
+                (spawn_player.in_set(SpawnPlayers), |mut warp: ResMut<FovWarp>| *warp = FovWarp::default()),
             )
             .add_systems(OnEnter(Pause::Running), grab_cursor)
             .add_systems(OnExit(Pause::Running), release_cursor)
@@ -241,30 +241,46 @@ fn run_state(run: &[Modifier]) -> impl Bundle {
     )
 }
 
-fn spawn_player(mut commands: Commands, settings: Res<Settings>, run: Res<RunModifiers>) {
+/// Where a Seat's Player starts: the Seat's spawn point on the Map, with the Player standing on it.
+fn seat_spawn(seat: Seat) -> Transform {
     let half_height = PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0;
+    Transform::from_translation(seat_start(seat.0) + Vec3::Y * (half_height + 0.05))
+}
+
+/// Everything a Player is at the start of a Run, in `seat`, whoever drives them. What makes one the
+/// `LocalPlayer` (the camera and view model) is added by the caller.
+fn player_body(seat: Seat, name: &str, run: &[Modifier]) -> impl Bundle {
+    (
+        InRun,
+        Name::new(name.to_string()),
+        (Player, seat, PlayerName(name.to_string())),
+        Health {
+            current: PLAYER_MAX_HEALTH,
+            max: PLAYER_MAX_HEALTH,
+            since_hit: HEALTH_REGEN_DELAY_SECS,
+        },
+        (Locomotion::default(), MoveInput::default()),
+        Visibility::default(),
+        Loadout::new(STARTING_WEAPON),
+        Modifiers(run.to_vec()),
+        (Knife::default(), Equipment::default(), run_state(run)),
+        seat_spawn(seat),
+        RigidBody::Kinematic,
+        CustomPositionIntegration,
+        TranslationInterpolation,
+        Collider::capsule(PLAYER_RADIUS, PLAYER_CAPSULE_LENGTH),
+        CollisionLayers::new(GameLayer::Player, LayerMask::ALL),
+    )
+}
+
+/// Spawns the Players a Run starts with. The Players are in the world once this has run (see
+/// `RunType`).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SpawnPlayers;
+
+fn spawn_player(mut commands: Commands, settings: Res<Settings>, run: Res<RunModifiers>) {
     commands
-        .spawn((
-            InRun,
-            Name::new("Player"),
-            (Player, Seat(0), PlayerName("Player".into()), LocalPlayer),
-            Health {
-                current: PLAYER_MAX_HEALTH,
-                max: PLAYER_MAX_HEALTH,
-                since_hit: HEALTH_REGEN_DELAY_SECS,
-            },
-            (Locomotion::default(), MoveInput::default()),
-            Visibility::default(),
-            Loadout::new(STARTING_WEAPON),
-            Modifiers(run.0.clone()),
-            (Knife::default(), Equipment::default(), run_state(&run.0)),
-            Transform::from_translation(PLAYER_START + Vec3::Y * (half_height + 0.05)),
-            RigidBody::Kinematic,
-            CustomPositionIntegration,
-            TranslationInterpolation,
-            Collider::capsule(PLAYER_RADIUS, PLAYER_CAPSULE_LENGTH),
-            CollisionLayers::new(GameLayer::Player, LayerMask::ALL),
-        ))
+        .spawn((player_body(Seat(0), "Player", &run.0), LocalPlayer))
         .with_child((
             PlayerCamera,
             Eye {
@@ -287,6 +303,27 @@ fn spawn_player(mut commands: Commands, settings: Res<Settings>, run: Res<RunMod
             },
             Transform::from_xyz(0.0, PLAYER_EYE_HEIGHT, 0.0),
         ));
+}
+
+/// A debug convenience: puts a second Player in Seat 1, standing on its spawn point and driven
+/// only through `MoveInput` and Player-tagged messages. It has no camera, no `LocalPlayer` and no
+/// view model; a capsule in the Seat's colour stands in for a body. It does nothing if Seat 1 is
+/// taken. The Run's type is already fixed, so a Player added here doesn't make it Co-op.
+pub fn spawn_debug_player(
+    mut commands: Commands,
+    run: Res<RunModifiers>,
+    seats: Query<&Seat, With<Player>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let seat = Seat(1);
+    if seats.iter().any(|&taken| taken == seat) {
+        return;
+    }
+    commands.spawn(player_body(seat, "Player 2", &run.0)).with_child((
+        Mesh3d(meshes.add(Capsule3d::new(PLAYER_RADIUS, PLAYER_CAPSULE_LENGTH))),
+        MeshMaterial3d(materials.add(seat.colour())),
+    ));
 }
 
 fn grab_cursor(mut cursor: Single<&mut CursorOptions>) {
@@ -319,8 +356,8 @@ fn apply_fov(
 fn look(
     mouse: Res<AccumulatedMouseMotion>,
     settings: Res<Settings>,
-    mut player: Single<&mut Transform, With<Player>>,
-    mut camera: Single<&mut Transform, (With<PlayerCamera>, Without<Player>)>,
+    mut player: Single<&mut Transform, With<LocalPlayer>>,
+    mut camera: Single<&mut Transform, (With<PlayerCamera>, Without<LocalPlayer>)>,
 ) {
     let delta = settings.look_delta(mouse.delta);
     player.rotate_y(-delta.x);
@@ -356,7 +393,7 @@ fn teleport_player(
 fn fill_move_input(
     controls: Controls,
     player: Single<(&Transform, &mut MoveInput), With<LocalPlayer>>,
-    camera: Single<&Transform, (With<PlayerCamera>, Without<Player>)>,
+    camera: Single<&Transform, (With<PlayerCamera>, Without<LocalPlayer>)>,
 ) {
     let (transform, mut input) = player.into_inner();
     let forward = controls.pressed(Action::Forward) as i8 - controls.pressed(Action::Back) as i8;
@@ -581,6 +618,9 @@ impl Health {
 
 #[cfg(test)]
 mod headless;
+
+#[cfg(test)]
+mod two_players;
 
 #[cfg(test)]
 mod tests {

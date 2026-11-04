@@ -19,7 +19,7 @@ use crate::layers::GameLayer;
 use crate::map::BOX_LOCATIONS;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_points};
 use crate::pack_a_punch::PackAPunch;
-use crate::player::Player;
+use crate::player::{LocalPlayer, Player};
 use crate::points::Points;
 use crate::sapper::Sabotaged;
 use crate::state::{GameState, InRun, Pause};
@@ -463,7 +463,7 @@ fn run_boxes(
     mut commands: Commands,
     time: Res<Time>,
     mut boxes: Query<(Entity, &mut MysteryBox, &mut Transform, &mut Visibility)>,
-    player: Single<(&Loadout, &Equipment, &Modifiers, &mut Points), With<Player>>,
+    player: Single<(&Loadout, &Equipment, &Modifiers, &mut Points), With<LocalPlayer>>,
     pack_a_punch: Query<&PackAPunch>,
     mut run: ResMut<BoxRun>,
     mut teddies: MessageWriter<TeddyBear>,

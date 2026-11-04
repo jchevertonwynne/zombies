@@ -11,7 +11,7 @@ use crate::hellhound::{
 use crate::map::{SpawnKind, SpawnPoint};
 use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_count};
 use crate::nova::{NovaAssetsParam, nova_crawler_entry, nova_crawler_health, spawn_nova_crawler, spawns_nova_crawler};
-use crate::player::Player;
+use crate::player::{LocalPlayer, Player};
 use crate::power::Power;
 use crate::power_up::{DropPowerUp, PowerUp};
 use crate::settings::Settings;
@@ -238,7 +238,7 @@ fn spawn_horde(
     mut round: ResMut<Round>,
     alive: Query<&Zombie, Without<Dying>>,
     spawn_points: Query<(&Transform, &SpawnPoint)>,
-    player: Single<(&Transform, &Modifiers), With<Player>>,
+    player: Single<(&Transform, &Modifiers), With<LocalPlayer>>,
     active: Res<ActiveZones>,
     assets: ZombieAssetsParam,
     hound_assets: HellhoundAssetsParam,

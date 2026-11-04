@@ -18,7 +18,7 @@ use crate::hellhound::SpawnHellhounds;
 use crate::hud::overlay::{Overlay, Overlays};
 use crate::last_stand::LastStand;
 use crate::layers::GameLayer;
-use crate::player::{FovWarp, Player, PlayerCamera, Teleport};
+use crate::player::{FovWarp, LocalPlayer, Player, PlayerCamera, Teleport};
 use crate::power::Power;
 use crate::power_up::DropPowerUp;
 use crate::round::Round;
@@ -602,7 +602,7 @@ fn use_teleporter(
 fn run_trips(
     mut teleporter: ResMut<Teleporter>,
     mut aftermath: ResMut<Aftermath>,
-    player: Single<(Entity, &Transform, Has<LastStand>, &mut PlayerZone), With<Player>>,
+    player: Single<(Entity, &Transform, Has<LastStand>, &mut PlayerZone), With<LocalPlayer>>,
     mut teleport: MessageWriter<Teleport>,
     zombies: Query<
         (Entity, &Transform),

@@ -339,7 +339,7 @@ fn hold_buy(
 /// Checks each request against the Player it names: their Points, whether they're Down, and
 /// whether the Buyable's owner refuses it. A buy spends the price (if any) and tells the owner;
 /// otherwise the buzzer plays. A Barrier's rebuild isn't a purchase and is left to its owner.
-fn resolve_use(
+pub(crate) fn resolve_use(
     mut requests: MessageReader<UseRequest>,
     buyables: Query<(&Buyable, Option<&HoldBuy>, Has<Refused>, Has<Held>)>,
     mut players: Query<(Has<LastStand>, &Modifiers, &mut Points), With<Player>>,
