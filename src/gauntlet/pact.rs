@@ -10,6 +10,7 @@ use crate::arsenal::Splash;
 use crate::explosive::Explosion;
 use crate::modifier::{Effect, Modifier, Source, Stat};
 use crate::perk::Perk;
+use crate::player::Seat;
 use crate::round::alive_cap;
 use crate::tuning::*;
 
@@ -79,6 +80,9 @@ pub struct PactDef {
     pub requirements: &'static [Requirement],
     /// Its stat-modifier entries, upside and Drawback alike. The Pact is their one source.
     pub entries: &'static [(Stat, Effect)],
+    /// The stats among `entries` that are world Drawbacks: they change the world (prices, the
+    /// Horde, Zombies, drops, Max Ammo) and fall on every Player, whoever took the Pact.
+    pub world_drawbacks: &'static [Stat],
     pub upside: fn() -> String,
     /// Its Drawback text, with real numbers for the given Round.
     pub drawback: fn(round: u32) -> String,
@@ -104,6 +108,7 @@ pub const PACTS: &[PactDef] = &[
     PactDef {
         pact: GLASS_JAW,
         requirements: &[],
+        world_drawbacks: &[],
         entries: &[
             (Stat::Damage, Effect::Mult(PACT_GLASS_JAW_DAMAGE_FACTOR)),
             (
@@ -127,6 +132,7 @@ pub const PACTS: &[PactDef] = &[
     PactDef {
         pact: GOLD_RUSH,
         requirements: &[],
+        world_drawbacks: &[Stat::Price],
         entries: &[
             (
                 Stat::PointsRate,
@@ -146,6 +152,7 @@ pub const PACTS: &[PactDef] = &[
     PactDef {
         pact: SCORCHED_EARTH,
         requirements: &[],
+        world_drawbacks: &[Stat::ZombieSpeed],
         entries: &[(
             Stat::ZombieSpeed,
             Effect::Mult(PACT_SCORCHED_EARTH_ZOMBIE_SPEED_FACTOR),
@@ -168,6 +175,7 @@ pub const PACTS: &[PactDef] = &[
     PactDef {
         pact: OPEN_BAR,
         requirements: &[Requirement::PowerOn],
+        world_drawbacks: &[Stat::HordeSize],
         entries: &[
             (Stat::PerkPrice, Effect::Mult(0.0)),
             (Stat::PerksKeptOnDown, Effect::Flat(Perk::ALL.len() as f32)),
@@ -179,6 +187,7 @@ pub const PACTS: &[PactDef] = &[
     PactDef {
         pact: UNDYING,
         requirements: &[],
+        world_drawbacks: &[],
         entries: &[
             (
                 Stat::SelfRevives,
@@ -196,6 +205,7 @@ pub const PACTS: &[PactDef] = &[
     PactDef {
         pact: ARSENAL,
         requirements: &[Requirement::PowerOn],
+        world_drawbacks: &[Stat::BoxPrice, Stat::TeddyChance],
         entries: &[
             (Stat::BoxUpgradeChance, Effect::Chance(1.0, 1)),
             (Stat::BoxPrice, Effect::Mult(PACT_ARSENAL_BOX_PRICE_FACTOR)),
@@ -214,6 +224,7 @@ pub const PACTS: &[PactDef] = &[
     PactDef {
         pact: OVERCLOCKED,
         requirements: &[Requirement::HoldsAmmoMod],
+        world_drawbacks: &[Stat::PackAPunchPrice],
         entries: &[
             (Stat::AmmoModCooldown, Effect::Mult(0.0)),
             (
@@ -227,6 +238,7 @@ pub const PACTS: &[PactDef] = &[
     PactDef {
         pact: COLD_STEEL,
         requirements: &[],
+        world_drawbacks: &[],
         entries: &[
             (Stat::KnifeKillChance, Effect::Chance(1.0, 1)),
             (
@@ -245,6 +257,7 @@ pub const PACTS: &[PactDef] = &[
     PactDef {
         pact: ENDLESS_BELT,
         requirements: &[],
+        world_drawbacks: &[Stat::MaxAmmoInBag],
         entries: &[
             (Stat::ReserveFeed, Effect::Flat(1.0)),
             (Stat::MaxAmmoInBag, Effect::Mult(0.0)),
@@ -255,6 +268,7 @@ pub const PACTS: &[PactDef] = &[
     PactDef {
         pact: LIGHTNING_ROD,
         requirements: &[Requirement::PowerOn],
+        world_drawbacks: &[Stat::PowerUpDropChance],
         entries: &[
             (Stat::TrapPrice, Effect::Mult(0.0)),
             (Stat::TrapCooldown, Effect::Mult(0.0)),
@@ -269,6 +283,7 @@ pub const PACTS: &[PactDef] = &[
     PactDef {
         pact: OVERKILL,
         requirements: &[],
+        world_drawbacks: &[Stat::AliveCap],
         entries: &[(
             Stat::AliveCap,
             Effect::Flat(PACT_OVERKILL_ALIVE_CAP_BONUS as f32),
@@ -287,6 +302,7 @@ pub const PACTS: &[PactDef] = &[
     PactDef {
         pact: DEAD_RUN,
         requirements: &[],
+        world_drawbacks: &[Stat::SprinterChance],
         entries: &[
             (
                 Stat::MoveSpeed,
@@ -305,38 +321,51 @@ pub const PACTS: &[PactDef] = &[
     },
 ];
 
-/// The Pacts held this Run, in pick order. Each at most once; never removed, and kept through a
-/// Down.
+/// A Pact and the Seat of the Player who took it.
+#[derive(Clone, Copy)]
+pub struct HeldPact {
+    pub pact: &'static PactDef,
+    pub holder: Seat,
+}
+
+/// The Pacts held this Run, in pick order, each with its holder. Each at most once; never removed,
+/// and kept through a Down. It's the Run's, not a Player's: a Pact's Drawback lands on everyone.
 #[derive(Resource, Default)]
-pub struct HeldPacts(pub Vec<&'static PactDef>);
+pub struct HeldPacts(pub Vec<HeldPact>);
 
 impl HeldPacts {
     pub fn holds(&self, id: &str) -> bool {
-        self.0.iter().any(|pact| pact.id() == id)
+        self.0.iter().any(|held| held.pact.id() == id)
     }
 
-    /// Takes a Pact. One already held stays held once.
-    pub fn add(&mut self, pact: &'static PactDef) {
+    /// `holder` takes a Pact. One already held stays held once.
+    pub fn add(&mut self, pact: &'static PactDef, holder: Seat) {
         if !self.holds(pact.id()) {
-            self.0.push(pact);
+            self.0.push(HeldPact { pact, holder });
         }
     }
 
     /// The stable IDs held, for Requirements.
     pub fn ids(&self) -> Vec<&'static str> {
-        self.0.iter().map(|pact| pact.id()).collect()
+        self.0.iter().map(|held| held.pact.id()).collect()
     }
 
-    /// The stat-modifier entries every held Pact puts on the Player. Each Pact is its own source.
-    pub fn modifiers(&self) -> Vec<Modifier> {
+    /// The stat-modifier entries the held Pacts put on the Player in `seat`: the upsides of the
+    /// Pacts they hold, and every Pact's world Drawbacks. Each Pact is its own source.
+    pub fn modifiers(&self, seat: Seat) -> Vec<Modifier> {
         self.0
             .iter()
-            .flat_map(|pact| {
-                pact.entries.iter().map(move |&(stat, effect)| Modifier {
-                    stat,
-                    source: Source(pact.name()),
-                    effect,
-                })
+            .flat_map(|held| {
+                let mine = held.holder == seat;
+                held.pact
+                    .entries
+                    .iter()
+                    .filter(move |&&(stat, _)| mine || held.pact.world_drawbacks.contains(&stat))
+                    .map(|&(stat, effect)| Modifier {
+                        stat,
+                        source: Source(held.pact.name()),
+                        effect,
+                    })
             })
             .collect()
     }
@@ -429,8 +458,8 @@ mod tests {
     /// The Player's entries holding one Pact.
     fn holding(r: PactRef) -> Vec<Modifier> {
         let mut held = HeldPacts::default();
-        held.add(pact(r));
-        held.modifiers()
+        held.add(pact(r), Seat(0));
+        held.modifiers(Seat(0))
     }
 
     fn close(a: f32, b: f32) -> bool {
@@ -481,8 +510,8 @@ mod tests {
     #[test]
     fn a_held_pact_never_comes_back() {
         let mut held = HeldPacts::default();
-        held.add(pact(COLD_STEEL));
-        held.add(pact(COLD_STEEL));
+        held.add(pact(COLD_STEEL), Seat(0));
+        held.add(pact(COLD_STEEL), Seat(0));
         assert_eq!(held.0.len(), 1, "each Pact is held once");
         let run = unlocked(true);
         for _ in 0..20 {
@@ -519,7 +548,7 @@ mod tests {
     fn with_every_pact_held_none_are_left_to_offer() {
         let mut held = HeldPacts::default();
         for pact in PACTS {
-            held.add(pact);
+            held.add(pact, Seat(0));
         }
         let run = RunFacts {
             holds_ammo_mod: true,
@@ -539,7 +568,7 @@ mod tests {
             ..unlocked(true)
         };
         assert!(eligible(trench_raider, &before));
-        pacts.add(pact(COLD_STEEL));
+        pacts.add(pact(COLD_STEEL), Seat(0));
         let after = RunFacts {
             held_pacts: pacts.ids(),
             ..unlocked(true)
@@ -550,7 +579,7 @@ mod tests {
         // Every Boon a Pact overrides is named by a real Pact.
         pacts.0.clear();
         for pact in PACTS {
-            pacts.add(pact);
+            pacts.add(pact, Seat(0));
         }
         let all = RunFacts {
             held_pacts: pacts.ids(),
@@ -605,6 +634,30 @@ mod tests {
         let mut entries = boons.modifiers();
         entries.extend(holding(GLASS_JAW));
         assert!(close(resolve(Stat::Damage, 1.0, &entries), 1.3 * 2.0));
+    }
+
+    #[test]
+    fn a_pacts_upside_reaches_only_its_holder_and_its_world_drawback_everyone() {
+        let mut held = HeldPacts::default();
+        held.add(pact(DEAD_RUN), Seat(1));
+        held.add(pact(GOLD_RUSH), Seat(1));
+        held.add(pact(GLASS_JAW), Seat(1));
+        let holder = held.modifiers(Seat(1));
+        let other = held.modifiers(Seat(0));
+        // Move speed is Dead Run's upside; every Zombie being a Sprinter is the world's.
+        assert!(close(resolve(Stat::MoveSpeed, 1.0, &holder), PACT_DEAD_RUN_MOVE_SPEED_FACTOR));
+        assert!(close(resolve(Stat::MoveSpeed, 1.0, &other), 1.0));
+        assert!(close(resolve(Stat::SprintDrain, 1.0, &other), 1.0));
+        for entries in [&holder, &other] {
+            assert!(close(resolve(Stat::SprinterChance, 0.0, entries), 1.0));
+            // Gold Rush's price Drawback is the world's; its Points upside is the holder's.
+            assert!(close(resolve(Stat::Price, 1.0, entries), PACT_GOLD_RUSH_PRICE_FACTOR));
+        }
+        assert!(close(resolve(Stat::PointsRate, 0.0, &other), 0.0));
+        assert!(resolve(Stat::PointsRate, 0.0, &holder) > 0.0);
+        // Glass Jaw's max Health loss is personal.
+        assert!(close(resolve(Stat::MaxHealth, 100.0, &other), 100.0));
+        assert!(resolve(Stat::MaxHealth, 100.0, &holder) < 100.0);
     }
 
     #[test]

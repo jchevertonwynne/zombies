@@ -26,7 +26,7 @@ use crate::mode::Mode;
 use crate::modifier::{Modifiers, RunModifiers};
 use crate::mystery_box::{MysteryBox, TeddyBear};
 use crate::perk::{Perk, PerkMachine};
-use crate::player::{LocalPlayer, Player};
+use crate::player::{LocalPlayer, Player, Seat};
 use crate::points::BonusPoints;
 use crate::power::Power;
 use crate::power_up::{DropPowerUp, GivePowerUp, PowerUp, PowerUpTaken};
@@ -50,8 +50,8 @@ use pact::{
 use progress::{GauntletFile, rounds_completed, scrip_for_rounds};
 use screen::{OfferCard, SkipButton};
 
-/// Seconds left before the Boon Offer opens, counted from the Round's last kill.
-#[derive(Resource, Default)]
+/// Seconds left before a Player's Boon Offer opens, counted from the Round's last kill.
+#[derive(Component, Default)]
 struct PendingOffer(Option<f32>);
 
 /// What the Player has bought this Run that Requirements ask about, from the Purchased messages
@@ -96,8 +96,8 @@ impl Choices {
     }
 }
 
-/// The Boon or Pact Offer on screen. Quitting the Run loses it.
-#[derive(Resource)]
+/// The Boon or Pact Offer a Player is choosing from. Quitting the Run loses it.
+#[derive(Component)]
 struct Offer {
     choices: Choices,
     /// The Round just completed.
@@ -110,9 +110,7 @@ pub struct GauntletPlugin;
 
 impl Plugin for GauntletPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<HeldBoons>()
-            .init_resource::<HeldPacts>()
-            .init_resource::<PendingOffer>()
+        app.init_resource::<HeldPacts>()
             .init_resource::<Bought>()
             .init_resource::<Gifts>()
             .init_resource::<UnlockAll>()
@@ -182,6 +180,7 @@ impl Plugin for GauntletPlugin {
                     .run_if(in_state(Pause::Frozen))
                     .run_if(gauntlet),
             )
+            .add_observer(give_gauntlet_state)
             .add_observer(pick);
     }
 }
@@ -193,33 +192,40 @@ fn gauntlet(mode: Res<Mode>) -> bool {
 /// A Boon or a Pact was just taken (or the Run began), or the Round moved on, since a Drawback
 /// can quote the Round's numbers.
 fn picks_changed(
-    held: Res<HeldBoons>,
+    held: Query<Ref<HeldBoons>, With<LocalPlayer>>,
     pacts: Res<HeldPacts>,
     round: Option<Res<Round>>,
     mut seen: Local<u32>,
 ) -> bool {
     let number = round.map_or(0, |round| round.number);
     let moved = std::mem::replace(&mut *seen, number) != number;
-    held.is_changed() || pacts.is_changed() || moved
+    held.single().is_ok_and(|held| held.is_changed()) || pacts.is_changed() || moved
+}
+
+/// Every new Player starts with no Boons and no Offer coming. Gauntlet's state sits on the Player
+/// from here, so Classic never has to know it.
+fn give_gauntlet_state(add: On<Add<Player>>, mut commands: Commands) {
+    commands
+        .entity(add.entity)
+        .insert((HeldBoons::default(), PendingOffer::default()));
 }
 
 fn reset(mut commands: Commands) {
-    commands.insert_resource(HeldBoons::default());
     commands.insert_resource(HeldPacts::default());
-    commands.insert_resource(PendingOffer::default());
     commands.insert_resource(Bought::default());
     commands.insert_resource(Gifts::default());
-    commands.remove_resource::<Offer>();
 }
 
 /// The Round ended: the Offer is due after its delay, and the Intermission waits for it.
 fn schedule_offer(
     mut ended: MessageReader<RoundEnded>,
-    mut pending: ResMut<PendingOffer>,
+    mut pending: Query<&mut PendingOffer, With<Player>>,
     mut hold: ResMut<IntermissionHold>,
 ) {
     if ended.read().count() > 0 {
-        pending.0 = Some(BOON_OFFER_DELAY_SECS);
+        for mut pending in &mut pending {
+            pending.0 = Some(BOON_OFFER_DELAY_SECS);
+        }
         hold.0 = true;
     }
 }
@@ -229,9 +235,10 @@ fn schedule_offer(
 /// offer. With no eligible Boon there's no Offer, and the Intermission starts.
 fn open_offer(
     mut commands: Commands,
-    mut pending: ResMut<PendingOffer>,
-    player: Query<(Has<LastStand>, &Loadout), With<Player>>,
-    held: Res<HeldBoons>,
+    mut player: Query<
+        (Entity, Has<LastStand>, &Loadout, &HeldBoons, &mut PendingOffer),
+        With<LocalPlayer>,
+    >,
     pacts: Res<HeldPacts>,
     bought: Res<Bought>,
     (unlock_all, progress): (Res<UnlockAll>, Res<GauntletFile>),
@@ -242,13 +249,13 @@ fn open_offer(
     mut freeze: ResMut<Freeze>,
     mut cues: MessageWriter<PlayCue>,
 ) {
+    let Ok((player, last_stand, loadout, held, mut pending)) = player.single_mut() else {
+        return;
+    };
     let Some(left) = pending.0.as_mut() else {
         return;
     };
     *left -= time.delta_secs();
-    let Ok((last_stand, loadout)) = player.single() else {
-        return;
-    };
     if *left > 0.0 || last_stand {
         return;
     }
@@ -270,7 +277,7 @@ fn open_offer(
         Vec::new()
     };
     let choices = if pact_choices.is_empty() {
-        Choices::Boons(draw_offer(BOONS, &held, &run, roll))
+        Choices::Boons(draw_offer(BOONS, held, &run, roll))
     } else {
         Choices::Pacts(pact_choices)
     };
@@ -283,7 +290,7 @@ fn open_offer(
         Choices::Pacts(_) => Cue::PactOffer,
     };
     cues.write(PlayCue { cue, at: None });
-    commands.insert_resource(Offer {
+    commands.entity(player).insert(Offer {
         choices,
         round: round.number,
         shown_at: 0.0,
@@ -298,15 +305,14 @@ fn pick(
     mut commands: Commands,
     cards: Query<&OfferCard>,
     skips: Query<(), With<SkipButton>>,
-    offer: Option<Res<Offer>>,
+    mut player: Query<(Entity, &Seat, &Offer, &mut HeldBoons), With<LocalPlayer>>,
     real: Res<Time<Real>>,
-    mut held: ResMut<HeldBoons>,
     mut pacts: ResMut<HeldPacts>,
     mut freeze: ResMut<Freeze>,
     mut hold: ResMut<IntermissionHold>,
     mut cues: MessageWriter<PlayCue>,
 ) {
-    let Some(offer) = offer else {
+    let Ok((player, &seat, offer, mut held)) = player.single_mut() else {
         return;
     };
     let card = cards.get(activate.entity).ok();
@@ -329,7 +335,7 @@ fn pick(
                 let Some(&pact) = choices.get(*index) else {
                     return;
                 };
-                pacts.add(pact);
+                pacts.add(pact, seat);
             }
         }
     }
@@ -337,7 +343,7 @@ fn pick(
         cue: Cue::OfferPick,
         at: None,
     });
-    commands.remove_resource::<Offer>();
+    commands.entity(player).remove::<Offer>();
     freeze.0 = false;
     hold.0 = false;
 }
@@ -345,25 +351,23 @@ fn pick(
 /// Keeps the Player's Boon and Pact entries in step with the Boons and Pacts held. A Down takes
 /// only Perk entries, so these survive it, and a Pact's Drawback lasts the Run.
 fn apply_entries(
-    held: Res<HeldBoons>,
     pacts: Res<HeldPacts>,
-    mut player: Query<&mut Modifiers, With<Player>>,
+    mut players: Query<(&Seat, &HeldBoons, &mut Modifiers), With<Player>>,
 ) {
-    let Ok(mut modifiers) = player.single_mut() else {
-        return;
-    };
     let ours = |source| is_boon_source(source) || is_pact_source(source);
-    let mut wanted = held.modifiers();
-    wanted.extend(pacts.modifiers());
-    let current: Vec<_> = modifiers
-        .0
-        .iter()
-        .filter(|entry| ours(entry.source))
-        .copied()
-        .collect();
-    if current != wanted {
-        modifiers.0.retain(|entry| !ours(entry.source));
-        modifiers.0.extend(wanted);
+    for (&seat, held, mut modifiers) in &mut players {
+        let mut wanted = held.modifiers();
+        wanted.extend(pacts.modifiers(seat));
+        let current: Vec<_> = modifiers
+            .0
+            .iter()
+            .filter(|entry| ours(entry.source))
+            .copied()
+            .collect();
+        if current != wanted {
+            modifiers.0.retain(|entry| !ours(entry.source));
+            modifiers.0.extend(wanted);
+        }
     }
 }
 
@@ -411,16 +415,16 @@ fn overkill(
 
 fn blood_money(
     mut kills: MessageReader<ZombieKilled>,
-    held: Res<HeldBoons>,
     mut bonus: MessageWriter<BonusPoints>,
-    player: Single<Entity, With<LocalPlayer>>,
+    player: Single<(Entity, &HeldBoons), With<LocalPlayer>>,
 ) {
+    let (player, held) = *player;
     let stacks = held.stacks(BLOOD_MONEY);
     for kill in kills.read() {
         let points = blood_money_points(kill.pay, stacks);
         if points > 0 {
             bonus.write(BonusPoints {
-                player: *player,
+                player,
                 amount: points,
             });
         }
@@ -430,15 +434,15 @@ fn blood_money(
 /// Teddy's Tithe: a Teddy Bear pays Points on top of its refund.
 fn teddys_tithe(
     mut teddies: MessageReader<TeddyBear>,
-    held: Res<HeldBoons>,
     mut bonus: MessageWriter<BonusPoints>,
-    player: Single<Entity, With<LocalPlayer>>,
+    player: Single<(Entity, &HeldBoons), With<LocalPlayer>>,
 ) {
+    let (player, held) = *player;
     let points = teddys_tithe_points(held.stacks(TEDDYS_TITHE));
     for _ in teddies.read() {
         if points > 0 {
             bonus.write(BonusPoints {
-                player: *player,
+                player,
                 amount: points,
             });
         }
@@ -468,17 +472,17 @@ fn track_purchases(
 /// War Bonds: each Round's end pays Points by its number.
 fn war_bonds(
     mut ended: MessageReader<RoundEnded>,
-    held: Res<HeldBoons>,
     round: Res<Round>,
     mut bonus: MessageWriter<BonusPoints>,
-    player: Single<Entity, With<LocalPlayer>>,
+    player: Single<(Entity, &HeldBoons), With<LocalPlayer>>,
 ) {
+    let (player, held) = *player;
     let stacks = held.stacks(WAR_BONDS);
     for _ in ended.read() {
         let points = war_bonds_points(round.number, stacks);
         if points > 0 {
             bonus.write(BonusPoints {
-                player: *player,
+                player,
                 amount: points,
             });
         }
@@ -488,16 +492,16 @@ fn war_bonds(
 /// Bounty: a Trap's kill pays Points.
 fn bounty(
     mut kills: MessageReader<ZombieKilled>,
-    held: Res<HeldBoons>,
     mut bonus: MessageWriter<BonusPoints>,
-    player: Single<Entity, With<LocalPlayer>>,
+    player: Single<(Entity, &HeldBoons), With<LocalPlayer>>,
 ) {
+    let (player, held) = *player;
     let stacks = held.stacks(BOUNTY);
     for kill in kills.read() {
         let points = bounty_points(kill.attack, stacks);
         if points > 0 {
             bonus.write(BonusPoints {
-                player: *player,
+                player,
                 amount: points,
             });
         }
@@ -507,7 +511,7 @@ fn bounty(
 /// Butcher's Bill: a Knife kill may drop a Power-up where it fell, outside the per-Round max.
 fn butchers_bill(
     mut kills: MessageReader<ZombieKilled>,
-    held: Res<HeldBoons>,
+    held: Single<&HeldBoons, With<LocalPlayer>>,
     mut drops: MessageWriter<DropPowerUp>,
 ) {
     let stacks = held.stacks(BUTCHERS_BILL);
@@ -525,7 +529,7 @@ fn butchers_bill(
 /// doesn't roll again.
 fn lucky_strike(
     mut taken: MessageReader<PowerUpTaken>,
-    held: Res<HeldBoons>,
+    held: Single<&HeldBoons, With<LocalPlayer>>,
     mut gifts: ResMut<Gifts>,
     mut give: MessageWriter<GivePowerUp>,
 ) {
@@ -552,7 +556,7 @@ fn toggle_unlock_all(mut unlock_all: ResMut<UnlockAll>) {
 /// The held Boons go on the Run Record in pick order, with their Stacks, then the Pacts, then the
 /// active Rank count.
 fn record_picks(
-    held: Res<HeldBoons>,
+    held: Single<&HeldBoons, With<LocalPlayer>>,
     pacts: Res<HeldPacts>,
     ranks: Res<ActiveRanks>,
     mut extras: ResMut<RecordExtras>,
@@ -561,8 +565,8 @@ fn record_picks(
         id: boon.id.to_string(),
         count: stacks,
     });
-    let pacts = pacts.0.iter().map(|pact| RecordExtra {
-        id: pact.id().to_string(),
+    let pacts = pacts.0.iter().map(|held| RecordExtra {
+        id: held.pact.id().to_string(),
         count: 1,
     });
     let ranks = RecordExtra {
