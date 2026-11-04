@@ -9,7 +9,8 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::settings::Settings;
-use crate::state::Pause;
+use crate::player::LocalPlayer;
+use crate::state::{Choosing, Pause};
 
 /// Something the Player does with a key or mouse button.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -325,20 +326,21 @@ pub fn with_use_key(prompt: &str, bindings: &Bindings) -> String {
     prompt.replace("Press F ", &format!("Press {key} ")).replace("Hold F ", &format!("Hold {key} "))
 }
 
-/// The Player's actions, read through their bindings. With the Pause menu open nothing is pressed,
-/// which is how a Co-op Player stops while the world runs on: no movement, firing, Knife, Use or
-/// Equipment, and any hold lets go.
+/// The Player's actions, read through their bindings. With the Pause menu or an Offer open nothing
+/// is pressed, which is how a Co-op Player stops while the world runs on: no movement, firing,
+/// Knife, Use or Equipment, and any hold lets go.
 #[derive(SystemParam)]
-pub struct Controls<'w> {
+pub struct Controls<'w, 's> {
     pause: Option<Res<'w, State<Pause>>>,
     settings: Res<'w, Settings>,
     keys: Res<'w, ButtonInput<KeyCode>>,
     mouse: Res<'w, ButtonInput<MouseButton>>,
+    choosing: Query<'w, 's, (), (With<LocalPlayer>, With<Choosing>)>,
 }
 
-impl Controls<'_> {
+impl Controls<'_, '_> {
     fn paused(&self) -> bool {
-        self.pause.as_ref().is_some_and(|pause| *pause.get() == Pause::Paused)
+        self.pause.as_ref().is_some_and(|pause| *pause.get() == Pause::Paused) || !self.choosing.is_empty()
     }
 
     pub fn pressed(&self, action: Action) -> bool {

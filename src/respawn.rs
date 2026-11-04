@@ -175,14 +175,18 @@ fn respawn_spot(beside: &Transform, spatial: &SpatialQuery) -> Vec3 {
         .unwrap_or(beside.translation)
 }
 
-/// Co-op Game Over comes the moment no Player is up, whatever Last Stand time is left. Solo's
-/// Game Over is the Down itself (see `go_down`).
+/// Co-op Game Over comes the moment no Player is up, whatever Last Stand time is left, unless one
+/// is still to Self-Revive. Solo's Game Over is the Down itself (see `go_down`).
 fn game_over_when_none_up(
-    players: Query<(Has<LastStand>, Has<AwaitingRespawn>), With<Player>>,
+    players: Query<(Option<&LastStand>, Has<AwaitingRespawn>), With<Player>>,
     run: Res<RunType>,
     mut next: ResMut<NextState<GameState>>,
 ) {
-    if run.is_coop() && !players.is_empty() && players.iter().all(|(last_stand, awaiting)| !is_up(last_stand, awaiting)) {
+    // A Player on their way to a Self-Revive (a spare's solo Last Stand) is still in the Run.
+    let in_play = |(stand, awaiting): (Option<&LastStand>, bool)| {
+        is_up(stand.is_some(), awaiting) || (!awaiting && stand.is_some_and(|stand| !stand.is_coop()))
+    };
+    if run.is_coop() && !players.is_empty() && !players.iter().any(in_play) {
         next.set(GameState::GameOver);
     }
 }

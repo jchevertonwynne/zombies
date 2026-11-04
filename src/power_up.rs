@@ -91,8 +91,6 @@ pub struct ActivePowerUps {
     insta_kill: f32,
     double_points: f32,
     fire_sale: f32,
-    /// Seconds added to every timed Power-up, resolved from the Player's stat entries.
-    pub extra_secs: f32,
 }
 
 impl ActivePowerUps {
@@ -122,9 +120,10 @@ impl ActivePowerUps {
         self.left(power_up) > 0.0
     }
 
-    /// Starts a timed Power-up, or restarts it if it's already on. Instant ones have no timer.
-    pub fn start(&mut self, power_up: PowerUp) {
-        let secs = POWER_UP_TIMED_SECS + self.extra_secs;
+    /// Starts a timed Power-up, or restarts it if it's already on, lasting `extra_secs` longer than
+    /// usual (from the taker's own stat entries). Instant ones have no timer.
+    pub fn start(&mut self, power_up: PowerUp, extra_secs: f32) {
+        let secs = POWER_UP_TIMED_SECS + extra_secs;
         if let Some(timer) = self.timer_mut(power_up) {
             *timer = secs;
         }
@@ -278,13 +277,14 @@ pub fn reachable_zones(from: ZoneId, joins: &[(ZoneId, ZoneId)]) -> ZoneSet {
     reached
 }
 
-/// A Power-up was taken.
+/// A Power-up was taken, by the Player given, or by no one in particular (`None`).
 #[derive(Message, Debug, Clone, Copy)]
-pub struct PowerUpTaken(pub PowerUp);
+pub struct PowerUpTaken(pub PowerUp, pub Option<Entity>);
 
-/// Gives the Player a Power-up straight away, as if they'd walked into it.
+/// Gives a Power-up straight away, as if `taker` (or no one in particular, if `None`) had walked
+/// into it.
 #[derive(Message, Debug, Clone, Copy)]
-pub struct GivePowerUp(pub PowerUp);
+pub struct GivePowerUp(pub PowerUp, pub Option<Entity>);
 
 /// Drops a Power-up at `at`, outside the per-Round cap and needing no threshold: `power_up`, or
 /// the bag's next one if `None`.
@@ -386,18 +386,13 @@ fn reset(
     bag.0.clear();
 }
 
-/// Timed Power-ups run down, and Double Points follows its timer.
-/// Timed Power-up length and the per-Round cap follow the Player's stat entries.
+/// The per-Round cap and the drop chance follow the Players' stat entries. A timed Power-up's
+/// length follows its taker's alone (see `pick_up`).
 fn resolve_stats(
     player: Single<&Modifiers, With<LocalPlayer>>,
     holders: Query<&Modifiers, With<Player>>,
-    mut active: ResMut<ActivePowerUps>,
     mut meter: ResMut<DropMeter>,
 ) {
-    let extra = resolve(Stat::PowerUpDuration, 0.0, &player.0);
-    if active.extra_secs != extra {
-        active.extra_secs = extra;
-    }
     // The Round's drops are shared; each Player's entries (Scrounger's +1) add to the 4.
     let per_round = holders.iter().fold(POWER_UPS_PER_ROUND, |total, modifiers| {
         total + resolve_count(Stat::PowerUpsPerRound, POWER_UPS_PER_ROUND, &modifiers.0) - POWER_UPS_PER_ROUND
@@ -515,7 +510,7 @@ pub(crate) fn pick_up(
     mut commands: Commands,
     drops: Query<(Entity, &Dropped)>,
     mut given: MessageReader<GivePowerUp>,
-    mut players: Query<(Entity, &Transform, &mut Loadout, &mut Equipment, &mut Points, Has<LastStand>), With<Player>>,
+    mut players: Query<(Entity, &Transform, &mut Loadout, &mut Equipment, &mut Points, &Modifiers, Has<LastStand>), With<Player>>,
     // The Sapper survives the Nuke.
     zombies: Query<Entity, (With<Zombie>, Without<Dying>, Without<Nuked>, Without<Sapper>)>,
     mut active: ResMut<ActivePowerUps>,
@@ -523,8 +518,8 @@ pub(crate) fn pick_up(
     mut awarded: MessageWriter<PointsAwarded>,
     mut taken: MessageWriter<PowerUpTaken>,
 ) {
-    // A given Power-up has no taker, so a Nuke it sets off credits no one.
-    let mut takes: Vec<(Option<Entity>, PowerUp)> = given.read().map(|GivePowerUp(power_up)| (None, *power_up)).collect();
+    // A Power-up given to no one in particular has no taker, so a Nuke it sets off credits no one.
+    let mut takes: Vec<(Option<Entity>, PowerUp)> = given.read().map(|&GivePowerUp(power_up, taker)| (taker, power_up)).collect();
     for (entity, dropped) in &drops {
         let reached_by = players.iter().find(|(_, transform, ..)| {
             let offset = dropped.at - transform.translation;
@@ -536,8 +531,12 @@ pub(crate) fn pick_up(
         }
     }
     for (taker, power_up) in takes {
-        taken.write(PowerUpTaken(power_up));
-        active.start(power_up);
+        taken.write(PowerUpTaken(power_up, taker));
+        // Only the taker's own Boons and Upgrade Track lengthen it.
+        let extra = taker
+            .and_then(|taker| players.get(taker).ok())
+            .map_or(0.0, |(.., modifiers, _)| resolve(Stat::PowerUpDuration, 0.0, &modifiers.0));
+        active.start(power_up, extra);
         let bonus = match power_up {
             PowerUp::Nuke => {
                 let rng = &mut rand::rng();
@@ -555,7 +554,7 @@ pub(crate) fn pick_up(
             }
             _ => 0,
         };
-        for (player, _, mut loadout, mut equipment, mut points, last_stand) in &mut players {
+        for (player, _, mut loadout, mut equipment, mut points, _, last_stand) in &mut players {
             match power_up {
                 PowerUp::MaxAmmo if !last_stand => {
                     loadout.max_ammo();
@@ -746,8 +745,8 @@ mod tests {
 
     #[test]
     fn extra_seconds_lengthen_timed_power_ups() {
-        let mut active = ActivePowerUps { extra_secs: 10.0, ..ActivePowerUps::default() };
-        active.start(PowerUp::DoublePoints);
+        let mut active = ActivePowerUps::default();
+        active.start(PowerUp::DoublePoints, 10.0);
         assert_eq!(active.left(PowerUp::DoublePoints), POWER_UP_TIMED_SECS + 10.0);
     }
 
@@ -814,15 +813,15 @@ mod tests {
     #[test]
     fn picking_up_an_active_timed_power_up_restarts_it() {
         let mut active = ActivePowerUps::default();
-        active.start(PowerUp::InstaKill);
+        active.start(PowerUp::InstaKill, 0.0);
         active.tick(20.0);
         assert_eq!(active.left(PowerUp::InstaKill), 10.0);
-        active.start(PowerUp::InstaKill);
+        active.start(PowerUp::InstaKill, 0.0);
         assert_eq!(active.left(PowerUp::InstaKill), 30.0);
         active.tick(31.0);
         assert!(!active.active(PowerUp::InstaKill));
         // Instant Power-ups have no timer.
-        active.start(PowerUp::Nuke);
+        active.start(PowerUp::Nuke, 0.0);
         assert!(!active.active(PowerUp::Nuke));
     }
 

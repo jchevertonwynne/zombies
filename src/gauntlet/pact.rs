@@ -345,6 +345,11 @@ impl HeldPacts {
         }
     }
 
+    /// Who holds the Pact `id`, if anyone does.
+    pub fn holder(&self, id: &str) -> Option<Seat> {
+        self.0.iter().find(|held| held.pact.id() == id).map(|held| held.holder)
+    }
+
     /// The stable IDs held, for Requirements.
     pub fn ids(&self) -> Vec<&'static str> {
         self.0.iter().map(|held| held.pact.id()).collect()
@@ -392,17 +397,18 @@ pub fn pact_eligible(pact: &PactDef, held: &HeldPacts, run: &RunFacts) -> bool {
             .all(|requirement| requirement.holds(run))
 }
 
-/// A Pact Offer: up to `PACT_OFFER_SIZE` eligible Pacts from `table`, drawn uniformly. Empty means
-/// a Boon Offer is made instead.
+/// A Pact Offer: up to `PACT_OFFER_SIZE` eligible Pacts from `table`, drawn uniformly, leaving out
+/// any in `claimed` (on a teammate's open Offer). Empty means a Boon Offer is made instead.
 pub fn draw_pact_offer(
     table: &'static [PactDef],
     held: &HeldPacts,
+    claimed: &[&str],
     run: &RunFacts,
     roll: impl FnMut(f64) -> f64,
 ) -> Vec<&'static PactDef> {
     let pool = table
         .iter()
-        .filter(|pact| pact_eligible(pact, held, run))
+        .filter(|pact| pact_eligible(pact, held, run) && !claimed.contains(&pact.id()))
         .map(|pact| (pact, 1.0))
         .collect();
     draw(pool, PACT_OFFER_SIZE, roll)
@@ -490,7 +496,7 @@ mod tests {
             holds_ammo_mod: true,
             ..unlocked(true)
         };
-        let offer = draw_pact_offer(PACTS, &HeldPacts::default(), &run, |total| total * 0.5);
+        let offer = draw_pact_offer(PACTS, &HeldPacts::default(), &[], &run, |total| total * 0.5);
         assert_eq!(offer.len(), PACT_OFFER_SIZE);
         assert_ne!(offer[0].id(), offer[1].id());
         assert_ne!(offer[1].id(), offer[2].id());
@@ -500,7 +506,7 @@ mod tests {
     #[test]
     fn pacts_are_drawn_uniformly() {
         let mut first_total = None;
-        draw_pact_offer(PACTS, &HeldPacts::default(), &unlocked(false), |total| {
+        draw_pact_offer(PACTS, &HeldPacts::default(), &[], &unlocked(false), |total| {
             first_total.get_or_insert(total);
             0.0
         });
@@ -516,7 +522,7 @@ mod tests {
         assert_eq!(held.0.len(), 1, "each Pact is held once");
         let run = unlocked(true);
         for _ in 0..20 {
-            let offer = draw_pact_offer(PACTS, &held, &run, |total| rand::random_range(0.0..total));
+            let offer = draw_pact_offer(PACTS, &held, &[], &run, |total| rand::random_range(0.0..total));
             assert!(offer.iter().all(|pact| pact.id() != COLD_STEEL.id));
         }
     }
@@ -525,7 +531,7 @@ mod tests {
     fn locked_or_unmet_pacts_are_left_out() {
         let held = HeldPacts::default();
         // With nothing bought in the Armory, no Pact is Unlocked.
-        assert!(draw_pact_offer(PACTS, &held, &RunFacts::default(), |_| 0.0).is_empty());
+        assert!(draw_pact_offer(PACTS, &held, &[], &RunFacts::default(), |_| 0.0).is_empty());
         let open_bar = pact(OPEN_BAR);
         assert!(!pact_eligible(open_bar, &held, &unlocked(false)));
         let bought = RunFacts {
@@ -555,7 +561,7 @@ mod tests {
             holds_ammo_mod: true,
             ..unlocked(true)
         };
-        assert!(draw_pact_offer(PACTS, &held, &run, |_| 0.0).is_empty());
+        assert!(draw_pact_offer(PACTS, &held, &[], &run, |_| 0.0).is_empty());
     }
 
     #[test]

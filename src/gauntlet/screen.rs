@@ -3,6 +3,7 @@
 
 use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
+use bevy::window::{CursorGrabMode, CursorOptions};
 use bevy::ui_widgets::Button;
 
 use super::boon::{BoonDef, HeldBoons, effect_line, requirement_line, stack_line};
@@ -12,6 +13,7 @@ use crate::player::LocalPlayer;
 use crate::hud::{BOTTOM_LEFT_HEIGHT_PX, full_screen, text};
 use crate::round::Round;
 use crate::state::{InRun, Pause};
+
 
 const GREY: Color = Color::srgb(0.65, 0.65, 0.65);
 const NEW_GREEN: Color = Color::srgb(0.45, 0.9, 0.45);
@@ -32,6 +34,10 @@ pub struct SkipButton;
 #[derive(Component)]
 pub struct HeldColumn;
 
+/// The Offer's cards over a running Co-op world, for the Offer of this Round.
+#[derive(Component)]
+pub struct CoopOfferScreen(u32);
+
 /// Shows the Offer's cards whenever the world freezes for it, including on coming back from Pause.
 /// The input lockout starts again each time they appear.
 pub fn spawn_offer(
@@ -43,6 +49,51 @@ pub fn spawn_offer(
         return;
     };
     offer.shown_at = real.elapsed_secs();
+    spawn_cards(&mut commands, &offer, held, 20, DespawnOnExit(Pause::Frozen));
+}
+
+/// In Co-op the cards are up for as long as the `LocalPlayer` has an Offer open, over the running
+/// world, and the pointer is free for them. The input lockout starts as they appear.
+pub fn show_coop_offer(
+    mut commands: Commands,
+    mut player: Query<(&mut Offer, &HeldBoons), With<LocalPlayer>>,
+    screens: Query<(Entity, &CoopOfferScreen)>,
+    real: Res<Time<Real>>,
+    pause: Res<State<Pause>>,
+    mut cursor: Query<&mut CursorOptions>,
+) {
+    let open = player.single_mut().ok();
+    let shown = screens.iter().next();
+    match (open, shown) {
+        (Some((offer, _)), Some((_, &CoopOfferScreen(round)))) if offer.round == round => {}
+        (None, None) => {}
+        (open, shown) => {
+            if let Some((screen, _)) = shown {
+                commands.entity(screen).despawn();
+            }
+            let Some((mut offer, held)) = open else {
+                // Closed: the pointer goes back to the game, unless Pause has it.
+                if *pause.get() == Pause::Running {
+                    for mut cursor in &mut cursor {
+                        cursor.visible = false;
+                        cursor.grab_mode = CursorGrabMode::Locked;
+                    }
+                }
+                return;
+            };
+            offer.shown_at = real.elapsed_secs();
+            // Under the Pause menu, which can open over it.
+            spawn_cards(&mut commands, &offer, held, 15, CoopOfferScreen(offer.round));
+            for mut cursor in &mut cursor {
+                cursor.visible = true;
+                cursor.grab_mode = CursorGrabMode::None;
+            }
+        }
+    }
+}
+
+/// The Offer's cards, in a full-screen layer carrying `marker`.
+fn spawn_cards(commands: &mut Commands, offer: &Offer, held: &HeldBoons, z: i32, marker: impl Bundle) {
     let (title, footer) = match offer.choices {
         Choices::Boons(_) => ("CHOOSE A BOON", "Click a Boon to take it"),
         Choices::Pacts(_) => ("A PACT IS OFFERED", "Click a Pact to take it, or Skip"),
@@ -57,8 +108,8 @@ pub fn spawn_offer(
                 ..full_screen()
             },
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.72)),
-            GlobalZIndex(20),
-            DespawnOnExit(Pause::Frozen),
+            GlobalZIndex(z),
+            marker,
         ))
         .with_children(|root| {
             root.spawn(text(format!("ROUND {} COMPLETE", offer.round), 22.0, GREY));

@@ -29,7 +29,7 @@ use crate::stats::RunStats;
 use crate::zone::PlayerZone;
 use crate::round::{Round, RoundPhase};
 use crate::settings::Settings;
-use crate::state::{GameState, InRun, Pause, input_runs, world_runs};
+use crate::state::{Choosing, GameState, InRun, Pause, input_runs, world_runs};
 use crate::teammate::{HeldWeapon, Pose, Shots};
 use crate::tuning::*;
 use crate::weapon::{Knife, Loadout};
@@ -343,7 +343,11 @@ pub fn spawn_debug_player(
     commands.spawn(player_body(seat, "Player 2", &run.0));
 }
 
-fn grab_cursor(mut cursor: Single<&mut CursorOptions>) {
+fn grab_cursor(mut cursor: Single<&mut CursorOptions>, choosing: Query<(), (With<LocalPlayer>, With<Choosing>)>) {
+    // An open Offer needs the pointer, whatever else just closed.
+    if !choosing.is_empty() {
+        return;
+    }
     cursor.visible = false;
     cursor.grab_mode = CursorGrabMode::Locked;
 }

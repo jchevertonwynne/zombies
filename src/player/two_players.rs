@@ -215,7 +215,7 @@ fn max_ammo_skips_a_player_in_a_last_stand() {
     set_frags(&mut sim, local, 0);
     set_frags(&mut sim, teammate, 0);
     down(&mut sim, teammate);
-    sim.send(GivePowerUp(PowerUp::MaxAmmo));
+    sim.send(GivePowerUp(PowerUp::MaxAmmo, None));
     sim.run(2);
     assert!(frags(&mut sim, local) > 0, "the standing Player was refilled");
     assert_eq!(frags(&mut sim, teammate), 0, "the Player in a Last Stand was not");
@@ -226,7 +226,7 @@ fn the_flat_bonuses_skip_a_player_in_a_last_stand() {
     let (mut sim, local, teammate) = power_up_players();
     let (local_before, teammate_before) = (balance(&mut sim, local), balance(&mut sim, teammate));
     down(&mut sim, teammate);
-    sim.send(GivePowerUp(PowerUp::Nuke));
+    sim.send(GivePowerUp(PowerUp::Nuke, None));
     sim.run(2);
     assert_eq!(balance(&mut sim, local), local_before + NUKE_POINTS);
     assert_eq!(balance(&mut sim, teammate), teammate_before);
@@ -235,7 +235,7 @@ fn the_flat_bonuses_skip_a_player_in_a_last_stand() {
 #[test]
 fn double_points_doubles_every_players_awards() {
     let (mut sim, local, teammate) = power_up_players();
-    sim.send(GivePowerUp(PowerUp::DoublePoints));
+    sim.send(GivePowerUp(PowerUp::DoublePoints, None));
     sim.run(2);
     for player in [local, teammate] {
         assert!(sim.world_mut().get::<Points>(player).unwrap().double);

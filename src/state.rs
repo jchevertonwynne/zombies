@@ -75,6 +75,12 @@ pub enum PauseScreen {
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct Paused;
 
+/// A Player with a choice open over a running Co-op world (a Gauntlet Offer). Like the Pause menu
+/// it stops their input (no moving, firing, Knife or Use), but the world runs on and they can be
+/// hurt. Solo, the world is frozen for the choice instead and nothing needs it.
+#[derive(Component, Debug, Clone, Copy, Default)]
+pub struct Choosing;
+
 /// Everything spawned for a Run. Despawned when leaving Game Over or returning to the Main Menu,
 /// so the next Run starts clean.
 #[derive(Component, Default)]
@@ -110,9 +116,9 @@ fn runs(pause: Pause, coop: bool) -> bool {
 }
 
 /// Whether this machine's own Player takes input: only while nothing is open over the Run. In
-/// Co-op that is what Pause stops; the world keeps running (see [`world_runs`]).
-pub fn input_runs(pause: Option<Res<State<Pause>>>) -> bool {
-    pause.is_some_and(|pause| *pause.get() == Pause::Running)
+/// Co-op that is what Pause and an open Offer stop; the world keeps running (see [`world_runs`]).
+pub fn input_runs(pause: Option<Res<State<Pause>>>, choosing: Query<(), (With<LocalPlayer>, With<Choosing>)>) -> bool {
+    pause.is_some_and(|pause| *pause.get() == Pause::Running) && choosing.is_empty()
 }
 
 /// Fixes the Run's type from the Players it starts with. The one place the Player count decides
