@@ -50,6 +50,7 @@ pub(crate) fn two_players_with(configure: impl FnOnce(&mut App)) -> (Sim, Entity
     (sim, local, teammate)
 }
 
+mod hud;
 mod respawn;
 mod revive;
 

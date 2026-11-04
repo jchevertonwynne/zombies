@@ -1,9 +1,10 @@
 //! The BO1 HUD. Bottom-left: Perk icons over the Round counter. Bottom-right: Points with ±N
 //! popups, the Weapon in hand with its Ammo Mods, Equipment and `magazine | reserve`. Under the
 //! crosshair: the Prompt and a Reload hint. Bottom-centre: timer bars for timed Power-ups, with a
-//! banner for instant ones. Under it all, the effect overlay layer. No Box, Power or Pack-a-Punch
-//! state shows.
+//! banner for instant ones. Under it all, the effect overlay layer. A Co-op Run adds teammates'
+//! rows over the Points and the rest of `coop`. No Box, Power or Pack-a-Punch state shows.
 
+pub mod coop;
 pub mod overlay;
 
 use bevy::prelude::*;
@@ -224,6 +225,7 @@ impl Plugin for HudPlugin {
             .init_resource::<PointsFlash>()
             .init_resource::<LastBalance>()
             .init_resource::<Banner>()
+            .init_resource::<coop::CoopView>()
             .add_systems(OnEnter(GameState::Playing), (reset, spawn_hud))
             .add_systems(
                 Update,
@@ -236,6 +238,13 @@ impl Plugin for HudPlugin {
                     (power_up_bars, banner_text),
                 )
                     .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                Update,
+                (coop::read_coop_view, coop::draw_coop)
+                    .chain()
+                    .run_if(in_state(GameState::Playing))
+                    .run_if(coop::is_coop),
             );
     }
 }
@@ -378,6 +387,7 @@ fn spawn_hud(mut commands: Commands) {
             },
         ))
         .with_children(|right| {
+            right.spawn(coop::stack_node());
             right.spawn((
                 PopupColumn,
                 Node {
@@ -395,6 +405,8 @@ fn spawn_hud(mut commands: Commands) {
             });
             right.spawn((AmmoText, text("", 32.0, Color::WHITE)));
         });
+
+    coop::spawn_layer(&mut commands);
 
     // Bottom-centre: a bar for each timed Power-up.
     commands
@@ -564,9 +576,14 @@ fn perk_row(mut commands: Commands, perks: Single<Ref<Perks>, With<LocalPlayer>>
     });
 }
 
-fn flash_points(mut flash: ResMut<PointsFlash>, mut refused: MessageReader<CantAfford>, time: Res<Time>) {
+fn flash_points(
+    mut flash: ResMut<PointsFlash>,
+    mut refused: MessageReader<CantAfford>,
+    local: Single<Entity, With<LocalPlayer>>,
+    time: Res<Time>,
+) {
     flash.0 = (flash.0 - time.delta_secs()).max(0.0);
-    if refused.read().count() > 0 {
+    if refused.read().any(|refused| refused.player == *local) {
         flash.0 = CANT_AFFORD_FLASH_SECS;
     }
 }
