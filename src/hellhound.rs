@@ -248,6 +248,7 @@ pub fn spawn_hellhound(
 ) -> Entity {
     let assets = &assets.0;
     let centre = at + Vec3::Y * (HELLHOUND_RADIUS + 0.02);
+    let hound = spawn_body(commands, assets, centre, health);
     let bolt = commands
         .spawn((
             InRun,
@@ -265,15 +266,26 @@ pub fn spawn_hellhound(
             )],
         ))
         .id();
+    commands.entity(hound).insert(Telegraph {
+        left: HELLHOUND_TELEGRAPH_SECS,
+        bolt,
+    });
+    hound
+}
+
+/// Spawns the body of a hound the Host has, on a client: at `centre`, with no strike (the Host's
+/// is its own) and nothing to move it.
+pub fn spawn_hellhound_puppet(commands: &mut Commands, assets: &HellhoundAssetsParam, centre: Vec3) -> Entity {
+    spawn_body(commands, &assets.0, centre, 1.0)
+}
+
+/// A hound's body, centred at `centre`.
+fn spawn_body(commands: &mut Commands, assets: &HellhoundAssets, centre: Vec3, health: f32) -> Entity {
     commands
         .spawn((
             InRun,
             Name::new("Hellhound"),
             Zombie::hellhound(health, centre),
-            Telegraph {
-                left: HELLHOUND_TELEGRAPH_SECS,
-                bolt,
-            },
             Route::default(),
             Mesh3d(assets.body.clone()),
             MeshMaterial3d(assets.hide.clone()),

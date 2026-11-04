@@ -13,7 +13,17 @@ use bevy::time::TimeUpdateStrategy;
 use super::link::Hub;
 use super::play::{Prediction, install_client, install_host};
 use super::protocol::Peer;
+use super::zombies::{ZombieId, ZombieIds};
 use crate::authority::{Authority, AuthorityPlugin};
+use crate::barrier::Barriers;
+use crate::hellhound::{HellhoundAssetsParam, HellhoundPlugin, spawn_hellhound};
+use crate::nav::NavGraph;
+use crate::nova::NovaCrawlerKilled;
+use crate::player::PlayerHit;
+use crate::power_up::ActivePowerUps;
+use crate::special::SpecialCue;
+use crate::zombie::rig::{Activity, Shown};
+use crate::zombie::{Dying, Gibbed, Rising, SpeedTier, Zombie, ZombieAssetsParam, ZombiePlugin, spawn_zombie};
 use crate::player::{LocalPlayer, MoveInput, Player, Seat, move_player, player_body};
 use crate::state::{GameState, Pause, world_runs};
 use crate::teammate::{Action, Pose, Shots};
@@ -29,6 +39,13 @@ fn machine(local: u8, seats: u8, install: impl FnOnce(&mut App)) -> App {
         .insert_state(Authority::Host)
         .add_plugins(AuthorityPlugin)
         .add_sub_state::<Pause>()
+        .add_message::<PlayerHit>()
+        .add_message::<SpecialCue>()
+        .add_message::<NovaCrawlerKilled>()
+        .init_resource::<ActivePowerUps>()
+        .insert_resource(NavGraph::new())
+        .insert_resource(Barriers::default())
+        .add_plugins((ZombiePlugin, HellhoundPlugin))
         .add_systems(FixedUpdate, move_player.run_if(world_runs))
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / f64::from(FIXED_HZ))));
     install(&mut app);
@@ -206,4 +223,158 @@ fn a_player_gone_quiet_stands_still() {
     let first = run.at(0, 1);
     run.step(&|_, _| MoveInput { axes: Vec2::Y, ..default() }, 60);
     assert!(run.at(0, 1).distance(first) < 0.02, "still walking");
+}
+
+/// A Zombie or Hellhound as machine `on` has it.
+#[derive(Debug, PartialEq)]
+struct Puppeted {
+    at: Vec3,
+    shown: Activity,
+    crawler: bool,
+    hellhound: bool,
+    dying: bool,
+}
+
+impl Run {
+    /// A Walker standing on the Host's floor at `feet`.
+    fn zombie(&mut self, feet: Vec3) -> Entity {
+        let world = self.apps[0].world_mut();
+        world
+            .run_system_once(move |mut commands: Commands, assets: ZombieAssetsParam| {
+                spawn_zombie(&mut commands, &assets, feet, 1000.0, SpeedTier::Walker, None)
+            })
+            .unwrap()
+    }
+
+    fn hellhound(&mut self, feet: Vec3) -> Entity {
+        let world = self.apps[0].world_mut();
+        world
+            .run_system_once(move |mut commands: Commands, assets: HellhoundAssetsParam| {
+                spawn_hellhound(&mut commands, &assets, feet, 1000.0)
+            })
+            .unwrap()
+    }
+
+    /// Every Zombie and Hellhound machine `on` has, by id.
+    fn puppets(&mut self, on: usize) -> Vec<(u16, Puppeted)> {
+        let world = self.apps[on].world_mut();
+        let mut query = world.query::<(&ZombieId, &Transform, &Zombie, Option<&Shown>, Has<Dying>)>();
+        let mut found: Vec<_> = query
+            .iter(world)
+            .map(|(id, transform, zombie, shown, dying)| {
+                (
+                    id.0,
+                    Puppeted {
+                        at: transform.translation,
+                        shown: shown.map_or(Activity::Moving, |shown| shown.0),
+                        crawler: zombie.is_crawler(),
+                        hellhound: zombie.is_hellhound(),
+                        dying,
+                    },
+                )
+            })
+            .collect();
+        found.sort_by_key(|(id, _)| *id);
+        found
+    }
+}
+
+const IDLE: &dyn Fn(u8, u32) -> MoveInput = &|_, _| MoveInput::default();
+
+/// The Zombies and Hellhounds the Host has are on every client, in the same places, and gone when
+/// they are.
+fn horde(clients: u8) {
+    let mut run = Run::new(clients, 2, 0.05, 1);
+    let start = crate::map::PLAYER_START;
+    let zombies: Vec<Entity> = (0..5).map(|i| run.zombie(start + Vec3::new(8.0 + 1.5 * i as f32, 0.0, 4.0))).collect();
+    let hound = run.hellhound(start + Vec3::new(-8.0, 0.0, 4.0));
+    run.step(IDLE, 150);
+    // Every machine has the same ids for them.
+    let host = run.puppets(0);
+    assert_eq!(host.len(), 6);
+    for on in 1..=usize::from(clients) {
+        let seen = run.puppets(on);
+        assert_eq!(seen.len(), 6, "machine {on}");
+        assert_eq!(seen.iter().filter(|(_, puppet)| puppet.hellhound).count(), 1);
+        for ((mine_id, mine), (their_id, theirs)) in seen.iter().zip(&host) {
+            assert_eq!(mine_id, their_id);
+            // A hound is running at a Player, so is as far behind as it has run in the time.
+            let off = if theirs.hellhound { 1.5 } else { 0.2 };
+            assert!(mine.at.distance(theirs.at) < off, "{mine:?} against {theirs:?}");
+            assert_eq!(mine.hellhound, theirs.hellhound);
+        }
+    }
+    // The ids go both ways.
+    let ids = run.apps[0].world().resource::<ZombieIds>();
+    let id = ids.id(zombies[2]).unwrap();
+    assert_eq!(ids.entity(id), Some(zombies[2]));
+    let on_client = run.apps[1].world().resource::<ZombieIds>();
+    assert!(on_client.entity(id).is_some_and(|entity| on_client.id(entity) == Some(id)));
+
+    // The Host's Zombies move and turn, and the puppets follow.
+    for tick in 0..120 {
+        let world = run.apps[0].world_mut();
+        for (i, &zombie) in zombies.iter().enumerate() {
+            let mut transform = world.get_mut::<Transform>(zombie).unwrap();
+            transform.translation.x -= 0.02;
+            transform.rotation = Quat::from_rotation_y(0.01 * (tick + i) as f32);
+        }
+        run.step(IDLE, 1);
+    }
+    run.step(IDLE, 40);
+    let host = run.puppets(0);
+    for on in 1..=usize::from(clients) {
+        for ((_, mine), (_, theirs)) in run.puppets(on).iter().zip(&host) {
+            // A hound is running at a Player, so is as far behind as it has run in the time.
+            let off = if theirs.hellhound { 1.5 } else { 0.2 };
+            assert!(mine.at.distance(theirs.at) < off, "{mine:?} against {theirs:?}");
+        }
+    }
+
+    // One killed falls over, and is gone from every machine in time.
+    run.apps[0].world_mut().entity_mut(zombies[0]).insert(Dying::default());
+    run.step(IDLE, 40);
+    for on in 0..=usize::from(clients) {
+        let dead = run.puppets(on).into_iter().filter(|(_, puppet)| puppet.dying).count();
+        assert_eq!(dead, 1, "machine {on}");
+    }
+    run.step(IDLE, 250);
+    for on in 0..=usize::from(clients) {
+        assert_eq!(run.puppets(on).len(), 5, "machine {on} still has the dead");
+    }
+    // One that is simply gone is gone.
+    run.apps[0].world_mut().entity_mut(hound).despawn();
+    run.step(IDLE, 60);
+    for on in 0..=usize::from(clients) {
+        assert!(run.puppets(on).iter().all(|(_, puppet)| !puppet.hellhound), "machine {on} still has the hound");
+    }
+}
+
+#[test]
+fn zombies_and_hellhounds_appear_move_and_go_on_the_client() {
+    horde(1);
+}
+
+#[test]
+fn zombies_and_hellhounds_appear_move_and_go_on_every_client() {
+    horde(3);
+}
+
+/// A puppet's rig is told what its Zombie is doing, and a Zombie that loses its legs on the Host
+/// crawls here.
+#[test]
+fn a_puppet_is_posed_as_the_host_has_its_zombie() {
+    let mut run = Run::new(1, 2, 0.0, 0);
+    let zombie = run.zombie(crate::map::PLAYER_START + Vec3::new(8.0, 0.0, 4.0));
+    run.step(IDLE, 60);
+    assert_eq!(run.puppets(1)[0].1.shown, Activity::Moving);
+    run.apps[0].world_mut().entity_mut(zombie).insert(Rising::new(0.5, 0.5, 50.0));
+    run.step(IDLE, 30);
+    assert_eq!(run.puppets(1)[0].1.shown, Activity::Rising);
+    run.apps[0].world_mut().entity_mut(zombie).remove::<Rising>();
+    run.apps[0].world_mut().write_message(Gibbed { zombie });
+    run.step(IDLE, 30);
+    let puppet = &run.puppets(1)[0].1;
+    assert!(puppet.crawler && run.puppets(0)[0].1.crawler, "{puppet:?}");
+    assert_eq!(puppet.shown, Activity::Moving);
 }

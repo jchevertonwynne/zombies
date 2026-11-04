@@ -443,9 +443,45 @@ pub(super) fn head_rest() -> Vec3 {
     Vec3::Y * (body_half_height() + ZOMBIE_HEAD_RADIUS * 0.5)
 }
 
-/// What a Zombie is doing, for its rig. Turns a new swing to the other arm.
+/// What a puppet Zombie is doing, as the Host told it: the rig shows this and nothing it could
+/// work out from the Zombie's own state, which on a client is only a body.
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct Shown(pub Activity);
+
+/// What a Zombie is doing, for its rig. Turns a new swing to the other arm. A puppet is doing
+/// what it was `told`.
 fn activity(
     gait: &mut Gait,
+    told: Option<Activity>,
+    zombie: Option<&Zombie>,
+    entering: Option<&Entering>,
+    rising: bool,
+    stunned: bool,
+    down: bool,
+    dying: Option<&Dying>,
+    screaming: bool,
+) -> Activity {
+    let swinging = match told {
+        Some(told) => matches!(told, Activity::Swinging { .. }),
+        None => zombie.is_some_and(|zombie| zombie.wind_up.is_some()),
+    };
+    if swinging && !gait.swinging {
+        gait.arm = 1 - gait.arm;
+    }
+    gait.swinging = swinging;
+    match told {
+        // Which arm swings is the rig's to take in turn: the Host doesn't say.
+        Some(Activity::Swinging { progress, arm: Swing::Arm(_) }) => {
+            Activity::Swinging { progress, arm: Swing::Arm(gait.arm) }
+        }
+        Some(told) => told,
+        None => describe(gait.arm, zombie, entering, rising, stunned, down, dying, screaming),
+    }
+}
+
+/// What a Zombie is doing, from its own state, a swing being with `arm` (0 left, 1 right).
+pub fn describe(
+    arm: usize,
     zombie: Option<&Zombie>,
     entering: Option<&Entering>,
     rising: bool,
@@ -455,11 +491,6 @@ fn activity(
     screaming: bool,
 ) -> Activity {
     let wind_up = zombie.and_then(|zombie| zombie.wind_up.map(|left| (zombie, left)));
-    if wind_up.is_some() && !gait.swinging {
-        gait.arm = 1 - gait.arm;
-    }
-    gait.swinging = wind_up.is_some();
-
     if let Some(dying) = dying {
         return Activity::Dying { t: (dying.elapsed / ZOMBIE_FALL_SECS).min(1.0) };
     }
@@ -484,7 +515,7 @@ fn activity(
     }
     if let Some((zombie, left)) = wind_up {
         let total = zombie.attack_stats().1;
-        let arm = if zombie.is_sapper() { Swing::Both } else { Swing::Arm(gait.arm) };
+        let arm = if zombie.is_sapper() { Swing::Both } else { Swing::Arm(arm) };
         return Activity::Swinging { progress: (1.0 - left / total).clamp(0.0, 1.0), arm };
     }
     Activity::Moving
@@ -504,6 +535,7 @@ pub(super) fn animate(
         Has<KnockedDown>,
         Option<&Dying>,
         Option<&Shrieker>,
+        Option<&Shown>,
     )>,
     mut parts: Query<&mut Transform, Without<Rig>>,
     time: Res<Time>,
@@ -513,7 +545,7 @@ pub(super) fn animate(
         return;
     }
     let follow = 1.0 - (-FOLLOW_RATE * dt).exp();
-    for (entity, rig, mut gait, transform, zombie, entering, rising, stunned, down, dying, shrieker) in &mut zombies {
+    for (entity, rig, mut gait, transform, zombie, entering, rising, stunned, down, dying, shrieker, shown) in &mut zombies {
         let at = transform.translation;
         let moved = gait.last.map_or(0.0, |last| Vec2::new(at.x - last.x, at.z - last.z).length());
         gait.last = Some(at);
@@ -527,7 +559,7 @@ pub(super) fn animate(
         let stride = (gait.speed / 1.2).min(1.0);
         let run = ((gait.speed - 2.5) / 2.5).clamp(0.0, 1.0);
         let screaming = shrieker.is_some_and(Shrieker::screaming);
-        let activity = activity(&mut gait, zombie, entering, rising, stunned, down, dying, screaming);
+        let activity = activity(&mut gait, shown.map(|shown| shown.0), zombie, entering, rising, stunned, down, dying, screaming);
 
         let mut set = |part: Entity, f: &dyn Fn(&mut Transform)| {
             if let Ok(mut transform) = parts.get_mut(part) {

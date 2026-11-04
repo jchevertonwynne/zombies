@@ -6,7 +6,8 @@
 //! each Player how things stand: their own Player in full, the others packed. A client puts its
 //! Player where the Host says, then steps it again by the input the Host hadn't heard yet, which
 //! mostly lands where it already was. The other Players are puppets: not stepped at all, but
-//! shown where the Host had them a couple of snapshots ago.
+//! shown where the Host had them a couple of snapshots ago, as are the Zombies and Hellhounds
+//! (see `zombies`).
 
 use std::collections::VecDeque;
 
@@ -14,10 +15,13 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 
 use super::link::{Event, Link};
-use super::protocol::{DATAGRAM, HOST, Peer, Seat, decode, encode};
+use super::protocol::{HOST, Peer, Seat, decode, encode};
 use super::remote::{Next, Remote};
 use super::state::{
     Inputs, Own, Sight, Snapshot, Step, Tick, pack_pitch, pack_position, pack_yaw, unpack_pitch, unpack_yaw,
+};
+use super::zombies::{
+    Crowd, Horde, ZombieIds, describe_horde, forget_zombies, name_zombies, show_zombies,
 };
 use crate::authority::Authority;
 use crate::last_stand::LastStand;
@@ -68,12 +72,22 @@ pub fn install_host(app: &mut App, link: impl Link, remotes: Vec<(Peer, Seat)>) 
         .insert_resource(Roster(remotes))
         .init_resource::<Clock>()
         .init_resource::<Inbox>()
+        .init_resource::<ZombieIds>()
+        .init_resource::<Horde>()
         .add_systems(PreUpdate, pump_host)
         .add_systems(
             FixedUpdate,
             (tick, adopt_remotes, hear_inputs, drive_remotes)
                 .chain()
                 .before(move_player)
+                .run_if(world_runs),
+        )
+        .add_systems(
+            FixedUpdate,
+            (forget_zombies, name_zombies, describe_horde)
+                .chain()
+                .after(move_player)
+                .before(send_snapshots)
                 .run_if(world_runs),
         )
         .add_systems(FixedUpdate, send_snapshots.after(move_player).run_if(world_runs));
@@ -86,6 +100,8 @@ pub fn install_client(app: &mut App, link: impl Link) {
         .init_resource::<Clock>()
         .init_resource::<Inbox>()
         .init_resource::<Prediction>()
+        .init_resource::<ZombieIds>()
+        .init_resource::<Crowd>()
         .add_systems(PreUpdate, pump_client)
         .add_systems(
             FixedUpdate,
@@ -95,7 +111,11 @@ pub fn install_client(app: &mut App, link: impl Link) {
                 .before(move_player)
                 .run_if(world_runs),
         )
-        .add_systems(FixedUpdate, show_puppets.after(move_player).run_if(world_runs));
+        .add_systems(FixedUpdate, show_puppets.after(move_player).run_if(world_runs))
+        .add_systems(
+            FixedUpdate,
+            (forget_zombies, show_zombies).chain().after(show_puppets).run_if(world_runs),
+        );
     if let Some(mut next) = app.world_mut().get_resource_mut::<NextState<Authority>>() {
         next.set(Authority::Client);
     }
@@ -180,6 +200,7 @@ fn drive_remotes(mut players: Query<(&mut Remote, &mut MoveInput, &mut Transform
 /// Tells each remote Player how things stand: themselves in full, and the other Players packed.
 fn send_snapshots(
     clock: Res<Clock>,
+    horde: Res<Horde>,
     mut wire: ResMut<Wire>,
     players: Query<
         (&PlayerSeat, &Transform, &Locomotion, &MoveInput, &Pose, &Shots, Option<&Points>, Option<&Remote>),
@@ -209,9 +230,11 @@ fn send_snapshots(
             used: remote.used(),
             own: Own::of(transform.translation, locomotion, balance(points)),
             players: sights.iter().filter(|sight| sight.seat != seat.0).copied().collect(),
+            zombies: horde.zombies.clone(),
+            hellhounds: horde.hellhounds.clone(),
         };
         let bytes = encode(&snapshot);
-        debug_assert!(bytes.len() + SNAPSHOT_ZOMBIE_RESERVE <= DATAGRAM, "a snapshot of {}", bytes.len());
+        debug_assert!(bytes.len() <= SNAPSHOT_MAX_BYTES, "a snapshot of {}", bytes.len());
         wire.0.datagram(remote.peer, bytes);
     }
 }
@@ -222,11 +245,11 @@ pub struct Prediction {
     /// The ticks sent that the Host hasn't yet said it used.
     sent: VecDeque<(Tick, Step)>,
     /// The Host's tick of the newest snapshot heard.
-    latest: Option<Tick>,
+    pub(super) latest: Option<Tick>,
     /// Where each Seat's Player has been said to be, oldest first.
     seen: [VecDeque<Seen>; ROOM_SEATS],
     /// The Host's tick the puppets are being shown at.
-    shown: f32,
+    pub(super) shown: f32,
     /// How far the last snapshot moved the `LocalPlayer`, in metres.
     pub corrected: f32,
 }
@@ -302,6 +325,7 @@ fn reconcile(
     time: Res<Time>,
     mut inbox: ResMut<Inbox>,
     mut prediction: ResMut<Prediction>,
+    mut crowd: ResMut<Crowd>,
     mut local: Query<
         (Entity, &mut Transform, &mut Locomotion, &Collider, &Loadout, &Modifiers, Has<Drinking>, Has<LastStand>),
         With<LocalPlayer>,
@@ -318,6 +342,7 @@ fn reconcile(
                 seen.push_back(Seen::of(snapshot.tick, sight));
             }
         }
+        crowd.hear(snapshot);
     }
     prediction.corrected = 0.0;
     let Some(snapshot) = heard.pop() else { return };

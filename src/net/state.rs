@@ -1,7 +1,7 @@
 //! What the datagrams of a Run carry: a Player's input going up, and how things stand coming
 //! down. A snapshot is the full state of everything that changes fast, with no deltas, so a lost
-//! one costs nothing. Players and their Points are in it; Zombies and Hellhounds are to join (see
-//! `SNAPSHOT_ZOMBIE_RESERVE`).
+//! one costs nothing. Players and their Points are in it, and every Zombie and Hellhound, each in
+//! 12 bytes at most.
 
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::net::protocol::Seat;
 use crate::player::{Locomotion, MoveInput};
+use crate::zombie::rig::{Activity, Swing};
 use crate::tuning::WIRE_POSITION_STEP;
 
 /// A count of the simulation's steps. Each machine counts its own.
@@ -92,6 +93,9 @@ pub struct Snapshot {
     pub own: Own,
     /// Every other Player.
     pub players: Vec<Sight>,
+    /// Every Zombie, and then every Hellhound.
+    pub zombies: Vec<ZombieSight>,
+    pub hellhounds: Vec<ZombieSight>,
 }
 
 /// The receiver's own Player in full: what their movement step reads, so they can be put right and
@@ -149,6 +153,62 @@ pub struct Sight {
     pub points: u32,
 }
 
+/// A Zombie or a Hellhound as a snapshot packs them, in at most 12 bytes: its id (a varint of up
+/// to 3), its position, its yaw and what it is doing.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct ZombieSight {
+    /// Which it is, for as long as it lasts (see `ZombieIds`).
+    pub id: u16,
+    /// Three `i16`s, see `pack_position`.
+    pub position: [u8; 6],
+    pub yaw: u8,
+    /// What it is doing, see `pack_anim`.
+    pub anim: u8,
+}
+
+impl ZombieSight {
+    pub fn position(&self) -> Vec3 {
+        unpack_position(self.position)
+    }
+}
+
+/// What a Zombie is doing, and whether it crawls, as a byte: which of the nine things it is in
+/// bits 0 to 3, a Crawler in bit 4, and how far through a swing, a tear or a fall it is, in eighths,
+/// in bits 5 to 7.
+pub fn pack_anim(activity: Activity, crawler: bool) -> u8 {
+    let (code, progress) = match activity {
+        Activity::Moving => (0, 0.0),
+        Activity::Swinging { progress, .. } => (1, progress),
+        Activity::Tearing { cycle } => (2, cycle),
+        Activity::Vaulting => (3, 0.0),
+        Activity::Rising => (4, 0.0),
+        Activity::Screaming => (5, 0.0),
+        Activity::Stunned => (6, 0.0),
+        Activity::KnockedDown => (7, 0.0),
+        Activity::Dying { t } => (8, t),
+    };
+    let eighths = (progress.clamp(0.0, 1.0) * 7.0).round() as u8;
+    code | u8::from(crawler) << 4 | eighths << 5
+}
+
+/// What `pack_anim` packed. A swing is of the left arm: which swings is for the rig to take in
+/// turn. A byte that is no activity is a Zombie walking.
+pub fn unpack_anim(byte: u8) -> (Activity, bool) {
+    let progress = f32::from(byte >> 5) / 7.0;
+    let activity = match byte & 0xf {
+        1 => Activity::Swinging { progress, arm: Swing::Arm(0) },
+        2 => Activity::Tearing { cycle: progress },
+        3 => Activity::Vaulting,
+        4 => Activity::Rising,
+        5 => Activity::Screaming,
+        6 => Activity::Stunned,
+        7 => Activity::KnockedDown,
+        8 => Activity::Dying { t: progress },
+        _ => Activity::Moving,
+    };
+    (activity, byte & 0x10 != 0)
+}
+
 /// The way a position goes on the wire: three `i16`s, `WIRE_POSITION_STEP` apart, as six bytes.
 pub fn pack_position(position: Vec3) -> [u8; 6] {
     let mut bytes = [0; 6];
@@ -195,7 +255,7 @@ mod tests {
     use super::*;
     use crate::net::protocol::{DATAGRAM, encode};
     use crate::teammate::{Action, Pose, Stance};
-    use crate::tuning::{ROOM_SEATS, SNAPSHOT_ZOMBIE_RESERVE};
+    use crate::tuning::{ROOM_SEATS, SNAPSHOT_MAX_BYTES, SNAPSHOT_MAX_HELLHOUNDS, SNAPSHOT_MAX_ZOMBIES};
 
     #[test]
     fn a_position_is_told_to_a_centimetre() {
@@ -252,22 +312,74 @@ mod tests {
                 points: u32::MAX,
             },
             players: vec![sight; ROOM_SEATS - 1],
+            zombies: vec![],
+            hellhounds: vec![],
+        }
+    }
+
+    /// A Zombie at its largest: every number as big as it gets.
+    fn worst_zombie() -> ZombieSight {
+        ZombieSight { id: u16::MAX, position: [0xff; 6], yaw: 255, anim: 255 }
+    }
+
+    /// A full table at its largest, with a Horde at its largest: 56 Zombies and 2 Hellhounds, or
+    /// as many Hellhounds as may be.
+    fn worst_horde(hellhounds: usize) -> Snapshot {
+        Snapshot {
+            zombies: vec![worst_zombie(); SNAPSHOT_MAX_ZOMBIES],
+            hellhounds: vec![worst_zombie(); hellhounds],
+            ..worst_snapshot()
         }
     }
 
     #[test]
-    fn a_full_table_of_players_leaves_room_for_the_zombies() {
-        let bytes = encode(&worst_snapshot()).len();
-        assert!(
-            bytes + SNAPSHOT_ZOMBIE_RESERVE <= DATAGRAM,
-            "Players take {bytes} B, leaving {} for Zombies",
-            DATAGRAM - bytes
-        );
+    fn four_players_and_a_full_horde_fit_in_a_datagram() {
+        for hellhounds in [2, SNAPSHOT_MAX_HELLHOUNDS] {
+            let bytes = encode(&worst_horde(hellhounds)).len();
+            assert!(bytes <= SNAPSHOT_MAX_BYTES, "{bytes} B with {hellhounds} Hellhounds");
+        }
+        assert!(SNAPSHOT_MAX_BYTES <= DATAGRAM);
         // The receiver's own Player is about 32 B, and each of the others about 15.
         let one = |players: usize| encode(&Snapshot { players: vec![worst_snapshot().players[0]; players], ..worst_snapshot() }).len();
         assert!(one(1) - one(0) <= 18, "a Player is {} B", one(1) - one(0));
-        let usual = Snapshot { tick: 100_000, used: 99_990, own: Own { points: 5000, ..worst_snapshot().own }, players: vec![Sight { points: 5000, ..worst_snapshot().players[0] }] };
-        assert!(encode(&usual).len() <= 36 + 16 + 4, "{}", encode(&usual).len());
+        let usual = Snapshot { tick: 100_000, used: 99_990, own: Own { points: 5000, ..worst_snapshot().own }, players: vec![Sight { points: 5000, ..worst_snapshot().players[0] }], zombies: vec![], hellhounds: vec![] };
+        assert!(encode(&usual).len() <= 36 + 16 + 4 + 2, "{}", encode(&usual).len());
+    }
+
+    #[test]
+    fn a_zombie_is_twelve_bytes_at_most() {
+        let none = encode(&Snapshot { zombies: vec![], ..worst_snapshot() }).len();
+        let one = encode(&Snapshot { zombies: vec![worst_zombie()], ..worst_snapshot() }).len();
+        assert!(one - none <= 12, "a Zombie is {} B", one - none);
+    }
+
+    #[test]
+    fn what_a_zombie_is_doing_is_told_to_a_byte() {
+        let all = [
+            Activity::Moving,
+            Activity::Swinging { progress: 0.5, arm: Swing::Arm(1) },
+            Activity::Tearing { cycle: 1.0 },
+            Activity::Vaulting,
+            Activity::Rising,
+            Activity::Screaming,
+            Activity::Stunned,
+            Activity::KnockedDown,
+            Activity::Dying { t: 0.25 },
+        ];
+        for activity in all {
+            for crawler in [false, true] {
+                let (back, crawls) = unpack_anim(pack_anim(activity, crawler));
+                assert_eq!(crawls, crawler);
+                match (activity, back) {
+                    (Activity::Swinging { progress: a, .. }, Activity::Swinging { progress: b, .. })
+                    | (Activity::Tearing { cycle: a }, Activity::Tearing { cycle: b })
+                    | (Activity::Dying { t: a }, Activity::Dying { t: b }) => assert!((a - b).abs() < 0.08, "{a} for {b}"),
+                    _ => assert_eq!(activity, back),
+                }
+            }
+        }
+        // A byte that is nothing known is a Zombie walking.
+        assert_eq!(unpack_anim(0xf).0, Activity::Moving);
     }
 
     #[test]
