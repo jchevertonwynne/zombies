@@ -321,6 +321,7 @@ mod tests {
         .insert_resource(crate::nav::NavGraph::new())
         .insert_resource(crate::barrier::Barriers::default())
         .add_plugins((crate::zombie::ZombiePlugin, crate::hellhound::HellhoundPlugin))
+        .add_systems(Startup, (crate::special::load_assets, crate::sapper::load_assets, crate::nova::load_assets))
         .insert_resource(session)
         .init_resource::<Notice>()
         .init_resource::<crate::coop::JoinTarget>()

@@ -85,6 +85,11 @@ pub struct NovaCrawlerKilled {
 #[derive(Component)]
 pub struct VentDrop;
 
+/// A Nova Crawler killed by a bullet: its gas has burst. A client shows the cloud when the Host
+/// tells it so.
+#[derive(Component)]
+pub struct Burst;
+
 /// A burst's gas cloud, blurring the Player's view while they stand in it.
 #[derive(Component)]
 pub struct GasCloud {
@@ -125,7 +130,7 @@ impl Plugin for NovaPlugin {
     }
 }
 
-fn load_assets(
+pub(crate) fn load_assets(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -172,7 +177,6 @@ pub fn spawn_nova_crawler(
     floor: Vec3,
     health: f32,
 ) -> Entity {
-    let assets = &assets.0;
     let standing = floor.y + NOVA_CRAWLER_RADIUS + 0.02;
     let (from, secs) = if kind == SpawnKind::Vent {
         (floor.y + NOVA_VENT_HEIGHT, NOVA_VENT_DROP_SECS)
@@ -182,12 +186,26 @@ pub fn spawn_nova_crawler(
             ZOMBIE_RISE_SECS,
         )
     };
-    let centre = Vec3::new(floor.x, from, floor.z);
+    let nova = spawn_body(commands, &assets.0, Vec3::new(floor.x, from, floor.z), health);
+    commands.entity(nova).insert(Rising::new(from, standing, secs));
+    if kind == SpawnKind::Vent {
+        commands.entity(nova).insert(VentDrop);
+    }
+    nova
+}
+
+/// Spawns the body of a Nova Crawler the Host has, on a client: at `centre`, with nothing to move
+/// it.
+pub fn spawn_nova_puppet(commands: &mut Commands, assets: &NovaAssetsParam, centre: Vec3) -> Entity {
+    spawn_body(commands, &assets.0, centre, 1.0)
+}
+
+/// A Nova Crawler's body, centred at `centre`.
+fn spawn_body(commands: &mut Commands, assets: &NovaAssets, centre: Vec3, health: f32) -> Entity {
     let mut nova = commands.spawn((
         InRun,
         Name::new("Nova Crawler"),
         Zombie::nova_crawler(health, centre),
-        Rising::new(from, standing, secs),
         Route::default(),
         Mesh3d(assets.body.clone()),
         MeshMaterial3d(assets.skin.clone()),
@@ -198,9 +216,6 @@ pub fn spawn_nova_crawler(
         Collider::sphere(NOVA_CRAWLER_RADIUS),
         CollisionLayers::new(GameLayer::Zombie, LayerMask::ALL),
     ));
-    if kind == SpawnKind::Vent {
-        nova.insert(VentDrop);
-    }
     nova.with_children(|nova| {
         let hit_layers = CollisionLayers::new(GameLayer::ZombieHitArea, LayerMask::ALL);
         let front = -(BODY_LENGTH / 2.0 + NOVA_CRAWLER_RADIUS);
@@ -267,16 +282,8 @@ fn burst(
         if !bursts(kill.attack) {
             continue;
         }
-        commands.spawn((
-            InRun,
-            Name::new("Nova gas"),
-            GasCloud {
-                left: NOVA_GAS_SECS,
-            },
-            Mesh3d(assets.gas.clone()),
-            MeshMaterial3d(assets.cloud.clone()),
-            Transform::from_translation(kill.at),
-        ));
+        spawn_gas(&mut commands, &assets, kill.at);
+        commands.entity(kill.zombie).try_insert(Burst);
         if shellshocks(player.translation.distance(kill.at)) {
             shocks.write(Shellshock {
                 secs: NOVA_SHELLSHOCK_SECS,
@@ -295,6 +302,25 @@ fn burst(
             });
         }
     }
+}
+
+/// A gas cloud where a Nova Crawler burst, at `at`.
+fn spawn_gas(commands: &mut Commands, assets: &NovaAssets, at: Vec3) {
+    commands.spawn((
+        InRun,
+        Name::new("Nova gas"),
+        GasCloud {
+            left: NOVA_GAS_SECS,
+        },
+        Mesh3d(assets.gas.clone()),
+        MeshMaterial3d(assets.cloud.clone()),
+        Transform::from_translation(at),
+    ));
+}
+
+/// The gas of a Nova Crawler that burst on the Host, shown on a client where its puppet is.
+pub fn show_gas(commands: &mut Commands, assets: &NovaAssetsParam, at: Vec3) {
+    spawn_gas(commands, &assets.0, at);
 }
 
 /// A gas cloud blurs the Player's view while they stand in it, then clears.

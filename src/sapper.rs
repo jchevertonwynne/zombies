@@ -223,8 +223,12 @@ pub struct Sapper {
 
 impl Sapper {
     fn new(at: Vec3) -> Self {
+        Self::with_helmet(at, true)
+    }
+
+    fn with_helmet(at: Vec3, helmet: bool) -> Self {
         Self {
-            helmet: true,
+            helmet,
             head: None,
             helmet_mesh: None,
             goal: None,
@@ -234,6 +238,39 @@ impl Sapper {
             last_at: at,
         }
     }
+}
+
+impl Sapper {
+    /// Whether it has lost its helmet.
+    pub fn helmet_lost(&self) -> bool {
+        !self.helmet
+    }
+
+    /// Takes the helmet off a puppet Sapper whose helmet the Host has lost.
+    pub fn lose_helmet(&mut self, commands: &mut Commands) {
+        self.helmet = false;
+        if let Some(helmet) = self.helmet_mesh.take() {
+            commands.entity(helmet).despawn();
+        }
+    }
+}
+
+/// Lets a client dress its puppets as the Sapper without knowing about the asset handles.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct SapperAssetsParam<'w>(Res<'w, SapperAssets>);
+
+/// Dresses a puppet Zombie as the Sapper, `helmet` on or not: its armour, and (by `dress_sappers`)
+/// its helmet and plate. It has no AI here, and nothing to Sabotage.
+pub fn dress_puppet(commands: &mut Commands, assets: &SapperAssetsParam, entity: Entity, at: Vec3, helmet: bool) {
+    commands
+        .entity(entity)
+        .entry::<Zombie>()
+        .and_modify(|mut zombie| zombie.become_special(SpecialKind::Sapper));
+    commands.entity(entity).insert((
+        Name::new("Sapper"),
+        Sapper::with_helmet(at, helmet),
+        MeshMaterial3d(assets.0.armour.clone()),
+    ));
 }
 
 /// The Round's Sapper, if it brings one: how much of the Horde spawns first, and the warning.
@@ -287,7 +324,7 @@ impl Plugin for SapperPlugin {
     }
 }
 
-fn load_assets(
+pub(crate) fn load_assets(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -472,15 +509,17 @@ fn dress_sappers(
             {
                 area.0 = head_zone(sapper.helmet);
                 sapper.head = Some(child);
-                let helmet = commands
-                    .spawn((
-                        Mesh3d(assets.helmet.clone()),
-                        MeshMaterial3d(assets.steel.clone()),
-                        Transform::from_xyz(0.0, ZOMBIE_HEAD_RADIUS * 0.6, 0.0),
-                        ChildOf(child),
-                    ))
-                    .id();
-                sapper.helmet_mesh = Some(helmet);
+                if sapper.helmet {
+                    let helmet = commands
+                        .spawn((
+                            Mesh3d(assets.helmet.clone()),
+                            MeshMaterial3d(assets.steel.clone()),
+                            Transform::from_xyz(0.0, ZOMBIE_HEAD_RADIUS * 0.6, 0.0),
+                            ChildOf(child),
+                        ))
+                        .id();
+                    sapper.helmet_mesh = Some(helmet);
+                }
             }
         }
         commands.entity(entity).with_child((

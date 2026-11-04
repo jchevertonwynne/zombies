@@ -96,6 +96,8 @@ pub struct Snapshot {
     /// Every Zombie, and then every Hellhound.
     pub zombies: Vec<ZombieSight>,
     pub hellhounds: Vec<ZombieSight>,
+    /// What each Special Zombie among them is, see `SpecialSight`.
+    pub specials: Vec<SpecialSight>,
 }
 
 /// The receiver's own Player in full: what their movement step reads, so they can be put right and
@@ -164,6 +166,50 @@ pub struct ZombieSight {
     pub yaw: u8,
     /// What it is doing, see `pack_anim`.
     pub anim: u8,
+}
+
+/// Which Special Zombie a Zombie is, and what is new about it, as a snapshot says it in 4 bytes at
+/// most. Only Special Zombies are told of, each every snapshot, so a client that missed one still
+/// learns what it is from the next. A Hellhound is told of by being in `Snapshot::hellhounds`.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct SpecialSight {
+    /// Which Zombie, see `ZombieSight`.
+    pub id: u16,
+    /// `pack_special`.
+    pub body: u8,
+}
+
+/// The Special Zombies that have a body of their own on a client.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpecialBody {
+    Napalm,
+    Shrieker,
+    Sapper,
+    NovaCrawler,
+}
+
+/// Which Special Zombie it is in bits 0 to 2, and in bit 3 whether the Sapper has lost its helmet
+/// or the Nova Crawler's gas has burst.
+pub fn pack_special(body: SpecialBody, marked: bool) -> u8 {
+    let code = match body {
+        SpecialBody::Napalm => 1,
+        SpecialBody::Shrieker => 2,
+        SpecialBody::Sapper => 3,
+        SpecialBody::NovaCrawler => 4,
+    };
+    code | u8::from(marked) << 3
+}
+
+/// What `pack_special` packed. A byte that is no Special Zombie is none.
+pub fn unpack_special(byte: u8) -> Option<(SpecialBody, bool)> {
+    let body = match byte & 0x7 {
+        1 => SpecialBody::Napalm,
+        2 => SpecialBody::Shrieker,
+        3 => SpecialBody::Sapper,
+        4 => SpecialBody::NovaCrawler,
+        _ => return None,
+    };
+    Some((body, byte & 0x8 != 0))
 }
 
 impl ZombieSight {
@@ -255,7 +301,7 @@ mod tests {
     use super::*;
     use crate::net::protocol::{DATAGRAM, encode};
     use crate::teammate::{Action, Pose, Stance};
-    use crate::tuning::{ROOM_SEATS, SNAPSHOT_MAX_BYTES, SNAPSHOT_MAX_HELLHOUNDS, SNAPSHOT_MAX_ZOMBIES};
+    use crate::tuning::{ROOM_SEATS, SNAPSHOT_MAX_BYTES, SNAPSHOT_MAX_HELLHOUNDS, SNAPSHOT_MAX_SPECIALS, SNAPSHOT_MAX_ZOMBIES};
 
     #[test]
     fn a_position_is_told_to_a_centimetre() {
@@ -314,6 +360,7 @@ mod tests {
             players: vec![sight; ROOM_SEATS - 1],
             zombies: vec![],
             hellhounds: vec![],
+            specials: vec![],
         }
     }
 
@@ -328,6 +375,7 @@ mod tests {
         Snapshot {
             zombies: vec![worst_zombie(); SNAPSHOT_MAX_ZOMBIES],
             hellhounds: vec![worst_zombie(); hellhounds],
+            specials: vec![SpecialSight { id: u16::MAX, body: 255 }; SNAPSHOT_MAX_SPECIALS],
             ..worst_snapshot()
         }
     }
@@ -342,7 +390,7 @@ mod tests {
         // The receiver's own Player is about 32 B, and each of the others about 15.
         let one = |players: usize| encode(&Snapshot { players: vec![worst_snapshot().players[0]; players], ..worst_snapshot() }).len();
         assert!(one(1) - one(0) <= 18, "a Player is {} B", one(1) - one(0));
-        let usual = Snapshot { tick: 100_000, used: 99_990, own: Own { points: 5000, ..worst_snapshot().own }, players: vec![Sight { points: 5000, ..worst_snapshot().players[0] }], zombies: vec![], hellhounds: vec![] };
+        let usual = Snapshot { tick: 100_000, used: 99_990, own: Own { points: 5000, ..worst_snapshot().own }, players: vec![Sight { points: 5000, ..worst_snapshot().players[0] }], zombies: vec![], hellhounds: vec![], specials: vec![] };
         assert!(encode(&usual).len() <= 36 + 16 + 4 + 2, "{}", encode(&usual).len());
     }
 
@@ -380,6 +428,18 @@ mod tests {
         }
         // A byte that is nothing known is a Zombie walking.
         assert_eq!(unpack_anim(0xf).0, Activity::Moving);
+    }
+
+    #[test]
+    fn which_special_a_zombie_is_is_told_to_a_byte() {
+        for body in [SpecialBody::Napalm, SpecialBody::Shrieker, SpecialBody::Sapper, SpecialBody::NovaCrawler] {
+            for marked in [false, true] {
+                assert_eq!(unpack_special(pack_special(body, marked)), Some((body, marked)));
+            }
+        }
+        assert_eq!(unpack_special(0), None);
+        let one = encode(&Snapshot { specials: vec![SpecialSight { id: u16::MAX, body: 255 }], ..worst_snapshot() }).len();
+        assert!(one - encode(&worst_snapshot()).len() <= 4, "a special is {} B", one - encode(&worst_snapshot()).len());
     }
 
     #[test]

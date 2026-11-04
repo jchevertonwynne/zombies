@@ -199,7 +199,7 @@ impl Plugin for HellhoundPlugin {
             .add_systems(Startup, load_assets)
             .add_systems(
                 Update,
-                ((spawn_around, strike).in_set(HostSimulation), pull_in_fog).run_if(world_runs),
+                ((spawn_around, strike).in_set(HostSimulation), flicker.after(strike), pull_in_fog).run_if(world_runs),
             );
     }
 }
@@ -250,21 +250,8 @@ pub fn spawn_hellhound(
     let centre = at + Vec3::Y * (HELLHOUND_RADIUS + 0.02);
     let hound = spawn_body(commands, assets, centre, health);
     let bolt = commands
-        .spawn((
-            InRun,
-            Mesh3d(assets.bolt.clone()),
-            MeshMaterial3d(assets.lightning.clone()),
-            Transform::from_translation(at + Vec3::Y * BOLT_HEIGHT / 2.0),
-            children![(
-                PointLight {
-                    color: Color::srgb(0.7, 0.8, 1.0),
-                    intensity: 400_000.0,
-                    range: 12.0,
-                    ..default()
-                },
-                Transform::from_xyz(0.0, 1.5 - BOLT_HEIGHT / 2.0, 0.0),
-            )],
-        ))
+        .spawn((InRun, bolt_of(assets), Transform::from_translation(at + Vec3::Y * BOLT_HEIGHT / 2.0)))
+        .with_child(bolt_light())
         .id();
     commands.entity(hound).insert(Telegraph {
         left: HELLHOUND_TELEGRAPH_SECS,
@@ -273,10 +260,44 @@ pub fn spawn_hellhound(
     hound
 }
 
-/// Spawns the body of a hound the Host has, on a client: at `centre`, with no strike (the Host's
-/// is its own) and nothing to move it.
-pub fn spawn_hellhound_puppet(commands: &mut Commands, assets: &HellhoundAssetsParam, centre: Vec3) -> Entity {
-    spawn_body(commands, &assets.0, centre, 1.0)
+/// A bolt of lightning's body.
+fn bolt_of(assets: &HellhoundAssets) -> (Mesh3d, MeshMaterial3d<StandardMaterial>) {
+    (Mesh3d(assets.bolt.clone()), MeshMaterial3d(assets.lightning.clone()))
+}
+
+/// The light a bolt gives off, partway up it.
+fn bolt_light() -> (PointLight, Transform) {
+    (
+        PointLight {
+            color: Color::srgb(0.7, 0.8, 1.0),
+            intensity: 400_000.0,
+            range: 12.0,
+            ..default()
+        },
+        Transform::from_xyz(0.0, 1.5 - BOLT_HEIGHT / 2.0, 0.0),
+    )
+}
+
+/// Spawns the body of a hound the Host has, on a client: at `centre`, in a strike if it is
+/// `striking` (the Host ends it, see `end_strike`), and with nothing to move it.
+pub fn spawn_hellhound_puppet(commands: &mut Commands, assets: &HellhoundAssetsParam, centre: Vec3, striking: bool) -> Entity {
+    let hound = spawn_body(commands, &assets.0, centre, 1.0);
+    if striking {
+        // The strike is the Host's to end: it is over when the Host says the hound is out.
+        let floor = Vec3::Y * (HELLHOUND_RADIUS + 0.02);
+        let bolt = commands
+            .spawn((bolt_of(&assets.0), Transform::from_translation(Vec3::Y * BOLT_HEIGHT / 2.0 - floor), ChildOf(hound)))
+            .with_child(bolt_light())
+            .id();
+        commands.entity(hound).insert(Telegraph { left: f32::INFINITY, bolt });
+    }
+    hound
+}
+
+/// A puppet hound's strike is over: the bolt is gone and the hound is loose.
+pub fn end_strike(commands: &mut Commands, hound: Entity, telegraph: &Telegraph) {
+    commands.entity(telegraph.bolt).despawn();
+    commands.entity(hound).remove::<Telegraph>();
 }
 
 /// A hound's body, centred at `centre`.
@@ -373,19 +394,24 @@ fn spawn_around(
     }
 }
 
-/// A strike flickers for `HELLHOUND_TELEGRAPH_SECS`, then the hound is loose.
+/// A strike lasts `HELLHOUND_TELEGRAPH_SECS`, then the hound is loose.
 fn strike(
     mut commands: Commands,
     mut hounds: Query<(Entity, &mut Telegraph)>,
-    mut bolts: Query<&mut Visibility>,
     time: Res<Time>,
 ) {
     for (entity, mut telegraph) in &mut hounds {
         telegraph.left -= time.delta_secs();
         if telegraph.left <= 0.0 {
-            commands.entity(telegraph.bolt).despawn();
-            commands.entity(entity).remove::<Telegraph>();
-        } else if let Ok(mut visibility) = bolts.get_mut(telegraph.bolt) {
+            end_strike(&mut commands, entity, &telegraph);
+        }
+    }
+}
+
+/// A strike's bolt flickers while it lasts, on every machine that shows one.
+fn flicker(hounds: Query<&Telegraph>, mut bolts: Query<&mut Visibility>) {
+    for telegraph in &hounds {
+        if let Ok(mut visibility) = bolts.get_mut(telegraph.bolt) {
             let shown = rand::random_bool(0.6);
             visibility.set_if_neq(if shown {
                 Visibility::Inherited
