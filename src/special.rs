@@ -27,7 +27,7 @@ use crate::nav::Route;
 use crate::player::{LocalPlayer, Player, PlayerCamera, PlayerHit};
 use crate::target::Players;
 use crate::points::BonusPoints;
-use crate::round::{CarriesOver, Round, RoundPhase, alive_cap, zombie_health};
+use crate::round::{CarriesOver, Round, RoundPhase, zombie_health};
 use crate::settings::{Settings, SpecialType, SpecialZombies};
 use crate::shellshock::Shellshock;
 use crate::state::{GameState, InRun, Pause};
@@ -144,18 +144,24 @@ pub fn special_spawn_at(horde: u32, fraction: f64) -> u32 {
 }
 
 /// The Special Spawn Points a special picks from, uniformly: those in Active Zones at least
-/// `SPECIAL_SPAWN_MIN_DIST` from the Player, the Player's own Zone's first.
+/// `SPECIAL_SPAWN_MIN_DIST` from every Player in `players` (their Zone and where they stand), a
+/// Player's own Zone's first.
 pub fn special_spawn_candidates(
     points: impl IntoIterator<Item = (ZoneId, Vec3)>,
-    player_zone: ZoneId,
+    players: &[(ZoneId, Vec3)],
     active: ZoneSet,
-    player: Vec3,
 ) -> Vec<Vec3> {
     let open: Vec<(ZoneId, Vec3)> = points
         .into_iter()
-        .filter(|(zone, at)| active.contains(*zone) && at.distance(player) >= SPECIAL_SPAWN_MIN_DIST)
+        .filter(|(zone, at)| {
+            active.contains(*zone) && players.iter().all(|(_, player)| at.distance(*player) >= SPECIAL_SPAWN_MIN_DIST)
+        })
         .collect();
-    let own: Vec<Vec3> = open.iter().filter(|(zone, _)| *zone == player_zone).map(|(_, at)| *at).collect();
+    let own: Vec<Vec3> = open
+        .iter()
+        .filter(|(zone, _)| players.iter().any(|(player_zone, _)| player_zone == zone))
+        .map(|(_, at)| *at)
+        .collect();
     if own.is_empty() { open.into_iter().map(|(_, at)| at).collect() } else { own }
 }
 
@@ -419,17 +425,18 @@ fn spawn_special(
     let Some(kind) = plan.kind else {
         return;
     };
-    // It spawns relative to the first Player: there's no Zombie yet to say which it is after.
-    let Some(player) = players.first() else {
+    // It spawns relative to every Player who is up: there's no Zombie yet to say which it is after.
+    let anchors = players.spawn_anchors();
+    if anchors.is_empty() {
         return;
-    };
+    }
     if !settings.special_zombies.is_on(kind.switch()) {
         plan.kind = None;
         return;
     }
     if round.phase != RoundPhase::Active
         || round.horde_spawned() < plan.at
-        || alive.iter().count() as u32 >= alive_cap(round.number, ALIVE_CAP)
+        || alive.iter().count() as u32 >= round.alive_cap()
     {
         return;
     }
@@ -438,9 +445,8 @@ fn spawn_special(
             .iter()
             .filter(|(_, point)| point.kind == SpawnKind::Special)
             .map(|(t, point)| (point.zone, t.translation)),
-        player.zone,
+        &anchors.iter().map(|spot| (spot.zone, spot.centre)).collect::<Vec<_>>(),
         active.0,
-        player.centre,
     );
     if points.is_empty() || !round.take_from_horde() {
         return;
@@ -921,9 +927,8 @@ fn unstick(
                 .iter()
                 .filter(|(_, point)| point.kind == SpawnKind::Special)
                 .map(|(t, point)| (point.zone, t.translation)),
-            player.zone,
+            &players.spawn_anchors().iter().map(|spot| (spot.zone, spot.centre)).collect::<Vec<_>>(),
             active.0,
-            player.centre,
         );
         if !points.is_empty() {
             let at = points[rand::random_range(0..points.len())];
@@ -1043,7 +1048,7 @@ mod tests {
     #[test]
     fn specials_rise_in_the_players_zone_first_never_within_five_metres() {
         use ZoneId::*;
-        let player = Vec3::ZERO;
+        let player = [(StartRoom, Vec3::ZERO)];
         let points = [
             (StartRoom, Vec3::new(3.0, 0.0, 0.0)),
             (StartRoom, Vec3::new(8.0, 0.0, 0.0)),
@@ -1051,11 +1056,19 @@ mod tests {
             (Yard, Vec3::new(20.0, 0.0, 0.0)),
         ];
         let active = ZoneSet::from_iter([StartRoom, WestHall]);
-        assert_eq!(special_spawn_candidates(points, StartRoom, active, player), [Vec3::new(8.0, 0.0, 0.0)]);
+        assert_eq!(special_spawn_candidates(points, &player, active), [Vec3::new(8.0, 0.0, 0.0)]);
         // With no spot in the Player's Zone, any Active Zone's.
         let far = [(StartRoom, Vec3::new(3.0, 0.0, 0.0)), (WestHall, Vec3::new(12.0, 0.0, 0.0))];
-        assert_eq!(special_spawn_candidates(far, StartRoom, active, player), [Vec3::new(12.0, 0.0, 0.0)]);
-        assert!(special_spawn_candidates([(StartRoom, Vec3::X)], StartRoom, active, player).is_empty());
+        assert_eq!(special_spawn_candidates(far, &player, active), [Vec3::new(12.0, 0.0, 0.0)]);
+        assert!(special_spawn_candidates([(StartRoom, Vec3::X)], &player, active).is_empty());
+        // Two Players: never within five metres of either, in either's Zone first.
+        let apart = [(StartRoom, Vec3::ZERO), (WestHall, Vec3::new(20.0, 0.0, 0.0))];
+        assert_eq!(
+            special_spawn_candidates(points, &apart, active),
+            [Vec3::new(8.0, 0.0, 0.0), Vec3::new(12.0, 0.0, 0.0)]
+        );
+        let near = [(StartRoom, Vec3::ZERO), (WestHall, Vec3::new(10.0, 0.0, 0.0))];
+        assert!(special_spawn_candidates(points, &near, active).is_empty());
     }
 
     #[test]

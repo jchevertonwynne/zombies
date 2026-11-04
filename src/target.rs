@@ -63,6 +63,17 @@ impl Players<'_, '_> {
         self.players.get(entity).ok().map(Self::spot)
     }
 
+    /// The Players something spawns relative to: every one who is up, or everyone if none is.
+    pub fn spawn_anchors(&self) -> Vec<PlayerSpot> {
+        let up: Vec<PlayerSpot> = self.iter().filter(|spot| spot.up).collect();
+        if up.is_empty() { self.iter().collect() } else { up }
+    }
+
+    /// How many Players are up.
+    pub fn up_count(&self) -> u32 {
+        self.iter().filter(|spot| spot.up).count() as u32
+    }
+
     /// One Player, for the rules that don't yet look at them all.
     pub fn first(&self) -> Option<PlayerSpot> {
         self.iter().next()

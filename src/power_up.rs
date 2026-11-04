@@ -19,7 +19,7 @@ use crate::map::BOX_LOCATIONS;
 use crate::modifier::{Modifiers, Stat, resolve, resolve_count};
 use crate::mystery_box::{BoxAssets, BoxRun, BoxState, MysteryBox, spawn_box};
 use crate::nav::zone_at;
-use crate::player::{LocalPlayer, Player};
+use crate::player::{LocalPlayer, Player, SpawnPlayers};
 use crate::points::{Points, PointsAwarded};
 use crate::round::RoundStarted;
 use crate::sapper::Sapper;
@@ -157,18 +157,29 @@ pub struct DropMeter {
 
 impl Default for DropMeter {
     fn default() -> Self {
+        Self::for_players(1)
+    }
+}
+
+impl DropMeter {
+    /// A Run's meter for `players` Players (N at Run start). The first threshold is 2000 Points
+    /// Earned solo, `2000 + 500 × N` in Co-op.
+    pub fn for_players(players: u32) -> Self {
+        let first = if players > 1 {
+            POWER_UP_THRESHOLD_START + POWER_UP_THRESHOLD_PER_PLAYER * f64::from(players)
+        } else {
+            POWER_UP_THRESHOLD_START
+        };
         Self {
-            threshold: POWER_UP_THRESHOLD_START,
-            gap: POWER_UP_THRESHOLD_START,
+            threshold: first,
+            gap: first,
             armed: false,
             this_round: 0,
             per_round: POWER_UPS_PER_ROUND,
             chance: POWER_UP_KILL_CHANCE,
         }
     }
-}
 
-impl DropMeter {
     /// Arms a drop once Points Earned passes the threshold. The gap grows ×1.14 and the next
     /// threshold is counted from the Points Earned now.
     pub fn watch(&mut self, earned: u64) {
@@ -345,7 +356,7 @@ impl Plugin for PowerUpPlugin {
             .add_message::<PowerUpTaken>()
             .add_message::<DropPowerUp>()
             .add_message::<GivePowerUp>()
-            .add_systems(OnEnter(GameState::Playing), reset)
+            .add_systems(OnEnter(GameState::Playing), reset.after(SpawnPlayers))
             .add_systems(
                 Update,
                 (resolve_stats, tick_timers, drop_power_ups, age_drops, pick_up, nuke, fire_sale)
@@ -356,9 +367,14 @@ impl Plugin for PowerUpPlugin {
     }
 }
 
-fn reset(mut active: ResMut<ActivePowerUps>, mut meter: ResMut<DropMeter>, mut bag: ResMut<Bag>) {
+fn reset(
+    mut active: ResMut<ActivePowerUps>,
+    mut meter: ResMut<DropMeter>,
+    mut bag: ResMut<Bag>,
+    players: Query<(), With<Player>>,
+) {
     *active = ActivePowerUps::default();
-    *meter = DropMeter::default();
+    *meter = DropMeter::for_players(players.iter().count() as u32);
     bag.0.clear();
 }
 
@@ -366,6 +382,7 @@ fn reset(mut active: ResMut<ActivePowerUps>, mut meter: ResMut<DropMeter>, mut b
 /// Timed Power-up length and the per-Round cap follow the Player's stat entries.
 fn resolve_stats(
     player: Single<&Modifiers, With<LocalPlayer>>,
+    holders: Query<&Modifiers, With<Player>>,
     mut active: ResMut<ActivePowerUps>,
     mut meter: ResMut<DropMeter>,
 ) {
@@ -373,7 +390,10 @@ fn resolve_stats(
     if active.extra_secs != extra {
         active.extra_secs = extra;
     }
-    let per_round = resolve_count(Stat::PowerUpsPerRound, POWER_UPS_PER_ROUND, &player.0);
+    // The Round's drops are shared; each Player's entries (Scrounger's +1) add to the 4.
+    let per_round = holders.iter().fold(POWER_UPS_PER_ROUND, |total, modifiers| {
+        total + resolve_count(Stat::PowerUpsPerRound, POWER_UPS_PER_ROUND, &modifiers.0) - POWER_UPS_PER_ROUND
+    });
     if meter.per_round != per_round {
         meter.per_round = per_round;
     }
@@ -630,6 +650,18 @@ mod tests {
         assert!(!meter.armed);
         meter.watch(2010);
         assert!(meter.armed);
+    }
+
+    #[test]
+    fn a_coop_run_arms_its_first_drop_after_2000_plus_500_a_player() {
+        for (players, first) in [(1, 2000.0), (2, 3000.0), (3, 3500.0), (4, 4000.0)] {
+            let mut meter = DropMeter::for_players(players);
+            meter.watch(first as u64);
+            assert!(!meter.armed, "{players} Players at {first}");
+            meter.watch(first as u64 + 1);
+            assert!(meter.armed, "{players} Players at {first} + 1");
+            assert_eq!(meter.gap, first * POWER_UP_THRESHOLD_GROWTH);
+        }
     }
 
     #[test]
