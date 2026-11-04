@@ -1135,6 +1135,8 @@ fn fire(
                     zone,
                     damage: amount,
                     attack: Attack::Bullet,
+                    ammo_mods,
+                    burn: None,
                 });
                 roll(zombie, amount);
             }
@@ -1190,6 +1192,8 @@ fn fire(
                 zone: hit.zone,
                 damage: amount,
                 attack: Attack::Bullet,
+                ammo_mods,
+                burn,
             });
             roll(hit.zombie, amount);
             if let Some(burn) = burn {
@@ -1238,6 +1242,8 @@ fn knife(
             zone,
             damage: knife_hit(base, &modifiers.0, rand::random()),
             attack: Attack::Knife,
+            ammo_mods: AmmoMods::NONE,
+            burn: None,
         });
         cues.write(PlayCue { cue: Cue::KnifeHit, at: None });
     }

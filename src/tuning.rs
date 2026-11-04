@@ -1079,6 +1079,9 @@ pub const PROJECTILE_LIFETIME_SECS: f32 = 5.0;
 pub const COSMETIC_FLIGHT_SECS: f32 = 12.0;
 /// A burst the Host reports ends the nearest thing flying for show within this many metres.
 pub const COSMETIC_BURST_MATCH_METRES: f32 = 6.0;
+/// On a client, a burst the Host reports this near a blast the shooter already heard is that
+/// blast.
+pub const HEARD_BLAST_MATCH_METRES: f32 = 0.05;
 /// How fast a Wonder Weapon's shot is drawn flying on a machine that did not fire it (it is
 /// instant on the Host).
 pub const COSMETIC_WONDER_SPEED: f32 = 90.0;

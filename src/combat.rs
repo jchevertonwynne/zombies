@@ -4,6 +4,8 @@
 use bevy::math::{Dir3, Vec3};
 use bevy::prelude::{Entity, Message};
 
+use crate::ammo_mod::AmmoMods;
+use crate::arsenal::Burn;
 use crate::tuning::PENETRATION_DAMAGE_FACTOR;
 use crate::zombie::{Attack, HitZone};
 
@@ -17,6 +19,10 @@ pub struct HitReport {
     pub damage: f32,
     /// A bullet, or the Knife.
     pub attack: Attack,
+    /// The Ammo Mods of the Weapon that landed it, for the Host to roll.
+    pub ammo_mods: AmmoMods,
+    /// How the Weapon sets what it hits alight, if it does.
+    pub burn: Option<Burn>,
 }
 
 /// Something a bullet's line crossed, nearest first: a Zombie's hit area, or the world.
