@@ -15,7 +15,7 @@ use crate::explosive::{Explosion, Explosive, Launch, Thrown, in_sight, makes_cra
 use crate::layers::GameLayer;
 use crate::arsenal::Splash;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_count};
-use crate::player::{LocalPlayer, Player, PlayerCamera};
+use crate::player::{LocalPlayer, Player, PlayerCamera, not_changing_prone};
 use crate::round::{Round, RoundStarted};
 use crate::sapper::Sapper;
 use crate::state::{GameState, InRun, input_runs, world_runs};
@@ -415,10 +415,12 @@ impl Plugin for EquipmentPlugin {
                     restock,
                     (buy_walls.in_set(HostSimulation), price_walls).chain(),
                     (
-                        // A paused Player's cook waits in the hand.
-                        throw_frags.run_if(input_runs),
-                        throw_monkey_bombs,
-                        plant_claymores,
+                        // A paused Player's cook waits in the hand. Starting a throw or a plant
+                        // counts as firing, so it waits out a prone transition like one; one
+                        // already under way carries on to the end.
+                        throw_frags.run_if(input_runs).run_if(not_changing_prone),
+                        throw_monkey_bombs.run_if(not_changing_prone),
+                        plant_claymores.run_if(not_changing_prone),
                         release_handled,
                         launch_equipment.in_set(HostSimulation),
                     ),

@@ -389,9 +389,9 @@ pub struct PlayerHit {
 }
 
 /// Whether the local Player is clear to fire: not mid-prone-transition. Going down to Prone or
-/// getting up from it blocks firing until the transition is done; crouch transitions block
-/// nothing, and no prone lock applies while Down — Last Stand's own rules don't change. (The
-/// Knife and Equipment join the block in the fighting-by-stance slice.)
+/// getting up from it blocks firing — and the Knife and Equipment, which count as firing — until
+/// the transition is done; crouch transitions block nothing, and no prone lock applies while
+/// Down — Last Stand's own rules don't change.
 pub fn not_changing_prone(players: Query<(&Locomotion, Has<LastStand>), With<LocalPlayer>>) -> bool {
     players.iter().all(|(locomotion, last_stand)| last_stand || !locomotion.prone_transition())
 }

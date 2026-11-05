@@ -22,6 +22,7 @@ use crate::burn::Ignite;
 use crate::combat::{Crossing, HitReport, Sights, hit_damage, pierce, spread_direction};
 use crate::explosive::{Explosion, Explosive, Launch, LauncherRound, Thrown, flight, makes_crawlers};
 use crate::gun_model::{GunModels, Part, model_length};
+use crate::last_stand::LastStand;
 use crate::layers::GameLayer;
 use crate::muzzle::{BulletImpact, ImpactKind};
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve, resolve_count};
@@ -29,7 +30,7 @@ use crate::equipment::{Equipment, Handling, arms_free, hand_pose};
 use crate::perk::{Drinking, hands_free};
 use crate::respawn::not_waiting;
 use crate::revive::not_reviving;
-use crate::player::{LocalPlayer, Locomotion, Player, PlayerCamera, not_changing_prone};
+use crate::player::{LocalPlayer, Locomotion, Player, PlayerCamera, Stance, not_changing_prone};
 use crate::state::world_runs;
 use crate::tuning::*;
 use crate::wonder::{WonderFired, is_wonder};
@@ -262,6 +263,8 @@ pub struct Loadout {
     bloom: f32,
     /// Seconds of sprint-out left before the Weapon can fire or aim.
     sprint_out: f32,
+    /// The Stance's factor on the hip spread, as [`hip_spread_mult`] reads it each frame.
+    hip_mult: f32,
     /// How far the Weapon has eased into its sprint carry, 0 (ready) to 1 (carried).
     carry: f32,
     /// Whether the held Weapon's Underbarrel is up instead of its main gun.
@@ -286,6 +289,7 @@ impl Loadout {
             aim: 0.0,
             bloom: 0.0,
             sprint_out: 0.0,
+            hip_mult: 1.0,
             carry: 0.0,
             underbarrel_up: false,
             toggle: 0.0,
@@ -578,8 +582,12 @@ impl Loadout {
     }
 
     /// Advance sprint-out, aiming and spread recovery. Sprinting holds the Weapon down; aiming
-    /// waits out the sprint-out, a switch and a Reload.
-    pub fn update_handling(&mut self, dt: f32, sprinting: bool, wants_aim: bool) {
+    /// waits out the sprint-out, a switch and a Reload, and the sights also go down through a
+    /// prone transition, the way they do for a Reload — unless the Player is Down, whose own
+    /// rules don't change — coming back up afterwards if Aim is still held.
+    pub fn update_handling(&mut self, dt: f32, locomotion: &Locomotion, down: bool, wants_aim: bool) {
+        let sprinting = locomotion.sprinting;
+        self.hip_mult = hip_spread_mult(locomotion);
         if sprinting {
             self.sprint_out = self.held().stats().handling().sprint_out_secs;
         } else {
@@ -593,20 +601,22 @@ impl Loadout {
             && !sprinting
             && self.sprint_out <= 0.0
             && self.swap.is_none()
-            && self.reload.is_none();
+            && self.reload.is_none()
+            && !(locomotion.prone_transition() && !down);
         let target = if aiming { 1.0 } else { 0.0 };
         self.aim = move_towards(self.aim, target, dt / ADS_SECS);
         self.bloom = (self.bloom - dt / SPREAD_RECOVERY_SECS).max(0.0);
     }
 
-    /// The current spread in degrees of the gun that fires now: the bloomed hip spread (through
-    /// the Weapon's own entries, so a Grip tightens it), narrowing to the aimed spread as the
+    /// The current spread in degrees of the gun that fires now: the bloomed hip spread through
+    /// the Weapon's own entries (so a Grip tightens it) and the Stance's factor (so Crouched and
+    /// Prone tighten it too), narrowing to the aimed spread, which no Stance changes, as the
     /// sights come up.
     pub fn spread(&self) -> f32 {
         let stats = self.gun_stats();
         let (fresh, full) = stats.hip_spread();
         let grip = self.resolve(Stat::HipSpread, 1.0, &[]);
-        let hip = (fresh + (full - fresh) * self.bloom) * grip;
+        let hip = (fresh + (full - fresh) * self.bloom) * grip * self.hip_mult;
         hip + (stats.aimed_spread() - hip) * self.aim
     }
 
@@ -908,6 +918,19 @@ pub(crate) fn move_towards(from: f32, to: f32, step: f32) -> f32 {
     if from < to { (from + step).min(to) } else { (from - step).max(to) }
 }
 
+/// The hip spread's factor from the Player's Stance: 1 Standing, `CROUCH_SPREAD_MULT` Crouched
+/// and `PRONE_SPREAD_MULT` Prone, fresh and fully bloomed, stacking with Grip. The aimed spread
+/// has no such factor. While a stance transition is under way the factor is the one for the
+/// Stance being left, until the transition ends.
+pub fn hip_spread_mult(locomotion: &Locomotion) -> f32 {
+    let stance = if locomotion.changing_stance() { locomotion.left_stance } else { locomotion.stance };
+    match stance {
+        Stance::Standing => 1.0,
+        Stance::Crouched => CROUCH_SPREAD_MULT,
+        Stance::Prone => PRONE_SPREAD_MULT,
+    }
+}
+
 #[derive(Component, Default)]
 pub struct Knife {
     cooldown: f32,
@@ -1002,8 +1025,8 @@ impl Plugin for WeaponPlugin {
                 Update,
                 // A Perk drink puts the Weapon away and keeps the Knife out of reach; so does
                 // Equipment in the hand. The Weapon can't fire while its Player Revives or Repairs
-                // a Barrier, or is mid-prone-transition.
-                ((switch_weapons, reload, aim, fire.run_if(arms_free).run_if(not_reviving).run_if(not_repairing).run_if(not_waiting).run_if(not_changing_prone), knife.run_if(arms_free).run_if(not_repairing).run_if(not_waiting)).chain().run_if(hands_free).after(rebuild_planks), animate_view_model.in_set(AnimateViewModel))
+                // a Barrier, and firing, the Knife and Equipment all wait out a prone transition.
+                ((switch_weapons, reload, aim, fire.run_if(arms_free).run_if(not_reviving).run_if(not_repairing).run_if(not_waiting).run_if(not_changing_prone), knife.run_if(arms_free).run_if(not_repairing).run_if(not_waiting).run_if(not_changing_prone)).chain().run_if(hands_free).after(rebuild_planks), animate_view_model.in_set(AnimateViewModel))
                     .chain()
                     .run_if(world_runs),
             )
@@ -1137,12 +1160,12 @@ fn reload(
 
 /// The Aim key aims down the sights.
 fn aim(
-    player: Single<(&mut Loadout, &Locomotion), With<LocalPlayer>>,
+    player: Single<(&mut Loadout, &Locomotion, Has<LastStand>), With<LocalPlayer>>,
     controls: Controls,
     time: Res<Time>,
 ) {
-    let (mut loadout, locomotion) = player.into_inner();
-    loadout.update_handling(time.delta_secs(), locomotion.sprinting, controls.pressed(Action::Aim));
+    let (mut loadout, locomotion, down) = player.into_inner();
+    loadout.update_handling(time.delta_secs(), locomotion, down, controls.pressed(Action::Aim));
 }
 
 fn fire(
@@ -1617,6 +1640,43 @@ mod tests {
         loadout.advance_reload(secs, player);
     }
 
+    /// A Locomotion settled in `stance`, as the step function leaves it.
+    fn in_stance(stance: Stance) -> Locomotion {
+        Locomotion { stance, ..Locomotion::default() }
+    }
+
+    /// A Locomotion mid-sprint.
+    fn sprinting() -> Locomotion {
+        Locomotion { sprinting: true, ..Locomotion::default() }
+    }
+
+    /// A Locomotion standing still (the same as `in_stance(Stance::Standing)`).
+    fn standing() -> Locomotion {
+        Locomotion::default()
+    }
+
+    /// Seconds the stance change leaving `left` for `to` takes, as `transition_secs` in
+    /// `crate::player` pairs them up.
+    fn change_secs(left: Stance, to: Stance) -> f32 {
+        match (left, to) {
+            (Stance::Standing, Stance::Crouched) | (Stance::Crouched, Stance::Standing) => STANCE_CROUCH_SECS,
+            (Stance::Crouched, Stance::Prone) | (Stance::Prone, Stance::Crouched) => STANCE_PRONE_SECS,
+            _ => STANCE_PRONE_FROM_STAND_SECS,
+        }
+    }
+
+    /// A Locomotion `since` seconds into the stance change leaving `left` for `to`, as the step
+    /// function shapes it: the body already `to`, `left` remembered until the change ends.
+    fn changing_stance(left: Stance, to: Stance, since: f32) -> Locomotion {
+        Locomotion {
+            stance: to,
+            left_stance: left,
+            stance_change_secs: change_secs(left, to),
+            since_stance_change: since,
+            ..Locomotion::default()
+        }
+    }
+
     #[test]
     fn the_bowie_knife_does_1000_against_the_knifes_150() {
         assert_eq!(knife_damage(false, None), 150.0);
@@ -2071,19 +2131,19 @@ mod tests {
     #[test]
     fn sprint_out_holds_fire_after_a_sprint() {
         let mut pistol = Loadout::new(WeaponId::M1911);
-        pistol.update_handling(0.1, true, false);
+        pistol.update_handling(0.1, &sprinting(), false, false);
         assert!(!pistol.try_fire(true, true, NONE), "no firing mid-sprint");
-        pistol.update_handling(0.25, false, false);
+        pistol.update_handling(0.25, &standing(), false, false);
         assert!(!pistol.try_fire(true, true, NONE), "0.25 s into a 0.3 s sprint-out");
-        pistol.update_handling(0.06, false, false);
+        pistol.update_handling(0.06, &standing(), false, false);
         assert!(pistol.try_fire(true, true, NONE));
 
         // LMGs take 0.45 s.
         let mut lmg = Loadout::new(WeaponId::Rpk);
-        lmg.update_handling(0.1, true, false);
-        lmg.update_handling(0.4, false, false);
+        lmg.update_handling(0.1, &sprinting(), false, false);
+        lmg.update_handling(0.4, &standing(), false, false);
         assert!(!lmg.try_fire(true, true, NONE));
-        lmg.update_handling(0.06, false, false);
+        lmg.update_handling(0.06, &standing(), false, false);
         assert!(lmg.try_fire(true, true, NONE));
     }
 
@@ -2091,48 +2151,118 @@ mod tests {
     fn aiming_narrows_the_fov_and_tightens_the_spread() {
         let mut smg = Loadout::new(WeaponId::Mp40);
         assert_eq!((smg.fov_factor(), smg.spread()), (1.0, 2.0));
-        smg.update_handling(1.0, false, true);
+        smg.update_handling(1.0, &standing(), false, true);
         assert_eq!(smg.aim, 1.0);
         assert!((smg.fov_factor() - 0.77).abs() < 1e-5);
         assert_eq!(smg.spread(), 0.0);
 
         let mut sniper = Loadout::new(WeaponId::Dragunov);
-        sniper.update_handling(1.0, false, true);
+        sniper.update_handling(1.0, &standing(), false, true);
         assert!((sniper.fov_factor() - 0.46).abs() < 1e-5);
 
         // The G11 has a scope; the Olympia still spreads aimed.
         let mut g11 = Loadout::new(WeaponId::G11);
-        g11.update_handling(1.0, false, true);
+        g11.update_handling(1.0, &standing(), false, true);
         assert!((g11.fov_factor() - 0.46).abs() < 1e-5);
         let mut olympia = Loadout::new(WeaponId::Olympia);
-        olympia.update_handling(1.0, false, true);
+        olympia.update_handling(1.0, &standing(), false, true);
         assert_eq!(olympia.spread(), 5.5);
     }
 
     #[test]
     fn some_weapons_cant_aim_or_zoom() {
         let mut dual = Loadout::new(WeaponId::Cz75DualWield);
-        dual.update_handling(1.0, false, true);
+        dual.update_handling(1.0, &standing(), false, true);
         assert_eq!((dual.aim, dual.fov_factor(), dual.spread()), (0.0, 1.0, 4.0));
 
         // Pistols aim without zooming.
         let mut pistol = Loadout::new(WeaponId::M1911);
-        pistol.update_handling(1.0, false, true);
+        pistol.update_handling(1.0, &standing(), false, true);
         assert_eq!((pistol.aim, pistol.fov_factor(), pistol.spread()), (1.0, 1.0, 0.0));
     }
 
     #[test]
     fn sprinting_and_reloading_drop_the_sights() {
         let mut smg = Loadout::new(WeaponId::Mp40);
-        smg.update_handling(1.0, false, true);
-        smg.update_handling(1.0, true, true);
+        smg.update_handling(1.0, &standing(), false, true);
+        smg.update_handling(1.0, &sprinting(), false, true);
         assert_eq!(smg.aim, 0.0);
 
         let mut smg = Loadout::new(WeaponId::Mp40);
         smg.held_mut().magazine = 10;
         smg.start_reload(NONE);
-        smg.update_handling(1.0, false, true);
+        smg.update_handling(1.0, &standing(), false, true);
         assert_eq!(smg.aim, 0.0);
+    }
+
+    #[test]
+    fn aiming_works_in_every_stance_at_the_normal_speed() {
+        for stance in [Stance::Standing, Stance::Crouched, Stance::Prone] {
+            let mut smg = Loadout::new(WeaponId::Mp40);
+            smg.update_handling(ADS_SECS, &in_stance(stance), false, true);
+            assert_eq!(smg.aim, 1.0, "the sights didn't come up in {stance:?}");
+        }
+    }
+
+    #[test]
+    fn a_prone_transition_lowers_the_sights_like_a_reload_and_they_come_back_with_aim_held() {
+        let mut smg = Loadout::new(WeaponId::Mp40);
+        smg.update_handling(ADS_SECS, &standing(), false, true);
+        assert_eq!(smg.aim, 1.0);
+        // Going down to Prone lowers them, a crouch transition doesn't.
+        smg.update_handling(ADS_SECS, &changing_stance(Stance::Standing, Stance::Crouched, 0.1), false, true);
+        assert_eq!(smg.aim, 1.0, "a crouch transition lowered the sights");
+        smg.update_handling(ADS_SECS, &changing_stance(Stance::Standing, Stance::Prone, 0.1), false, true);
+        assert_eq!(smg.aim, 0.0, "the sights stayed up through the prone transition");
+        // With Aim still held they come back once it's done.
+        smg.update_handling(ADS_SECS, &in_stance(Stance::Prone), false, true);
+        assert_eq!(smg.aim, 1.0, "the sights didn't come back with Aim held");
+        // Without Aim held they stay down.
+        smg.update_handling(ADS_SECS, &changing_stance(Stance::Prone, Stance::Standing, 0.1), false, false);
+        assert_eq!(smg.aim, 0.0);
+        smg.update_handling(ADS_SECS, &standing(), false, false);
+        assert_eq!(smg.aim, 0.0);
+        // Getting up from Prone lowers them the same way, and no lock applies while Down.
+        smg.update_handling(ADS_SECS, &in_stance(Stance::Prone), false, true);
+        smg.update_handling(ADS_SECS, &changing_stance(Stance::Prone, Stance::Standing, 0.1), false, true);
+        assert_eq!(smg.aim, 0.0, "the sights stayed up through the rise");
+        smg.update_handling(ADS_SECS, &changing_stance(Stance::Prone, Stance::Standing, 0.1), true, true);
+        assert_eq!(smg.aim, 1.0, "the lock applied while Down");
+    }
+
+    #[test]
+    fn a_reload_carries_through_a_prone_transition_at_its_normal_speed() {
+        let mut smg = Loadout::new(WeaponId::Mp40);
+        smg.held_mut().magazine = 10;
+        assert!(smg.start_reload(NONE));
+        let secs = smg.reload_secs(NONE).unwrap();
+        // The Reload runs on through the whole 0.6 s of going down to Prone.
+        let mut left = secs;
+        while left > 0.0 {
+            let dt = left.min(0.1);
+            smg.update_handling(dt, &changing_stance(Stance::Standing, Stance::Prone, 0.0), false, true);
+            run(&mut smg, dt, NONE);
+            left -= dt;
+        }
+        assert!(smg.reload.is_none(), "the Reload never finished");
+        assert_eq!(smg.held().magazine, 32, "the Magazine never filled");
+        assert_eq!(smg.aim, 0.0, "the sights came up mid-Reload");
+    }
+
+    #[test]
+    fn a_switch_runs_at_its_normal_speed_in_every_stance() {
+        let mut smg = Loadout::new(WeaponId::Mp40);
+        smg.give(WeaponId::M1911);
+        run(&mut smg, 5.0, NONE);
+        // The M1911 came up in the empty slot; back to the MP40.
+        assert!(smg.switch_to(0));
+        let secs = smg.swap.as_ref().unwrap().secs();
+        for _ in 0..(secs / 0.1).ceil() as usize {
+            smg.update_handling(0.1, &in_stance(Stance::Prone), false, false);
+            run(&mut smg, 0.1, NONE);
+        }
+        assert!(smg.swap.is_none(), "the switch didn't finish in {secs} s while prone");
+        assert_eq!(smg.held().id, WeaponId::Mp40);
     }
 
     #[test]
@@ -2144,8 +2274,61 @@ mod tests {
             run(&mut smg, interval, NONE);
         }
         assert_eq!(smg.spread(), 5.0, "fully bloomed");
-        smg.update_handling(SPREAD_RECOVERY_SECS, false, false);
+        smg.update_handling(SPREAD_RECOVERY_SECS, &standing(), false, false);
         assert_eq!(smg.spread(), 2.0);
+    }
+
+    #[test]
+    fn crouching_and_lying_prone_tighten_the_hip_spread_fresh_and_bloomed() {
+        let mut smg = Loadout::new(WeaponId::Mp40);
+        smg.update_handling(0.1, &standing(), false, false);
+        assert_eq!(smg.spread(), 2.0, "fresh, standing");
+        smg.update_handling(0.1, &in_stance(Stance::Crouched), false, false);
+        assert!((smg.spread() - 2.0 * CROUCH_SPREAD_MULT).abs() < 1e-5, "fresh, crouched");
+        smg.update_handling(0.1, &in_stance(Stance::Prone), false, false);
+        assert!((smg.spread() - 2.0 * PRONE_SPREAD_MULT).abs() < 1e-5, "fresh, prone");
+
+        // The same factors fully bloomed, still prone.
+        let interval = smg.fire_interval(NONE);
+        for _ in 0..10 {
+            smg.try_fire(true, false, NONE);
+            run(&mut smg, interval, NONE);
+        }
+        assert!((smg.spread() - 5.0 * PRONE_SPREAD_MULT).abs() < 1e-5, "bloomed, prone");
+        smg.update_handling(0.0, &in_stance(Stance::Crouched), false, false);
+        assert!((smg.spread() - 5.0 * CROUCH_SPREAD_MULT).abs() < 1e-5, "bloomed, crouched");
+
+        // The aimed spread no Stance changes.
+        let mut olympia = Loadout::new(WeaponId::Olympia);
+        olympia.update_handling(1.0, &in_stance(Stance::Prone), false, true);
+        assert!((olympia.spread() - 5.5).abs() < 1e-5, "aimed, prone");
+    }
+
+    #[test]
+    fn the_hip_spread_factor_follows_the_stance_being_left_through_a_transition() {
+        let mut smg = Loadout::new(WeaponId::Mp40);
+        // Standing going down to Prone keeps the Standing hip spread until the 0.6 s is done.
+        smg.update_handling(0.1, &changing_stance(Stance::Standing, Stance::Prone, 0.59), false, false);
+        assert_eq!(smg.spread(), 2.0, "mid-transition, leaving Standing");
+        smg.update_handling(0.1, &in_stance(Stance::Prone), false, false);
+        assert!((smg.spread() - 2.0 * PRONE_SPREAD_MULT).abs() < 1e-5, "settled prone");
+
+        // Crouched going down to Prone leaves the Crouched hip spread behind.
+        smg.update_handling(0.1, &changing_stance(Stance::Crouched, Stance::Prone, 0.39), false, false);
+        assert!((smg.spread() - 2.0 * CROUCH_SPREAD_MULT).abs() < 1e-5, "mid-transition, leaving Crouched");
+
+        // Getting up leaves Prone's behind, until the rise is done.
+        smg.update_handling(0.1, &changing_stance(Stance::Prone, Stance::Standing, 0.5), false, false);
+        assert!((smg.spread() - 2.0 * PRONE_SPREAD_MULT).abs() < 1e-5, "mid-rise, leaving Prone");
+        smg.update_handling(0.1, &standing(), false, false);
+        assert_eq!(smg.spread(), 2.0, "back up");
+    }
+
+    #[test]
+    fn the_stance_factor_stacks_with_grip() {
+        let mut loadout = upgraded(WeaponId::Mp40, &[Attachment::Grip]);
+        loadout.update_handling(0.1, &in_stance(Stance::Prone), false, false);
+        assert!((loadout.spread() - 2.0 * 0.6 * PRONE_SPREAD_MULT).abs() < 1e-5);
     }
 
     #[test]
@@ -2255,13 +2438,13 @@ mod tests {
     fn optics_count_only_while_aimed() {
         let mut loadout = upgraded(WeaponId::Mp40, &[Attachment::AcogSight]);
         assert_eq!(loadout.sights(NONE), Sights::PLAIN, "from the hip");
-        loadout.update_handling(1.0, false, true);
+        loadout.update_handling(1.0, &standing(), false, true);
         let aimed = loadout.sights(NONE);
         assert_eq!((aimed.extra_pierce, aimed.pierce_damage), (2, 1.0));
         assert!((loadout.fov_factor() - ADS_FOV_IRON * ACOG_ADS_FOV_MULT).abs() < 1e-5);
 
         let mut red_dot = upgraded(WeaponId::Mp40, &[Attachment::RedDotSight]);
-        red_dot.update_handling(1.0, false, true);
+        red_dot.update_handling(1.0, &standing(), false, true);
         assert_eq!(red_dot.sights(NONE).headshot, 1.5);
     }
 
@@ -2635,5 +2818,323 @@ mod tests {
             30,
             "the AUG's own Magazine is untouched"
         );
+    }
+}
+
+/// Fighting by Stance between two Players on the real Map: what the Stance does to firing, the
+/// Knife, Equipment, Reloads, the sights and buying, through the real Weapon, Equipment, Barrier,
+/// Sway and Buy systems. The teammate is only along for the ride; everything here is the
+/// `LocalPlayer`'s, whose Stance is set the way `two_players` tests set any Player's: through
+/// `MoveInput`.
+#[cfg(test)]
+mod two_player_tests {
+    use super::*;
+    use bevy::input::mouse::AccumulatedMouseMotion;
+    use crate::ammo_mod::AmmoModHit;
+    use crate::attachment::FlameFired;
+    use crate::audio::PlayCue;
+    use crate::barrier::BarrierPlugin;
+    use crate::burn::Ignite;
+    use crate::buy::{Buyable, BuyPlugin, Focus, Purchased};
+    use crate::controls::Binding;
+    use crate::equipment::{Claymore, Equipment, EquipmentPlugin, Handling};
+    use crate::explosive::{Explosion, Launch};
+    use crate::last_stand::lower_eye;
+    use crate::modifier::RunModifiers;
+    use crate::muzzle::BulletImpact;
+    use crate::player::{
+        Eye, Locomotion, MoveInput, Player, PlayerCamera, Seat, move_player, place_eye, player_body,
+    };
+    use crate::points::{Points, PointsPlugin};
+    use crate::revive::ReviveFocus;
+    use crate::round::{Round, RoundStarted};
+    use crate::settings::Settings;
+    use crate::sway::{CameraSway, SwayPlugin};
+    use crate::wall_weapon::AmmoBuy;
+    use crate::zombie::ZombieKilled;
+    use crate::zombie::headless::Sim;
+
+    /// Two Players and the systems that fight, as `two_players` makes them, with the Weapon,
+    /// Equipment, Barrier, Sway and Buy plugins running and the LocalPlayer's camera in place
+    /// from the first frame.
+    fn fighting() -> (Sim, Entity, Entity) {
+        let mut sim = Sim::new(60.0, |app| {
+            app.add_plugins(PointsPlugin)
+                .init_resource::<RunModifiers>()
+                .init_resource::<Settings>()
+                .init_resource::<ButtonInput<KeyCode>>()
+                .init_resource::<ButtonInput<MouseButton>>()
+                .init_resource::<AccumulatedMouseMotion>()
+                .init_resource::<AccumulatedMouseScroll>()
+                .insert_resource(ReviveFocus::default())
+                .insert_resource(Round::in_progress(1))
+                .init_resource::<AmmoBuy>()
+                .add_message::<PlayCue>()
+                .add_message::<Launch>()
+                .add_message::<Explosion>()
+                .add_message::<AmmoModHit>()
+                .add_message::<Ignite>()
+                .add_message::<FlameFired>()
+                .add_message::<BulletImpact>()
+                .add_message::<RoundStarted>()
+                .add_message::<ZombieKilled>()
+                .add_plugins((BarrierPlugin, EquipmentPlugin, WeaponPlugin, SwayPlugin, BuyPlugin))
+                .add_systems(Update, (lower_eye, place_eye.after(lower_eye)))
+                .add_systems(FixedUpdate, move_player);
+        });
+        let world = sim.world_mut();
+        // The Sim's stand-in Player gives way to two real ones, the local one with its camera.
+        let stand_in = world.query_filtered::<Entity, With<Player>>().single(world).unwrap();
+        world.entity_mut(stand_in).despawn();
+        let local = world.spawn((player_body(Seat(0), "Player", &[]), LocalPlayer)).id();
+        world.entity_mut(local).with_child((
+            PlayerCamera,
+            Eye { height: PLAYER_EYE_HEIGHT },
+            CameraSway::default(),
+            Transform::from_xyz(0.0, PLAYER_EYE_HEIGHT, 0.0),
+        ));
+        let teammate = world.spawn(player_body(Seat(1), "Player 2", &[])).id();
+        sim.run(30);
+        (sim, local, teammate)
+    }
+
+    /// The key an Action is on by default.
+    fn key(sim: &mut Sim, action: Action) -> KeyCode {
+        let Binding::Key(key) = sim.world_mut().resource::<Settings>().bindings.get(action) else {
+            panic!("{action:?} isn't a key by default");
+        };
+        key
+    }
+
+    /// Presses a key for one frame, then lets go.
+    fn tap_key(sim: &mut Sim, key: KeyCode) {
+        sim.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(key);
+        sim.run(1);
+        let mut keys = sim.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.release(key);
+        keys.clear_just_pressed(key);
+    }
+
+    /// Presses a mouse button for one frame, then lets go.
+    fn tap_mouse(sim: &mut Sim, button: MouseButton) {
+        sim.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(button);
+        sim.run(1);
+        let mut mouse = sim.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+        mouse.release(button);
+        mouse.clear_just_pressed(button);
+    }
+
+    /// Holds a mouse button down from now on.
+    fn hold_mouse(sim: &mut Sim, button: MouseButton) {
+        sim.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(button);
+    }
+
+    /// Lets a mouse button go, and forgets its press.
+    fn release_mouse(sim: &mut Sim, button: MouseButton) {
+        let mut mouse = sim.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+        mouse.release(button);
+        mouse.clear_just_pressed(button);
+    }
+
+    /// The messages of this kind so far, drained.
+    fn messages<M: Message>(sim: &mut Sim) -> Vec<M> {
+        sim.world_mut().resource_mut::<Messages<M>>().drain().collect()
+    }
+
+    /// Wants `stance` from now on, by the MoveInput the shared step function reads.
+    fn want(sim: &mut Sim, player: Entity, crouch: bool, prone: bool) {
+        let mut input = sim.world_mut().get_mut::<MoveInput>(player).unwrap();
+        input.crouch = crouch;
+        input.prone = prone;
+    }
+
+    /// Whether `player` is mid-prone-transition, when firing is blocked.
+    fn blocked(sim: &mut Sim, player: Entity) -> bool {
+        sim.world_mut().get::<Locomotion>(player).unwrap().prone_transition()
+    }
+
+    #[test]
+    fn firing_the_knife_and_equipment_wait_out_a_prone_transition_and_all_work_prone() {
+        let (mut sim, local, _) = fighting();
+        let (knife, lethal) = (key(&mut sim, Action::Knife), key(&mut sim, Action::Lethal));
+        // Standing, the trigger fires.
+        tap_mouse(&mut sim, MouseButton::Left);
+        assert_eq!(messages::<ShotFired>(&mut sim).len(), 1, "the harness never fired standing");
+
+        // Going down to Prone blocks firing, the Knife and Equipment for the whole transition.
+        want(&mut sim, local, false, true);
+        sim.run(sim.frames(0.1));
+        assert!(blocked(&mut sim, local), "the transition never began");
+        tap_mouse(&mut sim, MouseButton::Left);
+        tap_key(&mut sim, knife);
+        tap_key(&mut sim, lethal);
+        assert!(messages::<ShotFired>(&mut sim).is_empty(), "fired mid-prone-transition");
+        assert!(sim.world_mut().get::<Knife>(local).unwrap().swing().is_none(), "swung mid-prone-transition");
+        {
+            let equipment = sim.world_mut().get::<Equipment>(local).unwrap();
+            assert!(
+                (equipment.frags, equipment.cooking.is_some()) == (2, false),
+                "threw mid-prone-transition"
+            );
+        }
+        assert!(sim.world_mut().get::<Handling>(local).is_none());
+
+        // Lying prone, once the transition is over, all three work again.
+        sim.run(sim.frames(0.7));
+        assert!(!blocked(&mut sim, local), "the block never ended");
+        tap_mouse(&mut sim, MouseButton::Left);
+        assert_eq!(messages::<ShotFired>(&mut sim).len(), 1, "never fired prone");
+        tap_key(&mut sim, knife);
+        assert!(sim.world_mut().get::<Knife>(local).unwrap().swing().is_some(), "never swung prone");
+        // The pin comes out, and letting go starts the throw from wherever the prone eye is.
+        tap_key(&mut sim, lethal);
+        sim.run(2);
+        {
+            let equipment = sim.world_mut().get::<Equipment>(local).unwrap();
+            assert_eq!(equipment.frags, 1, "the pin never came out prone");
+            assert!(equipment.cooking.is_none(), "the cook never ended");
+        }
+        assert!(sim.world_mut().get::<Handling>(local).is_some(), "the throw never started prone");
+    }
+
+    #[test]
+    fn the_sights_dip_through_a_prone_transition_and_come_back_prone_with_aim_held() {
+        let (mut sim, local, _) = fighting();
+        hold_mouse(&mut sim, MouseButton::Right);
+        sim.run(sim.frames(ADS_SECS + 0.1));
+        let aimed = |sim: &mut Sim| sim.world_mut().get::<Loadout>(local).unwrap().aim;
+        assert_eq!(aimed(&mut sim), 1.0, "the sights never came up standing");
+        // Going down to Prone lowers them the way a Reload does.
+        want(&mut sim, local, false, true);
+        sim.run(sim.frames(0.15));
+        assert!(aimed(&mut sim) < 0.5, "the sights stayed up through the prone transition");
+        // With Aim still held they come back once it's done, at the normal speed.
+        sim.run(sim.frames(0.7));
+        assert_eq!(aimed(&mut sim), 1.0, "the sights never came back prone");
+        // Letting go takes them down again.
+        release_mouse(&mut sim, MouseButton::Right);
+        sim.run(sim.frames(ADS_SECS + 0.1));
+        assert_eq!(aimed(&mut sim), 0.0);
+    }
+
+    #[test]
+    fn a_reload_carries_through_a_prone_transition() {
+        let (mut sim, local, _) = fighting();
+        let reload = key(&mut sim, Action::Reload);
+        sim.world_mut().get_mut::<Loadout>(local).unwrap().held_mut().magazine = 4;
+        tap_key(&mut sim, reload);
+        assert!(sim.world_mut().get::<Loadout>(local).unwrap().reload.is_some(), "the Reload never started");
+        // Straight down to Prone: the Reload runs on through the whole transition.
+        want(&mut sim, local, false, true);
+        sim.run(sim.frames(0.7));
+        {
+            let loadout = sim.world_mut().get::<Loadout>(local).unwrap();
+            let reload = loadout.reload.as_ref().expect("the Reload was cut short by the transition");
+            assert!(reload.elapsed >= 0.6, "the Reload stalled through the transition at {}", reload.elapsed);
+        }
+        // And finishes in its own time.
+        sim.run(sim.frames(2.0));
+        let loadout = sim.world_mut().get::<Loadout>(local).unwrap();
+        assert!(loadout.reload.is_none(), "the Reload never finished");
+        assert_eq!(loadout.held().magazine, 8, "the Magazine never filled");
+    }
+
+    #[test]
+    fn the_knife_swings_from_the_prone_eye_and_a_claymore_plants_at_the_feet() {
+        let (mut sim, local, _) = fighting();
+        let (knife, claymore) = (key(&mut sim, Action::Knife), key(&mut sim, Action::Claymore));
+        let at = sim.world_mut().get::<Transform>(local).unwrap().translation;
+        // Down to Prone, and settled.
+        want(&mut sim, local, false, true);
+        sim.run(sim.frames(0.9));
+
+        // A Claymore, planted prone, goes down at the feet.
+        {
+            let mut equipment = sim.world_mut().get_mut::<Equipment>(local).unwrap();
+            equipment.claymores_owned = true;
+            equipment.claymores = 1;
+        }
+        tap_key(&mut sim, claymore);
+        assert!(sim.world_mut().get::<Handling>(local).is_some(), "the plant never started prone");
+        sim.run(sim.frames(PLANT_SECS * 2.0));
+        assert!(sim.world_mut().get::<Handling>(local).is_none(), "the plant never finished");
+        let mut planted_query = sim.world_mut().query_filtered::<&Transform, With<Claymore>>();
+        let planted = planted_query
+            .iter(sim.world_mut())
+            .map(|transform| transform.translation)
+            .collect::<Vec<_>>();
+        assert_eq!(planted.len(), 1, "no Claymore was planted");
+        let feet = at.with_y(0.0);
+        assert!(
+            planted[0].distance(feet + Vec3::NEG_Z * 0.5) < 0.1,
+            "the Claymore went down at {planted:?}, not at the feet"
+        );
+        // Out of the way before the Zombie arrives, so it stays the Knife's hit alone.
+        let claymore = sim
+            .world_mut()
+            .query_filtered::<Entity, With<Claymore>>()
+            .single(sim.world_mut())
+            .unwrap();
+        sim.world_mut().entity_mut(claymore).despawn();
+
+        // A Zombie well inside the Knife's reach, in front of where the Player faces: the swing
+        // reaches it from the prone eye.
+        sim.spawn(feet + Vec3::NEG_Z * 1.2, None);
+        sim.run(2);
+        tap_key(&mut sim, knife);
+        let reports = messages::<HitReport>(&mut sim);
+        assert_eq!(reports.len(), 1, "the prone Knife never reached the Zombie");
+        assert_eq!((reports[0].player, reports[0].attack), (local, Attack::Knife));
+    }
+
+    #[test]
+    fn a_prone_player_buys_what_they_can_reach_from_the_prone_eye() {
+        let (mut sim, local, _) = fighting();
+        let use_key = key(&mut sim, Action::Use);
+        sim.world_mut().get_mut::<Points>(local).unwrap().balance = 1_000;
+        // A knee-high use point a step in front of the Player: in reach from the standing eye
+        // and the prone one.
+        let dummy = sim
+            .world_mut()
+            .spawn(Buyable {
+                use_point: Vec3::new(0.0, 0.4, 18.6),
+                prompt: "Test".to_string(),
+                price: Some(100),
+                range: USE_RANGE,
+            })
+            .id();
+        sim.run(2);
+        assert_eq!(sim.world_mut().resource::<Focus>().0, Some(dummy), "the Prompt never showed standing");
+        tap_key(&mut sim, use_key);
+        let bought = messages::<Purchased>(&mut sim);
+        assert_eq!(
+            bought.iter().map(|bought| (bought.player, bought.buyable)).collect::<Vec<_>>(),
+            vec![(local, dummy)],
+            "never bought standing"
+        );
+        assert_eq!(sim.world_mut().get::<Points>(local).unwrap().balance, 900);
+
+        // The same point a way up the wall: the standing eye still reaches it.
+        sim.world_mut().get_mut::<Buyable>(dummy).unwrap().use_point = Vec3::new(0.0, 2.4, 18.6);
+        sim.run(2);
+        assert_eq!(sim.world_mut().resource::<Focus>().0, Some(dummy), "the standing eye lost the high point");
+
+        // The prone eye, that much lower, doesn't: reach stays measured from the eye.
+        want(&mut sim, local, false, true);
+        sim.run(sim.frames(0.9));
+        assert_ne!(sim.world_mut().resource::<Focus>().0, Some(dummy), "the prone eye still reached the high point");
+
+        // Back where the prone eye reaches, the buy goes through just the same.
+        sim.world_mut().get_mut::<Buyable>(dummy).unwrap().use_point = Vec3::new(0.0, 0.4, 18.6);
+        sim.run(2);
+        assert_eq!(sim.world_mut().resource::<Focus>().0, Some(dummy), "the prone eye lost the low point");
+        tap_key(&mut sim, use_key);
+        let bought = messages::<Purchased>(&mut sim);
+        assert_eq!(
+            bought.iter().map(|bought| (bought.player, bought.buyable)).collect::<Vec<_>>(),
+            vec![(local, dummy)],
+            "never bought prone"
+        );
+        assert_eq!(sim.world_mut().get::<Points>(local).unwrap().balance, 800);
     }
 }

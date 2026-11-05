@@ -49,6 +49,8 @@ pub const CROUCH_EYE_HEIGHT: f32 = 1.05;
 pub const CROUCH_COLLIDER_LENGTH: f32 = 0.5;
 /// The crouched movement's factor on walk speed.
 pub const CROUCH_SPEED_MULT: f32 = 0.65;
+/// The Crouched Stance's factor on the hip spread, fresh and fully bloomed.
+pub const CROUCH_SPREAD_MULT: f32 = 0.75;
 /// Seconds of the Crouched↔Prone transition.
 pub const STANCE_PRONE_SECS: f32 = 0.4;
 /// Seconds of the Standing↔Prone transition, through Crouched.
@@ -60,6 +62,8 @@ pub const PRONE_COLLIDER_HEIGHT: f32 = 0.7;
 /// The prone Crawl's factor on walk speed. The Last Stand Crawl starts at the same value but
 /// keeps its own constant, whose rules are Last Stand's alone.
 pub const PRONE_SPEED_MULT: f32 = 0.15;
+/// The Prone Stance's factor on the hip spread, fresh and fully bloomed.
+pub const PRONE_SPREAD_MULT: f32 = 0.5;
 /// How far up a prone Player can look, in radians above level. Looking down and turning stay free.
 pub const PRONE_LOOK_UP_MAX: f32 = FRAC_PI_4;
 
