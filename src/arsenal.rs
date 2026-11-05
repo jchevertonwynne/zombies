@@ -220,6 +220,21 @@ impl ReloadTime {
             }
         }
     }
+
+    /// For a Reload that loads a bullet at a time, the unmodified `(start, per_bullet)` seconds
+    /// before the first bullet and between bullets. `None` for a Reload that lands all at once:
+    /// a Magazine swap, or the Python's speedloader from an empty cylinder.
+    pub fn steps(self, magazine: u32) -> Option<(f32, f32)> {
+        match self {
+            ReloadTime::Magazine { .. } => None,
+            ReloadTime::PerBullet {
+                start, per_bullet, ..
+            } => Some((start, per_bullet)),
+            ReloadTime::Revolver {
+                start, per_bullet, ..
+            } => (magazine > 0).then_some((start, per_bullet)),
+        }
+    }
 }
 
 /// Splash damage around an explosive's impact.
