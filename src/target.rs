@@ -7,12 +7,17 @@ use crate::last_stand::LastStand;
 use crate::map::BarrierId;
 use crate::modifier::Modifiers;
 use crate::nav::NavGraph;
-use crate::player::{LocalPlayer, Player};
+use crate::player::{LocalPlayer, Locomotion, Player, Stance};
 use crate::respawn::{AwaitingRespawn, Disconnected};
 use crate::zone::PlayerZone;
-use crate::tuning::*;
 use crate::zombie::Zombie;
 use crate::zone::ZoneId;
+
+/// How far a Player's centre sits above their feet, from their Stance: the height of the
+/// collider they currently are. A Player with no `Locomotion` (a test's stand-in) stands.
+pub fn half_height_above_feet(locomotion: Option<&Locomotion>) -> f32 {
+    locomotion.map_or(Stance::Standing.half_height(), |locomotion| locomotion.stance.half_height())
+}
 
 /// Where a Player stands and whether Zombies can go after them.
 #[derive(Debug, Clone, Copy)]
@@ -39,16 +44,29 @@ pub fn is_up(last_stand: bool, awaiting_respawn: bool, disconnected: bool) -> bo
 /// The Players on the Map.
 #[derive(SystemParam)]
 pub struct Players<'w, 's> {
-    players: Query<'w, 's, (Entity, &'static Transform, &'static PlayerZone, Has<LastStand>, Has<AwaitingRespawn>, Has<Disconnected>, Has<LocalPlayer>), (With<Player>, Without<Zombie>)>,
+    players: Query<'w, 's, (Entity, &'static Transform, &'static PlayerZone, Has<LastStand>, Has<AwaitingRespawn>, Has<Disconnected>, Has<LocalPlayer>, Option<&'static Locomotion>), (With<Player>, Without<Zombie>)>,
     modifiers: Query<'w, 's, &'static Modifiers, With<Player>>,
 }
 
 impl Players<'_, '_> {
-    fn spot((entity, transform, zone, last_stand, awaiting, disconnected, local): (Entity, &Transform, &PlayerZone, bool, bool, bool, bool)) -> PlayerSpot {
+    fn spot(
+        (entity, transform, zone, last_stand, awaiting, disconnected, local, locomotion): (
+            Entity,
+            &Transform,
+            &PlayerZone,
+            bool,
+            bool,
+            bool,
+            bool,
+            Option<&Locomotion>,
+        ),
+    ) -> PlayerSpot {
+        // The centre is the transform, which the Stance lowers along with the collider; the
+        // feet follow the same Stance, so they stay on the floor whatever shape the body is.
         PlayerSpot {
             entity,
             centre: transform.translation,
-            feet: transform.translation - Vec3::Y * (PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0),
+            feet: transform.translation - Vec3::Y * half_height_above_feet(locomotion),
             zone: zone.0,
             up: is_up(last_stand, awaiting, disconnected),
             local,

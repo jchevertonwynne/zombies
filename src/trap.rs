@@ -10,9 +10,10 @@ use crate::door::Door;
 use crate::last_stand::LastStand;
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve, resolve_points};
 use crate::perk::{Perk, Perks};
-use crate::player::{Player, PlayerHit, take_hits};
+use crate::player::{Locomotion, Player, PlayerHit, take_hits};
 use crate::power::Power;
 use crate::sapper::Sabotaged;
+use crate::target::half_height_above_feet;
 use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 use crate::zombie::{Attack, DamageZombie, Dying, HitZone, Rising, Zombie};
@@ -484,7 +485,7 @@ fn electrocute(
 fn shock_player(
     mut commands: Commands,
     mut players: Query<
-        (Entity, &Transform, &Perks, &mut Modifiers, Option<&mut Shocked>, Has<LastStand>),
+        (Entity, &Transform, &Perks, &mut Modifiers, Option<&mut Shocked>, Has<LastStand>, Option<&Locomotion>),
         With<Player>,
     >,
     traps: Query<(&Trap, &Transform)>,
@@ -492,8 +493,7 @@ fn shock_player(
     time: Res<Time>,
 ) {
     let running = running_volumes(traps.iter());
-    let half_height = PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0;
-    for (entity, transform, perks, mut modifiers, shocked, last_stand) in &mut players {
+    for (entity, transform, perks, mut modifiers, shocked, last_stand, locomotion) in &mut players {
         let mut still_shocked = false;
         if let Some(mut shocked) = shocked {
             shocked.left -= time.delta_secs();
@@ -505,6 +505,9 @@ fn shock_player(
             }
         }
 
+        // The Player's current Stance shape, not a hard-coded standing capsule: the height the
+        // Trap's volume has to reach is how far their centre sits above their feet right now.
+        let half_height = half_height_above_feet(locomotion);
         let inside = running
             .iter()
             .any(|&(centre, half)| touches(centre, half, transform.translation, PLAYER_RADIUS, half_height));
@@ -740,6 +743,30 @@ mod two_player_tests {
 
         step_into(&mut sim, trap, teammate);
         assert!(downed(&mut sim, 3).contains(&teammate), "the buyer walked in and wasn't Downed");
+    }
+
+    #[test]
+    fn a_running_trap_tests_the_players_current_stance_shape() {
+        use crate::player::{MoveInput, Stance};
+        let (mut sim, _local, teammate, trap, _) = setup();
+        sim.world_mut().get_mut::<MoveInput>(teammate).unwrap().crouch = true;
+        sim.run(10);
+        assert_eq!(sim.world_mut().get::<Locomotion>(teammate).unwrap().stance, Stance::Crouched);
+        let mut trap_state = sim.world_mut().get_mut::<Trap>(trap).unwrap();
+        trap_state.phase = TrapPhase::Running(0.0);
+        trap_state.activator = Some(teammate);
+        drop(trap_state);
+        // Hover the volume over the teammate's head, clear of the local Player: out of the
+        // Crouched body's reach — nothing about the Stance reaches it — where the standing
+        // capsule the Trap used to test would still touch.
+        let at = sim.world_mut().get::<Transform>(teammate).unwrap().translation;
+        let (x, z) = (at.x, at.z);
+        *sim.world_mut().get_mut::<Transform>(trap).unwrap() = Transform::from_xyz(x, 3.0, z);
+        assert!(downed(&mut sim, 5).is_empty(), "the running Trap reached a Crouched body it doesn't touch");
+        // Down on the floor where the Trap stands, the same Crouched body is inside it: nobody
+        // ducks under a running Trap.
+        *sim.world_mut().get_mut::<Transform>(trap).unwrap() = Transform::from_xyz(x, TRAP_SIZE.y / 2.0, z);
+        assert!(downed(&mut sim, 3).contains(&teammate), "the running Trap let a Crouched Player duck under");
     }
 
     #[test]

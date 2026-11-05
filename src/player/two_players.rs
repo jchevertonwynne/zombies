@@ -338,3 +338,48 @@ fn a_claymore_hurts_no_player_and_pays_its_owner() {
     assert!(earned(&mut sim, local) > 0, "the owner wasn't paid");
     assert_eq!(earned(&mut sim, teammate), 0);
 }
+
+/// Knee-high cover between the teammate — standing where Seat 1 puts them — and a blast on its
+/// far side.
+fn low_cover(sim: &mut Sim) {
+    use avian3d::prelude::{CollisionLayers, RigidBody};
+    use crate::layers::GameLayer;
+    sim.world_mut().spawn((
+        RigidBody::Static,
+        Collider::cuboid(0.1, 0.8, 4.0),
+        Transform::from_xyz(-3.9, 0.4, 20.0),
+        CollisionLayers::new(GameLayer::World, LayerMask::ALL),
+    ));
+}
+
+#[test]
+fn a_crouched_player_is_shielded_from_their_own_blast_by_low_cover() {
+    let (mut sim, _local, teammate) = explosive_players();
+    low_cover(&mut sim);
+    // The blast goes off on the cover's far side at standing chest height: in reach of a
+    // standing Player's centre, over a Crouched one's head.
+    let own_blast = |sim: &mut Sim| {
+        sim.send(Explosion {
+            at: Vec3::new(-5.2, 0.9, 20.0),
+            thrower: Some(teammate),
+            splash: FRAG_SPLASH,
+            hurts_player: true,
+            ammo_mods: AmmoMods::NONE,
+            crawlers: false,
+        });
+        let mut hurt = Vec::new();
+        for _ in 0..4 {
+            sim.run(1);
+            hurt.extend(sim.world_mut().resource_mut::<Messages<PlayerHit>>().drain().map(|hit| hit.player));
+        }
+        hurt
+    };
+    // Crouched, the blast is measured to the real lowered centre, and the cover shields it.
+    sim.world_mut().get_mut::<MoveInput>(teammate).unwrap().crouch = true;
+    sim.run(10);
+    assert!(own_blast(&mut sim).is_empty(), "the low cover didn't shield the Crouched Player");
+    // Standing back up, the same blast reaches them.
+    sim.world_mut().get_mut::<MoveInput>(teammate).unwrap().crouch = false;
+    sim.run(10);
+    assert_eq!(own_blast(&mut sim), [teammate], "the blast missed the standing Player");
+}

@@ -1212,4 +1212,52 @@ mod tests {
             }
         }
     }
+
+    /// The Napalm's death blast measured against a Crouched Player: twice, once with the Player
+    /// Crouched behind knee-high cover, once stood up behind the same cover.
+    #[test]
+    fn a_napalms_blast_is_measured_to_the_players_real_lowered_centre() {
+        use crate::layers::GameLayer;
+        use crate::player::two_players::{place, two_players_with};
+        use crate::player::{Locomotion, MoveInput, Stance};
+        use crate::zombie::headless::Sim;
+        // Just the Napalm's death blast, without the rest of the special slot.
+        let (mut sim, local, teammate) = two_players_with(|app| {
+            app.insert_resource(SpecialSlot::new(*NAPALM_FIRST_ROUNDS.start(), *SHRIEKER_FIRST_ROUNDS.start()))
+                .add_message::<Shellshock>()
+                .add_systems(Startup, load_assets)
+                .add_systems(Update, special_deaths);
+        });
+        // The local Player stands well clear, so the blast is the teammate's alone.
+        place(&mut sim, local, Vec3::new(10.0, 0.0, 24.0));
+        // Knee-high cover between the teammate and where the Napalm dies.
+        sim.world_mut().spawn((
+            RigidBody::Static,
+            Collider::cuboid(0.1, 0.75, 4.0),
+            Transform::from_xyz(-3.6, 0.375, 20.0),
+            CollisionLayers::new(GameLayer::World, LayerMask::ALL),
+        ));
+        sim.world_mut().get_mut::<MoveInput>(teammate).unwrap().crouch = true;
+        sim.run(10);
+        assert_eq!(sim.world_mut().get::<Locomotion>(teammate).unwrap().stance, Stance::Crouched);
+
+        // A Napalm dies on the cover's far side, and every Player its blast reaches is hit.
+        let blast = |sim: &mut Sim| {
+            let napalm = sim.spawn(Vec3::new(-5.2, 0.0, 20.0), None);
+            sim.world_mut().get_mut::<Zombie>(napalm).unwrap().become_special(SpecialKind::Napalm);
+            sim.world_mut().entity_mut(napalm).insert(Dying::default());
+            let mut hit = Vec::new();
+            for _ in 0..4 {
+                sim.run(1);
+                hit.extend(sim.world_mut().resource_mut::<Messages<PlayerHit>>().drain().map(|hit| hit.player));
+            }
+            hit
+        };
+        // Crouched, the blast measures the real lowered centre, and the cover shields it.
+        assert!(blast(&mut sim).is_empty(), "the low cover didn't shield the Crouched Player");
+        // Standing back up, the same blast reaches them.
+        sim.world_mut().get_mut::<MoveInput>(teammate).unwrap().crouch = false;
+        sim.run(10);
+        assert_eq!(blast(&mut sim), [teammate], "the blast missed the standing Player");
+    }
 }
