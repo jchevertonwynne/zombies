@@ -193,6 +193,9 @@ fn spin_box(run: &mut Run, spinner: usize) {
 #[test]
 fn the_box_weapon_is_offered_to_the_spinner_alone() {
     let mut run = Run::new(2);
+    // No Teddy Bear, so the spin always offers a Weapon.
+    let host_box = run.find::<MysteryBox>(0, |_| true);
+    run.world(0).get_mut::<MysteryBox>(host_box).unwrap().teddy = false;
     run.give_points(1, 5000);
     run.give_points(2, 5000);
     spin_box(&mut run, 1);
