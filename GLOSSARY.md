@@ -2,6 +2,16 @@
 
 **Player**: A human-controlled survivor, viewed in first person. A Run has one Player when solo, or two to four in Co-op, each on their own machine.
 
+**Stance**: How upright a Player is: Standing, Crouched or Prone. Lying on the ground in a Last Stand is not a Stance.
+_Avoid_: posture, pose
+
+**Crouch**: To lower into the Crouched Stance, or the key that does it.
+
+**Prone**: To lie flat in the Prone Stance, or the key that does it. A Player in a Last Stand is Down, not Prone.
+
+**Dive**: Going Prone straight out of a sprint, with a lunge forward.
+_Avoid_: dolphin dive, flop
+
 **Co-op**: A Run played by two to four Players together online. Whether a Run is solo or Co-op is fixed by how many Players it starts with, and stays fixed even if some leave.
 _Avoid_: multiplayer, online mode
 
