@@ -30,8 +30,23 @@ pub struct Reviving {
 }
 
 impl Reviving {
+    /// A Revive as the Host tells it, on a machine that doesn't count holds: `elapsed` of `needed`
+    /// seconds gone.
+    pub fn shown(target: Entity, elapsed: f32, needed: f32) -> Self {
+        Self { target, elapsed, needed }
+    }
+
+    /// Runs the hold on, as a machine that only shows it does. It never completes it.
+    pub fn advance_shown(&mut self, dt: f32) {
+        self.elapsed = (self.elapsed + dt).min(self.needed);
+    }
+
+    /// Seconds into the hold, and how many it takes.
+    pub fn timing(&self) -> (f32, f32) {
+        (self.elapsed, self.needed)
+    }
+
     /// How far through the Revive it is, 0 to 1.
-    #[allow(dead_code, reason = "read by the HUD once it shows a Revive in progress")]
     pub fn progress(&self) -> f32 {
         (self.elapsed / self.needed).min(1.0)
     }

@@ -45,7 +45,7 @@ fn count(
 
 /// One game of the Run: the Map and all `seats` Players, the one in `local` the `LocalPlayer`, and
 /// the machines these tests use.
-fn game(local: u8, seats: u8, install: impl FnOnce(&mut App)) -> App {
+fn game(local: u8, seats: u8, extra: &dyn Fn(&mut App), install: impl FnOnce(&mut App)) -> App {
     machine(local, seats, |app| {
         app.init_resource::<Seen>()
             .init_resource::<GunModels>()
@@ -54,6 +54,7 @@ fn game(local: u8, seats: u8, install: impl FnOnce(&mut App)) -> App {
             .add_plugins((DoorPlugin, PowerPlugin, MysteryBoxPlugin, PackAPunchPlugin, WallWeaponPlugin, TrapPlugin))
             .add_systems(Update, (resolve_use.in_set(HostSimulation), count))
             .add_systems(Update, give_perks);
+        extra(app);
         install(app);
     })
 }
@@ -66,15 +67,20 @@ pub(super) struct Run {
 
 impl Run {
     pub(super) fn new(clients: u8) -> Self {
+        Self::with(clients, &|_| {})
+    }
+
+    /// The same, with `extra` added to every game before it starts.
+    pub(super) fn with(clients: u8, extra: &dyn Fn(&mut App)) -> Self {
         let hub = Hub::new(1, 0.0);
         let seats = clients + 1;
         let host_link = hub.host();
         let links: Vec<_> = (0..clients).map(|_| hub.join()).collect();
         let remotes: Vec<(Peer, u8)> = links.iter().map(|link| (link.peer(), link.peer() as u8)).collect();
-        let mut apps = vec![game(0, seats, |app| install_host(app, host_link, remotes))];
+        let mut apps = vec![game(0, seats, extra, |app| install_host(app, host_link, remotes))];
         for link in links {
             let seat = link.peer() as u8;
-            apps.push(game(seat, seats, |app| install_client(app, link)));
+            apps.push(game(seat, seats, extra, |app| install_client(app, link)));
         }
         let mut run = Run { hub, apps };
         run.step(30);

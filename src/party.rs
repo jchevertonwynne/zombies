@@ -16,10 +16,13 @@ use crate::leave_run::PlayerLeft;
 use crate::map::MapId;
 use crate::mode::Mode;
 use crate::net::link::Link;
-use crate::net::play::{self, HostSaid, PlayPlugin, Roster, Wire};
-use crate::net::protocol::{HOST, Peer, RoomView, ToHost, ToPlayer, encode};
+use crate::net::play::{self, HostSaid, PlayPlugin, Roster, Scoreboard, Wire};
+use crate::net::protocol::{HOST, Peer, RoomView, Score, ToHost, ToPlayer, encode};
 use crate::net::room::{Hosting, Joining, Room};
-use crate::player::Seat;
+use crate::gauntlet::PlayerUnlocks;
+use crate::player::{Player, PlayerName, Seat};
+use crate::points::Points;
+use crate::stats::RunStats;
 use crate::state::{GameState, MainMenuScreen};
 
 /// How far a Run has got in starting.
@@ -133,13 +136,49 @@ fn launch(
     }
 }
 
-/// Game Over: the Host tells every Player, and the Run is over for each of them.
-fn run_over(party: Option<ResMut<Party>>, roster: Option<Res<Roster>>, wire: Option<ResMut<Wire>>) {
+/// Game Over: the Host tells every Player how each did and that the Run is over, and keeps the
+/// scoreboard itself.
+fn run_over(
+    party: Option<ResMut<Party>>,
+    roster: Option<Res<Roster>>,
+    wire: Option<ResMut<Wire>>,
+    players: Query<(&Seat, &PlayerName, &RunStats, &Points), With<Player>>,
+    mut scoreboard: ResMut<Scoreboard>,
+) {
     let Some(mut party) = party else { return };
     party.over = true;
     if let (Some(roster), Some(mut wire)) = (roster, wire) {
+        let mut rows: Vec<Score> = players
+            .iter()
+            .map(|(seat, name, stats, points)| Score {
+                name: name.0.clone(),
+                seat: seat.0,
+                kills: stats.kills,
+                downs: stats.downs,
+                revives: stats.revives,
+                points_earned: points.earned,
+            })
+            .collect();
+        rows.sort_by_key(|row| row.seat);
         for &(peer, _) in &roster.0 {
+            wire.0.send(peer, encode(&ToPlayer::Scoreboard(rows.clone())));
             wire.0.send(peer, encode(&ToPlayer::RunOver));
+        }
+        scoreboard.0 = rows;
+    }
+}
+
+/// A remote Player's Offers are drawn from the Unlocks they brought to the Room, not the Host's.
+fn remote_unlocks(
+    party: Option<Res<Party>>,
+    mut players: Query<(&Seat, &mut PlayerUnlocks), Added<PlayerUnlocks>>,
+) {
+    let Some(room) = party.as_ref().and_then(|party| party.room.as_ref()) else { return };
+    for (seat, mut unlocks) in &mut players {
+        if seat.0 != 0
+            && let Some(brought) = room.unlocks(seat.0)
+        {
+            unlocks.0 = brought.unlocked.clone();
         }
     }
 }
@@ -270,7 +309,7 @@ impl Plugin for PartyPlugin {
                 Update,
                 (
                     launch.run_if(launching),
-                    (hear_host, free_seat),
+                    (hear_host, free_seat, remote_unlocks),
                     back_to_room.run_if(wants_back),
                 )
                     .chain(),
@@ -454,11 +493,21 @@ mod tests {
             frames(&hub, &mut apps, 12);
             assert_in_run(&mut apps);
 
-            // Every Player is down: each machine reaches Game Over.
-            apps[0].world_mut().resource_mut::<NextState<GameState>>().set(GameState::GameOver);
+            // Every Player is down: the Host's rule ends the Run, and each machine reaches Game Over
+            // with the scoreboard.
+            let world = apps[0].world_mut();
+            let mut players = world.query_filtered::<Entity, With<Player>>();
+            let all: Vec<Entity> = players.iter(world).collect();
+            for player in all {
+                world.entity_mut(player).insert(crate::last_stand::LastStand::shown(10.0, true));
+            }
+            bevy::ecs::system::RunSystemOnce::run_system_once(world, crate::respawn::game_over_when_none_up).unwrap();
             frames(&hub, &mut apps, 12);
             for app in &apps {
                 assert_eq!(state(app), GameState::GameOver);
+                let board = &app.world().resource::<play::Scoreboard>().0;
+                let seats: Vec<u8> = board.iter().map(|row| row.seat).collect();
+                assert_eq!(seats, (0..=joiners as u8).collect::<Vec<_>>());
             }
 
             // The Host goes back to the Room, and the rest are brought with it.

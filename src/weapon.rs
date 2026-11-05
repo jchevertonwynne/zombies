@@ -216,6 +216,8 @@ pub enum HostOp {
     MaxAmmo,
     /// The slots grew or shrank to this many.
     Slots(usize),
+    /// The whole Loadout was swapped for another (a Down, a Revive, a Respawn).
+    Replace,
 }
 
 /// The most `HostOp`s kept at once; a game that never reads them (a Host's own) drops the oldest.
@@ -289,6 +291,34 @@ impl Loadout {
             self.host_ops.remove(0);
         }
         self.host_ops.push(op);
+    }
+
+    /// Swaps in a whole other Loadout, as a Down, a Revive or a Respawn does, and hands back the one
+    /// it replaced. What was done to the old one and not yet told stays to be told, then this.
+    pub fn replace(&mut self, mut other: Loadout) -> Loadout {
+        other.host_ops = std::mem::take(&mut self.host_ops);
+        other.did(HostOp::Replace);
+        std::mem::replace(self, other)
+    }
+
+    /// Every slot as it stands, empty ones included: a whole Loadout as the Host tells it.
+    pub fn slots(&self) -> &[Option<WeaponCopy>] {
+        &self.slots
+    }
+
+    /// Takes the Host's word that these are the slots now and `held` the one in hand, bringing it up.
+    pub fn show_all(&mut self, slots: Vec<Option<WeaponCopy>>, held: usize) {
+        if slots.is_empty() {
+            return;
+        }
+        self.slots = slots;
+        self.held = held.min(self.slots.len() - 1);
+        if self.slots[self.held].is_none()
+            && let Some(filled) = self.slots.iter().position(Option::is_some)
+        {
+            self.held = filled;
+        }
+        self.raise();
     }
 
     /// Takes a filled slot in hand with no swap shown, as a teammate's switch is heard: the Host's
