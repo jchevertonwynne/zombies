@@ -647,6 +647,20 @@ mod tests {
     }
 
     #[test]
+    fn reach_stays_measured_from_the_eye_so_prone_reaches_less_far_upward() {
+        // A use point a way up a wall, dead ahead: the standing eye reaches it within the angle...
+        let high = Vec3::new(0.0, 2.4, -1.4);
+        assert!(reach(EYE, AHEAD, high, USE_RANGE).is_some());
+        // ...and the prone eye, `PRONE_EYE_HEIGHT` above the feet, is too far below it.
+        let prone_eye = Vec3::new(0.0, PRONE_EYE_HEIGHT, 0.0);
+        assert!(reach(prone_eye, AHEAD, high, USE_RANGE).is_none(), "the prone eye reached the high point");
+        // A knee-high one, both reach.
+        let low = Vec3::new(0.0, 0.4, -1.4);
+        assert!(reach(EYE, AHEAD, low, USE_RANGE).is_some());
+        assert!(reach(prone_eye, AHEAD, low, USE_RANGE).is_some());
+    }
+
+    #[test]
     fn the_buyable_closest_to_the_crosshair_wins() {
         let candidates = [
             ("near but off to the side", EYE + Vec3::new(0.6, 0.0, -0.8), USE_RANGE),

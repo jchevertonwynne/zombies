@@ -418,11 +418,11 @@ pub struct PlayerHit {
 }
 
 /// Whether the local Player is clear to fire: not mid-prone-transition and not in a Dive's
-/// landing recovery. Going down to Prone or getting up from it blocks firing until the
-/// transition is done, and a Dive blocks from its launch through `DIVE_RECOVERY_SECS` after
-/// landing; crouch transitions block nothing, and no prone lock applies while Down — Last
-/// Stand's own rules don't change. (The Knife and Equipment join the block in the
-/// fighting-by-stance slice; aiming reads `not_recovering_from_dive` for its share.)
+/// landing recovery. Going down to Prone or getting up from it blocks firing — and the Knife
+/// and Equipment, which count as firing — until the transition is done, and a Dive blocks from
+/// its launch through `DIVE_RECOVERY_SECS` after landing; crouch transitions block nothing, and
+/// no prone lock applies while Down — Last Stand's own rules don't change. (Aiming reads
+/// `not_recovering_from_dive` for its share.)
 pub fn not_changing_prone(players: Query<(&Locomotion, Has<LastStand>), With<LocalPlayer>>) -> bool {
     players.iter().all(|(locomotion, last_stand)| {
         last_stand || (!locomotion.prone_transition() && !locomotion.recovering_from_dive())
@@ -432,7 +432,6 @@ pub fn not_changing_prone(players: Query<(&Locomotion, Has<LastStand>), With<Loc
 /// Whether the local Player is out of a Dive's landing recovery, so aiming down sights is clear:
 /// the recovery blocks aiming (with firing and stance changes) until `DIVE_RECOVERY_SECS` after
 /// landing, and no Dive lock applies while Down.
-#[allow(dead_code, reason = "the weapon side's aiming gate reads it in the fighting-by-stance slice")]
 pub fn not_recovering_from_dive(players: Query<(&Locomotion, Has<LastStand>), With<LocalPlayer>>) -> bool {
     players.iter().all(|(locomotion, last_stand)| last_stand || !locomotion.recovering_from_dive())
 }
