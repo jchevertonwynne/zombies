@@ -1,7 +1,9 @@
 //! Run Records, the Records boards and Lifetime Stats, kept in `records.ron`.
 //!
-//! A Run Record is written when a Run ends, at Game Over or on quit (to the Main Menu or by closing
-//! the window). A crash loses it: there are no mid-Run saves.
+//! A Run Record is written when a Run ends for this machine's Player: Game Over, quit (to the Main
+//! Menu, Leave Run, or closing the window), or the Host leaving for good. It's written once per Run
+//! (see [`RunRecorded`]), so a drop and Rejoin saves only the real end. A crash loses it: there are
+//! no mid-Run saves.
 
 use std::cmp::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -11,7 +13,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::map::MapId;
 use crate::mode::Mode;
-use crate::player::LocalPlayer;
+use crate::net::play::Scoreboard;
+use crate::player::{LocalPlayer, Player, PlayerName, Seat, SpawnPlayers};
+use crate::state::RunType;
 use crate::points::Points;
 use crate::round::Round;
 use crate::save::{self, SaveFile};
@@ -36,12 +40,62 @@ pub struct RunRecord {
     pub points_earned: u64,
     /// Game-time survived in seconds, with the world's frozen time left out.
     pub survived_secs: f64,
+    /// How many Players the Run started with: Records are kept per count. Old saves are 1.
+    #[serde(default = "solo_players")]
+    pub players: u8,
+    /// Teammates this Player got up. Always 0 in solo.
+    #[serde(default)]
+    pub revives: u32,
+    /// The other Players, from the Host's scoreboard. Empty in solo.
+    #[serde(default)]
+    pub teammates: Vec<Teammate>,
+    /// Whether the Run reached its Gauntlet Win while this Player was in it. Nothing sets it until
+    /// the Win exists.
+    #[serde(default)]
+    pub won: bool,
+    /// The Host's Heat, once Heat exists.
+    #[serde(default)]
+    pub heat: Option<u32>,
     /// Lines a Mode layered on Classic adds to its Run Records, in the order it added them (see
     /// [`RecordExtras`]), then one for each Special Zombie type switched off during the Run (see
     /// [`off_extras`]). A faithful Classic Run leaves this empty.
     #[serde(default)]
     pub extras: Vec<RecordExtra>,
 }
+
+fn solo_players() -> u8 {
+    1
+}
+
+/// A teammate on a Run Record: what the Host counted for them.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Teammate {
+    pub name: String,
+    pub seat: u8,
+    pub kills: u32,
+    pub downs: u32,
+    pub revives: u32,
+    pub points_earned: u64,
+}
+
+/// How many Players the current Run started with, fixed when it begins.
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RunPlayers(pub u8);
+
+impl Default for RunPlayers {
+    fn default() -> Self {
+        Self(1)
+    }
+}
+
+/// Whether the current Run's Record is already saved, so each Run saves one.
+#[derive(Resource, Default)]
+pub struct RunRecorded(pub bool);
+
+/// Saves this Player's Record now, if the Run's isn't saved yet. For a Run that ends for them
+/// without leaving `Playing`: the Rejoin screen's "leave" writes it.
+#[derive(Message)]
+pub struct SaveRecord;
 
 /// One extra line on a Run Record: a stable ID and a count.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -96,7 +150,12 @@ pub fn rank_order(a: &RunRecord, b: &RunRecord) -> Ordering {
         .then(a.survived_secs.total_cmp(&b.survived_secs))
 }
 
-/// The best [`RECORDS_KEPT`] Run Records for each (Map, Mode).
+/// Whether two Run Records are on the same board.
+fn same_board(a: &RunRecord, b: &RunRecord) -> bool {
+    a.map == b.map && a.mode == b.mode && a.players == b.players
+}
+
+/// The best [`RECORDS_KEPT`] Run Records for each (Map, Mode, Player count).
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct Records {
     /// Best first. Within one (Map, Mode), equal Runs keep the order they were added in.
@@ -104,11 +163,11 @@ pub struct Records {
 }
 
 impl Records {
-    /// One (Map, Mode)'s Records, best first.
-    pub fn board(&self, map: MapId, mode: Mode) -> impl Iterator<Item = &RunRecord> {
+    /// One (Map, Mode, Player count)'s Records, best first.
+    pub fn board(&self, map: MapId, mode: Mode, players: u8) -> impl Iterator<Item = &RunRecord> {
         self.runs
             .iter()
-            .filter(move |run| run.map == map && run.mode == mode)
+            .filter(move |run| run.map == map && run.mode == mode && run.players == players)
     }
 
     /// Adds a Run Record. Returns its rank (0 = best) if it made its board, which may push that
@@ -119,14 +178,14 @@ impl Records {
             .partition_point(|run| rank_order(run, &record) != Ordering::Greater);
         let rank = self.runs[..at]
             .iter()
-            .filter(|run| run.map == record.map && run.mode == record.mode)
+            .filter(|run| same_board(run, &record))
             .count();
         if rank >= RECORDS_KEPT {
             return None;
         }
-        let (map, mode) = (record.map, record.mode);
+        let (map, mode, players) = (record.map, record.mode, record.players);
         self.runs.insert(at, record);
-        self.keep_best(map, mode);
+        self.keep_best(map, mode, players);
         Some(rank)
     }
 
@@ -135,20 +194,20 @@ impl Records {
         self.runs.sort_by(rank_order);
         let mut seen = Vec::new();
         for run in &self.runs {
-            if !seen.contains(&(run.map, run.mode)) {
-                seen.push((run.map, run.mode));
+            if !seen.contains(&(run.map, run.mode, run.players)) {
+                seen.push((run.map, run.mode, run.players));
             }
         }
-        for (map, mode) in seen {
-            self.keep_best(map, mode);
+        for (map, mode, players) in seen {
+            self.keep_best(map, mode, players);
         }
     }
 
     /// Drops whatever ranks below a board's last kept Record.
-    fn keep_best(&mut self, map: MapId, mode: Mode) {
+    fn keep_best(&mut self, map: MapId, mode: Mode, players: u8) {
         let mut kept = 0;
         self.runs.retain(|run| {
-            if run.map != map || run.mode != mode {
+            if run.map != map || run.mode != mode || run.players != players {
                 return true;
             }
             kept += 1;
@@ -157,11 +216,13 @@ impl Records {
     }
 }
 
-/// The highest Round reached on one (Map, Mode).
+/// The highest Round reached on one (Map, Mode, Player count).
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct BestRound {
     pub map: MapId,
     pub mode: Mode,
+    #[serde(default = "solo_players")]
+    pub players: u8,
     pub round: u32,
 }
 
@@ -175,6 +236,15 @@ pub struct LifetimeStats {
     pub points_earned: u64,
     pub time_played_secs: f64,
     pub best_rounds: Vec<BestRound>,
+    /// Teammates this Player has got up, over every Co-op Run.
+    #[serde(default)]
+    pub revives: u64,
+    /// Runs that reached their Gauntlet Win with this Player in them.
+    #[serde(default)]
+    pub wins: u32,
+    /// The highest Heat a Win was had at.
+    #[serde(default)]
+    pub highest_heat_won: u32,
 }
 
 impl LifetimeStats {
@@ -186,25 +256,29 @@ impl LifetimeStats {
         self.downs = self.downs.saturating_add(record.downs.into());
         self.points_earned = self.points_earned.saturating_add(record.points_earned);
         self.time_played_secs += record.survived_secs;
-        match self
-            .best_rounds
-            .iter_mut()
-            .find(|best| best.map == record.map && best.mode == record.mode)
-        {
+        self.revives = self.revives.saturating_add(record.revives.into());
+        if record.won {
+            self.wins = self.wins.saturating_add(1);
+            self.highest_heat_won = self.highest_heat_won.max(record.heat.unwrap_or(0));
+        }
+        match self.best_rounds.iter_mut().find(|best| {
+            best.map == record.map && best.mode == record.mode && best.players == record.players
+        }) {
             Some(best) => best.round = best.round.max(record.round),
             None => self.best_rounds.push(BestRound {
                 map: record.map,
                 mode: record.mode,
+                players: record.players,
                 round: record.round,
             }),
         }
     }
 
-    /// The highest Round reached on a (Map, Mode), if it's been played.
-    pub fn best_round(&self, map: MapId, mode: Mode) -> Option<u32> {
+    /// The highest Round reached on a (Map, Mode, Player count), if it's been played.
+    pub fn best_round(&self, map: MapId, mode: Mode, players: u8) -> Option<u32> {
         self.best_rounds
             .iter()
-            .find(|best| best.map == map && best.mode == mode)
+            .find(|best| best.map == map && best.mode == mode && best.players == players)
             .map(|best| best.round)
     }
 }
@@ -297,6 +371,20 @@ impl Plugin for RecordsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<RecordExtras>()
             .init_resource::<RunSpecialZombies>()
+            .init_resource::<RunPlayers>()
+            .init_resource::<RunRecorded>()
+            .add_message::<SaveRecord>()
+            // After the Players are spawned, so the count is the Players the Run starts with.
+            .add_systems(
+                OnEnter(GameState::Playing),
+                (|mut recorded: ResMut<RunRecorded>,
+                  mut run: ResMut<RunPlayers>,
+                  players: Query<(), With<Player>>| {
+                    recorded.0 = false;
+                    run.0 = players.iter().count().clamp(1, 4) as u8;
+                })
+                .after(SpawnPlayers),
+            )
             .add_systems(Startup, load_records)
             .add_systems(
                 OnEnter(GameState::Playing),
@@ -326,6 +414,12 @@ impl Plugin for RecordsPlugin {
                     .run_if(on_message::<AppExit>)
                     .run_if(in_state(GameState::Playing)),
             )
+            .add_systems(
+                Update,
+                record_run
+                    .run_if(on_message::<SaveRecord>)
+                    .run_if(in_state(GameState::Playing)),
+            )
             .add_systems(Update, save_records.run_if(resource_changed::<RecordsFile>));
     }
 }
@@ -350,13 +444,28 @@ pub fn record_run(
     map: Res<MapId>,
     mode: Res<Mode>,
     round: Option<Res<Round>>,
-    player: Single<(&RunStats, &Points), With<LocalPlayer>>,
+    player: Single<(&RunStats, &Points, Option<&Seat>), With<LocalPlayer>>,
+    (players, mut recorded, scoreboard, run_type): (
+        Res<RunPlayers>,
+        ResMut<RunRecorded>,
+        Res<Scoreboard>,
+        Res<RunType>,
+    ),
+    others: Query<(&Seat, &PlayerName, &RunStats, &Points), (With<Player>, Without<LocalPlayer>)>,
     extras: Res<RecordExtras>,
     switches: Res<RunSpecialZombies>,
     mut file: ResMut<RecordsFile>,
     dir: Res<SaveDir>,
 ) {
-    let (stats, points) = *player;
+    if std::mem::replace(&mut recorded.0, true) {
+        return;
+    }
+    let (stats, points, seat) = *player;
+    let teammates = if run_type.is_coop() {
+        teammates(&scoreboard, seat, &others)
+    } else {
+        Vec::new()
+    };
     let date = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |since| since.as_secs());
@@ -371,12 +480,57 @@ pub fn record_run(
         downs: stats.downs,
         points_earned: points.earned,
         survived_secs: stats.survived_secs,
+        players: players.0,
+        revives: stats.revives,
+        teammates,
+        won: false,
+        heat: None,
         extras: extras.0.iter().cloned().chain(off_extras(&switches.0)).collect(),
     };
     let rank = file.add(record.clone());
     // Stored straight away as well as on change, so it lands even if the app is exiting.
     store(&file, &dir);
     commands.insert_resource(LastRun { record, rank });
+}
+
+/// The other Players: the Host's end-of-Run scoreboard if it has come, otherwise (a Run that ends
+/// early on the Host) the Players as they stand.
+fn teammates(
+    scoreboard: &Scoreboard,
+    own: Option<&Seat>,
+    live: &Query<(&Seat, &PlayerName, &RunStats, &Points), (With<Player>, Without<LocalPlayer>)>,
+) -> Vec<Teammate> {
+    if !scoreboard.0.is_empty() {
+        return teammates_from(&scoreboard.0, own.copied());
+    }
+    let mut rows: Vec<Teammate> = live
+        .iter()
+        .map(|(seat, name, stats, points)| Teammate {
+            name: name.0.clone(),
+            seat: seat.0,
+            kills: stats.kills,
+            downs: stats.downs,
+            revives: stats.revives,
+            points_earned: points.earned,
+        })
+        .collect();
+    rows.sort_by_key(|row| row.seat);
+    rows
+}
+
+/// The scoreboard's rows without this Player's own.
+pub fn teammates_from(rows: &[crate::net::protocol::Score], own: Option<Seat>) -> Vec<Teammate> {
+    rows.iter()
+        .filter(|row| Some(row.seat) != own.map(|seat| seat.0))
+        .map(|row| Teammate {
+            name: row.name.clone(),
+            seat: row.seat,
+            kills: row.kills,
+            downs: row.downs,
+            revives: row.revives,
+            points_earned: row.points_earned,
+        })
+        .collect()
 }
 
 fn save_records(file: Res<RecordsFile>, dir: Res<SaveDir>) {
@@ -410,13 +564,18 @@ mod tests {
             downs: 1,
             points_earned: 0,
             survived_secs,
+            players: 1,
+            revives: 0,
+            teammates: Vec::new(),
+            won: false,
+            heat: None,
             extras: Vec::new(),
         }
     }
 
     fn rounds(records: &Records, mode: Mode) -> Vec<(u32, f64)> {
         records
-            .board(MapId::Greybox, mode)
+            .board(MapId::Greybox, mode, 1)
             .map(|run| (run.round, run.survived_secs))
             .collect()
     }
@@ -536,14 +695,14 @@ mod tests {
             mode: Mode::Gauntlet,
             ..run(2, 0.0)
         });
-        assert_eq!(lifetime.best_round(MapId::Greybox, Mode::Classic), Some(9));
-        assert_eq!(lifetime.best_round(MapId::Greybox, Mode::Gauntlet), Some(2));
+        assert_eq!(lifetime.best_round(MapId::Greybox, Mode::Classic, 1), Some(9));
+        assert_eq!(lifetime.best_round(MapId::Greybox, Mode::Gauntlet, 1), Some(2));
     }
 
     #[test]
     fn an_unplayed_map_and_mode_has_no_best_round() {
         assert_eq!(
-            LifetimeStats::default().best_round(MapId::Greybox, Mode::Classic),
+            LifetimeStats::default().best_round(MapId::Greybox, Mode::Classic, 1),
             None
         );
     }
@@ -597,7 +756,84 @@ mod tests {
                     lifetime: (runs: 0, kills: 0, headshots: 0, downs: 0, points_earned: 0, \
                     time_played_secs: 0.0, best_rounds: []))";
         let file = save::parse::<RecordsFile>(text).unwrap();
-        assert_eq!(file.records.board(MapId::Greybox, Mode::Classic).count(), 1);
+        assert_eq!(file.records.board(MapId::Greybox, Mode::Classic, 1).count(), 1);
+    }
+
+    #[test]
+    fn an_old_save_loads_as_one_player_records() {
+        let text = "(version: 1, records: (runs: [(map: Greybox, mode: Classic, date: 0, round: 3, \
+                    kills: 9, headshots: 2, downs: 1, points_earned: 900, survived_secs: 61.0)]), \
+                    lifetime: (runs: 1, kills: 9, headshots: 2, downs: 1, points_earned: 900, \
+                    time_played_secs: 61.0, best_rounds: [(map: Greybox, mode: Classic, round: 3)]))";
+        let file = save::parse::<RecordsFile>(text).unwrap();
+        let run = file.records.board(MapId::Greybox, Mode::Classic, 1).next().unwrap();
+        assert_eq!((run.players, run.revives, run.won), (1, 0, false));
+        assert!(run.teammates.is_empty());
+        assert_eq!(file.records.board(MapId::Greybox, Mode::Classic, 2).count(), 0);
+        assert_eq!(file.lifetime.best_round(MapId::Greybox, Mode::Classic, 1), Some(3));
+        assert_eq!(file.lifetime.revives, 0);
+    }
+
+    #[test]
+    fn records_split_by_player_count() {
+        let mut records = Records::default();
+        for round in 1..=10 {
+            records.add(run(round, 0.0));
+        }
+        let duo = RunRecord { players: 2, ..run(1, 0.0) };
+        assert_eq!(records.add(duo), Some(0), "a 2-Player Run isn't ranked against solo ones");
+        assert_eq!(records.board(MapId::Greybox, Mode::Classic, 1).count(), 10);
+        assert_eq!(records.board(MapId::Greybox, Mode::Classic, 2).count(), 1);
+        assert_eq!(records.board(MapId::Greybox, Mode::Classic, 3).count(), 0);
+    }
+
+    #[test]
+    fn lifetime_best_rounds_split_by_player_count_and_revives_add_up() {
+        let mut lifetime = LifetimeStats::default();
+        lifetime.add(&run(9, 0.0));
+        lifetime.add(&RunRecord { players: 3, revives: 4, ..run(20, 0.0) });
+        lifetime.add(&RunRecord { players: 3, revives: 2, won: true, heat: Some(3), ..run(25, 0.0) });
+        assert_eq!(lifetime.best_round(MapId::Greybox, Mode::Classic, 1), Some(9));
+        assert_eq!(lifetime.best_round(MapId::Greybox, Mode::Classic, 3), Some(25));
+        assert_eq!(lifetime.best_round(MapId::Greybox, Mode::Classic, 2), None);
+        assert_eq!((lifetime.revives, lifetime.wins, lifetime.highest_heat_won), (6, 1, 3));
+    }
+
+    #[test]
+    fn teammates_leave_out_the_players_own_row() {
+        use crate::net::protocol::Score;
+        let row = |name: &str, seat: u8| Score {
+            name: name.into(),
+            seat,
+            kills: 5,
+            downs: 1,
+            revives: 2,
+            points_earned: 700,
+        };
+        let board = [row("Host", 0), row("Ann", 1), row("Bo", 2)];
+        let mine = teammates_from(&board, Some(Seat(1)));
+        assert_eq!(mine.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["Host", "Bo"]);
+        assert_eq!(mine[0].revives, 2);
+    }
+
+    #[test]
+    fn a_run_saves_one_record_however_many_times_it_ends() {
+        let mut app = App::new();
+        app.insert_resource(RecordsFile::default())
+            .insert_resource(SaveDir(None))
+            .insert_resource(MapId::Greybox)
+            .insert_resource(Mode::Classic)
+            .init_resource::<RecordExtras>()
+            .init_resource::<RunSpecialZombies>()
+            .init_resource::<RunPlayers>()
+            .init_resource::<RunRecorded>()
+            .init_resource::<Scoreboard>()
+            .init_resource::<RunType>()
+            .add_systems(Update, record_run);
+        app.world_mut().spawn((LocalPlayer, Player, RunStats::default(), Points::default()));
+        app.update();
+        app.update();
+        assert_eq!(app.world().resource::<RecordsFile>().lifetime.runs, 1);
     }
 
     #[test]
