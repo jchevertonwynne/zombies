@@ -7,7 +7,7 @@ use crate::hands::{
     HIP_DROP, HIP_SIDE, ReloadPose, ReloadStyle, aim_shift, aimed_kick, carry_pose, drink_pose, knife_pose, rebuild_pose, reload_pose,
     machine_push, stab_lunge,
 };
-use crate::barrier::Rebuild;
+use crate::barrier::{Rebuild, not_repairing, rebuild_planks};
 use crate::wall_weapon::AmmoBuy;
 use crate::controls::{Action, Controls};
 use crate::ammo_mod::{AmmoModHit, AmmoMods, glint_colour, pick_ammo_mod};
@@ -948,8 +948,8 @@ impl Plugin for WeaponPlugin {
             .add_systems(
                 Update,
                 // A Perk drink puts the Weapon away and keeps the Knife out of reach; so does
-                // Equipment in the hand. The Weapon can't fire while its Player Revives.
-                ((switch_weapons, reload, aim, fire.run_if(arms_free).run_if(not_reviving).run_if(not_waiting), knife.run_if(arms_free).run_if(not_waiting)).chain().run_if(hands_free), animate_view_model.in_set(AnimateViewModel))
+                // Equipment in the hand. The Weapon can't fire while its Player Revives or Repairs a Barrier.
+                ((switch_weapons, reload, aim, fire.run_if(arms_free).run_if(not_reviving).run_if(not_repairing).run_if(not_waiting), knife.run_if(arms_free).run_if(not_repairing).run_if(not_waiting)).chain().run_if(hands_free).after(rebuild_planks), animate_view_model.in_set(AnimateViewModel))
                     .chain()
                     .run_if(world_runs),
             )
