@@ -579,7 +579,7 @@ impl Loadout {
 
     /// Advance sprint-out, aiming and spread recovery. Sprinting holds the Weapon down; aiming
     /// waits out the sprint-out, a switch and a Reload.
-    pub fn update_stance(&mut self, dt: f32, sprinting: bool, wants_aim: bool) {
+    pub fn update_handling(&mut self, dt: f32, sprinting: bool, wants_aim: bool) {
         if sprinting {
             self.sprint_out = self.held().stats().handling().sprint_out_secs;
         } else {
@@ -1141,7 +1141,7 @@ fn aim(
     time: Res<Time>,
 ) {
     let (mut loadout, locomotion) = player.into_inner();
-    loadout.update_stance(time.delta_secs(), locomotion.sprinting, controls.pressed(Action::Aim));
+    loadout.update_handling(time.delta_secs(), locomotion.sprinting, controls.pressed(Action::Aim));
 }
 
 fn fire(
@@ -2070,19 +2070,19 @@ mod tests {
     #[test]
     fn sprint_out_holds_fire_after_a_sprint() {
         let mut pistol = Loadout::new(WeaponId::M1911);
-        pistol.update_stance(0.1, true, false);
+        pistol.update_handling(0.1, true, false);
         assert!(!pistol.try_fire(true, true, NONE), "no firing mid-sprint");
-        pistol.update_stance(0.25, false, false);
+        pistol.update_handling(0.25, false, false);
         assert!(!pistol.try_fire(true, true, NONE), "0.25 s into a 0.3 s sprint-out");
-        pistol.update_stance(0.06, false, false);
+        pistol.update_handling(0.06, false, false);
         assert!(pistol.try_fire(true, true, NONE));
 
         // LMGs take 0.45 s.
         let mut lmg = Loadout::new(WeaponId::Rpk);
-        lmg.update_stance(0.1, true, false);
-        lmg.update_stance(0.4, false, false);
+        lmg.update_handling(0.1, true, false);
+        lmg.update_handling(0.4, false, false);
         assert!(!lmg.try_fire(true, true, NONE));
-        lmg.update_stance(0.06, false, false);
+        lmg.update_handling(0.06, false, false);
         assert!(lmg.try_fire(true, true, NONE));
     }
 
@@ -2090,47 +2090,47 @@ mod tests {
     fn aiming_narrows_the_fov_and_tightens_the_spread() {
         let mut smg = Loadout::new(WeaponId::Mp40);
         assert_eq!((smg.fov_factor(), smg.spread()), (1.0, 2.0));
-        smg.update_stance(1.0, false, true);
+        smg.update_handling(1.0, false, true);
         assert_eq!(smg.aim, 1.0);
         assert!((smg.fov_factor() - 0.77).abs() < 1e-5);
         assert_eq!(smg.spread(), 0.0);
 
         let mut sniper = Loadout::new(WeaponId::Dragunov);
-        sniper.update_stance(1.0, false, true);
+        sniper.update_handling(1.0, false, true);
         assert!((sniper.fov_factor() - 0.46).abs() < 1e-5);
 
         // The G11 has a scope; the Olympia still spreads aimed.
         let mut g11 = Loadout::new(WeaponId::G11);
-        g11.update_stance(1.0, false, true);
+        g11.update_handling(1.0, false, true);
         assert!((g11.fov_factor() - 0.46).abs() < 1e-5);
         let mut olympia = Loadout::new(WeaponId::Olympia);
-        olympia.update_stance(1.0, false, true);
+        olympia.update_handling(1.0, false, true);
         assert_eq!(olympia.spread(), 5.5);
     }
 
     #[test]
     fn some_weapons_cant_aim_or_zoom() {
         let mut dual = Loadout::new(WeaponId::Cz75DualWield);
-        dual.update_stance(1.0, false, true);
+        dual.update_handling(1.0, false, true);
         assert_eq!((dual.aim, dual.fov_factor(), dual.spread()), (0.0, 1.0, 4.0));
 
         // Pistols aim without zooming.
         let mut pistol = Loadout::new(WeaponId::M1911);
-        pistol.update_stance(1.0, false, true);
+        pistol.update_handling(1.0, false, true);
         assert_eq!((pistol.aim, pistol.fov_factor(), pistol.spread()), (1.0, 1.0, 0.0));
     }
 
     #[test]
     fn sprinting_and_reloading_drop_the_sights() {
         let mut smg = Loadout::new(WeaponId::Mp40);
-        smg.update_stance(1.0, false, true);
-        smg.update_stance(1.0, true, true);
+        smg.update_handling(1.0, false, true);
+        smg.update_handling(1.0, true, true);
         assert_eq!(smg.aim, 0.0);
 
         let mut smg = Loadout::new(WeaponId::Mp40);
         smg.held_mut().magazine = 10;
         smg.start_reload(NONE);
-        smg.update_stance(1.0, false, true);
+        smg.update_handling(1.0, false, true);
         assert_eq!(smg.aim, 0.0);
     }
 
@@ -2143,7 +2143,7 @@ mod tests {
             run(&mut smg, interval, NONE);
         }
         assert_eq!(smg.spread(), 5.0, "fully bloomed");
-        smg.update_stance(SPREAD_RECOVERY_SECS, false, false);
+        smg.update_handling(SPREAD_RECOVERY_SECS, false, false);
         assert_eq!(smg.spread(), 2.0);
     }
 
@@ -2254,13 +2254,13 @@ mod tests {
     fn optics_count_only_while_aimed() {
         let mut loadout = upgraded(WeaponId::Mp40, &[Attachment::AcogSight]);
         assert_eq!(loadout.sights(NONE), Sights::PLAIN, "from the hip");
-        loadout.update_stance(1.0, false, true);
+        loadout.update_handling(1.0, false, true);
         let aimed = loadout.sights(NONE);
         assert_eq!((aimed.extra_pierce, aimed.pierce_damage), (2, 1.0));
         assert!((loadout.fov_factor() - ADS_FOV_IRON * ACOG_ADS_FOV_MULT).abs() < 1e-5);
 
         let mut red_dot = upgraded(WeaponId::Mp40, &[Attachment::RedDotSight]);
-        red_dot.update_stance(1.0, false, true);
+        red_dot.update_handling(1.0, false, true);
         assert_eq!(red_dot.sights(NONE).headshot, 1.5);
     }
 
