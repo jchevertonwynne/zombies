@@ -16,7 +16,7 @@ use bevy::prelude::*;
 
 use super::hits::{self, Hits};
 use super::link::{Event, Link};
-use super::protocol::{HOST, Peer, Refusal, Seat, ToHost, ToPlayer, decode, encode};
+use super::protocol::{HOST, Peer, Refusal, Score, Seat, ToHost, ToPlayer, decode, encode};
 use super::remote::{Next, Remote};
 use super::world::{self, Mirror, NetIds};
 use super::state::{
@@ -35,7 +35,7 @@ use crate::player::{
 };
 use crate::modifier::Modifiers;
 use crate::points::Points;
-use crate::state::world_runs;
+use crate::state::{Choosing, world_runs};
 use crate::teammate::{Pose, Shots, Told};
 use crate::tuning::*;
 use crate::weapon::Loadout;
@@ -69,6 +69,11 @@ pub struct Roster(pub Vec<(Peer, Seat)>);
 #[derive(Component)]
 pub struct Puppet;
 
+/// How each Player did, as the Host counted it: said to every machine as the Run ends, and read
+/// by the Records.
+#[derive(Resource, Default, Debug, Clone, PartialEq)]
+pub struct Scoreboard(pub Vec<Score>);
+
 /// What the Host said over the reliable stream that the Run reacts to, as a client hears it.
 #[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostSaid {
@@ -90,6 +95,7 @@ impl Plugin for PlayPlugin {
         world::add(app);
         app.add_message::<PlayerLeft>()
             .add_message::<HostSaid>()
+            .init_resource::<Scoreboard>()
             .add_systems(PreUpdate, (pump_host.run_if(resource_exists::<Roster>), pump_client.run_if(resource_exists::<Prediction>)))
             .add_systems(
                 FixedUpdate,
@@ -147,6 +153,7 @@ pub fn begin_host(world: &mut World, link: Box<dyn Link>, remotes: Vec<(Peer, Se
     world.insert_resource(NetIds::default());
     world.insert_resource(ZombieIds::default());
     world.insert_resource(Horde::default());
+    world.insert_resource(Scoreboard::default());
 }
 
 /// Makes this machine a client of a Run: its `LocalPlayer` is stepped here, and every other Player
@@ -161,6 +168,7 @@ pub fn begin_client(world: &mut World, link: Box<dyn Link>) {
     world.insert_resource(Prediction::default());
     world.insert_resource(ZombieIds::default());
     world.insert_resource(Crowd::default());
+    world.insert_resource(Scoreboard::default());
     if let Some(mut next) = world.get_resource_mut::<NextState<Authority>>() {
         next.set(Authority::Client);
     }
@@ -238,6 +246,7 @@ fn pump_client(
     mut inbox: ResMut<Inbox>,
     mut hits: ResMut<Hits>,
     mut mirror: ResMut<Mirror>,
+    mut scoreboard: ResMut<Scoreboard>,
     mut said: MessageWriter<HostSaid>,
 ) {
     while let Some(event) = wire.0.poll() {
@@ -247,6 +256,7 @@ fn pump_client(
                 Err(error) => debug!("host: {error}"),
             },
             Event::Message(HOST, bytes) => match decode::<ToPlayer>(&bytes) {
+                Ok(ToPlayer::Scoreboard(rows)) => scoreboard.0 = rows,
                 Ok(ToPlayer::RunOver) => {
                     said.write(HostSaid::RunOver);
                 }
@@ -302,14 +312,15 @@ fn hear_inputs(mut inbox: ResMut<Inbox>, mut remotes: Query<(&mut Remote, &mut P
 /// Sets each remote Player's input for the tick to what they pressed in the next of theirs. A tick
 /// that hasn't come is stepped as the last was, with no Jump newly pressed; when none has come for
 /// a while the Player stands still.
-fn drive_remotes(mut players: Query<(&mut Remote, &mut MoveInput, &mut Transform)>) {
-    for (mut remote, mut input, mut transform) in &mut players {
+fn drive_remotes(mut players: Query<(&mut Remote, &mut MoveInput, &mut Transform, Has<Choosing>)>) {
+    for (mut remote, mut input, mut transform, choosing) in &mut players {
         match remote.next() {
             Next::Step(step) => *input = step.input(),
             Next::Nothing => {}
             Next::Missing | Next::Held => input.jump = false,
         }
-        if remote.stalled() {
+        // An open Offer stops a Player, whatever their game says.
+        if remote.stalled() || choosing {
             *input = MoveInput { yaw: input.yaw, pitch: input.pitch, ..default() };
         }
         // `step_move` reads the yaw from the input; the body and the others' view of it read the

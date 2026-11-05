@@ -143,7 +143,7 @@ fn respawn(
         commands.entity(entity).insert(Position(spot));
         transform.rotation = beside.rotation;
         health.current = health.max;
-        *loadout = Loadout::new(STARTING_WEAPON);
+        loadout.replace(Loadout::new(STARTING_WEAPON));
         *knife = Knife::default();
         *equipment = Equipment { frag_limits: FragLimits::resolve(&modifiers.0), ..default() };
         perks.0.clear();
@@ -177,7 +177,7 @@ fn respawn_spot(beside: &Transform, spatial: &SpatialQuery) -> Vec3 {
 
 /// Co-op Game Over comes the moment no Player is up, whatever Last Stand time is left, unless one
 /// is still to Self-Revive. Solo's Game Over is the Down itself (see `go_down`).
-fn game_over_when_none_up(
+pub(crate) fn game_over_when_none_up(
     players: Query<(Option<&LastStand>, Has<AwaitingRespawn>), With<Player>>,
     run: Res<RunType>,
     mut next: ResMut<NextState<GameState>>,

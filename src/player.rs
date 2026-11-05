@@ -606,18 +606,19 @@ pub fn take_hits(
 
 /// Health stays empty through a Last Stand; the Self-Revive refills it.
 fn regenerate(
-    player: Single<(&mut Health, &Modifiers), (With<Player>, Without<LastStand>)>,
+    mut players: Query<(&mut Health, &Modifiers), (With<Player>, Without<LastStand>)>,
     round: Option<Res<Round>>,
     time: Res<Time>,
 ) {
-    let (mut health, modifiers) = player.into_inner();
-    health.set_max(resolve(Stat::MaxHealth, PLAYER_MAX_HEALTH, &modifiers.0));
     let dt = time.delta_secs();
-    health.since_hit += dt;
-    if health.since_hit >= resolve(Stat::HealthRegenDelay, HEALTH_REGEN_DELAY_SECS, &modifiers.0) {
-        let in_round = round.is_some_and(|round| round.phase == RoundPhase::Active);
-        let rate = regen_rate(health.max, in_round, &modifiers.0);
-        health.current = (health.current + rate * dt).min(health.max);
+    let in_round = round.is_some_and(|round| round.phase == RoundPhase::Active);
+    for (mut health, modifiers) in &mut players {
+        health.set_max(resolve(Stat::MaxHealth, PLAYER_MAX_HEALTH, &modifiers.0));
+        health.since_hit += dt;
+        if health.since_hit >= resolve(Stat::HealthRegenDelay, HEALTH_REGEN_DELAY_SECS, &modifiers.0) {
+            let rate = regen_rate(health.max, in_round, &modifiers.0);
+            health.current = (health.current + rate * dt).min(health.max);
+        }
     }
 }
 

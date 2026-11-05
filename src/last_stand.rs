@@ -93,7 +93,7 @@ impl LastStand {
         Self {
             elapsed: 0.0,
             secs: LAST_STAND_SECS,
-            saved: Some(std::mem::replace(loadout, last_stand_loadout())),
+            saved: Some(loadout.replace(last_stand_loadout())),
             cost: 0,
             coop: false,
         }
@@ -102,6 +102,18 @@ impl LastStand {
     /// Starts a Co-op Last Stand for a Down that took `cost` Points.
     pub fn begin_coop(loadout: &mut Loadout, cost: u64) -> Self {
         Self { secs: LAST_STAND_COOP_SECS, cost, coop: true, ..Self::begin(loadout) }
+    }
+
+    /// A Last Stand as the Host tells it, on a machine that doesn't run Downs: `left` seconds from
+    /// its end, holding no Weapons of its own (the Host sends those).
+    pub fn shown(left: f32, coop: bool) -> Self {
+        let secs = if coop { LAST_STAND_COOP_SECS } else { LAST_STAND_SECS };
+        Self { elapsed: (secs - left).clamp(0.0, secs), secs, saved: None, cost: 0, coop }
+    }
+
+    /// Runs the clock on, as a machine that only shows the Last Stand does. It never ends it.
+    pub fn advance_shown(&mut self, dt: f32) {
+        self.elapsed = (self.elapsed + dt).min(self.secs);
     }
 
     /// Whether it ends in a teammate's Revive, not a Self-Revive.
@@ -128,7 +140,7 @@ impl LastStand {
     /// Gives back the Weapons held at the Down, with the one in hand coming up again.
     pub fn self_revive(&mut self, loadout: &mut Loadout) {
         if let Some(saved) = self.saved.take() {
-            *loadout = saved;
+            loadout.replace(saved);
             loadout.raise();
         }
     }

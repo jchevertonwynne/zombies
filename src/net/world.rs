@@ -15,6 +15,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use avian3d::prelude::ColliderDisabled;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -33,17 +34,24 @@ use crate::buy::{
     BuyRefused, Buyable, CantAfford, HoldPurchased, Purchased, RefusedByPlayer, Refused, UseRequest,
 };
 use crate::door::{Door, open};
+use crate::gauntlet::{
+    HeldBoons, HeldPacts, Offer, OfferWire, PickOffer, boons_wire, pacts_wire, show_boons, show_pacts,
+};
+use crate::last_stand::{Down as WentDown, DownOutcome, LastStand};
+use crate::leave_run::PlayerLeft;
 use crate::equipment::Equipment;
 use crate::map::BarrierId;
 use crate::mystery_box::{BoxState, MysteryBox, Prize};
 use crate::pack_a_punch::PackAPunch;
 use crate::perk::{Drinking, Perk, PerkMachine, Perks};
-use crate::player::{LocalPlayer, Player, Seat as PlayerSeat};
+use crate::player::{Health, LocalPlayer, Player, PlayerHit, PlayerName, Seat as PlayerSeat};
+use crate::respawn::{AwaitingRespawn, Respawned};
+use crate::revive::{Revived, Reviving};
 use crate::points::Points;
 use crate::power::{Power, PowerSwitch};
 use crate::power_up::{ActivePowerUps, Dropped, PowerUp, PowerUpAssets, PowerUpTaken, spawn_drop};
 use crate::round::{Round, RoundEnded, RoundPhase, RoundStarted};
-use crate::state::{GameState, world_runs};
+use crate::state::{Choosing, GameState, Paused, world_runs};
 use crate::teammate::HeldWeapon;
 use crate::teleporter::{Mainframe, Pad, TeleporterView, mainframe_use_point};
 use crate::trap::{Trap, TrapPhase, TrapSwitch};
@@ -77,6 +85,13 @@ pub enum Request {
     Use { buyable: u16, hold: bool, refused: bool },
     /// They have taken the Weapon in this slot in hand.
     Held { slot: u8 },
+    /// They are holding Use over the teammate in this Seat, who is in Last Stand. Said every
+    /// frame it is held.
+    Revive { target: Seat },
+    /// Their Pause menu is open, or has closed.
+    Paused(bool),
+    /// They picked this card of their open Offer, or skipped a Pact Offer.
+    Pick { card: Option<u8> },
 }
 
 /// A Weapon copy on the wire: all of it that its holder's game can't work out for itself.
@@ -132,6 +147,8 @@ pub enum HandOp {
     Refill(u8),
     MaxAmmo,
     Slots(u8),
+    /// Everything they hold is swapped for this: each slot, and the one in hand.
+    Replace { slots: Vec<Option<CopyWire>>, held: u8 },
 }
 
 /// What the Host gave or refilled of a Player's Equipment, as the most they now carry of each.
@@ -163,6 +180,45 @@ pub struct Inside {
     weapon: CopyWire,
     elapsed: f32,
     owner: Option<Seat>,
+}
+
+/// A Player in Last Stand, as everyone is told.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct Down {
+    /// Seconds left of it.
+    pub left: f32,
+    /// Whether it ends in a teammate's Revive, not a Self-Revive.
+    pub coop: bool,
+}
+
+/// A Revive in progress, as everyone is told.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct Revive {
+    pub target: Seat,
+    pub elapsed: f32,
+    pub needed: f32,
+}
+
+/// What a Player is going through that their teammates' HUD shows, and that the Host judges.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
+pub struct Status {
+    pub down: Option<Down>,
+    pub awaiting: bool,
+    pub reviving: Option<Revive>,
+    pub paused: bool,
+    pub choosing: bool,
+}
+
+impl Status {
+    /// Whether this is the same as `other`, as far as a change is worth telling: the time left of
+    /// a Last Stand and the length of a hold are each game's own clock.
+    fn same(&self, other: &Status) -> bool {
+        self.down.map(|down| down.coop) == other.down.map(|down| down.coop)
+            && self.awaiting == other.awaiting
+            && self.reviving.map(|revive| revive.target) == other.reviving.map(|revive| revive.target)
+            && self.paused == other.paused
+            && self.choosing == other.choosing
+    }
 }
 
 /// Something the Host says has changed.
@@ -204,6 +260,20 @@ pub enum WorldEvent {
     Perks { seat: Seat, drinking: Option<Perk>, held: Vec<Perk> },
     /// A Player has this Weapon in hand.
     Held { seat: Seat, weapon: HeldWeapon },
+    /// A Player is Down, is waiting to Respawn, is Reviving, has Pause open or has an Offer open.
+    Status { seat: Seat, status: Status },
+    /// To one Player, how much Health they have of how much.
+    Health { current: f32, max: f32 },
+    /// To one Player, their Offer: the Round it follows, whether its cards are Pacts, and their ids.
+    Offer(OfferWire),
+    /// To one Player, their Offer is closed (picked, skipped, or lost to a Bleed Out).
+    OfferClosed,
+    /// To one Player, the Boons they hold, with their Stacks.
+    Boons(Vec<(String, u32)>),
+    /// The Pacts held this Run, with their holders' Seats.
+    Pacts(Vec<(String, u8)>),
+    /// The Player in this Seat has left the Run for good.
+    Left { seat: Seat },
 }
 
 /// What has come in, and what each end remembers of what it has said or been told.
@@ -226,10 +296,18 @@ pub struct Mirror {
     intermission: bool,
     perks: HashMap<Seat, (Option<Perk>, Vec<Perk>)>,
     held: HashMap<Seat, HeldWeapon>,
+    status: HashMap<Seat, Status>,
+    health: HashMap<Seat, f32>,
+    offers: HashMap<Seat, Option<OfferWire>>,
+    boons: HashMap<Seat, Vec<(String, u32)>>,
+    pacts: Vec<(String, u8)>,
+    /// Revive holds heard, by reviver: whom they hold Use over, and how long they still count.
+    holds: HashMap<Seat, (Seat, f32)>,
     // A client's: the Power-ups lying about, and the slot it last said it holds.
     shown_drops: HashMap<u32, Entity>,
     teleporter_shown: Option<TeleporterView>,
     reported_held: Option<usize>,
+    reported_paused: bool,
 }
 
 impl Mirror {
@@ -289,6 +367,12 @@ pub fn add(app: &mut App) {
         .add_message::<RoundStarted>()
         .add_message::<RoundEnded>()
         .add_message::<PlayCue>()
+        .add_message::<PlayerHit>()
+        .add_message::<PickOffer>()
+        .add_message::<PlayerLeft>()
+        .add_message::<WentDown>()
+        .add_message::<Revived>()
+        .add_message::<Respawned>()
         .init_resource::<Power>()
         .init_resource::<Barriers>()
         .init_resource::<ActivePowerUps>()
@@ -297,7 +381,7 @@ pub fn add(app: &mut App) {
                 .run_if(world_runs))
         .add_systems(
             Update,
-            (hear_requests.before(HostSimulation), show_remote_held)
+            (hear_requests.before(HostSimulation), hold_revives.before(HostSimulation), show_remote_held)
                 .after(name_machines)
                 .chain()
                 .run_if(resource_exists::<Roster>)
@@ -320,6 +404,11 @@ pub fn add(app: &mut App) {
                 tell_hands,
                 tell_perks,
                 tell_held,
+                tell_status,
+                tell_health,
+                tell_offers,
+                tell_gauntlet,
+                tell_left,
             )
                 .after(HostSimulation)
                 .after(hear_requests)
@@ -345,6 +434,11 @@ pub fn add(app: &mut App) {
                     hear_hands,
                     hear_perks,
                     hear_held,
+                    hear_status,
+                    hear_health,
+                    hear_offers,
+                    hear_gauntlet,
+                    hear_left,
                 ),
             )
                 .chain()
@@ -356,7 +450,13 @@ pub fn add(app: &mut App) {
         )
         .add_systems(
             Update,
-            (forward_requests, report_switches, run_shown_clocks.run_if(in_state(Authority::Client)))
+            (
+                forward_requests,
+                forward_picks,
+                report_switches,
+                report_paused,
+                run_shown_clocks.run_if(in_state(Authority::Client)),
+            )
                 .run_if(resource_exists::<Prediction>)
                 .run_if(resource_exists::<NetIds>)
                 .run_if(in_state(GameState::Playing))
@@ -404,22 +504,26 @@ fn name_machines(
 // The Host
 
 /// Turns what the Players asked into what the Host does: a Use becomes a `UseRequest` from the
-/// Player, a switch of Weapon is taken in hand on their copy of the Loadout.
+/// Player, a switch of Weapon is taken in hand on their copy of the Loadout, a Revive hold is kept
+/// (see `hold_revives`), a Pause flag is set on their Player, and a pick is theirs of their Offer.
+/// A Player with an Offer open asks nothing of the world.
 fn hear_requests(
+    mut commands: Commands,
     mut mirror: ResMut<Mirror>,
     roster: Res<Roster>,
     ids: Res<NetIds>,
-    seats: Query<(Entity, &PlayerSeat), With<Player>>,
+    seats: Query<(Entity, &PlayerSeat, Has<Choosing>), With<Player>>,
     mut loadouts: Query<&mut Loadout>,
     mut uses: MessageWriter<UseRequest>,
     mut claims: MessageWriter<RefusedByPlayer>,
+    mut picks: MessageWriter<PickOffer>,
 ) {
     for (peer, request) in std::mem::take(&mut mirror.requests) {
         let Some(&(_, seat)) = roster.0.iter().find(|(held, _)| *held == peer) else { continue };
-        let Some((player, _)) = seats.iter().find(|(_, held)| held.0 == seat) else { continue };
+        let Some((player, _, choosing)) = seats.iter().find(|(_, held, _)| held.0 == seat) else { continue };
         match request {
             Request::Use { buyable, hold, refused } => {
-                let Some(buyable) = ids.entity(buyable) else { continue };
+                let Some(buyable) = ids.entity(buyable).filter(|_| !choosing) else { continue };
                 uses.write(UseRequest { player, buyable, hold });
                 if refused {
                     claims.write(RefusedByPlayer { player, buyable });
@@ -430,8 +534,42 @@ fn hear_requests(
                     loadout.set_held(usize::from(slot));
                 }
             }
+            Request::Revive { target } => {
+                if !choosing {
+                    mirror.holds.insert(seat, (target, REVIVE_HOLD_GRACE_SECS));
+                }
+            }
+            Request::Paused(paused) => {
+                if paused {
+                    commands.entity(player).insert(Paused);
+                } else {
+                    commands.entity(player).remove::<Paused>();
+                }
+            }
+            Request::Pick { card } => {
+                picks.write(PickOffer { player, card: card.map(usize::from) });
+            }
         }
     }
+}
+
+/// Keeps a client's Revive hold going between the frames it is heard in: each frame it still counts,
+/// the Host's own `revive` is asked as if the reviver held Use. It lapses when the words stop.
+fn hold_revives(
+    mut mirror: ResMut<Mirror>,
+    players: Query<(Entity, &PlayerSeat), With<Player>>,
+    mut uses: MessageWriter<UseRequest>,
+    time: Res<Time>,
+) {
+    let dt = time.delta_secs();
+    mirror.holds.retain(|&reviver, (target, left)| {
+        let entity = |seat: Seat| players.iter().find(|(_, held)| held.0 == seat).map(|(entity, _)| entity);
+        if let (Some(player), Some(buyable)) = (entity(reviver), entity(*target)) {
+            uses.write(UseRequest { player, buyable, hold: true });
+        }
+        *left -= dt;
+        *left > 0.0
+    });
 }
 
 /// A remote Player's Weapon in hand, as the Host's copy of their Loadout has it.
@@ -652,6 +790,10 @@ fn tell_hands(
                     HostOp::Refill(slot) => HandOp::Refill(slot as u8),
                     HostOp::MaxAmmo => HandOp::MaxAmmo,
                     HostOp::Slots(count) => HandOp::Slots(count as u8),
+                    HostOp::Replace => HandOp::Replace {
+                        slots: loadout.slots().iter().map(|slot| slot.as_ref().map(CopyWire::of)).collect(),
+                        held: loadout.held_slot() as u8,
+                    },
                 })
             })
             .collect();
@@ -689,6 +831,96 @@ fn tell_held(
     }
 }
 
+/// What each Player is going through, to everyone, when it changes.
+fn tell_status(
+    mut tell: Tell,
+    mut mirror: ResMut<Mirror>,
+    players: Query<
+        (&PlayerSeat, Option<&LastStand>, Has<AwaitingRespawn>, Option<&Reviving>, Has<Paused>, Has<Choosing>),
+        With<Player>,
+    >,
+    seats: Query<&PlayerSeat>,
+) {
+    for (seat, last_stand, awaiting, reviving, paused, choosing) in &players {
+        let status = Status {
+            down: last_stand.map(|stand| Down { left: stand.remaining_secs(), coop: stand.is_coop() }),
+            awaiting,
+            reviving: reviving.and_then(|reviving| {
+                let (elapsed, needed) = reviving.timing();
+                Some(Revive { target: seats.get(reviving.target).ok()?.0, elapsed, needed })
+            }),
+            paused,
+            choosing,
+        };
+        if mirror.status.get(&seat.0).is_some_and(|told| told.same(&status))
+            || (!mirror.status.contains_key(&seat.0) && status.same(&Status::default()))
+        {
+            continue;
+        }
+        mirror.status.insert(seat.0, status);
+        tell.all(&WorldEvent::Status { seat: seat.0, status });
+    }
+}
+
+/// Each remote Player's Health, to them: at once when it falls, and as it regenerates in steps.
+fn tell_health(mut tell: Tell, mut mirror: ResMut<Mirror>, players: Query<(&PlayerSeat, &Health, &Remote), With<Player>>) {
+    for (seat, health, remote) in &players {
+        let told = mirror.health.get(&seat.0).copied().unwrap_or(PLAYER_MAX_HEALTH);
+        let now = health.current;
+        let full = now >= health.max && told < health.max;
+        if now < told || (now - told).abs() >= HEALTH_TELL_STEP || full {
+            mirror.health.insert(seat.0, now);
+            tell.to(remote.peer, &WorldEvent::Health { current: now, max: health.max });
+        }
+    }
+}
+
+/// Each remote Player's own Offer, when it opens, and when it closes.
+fn tell_offers(mut tell: Tell, mut mirror: ResMut<Mirror>, players: Query<(&PlayerSeat, Option<&Offer>, &Remote), With<Player>>) {
+    for (seat, offer, remote) in &players {
+        let now = offer.map(Offer::wire);
+        let told = mirror.offers.get(&seat.0).cloned().unwrap_or(None);
+        if told == now {
+            continue;
+        }
+        mirror.offers.insert(seat.0, now.clone());
+        match now {
+            Some(wire) => tell.to(remote.peer, &WorldEvent::Offer(wire)),
+            None => tell.to(remote.peer, &WorldEvent::OfferClosed),
+        }
+    }
+}
+
+/// Each remote Player's Boons, to them, and the Pacts held, to everyone, when they change.
+fn tell_gauntlet(
+    mut tell: Tell,
+    mut mirror: ResMut<Mirror>,
+    players: Query<(&PlayerSeat, &HeldBoons, &Remote), With<Player>>,
+    pacts: Option<Res<HeldPacts>>,
+) {
+    for (seat, held, remote) in &players {
+        let now = boons_wire(held);
+        if mirror.boons.get(&seat.0).map_or(!now.is_empty(), |told| *told != now) {
+            mirror.boons.insert(seat.0, now.clone());
+            tell.to(remote.peer, &WorldEvent::Boons(now));
+        }
+    }
+    if let Some(pacts) = pacts {
+        let now = pacts_wire(&pacts);
+        if mirror.pacts != now {
+            mirror.pacts = now.clone();
+            tell.all(&WorldEvent::Pacts(now));
+        }
+    }
+}
+
+/// A Player who left the Run, to everyone still in it.
+fn tell_left(mut tell: Tell, mut left: MessageReader<PlayerLeft>) {
+    for &PlayerLeft { seat } in left.read() {
+        tell.all(&WorldEvent::Left { seat: seat.0 });
+    }
+}
+
 // A client
 
 /// Hands what the Host said to the systems that show it, once there is a world to show it in.
@@ -701,22 +933,44 @@ fn release_events(mut mirror: ResMut<Mirror>, ids: Res<NetIds>, mut heard: Messa
     }
 }
 
-/// Sends the Host a Use the `LocalPlayer` made.
+/// Sends the Host a Use the `LocalPlayer` made, or a Revive they hold: that one names a Player.
 fn forward_requests(
     mut requests: MessageReader<UseRequest>,
     local: Query<Entity, With<LocalPlayer>>,
     buyables: Query<(&NetId, Has<Refused>)>,
+    teammates: Query<&PlayerSeat, With<Player>>,
     mut wire: ResMut<Wire>,
 ) {
     let Ok(local) = local.single() else { return };
     for request in requests.read() {
-        // Anything with no name is no Buyable here (a Revive names a Player).
         if request.player != local {
             continue;
         }
-        let Ok((id, refused)) = buyables.get(request.buyable) else { continue };
-        let message = ToHost::Request(Request::Use { buyable: id.0, hold: request.hold, refused });
-        wire.0.send(HOST, encode(&message));
+        let message = match (buyables.get(request.buyable), teammates.get(request.buyable)) {
+            (Ok((id, refused)), _) => Request::Use { buyable: id.0, hold: request.hold, refused },
+            (_, Ok(seat)) if request.hold => Request::Revive { target: seat.0 },
+            // Anything else is no Buyable here.
+            _ => continue,
+        };
+        wire.0.send(HOST, encode(&ToHost::Request(message)));
+    }
+}
+
+/// Sends the Host the card the `LocalPlayer` picked of their Offer.
+fn forward_picks(mut picks: MessageReader<PickOffer>, local: Query<Entity, With<LocalPlayer>>, mut wire: ResMut<Wire>) {
+    let Ok(local) = local.single() else { return };
+    for pick in picks.read().filter(|pick| pick.player == local) {
+        let card = pick.card.map(|card| card as u8);
+        wire.0.send(HOST, encode(&ToHost::Request(Request::Pick { card })));
+    }
+}
+
+/// Tells the Host when the `LocalPlayer`'s Pause menu opens or closes.
+fn report_paused(mut mirror: ResMut<Mirror>, local: Query<Has<Paused>, With<LocalPlayer>>, mut wire: ResMut<Wire>) {
+    let Ok(paused) = local.single() else { return };
+    if mirror.reported_paused != paused {
+        mirror.reported_paused = paused;
+        wire.0.send(HOST, encode(&ToHost::Request(Request::Paused(paused))));
     }
 }
 
@@ -748,6 +1002,8 @@ fn run_shown_clocks(
     mut points: Query<&mut Points, With<Player>>,
     mut round: Option<ResMut<Round>>,
     mut drinking: Query<&mut Drinking>,
+    mut last_stands: Query<&mut LastStand>,
+    mut revives: Query<&mut Reviving>,
 ) {
     let dt = time.delta_secs();
     for mut mystery_box in &mut boxes {
@@ -774,6 +1030,12 @@ fn run_shown_clocks(
     }
     for mut drinking in &mut drinking {
         drinking.advance(dt);
+    }
+    for mut stand in &mut last_stands {
+        stand.advance_shown(dt);
+    }
+    for mut reviving in &mut revives {
+        reviving.advance_shown(dt);
     }
 }
 
@@ -1029,6 +1291,9 @@ fn hear_hands(
                 }
                 HandOp::MaxAmmo => loadout.max_ammo(),
                 HandOp::Slots(count) => loadout.set_slot_count(usize::from(*count)),
+                HandOp::Replace { slots, held } => {
+                    loadout.show_all(slots.iter().map(|slot| slot.as_ref().map(CopyWire::build)).collect(), usize::from(*held));
+                }
             }
         }
         loadout.drain_host_ops();
@@ -1083,6 +1348,163 @@ fn hear_held(
     }
 }
 
+/// What the Host says each Player is going through. The `LocalPlayer`'s own Pause and Offer are its
+/// own to know; everything else is the Host's word.
+fn hear_status(
+    mut heard: MessageReader<Heard>,
+    mut commands: Commands,
+    players: Query<(Entity, &PlayerSeat, Has<LocalPlayer>, Has<LastStand>, Has<AwaitingRespawn>, Option<&Reviving>), With<Player>>,
+    mut downs: MessageWriter<WentDown>,
+    mut revived: MessageWriter<Revived>,
+    mut respawned: MessageWriter<Respawned>,
+) {
+    let entity = |seat: Seat| players.iter().find(|(_, held, ..)| held.0 == seat).map(|(entity, ..)| entity);
+    let statuses: Vec<(Seat, Status)> = heard
+        .read()
+        .filter_map(|Heard(event)| match event {
+            WorldEvent::Status { seat, status } => Some((*seat, *status)),
+            _ => None,
+        })
+        .collect();
+    // Who is Reviving whom, before any of this changes it: a Revive is done when the Player is up
+    // again and not for want of the time.
+    let revivers: Vec<(Entity, Entity)> =
+        players.iter().filter_map(|(entity, .., reviving)| Some((entity, reviving?.target))).collect();
+    for (seat, status) in statuses {
+        let Some((player, _, local, last_stand, awaiting, reviving)) =
+            players.iter().find(|(_, held, ..)| held.0 == seat)
+        else {
+            continue;
+        };
+        let mut entity_commands = commands.entity(player);
+        match (status.down, last_stand) {
+            (Some(down), false) => {
+                entity_commands.insert(LastStand::shown(down.left, down.coop));
+                downs.write(WentDown { player, outcome: DownOutcome::LastStand });
+            }
+            (None, true) => {
+                entity_commands.remove::<LastStand>();
+                if !status.awaiting
+                    && let Some(&(reviver, _)) = revivers.iter().find(|(_, target)| *target == player)
+                {
+                    revived.write(Revived { player, reviver });
+                }
+            }
+            _ => {}
+        }
+        match (status.awaiting, awaiting) {
+            (true, false) => {
+                entity_commands.insert((AwaitingRespawn, ColliderDisabled));
+            }
+            (false, true) => {
+                entity_commands.remove::<(AwaitingRespawn, ColliderDisabled)>();
+                respawned.write(Respawned { player });
+            }
+            _ => {}
+        }
+        match (status.reviving.and_then(|revive| entity(revive.target).map(|target| (target, revive))), reviving) {
+            (Some((target, revive)), held) if held.is_none_or(|held| held.target != target) => {
+                entity_commands.insert(Reviving::shown(target, revive.elapsed, revive.needed));
+            }
+            (None, Some(_)) => {
+                entity_commands.remove::<Reviving>();
+            }
+            _ => {}
+        }
+        if !local {
+            if status.paused {
+                entity_commands.insert(Paused);
+            } else {
+                entity_commands.remove::<Paused>();
+            }
+            if status.choosing {
+                entity_commands.insert(Choosing);
+            } else {
+                entity_commands.remove::<Choosing>();
+            }
+        }
+    }
+}
+
+/// The Host's word of the `LocalPlayer`'s Health. A fall is a hit, for the screen and the sound.
+fn hear_health(
+    mut heard: MessageReader<Heard>,
+    mut local: Query<(Entity, &mut Health), With<LocalPlayer>>,
+    mut hits: MessageWriter<PlayerHit>,
+) {
+    let Ok((player, mut health)) = local.single_mut() else { return };
+    for Heard(event) in heard.read() {
+        let WorldEvent::Health { current, max } = *event else { continue };
+        if current < health.current {
+            hits.write(PlayerHit { player, damage: health.current - current });
+            health.since_hit = 0.0;
+        }
+        health.max = max;
+        health.current = current;
+    }
+}
+
+/// The `LocalPlayer`'s own Offer opening and closing, by the Host's word.
+fn hear_offers(
+    mut heard: MessageReader<Heard>,
+    mut commands: Commands,
+    local: Query<Entity, With<LocalPlayer>>,
+    mut cues: MessageWriter<PlayCue>,
+) {
+    let Ok(player) = local.single() else { return };
+    for Heard(event) in heard.read() {
+        match event {
+            WorldEvent::Offer(wire) => {
+                let Some(offer) = Offer::from_wire(wire) else { continue };
+                let cue = if wire.1 { Cue::PactOffer } else { Cue::BoonOffer };
+                cues.write(PlayCue { cue, at: None });
+                commands.entity(player).insert((offer, Choosing));
+            }
+            WorldEvent::OfferClosed => {
+                commands.entity(player).remove::<(Offer, Choosing)>();
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The Boons the `LocalPlayer` holds, and the Pacts held, by the Host's word.
+fn hear_gauntlet(
+    mut heard: MessageReader<Heard>,
+    mut local: Query<&mut HeldBoons, With<LocalPlayer>>,
+    pacts: Option<ResMut<HeldPacts>>,
+) {
+    let mut pacts = pacts;
+    for Heard(event) in heard.read() {
+        match event {
+            WorldEvent::Boons(told) => {
+                if let Ok(mut held) = local.single_mut() {
+                    show_boons(&mut held, told);
+                }
+            }
+            WorldEvent::Pacts(told) => {
+                if let Some(held) = pacts.as_mut() {
+                    show_pacts(held, told);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// A Player who left the Run is gone from this game too.
+fn hear_left(mut heard: MessageReader<Heard>, mut commands: Commands, players: Query<(Entity, &PlayerSeat, &PlayerName), With<Player>>) {
+    for Heard(event) in heard.read() {
+        let WorldEvent::Left { seat } = *event else { continue };
+        for (player, _, name) in players.iter().filter(|(_, held, _)| held.0 == seat) {
+            info!("{} left", name.0);
+            commands.entity(player).despawn();
+        }
+    }
+}
+
+#[cfg(test)]
+mod downs;
 #[cfg(test)]
 mod shared;
 #[cfg(test)]

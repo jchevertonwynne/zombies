@@ -43,15 +43,17 @@ use crate::tuning::*;
 use crate::weapon::Loadout;
 use crate::zombie::{DamageZombie, Dying, HitZone, KillDamage, Zombie, ZombieKilled};
 use boon::{
-    BLOOD_MONEY, BOONS, BOUNTY, BUTCHERS_BILL, BoonDef, HeldBoons, LUCKY_STRIKE, RunFacts,
+    BLOOD_MONEY, BOONS, BOUNTY, BUTCHERS_BILL, BoonDef, LUCKY_STRIKE, RunFacts,
     TEDDYS_TITHE, WAR_BONDS, blood_money_points, bounty_points, butchers_bill_drops, draw_offer,
     is_boon_source, lucky_strike_gift, teddys_tithe_points, war_bonds_points,
 };
 use pact::{
-    HeldPacts, OVERKILL, PACTS, PactDef, SCORCHED_EARTH, draw_pact_offer, is_pact_round,
+    OVERKILL, PACTS, PactDef, SCORCHED_EARTH, draw_pact_offer, is_pact_round,
     is_pact_source, overkill_target, scorched_earth_blast,
 };
 use progress::{GauntletFile, rounds_completed, scrip_for_rounds};
+pub use boon::HeldBoons;
+pub use pact::HeldPacts;
 use screen::{OfferCard, SkipButton};
 
 /// The Offers a Player is waiting for.
@@ -127,12 +129,64 @@ impl Choices {
 
 /// The Boon or Pact Offer a Player is choosing from. Quitting the Run loses it.
 #[derive(Component)]
-struct Offer {
+pub struct Offer {
     choices: Choices,
     /// The Round just completed.
     round: u32,
     /// When the cards last appeared, in real seconds, for the input lockout.
     shown_at: f32,
+}
+
+/// An open Offer as it goes over the network: the Round it follows, whether its cards are Pacts,
+/// and the stable IDs of its cards in order.
+pub type OfferWire = (u32, bool, Vec<String>);
+
+impl Offer {
+    /// This Offer as the Host tells its Player.
+    pub fn wire(&self) -> OfferWire {
+        match &self.choices {
+            Choices::Boons(boons) => (self.round, false, boons.iter().map(|boon| boon.id.to_string()).collect()),
+            Choices::Pacts(pacts) => (self.round, true, pacts.iter().map(|pact| pact.id().to_string()).collect()),
+        }
+    }
+
+    /// The Offer the Host told, or nothing if a card is one this game doesn't know.
+    pub fn from_wire((round, pacts, ids): &OfferWire) -> Option<Self> {
+        let choices = if *pacts {
+            Choices::Pacts(ids.iter().map(|id| PACTS.iter().find(|pact| pact.id() == id)).collect::<Option<_>>()?)
+        } else {
+            Choices::Boons(ids.iter().map(|id| BOONS.iter().find(|boon| boon.id == id)).collect::<Option<_>>()?)
+        };
+        Some(Self { choices, round: *round, shown_at: 0.0 })
+    }
+}
+
+/// The Boons a Player holds as the Host tells them: stable ID and Stacks.
+pub fn boons_wire(held: &HeldBoons) -> Vec<(String, u32)> {
+    held.0.iter().map(|&(boon, stacks)| (boon.id.to_string(), stacks)).collect()
+}
+
+/// Takes the Boons the Host says a Player holds, leaving out any this game doesn't know.
+pub fn show_boons(held: &mut HeldBoons, told: &[(String, u32)]) {
+    held.0 = told
+        .iter()
+        .filter_map(|(id, stacks)| Some((BOONS.iter().find(|boon| boon.id == id)?, *stacks)))
+        .collect();
+}
+
+/// The Pacts held this Run as the Host tells them: stable ID and holder's Seat.
+pub fn pacts_wire(held: &HeldPacts) -> Vec<(String, u8)> {
+    held.0.iter().map(|held| (held.pact.id().to_string(), held.holder.0)).collect()
+}
+
+/// Takes the Pacts the Host says are held, leaving out any this game doesn't know.
+pub fn show_pacts(held: &mut HeldPacts, told: &[(String, u8)]) {
+    held.0 = told
+        .iter()
+        .filter_map(|(id, seat)| {
+            Some(pact::HeldPact { pact: PACTS.iter().find(|pact| pact.id() == id)?, holder: Seat(*seat) })
+        })
+        .collect();
 }
 
 pub struct GauntletPlugin;
@@ -426,7 +480,7 @@ fn click_card(
 
 /// A pick takes that Boon or Pact for its Player, or nothing on a skip, and closes their Offer.
 /// A Pact goes to the picker, who holds its upside.
-fn apply_pick(
+pub(crate) fn apply_pick(
     mut commands: Commands,
     mut picks: MessageReader<PickOffer>,
     mut players: Query<(&Seat, &Offer, &mut HeldBoons, Has<LocalPlayer>)>,
@@ -814,4 +868,10 @@ fn pay_scrip(
     lines
         .0
         .push(format!("Scrip earned {}", crate::hud::with_commas(scrip)));
+}
+
+/// The ids of the first `count` Boons, for a test to offer.
+#[cfg(test)]
+pub fn sample_boon_ids(count: usize) -> Vec<String> {
+    BOONS.iter().take(count).map(|boon| boon.id.to_string()).collect()
 }

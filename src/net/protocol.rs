@@ -110,6 +110,18 @@ pub struct SeatView {
     pub ready: bool,
 }
 
+/// One Player's end-of-Run line: what the Host counted for them.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Score {
+    pub name: String,
+    pub seat: Seat,
+    pub kills: u32,
+    pub downs: u32,
+    pub revives: u32,
+    /// The Points they earned over the Run, not the balance they hold.
+    pub points_earned: u64,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum ToHost {
     /// The first thing a Player says.
@@ -158,6 +170,8 @@ pub enum ToPlayer {
     Start(RoomView),
     /// Every Player is down: the Run is over.
     RunOver,
+    /// How each Player did, said just before `RunOver`.
+    Scoreboard(Vec<Score>),
     /// The Host is back in the Room, and the party with it.
     BackToRoom,
     /// Something was thrown, planted or fired by someone in the Run.

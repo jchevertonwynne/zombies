@@ -2112,3 +2112,9 @@ pub const SNAPSHOT_MAX_SPECIALS: usize = 12;
 /// A Zombie that a snapshot has farther from where the one before had it than this has been
 /// moved, not walked, and is shown there at once.
 pub const PUPPET_SNAP_METRES: f32 = 6.0;
+/// How long a Host keeps counting a client's Revive hold after the last word of it, in seconds:
+/// a client sends one every frame it holds Use, and the stream can bunch them.
+pub const REVIVE_HOLD_GRACE_SECS: f32 = 0.2;
+/// How much a client's Health may regenerate before the Host tells it again, so the regen is not
+/// a message every frame. A hit, a Down and a full bar are always told.
+pub const HEALTH_TELL_STEP: f32 = 5.0;
