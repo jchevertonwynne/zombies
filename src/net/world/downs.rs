@@ -24,7 +24,7 @@ fn count_downs(mut downs: ResMut<Downs>, mut told: MessageReader<WentDown>) {
 }
 
 /// Every game of a Co-op Run in Round 3 with the rules of Downs, Revives and Offers on the Host.
-fn coop(app: &mut App) {
+pub(super) fn coop(app: &mut App) {
     app.insert_resource(RunType::Coop)
         .insert_resource(Round::in_progress(3))
         .init_resource::<HeldPacts>()
@@ -46,7 +46,7 @@ fn run(clients: u8) -> Run {
 }
 
 /// Drops the Player in `seat` to nothing, as the Host has them.
-fn knock_down(run: &mut Run, seat: u8) {
+pub(super) fn knock_down(run: &mut Run, seat: u8) {
     let player = run.player(0, seat);
     run.world(0).get_mut::<Health>(player).unwrap().current = 0.0;
 }

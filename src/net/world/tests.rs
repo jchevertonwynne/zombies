@@ -7,7 +7,9 @@ use crate::door::DoorPlugin;
 use crate::gun_model::GunModels;
 use crate::mystery_box::MysteryBoxPlugin;
 use crate::net::link::Hub;
-use crate::net::play::{install_client, install_host};
+use crate::net::away::Rejoin;
+use crate::net::play::{Held, install_client, install_host};
+use crate::net::protocol::{PROTOCOL, ToHost};
 use crate::pack_a_punch::PackAPunchPlugin;
 use crate::power_up::PowerUpAssets;
 use crate::trap::TrapPlugin;
@@ -59,6 +61,11 @@ fn game(local: u8, seats: u8, extra: &dyn Fn(&mut App), install: impl FnOnce(&mu
     })
 }
 
+/// What the Player in `seat` comes back by in these tests.
+pub(super) fn token_of(seat: u8) -> u64 {
+    1000 + u64::from(seat)
+}
+
 /// A Host and `clients` clients over a quick, clean network.
 pub(super) struct Run {
     hub: Hub,
@@ -77,14 +84,60 @@ impl Run {
         let host_link = hub.host();
         let links: Vec<_> = (0..clients).map(|_| hub.join()).collect();
         let remotes: Vec<(Peer, u8)> = links.iter().map(|link| (link.peer(), link.peer() as u8)).collect();
-        let mut apps = vec![game(0, seats, extra, |app| install_host(app, host_link, remotes))];
+        let tokens: Vec<(u8, u64)> = remotes.iter().map(|&(_, seat)| (seat, token_of(seat))).collect();
+        let mut apps = vec![game(0, seats, extra, |app| {
+            install_host(app, host_link, remotes);
+            app.world_mut().insert_resource(Held { tokens, away: Vec::new() });
+        })];
         for link in links {
             let seat = link.peer() as u8;
-            apps.push(game(seat, seats, extra, |app| install_client(app, link)));
+            apps.push(game(seat, seats, extra, |app| {
+                install_client(app, link);
+                let hello = ToHost::Hello {
+                    version: PROTOCOL,
+                    back: None,
+                    name: format!("P{seat}"),
+                    password: String::new(),
+                    unlocks: Default::default(),
+                };
+                app.world_mut().insert_resource(Rejoin::new(token_of(seat), hello));
+            }));
         }
         let mut run = Run { hub, apps };
         run.step(30);
         run
+    }
+
+    /// The way between the Host and the Player in `seat` breaks.
+    pub(super) fn cut(&mut self, seat: u8) {
+        self.hub.cut(u32::from(seat));
+    }
+
+    /// A stranger dials the Host and says Hello coming back by `back`; what the Host answers.
+    pub(super) fn knock(&mut self, back: Option<u64>) -> Option<crate::net::protocol::ToPlayer> {
+        use crate::net::link::{Event, Link};
+        use crate::net::protocol::{HOST, decode, encode};
+        let mut link = self.hub.join();
+        link.send(
+            HOST,
+            encode(&ToHost::Hello {
+                version: PROTOCOL,
+                back,
+                name: "Stranger".into(),
+                password: String::new(),
+                unlocks: Default::default(),
+            }),
+        );
+        let mut answer = None;
+        for _ in 0..30 {
+            self.step(1);
+            while let Some(event) = link.poll() {
+                if let Event::Message(_, bytes) = event {
+                    answer = decode(&bytes).ok();
+                }
+            }
+        }
+        answer
     }
 
     pub(super) fn step(&mut self, ticks: u32) {

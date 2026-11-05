@@ -29,10 +29,9 @@ const REVIVE_ICON_LIFT: f32 = 0.5;
 const BOX_LABEL_LIFT: f32 = 1.6;
 const PAP_LABEL_LIFT: f32 = 2.2;
 
-/// A Player whose dropped connection still holds their Seat. A hook for the Room to fill in
-/// (#168): nothing adds it yet.
+/// A Player whose dropped connection still holds their Seat. Every machine adds it with
+/// `Disconnected`, and takes it away with it.
 #[derive(Component)]
-#[allow(dead_code, reason = "added by the Room once a dropped Player's Seat is held")]
 pub struct SeatHeld;
 
 /// What a teammate is up to, as their row's status tag.

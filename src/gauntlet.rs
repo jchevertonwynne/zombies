@@ -30,7 +30,7 @@ use crate::modifier::{Modifiers, RunModifiers};
 use crate::mystery_box::{MysteryBox, TeddyBear};
 use crate::perk::{Perk, PerkMachine};
 use crate::player::{LocalPlayer, Player, Seat};
-use crate::respawn::BledOut;
+use crate::respawn::{BledOut, Disconnected, SeatDropped};
 use crate::points::BonusPoints;
 use crate::power::Power;
 use crate::power_up::{DropPowerUp, GivePowerUp, PowerUp, PowerUpTaken};
@@ -242,7 +242,7 @@ impl Plugin for GauntletPlugin {
                         (
                             schedule_offer,
                             open_offer.run_if(world_runs),
-                            withdraw_offer,
+                            (withdraw_dropped, withdraw_offer).chain(),
                             apply_pick,
                             hold_intermission,
                         )
@@ -332,14 +332,16 @@ fn reset(mut commands: Commands) {
 fn schedule_offer(
     mut ended: MessageReader<RoundEnded>,
     round: Res<Round>,
-    mut pending: Query<&mut PendingOffer, With<Player>>,
+    mut pending: Query<(&mut PendingOffer, Has<Disconnected>), With<Player>>,
     mut hold: ResMut<IntermissionHold>,
     mut wait: ResMut<OfferWait>,
 ) {
     if ended.read().count() > 0 {
-        for mut pending in &mut pending {
+        for (mut pending, disconnected) in &mut pending {
             pending.owed.push(round.number);
-            pending.left = Some(BOON_OFFER_DELAY_SECS);
+            // One whose connection has dropped is owed it, and is shown it in their first
+            // Intermission back.
+            pending.left = (!disconnected).then_some(BOON_OFFER_DELAY_SECS);
         }
         hold.0 = true;
         wait.0 = BOON_OFFER_COOP_TIMEOUT_SECS;
@@ -450,6 +452,27 @@ fn withdraw_offer(
             // Not before the next Intermission.
             pending.left = None;
             commands.entity(player).remove::<(Offer, Choosing)>();
+        }
+    }
+}
+
+/// A Player whose connection drops loses the Offer on their screen like a Bleed Out does, and it
+/// is owed to them for their first Intermission back; nothing is due while they are away.
+fn withdraw_dropped(
+    mut commands: Commands,
+    mut dropped: MessageReader<SeatDropped>,
+    mut players: Query<(Entity, &Seat, Option<&Offer>, &mut PendingOffer)>,
+) {
+    for &SeatDropped { seat } in dropped.read() {
+        for (player, held, offer, mut pending) in &mut players {
+            if *held != seat {
+                continue;
+            }
+            if let Some(offer) = offer {
+                pending.owed.insert(0, offer.round);
+                commands.entity(player).remove::<(Offer, Choosing)>();
+            }
+            pending.left = None;
         }
     }
 }

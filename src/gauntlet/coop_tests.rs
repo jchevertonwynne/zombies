@@ -12,7 +12,7 @@ use crate::perk::Perks;
 use crate::player::two_players::{balance, two_players_with};
 use crate::points::BonusPoints;
 use crate::power_up::{ActivePowerUps, Dropped};
-use crate::respawn::{AwaitingRespawn, RespawnPlugin};
+use crate::respawn::{AwaitingRespawn, Disconnected, RespawnPlugin};
 use crate::revive::Revived;
 use crate::round::RoundStarted;
 use crate::settings::Settings;
@@ -514,4 +514,30 @@ fn a_player_still_to_self_revive_keeps_the_run_going() {
         !matches!(sim.world_mut().resource::<NextState<GameState>>(), NextState::Pending(GameState::GameOver)),
         "the holder is about to get up"
     );
+}
+
+#[test]
+fn a_dropped_players_missed_offers_come_in_their_first_intermission_back() {
+    let (mut sim, local, teammate) = gauntlet_players();
+    sim.world_mut().resource_mut::<UnlockAll>().0 = true;
+    sim.world_mut().entity_mut(teammate).insert(Disconnected::default());
+    for round in [3, 4] {
+        sim.world_mut().insert_resource(Round::in_progress(round));
+        end_round(&mut sim);
+        pick(&mut sim, local, Some(0));
+        assert!(!has_offer(&mut sim, teammate), "nothing opens for a Player who is away");
+    }
+    assert_eq!(sim.world_mut().get::<PendingOffer>(teammate).unwrap().owed, [3, 4]);
+    // The Player holding a Pact keeps it off the missed Pact Offer.
+    hold_pact(&mut sim, pact_def("gold_rush"), 0);
+    sim.world_mut().entity_mut(teammate).remove::<Disconnected>();
+    sim.world_mut().insert_resource(Round::in_progress(5));
+    end_round(&mut sim);
+    for round in [3, 4] {
+        assert_eq!(sim.world_mut().get::<Offer>(teammate).unwrap().round, round);
+        pick(&mut sim, teammate, Some(0));
+        sim.run(2);
+    }
+    assert_eq!(sim.world_mut().get::<Offer>(teammate).unwrap().round, 5);
+    assert!(!offered(&mut sim, teammate).contains(&"gold_rush"));
 }

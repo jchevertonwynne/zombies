@@ -23,7 +23,8 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use bytes::Bytes;
 use iroh::endpoint::{
-    Connection, ConnectionError, RecvStream, SendDatagramError, SendStream, presets,
+    Connection, ConnectionError, QuicTransportConfig, RecvStream, SendDatagramError, SendStream,
+    presets,
 };
 use iroh::{Endpoint, EndpointId};
 use tokio::runtime::Runtime;
@@ -31,6 +32,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use super::link::{Event, Link, Quality};
 use super::protocol::{HOST, Peer};
+use crate::tuning::LINK_LOST_SILENCE_SECS;
 
 /// Games speak only to games that speak this.
 const ALPN: &[u8] = b"zombies/1";
@@ -178,8 +180,19 @@ fn datagram(connection: &Connection, bytes: Vec<u8>) {
     }
 }
 
+/// A way that has been silent for `LINK_LOST_SILENCE_SECS` is lost, and each end speaks often
+/// enough that it is only ever silent when it has broken.
+fn quic() -> Result<QuicTransportConfig> {
+    let silence = Duration::from_secs(LINK_LOST_SILENCE_SECS);
+    Ok(QuicTransportConfig::builder()
+        .max_idle_timeout(Some(silence.try_into().context("the silence that counts as lost")?))
+        .keep_alive_interval(silence / 5)
+        .build())
+}
+
 async fn endpoint() -> Result<Endpoint> {
     Endpoint::builder(presets::N0)
+        .transport_config(quic()?)
         .alpns(vec![ALPN.to_vec()])
         .bind()
         .await

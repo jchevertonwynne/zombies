@@ -129,6 +129,13 @@ impl ActivePowerUps {
         }
     }
 
+    /// Takes the seconds the Host says are left on a timed Power-up.
+    pub fn show(&mut self, power_up: PowerUp, left: f32) {
+        if let Some(timer) = self.timer_mut(power_up) {
+            *timer = left;
+        }
+    }
+
     /// Runs every timer down by `dt`.
     pub fn tick(&mut self, dt: f32) {
         for timer in [&mut self.insta_kill, &mut self.double_points, &mut self.fire_sale] {
@@ -336,7 +343,7 @@ pub(crate) struct Nuked {
 
 /// A Box Fire Sale added. It goes once the Fire Sale is over and it's done with any spin.
 #[derive(Component)]
-struct FireSaleBox;
+pub(crate) struct FireSaleBox;
 
 
 #[derive(Resource)]

@@ -5,6 +5,7 @@
 
 #![allow(dead_code, reason = "the Co-op systems that use the network layer are built next")]
 
+pub mod away;
 pub mod hits;
 pub mod link;
 pub mod lobby;
