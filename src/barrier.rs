@@ -33,6 +33,9 @@ const WAIT_OUT: std::ops::Range<f32> = 2.4..3.2;
 const WAIT_ALONG: f32 = 1.6;
 /// How far inside the wall a vault lands, and how high it arcs.
 const VAULT_IN: f32 = 1.2;
+/// How far apart, along the window, the vault landings of neighbouring attack spots are: more than
+/// a Zombie's width, so Zombies vaulting together land clear of each other.
+const LAND_SPACING: f32 = 0.85;
 const VAULT_ARC: f32 = 0.6;
 /// How close counts as having reached a spot.
 const ARRIVE_DIST: f32 = 0.1;
@@ -408,6 +411,14 @@ fn spot_at(barrier: BarrierId, spot: usize) -> Vec3 {
     window_centre(barrier) + out * SPOT_OUT + along * SPOT_ALONG[spot]
 }
 
+/// Where a vault from `spot` lands: inside the room, in front of that spot rather than at the
+/// window's centre, so Zombies that vault together don't land on top of each other.
+fn landing_at(barrier: BarrierId, spot: usize) -> Vec3 {
+    let (out, along) = window_axes(barrier);
+    let slot = spot as f32 - (BARRIER_ATTACK_SPOTS - 1) as f32 / 2.0;
+    window_centre(barrier) - out * VAULT_IN + along * slot * LAND_SPACING
+}
+
 pub struct BarrierPlugin;
 
 impl Plugin for BarrierPlugin {
@@ -545,7 +556,7 @@ fn fly_torn_planks(
 
 /// Zombies outside a window walk to an attack spot (or wait for one), tear Planks, swipe through
 /// the window, and vault in once it's open.
-fn enter_through_windows(
+pub(crate) fn enter_through_windows(
     mut commands: Commands,
     // A Zombie knocked down by the Thundergun picks up where it left off once it's back up.
     mut zombies: Query<
@@ -659,7 +670,7 @@ fn enter_through_windows(
                         entering.stage = Stage::Vaulting {
                             elapsed: 0.0,
                             from: transform.translation,
-                            to: (centre - out * VAULT_IN).with_y(height),
+                            to: landing_at(barrier, spot).with_y(height),
                         };
                         continue;
                     }

@@ -414,3 +414,49 @@ fn a_solo_run_stands_still_while_paused() {
     assert!(time_paused);
     assert!(walked < 0.1, "the Zombie walked {walked}");
 }
+
+/// Three Zombies that vault the same window together must land apart, then go on after the
+/// Player, rather than ending up inside each other and stuck.
+#[test]
+fn zombies_that_vault_a_window_together_land_apart_and_move_on() {
+    use crate::barrier::{Barriers, Entering, PlankTorn, enter_through_windows};
+    use crate::map::{BarrierId, WINDOWS, window_spawn};
+
+    let barrier = BarrierId(0);
+    let mut sim = Sim::new(60.0, |app| {
+        app.add_message::<PlankTorn>()
+            .add_message::<crate::audio::PlayCue>()
+            .insert_resource(crate::round::Round::shown(1, None))
+            .add_systems(FixedUpdate, enter_through_windows);
+    });
+    // Open the window.
+    for _ in 0..crate::tuning::BARRIER_PLANKS {
+        sim.world_mut().resource_mut::<Barriers>().tear(barrier);
+    }
+    let centre = WINDOWS[barrier.0 as usize].1;
+    let spawn = window_spawn(barrier);
+    let zombies: Vec<Entity> = [-0.55, 0.0, 0.55]
+        .into_iter()
+        .map(|along| {
+            // The window faces +Z, so along the wall is X.
+            let zombie = sim.spawn(spawn + Vec3::X * along, None);
+            sim.world_mut().entity_mut(zombie).insert(Entering::new(barrier));
+            zombie
+        })
+        .collect();
+    // Long enough to walk to their spots, vault, and set off after the Player.
+    sim.run(sim.frames(6.0));
+
+    let flat = |v: Vec3| Vec2::new(v.x, v.z);
+    let at: Vec<Vec3> = zombies
+        .iter()
+        .map(|&z| sim.world_mut().get::<Transform>(z).expect("zombie still alive").translation)
+        .collect();
+    for (i, a) in at.iter().enumerate() {
+        assert!(flat(*a).distance(centre) > 2.5, "zombie {i} is still at the window: {a} (window {centre})");
+        for (j, b) in at.iter().enumerate().skip(i + 1) {
+            let apart = flat(*a).distance(flat(*b));
+            assert!(apart >= ZOMBIE_RADIUS * 2.0 - 0.05, "zombies {i} and {j} overlap, {apart} apart: {a} and {b}");
+        }
+    }
+}
