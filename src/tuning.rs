@@ -63,6 +63,19 @@ pub const PRONE_SPEED_MULT: f32 = 0.15;
 /// How far up a prone Player can look, in radians above level. Looking down and turning stay free.
 pub const PRONE_LOOK_UP_MAX: f32 = FRAC_PI_4;
 
+// The Dive (all tuned by feel, per the Crouch and prone spec)
+/// The Dive's lunge, in metres.
+pub const DIVE_DISTANCE: f32 = 2.5;
+/// About how long the Dive's airborne arc takes, in seconds.
+pub const DIVE_FLIGHT_SECS: f32 = 0.5;
+/// How hard the held direction steers a Dive in flight, in m/s². The lunge keeps its speed;
+/// letting the keys go changes nothing.
+pub const DIVE_STEER_ACCEL: f32 = 4.0;
+/// Seconds after landing that the Dive's recovery blocks firing, aiming and stance changes.
+pub const DIVE_RECOVERY_SECS: f32 = 0.4;
+/// Seconds after landing before the next Dive, recovery included.
+pub const DIVE_COOLDOWN_SECS: f32 = 1.0;
+
 // Weapons
 pub const STARTING_WEAPON: WeaponId = WeaponId::M1911;
 /// Weapon slots the Player carries, before any stat entry adds more.

@@ -143,14 +143,10 @@ impl Sim {
         self.hold(&[]);
     }
 
-    /// Whether a prone transition — going down or getting up — has the Player's firing blocked.
+    /// Whether the weapon side's firing gate has the Player blocked: the prone transitions, and
+    /// a Dive from its launch through its landing recovery.
     pub fn firing_blocked(&mut self) -> bool {
-        self.app
-            .world_mut()
-            .query_filtered::<&Locomotion, With<Player>>()
-            .single(self.app.world())
-            .unwrap()
-            .prone_transition()
+        !self.app.world_mut().run_system_once(not_changing_prone).unwrap()
     }
 
     /// The camera's pitch, in radians: positive looking up.
@@ -403,15 +399,16 @@ fn replaying_the_same_inputs_from_the_same_start_reaches_the_same_position_and_s
         .map(|(transform, locomotion)| (transform.translation, locomotion.clone()))
         .unwrap();
 
-    // Walk, sprint while turning, jump and land, crouch and crawl, go prone and crawl, then
-    // stand back up and settle.
-    let inputs: Vec<MoveInput> = (0..240)
+    // Walk, sprint while turning, jump and land, crouch and crawl, go prone and crawl, stand
+    // back up, sprint again and Dive — through the arc, the landing and its recovery — then
+    // settle Prone.
+    let inputs: Vec<MoveInput> = (0..340)
         .map(|tick| MoveInput {
             axes: if tick < 90 { Vec2::Y } else { Vec2::new(1.0, 1.0) },
-            sprint: (30..70).contains(&tick),
+            sprint: (30..70).contains(&tick) || (240..300).contains(&tick),
             jump: tick == 80,
             crouch: (100..140).contains(&tick),
-            prone: (140..200).contains(&tick),
+            prone: (140..200).contains(&tick) || tick >= 300,
             yaw: tick as f32 * 0.02,
             ..default()
         })
@@ -428,7 +425,16 @@ fn replaying_the_same_inputs_from_the_same_start_reaches_the_same_position_and_s
                 for input in &inputs {
                     step_move(&mut position, &mut locomotion, input, &mut context, Duration::from_secs_f64(1.0 / 64.0), &move_and_slide);
                 }
-                (position, locomotion.velocity, locomotion.grounded, locomotion.stance, locomotion.eye)
+                (
+                    position,
+                    locomotion.velocity,
+                    locomotion.grounded,
+                    locomotion.stance,
+                    locomotion.eye,
+                    // The Dive's own state rides the replay too: the same scripted arc, the
+                    // same landing, the same recovery clock.
+                    (locomotion.diving, locomotion.since_dive_landing),
+                )
             },
         );
         let result = world.run_system(id).unwrap();
@@ -439,6 +445,12 @@ fn replaying_the_same_inputs_from_the_same_start_reaches_the_same_position_and_s
     let second = run(sim.app.world_mut());
     assert_eq!(first, second);
     assert!(first.0.distance(start) > 5.0, "the Player didn't go anywhere: {}", first.0);
+    // The scripted Dive really ran: it landed, and its recovery clock is part of the replay.
+    assert!(
+        !first.5.0 && first.5.1 < DIVE_RECOVERY_SECS,
+        "the scripted Dive never landed: {:?}",
+        first.5
+    );
 }
 
 /// The Crouch key lowers the Player at once — the collider shrinks to the crouched capsule with
@@ -888,4 +900,251 @@ fn a_teleporter_ride_places_the_player_standing() {
     assert_eq!(sim.stance(), Stance::Standing, "the ride didn't place them Standing");
     let arrived = sim.frame().pos;
     assert!((arrived.y - Stance::Standing.half_height()).abs() < 0.05, "arrived at {arrived}");
+}
+
+/// Pressing Prone out of a forward sprint Dives: the target going Prone while sprinting is
+/// detected in the shared step, from the same `MoveInput` bits the Host replays. A lunge of
+/// `DIVE_DISTANCE` in a low airborne arc of about `DIVE_FLIGHT_SECS`, under gravity, ending
+/// Prone where it lands; releasing the keys mid-flight doesn't slow the lunge.
+#[test]
+fn a_dive_out_of_a_forward_sprint_lunges_prone_in_a_low_arc() {
+    let mut sim = Sim::new(144.0);
+    sim.place(Vec3::new(0.0, 0.0, 20.0), EAST);
+    sim.hold(&[KeyCode::KeyW, KeyCode::ShiftLeft]);
+    sim.run_secs(0.25);
+    let feet = sim.frame().pos.y - Stance::Standing.half_height();
+    assert!(sim.frame().sprinting, "never got up to sprint");
+
+    sim.hold(&[KeyCode::KeyZ]);
+    let launch = sim.frame();
+    assert_eq!(sim.stance(), Stance::Prone, "the prone press out of the sprint didn't Dive");
+    assert!(!launch.grounded, "the Dive didn't leave the floor");
+    // The keys are let go through the flight — the lunge carries on regardless.
+    sim.hold(&[]);
+    assert!(sim.firing_blocked(), "firing wasn't blocked in flight");
+
+    let mut flight = Vec::new();
+    while flight.len() < 200 && !flight.last().is_some_and(|s: &Sample| s.grounded) {
+        flight.push(sim.frame());
+    }
+    let landed = flight.last().expect("the Dive never landed");
+    assert_eq!(sim.stance(), Stance::Prone, "the Dive didn't end Prone");
+    // About `DIVE_DISTANCE` along the sprint's way — EAST faces +X — in about
+    // `DIVE_FLIGHT_SECS`, in a low arc, back on its feet where it started them. The floor probe
+    // catches the landing a touch early and the rendered frames trail the stepped ones, so a
+    // little of either end goes missing.
+    let along = landed.pos.x - launch.pos.x;
+    assert!((along - DIVE_DISTANCE).abs() < 0.5, "lunged {along} m");
+    let secs = flight.len() as f32 * sim.frame_secs;
+    assert!((secs - DIVE_FLIGHT_SECS).abs() < 0.15, "the flight took {secs} s");
+    let peak = flight.iter().map(|s| s.pos.y).fold(f32::MIN, f32::max);
+    assert!(
+        peak - launch.pos.y > 0.3 && peak - launch.pos.y < 0.85,
+        "the arc peaked {} m up",
+        peak - launch.pos.y
+    );
+    // The landing frame is rendered before the interpolation has caught the step, so let the
+    // body settle: Prone, back on its feet where it started them.
+    sim.run_secs(0.1);
+    assert!(
+        (sim.frame().pos.y - feet - Stance::Prone.half_height()).abs() < 0.05,
+        "didn't land Prone on the floor it left: {}",
+        sim.frame().pos.y
+    );
+}
+
+/// The trigger is Prone out of a sprint and nothing else. Crouch while sprinting just
+/// crouches — there is no slide — and Prone while merely walking goes down on the floor.
+#[test]
+fn only_a_prone_press_out_of_a_sprint_dives() {
+    // Crouch while sprinting: a crouch on the floor, no arc.
+    let mut sim = Sim::new(144.0);
+    sim.place(Vec3::new(0.0, 0.0, 20.0), EAST);
+    sim.hold(&[KeyCode::KeyW, KeyCode::ShiftLeft]);
+    sim.run_secs(0.25);
+    assert!(sim.frame().sprinting);
+    sim.hold(&[KeyCode::KeyC]);
+    let mut frames = sim.run_secs(0.05);
+    sim.hold(&[]);
+    frames.extend(sim.run_secs(0.5));
+    assert_eq!(sim.stance(), Stance::Crouched, "Crouch while sprinting didn't crouch");
+    assert!(frames.iter().all(|s| s.grounded), "the Crouch press left the floor");
+
+    // Prone while walking, no Sprint: the prone transition, on the floor the whole way.
+    let mut sim = Sim::new(144.0);
+    sim.place(Vec3::new(0.0, 0.0, 20.0), EAST);
+    sim.hold(&[KeyCode::KeyW]);
+    sim.run_secs(0.2);
+    assert!(!sim.frame().sprinting);
+    sim.hold(&[KeyCode::KeyZ]);
+    let mut frames = sim.run_secs(0.05);
+    sim.hold(&[]);
+    frames.extend(sim.run_secs(0.5));
+    assert_eq!(sim.stance(), Stance::Prone, "the walking prone press didn't go Prone");
+    assert!(frames.iter().all(|s| s.grounded), "the prone press without a sprint left the floor");
+}
+
+/// In flight the Dive steers only slightly: the held direction turns the lunge a little, and
+/// nothing slows it or stops it.
+#[test]
+fn the_dive_is_stearable_only_slightly() {
+    let mut straight = None;
+    let mut steered = None;
+    for keys in [&[] as &[KeyCode], &[KeyCode::KeyD]] {
+        let mut sim = Sim::new(144.0);
+        sim.place(Vec3::new(0.0, 0.0, 20.0), EAST);
+        sim.hold(&[KeyCode::KeyW, KeyCode::ShiftLeft]);
+        sim.run_secs(0.25);
+        sim.hold(&[KeyCode::KeyZ]);
+        let launch = sim.frame().pos;
+        // Held through the flight: nothing, or a hard steer to the right.
+        sim.hold(keys);
+        let mut flight = Vec::new();
+        while flight.len() < 200 && !flight.last().is_some_and(|s: &Sample| s.grounded) {
+            flight.push(sim.frame());
+        }
+        let landed = flight.last().expect("the Dive never landed").pos;
+        let offset = landed - launch;
+        (if keys.is_empty() { &mut straight } else { &mut steered }).replace(offset);
+    }
+    let (straight, steered) = (straight.unwrap(), steered.unwrap());
+    // The steer turns the lunge aside a little, but it's still a lunge: about as far along.
+    let aside = (steered - straight).with_y(0.0).length();
+    assert!(aside > 0.03 && aside < 0.6, "the steer moved the landing {aside} m aside");
+    assert!((steered.x - straight.x).abs() < 0.3, "the steer ate the lunge: {}", steered.x - straight.x);
+}
+
+/// A Dive's landing recovery blocks firing and stance changes for `DIVE_RECOVERY_SECS` —
+/// an ignored press changes nothing at all — and once it lifts the Player is free again.
+#[test]
+fn a_dive_lands_prone_locked_for_the_recovery() {
+    let mut sim = Sim::new(144.0);
+    sim.place(Vec3::new(0.0, 0.0, 20.0), EAST);
+    sim.hold(&[KeyCode::KeyW, KeyCode::ShiftLeft]);
+    sim.run_secs(0.25);
+    sim.hold(&[KeyCode::KeyZ]);
+    assert!(!sim.frame().grounded, "the Dive didn't launch");
+    sim.hold(&[]);
+    let mut flight = Vec::new();
+    while flight.len() < 200 && !flight.last().is_some_and(|s: &Sample| s.grounded) {
+        flight.push(sim.frame());
+    }
+    assert!(flight.last().is_some_and(|s| s.grounded), "the Dive never landed");
+    assert_eq!(sim.stance(), Stance::Prone);
+
+    // 0.15 s after landing the prone transition's own block is over (it ended 0.1 s in) — any
+    // block now is the recovery's.
+    sim.run_secs(0.15);
+    assert!(sim.firing_blocked(), "the recovery didn't hold the firing block");
+    // Stance input under the lock is ignored outright: no stance change, nothing.
+    sim.tap_crouch();
+    assert_eq!(sim.stance(), Stance::Prone, "a stance change went through the recovery lock");
+    sim.run_secs(0.05);
+    assert_eq!(sim.stance(), Stance::Prone, "the lock let go early");
+
+    // 0.5 s after landing the recovery has lifted: the target applies and the Player rises.
+    sim.run_secs(0.3);
+    assert_eq!(sim.stance(), Stance::Crouched, "the crouched target never applied once free");
+    // And once the rise out of Prone is done too, firing is clear again.
+    sim.run_secs(0.5);
+    assert!(!sim.firing_blocked(), "the firing block never ended");
+}
+
+/// Off a ledge the Dive falls under gravity: the same lunge keeps falling past where the
+/// flat-ground arc would have landed, and it still ends Prone.
+#[test]
+fn a_dive_off_a_ledge_falls_under_gravity() {
+    let mut sim = Sim::new(144.0);
+    sim.place(Vec3::new(-12.0, 4.0, 4.0), EAST);
+    sim.hold(&[KeyCode::KeyW, KeyCode::ShiftLeft]);
+    let mut sprint = Vec::new();
+    while sprint.last().is_none_or(|s: &Sample| s.pos.x < -10.7) {
+        sprint.push(sim.frame());
+    }
+    assert!(sprint.last().unwrap().sprinting);
+
+    sim.hold(&[KeyCode::KeyZ]);
+    let launch = sim.frame();
+    assert_eq!(sim.stance(), Stance::Prone, "the prone press out of the sprint didn't Dive");
+    assert!(!launch.grounded);
+    sim.hold(&[]);
+    let mut flight = Vec::new();
+    while flight.len() < 300 && !flight.last().is_some_and(|s: &Sample| s.grounded) {
+        flight.push(sim.frame());
+    }
+    let landed = flight.last().expect("the ledge Dive never landed");
+    let secs = flight.len() as f32 * sim.frame_secs;
+    assert!(
+        secs > DIVE_FLIGHT_SECS * 1.2,
+        "the ledge flight took no longer than a flat one: {secs} s"
+    );
+    assert!(landed.pos.y < 3.0, "never fell below the Balcony: {}", landed.pos.y);
+    assert!(landed.pos.x > -9.0, "didn't clear the edge: {}", landed.pos.x);
+    assert_eq!(sim.stance(), Stance::Prone, "the ledge Dive didn't end Prone");
+}
+
+/// One `step_move` tick straight against the sim's world, from a crafted start — for the states
+/// the Sim's own route can't reach, like the middle of a Dive's cooldown.
+fn step_once(sim: &mut Sim, position: Vec3, locomotion: Locomotion, input: MoveInput) -> Locomotion {
+    let args = (position, locomotion, input);
+    let world = sim.app.world_mut();
+    let id = world.register_system(
+        move |player: Single<(Entity, &Loadout, &Modifiers), With<Player>>, move_and_slide: MoveAndSlide| {
+            let (entity, loadout, modifiers) = *player;
+            let mut context = MoveContext { entity, loadout, modifiers, drinking: false, last_stand: false };
+            let (mut position, mut locomotion, input) = args.clone();
+            step_move(&mut position, &mut locomotion, &input, &mut context, Duration::from_secs_f64(1.0 / 64.0), &move_and_slide);
+            locomotion
+        },
+    );
+    let result = world.run_system(id).unwrap();
+    world.unregister_system(id).unwrap();
+    result
+}
+
+/// A prone press out of a sprint inside `DIVE_COOLDOWN_SECS` of the last landing is ignored
+/// outright — no Dive and no stance change either, the sprint carries on — and under the
+/// recovery lock every stance input is; past the cooldown the same press Dives.
+#[test]
+fn the_cooldown_ignores_a_dive_press_and_the_recovery_locks_every_stance_change() {
+    let mut sim = Sim::new(60.0);
+    sim.place(Vec3::new(0.0, 0.0, 20.0), 0.0);
+    let world = sim.app.world_mut();
+    let (start, settled) = world
+        .query_filtered::<(&Transform, &Locomotion), With<Player>>()
+        .single(world)
+        .map(|(transform, locomotion)| (transform.translation, locomotion.clone()))
+        .unwrap();
+    // A stand-in for a Player mid-sprint, somewhere in a past Dive's cooldown.
+    let mut sprinting = settled.clone();
+    sprinting.sprinting = true;
+    sprinting.grounded = true;
+    sprinting.stance = Stance::Standing;
+    sprinting.left_stance = Stance::Standing;
+    let dive_press = MoveInput { axes: Vec2::Y, sprint: true, prone: true, ..default() };
+    let prone_press = MoveInput { axes: Vec2::Y, prone: true, ..default() };
+
+    // 0.2 s after the last landing, the recovery holds: a prone press — even a plain one out
+    // of a walk — changes nothing at all. The stance stays Standing.
+    let mut locked = sprinting.clone();
+    locked.since_dive_landing = 0.2;
+    let stepped = step_once(&mut sim, start, locked, prone_press);
+    assert_eq!(stepped.stance, Stance::Standing, "a stance change went through the recovery lock");
+
+    // 0.9 s after: past the recovery, inside the cooldown. The prone press out of the sprint
+    // is ignored outright — no Dive, no prone transition — and the sprint carries on.
+    let mut cooling = sprinting.clone();
+    cooling.since_dive_landing = 0.9;
+    let stepped = step_once(&mut sim, start, cooling, dive_press);
+    assert_eq!(stepped.stance, Stance::Standing, "the cooldown ate a stance change with the Dive");
+    assert!(stepped.grounded, "the cooldown Dive left the floor");
+    assert!(stepped.sprinting, "the sprint didn't carry on through the refused press");
+
+    // 1.1 s after: the cooldown has passed, and the same press Dives.
+    let mut free = sprinting;
+    free.since_dive_landing = 1.1;
+    let stepped = step_once(&mut sim, start, free, dive_press);
+    assert_eq!(stepped.stance, Stance::Prone, "the press past the cooldown didn't Dive");
+    assert!(!stepped.grounded, "the Dive didn't leave the floor");
+    assert!(stepped.vertical_speed() > 3.0, "the lunge didn't lift: {}", stepped.vertical_speed());
 }

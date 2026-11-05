@@ -288,6 +288,11 @@ pub struct Locomotion {
     pub(crate) eye: f32,
     /// The speed the eye glides at, set when a stance change begins.
     pub(crate) eye_rate: f32,
+    /// A Dive in flight: a ballistic lunge that ends Prone where it lands.
+    pub(crate) diving: bool,
+    /// Seconds since the last Dive landed, counting through its recovery and its cooldown.
+    /// `f32::INFINITY` until the first Dive lands.
+    pub(crate) since_dive_landing: f32,
 }
 
 impl Locomotion {
@@ -308,7 +313,8 @@ impl Locomotion {
     }
 
     /// Puts the body in the Standing Stance at once, as a Respawn, a Teleporter ride or the start
-    /// of a Run does. The caller sets the collider to match.
+    /// of a Run does. The caller sets the collider to match. A Dive in flight is over, its locks
+    /// wiped.
     pub(crate) fn stand(&mut self) {
         self.stance = Stance::Standing;
         self.left_stance = Stance::Standing;
@@ -316,6 +322,27 @@ impl Locomotion {
         self.since_stance_change = 0.0;
         self.eye = Stance::Standing.eye_height();
         self.eye_rate = 0.0;
+        self.diving = false;
+        self.since_dive_landing = f32::INFINITY;
+    }
+
+    /// Whether a Dive is in flight. With airborne presses ignored there are no crouch-jumps, so
+    /// Prone ∧ airborne can only mean a Dive in flight — the wire derives it, never encodes it.
+    #[allow(dead_code, reason = "read by the wire and feedback slices once they pose the Dive")]
+    pub fn diving(&self) -> bool {
+        self.diving
+    }
+
+    /// Whether the last Dive's landing recovery still has the Player locked: firing, aiming and
+    /// stance changes are blocked until `DIVE_RECOVERY_SECS` after landing.
+    pub fn recovering_from_dive(&self) -> bool {
+        self.since_dive_landing < DIVE_RECOVERY_SECS
+    }
+
+    /// Whether the last Dive's cooldown still holds: no new Dive until `DIVE_COOLDOWN_SECS`
+    /// after landing. The recovery runs inside it; only the Dive waits on the cooldown.
+    pub fn dive_on_cooldown(&self) -> bool {
+        self.since_dive_landing < DIVE_COOLDOWN_SECS
     }
 
     /// Horizontal speed in m/s.
@@ -343,6 +370,8 @@ impl Default for Locomotion {
             since_stance_change: 0.0,
             eye: Stance::Standing.eye_height(),
             eye_rate: 0.0,
+            diving: false,
+            since_dive_landing: f32::INFINITY,
         }
     }
 }
@@ -388,12 +417,24 @@ pub struct PlayerHit {
     pub damage: f32,
 }
 
-/// Whether the local Player is clear to fire: not mid-prone-transition. Going down to Prone or
-/// getting up from it blocks firing until the transition is done; crouch transitions block
-/// nothing, and no prone lock applies while Down — Last Stand's own rules don't change. (The
-/// Knife and Equipment join the block in the fighting-by-stance slice.)
+/// Whether the local Player is clear to fire: not mid-prone-transition and not in a Dive's
+/// landing recovery. Going down to Prone or getting up from it blocks firing until the
+/// transition is done, and a Dive blocks from its launch through `DIVE_RECOVERY_SECS` after
+/// landing; crouch transitions block nothing, and no prone lock applies while Down — Last
+/// Stand's own rules don't change. (The Knife and Equipment join the block in the
+/// fighting-by-stance slice; aiming reads `not_recovering_from_dive` for its share.)
 pub fn not_changing_prone(players: Query<(&Locomotion, Has<LastStand>), With<LocalPlayer>>) -> bool {
-    players.iter().all(|(locomotion, last_stand)| last_stand || !locomotion.prone_transition())
+    players.iter().all(|(locomotion, last_stand)| {
+        last_stand || (!locomotion.prone_transition() && !locomotion.recovering_from_dive())
+    })
+}
+
+/// Whether the local Player is out of a Dive's landing recovery, so aiming down sights is clear:
+/// the recovery blocks aiming (with firing and stance changes) until `DIVE_RECOVERY_SECS` after
+/// landing, and no Dive lock applies while Down.
+#[allow(dead_code, reason = "the weapon side's aiming gate reads it in the fighting-by-stance slice")]
+pub fn not_recovering_from_dive(players: Query<(&Locomotion, Has<LastStand>), With<LocalPlayer>>) -> bool {
+    players.iter().all(|(locomotion, last_stand)| last_stand || !locomotion.recovering_from_dive())
 }
 
 /// Places the camera's `Eye` from the stance glide: the eye's height above the feet, less the
@@ -771,10 +812,19 @@ pub fn step_move(
         Stance::Standing
     };
     let mut changed = None;
+    // The Dive: the target going Prone while sprinting is a lunge into a low airborne arc, not a
+    // prone transition — detected here from the same bits the Host replays, so both sides see it
+    // the same. It starts only from the ground (the sprint is grounded), never under the landing
+    // recovery, and only once the last Dive's cooldown has passed. On the cooldown the press is
+    // ignored outright — no Dive and no stance change either; the sprint carries on.
+    let diving = locomotion.sprinting && target == Stance::Prone && locomotion.stance == Stance::Standing;
     if locomotion.stance != target
         && locomotion.grounded
-        && (target.depth() > locomotion.stance.depth()
-            || room_for(move_and_slide, entity, *position, locomotion.stance, target))
+        && !locomotion.recovering_from_dive()
+        && (diving && !locomotion.dive_on_cooldown()
+            || !diving
+                && (target.depth() > locomotion.stance.depth()
+                    || room_for(move_and_slide, entity, *position, locomotion.stance, target)))
     {
         position.y += target.half_height() - locomotion.stance.half_height();
         locomotion.left_stance = locomotion.stance;
@@ -783,11 +833,23 @@ pub fn step_move(
         locomotion.since_stance_change = 0.0;
         // The camera keeps gliding between the eyes for the whole transition.
         locomotion.eye_rate = (target.eye_height() - locomotion.eye).abs() / locomotion.stance_change_secs;
+        if diving {
+            // The lunge leaves the floor at once, under gravity: `DIVE_DISTANCE` over about
+            // `DIVE_FLIGHT_SECS`, ending Prone where it lands through the transition the lines
+            // above began. Off a ledge the same velocity just keeps falling.
+            locomotion.diving = true;
+            locomotion.grounded = false;
+            let lunge = rotation * Vec3::NEG_Z * (DIVE_DISTANCE / DIVE_FLIGHT_SECS);
+            locomotion.velocity = lunge + Vec3::Y * (GRAVITY * DIVE_FLIGHT_SECS / 2.0);
+        }
         changed = Some(target);
     }
     // The step works from the Stance's own shape; the caller puts the collider component into it.
     let shape = locomotion.stance.collider();
     locomotion.since_stance_change += dt;
+    // (The Dive's timers count from its landing, which is found further down, once the move has
+    // run. `INFINITY` stays itself.)
+    locomotion.since_dive_landing += dt;
     // The camera keeps gliding to the new stance's eye for the whole transition.
     locomotion.eye = move_towards(locomotion.eye, locomotion.stance.eye_height(), locomotion.eye_rate * dt);
 
@@ -838,7 +900,18 @@ pub fn step_move(
 
     let wish_world = rotation * Vec3::new(wish.x, 0.0, -wish.y) * speed;
     let horizontal = Vec3::new(locomotion.velocity.x, 0.0, locomotion.velocity.z);
-    let horizontal = horizontal.move_towards(wish_world, PLAYER_ACCELERATION * dt);
+    // In flight the Dive steers only slightly: the held direction turns the lunge a little and
+    // nothing slows it. Anywhere else in the air the wish moves the Player as always.
+    let horizontal = if locomotion.diving {
+        let steer = rotation * Vec3::new(wish.x, 0.0, -wish.y);
+        if steer.length_squared() > 0.0 {
+            horizontal.move_towards(steer * horizontal.length(), DIVE_STEER_ACCEL * dt)
+        } else {
+            horizontal
+        }
+    } else {
+        horizontal.move_towards(wish_world, PLAYER_ACCELERATION * dt)
+    };
     // Gravity only pulls in the air; on the floor it would just push the Player into it, and
     // slowly down the ramp while standing still.
     let mut vertical = if locomotion.grounded { 0.0 } else { locomotion.velocity.y - GRAVITY * dt };
@@ -897,6 +970,12 @@ pub fn step_move(
     // the ramp doesn't launch them off the top of it.
     if grounded {
         velocity = velocity.with_y(0.0).normalize_or_zero() * velocity.length();
+    }
+    // A Dive lands where it is: back on the floor after the lunge. Recovery and the cooldown both
+    // run from here, and the stance it lands in is the one it left in — Prone.
+    if locomotion.diving && grounded {
+        locomotion.diving = false;
+        locomotion.since_dive_landing = 0.0;
     }
 
     *position = new_position;
