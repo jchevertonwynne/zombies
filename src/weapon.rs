@@ -904,7 +904,7 @@ impl Loadout {
     }
 }
 
-fn move_towards(from: f32, to: f32, step: f32) -> f32 {
+pub(crate) fn move_towards(from: f32, to: f32, step: f32) -> f32 {
     if from < to { (from + step).min(to) } else { (from - step).max(to) }
 }
 

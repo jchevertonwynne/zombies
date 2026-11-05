@@ -60,6 +60,7 @@ impl Sim {
         .add_message::<Teleport>()
         .init_resource::<PendingTeleports>()
         .add_systems(PostUpdate, queue_teleports)
+        .add_systems(Update, place_eye)
         .init_resource::<crate::modifier::RunModifiers>()
         .add_systems(Update, send_teleport)
         .insert_resource(Settings::default())
@@ -106,6 +107,33 @@ impl Sim {
     /// Mouse motion, in pixels, every frame from now on.
     pub fn mouse(&mut self, delta: Vec2) {
         self.app.world_mut().resource_mut::<AccumulatedMouseMotion>().delta = delta;
+    }
+
+    /// The Player's Stance.
+    pub fn stance(&mut self) -> Stance {
+        self.app
+            .world_mut()
+            .query_filtered::<&Locomotion, With<Player>>()
+            .single(self.app.world())
+            .unwrap()
+            .stance
+    }
+
+    /// The camera's `Eye` height above the capsule centre, as the stance glide has it.
+    pub fn eye(&mut self) -> f32 {
+        self.app
+            .world_mut()
+            .query_filtered::<&Eye, With<PlayerCamera>>()
+            .single(self.app.world())
+            .unwrap()
+            .height
+    }
+
+    /// Presses the Crouch key long enough for one tick to see it, then lets go.
+    pub fn tap_crouch(&mut self) {
+        self.hold(&[KeyCode::KeyC]);
+        self.run_secs(0.05);
+        self.hold(&[]);
     }
 
     pub fn frame(&mut self) -> Sample {
@@ -318,9 +346,10 @@ fn a_teleport_lands_cleanly_whenever_it_is_sent() {
 }
 
 /// The step is a plain function of the Player's state and one tick's input: replaying the same
-/// inputs from the same start, as client prediction will, lands on the same position every time.
+/// inputs from the same start, as client prediction will, lands on the same position and the
+/// same Stance every time.
 #[test]
-fn replaying_the_same_inputs_from_the_same_start_reaches_the_same_position() {
+fn replaying_the_same_inputs_from_the_same_start_reaches_the_same_position_and_stance() {
     let mut sim = Sim::new(60.0);
     sim.place(Vec3::new(0.0, 0.0, 20.0), 0.0);
     sim.hold(&[]);
@@ -331,12 +360,13 @@ fn replaying_the_same_inputs_from_the_same_start_reaches_the_same_position() {
         .map(|(transform, locomotion)| (transform.translation, locomotion.clone()))
         .unwrap();
 
-    // Walk, sprint while turning, then jump and land.
-    let inputs: Vec<MoveInput> = (0..120)
+    // Walk, sprint while turning, jump and land, crouch and crawl, then stand back up and settle.
+    let inputs: Vec<MoveInput> = (0..180)
         .map(|tick| MoveInput {
             axes: if tick < 90 { Vec2::Y } else { Vec2::new(1.0, 1.0) },
             sprint: (30..70).contains(&tick),
             jump: tick == 80,
+            crouch: (100..150).contains(&tick),
             yaw: tick as f32 * 0.02,
             ..default()
         })
@@ -345,15 +375,15 @@ fn replaying_the_same_inputs_from_the_same_start_reaches_the_same_position() {
     let run = |world: &mut World| {
         let args = (start, locomotion.clone(), inputs.clone());
         let id = world.register_system(
-            move |player: Single<(Entity, &Collider, &Loadout, &Modifiers), With<Player>>,
+            move |player: Single<(Entity, &Loadout, &Modifiers), With<Player>>,
                   move_and_slide: MoveAndSlide| {
-                let (entity, collider, loadout, modifiers) = *player;
-                let context = MoveContext { entity, collider, loadout, modifiers, drinking: false, last_stand: false };
+                let (entity, loadout, modifiers) = *player;
+                let mut context = MoveContext { entity, loadout, modifiers, drinking: false, last_stand: false };
                 let (mut position, mut locomotion, inputs) = args.clone();
                 for input in &inputs {
-                    step_move(&mut position, &mut locomotion, input, &context, Duration::from_secs_f64(1.0 / 64.0), &move_and_slide);
+                    step_move(&mut position, &mut locomotion, input, &mut context, Duration::from_secs_f64(1.0 / 64.0), &move_and_slide);
                 }
-                (position, locomotion.velocity, locomotion.grounded)
+                (position, locomotion.velocity, locomotion.grounded, locomotion.stance, locomotion.eye)
             },
         );
         let result = world.run_system(id).unwrap();
@@ -364,4 +394,209 @@ fn replaying_the_same_inputs_from_the_same_start_reaches_the_same_position() {
     let second = run(sim.app.world_mut());
     assert_eq!(first, second);
     assert!(first.0.distance(start) > 5.0, "the Player didn't go anywhere: {}", first.0);
+}
+
+/// The Crouch key lowers the Player at once — the collider shrinks to the crouched capsule with
+/// the feet staying put — while the camera glides between the eyes over the transition, and the
+/// key toggles back up.
+#[test]
+fn crouching_takes_the_body_at_once_and_glides_the_eye() {
+    let mut sim = Sim::new(144.0);
+    sim.place(Vec3::new(0.0, 0.0, 20.0), EAST);
+    let feet = sim.frame().pos.y - Stance::Standing.half_height();
+    assert!((sim.eye() - PLAYER_EYE_HEIGHT).abs() < 1e-6);
+
+    sim.tap_crouch();
+    assert_eq!(sim.stance(), Stance::Crouched, "the Crouch key didn't lower the Player");
+    // The body went down at the start of the transition, feet staying put.
+    let dropped = sim.frame().pos;
+    assert!(
+        (dropped.y - (feet + Stance::Crouched.half_height())).abs() < 1e-3,
+        "the feet moved: {} down to {}",
+        feet,
+        dropped.y
+    );
+    // The camera stays where it was in the world (the height above the centre rises as the
+    // centre drops) and then glides down over the transition.
+    let crouched_eye = CROUCH_EYE_HEIGHT - Stance::Crouched.half_height();
+    let starts_high = PLAYER_EYE_HEIGHT + Stance::Standing.half_height() - Stance::Crouched.half_height();
+    assert!((sim.eye() - starts_high).abs() < 0.2, "the camera world height didn't hold: {}", sim.eye());
+    sim.run_secs(0.125);
+    let mid = sim.eye();
+    assert!(mid > crouched_eye + 0.05 && mid < starts_high - 0.05, "the eye jumped to {mid}");
+    sim.run_secs(0.25);
+    assert!((sim.eye() - crouched_eye).abs() < 1e-3, "the eye settled at {}", sim.eye());
+
+    // The key toggles back up, and the eye glides home.
+    sim.tap_crouch();
+    assert_eq!(sim.stance(), Stance::Standing);
+    sim.run_secs(0.25);
+    assert!((sim.eye() - PLAYER_EYE_HEIGHT).abs() < 1e-3, "the eye came back to {}", sim.eye());
+}
+
+/// A Crouched Player moves at 0.65× walk speed, mid-transition no faster.
+#[test]
+fn a_crouched_player_moves_at_crouch_speed() {
+    let mut sim = Sim::new(144.0);
+    sim.place(Vec3::new(0.0, 0.0, 20.0), EAST);
+    sim.tap_crouch();
+    sim.hold(&[KeyCode::KeyW]);
+    // Mid-transition, and then settled: the slower Stance's speed the whole way.
+    let mid = sim.run_secs(0.1);
+    for speed in speeds(&mid, sim.frame_secs) {
+        assert!(speed < PLAYER_WALK_SPEED * 0.9, "mid-transition it moved {speed} m/s");
+    }
+    sim.run_secs(0.2);
+    let steady = sim.run_secs(0.8);
+    for speed in speeds(&steady, sim.frame_secs) {
+        assert!(
+            (speed - PLAYER_WALK_SPEED * CROUCH_SPEED_MULT).abs() < 0.05,
+            "crouched, it moved {speed} m/s"
+        );
+    }
+    assert!(steady.iter().all(|s| s.grounded), "crouching lost the floor");
+}
+
+/// Jump while Crouched stands the Player up instead of jumping; a second press jumps. Sprint
+/// stands and sprints at once.
+#[test]
+fn jump_and_sprint_stand_you_up() {
+    let mut sim = Sim::new(144.0);
+    sim.place(Vec3::new(0.0, 0.0, 20.0), 0.0);
+    sim.tap_crouch();
+    sim.run_secs(0.3);
+    let feet = sim.frame().pos.y - Stance::Crouched.half_height();
+
+    sim.hold(&[KeyCode::Space]);
+    sim.run_secs(0.05);
+    sim.hold(&[]);
+    assert_eq!(sim.stance(), Stance::Standing, "Jump didn't stand the Player up");
+    sim.run_secs(0.5);
+    let after = sim.frame().pos.y - Stance::Standing.half_height();
+    assert!((after - feet).abs() < 0.05, "the stand-up jumped: {after} against {feet}");
+
+    // A second press jumps like normal.
+    sim.hold(&[KeyCode::Space]);
+    sim.run_secs(0.05);
+    sim.hold(&[]);
+    let rising = sim.run_secs(0.4);
+    let peak = rising.iter().map(|s| s.pos.y).fold(f32::MIN, f32::max);
+    assert!(peak > feet + 0.5, "the jump reached {peak}");
+
+    // Sprint stands and sprints at once.
+    sim.tap_crouch();
+    sim.run_secs(0.3);
+    sim.hold(&[KeyCode::KeyW, KeyCode::ShiftLeft]);
+    sim.run_secs(0.3);
+    let up = sim.frame();
+    assert!(up.sprinting, "Sprint didn't stand the Player up");
+
+    // A jump swallowed on the way down, too: press Crouch and Jump together.
+    sim.tap_crouch();
+    sim.hold(&[KeyCode::KeyC, KeyCode::Space]);
+    sim.run_secs(0.05);
+    sim.hold(&[]);
+    assert_eq!(sim.stance(), Stance::Standing, "the pair didn't land Standing");
+    sim.run_secs(0.4);
+    assert!(
+        (sim.frame().pos.y - Stance::Standing.half_height() - feet).abs() < 0.1,
+        "the swallowed jump jumped anyway"
+    );
+}
+
+/// Hold mode: the key keeps the Player down, letting go brings them up, and a Jump stand-up gives
+/// way until the key is released and pressed again.
+#[test]
+fn hold_keeps_the_player_down_while_held() {
+    let mut sim = Sim::new(144.0);
+    sim.app
+        .world_mut()
+        .insert_resource(crate::settings::Settings { stance_keys: crate::settings::StanceMode::Hold, ..default() });
+    sim.place(Vec3::new(0.0, 0.0, 20.0), 0.0);
+
+    sim.hold(&[KeyCode::KeyC]);
+    sim.run_secs(0.05);
+    assert_eq!(sim.stance(), Stance::Crouched);
+    sim.run_secs(0.3);
+    assert_eq!(sim.stance(), Stance::Crouched, "the held key let go on its own");
+
+    sim.hold(&[]);
+    sim.run_secs(0.05);
+    assert_eq!(sim.stance(), Stance::Standing, "letting go didn't bring them up");
+
+    // Jump stands the Player up, and the still-held key gives way until it is released.
+    sim.hold(&[KeyCode::KeyC]);
+    sim.run_secs(0.05);
+    sim.hold(&[KeyCode::KeyC, KeyCode::Space]);
+    sim.run_secs(0.05);
+    sim.hold(&[KeyCode::KeyC]);
+    sim.run_secs(0.3);
+    assert_eq!(sim.stance(), Stance::Standing, "the held key went back down after the Jump");
+
+    // Released and pressed again goes back down.
+    sim.hold(&[]);
+    sim.run_secs(0.05);
+    sim.hold(&[KeyCode::KeyC]);
+    sim.run_secs(0.05);
+    assert_eq!(sim.stance(), Stance::Crouched, "released and pressed again didn't go down");
+}
+
+/// A low ceiling refuses the stand-up silently, and the Player stands once there's room again.
+#[test]
+fn a_low_ceiling_refuses_the_stand_up_until_there_is_room() {
+    for mode in [crate::settings::StanceMode::Toggle, crate::settings::StanceMode::Hold] {
+        let mut sim = Sim::new(144.0);
+        sim.app
+            .world_mut()
+            .insert_resource(crate::settings::Settings { stance_keys: mode, ..default() });
+        sim.place(Vec3::new(0.0, 0.0, 20.0), 0.0);
+        let feet = sim.frame().pos.y - Stance::Standing.half_height();
+        // A ceiling too low to stand under, high enough to crouch under: its bottom 1.4 m up.
+        let ceiling = sim
+            .app
+            .world_mut()
+            .spawn((
+                Transform::from_xyz(0.0, feet + 1.65, 20.0),
+                RigidBody::Static,
+                Collider::cuboid(3.0, 0.5, 3.0),
+                CollisionLayers::new(GameLayer::World, LayerMask::ALL),
+            ))
+            .id();
+        sim.run_secs(0.1);
+
+        // Crouching under it is fine; standing back up is refused, silently. The two presses
+        // get a tick of release between them, as a hand would.
+        if mode == crate::settings::StanceMode::Toggle {
+            sim.tap_crouch();
+            sim.run_secs(0.05);
+            sim.tap_crouch();
+        } else {
+            sim.hold(&[KeyCode::KeyC]);
+            sim.run_secs(0.05);
+            sim.hold(&[]);
+        }
+        sim.run_secs(0.5);
+        assert_eq!(sim.stance(), Stance::Crouched, "{mode:?}: stood into the ceiling");
+
+        // Once there's room, the Player stands.
+        sim.app.world_mut().entity_mut(ceiling).despawn();
+        sim.run_secs(0.1);
+        assert_eq!(sim.stance(), Stance::Standing, "{mode:?}: didn't stand once there was room");
+        assert!(sim.frame().grounded);
+    }
+}
+
+/// A Teleporter ride places the Player Standing, whatever they rode as.
+#[test]
+fn a_teleporter_ride_places_the_player_standing() {
+    let mut sim = Sim::new(144.0);
+    sim.place(Vec3::new(0.0, 0.0, 20.0), 0.0);
+    sim.tap_crouch();
+    sim.run_secs(0.3);
+    assert_eq!(sim.stance(), Stance::Crouched);
+
+    sim.place(Vec3::new(-10.5, 0.0, 23.0), 0.0);
+    assert_eq!(sim.stance(), Stance::Standing, "the ride didn't place them Standing");
+    let arrived = sim.frame().pos;
+    assert!((arrived.y - Stance::Standing.half_height()).abs() < 0.05, "arrived at {arrived}");
 }

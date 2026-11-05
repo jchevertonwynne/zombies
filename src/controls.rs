@@ -21,6 +21,8 @@ pub enum Action {
     Right,
     Jump,
     Sprint,
+    /// The Crouch key: lowers into the Crouched Stance, by the Toggle or Hold setting.
+    Crouch,
     Fire,
     Aim,
     Reload,
@@ -38,13 +40,14 @@ pub enum Action {
 }
 
 impl Action {
-    pub const ALL: [Action; 19] = [
+    pub const ALL: [Action; 20] = [
         Action::Forward,
         Action::Back,
         Action::Left,
         Action::Right,
         Action::Jump,
         Action::Sprint,
+        Action::Crouch,
         Action::Fire,
         Action::Aim,
         Action::Reload,
@@ -68,6 +71,7 @@ impl Action {
             Action::Right => "Move Right",
             Action::Jump => "Jump",
             Action::Sprint => "Sprint",
+            Action::Crouch => "Crouch",
             Action::Fire => "Fire",
             Action::Aim => "Aim Down Sights",
             Action::Reload => "Reload",
@@ -93,6 +97,7 @@ impl Action {
             Action::Right => "right",
             Action::Jump => "jump",
             Action::Sprint => "sprint",
+            Action::Crouch => "crouch",
             Action::Fire => "fire",
             Action::Aim => "aim",
             Action::Reload => "reload",
@@ -118,6 +123,7 @@ impl Action {
             Action::Right => Key(KeyCode::KeyD),
             Action::Jump => Key(KeyCode::Space),
             Action::Sprint => Key(KeyCode::ShiftLeft),
+            Action::Crouch => Key(KeyCode::KeyC),
             Action::Fire => Mouse(MouseButton::Left),
             Action::Aim => Mouse(MouseButton::Right),
             Action::Reload => Key(KeyCode::KeyR),

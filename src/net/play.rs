@@ -559,8 +559,9 @@ fn reconcile(
     mut inbox: ResMut<Inbox>,
     mut prediction: ResMut<Prediction>,
     mut crowd: ResMut<Crowd>,
+    mut commands: Commands,
     mut local: Query<
-        (Entity, &mut Transform, &mut Locomotion, &Collider, &Loadout, &Modifiers, Has<Drinking>, Has<LastStand>),
+        (Entity, &mut Transform, &mut Locomotion, &Loadout, &Modifiers, Has<Drinking>, Has<LastStand>),
         With<LocalPlayer>,
     >,
     mut points: Query<(&PlayerSeat, &mut Points), With<Player>>,
@@ -588,7 +589,7 @@ fn reconcile(
             points.balance = balance;
         }
     }
-    let Ok((entity, mut transform, mut locomotion, collider, loadout, modifiers, drinking, last_stand)) =
+    let Ok((entity, mut transform, mut locomotion, loadout, modifiers, drinking, last_stand)) =
         local.single_mut()
     else {
         return;
@@ -603,13 +604,17 @@ fn reconcile(
     }
     let was = transform.translation;
     let mut position = was;
+    let stance_was = locomotion.stance;
     snapshot.own.put(&mut position, &mut locomotion);
     prediction.sent.retain(|(tick, _)| *tick > snapshot.used);
-    let context = MoveContext { entity, collider, loadout, modifiers, drinking, last_stand };
+    let mut context = MoveContext { entity, loadout, modifiers, drinking, last_stand };
     for (_, step) in &prediction.sent {
-        step_move(&mut position, &mut locomotion, &step.input(), &context, time.delta(), &move_and_slide);
+        step_move(&mut position, &mut locomotion, &step.input(), &mut context, time.delta(), &move_and_slide);
     }
     transform.translation = position;
+    if locomotion.stance != stance_was {
+        commands.entity(entity).insert(locomotion.stance.collider());
+    }
     prediction.corrected = was.distance(position);
 }
 

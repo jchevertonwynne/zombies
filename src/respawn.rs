@@ -248,7 +248,10 @@ fn respawn(
         perks.0.clear();
         points.balance = respawn_points(points.balance, round.number);
         *locomotion = Locomotion::default();
-        commands.entity(entity).remove::<(AwaitingRespawn, ColliderDisabled)>();
+        // A Respawn places the Player Standing, whatever they went down as.
+        commands.entity(entity)
+            .insert(crate::player::Stance::Standing.collider())
+            .remove::<(AwaitingRespawn, ColliderDisabled)>();
         respawned.write(Respawned { player: entity });
     }
 }

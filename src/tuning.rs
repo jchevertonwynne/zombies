@@ -38,6 +38,16 @@ pub const SPRINT_DURATION_SECS: f32 = 4.0;
 /// Seconds to recharge a fully spent sprint (approx).
 pub const SPRINT_RECHARGE_SECS: f32 = 2.0;
 
+// Stance (all tuned by feel, per the Crouch and prone spec)
+/// Seconds of the Stand↔Crouch transition.
+pub const STANCE_CROUCH_SECS: f32 = 0.25;
+/// The crouched eye's height above the feet.
+pub const CROUCH_EYE_HEIGHT: f32 = 1.05;
+/// The crouched capsule's length between its caps (with `PLAYER_RADIUS`, a 1.2 m body).
+pub const CROUCH_COLLIDER_LENGTH: f32 = 0.5;
+/// The crouched movement's factor on walk speed.
+pub const CROUCH_SPEED_MULT: f32 = 0.65;
+
 // Weapons
 pub const STARTING_WEAPON: WeaponId = WeaponId::M1911;
 /// Weapon slots the Player carries, before any stat entry adds more.
@@ -1894,6 +1904,10 @@ pub const BOB_SPRINT_VERTICAL: f32 = 0.055;
 pub const CRAWL_SWAY_STRIDE_METRES: f32 = 1.5;
 pub const CRAWL_SWAY_LATERAL: f32 = 0.05;
 pub const CRAWL_SWAY_VERTICAL: f32 = 0.02;
+/// The crouched bob: one stride per this much ground at full crouch speed, and its amplitudes.
+pub const CROUCH_BOB_STRIDE_METRES: f32 = 5.0;
+pub const CROUCH_BOB_LATERAL: f32 = 0.012;
+pub const CROUCH_BOB_VERTICAL: f32 = 0.018;
 /// How quickly the bob eases in and out (starting, stopping, leaving the ground, aiming).
 pub const SWAY_EASE_RATE: f32 = 10.0;
 /// Landing dip: none below the minimum fall speed, then deeper per m/s, up to the max.

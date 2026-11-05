@@ -128,6 +128,11 @@ fn a_player_respawns_at_the_next_round_beside_a_teammate_with_the_starting_loado
     world.get_mut::<Loadout>(teammate).unwrap().give(WeaponId::Mp40);
     world.get_mut::<Equipment>(teammate).unwrap().claymores = 2;
     world.get_mut::<Points>(teammate).unwrap().balance = 200;
+    // They go down Crouched; a Respawn places them Standing.
+    sim.world_mut().get_mut::<MoveInput>(teammate).unwrap().crouch = true;
+    sim.run(10);
+    assert_eq!(sim.world_mut().get::<Locomotion>(teammate).unwrap().stance, Stance::Crouched);
+    sim.world_mut().get_mut::<MoveInput>(teammate).unwrap().crouch = false;
     bleed_out(&mut sim, teammate);
     // Nothing happens until the Round starts.
     sim.run(sim.frames(3.0));
@@ -151,6 +156,11 @@ fn a_player_respawns_at_the_next_round_beside_a_teammate_with_the_starting_loado
     // Beside them, a little closer than the offset if a wall pushed the body in.
     assert!((0.5..=RESPAWN_BESIDE_DISTANCE + 0.1).contains(&at.distance(beside)), "{} m from the teammate", at.distance(beside));
     assert!(is_up(&mut sim, teammate));
+    assert_eq!(
+        sim.world_mut().get::<Locomotion>(teammate).unwrap().stance,
+        Stance::Standing,
+        "the Respawn didn't place them Standing"
+    );
 }
 
 #[test]

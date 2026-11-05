@@ -10,7 +10,7 @@ use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 
 use crate::last_stand::{LastStand, lower_eye};
-use crate::player::{Eye, LocalPlayer, Locomotion, PlayerCamera};
+use crate::player::{Eye, LocalPlayer, Locomotion, PlayerCamera, Stance, place_eye};
 use crate::settings::Settings;
 use crate::state::input_runs;
 use crate::tuning::*;
@@ -20,6 +20,8 @@ use crate::weapon::{AnimateViewModel, Loadout, ViewModel};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Gait {
     OnFoot,
+    /// Crouched movement: a smaller, slower bob.
+    Crouched,
     /// The Last Stand crawl, which keeps a slow sway.
     Crawl,
 }
@@ -28,6 +30,7 @@ pub enum Gait {
 pub fn stride_rate(speed: f32, gait: Gait) -> f32 {
     let stride = match gait {
         Gait::OnFoot => BOB_STRIDE_METRES,
+        Gait::Crouched => CROUCH_BOB_STRIDE_METRES,
         Gait::Crawl => CRAWL_SWAY_STRIDE_METRES,
     };
     speed.max(0.0) / stride
@@ -40,6 +43,10 @@ pub fn bob_amplitude(speed: f32, gait: Gait) -> Vec2 {
     let walk = Vec2::new(BOB_WALK_LATERAL, BOB_WALK_VERTICAL);
     let sprint = Vec2::new(BOB_SPRINT_LATERAL, BOB_SPRINT_VERTICAL);
     match gait {
+        Gait::Crouched => {
+            let crouch_speed = PLAYER_WALK_SPEED * CROUCH_SPEED_MULT;
+            Vec2::new(CROUCH_BOB_LATERAL, CROUCH_BOB_VERTICAL) * (speed / crouch_speed).min(1.0)
+        }
         Gait::Crawl => {
             let crawl_speed = PLAYER_WALK_SPEED * LAST_STAND_CRAWL_MULT;
             Vec2::new(CRAWL_SWAY_LATERAL, CRAWL_SWAY_VERTICAL) * (speed / crawl_speed).min(1.0)
@@ -117,6 +124,7 @@ impl Plugin for SwayPlugin {
         app.add_systems(Update, add_sway).add_systems(
             Update,
             sway.after(lower_eye)
+                .after(place_eye)
                 .after(AnimateViewModel)
                 .run_if(input_runs),
         );
@@ -147,7 +155,13 @@ fn sway(
     let weight = if settings.camera_sway { 1.0 - loadout.aim } else { 0.0 };
 
     // The stride: none in the air.
-    let gait = if last_stand { Gait::Crawl } else { Gait::OnFoot };
+    let gait = if last_stand {
+        Gait::Crawl
+    } else if locomotion.stance == Stance::Crouched {
+        Gait::Crouched
+    } else {
+        Gait::OnFoot
+    };
     let grounded = locomotion.grounded();
     let speed = if grounded { locomotion.ground_speed() } else { 0.0 };
     sway.amplitude = ease(sway.amplitude, bob_amplitude(speed, gait) * weight, SWAY_EASE_RATE, dt);
@@ -239,6 +253,17 @@ mod tests {
             assert!((amplitude - last).length() < 0.002);
             last = amplitude;
         }
+    }
+
+    #[test]
+    fn the_crouched_bob_is_smaller_and_slower_than_the_walk() {
+        let crouch_speed = PLAYER_WALK_SPEED * CROUCH_SPEED_MULT;
+        let crouch = bob_amplitude(crouch_speed, Gait::Crouched);
+        assert_eq!(crouch, Vec2::new(CROUCH_BOB_LATERAL, CROUCH_BOB_VERTICAL));
+        let walk = bob_amplitude(PLAYER_WALK_SPEED, Gait::OnFoot);
+        assert!(crouch.x < walk.x && crouch.y < walk.y);
+        assert!(stride_rate(crouch_speed, Gait::Crouched) < stride_rate(PLAYER_WALK_SPEED, Gait::OnFoot));
+        assert_eq!(bob_amplitude(0.0, Gait::Crouched), Vec2::ZERO);
     }
 
     #[test]

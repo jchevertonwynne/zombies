@@ -29,6 +29,10 @@ pub struct Settings {
     /// start with every type On.
     #[serde(default)]
     pub special_zombies: SpecialZombies,
+    /// Whether the Stance keys Toggle or Hold. Missing from Settings saved before it existed,
+    /// which start with Toggle.
+    #[serde(default)]
+    pub stance_keys: StanceMode,
     /// The Mode last picked, so the Mode screen can start on it.
     pub last_mode: Mode,
     /// Key bindings changed from the defaults. Missing from Settings saved before they existed,
@@ -51,6 +55,7 @@ impl Default for Settings {
             invert_y: false,
             camera_sway: true,
             special_zombies: SpecialZombies::default(),
+            stance_keys: StanceMode::default(),
             last_mode: Mode::default(),
             bindings: Bindings::default(),
             name: String::new(),
@@ -60,6 +65,23 @@ impl Default for Settings {
 
 fn camera_sway_default() -> bool {
     true
+}
+
+/// How the Stance keys work: a press Toggles the Stance, or the key is Held to keep it.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StanceMode {
+    #[default]
+    Toggle,
+    Hold,
+}
+
+impl StanceMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            StanceMode::Toggle => "Toggle",
+            StanceMode::Hold => "Hold",
+        }
+    }
 }
 
 /// A Special Zombie type the Player can switch off.
@@ -205,18 +227,21 @@ pub enum Setting {
     Fov,
     InvertY,
     CameraSway,
+    /// Whether the Stance keys Toggle or Hold.
+    StanceKeys,
     /// A Special Zombie type's On/Off switch.
     Special(SpecialType),
 }
 
 impl Setting {
     /// The general Settings, above the Special Zombies group.
-    pub const ALL: [Setting; 5] = [
+    pub const ALL: [Setting; 6] = [
         Setting::Sensitivity,
         Setting::MasterVolume,
         Setting::Fov,
         Setting::InvertY,
         Setting::CameraSway,
+        Setting::StanceKeys,
     ];
 
     /// The "Special Zombies" group, one switch per type.
@@ -236,6 +261,7 @@ impl Setting {
             Setting::Fov => "Field of View",
             Setting::InvertY => "Invert Y",
             Setting::CameraSway => "Camera Sway",
+            Setting::StanceKeys => "Stance Keys",
             Setting::Special(kind) => kind.label(),
         }
     }
@@ -276,6 +302,12 @@ impl Settings {
             Setting::Fov => self.fov = step(self.fov, FOV_STEP, FOV_MIN, FOV_MAX),
             Setting::InvertY => self.invert_y = !self.invert_y,
             Setting::CameraSway => self.camera_sway = !self.camera_sway,
+            Setting::StanceKeys => {
+                self.stance_keys = match self.stance_keys {
+                    StanceMode::Toggle => StanceMode::Hold,
+                    StanceMode::Hold => StanceMode::Toggle,
+                }
+            }
             Setting::Special(kind) => self.special_zombies.toggle(kind),
         }
     }
@@ -288,6 +320,7 @@ impl Settings {
             Setting::Fov => self.fov.to_string(),
             Setting::InvertY => on_off(self.invert_y),
             Setting::CameraSway => on_off(self.camera_sway),
+            Setting::StanceKeys => self.stance_keys.label().to_string(),
             Setting::Special(kind) => on_off(self.special_zombies.is_on(kind)),
         }
     }
@@ -371,6 +404,7 @@ mod tests {
         assert_eq!(settings.fov, 80);
         assert!(!settings.invert_y);
         assert!(settings.camera_sway);
+        assert_eq!(settings.stance_keys, StanceMode::Toggle);
         assert_eq!(settings.last_mode, Mode::Classic);
         for kind in SpecialType::ALL {
             assert!(settings.special_zombies.is_on(kind), "{kind:?}");
@@ -421,6 +455,25 @@ mod tests {
             assert_eq!(SpecialType::from_off_record_id(kind.off_record_id()), Some(kind));
         }
         assert_eq!(SpecialType::from_off_record_id("boon:juggernog"), None);
+    }
+
+    #[test]
+    fn stance_keys_start_toggle_flip_and_save() {
+        let mut settings = Settings::default();
+        assert_eq!(settings.stance_keys, StanceMode::Toggle);
+        assert_eq!(settings.display(Setting::StanceKeys), "Toggle");
+        settings.adjust(Setting::StanceKeys, true);
+        assert_eq!(settings.stance_keys, StanceMode::Hold);
+        assert_eq!(settings.display(Setting::StanceKeys), "Hold");
+        let dir = TempDir::new("settings-stance-keys");
+        save::store(&dir.0, &settings).unwrap();
+        assert_eq!(save::load::<Settings>(&dir.0).stance_keys, StanceMode::Hold);
+    }
+
+    #[test]
+    fn settings_saved_before_stance_keys_load_with_toggle() {
+        let old = "(version: 1, sensitivity: 7, master_volume: 50, fov: 90, invert_y: true, last_mode: Classic)";
+        assert_eq!(save::parse::<Settings>(old).unwrap().stance_keys, StanceMode::Toggle);
     }
 
     #[test]
