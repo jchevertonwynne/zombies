@@ -169,6 +169,27 @@ pub struct Reload {
     base_secs: f32,
     /// Dual Mag's flat Reload, which no modifier shortens.
     flat: bool,
+    /// For a Reload that loads a bullet at a time: how its bullets arrive. `None` lands them all
+    /// at the end.
+    steps: Option<ReloadSteps>,
+}
+
+/// The schedule of a bullet-by-bullet Reload, in unmodified seconds: `start`, then one
+/// `per_bullet` for each of `loading` bullets (then the Reload's own end).
+#[derive(Clone, Copy)]
+struct ReloadSteps {
+    start: f32,
+    per_bullet: f32,
+    loading: u32,
+    /// Bullets already moved from Reserve Ammo into the Magazine.
+    loaded: u32,
+}
+
+impl Reload {
+    /// Whether the trigger can cut this Reload short.
+    fn interruptible(&self) -> bool {
+        self.steps.is_some()
+    }
 }
 
 /// Putting one Weapon away and bringing another up.
@@ -789,11 +810,17 @@ impl Loadout {
         let held = self.held();
         let dual_mag = self.underbarrel().is_none() && held.attachments.contains(&Attachment::DualMag);
         let flat = dual_mag && dual_mag_flat(held.reloads);
-        let base_secs = if flat { DUAL_MAG_RELOAD_SECS } else { self.gun_stats().reload.secs(magazine, loading) };
+        let reload = self.gun_stats().reload;
+        let base_secs = if flat { DUAL_MAG_RELOAD_SECS } else { reload.secs(magazine, loading) };
         self.reload = Some(Reload {
             elapsed: 0.0,
             base_secs,
             flat,
+            steps: if flat {
+                None
+            } else {
+                reload.steps(magazine).map(|(start, per_bullet)| ReloadSteps { start, per_bullet, loading, loaded: 0 })
+            },
         });
         self.burst_left = 0;
         true
@@ -805,17 +832,37 @@ impl Loadout {
         let size = self.magazine_size(player);
         let reload = self.reload.as_mut().expect("reloading");
         reload.elapsed += dt;
-        if reload.elapsed >= secs {
+        let done = reload.elapsed >= secs;
+        // Bullets that should be in by now, in unmodified time.
+        let mut due = 0;
+        if let Some(steps) = &mut reload.steps {
+            if done {
+                due = steps.loading;
+            } else if steps.per_bullet > 0.0 && secs > 0.0 {
+                let base_elapsed = reload.elapsed * reload.base_secs / secs;
+                due = (((base_elapsed - steps.start) / steps.per_bullet)
+                    .floor()
+                    .max(0.0) as u32)
+                    .min(steps.loading);
+            }
+            due = due.saturating_sub(steps.loaded);
+            steps.loaded += due;
+        }
+        if done {
             self.reload = None;
             if self.underbarrel().is_none() {
                 let held = self.held_mut();
                 held.reloads = held.reloads.wrapping_add(1);
             }
-            let (magazine, reserve) = self.gun_ammo_mut();
-            let taken = size.saturating_sub(*magazine).min(*reserve);
-            *reserve -= taken;
-            *magazine += taken;
         }
+        let (magazine, reserve) = self.gun_ammo_mut();
+        let taken = if done {
+            size.saturating_sub(*magazine).min(*reserve)
+        } else {
+            due.min(size.saturating_sub(*magazine)).min(*reserve)
+        };
+        *reserve -= taken;
+        *magazine += taken;
     }
 
     /// Whether the gun that fires now fires, given the trigger. Spends the bullet when it does.
@@ -832,11 +879,17 @@ impl Loadout {
         };
         let ready = self.swap.is_none()
             && self.toggle <= 0.0
-            && self.reload.is_none()
             && self.sprint_out <= 0.0
             && self.since_shot >= self.fire_interval(player);
         if !wants || !ready {
             return false;
+        }
+        // The trigger ends a bullet-by-bullet Reload that has a bullet in, and fires at once.
+        if let Some(reload) = &self.reload {
+            if !reload.interruptible() || self.gun_ammo().0 == 0 {
+                return false;
+            }
+            self.reload = None;
         }
         let (magazine, _) = self.gun_ammo_mut();
         if *magazine == 0 {
@@ -2340,5 +2393,246 @@ mod tests {
         loadout.give(WeaponId::Mp40);
         assert!(loadout.held().attachments.is_empty() && loadout.held().underbarrel.is_none());
         assert_eq!(loadout.held().magazine, 32);
+    }
+
+    // Shell-by-shell Reloads.
+
+    /// A Trench Gun with an empty Magazine and 60 in Reserve Ammo, mid a freshly started Reload.
+    /// Its Reload is 0.9 s to start, 0.6 s a shell, then a 0.95 s pump.
+    fn empty_trench_gun() -> Loadout {
+        let mut loadout = Loadout::new(WeaponId::TrenchGun);
+        loadout.held_mut().magazine = 0;
+        assert!(loadout.start_reload(NONE));
+        loadout
+    }
+
+    #[test]
+    fn each_shell_lands_as_its_step_finishes_drawing_from_reserve() {
+        let mut loadout = empty_trench_gun();
+        let reserve = loadout.held().reserve;
+        run(&mut loadout, 1.4, NONE);
+        assert_eq!(loadout.held().magazine, 0, "still in the start step");
+        run(&mut loadout, 0.2, NONE);
+        assert_eq!(
+            (loadout.held().magazine, loadout.held().reserve),
+            (1, reserve - 1)
+        );
+        run(&mut loadout, 0.6, NONE);
+        assert_eq!(
+            (loadout.held().magazine, loadout.held().reserve),
+            (2, reserve - 2)
+        );
+        assert!(loadout.reload.is_some());
+        // The rest, then the pump, and the Reload is done.
+        run(&mut loadout, 3.0 * 0.6 + 0.6 + 0.95, NONE);
+        assert_eq!(
+            (loadout.held().magazine, loadout.held().reserve),
+            (6, reserve - 6)
+        );
+        assert!(loadout.reload.is_none());
+    }
+
+    #[test]
+    fn a_big_frame_lands_every_shell_that_was_due() {
+        let mut loadout = empty_trench_gun();
+        run(&mut loadout, 0.9 + 0.6 * 3.0 + 0.1, NONE);
+        assert_eq!(loadout.held().magazine, 3);
+    }
+
+    #[test]
+    fn shells_stop_at_the_reserve_ammo_there_is() {
+        let mut loadout = empty_trench_gun();
+        loadout.held_mut().reserve = 2;
+        run(&mut loadout, 10.0, NONE);
+        assert_eq!((loadout.held().magazine, loadout.held().reserve), (2, 0));
+        assert!(loadout.reload.is_none());
+    }
+
+    #[test]
+    fn the_trigger_with_a_shell_in_ends_the_reload_and_fires_at_once() {
+        let mut loadout = empty_trench_gun();
+        run(&mut loadout, 0.9 + 0.6 * 2.0 + 0.05, NONE);
+        assert_eq!(loadout.held().magazine, 2);
+        assert!(loadout.try_fire(true, true, NONE));
+        assert!(loadout.reload.is_none());
+        assert_eq!(loadout.held().magazine, 1, "fired one of the two loaded");
+        assert_eq!(
+            loadout.held().reloads,
+            0,
+            "a cut short Reload doesn't count"
+        );
+        // The Reload doesn't carry on behind the shot.
+        run(&mut loadout, 5.0, NONE);
+        assert_eq!(loadout.held().magazine, 1);
+    }
+
+    #[test]
+    fn the_trigger_during_the_end_pump_also_fires() {
+        let mut loadout = empty_trench_gun();
+        run(&mut loadout, 0.9 + 0.6 * 6.0 + 0.1, NONE);
+        assert_eq!(loadout.held().magazine, 6);
+        assert!(loadout.reload.is_some(), "still pumping");
+        assert!(loadout.try_fire(true, true, NONE));
+        assert!(loadout.reload.is_none());
+    }
+
+    #[test]
+    fn the_trigger_with_nothing_loaded_does_nothing_and_the_reload_goes_on() {
+        let mut loadout = empty_trench_gun();
+        run(&mut loadout, 0.5, NONE);
+        assert!(!loadout.try_fire(true, true, NONE));
+        assert!(loadout.reload.is_some());
+        run(&mut loadout, 5.0, NONE);
+        assert_eq!(loadout.held().magazine, 6);
+    }
+
+    #[test]
+    fn a_magazine_swap_reload_is_not_interruptible() {
+        let mut loadout = Loadout::new(WeaponId::M1911);
+        loadout.held_mut().magazine = 3;
+        assert!(loadout.start_reload(NONE));
+        run(&mut loadout, 0.5, NONE);
+        assert!(!loadout.try_fire(true, true, NONE));
+        assert!(loadout.reload.is_some());
+    }
+
+    #[test]
+    fn the_python_loads_bullet_by_bullet_and_can_be_cut_short() {
+        let mut loadout = Loadout::new(WeaponId::Python);
+        loadout.held_mut().magazine = 3;
+        assert!(loadout.start_reload(NONE));
+        run(&mut loadout, 1.6 + 0.65 + 0.05, NONE);
+        assert_eq!(loadout.held().magazine, 4);
+        assert!(loadout.try_fire(true, true, NONE));
+        assert!(loadout.reload.is_none());
+        assert_eq!(loadout.held().magazine, 3);
+        assert_eq!(loadout.held().reloads, 0);
+    }
+
+    #[test]
+    fn the_python_speedloader_lands_all_at_once_and_cannot_be_cut_short() {
+        let mut loadout = Loadout::new(WeaponId::Python);
+        loadout.held_mut().magazine = 0;
+        assert!(loadout.start_reload(NONE));
+        run(&mut loadout, 0.9, NONE);
+        assert_eq!(loadout.held().magazine, 0);
+        assert!(!loadout.try_fire(true, true, NONE));
+        run(&mut loadout, 0.2, NONE);
+        assert_eq!(loadout.held().magazine, 6);
+        assert!(loadout.reload.is_none());
+    }
+
+    #[test]
+    fn dual_mags_flat_reload_stays_all_at_once_and_uninterruptible() {
+        let mut loadout = upgraded(WeaponId::Mp40, &[Attachment::DualMag]);
+        loadout.held_mut().magazine = 10;
+        loadout.start_reload(NONE);
+        run(&mut loadout, 5.0, NONE);
+        loadout.held_mut().magazine = 10;
+        loadout.start_reload(NONE);
+        run(&mut loadout, DUAL_MAG_RELOAD_SECS * 0.5, NONE);
+        assert!(!loadout.try_fire(true, true, NONE));
+        assert_eq!(loadout.held().magazine, 10);
+        run(&mut loadout, DUAL_MAG_RELOAD_SECS, NONE);
+        assert_eq!(loadout.held().magazine, 64);
+    }
+
+    #[test]
+    fn a_cut_short_reload_doesnt_advance_dual_mags_count() {
+        let mut loadout = Loadout::new(WeaponId::TrenchGun);
+        loadout.held_mut().attachments.push(Attachment::DualMag);
+        loadout.held_mut().magazine = 0;
+        loadout.held_mut().reloads = 2;
+        assert!(loadout.start_reload(NONE));
+        assert!(loadout.reload.as_ref().is_some_and(Reload::interruptible));
+        run(&mut loadout, 1.6, NONE);
+        assert!(loadout.try_fire(true, true, NONE));
+        assert_eq!(loadout.held().reloads, 2);
+        // One that runs to completion counts.
+        loadout.held_mut().magazine = 0;
+        run(&mut loadout, 1.0, NONE);
+        assert!(loadout.start_reload(NONE));
+        run(&mut loadout, 20.0, NONE);
+        assert_eq!(loadout.held().reloads, 3);
+    }
+
+    #[test]
+    fn speed_cola_keeps_the_total_and_brings_each_shell_sooner() {
+        let mult = SPEED_COLA_RELOAD_MULT;
+        let mut loadout = Loadout::new(WeaponId::TrenchGun);
+        loadout.held_mut().magazine = 0;
+        assert!(loadout.start_reload(&SPEED_COLA));
+        let total = loadout.reload_secs(&SPEED_COLA).unwrap();
+        assert!((total - (0.9 + 0.6 * 6.0 + 0.95) * mult).abs() < 1e-4);
+        run(&mut loadout, (0.9 + 0.6) * mult - 0.01, &SPEED_COLA);
+        assert_eq!(loadout.held().magazine, 0);
+        run(&mut loadout, 0.02, &SPEED_COLA);
+        assert_eq!(loadout.held().magazine, 1);
+        run(&mut loadout, 0.6 * mult, &SPEED_COLA);
+        assert_eq!(loadout.held().magazine, 2);
+        run(&mut loadout, total - (0.9 + 1.2) * mult - 0.02, &SPEED_COLA);
+        assert!(loadout.reload.is_some());
+        run(&mut loadout, 0.02, &SPEED_COLA);
+        assert!(loadout.reload.is_none());
+        assert_eq!(loadout.held().magazine, 6);
+    }
+
+    #[test]
+    fn a_switch_mid_reload_keeps_the_shells_already_loaded() {
+        let mut loadout = Loadout::new(WeaponId::TrenchGun);
+        loadout.give(WeaponId::M14);
+        run(&mut loadout, 5.0, NONE);
+        assert!(loadout.switch_to(0));
+        run(&mut loadout, 5.0, NONE);
+        loadout.held_mut().magazine = 0;
+        assert!(loadout.start_reload(NONE));
+        run(&mut loadout, 0.9 + 0.6 * 2.0 + 0.05, NONE);
+        assert!(loadout.switch_to(1));
+        assert!(loadout.reload.is_none());
+        assert_eq!(loadout.slot(0).unwrap().magazine, 2);
+        run(&mut loadout, 5.0, NONE);
+        assert_eq!(
+            loadout.slot(0).unwrap().magazine,
+            2,
+            "the unloaded remainder is lost"
+        );
+    }
+
+    #[test]
+    fn toggling_the_underbarrel_mid_reload_keeps_the_shells_already_loaded() {
+        let mut loadout = Loadout::new(WeaponId::TrenchGun);
+        loadout.held_mut().magazine = 0;
+        assert!(loadout.start_reload(NONE));
+        run(&mut loadout, 0.9 + 0.6 + 0.05, NONE);
+        assert_eq!(loadout.held().magazine, 1);
+        let mut aug = upgraded(WeaponId::Aug, &[]);
+        assert!(aug.toggle_underbarrel());
+        run(&mut aug, UNDERBARREL_TOGGLE_SECS, NONE);
+        aug.held_mut().underbarrel.as_mut().unwrap().magazine = 0;
+        assert!(aug.start_reload(NONE));
+        run(&mut aug, 0.9 + 0.3 + 0.05, NONE);
+        assert_eq!(aug.gun_ammo().0, 1);
+        assert!(aug.toggle_underbarrel());
+        assert!(aug.reload.is_none());
+        assert_eq!(aug.held().underbarrel.unwrap().magazine, 1, "kept");
+    }
+
+    #[test]
+    fn the_masterkey_fires_mid_reload_with_a_shell_in() {
+        let mut aug = upgraded(WeaponId::Aug, &[]);
+        assert!(aug.toggle_underbarrel());
+        run(&mut aug, UNDERBARREL_TOGGLE_SECS, NONE);
+        aug.held_mut().underbarrel.as_mut().unwrap().magazine = 4;
+        assert!(aug.start_reload(NONE));
+        run(&mut aug, 0.9 + 0.3 + 0.05, NONE);
+        assert_eq!(aug.gun_ammo().0, 5);
+        assert!(aug.try_fire(true, true, NONE));
+        assert!(aug.reload.is_none());
+        assert_eq!(aug.gun_ammo().0, 4);
+        assert_eq!(
+            aug.held().magazine,
+            30,
+            "the AUG's own Magazine is untouched"
+        );
     }
 }
