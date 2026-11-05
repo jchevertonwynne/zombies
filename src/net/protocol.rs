@@ -46,7 +46,7 @@ pub fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, WireError> {
 }
 
 /// Why a Host won't have a Player.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refusal {
     /// The two games don't speak the same `PROTOCOL`.
     Version,
@@ -56,6 +56,8 @@ pub enum Refusal {
     WrongPassword,
     /// The Run has started, and the Room takes no one new.
     Started,
+    /// The Host holds no Seat for the token given, or for a Player who didn't give one.
+    NoSeat,
 }
 
 impl Refusal {
@@ -66,6 +68,7 @@ impl Refusal {
             Refusal::Full => "Room is full",
             Refusal::WrongPassword => "Wrong password",
             Refusal::Started => "Run already started",
+            Refusal::NoSeat => "No Seat held for you",
         }
     }
 }

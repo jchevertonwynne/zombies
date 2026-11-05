@@ -328,7 +328,7 @@ pub fn add(app: &mut App) {
 fn receive(
     mut inbox: ResMut<Hits>,
     ids: Res<ZombieIds>,
-    players: Query<(Entity, &Remote), With<Player>>,
+    players: Query<(Entity, &Remote), (With<Player>, Without<crate::respawn::Disconnected>)>,
     zombies: Query<&Zombie, Without<Dying>>,
     mut reports: MessageWriter<HitReport>,
     mut launches: MessageWriter<Launch>,

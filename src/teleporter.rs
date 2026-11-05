@@ -114,6 +114,9 @@ pub struct Teleporter {
     payer: Option<Entity>,
     /// The Players the trip carries: those standing on the Pad when it charged.
     riders: Vec<Entity>,
+    /// The last arrival's riders and the aftereffect it rolled, until the network layer has told
+    /// the riders away from the Host.
+    arrival: Option<(Vec<Entity>, Aftereffect)>,
 }
 
 impl Teleporter {
@@ -125,6 +128,12 @@ impl Teleporter {
             trip: self.trip.map(|(pad, phase)| (pad, matches!(phase, TripPhase::Holding(_)))),
             sabotaged: self.sabotaged,
         }
+    }
+
+    /// The riders of an arrival and its aftereffect, if there has been one since this was last
+    /// asked.
+    pub fn take_arrival(&mut self) -> Option<(Vec<Entity>, Aftereffect)> {
+        self.arrival.take()
     }
 
     /// Shows what the Host says, each clock starting over where its phase begins.
@@ -375,7 +384,7 @@ pub fn arrival_drop(
 }
 
 /// The random aftereffect of an arrival.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Aftereffect {
     /// The Shellshock haze, through the overlay layer.
     ShellshockBlur,
@@ -421,9 +430,28 @@ pub fn saturation(effect: Aftereffect, left: f32) -> f32 {
 /// What follows an arrival: the aftereffect with its seconds left, and the arrival drop with the
 /// seconds until it comes.
 #[derive(Resource, Debug, Default)]
-struct Aftermath {
+pub(crate) struct Aftermath {
     aftereffect: Option<(Aftereffect, f32)>,
     drop: Option<(ArrivalDrop, f32)>,
+}
+
+/// An aftereffect begins on this machine's screen: for a rider on the Host, as it rolls it, and for
+/// a client's, as the Host tells it.
+pub(crate) fn begin_aftereffect(
+    effect: Aftereffect,
+    aftermath: &mut Aftermath,
+    overlays: &mut Overlays,
+    shellshocks: &mut MessageWriter<Shellshock>,
+) {
+    match effect {
+        // The shared Shellshock: its haze, slow-down, muffle and cue.
+        Aftereffect::ShellshockBlur => {
+            shellshocks.write(Shellshock { secs: TELEPORTER_AFTEREFFECT_SECS });
+        }
+        Aftereffect::FovWarp => overlays.pulse(Overlay::TeleporterDaze, 1.0, TELEPORTER_AFTEREFFECT_SECS),
+        Aftereffect::BlackAndWhite => {}
+    }
+    aftermath.aftereffect = Some((effect, TELEPORTER_AFTEREFFECT_SECS));
 }
 
 /// A Zombie the Teleporter's kills spare: the Sapper.
@@ -477,7 +505,8 @@ impl Plugin for TeleporterPlugin {
             .add_systems(
                 Update,
                 (
-                    (use_teleporter, run_trips, aftermath).chain().in_set(HostSimulation),
+                    (use_teleporter, run_trips, drop_arrives).chain().in_set(HostSimulation),
+                    play_aftereffect,
                     prompt_teleporter,
                     show_teleporter,
                 )
@@ -755,18 +784,10 @@ fn run_trips(
             let effect = Aftereffect::ALL[rng.random_range(0..Aftereffect::ALL.len())];
             // The aftereffect is on the `LocalPlayer`'s screen, so only if they rode.
             if local_rides {
-                match effect {
-                    // The shared Shellshock: its haze, slow-down, muffle and cue.
-                    Aftereffect::ShellshockBlur => {
-                        shellshocks.write(Shellshock { secs: TELEPORTER_AFTEREFFECT_SECS });
-                    }
-                    Aftereffect::FovWarp => {
-                        overlays.pulse(Overlay::TeleporterDaze, 1.0, TELEPORTER_AFTEREFFECT_SECS)
-                    }
-                    Aftereffect::BlackAndWhite => {}
-                }
-                aftermath.aftereffect = Some((effect, TELEPORTER_AFTEREFFECT_SECS));
+                begin_aftereffect(effect, &mut aftermath, &mut overlays, &mut shellshocks);
             }
+            // The other riders' games are told of it.
+            teleporter.arrival = Some((riders, effect));
 
             let round = round.map_or(1, |round| round.number);
             let re_teleport = re_teleport_hounds(round, since_last, teleporter.both_linked());
@@ -777,13 +798,11 @@ fn run_trips(
     }
 }
 
-/// The aftereffect plays out on the camera, and the arrival drop comes when it's due.
-fn aftermath(
+/// The aftereffect plays out on the camera, on every machine whose Player rode.
+fn play_aftereffect(
     mut aftermath: ResMut<Aftermath>,
     mut warp: ResMut<FovWarp>,
     mut grading: Query<&mut ColorGrading, With<PlayerCamera>>,
-    mut power_ups: MessageWriter<DropPowerUp>,
-    mut hounds: MessageWriter<SpawnHellhounds>,
     time: Res<Time>,
 ) {
     let dt = time.delta_secs();
@@ -803,7 +822,16 @@ fn aftermath(
             grading.global.post_saturation = saturated;
         }
     }
+}
 
+/// The arrival drop comes when it's due.
+fn drop_arrives(
+    mut aftermath: ResMut<Aftermath>,
+    mut power_ups: MessageWriter<DropPowerUp>,
+    mut hounds: MessageWriter<SpawnHellhounds>,
+    time: Res<Time>,
+) {
+    let dt = time.delta_secs();
     if let Some((drop, left)) = &mut aftermath.drop {
         *left -= dt;
         if *left > 0.0 {

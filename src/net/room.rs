@@ -20,6 +20,8 @@ struct Member {
     ready: bool,
     /// What they brought from their Armory.
     unlocks: Unlocks,
+    /// What they come back by, should the way to the Host break during the Run. The Host's is 0.
+    token: u64,
 }
 
 /// The Host's book of the Room: its settings and who sits in each Seat.
@@ -45,6 +47,7 @@ impl Room {
             name: clean_name(name),
             ready: true,
             unlocks,
+            token: 0,
         };
         let mut seats: [Option<Member>; ROOM_SEATS] = Default::default();
         seats[0] = Some(host);
@@ -142,6 +145,24 @@ impl Room {
             .collect()
     }
 
+    /// What each Player away from the Host comes back by, with their Seat.
+    pub fn tokens(&self) -> Vec<(Seat, u64)> {
+        (0..ROOM_SEATS)
+            .filter_map(|at| {
+                let member = self.seats[at].as_ref()?;
+                (member.peer != HOST).then_some((at as Seat, member.token))
+            })
+            .collect()
+    }
+
+    /// A Player who was away has come back from a Run's drop by a new link, with a new token.
+    pub fn rebind(&mut self, seat: Seat, peer: Peer, token: u64) {
+        if let Some(Some(member)) = self.seats.get_mut(seat as usize) {
+            member.peer = peer;
+            member.token = token;
+        }
+    }
+
     /// The party is back from a Run: the Room takes new Players again, and no one is Ready.
     pub fn return_to_room(&mut self) {
         self.started = false;
@@ -231,18 +252,19 @@ impl Room {
         let Some(free) = self.seats.iter().position(Option::is_none) else {
             return ToPlayer::Refused(Refusal::Full);
         };
+        let ToPlayer::Welcome { token, .. } = welcome else {
+            return welcome;
+        };
         self.seats[free] = Some(Member {
             peer,
             name: clean_name(name),
             ready: false,
             unlocks: unlocks.clone(),
+            token,
         });
-        match welcome {
-            ToPlayer::Welcome { token, .. } => ToPlayer::Welcome {
-                token,
-                seat: free as Seat,
-            },
-            other => other,
+        ToPlayer::Welcome {
+            token,
+            seat: free as Seat,
         }
     }
 
@@ -483,6 +505,8 @@ pub struct Joining<L: Link> {
     pub state: Joined,
     /// What the Host was last told this Player's Armory held.
     sent: Unlocks,
+    /// What the Host gave to come back by.
+    token: u64,
 }
 
 impl<L: Link> Joining<L> {
@@ -498,6 +522,7 @@ impl<L: Link> Joining<L> {
             },
             state: Joined::Dialling,
             sent: unlocks,
+            token: 0,
         }
     }
 
@@ -529,7 +554,10 @@ impl<L: Link> Joining<L> {
             return;
         };
         match (message, &mut self.state) {
-            (ToPlayer::Welcome { seat, .. }, state) => *state = Joined::In { seat, view: None },
+            (ToPlayer::Welcome { seat, token }, state) => {
+                self.token = token;
+                *state = Joined::In { seat, view: None }
+            }
             (ToPlayer::Refused(why), state) => *state = Joined::Refused(why),
             (ToPlayer::Room(room), Joined::In { view, .. }) => *view = Some(room),
             (ToPlayer::Kicked, state) => *state = Joined::Kicked,
@@ -566,11 +594,19 @@ impl<L: Link> Joining<L> {
         }
     }
 
-    /// The party is back from a Run in `seat`: the Host sends the Room again.
-    pub fn resume(link: L, seat: Seat, unlocks: Unlocks) -> Self {
+    /// The party is back from a Run in `seat`, which it comes back to by `token`: the Host sends
+    /// the Room again.
+    pub fn resume(link: L, seat: Seat, token: u64, unlocks: Unlocks) -> Self {
         let mut joining = Joining::new(link, "", "", unlocks);
         joining.state = Joined::In { seat, view: None };
+        joining.token = token;
         joining
+    }
+
+    /// What the Host gave this Player to come back by, and what they said Hello with, for a Run
+    /// that has started.
+    pub fn rejoin(&self) -> (u64, ToHost) {
+        (self.token, self.hello.clone())
     }
 
     /// The link, once the Run has started and it is the Run's.

@@ -16,7 +16,8 @@ use crate::leave_run::PlayerLeft;
 use crate::map::MapId;
 use crate::mode::Mode;
 use crate::net::link::Link;
-use crate::net::play::{self, HostSaid, PlayPlugin, Roster, Scoreboard, Wire};
+use crate::net::away::{AwayPlugin, Rejoin};
+use crate::net::play::{self, Held, HostSaid, PlayPlugin, Roster, Scoreboard, Wire};
 use crate::net::protocol::{HOST, Peer, RoomView, Score, ToHost, ToPlayer, encode};
 use crate::net::room::{Hosting, Joining, Room};
 use crate::gauntlet::PlayerUnlocks;
@@ -70,10 +71,13 @@ impl Party {
         Party { seats, local, mode, map, stage: Stage::Gathering, room, back: false, over: false, parted: false }
     }
 
-    /// The Peers the Host's Room still has Players for.
-    fn peers(&self) -> Option<Vec<Peer>> {
-        self.room.as_ref().map(|room| room.remotes().iter().map(|&(peer, _)| peer).collect())
-    }
+}
+
+/// The Peers a Host has Players on now, or nothing for a joiner. A Player whose way has broken and
+/// who is dialling back is found by the Run's roster, not the Room's.
+fn live_peers(world: &World, party: &Party) -> Option<Vec<Peer>> {
+    party.room.as_ref()?;
+    Some(world.get_resource::<Roster>().map_or_else(Vec::new, |roster| roster.0.iter().map(|&(peer, _)| peer).collect()))
 }
 
 /// Starts the Run from the Host's Room, if it may start: every machine is told. The Room is given
@@ -88,8 +92,10 @@ pub fn start_hosted(
         .into_iter()
         .map(|(seat, name)| (Seat(seat), name))
         .collect();
+    let room_tokens = room.tokens();
     world.insert_resource(Party::new(seats, Seat(0), room.mode(), room.map(), Some(room)));
     play::begin_host(world, link, roster);
+    world.insert_resource(Held { tokens: room_tokens, away: Vec::new() });
     Ok(())
 }
 
@@ -102,7 +108,8 @@ pub fn start_joined(world: &mut World, joining: Joining<Box<dyn Link>>, seat: u8
         .filter_map(|(at, held)| Some((Seat(at as u8), held.as_ref()?.name.clone())))
         .collect();
     world.insert_resource(Party::new(seats, Seat(seat), view.mode, view.map, None));
-    play::begin_client(world, joining.into_link());
+    let (token, hello) = joining.rejoin();
+    play::begin_client(world, joining.into_link(), Rejoin::new(token, hello));
 }
 
 fn launching(party: Option<Res<Party>>) -> bool {
@@ -208,6 +215,11 @@ fn hear_host(
                 next.set(GameState::MainMenu);
             }
             HostSaid::BackToRoom => party.back = true,
+            HostSaid::Refused(why) => {
+                // The Host holds no Seat for this Player: the Run is over for them.
+                notice.0 = why.reason().into();
+                next.set(GameState::MainMenu);
+            }
         }
     }
 }
@@ -235,12 +247,30 @@ fn wants_back(party: Option<Res<Party>>) -> bool {
 /// for the Host to say how it stands.
 fn back_to_room(world: &mut World) {
     let Some(party) = world.remove_resource::<Party>() else { return };
+    // What each Player comes back by now, and who is still with the Host.
+    let held = world.remove_resource::<Held>();
+    let live = world.get_resource::<Roster>().map(|roster| roster.0.clone()).unwrap_or_default();
+    let token = world.get_resource::<Rejoin>().map_or(0, |rejoin| rejoin.token);
     let Some(link) = play::end_run(world) else { return };
     let session = match party.room {
-        Some(room) => CoopSession::Host(Box::new(Hosting::resume(link, room))),
+        Some(mut room) => {
+            // Those who came back by a new link are the Room's by it; those still away have lost
+            // their Seat in it.
+            for &(seat, token) in held.iter().flat_map(|held| held.tokens.iter()) {
+                if let Some(&(peer, _)) = live.iter().find(|&&(_, on)| on == seat) {
+                    room.rebind(seat, peer, token);
+                }
+            }
+            for seat in held.iter().flat_map(|held| held.away.iter()) {
+                if let Some(stale) = room.kickable(*seat) {
+                    room.remove(stale);
+                }
+            }
+            CoopSession::Host(Box::new(Hosting::resume(link, room)))
+        }
         None => {
             let unlocks = armory_of(world.resource::<GauntletFile>());
-            CoopSession::Join(Box::new(Joining::resume(link, party.local.0, unlocks)))
+            CoopSession::Join(Box::new(Joining::resume(link, party.local.0, token, unlocks)))
         }
     };
     world.insert_resource(session);
@@ -276,10 +306,11 @@ fn goodbye(link: &mut dyn Link, remotes: Option<Vec<Peer>>) {
 /// and the Co-op screen is where the Player goes.
 fn leave_party(world: &mut World) {
     let Some(party) = world.remove_resource::<Party>() else { return };
+    let peers = live_peers(world, &party);
     if let Some(mut link) = play::end_run(world)
         && !party.parted
     {
-        goodbye(&mut link, party.peers());
+        goodbye(&mut link, peers);
     }
     world.resource_mut::<NextState<MainMenuScreen>>().set(MainMenuScreen::Coop);
     set_authority_host(world);
@@ -289,7 +320,7 @@ fn leave_party(world: &mut World) {
 fn leave_on_exit(world: &mut World) {
     let Some(mut party) = world.remove_resource::<Party>() else { return };
     if !party.parted {
-        let peers = party.peers();
+        let peers = live_peers(world, &party);
         if let Some(mut wire) = world.get_resource_mut::<Wire>() {
             goodbye(&mut wire.0, peers);
         }
@@ -302,7 +333,7 @@ pub struct PartyPlugin;
 
 impl Plugin for PartyPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(PlayPlugin)
+        app.add_plugins((PlayPlugin, AwayPlugin))
             .add_systems(OnEnter(GameState::GameOver), run_over)
             .add_systems(OnEnter(GameState::MainMenu), leave_party)
             .add_systems(

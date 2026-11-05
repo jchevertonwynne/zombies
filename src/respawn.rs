@@ -3,20 +3,25 @@
 //! Respawn with no body, watching a teammate. At the start of the next Round they Respawn beside a
 //! teammate who is up, with the starting loadout and no Perks. The Run is over the moment no
 //! Player is up.
+//!
+//! A Player whose connection has dropped holds their Seat all Run but is `Disconnected`: not up,
+//! not there for the Host's rules. One who drops in a Last Stand or while waiting to Respawn is
+//! Bled Out, without the team's loss.
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
 use crate::authority::HostSimulation;
+use crate::hud::coop::SeatHeld;
 use crate::equipment::{Equipment, FragLimits};
 use crate::explosive::world_filter;
 use crate::last_stand::{LastStand, go_down, self_revive};
 use crate::modifier::Modifiers;
 use crate::perk::Perks;
-use crate::player::{Health, LocalPlayer, Locomotion, Player};
+use crate::player::{Health, LocalPlayer, Locomotion, Player, Seat};
 use crate::points::Points;
 use crate::round::{Round, RoundStarted};
-use crate::state::{GameState, RunType, world_runs};
+use crate::state::{GameState, Paused, RunType, world_runs};
 use crate::target::is_up;
 use crate::tuning::*;
 use crate::weapon::{Knife, Loadout};
@@ -25,6 +30,26 @@ use crate::weapon::{Knife, Loadout};
 /// don't hold any Zone open. It stays until the next Round starts.
 #[derive(Component)]
 pub struct AwaitingRespawn;
+
+/// A Player whose connection to the Host has dropped, while their Seat is held: they are never up,
+/// have no body to hit, and hold nothing open. `back` is once their game has reached the Host
+/// again; they are in the world once more at the start of the next Round.
+#[derive(Component, Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Disconnected {
+    pub back: bool,
+}
+
+/// The way to a Player's game has broken, as the Host hears it.
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SeatDropped {
+    pub seat: Seat,
+}
+
+/// A Player whose Seat is held has reached the Host again, as the Host hears it.
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SeatReturned {
+    pub seat: Seat,
+}
 
 /// The Player's Co-op Last Stand ran out with no Revive.
 #[derive(Message, Debug, Clone, Copy)]
@@ -60,12 +85,17 @@ pub struct RespawnPlugin;
 
 impl Plugin for RespawnPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<BledOut>().add_message::<Respawned>().add_systems(
+        app.add_message::<BledOut>()
+            .add_message::<Respawned>()
+            .add_message::<SeatDropped>()
+            .add_message::<SeatReturned>()
+            .add_observer(hold_seat_row)
+            .add_observer(release_seat_row)
+            .add_systems(
             Update,
             (
                 (
-                    bleed_out.after(self_revive),
-                    respawn,
+                    (hold_seat, bleed_out.after(self_revive), return_seat, respawn).chain(),
                     game_over_when_none_up.after(go_down).after(bleed_out),
                 )
                     .chain()
@@ -77,16 +107,83 @@ impl Plugin for RespawnPlugin {
     }
 }
 
+/// A dropped Player's row on the HUD is held, faded, for as long as they are `Disconnected`.
+fn hold_seat_row(add: On<Add<Disconnected>>, mut commands: Commands) {
+    commands.entity(add.entity).insert(SeatHeld);
+}
+
+fn release_seat_row(remove: On<Remove<Disconnected>>, mut commands: Commands) {
+    if let Ok(mut player) = commands.get_entity(remove.entity) {
+        player.remove::<SeatHeld>();
+    }
+}
+
+/// A Player whose way to the Host has broken keeps their Seat, and nothing else of the world: they
+/// have no body, hold no Revive or pause, and are out of the Run's reckoning. A Last Stand they
+/// were in is a Bleed Out that costs the others nothing.
+fn hold_seat(
+    mut commands: Commands,
+    mut dropped: MessageReader<SeatDropped>,
+    mut bled_out: MessageWriter<BledOut>,
+    players: Query<(Entity, &Seat, Has<LastStand>, Has<Disconnected>), With<Player>>,
+) {
+    for &SeatDropped { seat } in dropped.read() {
+        let Some((player, _, last_stand, held)) = players.iter().find(|(_, held, ..)| **held == seat) else {
+            continue;
+        };
+        if held {
+            continue;
+        }
+        commands
+            .entity(player)
+            .insert((Disconnected::default(), ColliderDisabled))
+            .remove::<(Paused, crate::revive::Reviving)>();
+        if last_stand {
+            bled_out.write(BledOut { player });
+        }
+    }
+}
+
+/// A held Seat whose Player has reached the Host again is back in the world at the start of the
+/// next Round: it is as it was, or Bled Out and about to Respawn.
+fn return_seat(
+    mut commands: Commands,
+    mut started: MessageReader<RoundStarted>,
+    mut returned: MessageReader<SeatReturned>,
+    mut players: Query<(Entity, &Seat, &mut Disconnected, Has<AwaitingRespawn>), With<Player>>,
+) {
+    for &SeatReturned { seat } in returned.read() {
+        for (_, held, mut disconnected, _) in &mut players {
+            if *held == seat {
+                disconnected.back = true;
+            }
+        }
+    }
+    if started.read().count() == 0 {
+        return;
+    }
+    for (player, _, disconnected, awaiting) in &players {
+        if disconnected.back {
+            commands.entity(player).remove::<Disconnected>();
+            if !awaiting {
+                commands.entity(player).remove::<ColliderDisabled>();
+            }
+        }
+    }
+}
+
 /// A Player whose Last Stand ran out loses their Last Stand, body and Weapons, and every other
-/// Player loses `BLEED_OUT_TEAM_LOSS_FRACTION` of their Points. They keep their own.
+/// Player loses `BLEED_OUT_TEAM_LOSS_FRACTION` of their Points. They keep their own. One who has
+/// dropped Bleeds Out for free.
 fn bleed_out(
     mut commands: Commands,
     mut bled_out: MessageReader<BledOut>,
-    mut players: Query<(Entity, &mut Points), With<Player>>,
+    mut players: Query<(Entity, &mut Points, Has<Disconnected>), With<Player>>,
 ) {
     for &BledOut { player } in bled_out.read() {
-        for (entity, mut points) in &mut players {
-            if entity != player {
+        let dropped = players.get(player).is_ok_and(|(.., dropped)| dropped);
+        for (entity, mut points, _) in &mut players {
+            if entity != player && !dropped {
                 let loss = bleed_out_loss(points.balance);
                 points.spend(loss);
             }
@@ -117,6 +214,7 @@ fn respawn(
             &Modifiers,
             Has<AwaitingRespawn>,
             Has<LastStand>,
+            Has<Disconnected>,
         ),
         With<Player>,
     >,
@@ -127,14 +225,15 @@ fn respawn(
     }
     let anchors: Vec<Transform> = players
         .iter()
-        .filter(|(.., awaiting, last_stand)| is_up(*last_stand, *awaiting))
+        .filter(|(.., awaiting, last_stand, disconnected)| is_up(*last_stand, *awaiting, *disconnected))
         .map(|(_, transform, ..)| *transform)
         .collect();
     let Some(&beside) = anchors.first() else { return };
-    for (entity, mut transform, mut health, mut loadout, mut knife, mut equipment, mut perks, mut points, mut locomotion, modifiers, awaiting, _) in
+    for (entity, mut transform, mut health, mut loadout, mut knife, mut equipment, mut perks, mut points, mut locomotion, modifiers, awaiting, _, disconnected) in
         &mut players
     {
-        if !awaiting {
+        // One still away comes back with the Round their game is there for.
+        if !awaiting || disconnected {
             continue;
         }
         let spot = respawn_spot(&beside, &spatial);
@@ -178,13 +277,14 @@ fn respawn_spot(beside: &Transform, spatial: &SpatialQuery) -> Vec3 {
 /// Co-op Game Over comes the moment no Player is up, whatever Last Stand time is left, unless one
 /// is still to Self-Revive. Solo's Game Over is the Down itself (see `go_down`).
 pub(crate) fn game_over_when_none_up(
-    players: Query<(Option<&LastStand>, Has<AwaitingRespawn>), With<Player>>,
+    players: Query<(Option<&LastStand>, Has<AwaitingRespawn>, Has<Disconnected>), With<Player>>,
     run: Res<RunType>,
     mut next: ResMut<NextState<GameState>>,
 ) {
     // A Player on their way to a Self-Revive (a spare's solo Last Stand) is still in the Run.
-    let in_play = |(stand, awaiting): (Option<&LastStand>, bool)| {
-        is_up(stand.is_some(), awaiting) || (!awaiting && stand.is_some_and(|stand| !stand.is_coop()))
+    let in_play = |(stand, awaiting, disconnected): (Option<&LastStand>, bool, bool)| {
+        is_up(stand.is_some(), awaiting, disconnected)
+            || (!awaiting && !disconnected && stand.is_some_and(|stand| !stand.is_coop()))
     };
     if run.is_coop() && !players.is_empty() && !players.iter().any(in_play) {
         next.set(GameState::GameOver);
@@ -195,9 +295,13 @@ pub(crate) fn game_over_when_none_up(
 /// the teammate from behind and above, and the camera on it looks wherever they turn.
 fn watch_teammate(
     mut watcher: Single<&mut Transform, (With<LocalPlayer>, With<AwaitingRespawn>)>,
-    up: Query<(&Transform, Has<LastStand>, Has<AwaitingRespawn>), (With<Player>, Without<LocalPlayer>)>,
+    up: Query<(&Transform, Has<LastStand>, Has<AwaitingRespawn>, Has<Disconnected>), (With<Player>, Without<LocalPlayer>)>,
 ) {
-    let Some(followed) = up.iter().find(|&(_, last_stand, awaiting)| is_up(last_stand, awaiting)).map(|(at, ..)| *at) else {
+    let Some(followed) = up
+        .iter()
+        .find(|&(_, last_stand, awaiting, disconnected)| is_up(last_stand, awaiting, disconnected))
+        .map(|(at, ..)| *at)
+    else {
         return;
     };
     let behind = watcher.back() * SPECTATE_BEHIND_DISTANCE;
@@ -214,6 +318,21 @@ mod tests {
         assert_eq!(bleed_out_loss(1_000), 100);
         assert_eq!(bleed_out_loss(2_555), 255);
         assert_eq!(bleed_out_loss(9), 0);
+    }
+
+    #[test]
+    fn a_disconnected_player_is_never_up_and_keeps_no_run_alive() {
+        assert!(is_up(false, false, false));
+        assert!(!is_up(false, false, true));
+        let mut app = App::new();
+        app.init_resource::<NextState<GameState>>().insert_resource(RunType::Coop);
+        app.world_mut().spawn((Player, LastStand::shown(10.0, true)));
+        app.world_mut().spawn((Player, Disconnected::default()));
+        bevy::ecs::system::RunSystemOnce::run_system_once(app.world_mut(), game_over_when_none_up).unwrap();
+        assert!(matches!(
+            app.world().resource::<NextState<GameState>>(),
+            NextState::Pending(GameState::GameOver)
+        ));
     }
 
     #[test]

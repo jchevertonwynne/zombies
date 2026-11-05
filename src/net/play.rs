@@ -14,9 +14,10 @@ use std::collections::VecDeque;
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+use super::away::{self, Rejoin};
 use super::hits::{self, Hits};
 use super::link::{Event, Link};
-use super::protocol::{HOST, Peer, Refusal, Score, Seat, ToHost, ToPlayer, decode, encode};
+use super::protocol::{HOST, PROTOCOL, Peer, Refusal, Score, Seat, ToHost, ToPlayer, decode, encode, token};
 use super::remote::{Next, Remote};
 use super::world::{self, Mirror, NetIds};
 use super::state::{
@@ -29,13 +30,14 @@ use crate::authority::Authority;
 use crate::last_stand::LastStand;
 use crate::leave_run::PlayerLeft;
 use crate::perk::Drinking;
+use crate::respawn::{Disconnected, SeatDropped, SeatReturned};
 use crate::player::{
     LocalPlayer, Locomotion, MoveContext, MoveInput, Player, Seat as PlayerSeat, fill_move_input, move_player,
     step_move,
 };
 use crate::modifier::Modifiers;
 use crate::points::Points;
-use crate::state::{Choosing, world_runs};
+use crate::state::{Choosing, GameState, world_runs};
 use crate::teammate::{Pose, Shots, Told};
 use crate::tuning::*;
 use crate::weapon::Loadout;
@@ -65,6 +67,29 @@ pub struct Inbox {
 #[derive(Resource, Default)]
 pub struct Roster(pub Vec<(Peer, Seat)>);
 
+/// What a Host's Run knows of its Players away from it: what each comes back by, and which of them
+/// are away now. A Seat is held for the Run whichever way its Player's link goes.
+#[derive(Resource, Default)]
+pub struct Held {
+    pub tokens: Vec<(Seat, u64)>,
+    pub away: Vec<Seat>,
+}
+
+impl Held {
+    /// The Seat that `token` comes back to, if it is one the Host gave. Never for 0.
+    fn seat_of(&self, token: Option<u64>) -> Option<Seat> {
+        let token = token.filter(|&token| token != 0)?;
+        self.tokens.iter().find(|&&(_, held)| held == token).map(|&(seat, _)| seat)
+    }
+
+    fn renew(&mut self, seat: Seat, token: u64) {
+        if let Some(held) = self.tokens.iter_mut().find(|(held, _)| *held == seat) {
+            held.1 = token;
+        }
+        self.away.retain(|&away| away != seat);
+    }
+}
+
 /// A Player on a client who is someone else's: not stepped here, but shown where the Host says.
 #[derive(Component)]
 pub struct Puppet;
@@ -77,6 +102,8 @@ pub struct Scoreboard(pub Vec<Score>);
 /// What the Host said over the reliable stream that the Run reacts to, as a client hears it.
 #[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostSaid {
+    /// The Host will not take this Player back into their Seat.
+    Refused(Refusal),
     /// Every Player is down.
     RunOver,
     /// The Host has left: the Run and the Room are over.
@@ -95,8 +122,21 @@ impl Plugin for PlayPlugin {
         world::add(app);
         app.add_message::<PlayerLeft>()
             .add_message::<HostSaid>()
+            .add_message::<SeatDropped>()
+            .add_message::<SeatReturned>()
             .init_resource::<Scoreboard>()
             .add_systems(PreUpdate, (pump_host.run_if(resource_exists::<Roster>), pump_client.run_if(resource_exists::<Prediction>)))
+            .add_systems(
+                Update,
+                release_remotes.run_if(resource_exists::<Roster>).run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                Update,
+                (away::redial, away::hold_local)
+                    .chain()
+                    .run_if(resource_exists::<Rejoin>)
+                    .run_if(in_state(GameState::Playing)),
+            )
             .add_systems(
                 FixedUpdate,
                 (tick, adopt_remotes, hear_inputs, drive_remotes)
@@ -146,6 +186,7 @@ impl Plugin for PlayPlugin {
 pub fn begin_host(world: &mut World, link: Box<dyn Link>, remotes: Vec<(Peer, Seat)>) {
     world.insert_resource(Wire(link));
     world.insert_resource(Roster(remotes));
+    world.insert_resource(Held::default());
     world.insert_resource(Clock::default());
     world.insert_resource(Inbox::default());
     world.insert_resource(Hits::default());
@@ -158,8 +199,9 @@ pub fn begin_host(world: &mut World, link: Box<dyn Link>, remotes: Vec<(Peer, Se
 
 /// Makes this machine a client of a Run: its `LocalPlayer` is stepped here, and every other Player
 /// is a puppet.
-pub fn begin_client(world: &mut World, link: Box<dyn Link>) {
+pub fn begin_client(world: &mut World, link: Box<dyn Link>, rejoin: Rejoin) {
     world.insert_resource(Wire(link));
+    world.insert_resource(rejoin);
     world.insert_resource(Clock::default());
     world.insert_resource(Inbox::default());
     world.insert_resource(Hits::default());
@@ -177,6 +219,8 @@ pub fn begin_client(world: &mut World, link: Box<dyn Link>) {
 /// The Run is over for this machine: its link is given back, for the Room (or nothing) to keep.
 pub fn end_run(world: &mut World) -> Option<Box<dyn Link>> {
     world.remove_resource::<Roster>();
+    world.remove_resource::<Held>();
+    world.remove_resource::<Rejoin>();
     world.remove_resource::<Prediction>();
     world.remove_resource::<Clock>();
     world.remove_resource::<Inbox>();
@@ -197,7 +241,7 @@ pub fn install_host(app: &mut App, link: impl Link, remotes: Vec<(Peer, Seat)>) 
 /// Makes this machine a client of a Run: its `LocalPlayer` is stepped here, and every other Player
 /// is a puppet.
 pub fn install_client(app: &mut App, link: impl Link) {
-    begin_client(app.world_mut(), Box::new(link));
+    begin_client(app.world_mut(), Box::new(link), Rejoin::new(0, ToHost::LeftRun));
     if !app.is_plugin_added::<PlayPlugin>() {
         app.add_plugins(PlayPlugin);
     }
@@ -210,10 +254,22 @@ fn pump_host(
     mut roster: ResMut<Roster>,
     mut hits: ResMut<Hits>,
     mut mirror: ResMut<Mirror>,
+    mut held: ResMut<Held>,
     mut left: MessageWriter<PlayerLeft>,
+    mut dropped: MessageWriter<SeatDropped>,
+    mut returned: MessageWriter<SeatReturned>,
 ) {
     while let Some(event) = wire.0.poll() {
         match event {
+            // A Player's way breaking, without their having said they are leaving for good,
+            // holds their Seat.
+            Event::Left(peer) | Event::Lost(peer) => {
+                if let Some(at) = roster.0.iter().position(|(on, _)| *on == peer) {
+                    let (_, seat) = roster.0.remove(at);
+                    held.away.push(seat);
+                    dropped.write(SeatDropped { seat: PlayerSeat(seat) });
+                }
+            }
             Event::Datagram(peer, bytes) => match decode::<Inputs>(&bytes) {
                 Ok(inputs) => inbox.inputs.push((peer, inputs)),
                 Err(error) => debug!("player {peer}: {error}"),
@@ -227,11 +283,28 @@ fn pump_host(
                     }
                     (Ok(message @ (ToHost::Hit(_) | ToHost::Launch(_))), Some(_)) => hits.hear_player(peer, &message),
                     (Ok(ToHost::Request(request)), Some(_)) => mirror.hear_player(peer, request),
-                    // The Room has no Seat for someone who comes after the Run has begun.
-                    (Ok(ToHost::Hello { .. }), None) => {
-                        wire.0.send(peer, encode(&ToPlayer::Refused(Refusal::Started)));
-                        wire.0.close(peer);
-                    }
+                    // A Player coming back by the token the Host gave takes their Seat again. The
+                    // Room has no Seat for anyone else who comes after the Run has begun.
+                    (Ok(ToHost::Hello { version, back, .. }), None) => match held.seat_of(back) {
+                        Some(seat) if version == PROTOCOL => {
+                            // Their old link may not have been found broken yet.
+                            if let Some(at) = roster.0.iter().position(|&(_, taken)| taken == seat) {
+                                let (old, _) = roster.0.remove(at);
+                                wire.0.close(old);
+                                dropped.write(SeatDropped { seat: PlayerSeat(seat) });
+                            }
+                            let token = token();
+                            held.renew(seat, token);
+                            roster.0.push((peer, seat));
+                            wire.0.send(peer, encode(&ToPlayer::Welcome { token, seat }));
+                            returned.write(SeatReturned { seat: PlayerSeat(seat) });
+                        }
+                        _ => {
+                            let why = if back.is_some() && version == PROTOCOL { Refusal::NoSeat } else { Refusal::Started };
+                            wire.0.send(peer, encode(&ToPlayer::Refused(why)));
+                            wire.0.close(peer);
+                        }
+                    },
                     _ => {}
                 }
             }
@@ -247,15 +320,28 @@ fn pump_client(
     mut hits: ResMut<Hits>,
     mut mirror: ResMut<Mirror>,
     mut scoreboard: ResMut<Scoreboard>,
+    mut rejoin: ResMut<Rejoin>,
     mut said: MessageWriter<HostSaid>,
 ) {
     while let Some(event) = wire.0.poll() {
         match event {
+            // The way to the Host broke, or a dial of it failed: it may be dialled again.
+            Event::Lost(HOST) | Event::Failed(_) => rejoin.lost(),
+            // A Host that says it is going has gone for good.
+            Event::Left(HOST) => {
+                said.write(HostSaid::Closed);
+            }
+            // Dialled again: the Host is told who is back.
+            Event::Joined(HOST) if rejoin.is_away() => wire.0.send(HOST, encode(&rejoin.greeting())),
             Event::Datagram(HOST, bytes) => match decode::<Snapshot>(&bytes) {
                 Ok(snapshot) => inbox.snapshots.push(snapshot),
                 Err(error) => debug!("host: {error}"),
             },
             Event::Message(HOST, bytes) => match decode::<ToPlayer>(&bytes) {
+                Ok(ToPlayer::Welcome { token, .. }) => rejoin.welcomed(token),
+                Ok(ToPlayer::Refused(why)) => {
+                    said.write(HostSaid::Refused(why));
+                }
                 Ok(ToPlayer::Scoreboard(rows)) => scoreboard.0 = rows,
                 Ok(ToPlayer::RunOver) => {
                     said.write(HostSaid::RunOver);
@@ -273,6 +359,20 @@ fn pump_client(
                 _ => {}
             },
             _ => {}
+        }
+    }
+}
+
+/// A Player whose link has dropped is no longer stepped by the Host's buffer of their input, nor
+/// told anything: they take it up again when they are back.
+fn release_remotes(
+    mut commands: Commands,
+    mut dropped: MessageReader<SeatDropped>,
+    players: Query<(Entity, &PlayerSeat), (With<Player>, With<Remote>)>,
+) {
+    for &SeatDropped { seat } in dropped.read() {
+        for (player, _) in players.iter().filter(|(_, held)| **held == seat) {
+            commands.entity(player).remove::<Remote>();
         }
     }
 }
@@ -312,15 +412,15 @@ fn hear_inputs(mut inbox: ResMut<Inbox>, mut remotes: Query<(&mut Remote, &mut P
 /// Sets each remote Player's input for the tick to what they pressed in the next of theirs. A tick
 /// that hasn't come is stepped as the last was, with no Jump newly pressed; when none has come for
 /// a while the Player stands still.
-fn drive_remotes(mut players: Query<(&mut Remote, &mut MoveInput, &mut Transform, Has<Choosing>)>) {
-    for (mut remote, mut input, mut transform, choosing) in &mut players {
+fn drive_remotes(mut players: Query<(&mut Remote, &mut MoveInput, &mut Transform, Has<Choosing>, Has<Disconnected>)>) {
+    for (mut remote, mut input, mut transform, choosing, disconnected) in &mut players {
         match remote.next() {
             Next::Step(step) => *input = step.input(),
             Next::Nothing => {}
             Next::Missing | Next::Held => input.jump = false,
         }
         // An open Offer stops a Player, whatever their game says.
-        if remote.stalled() || choosing {
+        if remote.stalled() || choosing || disconnected {
             *input = MoveInput { yaw: input.yaw, pitch: input.pitch, ..default() };
         }
         // `step_move` reads the yaw from the input; the body and the others' view of it read the

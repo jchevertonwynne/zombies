@@ -45,7 +45,13 @@ use crate::mystery_box::{BoxState, MysteryBox, Prize};
 use crate::pack_a_punch::PackAPunch;
 use crate::perk::{Drinking, Perk, PerkMachine, Perks};
 use crate::player::{Health, LocalPlayer, Player, PlayerHit, PlayerName, Seat as PlayerSeat};
-use crate::respawn::{AwaitingRespawn, Respawned};
+use crate::respawn::{AwaitingRespawn, Disconnected, Respawned, SeatReturned};
+use crate::hud::overlay::Overlays;
+use crate::mystery_box::{BoxAssets, spawn_box};
+use crate::power_up::FireSaleBox;
+use crate::sapper::{Restore, SapperAssets, Sabotaged, Target, spawn_restore};
+use crate::shellshock::Shellshock;
+use crate::teleporter::{Aftereffect, Aftermath, begin_aftereffect};
 use crate::revive::{Revived, Reviving};
 use crate::points::Points;
 use crate::power::{Power, PowerSwitch};
@@ -207,6 +213,8 @@ pub struct Status {
     pub reviving: Option<Revive>,
     pub paused: bool,
     pub choosing: bool,
+    /// Their connection has dropped and their Seat is held.
+    pub held: bool,
 }
 
 impl Status {
@@ -218,6 +226,7 @@ impl Status {
             && self.reviving.map(|revive| revive.target) == other.reviving.map(|revive| revive.target)
             && self.paused == other.paused
             && self.choosing == other.choosing
+            && self.held == other.held
     }
 }
 
@@ -274,6 +283,18 @@ pub enum WorldEvent {
     Pacts(Vec<(String, u8)>),
     /// The Player in this Seat has left the Run for good.
     Left { seat: Seat },
+    /// The timed Power-ups on, with the seconds left of each.
+    Active(Vec<(PowerUp, f32)>),
+    /// Fire Sale has put a Box at a Box Location.
+    ExtraBox { id: u16, location: u8 },
+    /// A Box Fire Sale added is gone.
+    ExtraBoxGone { id: u16 },
+    /// The Sapper has Sabotaged a system (`None` is the Teleporter), and the hold to restore it.
+    Sabotage { restore: u16, target: Option<u16>, at: [f32; 3] },
+    /// A Sabotage is undone.
+    Restored { restore: u16 },
+    /// To a Player who rode the Teleporter, the aftereffect they arrive with.
+    Aftereffect(Aftereffect),
 }
 
 /// What has come in, and what each end remembers of what it has said or been told.
@@ -303,6 +324,8 @@ pub struct Mirror {
     pacts: Vec<(String, u8)>,
     /// Revive holds heard, by reviver: whom they hold Use over, and how long they still count.
     holds: HashMap<Seat, (Seat, f32)>,
+    extras: HashMap<Entity, u16>,
+    restores: HashMap<Entity, u16>,
     // A client's: the Power-ups lying about, and the slot it last said it holds.
     shown_drops: HashMap<u32, Entity>,
     teleporter_shown: Option<TeleporterView>,
@@ -373,6 +396,7 @@ pub fn add(app: &mut App) {
         .add_message::<WentDown>()
         .add_message::<Revived>()
         .add_message::<Respawned>()
+        .add_message::<Shellshock>()
         .init_resource::<Power>()
         .init_resource::<Barriers>()
         .init_resource::<ActivePowerUps>()
@@ -420,6 +444,23 @@ pub fn add(app: &mut App) {
         .add_systems(
             Update,
             (
+                tell_extras,
+                tell_sabotage,
+                tell_aftereffect,
+                catch_up_world,
+                catch_up_player,
+            )
+                .after(HostSimulation)
+                .after(hear_requests)
+                .after(tell_boxes)
+                .run_if(resource_exists::<Roster>)
+                .run_if(resource_exists::<NetIds>)
+                .run_if(in_state(GameState::Playing))
+                .run_if(world_runs),
+        )
+        .add_systems(
+            Update,
+            (
                 release_events,
                 (
                     hear_answers,
@@ -439,6 +480,7 @@ pub fn add(app: &mut App) {
                     hear_offers,
                     hear_gauntlet,
                     hear_left,
+                    (hear_extras, hear_sabotage, hear_aftereffect, hear_active).chain(),
                 ),
             )
                 .chain()
@@ -455,7 +497,7 @@ pub fn add(app: &mut App) {
                 forward_picks,
                 report_switches,
                 report_paused,
-                run_shown_clocks.run_if(in_state(Authority::Client)),
+                (run_shown_clocks, show_box_prices).run_if(in_state(Authority::Client)),
             )
                 .run_if(resource_exists::<Prediction>)
                 .run_if(resource_exists::<NetIds>)
@@ -512,7 +554,7 @@ fn hear_requests(
     mut mirror: ResMut<Mirror>,
     roster: Res<Roster>,
     ids: Res<NetIds>,
-    seats: Query<(Entity, &PlayerSeat, Has<Choosing>), With<Player>>,
+    seats: Query<(Entity, &PlayerSeat, Has<Choosing>, Has<Disconnected>), With<Player>>,
     mut loadouts: Query<&mut Loadout>,
     mut uses: MessageWriter<UseRequest>,
     mut claims: MessageWriter<RefusedByPlayer>,
@@ -520,7 +562,11 @@ fn hear_requests(
 ) {
     for (peer, request) in std::mem::take(&mut mirror.requests) {
         let Some(&(_, seat)) = roster.0.iter().find(|(held, _)| *held == peer) else { continue };
-        let Some((player, _, choosing)) = seats.iter().find(|(_, held, _)| held.0 == seat) else { continue };
+        let Some((player, _, choosing, away)) = seats.iter().find(|(_, held, ..)| held.0 == seat) else { continue };
+        // A Player whose Seat is held isn't in the world until the next Round.
+        if away {
+            continue;
+        }
         match request {
             Request::Use { buyable, hold, refused } => {
                 let Some(buyable) = ids.entity(buyable).filter(|_| !choosing) else { continue };
@@ -646,24 +692,29 @@ fn tell_planks(mut tell: Tell, mut mirror: ResMut<Mirror>, barriers: Res<Barrier
     }
 }
 
+/// A Box's phase as the Host tells it.
+fn box_phase(mystery_box: &MysteryBox, seats: &Query<&PlayerSeat>) -> BoxPhase {
+    let seat = |player| seats.get(player).map_or(0, |seat| seat.0);
+    match mystery_box.state {
+        BoxState::Idle => BoxPhase::Idle,
+        BoxState::Spinning { spinner, .. } => BoxPhase::Spinning { spinner: seat(spinner) },
+        BoxState::Offering { spinner, prize, upgraded, .. } => {
+            BoxPhase::Offering { spinner: seat(spinner), prize, upgraded }
+        }
+        BoxState::Rearming { .. } => BoxPhase::Rearming,
+        BoxState::Leaving { .. } => BoxPhase::Leaving,
+        BoxState::Away { to, .. } => BoxPhase::Away { to: to as u8 },
+    }
+}
+
 fn tell_boxes(
     mut tell: Tell,
     mut mirror: ResMut<Mirror>,
     boxes: Query<(&NetId, &MysteryBox)>,
     seats: Query<&PlayerSeat>,
 ) {
-    let seat = |player| seats.get(player).map_or(0, |seat| seat.0);
     for (id, mystery_box) in &boxes {
-        let phase = match mystery_box.state {
-            BoxState::Idle => BoxPhase::Idle,
-            BoxState::Spinning { spinner, .. } => BoxPhase::Spinning { spinner: seat(spinner) },
-            BoxState::Offering { spinner, prize, upgraded, .. } => {
-                BoxPhase::Offering { spinner: seat(spinner), prize, upgraded }
-            }
-            BoxState::Rearming { .. } => BoxPhase::Rearming,
-            BoxState::Leaving { .. } => BoxPhase::Leaving,
-            BoxState::Away { to, .. } => BoxPhase::Away { to: to as u8 },
-        };
+        let phase = box_phase(mystery_box, &seats);
         let now = (mystery_box.location as u8, phase);
         // A Box is told of from the start, standing idle where it began.
         let told = mirror.boxes.get(&id.0).copied().unwrap_or((0, BoxPhase::Idle));
@@ -836,12 +887,12 @@ fn tell_status(
     mut tell: Tell,
     mut mirror: ResMut<Mirror>,
     players: Query<
-        (&PlayerSeat, Option<&LastStand>, Has<AwaitingRespawn>, Option<&Reviving>, Has<Paused>, Has<Choosing>),
+        (&PlayerSeat, Option<&LastStand>, Has<AwaitingRespawn>, Option<&Reviving>, Has<Paused>, Has<Choosing>, Has<Disconnected>),
         With<Player>,
     >,
     seats: Query<&PlayerSeat>,
 ) {
-    for (seat, last_stand, awaiting, reviving, paused, choosing) in &players {
+    for (seat, last_stand, awaiting, reviving, paused, choosing, held) in &players {
         let status = Status {
             down: last_stand.map(|stand| Down { left: stand.remaining_secs(), coop: stand.is_coop() }),
             awaiting,
@@ -851,6 +902,7 @@ fn tell_status(
             }),
             paused,
             choosing,
+            held,
         };
         if mirror.status.get(&seat.0).is_some_and(|told| told.same(&status))
             || (!mirror.status.contains_key(&seat.0) && status.same(&Status::default()))
@@ -918,6 +970,232 @@ fn tell_gauntlet(
 fn tell_left(mut tell: Tell, mut left: MessageReader<PlayerLeft>) {
     for &PlayerLeft { seat } in left.read() {
         tell.all(&WorldEvent::Left { seat: seat.0 });
+    }
+}
+
+/// Fire Sale's extra Boxes, as they come and go.
+fn tell_extras(
+    mut tell: Tell,
+    mut mirror: ResMut<Mirror>,
+    extras: Query<(Entity, &NetId, &MysteryBox), With<FireSaleBox>>,
+) {
+    for (entity, id, mystery_box) in &extras {
+        if mirror.extras.insert(entity, id.0).is_none() {
+            tell.all(&WorldEvent::ExtraBox { id: id.0, location: mystery_box.location as u8 });
+        }
+    }
+    let gone: Vec<Entity> = mirror.extras.keys().copied().filter(|entity| extras.get(*entity).is_err()).collect();
+    for entity in gone {
+        if let Some(id) = mirror.extras.remove(&entity) {
+            tell.all(&WorldEvent::ExtraBoxGone { id });
+        }
+    }
+}
+
+/// The Sapper's Sabotage, and its undoing.
+fn tell_sabotage(
+    mut tell: Tell,
+    mut mirror: ResMut<Mirror>,
+    restores: Query<(Entity, &NetId, &Restore, &Transform)>,
+    ids: Query<&NetId>,
+) {
+    for (entity, id, restore, transform) in &restores {
+        if mirror.restores.contains_key(&entity) {
+            continue;
+        }
+        let target = match restore.target {
+            Target::Entity(target) => match ids.get(target) {
+                Ok(target) => Some(target.0),
+                // Named in a moment.
+                Err(_) => continue,
+            },
+            Target::Teleporter => None,
+        };
+        mirror.restores.insert(entity, id.0);
+        tell.all(&WorldEvent::Sabotage { restore: id.0, target, at: transform.translation.to_array() });
+    }
+    let gone: Vec<Entity> = mirror.restores.keys().copied().filter(|entity| restores.get(*entity).is_err()).collect();
+    for entity in gone {
+        if let Some(id) = mirror.restores.remove(&entity) {
+            tell.all(&WorldEvent::Restored { restore: id });
+        }
+    }
+}
+
+/// The Teleporter's aftereffect, to each rider who plays on another game.
+fn tell_aftereffect(
+    mut tell: Tell,
+    mut teleporter: ResMut<crate::teleporter::Teleporter>,
+    remotes: Query<&Remote>,
+) {
+    let Some((riders, effect)) = teleporter.take_arrival() else { return };
+    for rider in riders {
+        if let Ok(remote) = remotes.get(rider) {
+            tell.to(remote.peer, &WorldEvent::Aftereffect(effect));
+        }
+    }
+}
+
+/// Brings a Player who has come back up to date on the shared world: everything that host events
+/// only report changes of.
+fn catch_up_world(
+    mut tell: Tell,
+    mut returned: MessageReader<SeatReturned>,
+    mut mirror: ResMut<Mirror>,
+    (doors, switches, power, barriers): (
+        Query<(&NetId, &Door)>,
+        Query<(&NetId, &PowerSwitch)>,
+        Res<Power>,
+        Res<Barriers>,
+    ),
+    (boxes, machines, traps, seats): (
+        Query<(&NetId, &MysteryBox, Has<FireSaleBox>)>,
+        Query<(&NetId, &PackAPunch)>,
+        Query<(&NetId, &Trap)>,
+        Query<&PlayerSeat>,
+    ),
+    (teleporter, active, round): (
+        Res<crate::teleporter::Teleporter>,
+        Res<ActivePowerUps>,
+        Option<Res<Round>>,
+    ),
+    (drops, restores, ids): (Query<(Entity, &Dropped)>, Query<(&NetId, &Restore, &Transform)>, Query<&NetId>),
+) {
+    for &SeatReturned { seat } in returned.read() {
+        let Some(&(peer, _)) = tell.roster.0.iter().find(|&&(_, held)| held == seat.0) else { continue };
+        let mut say = |event: WorldEvent| tell.to(peer, &event);
+        for (id, door) in &doors {
+            if door.open {
+                say(WorldEvent::Door(id.0));
+            }
+        }
+        for (id, switch) in &switches {
+            if switch.started() {
+                say(WorldEvent::SwitchThrown(id.0));
+            }
+        }
+        if power.is_on() {
+            say(WorldEvent::PowerOn);
+        }
+        for barrier in 0..crate::map::WINDOWS.len() as u8 {
+            let planks = barriers.planks(BarrierId(barrier));
+            if planks != BARRIER_PLANKS {
+                say(WorldEvent::Planks { barrier, planks });
+            }
+        }
+        for (id, mystery_box, extra) in &boxes {
+            if extra {
+                say(WorldEvent::ExtraBox { id: id.0, location: mystery_box.location as u8 });
+            }
+        }
+        for (id, mystery_box, _) in &boxes {
+            say(WorldEvent::Box { id: id.0, location: mystery_box.location as u8, phase: box_phase(mystery_box, &seats) });
+        }
+        for (id, machine) in &machines {
+            let seat_of = |owner: Option<Entity>| owner.and_then(|owner| seats.get(owner).ok()).map(|seat| seat.0);
+            let inside = machine.view().map(|(weapon, elapsed, owner)| Inside {
+                weapon: CopyWire::of(weapon),
+                elapsed,
+                owner: seat_of(owner),
+            });
+            if inside.is_some() {
+                say(WorldEvent::Machine { id: id.0, inside });
+            }
+        }
+        for (id, trap) in &traps {
+            let phase = trap.phase();
+            if std::mem::discriminant(&phase) != std::mem::discriminant(&TrapPhase::Idle) {
+                say(WorldEvent::Trap { id: id.0, phase });
+            }
+        }
+        say(WorldEvent::Teleporter(teleporter.view()));
+        for (entity, dropped) in &drops {
+            if let Some(&id) = mirror.drops.get(&entity) {
+                say(WorldEvent::DropAppeared { id, power_up: dropped.power_up(), at: dropped.at().to_array() });
+            }
+        }
+        let timed: Vec<(PowerUp, f32)> =
+            ActivePowerUps::TIMED.iter().map(|&power_up| (power_up, active.left(power_up))).filter(|(_, left)| *left > 0.0).collect();
+        say(WorldEvent::Active(timed));
+        for (id, restore, at) in &restores {
+            let target = match restore.target {
+                Target::Entity(target) => ids.get(target).ok().map(|target| target.0),
+                Target::Teleporter => None,
+            };
+            say(WorldEvent::Sabotage { restore: id.0, target, at: at.translation.to_array() });
+        }
+        if let Some(round) = &round {
+            say(WorldEvent::Round { number: round.number, hellhound: round.hellhound });
+            if matches!(round.phase, RoundPhase::Intermission(_)) {
+                say(WorldEvent::RoundOver);
+            }
+        }
+        // What the others were last told is what this Player is told now.
+        mirror.status.clear();
+        mirror.perks.clear();
+        mirror.held.clear();
+    }
+}
+
+/// Brings a Player who has come back up to date on the Players and on themselves: everyone's
+/// Perks, Weapon in hand and standing, and their own Weapons, Health, Offer, Boons and the Pacts.
+fn catch_up_player(
+    mut tell: Tell,
+    mut returned: MessageReader<SeatReturned>,
+    mut mirror: ResMut<Mirror>,
+    players: Query<
+        (
+            &PlayerSeat,
+            &Perks,
+            Option<&Drinking>,
+            &HeldWeapon,
+            &Loadout,
+            Option<&Equipment>,
+            Option<&Knife>,
+            &Health,
+            Option<&Offer>,
+            &HeldBoons,
+        ),
+        With<Player>,
+    >,
+    pacts: Option<Res<HeldPacts>>,
+) {
+    for &SeatReturned { seat } in returned.read() {
+        let Some(&(peer, _)) = tell.roster.0.iter().find(|&&(_, held)| held == seat.0) else { continue };
+        for (held_seat, perks, drinking, weapon, loadout, equipment, knife, health, offer, boons) in &players {
+            tell.to(peer, &WorldEvent::Perks { seat: held_seat.0, drinking: drinking.map(|drinking| drinking.perk), held: perks.0.clone() });
+            if *held_seat != seat {
+                tell.to(peer, &WorldEvent::Held { seat: held_seat.0, weapon: weapon.clone() });
+                continue;
+            }
+            let gear = equipment.map(|equipment| Gear {
+                frags: equipment.frags,
+                claymores_owned: equipment.claymores_owned,
+                claymores: equipment.claymores,
+                monkey_bombs_owned: equipment.monkey_bombs_owned,
+                monkey_bombs: equipment.monkey_bombs,
+                bowie: knife.is_some_and(|knife| knife.bowie),
+            });
+            let replace = HandOp::Replace {
+                slots: loadout.slots().iter().map(|slot| slot.as_ref().map(CopyWire::of)).collect(),
+                held: loadout.held_slot() as u8,
+            };
+            tell.to(peer, &WorldEvent::Hands { ops: vec![replace], held: loadout.held_slot() as u8, gear });
+            tell.to(peer, &WorldEvent::Health { current: health.current, max: health.max });
+            let now = offer.map(Offer::wire);
+            match &now {
+                Some(wire) => tell.to(peer, &WorldEvent::Offer(wire.clone())),
+                None => tell.to(peer, &WorldEvent::OfferClosed),
+            }
+            mirror.offers.insert(seat.0, now);
+            let boons = boons_wire(boons);
+            tell.to(peer, &WorldEvent::Boons(boons.clone()));
+            mirror.boons.insert(seat.0, boons);
+            mirror.health.insert(seat.0, health.current);
+        }
+        if let Some(pacts) = &pacts {
+            tell.to(peer, &WorldEvent::Pacts(pacts_wire(pacts)));
+        }
     }
 }
 
@@ -1219,7 +1497,9 @@ fn hear_drops(
     for Heard(event) in heard.read() {
         match *event {
             WorldEvent::DropAppeared { id, power_up, at } => {
-                if let Some(assets) = &assets {
+                if let Some(assets) = &assets
+                    && !mirror.shown_drops.contains_key(&id)
+                {
                     let entity = spawn_drop(&mut commands, assets, power_up, Vec3::from_array(at));
                     mirror.shown_drops.insert(id, entity);
                 }
@@ -1353,7 +1633,10 @@ fn hear_held(
 fn hear_status(
     mut heard: MessageReader<Heard>,
     mut commands: Commands,
-    players: Query<(Entity, &PlayerSeat, Has<LocalPlayer>, Has<LastStand>, Has<AwaitingRespawn>, Option<&Reviving>), With<Player>>,
+    players: Query<
+        (Entity, &PlayerSeat, Has<LocalPlayer>, Has<LastStand>, Has<AwaitingRespawn>, Option<&Reviving>, Has<Disconnected>),
+        With<Player>,
+    >,
     mut downs: MessageWriter<WentDown>,
     mut revived: MessageWriter<Revived>,
     mut respawned: MessageWriter<Respawned>,
@@ -1369,9 +1652,9 @@ fn hear_status(
     // Who is Reviving whom, before any of this changes it: a Revive is done when the Player is up
     // again and not for want of the time.
     let revivers: Vec<(Entity, Entity)> =
-        players.iter().filter_map(|(entity, .., reviving)| Some((entity, reviving?.target))).collect();
+        players.iter().filter_map(|(entity, _, _, _, _, reviving, _)| Some((entity, reviving?.target))).collect();
     for (seat, status) in statuses {
-        let Some((player, _, local, last_stand, awaiting, reviving)) =
+        let Some((player, _, local, last_stand, awaiting, reviving, away)) =
             players.iter().find(|(_, held, ..)| held.0 == seat)
         else {
             continue;
@@ -1388,6 +1671,18 @@ fn hear_status(
                     && let Some(&(reviver, _)) = revivers.iter().find(|(_, target)| *target == player)
                 {
                     revived.write(Revived { player, reviver });
+                }
+            }
+            _ => {}
+        }
+        match (status.held, away) {
+            (true, false) => {
+                entity_commands.insert((Disconnected::default(), ColliderDisabled));
+            }
+            (false, true) => {
+                entity_commands.remove::<Disconnected>();
+                if !status.awaiting {
+                    entity_commands.remove::<ColliderDisabled>();
                 }
             }
             _ => {}
@@ -1503,8 +1798,127 @@ fn hear_left(mut heard: MessageReader<Heard>, mut commands: Commands, players: Q
     }
 }
 
+/// Fire Sale's extra Boxes standing where the Host put them.
+fn hear_extras(
+    mut heard: MessageReader<Heard>,
+    mut commands: Commands,
+    mut ids: ResMut<NetIds>,
+    assets: Option<Res<BoxAssets>>,
+) {
+    for Heard(event) in heard.read() {
+        match *event {
+            WorldEvent::ExtraBox { id, location } => {
+                let Some(assets) = &assets else { continue };
+                if ids.by_id.contains_key(&id) {
+                    continue;
+                }
+                let added = spawn_box(&mut commands, assets, usize::from(location), FIRE_SALE_BOX_PRICE, false);
+                commands.entity(added).insert((FireSaleBox, NetId(id)));
+                ids.by_id.insert(id, added);
+                ids.next = ids.next.max(id + 1);
+            }
+            WorldEvent::ExtraBoxGone { id } => {
+                if let Some(entity) = ids.by_id.remove(&id) {
+                    commands.entity(entity).try_despawn();
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The Sapper's Sabotage, shown dead with its restore to hold.
+fn hear_sabotage(
+    mut heard: MessageReader<Heard>,
+    mut commands: Commands,
+    mut ids: ResMut<NetIds>,
+    assets: Option<Res<SapperAssets>>,
+) {
+    for Heard(event) in heard.read() {
+        match *event {
+            WorldEvent::Sabotage { restore, target, at } => {
+                let Some(assets) = &assets else { continue };
+                if ids.by_id.contains_key(&restore) {
+                    continue;
+                }
+                let target = match target {
+                    Some(id) => match ids.entity(id) {
+                        Some(entity) => {
+                            commands.entity(entity).insert(Sabotaged);
+                            Target::Entity(entity)
+                        }
+                        None => continue,
+                    },
+                    None => Target::Teleporter,
+                };
+                let entity = spawn_restore(&mut commands, assets, target, Vec3::from_array(at));
+                commands.entity(entity).insert(NetId(restore));
+                ids.by_id.insert(restore, entity);
+                ids.next = ids.next.max(restore + 1);
+            }
+            WorldEvent::Restored { restore } => {
+                let Some(entity) = ids.by_id.remove(&restore) else { continue };
+                commands.queue(move |world: &mut World| {
+                    let target = world.get::<Restore>(entity).map(|restore| restore.target);
+                    if let Some(Target::Entity(system)) = target
+                        && let Ok(mut system) = world.get_entity_mut(system)
+                    {
+                        system.remove::<Sabotaged>();
+                    }
+                    if let Ok(entity) = world.get_entity_mut(entity) {
+                        entity.despawn();
+                    }
+                });
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The Teleporter's aftereffect on this Player's screen.
+fn hear_aftereffect(
+    mut heard: MessageReader<Heard>,
+    aftermath: Option<ResMut<Aftermath>>,
+    overlays: Option<ResMut<Overlays>>,
+    mut shellshocks: MessageWriter<Shellshock>,
+) {
+    let (Some(mut aftermath), Some(mut overlays)) = (aftermath, overlays) else {
+        heard.clear();
+        return;
+    };
+    for Heard(event) in heard.read() {
+        if let WorldEvent::Aftereffect(effect) = *event {
+            begin_aftereffect(effect, &mut aftermath, &mut overlays, &mut shellshocks);
+        }
+    }
+}
+
+/// Which timed Power-ups are on, and for how long, as a Player back from a drop is told.
+fn hear_active(mut heard: MessageReader<Heard>, mut active: ResMut<ActivePowerUps>) {
+    for Heard(event) in heard.read() {
+        if let WorldEvent::Active(timed) = event {
+            for &power_up in &ActivePowerUps::TIMED {
+                let left = timed.iter().find(|(held, _)| *held == power_up).map_or(0.0, |&(_, left)| left);
+                active.show(power_up, left);
+            }
+        }
+    }
+}
+
+/// What a Box costs here follows the Fire Sale the Host has told of.
+fn show_box_prices(active: Res<ActivePowerUps>, mut boxes: Query<&mut MysteryBox>) {
+    let price = if active.active(PowerUp::FireSale) { FIRE_SALE_BOX_PRICE } else { BOX_PRICE };
+    for mut mystery_box in &mut boxes {
+        if mystery_box.price != price {
+            mystery_box.price = price;
+        }
+    }
+}
+
 #[cfg(test)]
 mod downs;
+#[cfg(test)]
+mod reconnect;
 #[cfg(test)]
 mod shared;
 #[cfg(test)]

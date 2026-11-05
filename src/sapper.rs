@@ -197,8 +197,8 @@ pub struct Sabotaging;
 
 /// The hold Buyable that restores a Sabotaged system.
 #[derive(Component)]
-struct Restore {
-    target: Target,
+pub(crate) struct Restore {
+    pub(crate) target: Target,
 }
 
 /// Ask for a Sapper now, as the debug keys do: it comes after its warning, whatever the cadence.
@@ -283,7 +283,7 @@ struct SapperPlan {
 }
 
 #[derive(Resource)]
-struct SapperAssets {
+pub(crate) struct SapperAssets {
     armour: Handle<StandardMaterial>,
     steel: Handle<StandardMaterial>,
     helmet: Handle<Mesh>,
@@ -756,28 +756,7 @@ fn sabotage(
                 }
                 Target::Teleporter => teleporter.sabotage(),
             }
-            let restore = "Hold F to restore".to_string();
-            commands.spawn((
-                InRun,
-                Name::new("Sabotage"),
-                Restore {
-                    target: goal.target,
-                },
-                Buyable {
-                    use_point: goal.use_point,
-                    prompt: restore.clone(),
-                    price: Some(SAPPER_RESTORE_PRICE),
-                    range: USE_RANGE,
-                },
-                HoldBuy {
-                    prompt: restore,
-                    price: Some(SAPPER_RESTORE_PRICE),
-                    tap: false,
-                },
-                Mesh3d(assets.sparks.clone()),
-                MeshMaterial3d(assets.spark.clone()),
-                Transform::from_translation(goal.use_point),
-            ));
+            spawn_restore(&mut commands, &assets, goal.target, goal.use_point);
             continue;
         }
 
@@ -814,6 +793,32 @@ fn sabotage(
             }
         }
     }
+}
+
+/// Spawns the hold Buyable that restores what the Sapper has Sabotaged, used from `use_point`.
+pub(crate) fn spawn_restore(commands: &mut Commands, assets: &SapperAssets, target: Target, use_point: Vec3) -> Entity {
+    let restore = "Hold F to restore".to_string();
+    commands
+        .spawn((
+            InRun,
+            Name::new("Sabotage"),
+            Restore { target },
+            Buyable {
+                use_point,
+                prompt: restore.clone(),
+                price: Some(SAPPER_RESTORE_PRICE),
+                range: USE_RANGE,
+            },
+            HoldBuy {
+                prompt: restore,
+                price: Some(SAPPER_RESTORE_PRICE),
+                tap: false,
+            },
+            Mesh3d(assets.sparks.clone()),
+            MeshMaterial3d(assets.spark.clone()),
+            Transform::from_translation(use_point),
+        ))
+        .id()
 }
 
 /// Undoes a Sabotage.
