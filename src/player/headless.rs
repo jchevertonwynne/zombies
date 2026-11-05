@@ -136,6 +136,49 @@ impl Sim {
         self.hold(&[]);
     }
 
+    /// Presses the Prone key long enough for one tick to see it, then lets go.
+    pub fn tap_prone(&mut self) {
+        self.hold(&[KeyCode::KeyZ]);
+        self.run_secs(0.05);
+        self.hold(&[]);
+    }
+
+    /// Whether a prone transition — going down or getting up — has the Player's firing blocked.
+    pub fn firing_blocked(&mut self) -> bool {
+        self.app
+            .world_mut()
+            .query_filtered::<&Locomotion, With<Player>>()
+            .single(self.app.world())
+            .unwrap()
+            .prone_transition()
+    }
+
+    /// The camera's pitch, in radians: positive looking up.
+    pub fn pitch(&mut self) -> f32 {
+        let (_, pitch, _) = self
+            .app
+            .world_mut()
+            .query_filtered::<&Transform, With<PlayerCamera>>()
+            .single(self.app.world())
+            .unwrap()
+            .rotation
+            .to_euler(EulerRot::YXZ);
+        pitch
+    }
+
+    /// Which way the Player faces, in radians about +Y.
+    pub fn yaw(&mut self) -> f32 {
+        let (yaw, _, _) = self
+            .app
+            .world_mut()
+            .query_filtered::<&Transform, With<Player>>()
+            .single(self.app.world())
+            .unwrap()
+            .rotation
+            .to_euler(EulerRot::YXZ);
+        yaw
+    }
+
     pub fn frame(&mut self) -> Sample {
         self.app.world_mut().resource_mut::<Steps>().0 = 0;
         self.app.update();
@@ -360,13 +403,15 @@ fn replaying_the_same_inputs_from_the_same_start_reaches_the_same_position_and_s
         .map(|(transform, locomotion)| (transform.translation, locomotion.clone()))
         .unwrap();
 
-    // Walk, sprint while turning, jump and land, crouch and crawl, then stand back up and settle.
-    let inputs: Vec<MoveInput> = (0..180)
+    // Walk, sprint while turning, jump and land, crouch and crawl, go prone and crawl, then
+    // stand back up and settle.
+    let inputs: Vec<MoveInput> = (0..240)
         .map(|tick| MoveInput {
             axes: if tick < 90 { Vec2::Y } else { Vec2::new(1.0, 1.0) },
             sprint: (30..70).contains(&tick),
             jump: tick == 80,
-            crouch: (100..150).contains(&tick),
+            crouch: (100..140).contains(&tick),
+            prone: (140..200).contains(&tick),
             yaw: tick as f32 * 0.02,
             ..default()
         })
@@ -455,6 +500,250 @@ fn a_crouched_player_moves_at_crouch_speed() {
         );
     }
     assert!(steady.iter().all(|s| s.grounded), "crouching lost the floor");
+}
+
+/// The Prone key lies the Player down at once — the collider shrinks to the 0.7 m prone shape
+/// with the feet staying put — while the camera glides to the prone eye: 0.6 s down from
+/// Standing and 0.4 s from Crouched, and the same back up.
+#[test]
+fn pressing_prone_takes_the_body_at_once_and_glides_the_eye_to_0_35() {
+    let mut sim = Sim::new(144.0);
+    sim.place(Vec3::new(0.0, 0.0, 20.0), EAST);
+    let feet = sim.frame().pos.y - Stance::Standing.half_height();
+
+    // Down from Standing, over `STANCE_PRONE_FROM_STAND_SECS`.
+    sim.tap_prone();
+    assert_eq!(sim.stance(), Stance::Prone, "the Prone key didn't lie the Player down");
+    // The body went down at the start of the transition, feet staying put.
+    let dropped = sim.frame().pos;
+    assert!((dropped.y - (feet + Stance::Prone.half_height())).abs() < 1e-3, "the feet moved");
+    // The camera stays where it was in the world and then glides down over the transition.
+    let prone_eye = PRONE_EYE_HEIGHT - Stance::Prone.half_height();
+    let starts_high = PLAYER_EYE_HEIGHT + Stance::Standing.half_height() - Stance::Prone.half_height();
+    assert!((sim.eye() - starts_high).abs() < 0.2, "the camera world height didn't hold: {}", sim.eye());
+    sim.run_secs(0.3);
+    let mid = sim.eye();
+    assert!(mid > prone_eye + 0.05 && mid < starts_high - 0.05, "the eye jumped to {mid}");
+    sim.run_secs(0.4);
+    assert!((sim.eye() - prone_eye).abs() < 1e-3, "the eye settled at {}", sim.eye());
+
+    // The key toggles back up, over the same 0.6 s, and the eye glides home.
+    sim.tap_prone();
+    assert_eq!(sim.stance(), Stance::Standing);
+    sim.run_secs(0.3);
+    assert!(sim.eye() > prone_eye + 0.05 && sim.eye() < PLAYER_EYE_HEIGHT - 0.05, "the eye jumped up to {}", sim.eye());
+    sim.run_secs(0.4);
+    assert!((sim.eye() - PLAYER_EYE_HEIGHT).abs() < 1e-3, "the eye came back to {}", sim.eye());
+
+    // From Crouched the transitions take `STANCE_PRONE_SECS`, both ways.
+    sim.tap_crouch();
+    sim.run_secs(0.3);
+    sim.tap_prone();
+    assert_eq!(sim.stance(), Stance::Prone);
+    // 0.35 s in, the 0.4 s glide is nearly down — the 0.6 s from-Standing one wouldn't be.
+    sim.run_secs(0.3);
+    assert!(sim.eye() < 0.15, "the 0.4 s glide was still high: {}", sim.eye());
+    sim.run_secs(0.2);
+    assert!((sim.eye() - prone_eye).abs() < 1e-3, "the eye settled at {}", sim.eye());
+    sim.tap_crouch();
+    sim.run_secs(0.55);
+    assert!((sim.eye() - (CROUCH_EYE_HEIGHT - Stance::Crouched.half_height())).abs() < 1e-3, "the rise to Crouched settled at {}", sim.eye());
+}
+
+/// A Prone Player Crawls at 0.15× walk speed, mid-transition no faster.
+#[test]
+fn a_prone_player_crawls_at_prone_speed() {
+    let mut sim = Sim::new(144.0);
+    sim.place(Vec3::new(0.0, 0.0, 20.0), EAST);
+    sim.tap_prone();
+    sim.hold(&[KeyCode::KeyW]);
+    // Mid-transition, and then settled: the slower Stance's speed the whole way.
+    let mid = sim.run_secs(0.1);
+    for speed in speeds(&mid, sim.frame_secs) {
+        assert!(speed < PLAYER_WALK_SPEED * 0.9, "mid-transition it moved {speed} m/s");
+    }
+    sim.run_secs(0.6);
+    let steady = sim.run_secs(0.8);
+    for speed in speeds(&steady, sim.frame_secs) {
+        assert!((speed - PLAYER_WALK_SPEED * PRONE_SPEED_MULT).abs() < 0.05, "prone, it moved {speed} m/s");
+    }
+    assert!(steady.iter().all(|s| s.grounded), "the crawl lost the floor");
+}
+
+/// Going down to Prone and getting up block firing until the transition is done; crouch
+/// transitions block nothing.
+#[test]
+fn prone_transitions_block_firing_and_crouch_transitions_block_nothing() {
+    let mut sim = Sim::new(144.0);
+    sim.place(Vec3::new(0.0, 0.0, 20.0), 0.0);
+    // A crouch change blocks nothing, either way.
+    sim.tap_crouch();
+    assert!(!sim.firing_blocked(), "going down to Crouched blocked firing");
+    sim.run_secs(0.2);
+    sim.tap_crouch();
+    assert!(!sim.firing_blocked(), "standing up from Crouched blocked firing");
+    sim.run_secs(0.3);
+
+    // Going down to Prone from Standing blocks firing for the whole 0.6 s.
+    sim.tap_prone();
+    assert!(sim.firing_blocked(), "going down to Prone didn't block firing");
+    sim.run_secs(0.4);
+    assert!(sim.firing_blocked(), "the block ended early");
+    sim.run_secs(0.2);
+    assert!(!sim.firing_blocked(), "the block never ended");
+    // Lying still in Prone blocks nothing.
+    sim.run_secs(0.3);
+    assert!(!sim.firing_blocked(), "lying prone blocked firing");
+
+    // Getting up blocks too, until the rise is done.
+    sim.tap_prone();
+    assert!(sim.firing_blocked(), "standing up from Prone didn't block firing");
+    sim.run_secs(0.4);
+    assert!(sim.firing_blocked(), "the rise's block ended early");
+    sim.run_secs(0.3);
+    assert!(!sim.firing_blocked(), "the rise's block never ended");
+}
+
+/// Stance presses are ignored in the air — there are no crouch-jumps — but a held key still
+/// lands the Player in its Stance when they do.
+#[test]
+fn stance_presses_are_ignored_in_the_air() {
+    // Toggle: a press in the air does nothing, and isn't remembered for the landing.
+    let mut sim = Sim::new(144.0);
+    sim.place(Vec3::new(0.0, 0.0, 20.0), 0.0);
+    sim.hold(&[KeyCode::Space]);
+    sim.run_secs(0.05);
+    sim.hold(&[KeyCode::KeyZ]);
+    let airborne = sim.run_secs(0.1);
+    assert!(airborne.iter().any(|s| !s.grounded), "the jump never left the floor");
+    sim.hold(&[]);
+    sim.run_secs(1.0);
+    assert_eq!(sim.stance(), Stance::Standing, "the airborne press went prone");
+
+    // Hold: the key held through the air lands the Player prone when they do.
+    let mut sim = Sim::new(144.0);
+    sim.app
+        .world_mut()
+        .insert_resource(crate::settings::Settings { stance_keys: crate::settings::StanceMode::Hold, ..default() });
+    sim.place(Vec3::new(0.0, 0.0, 20.0), 0.0);
+    sim.hold(&[KeyCode::Space]);
+    sim.run_secs(0.05);
+    sim.hold(&[KeyCode::KeyZ]);
+    sim.run_secs(1.2);
+    assert_eq!(sim.stance(), Stance::Prone, "the held key didn't land them prone");
+}
+
+/// While Prone, looking up is capped at `PRONE_LOOK_UP_MAX` above level; looking down and
+/// turning stay free.
+#[test]
+fn looking_up_is_capped_while_prone() {
+    let mut sim = Sim::new(144.0);
+    sim.place(Vec3::new(0.0, 0.0, 20.0), 0.0);
+    // Standing, a hard look up reaches the pitch limit.
+    sim.mouse(Vec2::new(0.0, -30.0));
+    sim.run_secs(0.2);
+    assert!(sim.pitch() > 1.2, "the look up didn't reach: {}", sim.pitch());
+    // Prone, the same look is capped.
+    sim.mouse(Vec2::ZERO);
+    sim.tap_prone();
+    sim.run_secs(0.1);
+    assert!((sim.pitch() - PRONE_LOOK_UP_MAX).abs() < 0.01, "the prone look wasn't capped: {}", sim.pitch());
+    // A hard look up past the cap stays at it.
+    sim.mouse(Vec2::new(0.0, -50.0));
+    sim.run_secs(0.2);
+    assert!((sim.pitch() - PRONE_LOOK_UP_MAX).abs() < 0.01, "the cap slipped: {}", sim.pitch());
+    // Looking down is free to the pitch limit, and turning with it.
+    let facing = sim.yaw();
+    sim.mouse(Vec2::new(20.0, 50.0));
+    sim.run_secs(0.2);
+    assert!(sim.pitch() < -1.4, "looking down was capped: {}", sim.pitch());
+    assert!((sim.yaw() - facing).abs() > 1.0, "the turn was limited");
+}
+
+/// Jump from Prone goes straight to Standing without jumping; Sprint from Prone stands the
+/// Player up, and the sprint starts once upright if Sprint is still held.
+#[test]
+fn jump_and_sprint_from_prone_stand_you_up() {
+    let mut sim = Sim::new(144.0);
+    sim.place(Vec3::new(0.0, 0.0, 20.0), 0.0);
+    sim.tap_prone();
+    sim.run_secs(0.7);
+    let feet = sim.frame().pos.y - Stance::Prone.half_height();
+
+    // Jump goes straight to Standing, and the press doesn't go on to jump.
+    sim.hold(&[KeyCode::Space]);
+    sim.run_secs(0.05);
+    sim.hold(&[]);
+    assert_eq!(sim.stance(), Stance::Standing, "Jump didn't stand the Player up");
+    sim.run_secs(0.8);
+    assert!((sim.frame().pos.y - Stance::Standing.half_height() - feet).abs() < 0.05, "the stand-up jumped");
+    // A second press jumps like normal.
+    sim.hold(&[KeyCode::Space]);
+    sim.run_secs(0.05);
+    sim.hold(&[]);
+    let rising = sim.run_secs(0.4);
+    let peak = rising.iter().map(|s| s.pos.y).fold(f32::MIN, f32::max);
+    assert!(peak > feet + 0.5, "the jump reached {peak}");
+
+    // Sprint stands the Player up, and the sprint starts once upright, Sprint still held.
+    sim.run_secs(0.5);
+    sim.tap_prone();
+    sim.run_secs(0.7);
+    sim.hold(&[KeyCode::KeyW, KeyCode::ShiftLeft]);
+    let rising = sim.run_secs(0.3);
+    assert_eq!(sim.stance(), Stance::Standing, "Sprint didn't stand the Player up");
+    assert!(rising.iter().all(|s| !s.sprinting), "sprinted while getting up");
+    let sprint = sim.run_secs(0.4);
+    assert!(sprint.last().unwrap().sprinting, "the sprint never started once upright");
+}
+
+/// A ceiling the prone body fits under but the crouched one doesn't keeps the Prone Player
+/// down: every rise passes the ceiling check for the shape it's growing into, and once
+/// there's room the Player rises.
+#[test]
+fn a_ceiling_too_low_to_crouch_under_keeps_the_prone_player_down() {
+    for mode in [crate::settings::StanceMode::Toggle, crate::settings::StanceMode::Hold] {
+        let mut sim = Sim::new(144.0);
+        sim.app
+            .world_mut()
+            .insert_resource(crate::settings::Settings { stance_keys: mode, ..default() });
+        sim.place(Vec3::new(0.0, 0.0, 20.0), 0.0);
+        let feet = sim.frame().pos.y - Stance::Standing.half_height();
+        // Its bottom 1.0 m up: the prone body (0.7 m) fits under, the crouched one (1.2 m) doesn't.
+        let ceiling = sim
+            .app
+            .world_mut()
+            .spawn((
+                Transform::from_xyz(0.0, feet + 1.25, 20.0),
+                RigidBody::Static,
+                Collider::cuboid(3.0, 0.5, 3.0),
+                CollisionLayers::new(GameLayer::World, LayerMask::ALL),
+            ))
+            .id();
+        sim.run_secs(0.1);
+
+        // Going prone under it is fine — going down never needs room. The rise into Crouched is
+        // refused: on Toggle a Crouch press, on Hold letting go of Prone with Crouch held.
+        if mode == crate::settings::StanceMode::Toggle {
+            sim.tap_prone();
+            sim.run_secs(0.1);
+            assert_eq!(sim.stance(), Stance::Prone);
+            sim.tap_crouch();
+        } else {
+            sim.hold(&[KeyCode::KeyZ]);
+            sim.run_secs(0.05);
+            assert_eq!(sim.stance(), Stance::Prone);
+            sim.hold(&[KeyCode::KeyC]);
+        }
+        sim.run_secs(0.5);
+        assert_eq!(sim.stance(), Stance::Prone, "{mode:?}: rose into the ceiling");
+
+        // Once there's room, the Player rises.
+        sim.app.world_mut().entity_mut(ceiling).despawn();
+        sim.run_secs(0.1);
+        assert_eq!(sim.stance(), Stance::Crouched, "{mode:?}: didn't rise once there was room");
+        assert!(sim.frame().grounded);
+    }
 }
 
 /// Jump while Crouched stands the Player up instead of jumping; a second press jumps. Sprint

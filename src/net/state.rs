@@ -21,7 +21,7 @@ pub type Tick = u32;
 pub struct Step {
     /// Move axes, -1, 0 or 1: right, then forward.
     pub axes: [i8; 2],
-    /// Jump, Sprint, Aim and the resolved Crouch target, in bits 0, 1, 2 and 3.
+    /// Jump, Sprint, Aim and the resolved target Stance, in bits 0, 1, 2 and 3–4.
     pub buttons: u8,
     pub yaw: f32,
     pub pitch: f32,
@@ -31,6 +31,7 @@ const JUMP: u8 = 1;
 const SPRINT: u8 = 2;
 const AIM: u8 = 4;
 const CROUCH: u8 = 8;
+const PRONE: u8 = 16;
 
 impl Step {
     pub fn of(input: &MoveInput) -> Self {
@@ -39,7 +40,8 @@ impl Step {
             buttons: u8::from(input.jump) * JUMP
                 | u8::from(input.sprint) * SPRINT
                 | u8::from(input.aim) * AIM
-                | u8::from(input.crouch) * CROUCH,
+                | u8::from(input.crouch) * CROUCH
+                | u8::from(input.prone) * PRONE,
             yaw: input.yaw,
             pitch: input.pitch,
         }
@@ -58,6 +60,7 @@ impl Step {
             sprint: self.buttons & SPRINT != 0,
             aim: self.buttons & AIM != 0,
             crouch: self.buttons & CROUCH != 0,
+            prone: self.buttons & PRONE != 0,
             yaw: finite(self.yaw),
             pitch: finite(self.pitch).clamp(-FRAC_PI_2, FRAC_PI_2),
         }
@@ -330,8 +333,11 @@ mod tests {
 
     #[test]
     fn a_step_is_the_input_it_came_from() {
-        let input = MoveInput { axes: Vec2::new(-1.0, 1.0), jump: true, sprint: false, aim: true, crouch: false, yaw: 1.25, pitch: -0.5 };
+        let input = MoveInput { axes: Vec2::new(-1.0, 1.0), jump: true, sprint: false, aim: true, crouch: true, prone: false, yaw: 1.25, pitch: -0.5 };
         assert_eq!(Step::of(&input).input(), input);
+        // The prone target rides its own bit, beside the crouched one.
+        let prone = MoveInput { crouch: false, prone: true, ..input };
+        assert_eq!(Step::of(&prone).input(), prone);
         let wild = Step { axes: [100, -100], buttons: 0, yaw: f32::NAN, pitch: 9.0 };
         let input = wild.input();
         assert_eq!(input.axes, Vec2::new(1.0, -1.0));

@@ -22,6 +22,8 @@ pub enum Gait {
     OnFoot,
     /// Crouched movement: a smaller, slower bob.
     Crouched,
+    /// The prone Crawl: a slow, heavier side-to-side sway.
+    Prone,
     /// The Last Stand crawl, which keeps a slow sway.
     Crawl,
 }
@@ -31,6 +33,7 @@ pub fn stride_rate(speed: f32, gait: Gait) -> f32 {
     let stride = match gait {
         Gait::OnFoot => BOB_STRIDE_METRES,
         Gait::Crouched => CROUCH_BOB_STRIDE_METRES,
+        Gait::Prone => PRONE_BOB_STRIDE_METRES,
         Gait::Crawl => CRAWL_SWAY_STRIDE_METRES,
     };
     speed.max(0.0) / stride
@@ -46,6 +49,10 @@ pub fn bob_amplitude(speed: f32, gait: Gait) -> Vec2 {
         Gait::Crouched => {
             let crouch_speed = PLAYER_WALK_SPEED * CROUCH_SPEED_MULT;
             Vec2::new(CROUCH_BOB_LATERAL, CROUCH_BOB_VERTICAL) * (speed / crouch_speed).min(1.0)
+        }
+        Gait::Prone => {
+            let prone_speed = PLAYER_WALK_SPEED * PRONE_SPEED_MULT;
+            Vec2::new(PRONE_BOB_LATERAL, PRONE_BOB_VERTICAL) * (speed / prone_speed).min(1.0)
         }
         Gait::Crawl => {
             let crawl_speed = PLAYER_WALK_SPEED * LAST_STAND_CRAWL_MULT;
@@ -159,6 +166,8 @@ fn sway(
         Gait::Crawl
     } else if locomotion.stance == Stance::Crouched {
         Gait::Crouched
+    } else if locomotion.stance == Stance::Prone {
+        Gait::Prone
     } else {
         Gait::OnFoot
     };
@@ -272,6 +281,18 @@ mod tests {
         let amplitude = bob_amplitude(crawl_speed, Gait::Crawl);
         assert_eq!(amplitude, Vec2::new(CRAWL_SWAY_LATERAL, CRAWL_SWAY_VERTICAL));
         assert!(stride_rate(crawl_speed, Gait::Crawl) < stride_rate(PLAYER_WALK_SPEED, Gait::OnFoot));
+    }
+
+    #[test]
+    fn the_prone_crawl_sways_slower_and_heavier_than_the_walk() {
+        let prone_speed = PLAYER_WALK_SPEED * PRONE_SPEED_MULT;
+        let amplitude = bob_amplitude(prone_speed, Gait::Prone);
+        assert_eq!(amplitude, Vec2::new(PRONE_BOB_LATERAL, PRONE_BOB_VERTICAL));
+        // Slow: fewer strides covering the same ground than walking. Heavy: more side-to-side.
+        let walk = bob_amplitude(PLAYER_WALK_SPEED, Gait::OnFoot);
+        assert!(amplitude.x > walk.x, "the prone sway isn't heavier side-to-side");
+        assert!(stride_rate(prone_speed, Gait::Prone) < stride_rate(PLAYER_WALK_SPEED, Gait::OnFoot), "the prone sway isn't slower");
+        assert_eq!(bob_amplitude(0.0, Gait::Prone), Vec2::ZERO);
     }
 
     #[test]

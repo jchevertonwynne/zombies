@@ -1,5 +1,7 @@
 //! Every gameplay number lives here, so balancing never means hunting through systems.
 
+use std::f32::consts::FRAC_PI_4;
+
 use bevy::math::Vec3;
 
 use crate::arsenal::{
@@ -47,6 +49,19 @@ pub const CROUCH_EYE_HEIGHT: f32 = 1.05;
 pub const CROUCH_COLLIDER_LENGTH: f32 = 0.5;
 /// The crouched movement's factor on walk speed.
 pub const CROUCH_SPEED_MULT: f32 = 0.65;
+/// Seconds of the Crouched↔Prone transition.
+pub const STANCE_PRONE_SECS: f32 = 0.4;
+/// Seconds of the Standing↔Prone transition, through Crouched.
+pub const STANCE_PRONE_FROM_STAND_SECS: f32 = 0.6;
+/// The prone eye's height above the feet.
+pub const PRONE_EYE_HEIGHT: f32 = 0.35;
+/// The prone body's height end to end: a short upright shape, `PLAYER_RADIUS` round with no length.
+pub const PRONE_COLLIDER_HEIGHT: f32 = 0.7;
+/// The prone Crawl's factor on walk speed. The Last Stand Crawl starts at the same value but
+/// keeps its own constant, whose rules are Last Stand's alone.
+pub const PRONE_SPEED_MULT: f32 = 0.15;
+/// How far up a prone Player can look, in radians above level. Looking down and turning stay free.
+pub const PRONE_LOOK_UP_MAX: f32 = FRAC_PI_4;
 
 // Weapons
 pub const STARTING_WEAPON: WeaponId = WeaponId::M1911;
@@ -1904,6 +1919,11 @@ pub const BOB_SPRINT_VERTICAL: f32 = 0.055;
 pub const CRAWL_SWAY_STRIDE_METRES: f32 = 1.5;
 pub const CRAWL_SWAY_LATERAL: f32 = 0.05;
 pub const CRAWL_SWAY_VERTICAL: f32 = 0.02;
+/// The prone Crawl's sway: one stride per this much ground at full Crawl speed — slow — heavy on
+/// the side-to-side, light on the dip.
+pub const PRONE_BOB_STRIDE_METRES: f32 = 2.0;
+pub const PRONE_BOB_LATERAL: f32 = 0.06;
+pub const PRONE_BOB_VERTICAL: f32 = 0.01;
 /// The crouched bob: one stride per this much ground at full crouch speed, and its amplitudes.
 pub const CROUCH_BOB_STRIDE_METRES: f32 = 5.0;
 pub const CROUCH_BOB_LATERAL: f32 = 0.012;

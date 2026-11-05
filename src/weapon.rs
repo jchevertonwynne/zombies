@@ -29,7 +29,7 @@ use crate::equipment::{Equipment, Handling, arms_free, hand_pose};
 use crate::perk::{Drinking, hands_free};
 use crate::respawn::not_waiting;
 use crate::revive::not_reviving;
-use crate::player::{LocalPlayer, Locomotion, Player, PlayerCamera};
+use crate::player::{LocalPlayer, Locomotion, Player, PlayerCamera, not_changing_prone};
 use crate::state::world_runs;
 use crate::tuning::*;
 use crate::wonder::{WonderFired, is_wonder};
@@ -1001,8 +1001,9 @@ impl Plugin for WeaponPlugin {
             .add_systems(
                 Update,
                 // A Perk drink puts the Weapon away and keeps the Knife out of reach; so does
-                // Equipment in the hand. The Weapon can't fire while its Player Revives or Repairs a Barrier.
-                ((switch_weapons, reload, aim, fire.run_if(arms_free).run_if(not_reviving).run_if(not_repairing).run_if(not_waiting), knife.run_if(arms_free).run_if(not_repairing).run_if(not_waiting)).chain().run_if(hands_free).after(rebuild_planks), animate_view_model.in_set(AnimateViewModel))
+                // Equipment in the hand. The Weapon can't fire while its Player Revives or Repairs
+                // a Barrier, or is mid-prone-transition.
+                ((switch_weapons, reload, aim, fire.run_if(arms_free).run_if(not_reviving).run_if(not_repairing).run_if(not_waiting).run_if(not_changing_prone), knife.run_if(arms_free).run_if(not_repairing).run_if(not_waiting)).chain().run_if(hands_free).after(rebuild_planks), animate_view_model.in_set(AnimateViewModel))
                     .chain()
                     .run_if(world_runs),
             )

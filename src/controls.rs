@@ -23,6 +23,8 @@ pub enum Action {
     Sprint,
     /// The Crouch key: lowers into the Crouched Stance, by the Toggle or Hold setting.
     Crouch,
+    /// The Prone key: lies the Player into the Prone Stance, by the Toggle or Hold setting.
+    Prone,
     Fire,
     Aim,
     Reload,
@@ -40,7 +42,7 @@ pub enum Action {
 }
 
 impl Action {
-    pub const ALL: [Action; 20] = [
+    pub const ALL: [Action; 21] = [
         Action::Forward,
         Action::Back,
         Action::Left,
@@ -48,6 +50,7 @@ impl Action {
         Action::Jump,
         Action::Sprint,
         Action::Crouch,
+        Action::Prone,
         Action::Fire,
         Action::Aim,
         Action::Reload,
@@ -72,6 +75,7 @@ impl Action {
             Action::Jump => "Jump",
             Action::Sprint => "Sprint",
             Action::Crouch => "Crouch",
+            Action::Prone => "Prone",
             Action::Fire => "Fire",
             Action::Aim => "Aim Down Sights",
             Action::Reload => "Reload",
@@ -98,6 +102,7 @@ impl Action {
             Action::Jump => "jump",
             Action::Sprint => "sprint",
             Action::Crouch => "crouch",
+            Action::Prone => "prone",
             Action::Fire => "fire",
             Action::Aim => "aim",
             Action::Reload => "reload",
@@ -124,6 +129,7 @@ impl Action {
             Action::Jump => Key(KeyCode::Space),
             Action::Sprint => Key(KeyCode::ShiftLeft),
             Action::Crouch => Key(KeyCode::KeyC),
+            Action::Prone => Key(KeyCode::KeyZ),
             Action::Fire => Mouse(MouseButton::Left),
             Action::Aim => Mouse(MouseButton::Right),
             Action::Reload => Key(KeyCode::KeyR),

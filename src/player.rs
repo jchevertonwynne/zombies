@@ -34,29 +34,41 @@ use crate::teammate::{HeldWeapon, Pose, Shots};
 use crate::tuning::*;
 use crate::weapon::{Knife, Loadout, move_towards};
 
-/// How low a Player's body is. Standing today, with Crouched behind the Crouch key; Prone comes
-/// with its own slice.
+/// How low a Player's body is: Standing, Crouched behind the Crouch key, Prone behind theirs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Stance {
     #[default]
     Standing,
     Crouched,
+    Prone,
 }
 
 impl Stance {
-    /// The other of the two.
-    pub fn other(self) -> Self {
+    /// The Stance's factor on walk speed. (The Last Stand Crawl has its own.)
+    pub fn speed_mult(self) -> f32 {
         match self {
-            Stance::Standing => Stance::Crouched,
-            Stance::Crouched => Stance::Standing,
+            Stance::Standing => 1.0,
+            Stance::Crouched => CROUCH_SPEED_MULT,
+            Stance::Prone => PRONE_SPEED_MULT,
         }
     }
 
-    /// Half the height of the Stance's capsule: how far its centre sits above the feet.
+    /// How low the Stance sits: 0 Standing, 1 Crouched, 2 Prone. A change to a deeper Stance only
+    /// shrinks the body; a change to a shallower one passes the ceiling check first.
+    pub(crate) fn depth(self) -> u8 {
+        match self {
+            Stance::Standing => 0,
+            Stance::Crouched => 1,
+            Stance::Prone => 2,
+        }
+    }
+
+    /// Half the height of the Stance's body: how far its centre sits above the feet.
     pub fn half_height(self) -> f32 {
         match self {
             Stance::Standing => PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0,
             Stance::Crouched => PLAYER_RADIUS + CROUCH_COLLIDER_LENGTH / 2.0,
+            Stance::Prone => PRONE_COLLIDER_HEIGHT / 2.0,
         }
     }
 
@@ -65,29 +77,32 @@ impl Stance {
         match self {
             Stance::Standing => PLAYER_EYE_HEIGHT + Stance::Standing.half_height(),
             Stance::Crouched => CROUCH_EYE_HEIGHT,
+            Stance::Prone => PRONE_EYE_HEIGHT,
         }
     }
 
-    /// The capsule the Stance's body is.
+    /// The capsule the Stance's body is. The prone one is the short upright shape with no
+    /// length between its caps; the lying body is drawn, never collided with.
     pub fn collider(self) -> Collider {
         match self {
             Stance::Standing => Collider::capsule(PLAYER_RADIUS, PLAYER_CAPSULE_LENGTH),
             Stance::Crouched => Collider::capsule(PLAYER_RADIUS, CROUCH_COLLIDER_LENGTH),
+            Stance::Prone => Collider::capsule(PLAYER_RADIUS, PRONE_COLLIDER_HEIGHT - 2.0 * PLAYER_RADIUS),
         }
     }
 }
 
-/// The Crouch key resolved into the Stance the Player wants, and the memory behind it.
-/// `fill_move_input` runs it for the `LocalPlayer` each tick, by the Stance Keys setting. The
+/// The Crouch and Prone keys resolved into the Stance the Player wants, and the memory behind
+/// it. `fill_move_input` runs it for the `LocalPlayer` each tick, by the Stance Keys setting. The
 /// Toggle or Hold choice never crosses the wire: only the resolved target rides the `MoveInput`,
 /// so the Host replays the same presses to the same Stance.
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
 pub struct StanceKeys {
     /// The Stance wanted.
     pub target: Stance,
-    /// The Crouch, Jump and Sprint keys last tick, for edges.
-    held: [bool; 3],
-    /// A Jump stand-up: the Crouch key gives way until it is released, and the jump that stood
+    /// The Crouch, Prone, Jump and Sprint keys last tick, for edges.
+    held: [bool; 4],
+    /// A Jump stand-up: the Stance keys give way until they are released, and the jump that stood
     /// the Player up doesn't go on to jump them.
     yielded: bool,
     /// A jump that stood the Player up, still held.
@@ -96,7 +111,7 @@ pub struct StanceKeys {
 
 impl Default for StanceKeys {
     fn default() -> Self {
-        Self { target: Stance::Standing, held: [false; 3], yielded: false, standing_jump: false }
+        Self { target: Stance::Standing, held: [false; 4], yielded: false, standing_jump: false }
     }
 }
 
@@ -109,8 +124,8 @@ impl StanceKeys {
         self.standing_jump = false;
     }
 
-    /// One tick of the Crouch, Jump and Sprint keys into the Stance wanted, given whether the
-    /// Player is `grounded` and `down`. Returns whether the jump passes this tick: a jump that
+    /// One tick of the Crouch, Prone, Jump and Sprint keys into the Stance wanted, given whether
+    /// the Player is `grounded` and `down`. Returns whether the jump passes this tick: a jump that
     /// stands the Player up, or one held from it, doesn't jump them.
     ///
     /// Stance input is dead while Down: the target comes back Standing. Airborne presses are
@@ -119,13 +134,14 @@ impl StanceKeys {
         &mut self,
         mode: StanceMode,
         crouch: bool,
+        prone: bool,
         jump: bool,
         sprint: bool,
         grounded: bool,
         down: bool,
     ) -> bool {
-        let [crouch_was, jump_was, sprint_was] = self.held;
-        self.held = [crouch, jump, sprint];
+        let [crouch_was, prone_was, jump_was, sprint_was] = self.held;
+        self.held = [crouch, prone, jump, sprint];
         if down {
             self.target = Stance::Standing;
             return jump;
@@ -135,22 +151,26 @@ impl StanceKeys {
         }
         match mode {
             StanceMode::Toggle => {
-                if grounded && crouch && !crouch_was {
-                    self.target = self.target.other();
-                }
-                if grounded
-                    && self.target == Stance::Crouched
-                    && (jump && !jump_was || sprint && !sprint_was)
-                {
-                    self.target = Stance::Standing;
-                    self.standing_jump = jump && !jump_was;
+                if grounded {
+                    // Crouch switches Standing↔Crouched, from Prone to Crouched; Prone switches
+                    // Standing↔Prone, from Crouched to Prone.
+                    if prone && !prone_was {
+                        self.target = if self.target == Stance::Prone { Stance::Standing } else { Stance::Prone };
+                    } else if crouch && !crouch_was {
+                        self.target = if self.target == Stance::Crouched { Stance::Standing } else { Stance::Crouched };
+                    }
+                    // Jump and Sprint stand the Player up instead of jumping or sprinting low.
+                    if self.target != Stance::Standing && (jump && !jump_was || sprint && !sprint_was) {
+                        self.target = Stance::Standing;
+                        self.standing_jump = jump && !jump_was;
+                    }
                 }
             }
             StanceMode::Hold => {
-                if !crouch {
+                if !crouch && !prone {
                     self.yielded = false;
                 }
-                if grounded && self.target == Stance::Crouched && jump && !jump_was {
+                if grounded && self.target != Stance::Standing && jump && !jump_was {
                     self.yielded = true;
                     self.standing_jump = true;
                 }
@@ -160,7 +180,15 @@ impl StanceKeys {
                 } else if self.yielded {
                     self.target = Stance::Standing;
                 } else {
-                    self.target = if crouch { Stance::Crouched } else { Stance::Standing };
+                    // A held key keeps the Player in its Stance, Prone over Crouch; letting go
+                    // brings them up — out of Prone into Crouched, if Crouch is still held.
+                    self.target = if prone {
+                        Stance::Prone
+                    } else if crouch {
+                        Stance::Crouched
+                    } else {
+                        Stance::Standing
+                    };
                 }
             }
         }
@@ -218,8 +246,8 @@ pub struct Health {
 
 /// What a Player asked for this tick: the one thing `step_move` reads besides their
 /// `Locomotion`. The `LocalPlayer`'s is filled from `Controls` each tick; a teammate's will come
-/// off the network. The Stance the Player wants arrives resolved: `crouch` is the target stance,
-/// already past the Toggle or Hold setting.
+/// off the network. The Stance the Player wants arrives resolved: `crouch` and `prone` are the
+/// target stance, already past the Toggle or Hold setting (Prone wins if both somehow ride).
 #[derive(Component, Debug, Clone, Copy, Default, PartialEq)]
 pub struct MoveInput {
     /// Move axes, each -1, 0 or 1: x is right, y is forward.
@@ -227,8 +255,10 @@ pub struct MoveInput {
     pub jump: bool,
     pub sprint: bool,
     pub aim: bool,
-    /// The Player wants the Crouched Stance (Standing when false).
+    /// The Player wants the Crouched Stance.
     pub crouch: bool,
+    /// The Player wants the Prone Stance.
+    pub prone: bool,
     /// Which way the Player faces, in radians about +Y (0 faces -Z).
     pub yaw: f32,
     /// How far the Player looks up (positive) or down, in radians.
@@ -246,7 +276,13 @@ pub struct Locomotion {
     pub(crate) winded: bool,
     /// The Stance the body is shaped in. It changes at the start of a transition, both ways.
     pub stance: Stance,
-    /// Seconds since the current stance change began; `STANCE_CROUCH_SECS` or more once settled.
+    /// The Stance the current stance change left. Until the change ends the Player moves at the
+    /// slower of it and `stance`, and a change that left Prone keeps Sprint off until it's done.
+    pub(crate) left_stance: Stance,
+    /// Seconds the current stance change takes: `STANCE_CROUCH_SECS`, `STANCE_PRONE_SECS` or
+    /// `STANCE_PRONE_FROM_STAND_SECS` by the pair.
+    pub(crate) stance_change_secs: f32,
+    /// Seconds since the current stance change began; `stance_change_secs` or more once settled.
     pub(crate) since_stance_change: f32,
     /// The eye's height above the feet, gliding between stance eye heights.
     pub(crate) eye: f32,
@@ -259,11 +295,25 @@ impl Locomotion {
         self.grounded
     }
 
+    /// Whether a stance change is still under way: the camera is still gliding and the Player
+    /// still moves at the slower Stance's speed.
+    pub(crate) fn changing_stance(&self) -> bool {
+        self.since_stance_change < self.stance_change_secs
+    }
+
+    /// Whether a prone transition — going down to Prone or getting up from it — is still under
+    /// way. Firing is blocked until it's done; crouch transitions block nothing.
+    pub fn prone_transition(&self) -> bool {
+        self.changing_stance() && (self.stance == Stance::Prone || self.left_stance == Stance::Prone)
+    }
+
     /// Puts the body in the Standing Stance at once, as a Respawn, a Teleporter ride or the start
     /// of a Run does. The caller sets the collider to match.
     pub(crate) fn stand(&mut self) {
         self.stance = Stance::Standing;
-        self.since_stance_change = STANCE_CROUCH_SECS;
+        self.left_stance = Stance::Standing;
+        self.stance_change_secs = 0.0;
+        self.since_stance_change = 0.0;
         self.eye = Stance::Standing.eye_height();
         self.eye_rate = 0.0;
     }
@@ -288,7 +338,9 @@ impl Default for Locomotion {
             stamina: SPRINT_DURATION_SECS,
             winded: false,
             stance: Stance::Standing,
-            since_stance_change: STANCE_CROUCH_SECS,
+            left_stance: Stance::Standing,
+            stance_change_secs: 0.0,
+            since_stance_change: 0.0,
             eye: Stance::Standing.eye_height(),
             eye_rate: 0.0,
         }
@@ -334,6 +386,14 @@ pub struct PlayerHit {
     /// The Player hit.
     pub player: Entity,
     pub damage: f32,
+}
+
+/// Whether the local Player is clear to fire: not mid-prone-transition. Going down to Prone or
+/// getting up from it blocks firing until the transition is done; crouch transitions block
+/// nothing, and no prone lock applies while Down — Last Stand's own rules don't change. (The
+/// Knife and Equipment join the block in the fighting-by-stance slice.)
+pub fn not_changing_prone(players: Query<(&Locomotion, Has<LastStand>), With<LocalPlayer>>) -> bool {
+    players.iter().all(|(locomotion, last_stand)| last_stand || !locomotion.prone_transition())
 }
 
 /// Places the camera's `Eye` from the stance glide: the eye's height above the feet, less the
@@ -557,15 +617,19 @@ fn apply_fov(
 fn look(
     mouse: Res<AccumulatedMouseMotion>,
     settings: Res<Settings>,
-    mut player: Single<&mut Transform, With<LocalPlayer>>,
+    player: Single<(&mut Transform, &Locomotion), With<LocalPlayer>>,
     mut camera: Single<&mut Transform, (With<PlayerCamera>, Without<LocalPlayer>)>,
 ) {
     let delta = settings.look_delta(mouse.delta);
-    player.rotate_y(-delta.x);
+    let (mut transform, locomotion) = player.into_inner();
+    transform.rotate_y(-delta.x);
 
     const PITCH_LIMIT: f32 = FRAC_PI_2 - 0.01;
+    // While Prone, looking up is capped at `PRONE_LOOK_UP_MAX` above level; looking down and
+    // turning stay free.
+    let up = if locomotion.stance == Stance::Prone { PRONE_LOOK_UP_MAX } else { PITCH_LIMIT };
     let (_, pitch, _) = camera.rotation.to_euler(EulerRot::YXZ);
-    let pitch = (pitch - delta.y).clamp(-PITCH_LIMIT, PITCH_LIMIT);
+    let pitch = (pitch - delta.y).clamp(-PITCH_LIMIT, up);
     camera.rotation = Quat::from_rotation_x(pitch);
 }
 
@@ -606,8 +670,8 @@ fn teleport_player(
 
 /// Fills the local Player's `MoveInput` for the tick from the keyboard and the way they're
 /// facing: the yaw is the Player's, the pitch the camera's, both as `look` has turned them. The
-/// Crouch key runs through the Stance resolver, so the Stance wanted arrives already resolved
-/// from the Toggle or Hold setting.
+/// Crouch and Prone keys run through the Stance resolver, so the Stance wanted arrives already
+/// resolved from the Toggle or Hold setting.
 pub(crate) fn fill_move_input(
     controls: Controls,
     settings: Res<Settings>,
@@ -620,6 +684,7 @@ pub(crate) fn fill_move_input(
     let jump = keys.resolve(
         settings.stance_keys,
         controls.pressed(Action::Crouch),
+        controls.pressed(Action::Prone),
         controls.pressed(Action::Jump),
         controls.pressed(Action::Sprint),
         locomotion.grounded(),
@@ -633,6 +698,7 @@ pub(crate) fn fill_move_input(
         sprint: controls.pressed(Action::Sprint),
         aim: controls.pressed(Action::Aim),
         crouch: keys.target == Stance::Crouched,
+        prone: keys.target == Stance::Prone,
         yaw,
         pitch,
     };
@@ -695,16 +761,28 @@ pub fn step_move(
     // Stance: the input carries the Stance wanted, resolved from the keys. The body takes it at
     // the start of a transition, both ways: going down shrinks the capsule at once, feet staying
     // put; getting up passes the ceiling check first, then grows. Nothing changes in the air.
-    let target = if input.crouch && !last_stand { Stance::Crouched } else { Stance::Standing };
+    let target = if last_stand {
+        Stance::Standing
+    } else if input.prone {
+        Stance::Prone
+    } else if input.crouch {
+        Stance::Crouched
+    } else {
+        Stance::Standing
+    };
     let mut changed = None;
     if locomotion.stance != target
         && locomotion.grounded
-        && (target == Stance::Crouched || room_to_stand(move_and_slide, entity, *position))
+        && (target.depth() > locomotion.stance.depth()
+            || room_for(move_and_slide, entity, *position, locomotion.stance, target))
     {
         position.y += target.half_height() - locomotion.stance.half_height();
-        locomotion.eye_rate = (target.eye_height() - locomotion.eye).abs() / STANCE_CROUCH_SECS;
+        locomotion.left_stance = locomotion.stance;
         locomotion.stance = target;
+        locomotion.stance_change_secs = transition_secs(locomotion.left_stance, target);
         locomotion.since_stance_change = 0.0;
+        // The camera keeps gliding between the eyes for the whole transition.
+        locomotion.eye_rate = (target.eye_height() - locomotion.eye).abs() / locomotion.stance_change_secs;
         changed = Some(target);
     }
     // The step works from the Stance's own shape; the caller puts the collider component into it.
@@ -714,16 +792,19 @@ pub fn step_move(
     locomotion.eye = move_towards(locomotion.eye, locomotion.stance.eye_height(), locomotion.eye_rate * dt);
 
     // Sprinting only makes sense running forwards on the ground, and it runs out. Aiming stops
-    // it, there's no sprinting with a Perk in hand or in Last Stand, and only Standing sprints;
-    // from Crouched, Sprint stands and sprints at once.
+    // it, there's no sprinting with a Perk in hand or in Last Stand, and only Standing sprints:
+    // from Crouched, Sprint stands and sprints at once; from Prone, it stands the Player up and
+    // the sprint starts once upright if Sprint is still held.
     let aiming = input.aim && loadout.can_aim();
+    let rising_from_prone = locomotion.changing_stance() && locomotion.left_stance == Stance::Prone;
     let wants_sprint = input.sprint
         && input.axes.y > 0.0
         && locomotion.grounded
         && !aiming
         && !drinking
         && !last_stand
-        && locomotion.stance == Stance::Standing;
+        && locomotion.stance == Stance::Standing
+        && !rising_from_prone;
     locomotion.sprinting = wants_sprint && !locomotion.winded;
     if locomotion.sprinting {
         locomotion.stamina -= dt * resolve(Stat::SprintDrain, 1.0, &modifiers.0);
@@ -739,15 +820,19 @@ pub fn step_move(
         }
     }
     // Mid-transition the Player moves at the slower Stance's speed: the one just left.
-    let crouched = locomotion.stance == Stance::Crouched || locomotion.since_stance_change < STANCE_CROUCH_SECS;
+    let moving_as = if locomotion.changing_stance()
+        && locomotion.left_stance.speed_mult() < locomotion.stance.speed_mult()
+    {
+        locomotion.left_stance
+    } else {
+        locomotion.stance
+    };
     let base = if last_stand {
         PLAYER_WALK_SPEED * LAST_STAND_CRAWL_MULT
     } else if locomotion.sprinting {
         PLAYER_SPRINT_SPEED
-    } else if crouched {
-        PLAYER_WALK_SPEED * CROUCH_SPEED_MULT
     } else {
-        PLAYER_WALK_SPEED
+        PLAYER_WALK_SPEED * moving_as.speed_mult()
     };
     let speed = loadout.move_speed(base, &modifiers.0);
 
@@ -757,8 +842,8 @@ pub fn step_move(
     // Gravity only pulls in the air; on the floor it would just push the Player into it, and
     // slowly down the ramp while standing still.
     let mut vertical = if locomotion.grounded { 0.0 } else { locomotion.velocity.y - GRAVITY * dt };
-    // No jumping from a crawl, and no jumping out of a Stance: Jump while Crouched stands the
-    // Player up instead (the resolver turned the press into the stand-up).
+    // No jumping from a crawl, and no jumping out of a Stance: Jump while Crouched or Prone
+    // stands the Player up instead (the resolver turned the press into the stand-up).
     let jumped = locomotion.grounded && input.jump && !last_stand && locomotion.stance == Stance::Standing;
     if jumped {
         vertical = PLAYER_JUMP_SPEED;
@@ -820,16 +905,28 @@ pub fn step_move(
     changed
 }
 
-/// Whether the standing capsule fits where the Player is, feet staying put: the ceiling check
-/// that can refuse a stand-up. The floor sits a skin's width below the feet, so it never counts.
-fn room_to_stand(move_and_slide: &MoveAndSlide, entity: Entity, position: Vec3) -> bool {
-    let stood = position + Vec3::Y * (Stance::Standing.half_height() - Stance::Crouched.half_height());
+/// Seconds one Stance change takes, by the pair it joins: Standing↔Crouched
+/// `STANCE_CROUCH_SECS`, Crouched↔Prone `STANCE_PRONE_SECS`, Standing↔Prone
+/// `STANCE_PRONE_FROM_STAND_SECS` (through Crouched).
+fn transition_secs(from: Stance, to: Stance) -> f32 {
+    match (from, to) {
+        (Stance::Standing, Stance::Crouched) | (Stance::Crouched, Stance::Standing) => STANCE_CROUCH_SECS,
+        (Stance::Crouched, Stance::Prone) | (Stance::Prone, Stance::Crouched) => STANCE_PRONE_SECS,
+        _ => STANCE_PRONE_FROM_STAND_SECS,
+    }
+}
+
+/// Whether the `to` Stance's body fits where the Player is, feet staying put: the ceiling check
+/// that can refuse a stand-up — or a rise out of Prone into Crouched. The floor sits a skin's
+/// width below the feet, so it never counts.
+fn room_for(move_and_slide: &MoveAndSlide, entity: Entity, position: Vec3, from: Stance, to: Stance) -> bool {
+    let risen = position + Vec3::Y * (to.half_height() - from.half_height());
     let filter = SpatialQueryFilter::from_mask([GameLayer::World, GameLayer::Zombie, GameLayer::Window])
         .with_excluded_entities([entity]);
     let mut room = true;
     move_and_slide.intersections(
-        &Stance::Standing.collider(),
-        stood,
+        &to.collider(),
+        risen,
         Quat::IDENTITY,
         0.0,
         &filter,
@@ -926,65 +1023,91 @@ mod tests {
     }
 
     #[test]
-    fn toggle_flips_on_each_press_and_jump_and_sprint_stand_you_up() {
+    fn toggle_flips_each_key_between_its_pair_of_stances() {
         use crate::settings::StanceMode::*;
         let mut keys = StanceKeys::default();
         assert_eq!(keys.target, Stance::Standing);
-        // A press flips down; letting go changes nothing.
-        keys.resolve(Toggle, true, false, false, true, false);
+        // A Crouch press flips Standing↔Crouched; letting go changes nothing.
+        keys.resolve(Toggle, true, false, false, false, true, false);
         assert_eq!(keys.target, Stance::Crouched);
-        keys.resolve(Toggle, false, false, false, true, false);
+        keys.resolve(Toggle, false, false, false, false, true, false);
         assert_eq!(keys.target, Stance::Crouched);
-        // Another press flips back up.
-        keys.resolve(Toggle, true, false, false, true, false);
+        keys.resolve(Toggle, true, false, false, false, true, false);
         assert_eq!(keys.target, Stance::Standing);
 
-        // Jump stands the Player up instead of jumping, and doesn't jump while held.
-        keys.resolve(Toggle, false, false, false, true, false);
-        keys.resolve(Toggle, true, false, false, true, false);
-        assert!(!keys.resolve(Toggle, false, true, false, true, false), "the stand-up jump jumped");
-        assert_eq!(keys.target, Stance::Standing);
-        assert!(!keys.resolve(Toggle, false, true, false, true, false), "the held jump jumped");
-        // Once the jump is let go, the next press jumps again.
-        keys.resolve(Toggle, false, false, false, true, false);
-        assert!(keys.resolve(Toggle, false, true, false, true, false));
-
-        // Sprint stands and sprints at once; holding it doesn't stop a later crouch.
-        keys.resolve(Toggle, true, false, false, true, false);
-        keys.resolve(Toggle, false, false, true, true, false);
-        assert_eq!(keys.target, Stance::Standing);
-        keys.resolve(Toggle, true, false, true, true, false);
-        assert_eq!(keys.target, Stance::Crouched, "the held sprint kept standing");
+        // A Prone press goes down from Standing, toggles back up from Prone, and from Crouched
+        // goes down too. From Prone, Crouch goes to Crouched.
+        keys.resolve(Toggle, false, true, false, false, true, false);
+        assert_eq!(keys.target, Stance::Prone);
+        keys.resolve(Toggle, false, false, false, false, true, false);
+        assert_eq!(keys.target, Stance::Prone);
+        keys.resolve(Toggle, false, true, false, false, true, false);
+        assert_eq!(keys.target, Stance::Standing, "Prone didn't toggle back up");
+        keys.resolve(Toggle, true, false, false, false, true, false);
+        assert_eq!(keys.target, Stance::Crouched);
+        keys.resolve(Toggle, false, true, false, false, true, false);
+        assert_eq!(keys.target, Stance::Prone, "Prone didn't go down from Crouched");
+        keys.resolve(Toggle, true, false, false, false, true, false);
+        assert_eq!(keys.target, Stance::Crouched, "Crouch from Prone didn't land Crouched");
     }
 
     #[test]
-    fn hold_keeps_you_down_while_held_and_jump_and_sprint_win() {
+    fn toggle_jump_and_sprint_stand_you_up_from_either_stance() {
         use crate::settings::StanceMode::*;
         let mut keys = StanceKeys::default();
-        // Held keeps the Player down; letting go brings them up.
-        keys.resolve(Hold, true, false, false, true, false);
+        keys.resolve(Toggle, false, true, false, false, true, false);
+        assert_eq!(keys.target, Stance::Prone);
+        // Jump stands the Player up instead of jumping, and doesn't jump while held. Once the
+        // jump is let go, the next press jumps again.
+        assert!(!keys.resolve(Toggle, false, false, true, false, true, false), "the stand-up jump jumped");
+        assert_eq!(keys.target, Stance::Standing);
+        assert!(!keys.resolve(Toggle, false, false, true, false, true, false), "the held jump jumped");
+        keys.resolve(Toggle, false, false, false, false, true, false);
+        assert!(keys.resolve(Toggle, false, false, true, false, true, false));
+
+        // Sprint stands the Player up too; holding it doesn't stop a later Prone press.
+        keys.resolve(Toggle, false, true, false, false, true, false);
+        keys.resolve(Toggle, false, false, false, true, true, false);
+        assert_eq!(keys.target, Stance::Standing);
+        keys.resolve(Toggle, false, true, false, true, true, false);
+        assert_eq!(keys.target, Stance::Prone, "the held sprint kept standing");
+    }
+
+    #[test]
+    fn hold_keeps_you_in_the_held_stance_and_letting_go_of_prone_lands_you_crouched() {
+        use crate::settings::StanceMode::*;
+        let mut keys = StanceKeys::default();
+        // A held key keeps the Player in its Stance; letting go brings them up. Both held, Prone
+        // wins; letting go of Prone while still holding Crouch lands them Crouched.
+        keys.resolve(Hold, true, false, false, false, true, false);
         assert_eq!(keys.target, Stance::Crouched);
-        keys.resolve(Hold, false, false, false, true, false);
+        keys.resolve(Hold, true, true, false, false, true, false);
+        assert_eq!(keys.target, Stance::Prone, "both keys held didn't go Prone");
+        keys.resolve(Hold, true, false, false, false, true, false);
+        assert_eq!(keys.target, Stance::Crouched, "releasing Prone didn't land Crouched");
+        keys.resolve(Hold, false, false, false, false, true, false);
+        assert_eq!(keys.target, Stance::Standing);
+        keys.resolve(Hold, false, true, false, false, true, false);
+        assert_eq!(keys.target, Stance::Prone);
+        keys.resolve(Hold, false, false, false, false, true, false);
         assert_eq!(keys.target, Stance::Standing);
 
-        // Jump stands the Player up, and the key gives way until released and pressed again.
-        keys.resolve(Hold, true, false, false, true, false);
-        assert!(!keys.resolve(Hold, true, true, false, true, false), "the stand-up jump jumped");
+        // Jump stands the Player up, and the keys give way until they are released and pressed
+        // again.
+        keys.resolve(Hold, true, true, false, false, true, false);
+        assert!(!keys.resolve(Hold, true, true, true, false, true, false), "the stand-up jump jumped");
         assert_eq!(keys.target, Stance::Standing);
-        keys.resolve(Hold, true, false, false, true, false);
-        assert_eq!(keys.target, Stance::Standing, "the held key went back down");
-        keys.resolve(Hold, false, false, false, true, false);
-        keys.resolve(Hold, true, false, false, true, false);
-        assert_eq!(keys.target, Stance::Crouched, "released and pressed again didn't go down");
+        keys.resolve(Hold, true, true, false, false, true, false);
+        assert_eq!(keys.target, Stance::Standing, "the held keys went back down");
+        keys.resolve(Hold, false, false, false, false, true, false);
+        keys.resolve(Hold, false, true, false, false, true, false);
+        assert_eq!(keys.target, Stance::Prone, "released and pressed again didn't go down");
 
-        // Sprint wins over the held key while it is held, and gives the key back when let go.
-        keys.resolve(Hold, false, false, true, true, false);
-        assert_eq!(keys.target, Stance::Standing);
-        keys.resolve(Hold, true, false, false, true, false);
-        keys.resolve(Hold, true, false, true, true, false);
-        assert_eq!(keys.target, Stance::Standing, "the held key beat the sprint");
-        keys.resolve(Hold, true, false, false, true, false);
-        assert_eq!(keys.target, Stance::Crouched, "the sprint's release didn't hand the key back");
+        // Sprint wins over the held keys while it is held, and gives them back when let go.
+        keys.resolve(Hold, true, true, false, true, true, false);
+        assert_eq!(keys.target, Stance::Standing, "the held keys beat the sprint");
+        keys.resolve(Hold, true, true, false, false, true, false);
+        assert_eq!(keys.target, Stance::Prone, "the sprint's release didn't hand the keys back");
     }
 
     #[test]
@@ -993,11 +1116,11 @@ mod tests {
         for mode in [Toggle, Hold] {
             let mut keys = StanceKeys::default();
             // In the air nothing flips; a held key still lands them in its Stance when they do.
-            keys.resolve(mode, true, false, false, false, false);
-            assert_eq!(keys.target, if mode == Hold { Stance::Crouched } else { Stance::Standing }, "{mode:?}");
-            let mut down = StanceKeys { target: Stance::Crouched, ..default() };
+            keys.resolve(mode, true, true, false, false, false, false);
+            assert_eq!(keys.target, if mode == Hold { Stance::Prone } else { Stance::Standing }, "{mode:?}");
+            let mut down = StanceKeys { target: Stance::Prone, ..default() };
             // Stance input is dead while Down: the target comes back Standing.
-            assert!(down.resolve(mode, true, true, true, true, true), "the Down took the jump");
+            assert!(down.resolve(mode, true, true, true, true, true, true), "the Down took the jump");
             assert_eq!(down.target, Stance::Standing);
         }
     }
