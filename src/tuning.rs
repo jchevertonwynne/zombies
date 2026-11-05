@@ -1912,7 +1912,7 @@ pub const WEAPON_SWAY_TILT_MAX: f32 = 0.08;
 pub const WEAPON_SWAY_EASE_RATE: f32 = 12.0;
 
 // Records
-/// Run Records kept per (Map, Mode).
+/// Run Records kept per (Map, Mode, Player count).
 pub const RECORDS_KEPT: usize = 10;
 
 // Gauntlet

@@ -9,7 +9,9 @@ use crate::controls::{Action, Binding, Bindings};
 use crate::hud::{ROUND_RED, full_screen, text, with_commas};
 use crate::map::MapId;
 use crate::mode::Mode;
+use crate::player::Seat;
 use crate::records::{
+    Teammate,
     LastRun, RecordsFile, RunRecord, extra_line, format_date, format_time, off_types, rank_line,
     record_run,
 };
@@ -56,6 +58,8 @@ pub enum MenuButton {
     Adjust(Setting, bool),
     /// Show this Mode's Records.
     RecordsTab(Mode),
+    /// Show the Records of Runs that started with this many Players.
+    RecordsPlayers(u8),
     /// Ask to confirm a reset.
     AskReset(Reset),
     ConfirmReset(Reset),
@@ -137,6 +141,20 @@ pub struct MenuButtonLook;
 #[derive(Resource, Default)]
 struct RecordsTab(Mode);
 
+/// Which Player count's Records the Records screen shows.
+#[derive(Resource)]
+struct RecordsPlayers(u8);
+
+impl Default for RecordsPlayers {
+    fn default() -> Self {
+        Self(1)
+    }
+}
+
+fn records_tab_changed(tab: Res<RecordsTab>, players: Res<RecordsPlayers>) -> bool {
+    tab.is_changed() || players.is_changed()
+}
+
 /// The part of the Records screen rebuilt when the tab changes.
 #[derive(Component)]
 struct RecordsBoard;
@@ -180,6 +198,7 @@ impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Mode>()
             .init_resource::<RecordsTab>()
+            .init_resource::<RecordsPlayers>()
             .init_resource::<GameOverLines>()
             .init_resource::<Rebinding>()
             .init_resource::<BackTo>()
@@ -206,7 +225,7 @@ impl Plugin for MenuPlugin {
                 Update,
                 refresh_records
                     .run_if(in_state(MainMenuScreen::Records))
-                    .run_if(resource_changed::<RecordsTab>),
+                    .run_if(records_tab_changed),
             )
             .add_systems(
                 Update,
@@ -395,21 +414,26 @@ fn spawn_records(mut commands: Commands, mode: Res<Mode>, mut tab: ResMut<Record
         .insert(DespawnOnExit(MainMenuScreen::Records));
 }
 
-/// The Records table's columns: heading and width.
-const RECORD_COLUMNS: [(&str, f32); 8] = [
-    ("#", 40.0),
-    ("Round", 80.0),
-    ("Time", 100.0),
-    ("Kills", 80.0),
-    ("Headshots", 110.0),
-    ("Downs", 80.0),
-    ("Points Earned", 150.0),
-    ("Date", 130.0),
-];
+/// The Records table's columns: heading and width. Revives only show in Co-op.
+fn record_columns(coop: bool) -> Vec<(&'static str, f32)> {
+    let mut columns = vec![
+        ("#", 40.0),
+        ("Round", 80.0),
+        ("Time", 100.0),
+        ("Kills", 80.0),
+        ("Headshots", 110.0),
+        ("Downs", 80.0),
+    ];
+    if coop {
+        columns.push(("Revives", 90.0));
+    }
+    columns.extend([("Points Earned", 150.0), ("Date", 130.0)]);
+    columns
+}
 
-fn table_row(parent: &mut ChildSpawnerCommands, cells: [String; 8], color: Color) {
+fn table_row(parent: &mut ChildSpawnerCommands, cells: Vec<String>, widths: &[(&str, f32)], color: Color) {
     parent.spawn(Node::default()).with_children(|row| {
-        for (cell, (_, width)) in cells.into_iter().zip(RECORD_COLUMNS) {
+        for (cell, (_, width)) in cells.into_iter().zip(widths.iter().copied()) {
             row.spawn((
                 text(cell, 20.0, color),
                 Node {
@@ -421,17 +445,36 @@ fn table_row(parent: &mut ChildSpawnerCommands, cells: [String; 8], color: Color
     });
 }
 
-fn record_cells(rank: usize, run: &RunRecord) -> [String; 8] {
-    [
+fn record_cells(rank: usize, run: &RunRecord) -> Vec<String> {
+    let mut cells = vec![
         (rank + 1).to_string(),
         run.round.to_string(),
         format_time(run.survived_secs),
         with_commas(run.kills.into()),
         with_commas(run.headshots.into()),
         with_commas(run.downs.into()),
-        with_commas(run.points_earned),
-        format_date(run.date),
-    ]
+    ];
+    if run.players > 1 {
+        cells.push(with_commas(run.revives.into()));
+    }
+    cells.extend([with_commas(run.points_earned), format_date(run.date)]);
+    cells
+}
+
+/// A teammate on a Record, in their Seat's colour.
+fn teammate_line(board: &mut ChildSpawnerCommands, mate: &Teammate) {
+    board.spawn(text(
+        format!(
+            "  {}: Kills {}  Downs {}  Revives {}  Points Earned {}",
+            mate.name,
+            with_commas(mate.kills.into()),
+            with_commas(mate.downs.into()),
+            with_commas(mate.revives.into()),
+            with_commas(mate.points_earned),
+        ),
+        16.0,
+        Seat(mate.seat).colour(),
+    ));
 }
 
 /// Rebuilds the tabs, the tab's boards and Lifetime Stats.
@@ -439,12 +482,15 @@ fn refresh_records(
     mut commands: Commands,
     board: Query<Entity, With<RecordsBoard>>,
     tab: Res<RecordsTab>,
+    players: Res<RecordsPlayers>,
     file: Res<RecordsFile>,
 ) {
     let Ok(board) = board.single() else {
         return;
     };
     let mode = tab.0;
+    let players = players.0;
+    let columns = record_columns(players > 1);
     commands
         .entity(board)
         .despawn_children()
@@ -461,17 +507,40 @@ fn refresh_records(
                         colored_button(tabs, label, MenuButton::RecordsTab(tab), 200.0, color);
                     }
                 });
+            board
+                .spawn(Node {
+                    column_gap: px(12.0),
+                    margin: UiRect::bottom(px(8.0)),
+                    ..default()
+                })
+                .with_children(|tabs| {
+                    for count in 1..=crate::tuning::ROOM_SEATS as u8 {
+                        let color = if count == players { ROUND_RED } else { Color::WHITE };
+                        let label = format!("{count} Player{}", if count == 1 { "" } else { "s" });
+                        colored_button(tabs, &label, MenuButton::RecordsPlayers(count), 140.0, color);
+                    }
+                });
 
             for map in MapId::ALL {
                 board.spawn(text(map.name(), 28.0, Color::WHITE));
-                let headings = RECORD_COLUMNS.map(|(heading, _)| heading.to_string());
-                table_row(board, headings, HINT_GREY);
-                let mut runs = file.records.board(map, mode).peekable();
+                let headings = columns.iter().map(|(heading, _)| heading.to_string()).collect();
+                table_row(board, headings, &columns, HINT_GREY);
+                let mut runs = file.records.board(map, mode, players).peekable();
                 if runs.peek().is_none() {
                     board.spawn(text("No Records yet.", 20.0, HINT_GREY));
                 }
                 for (rank, run) in runs.enumerate() {
-                    table_row(board, record_cells(rank, run), Color::WHITE);
+                    table_row(board, record_cells(rank, run), &columns, Color::WHITE);
+                    for mate in &run.teammates {
+                        teammate_line(board, mate);
+                    }
+                    if run.won {
+                        let heat = run.heat.map_or(String::new(), |heat| format!(" at Heat {heat}"));
+                        board.spawn(text(format!("Won{heat}"), 16.0, NEW_BEST_GOLD));
+                    }
+                    if let Some(heat) = run.heat.filter(|_| !run.won) {
+                        board.spawn(text(format!("Heat {heat}"), 16.0, HINT_GREY));
+                    }
                     let off = off_types(run);
                     if !off.is_empty() {
                         let labels: Vec<_> = off.iter().map(|kind| kind.label()).collect();
@@ -508,15 +577,25 @@ fn refresh_records(
                 20.0,
                 Color::WHITE,
             ));
+            if lifetime.revives > 0 {
+                board.spawn(text(format!("Revives {}", with_commas(lifetime.revives)), 20.0, Color::WHITE));
+            }
+            if lifetime.wins > 0 {
+                board.spawn(text(
+                    format!("Wins {}   Highest Heat Won {}", lifetime.wins, lifetime.highest_heat_won),
+                    20.0,
+                    Color::WHITE,
+                ));
+            }
             let best: Vec<_> = MapId::ALL
                 .iter()
-                .map(|&map| match lifetime.best_round(map, mode) {
+                .map(|&map| match lifetime.best_round(map, mode, players) {
                     Some(round) => format!("{} {round}", map.name()),
                     None => format!("{} -", map.name()),
                 })
                 .collect();
             board.spawn(text(
-                format!("Highest Round: {}", best.join("   ")),
+                format!("Highest Round ({players}P): {}", best.join("   ")),
                 20.0,
                 Color::WHITE,
             ));
@@ -571,6 +650,12 @@ fn spawn_game_over(
                     24.0,
                     Color::WHITE,
                 ));
+                if record.players > 1 {
+                    lines.spawn(text(format!("Revives {}", with_commas(record.revives.into())), 24.0, Color::WHITE));
+                }
+                for mate in &record.teammates {
+                    teammate_line(lines, mate);
+                }
                 for extra in &record.extras {
                     lines.spawn(text(extra_line(extra), 20.0, Color::WHITE));
                 }
@@ -991,7 +1076,11 @@ fn activate_button(
     settings_screen: Query<Entity, With<SettingsScreen>>,
     confirmation: Query<Entity, With<ResetConfirmation>>,
     mut mode: ResMut<Mode>,
-    (mut tab, mut records): (ResMut<RecordsTab>, ResMut<RecordsFile>),
+    (mut tab, mut records_players, mut records): (
+        ResMut<RecordsTab>,
+        ResMut<RecordsPlayers>,
+        ResMut<RecordsFile>,
+    ),
     (controls_page, mut rebinding): (Query<Entity, With<ControlsPage>>, ResMut<Rebinding>),
     mut reset_gauntlet: MessageWriter<ResetGauntletProgress>,
     main_menu: Option<Res<State<MainMenuScreen>>>,
@@ -1074,6 +1163,7 @@ fn activate_button(
         }
         MenuButton::Adjust(setting, up) => settings.adjust(setting, up),
         MenuButton::RecordsTab(mode) => tab.0 = mode,
+        MenuButton::RecordsPlayers(count) => records_players.0 = count,
         MenuButton::Controls => {
             if controls_page.is_empty()
                 && let Ok(screen) = settings_screen.single()
