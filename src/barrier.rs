@@ -150,7 +150,9 @@ pub fn plank_tear_damage(round: u32, player: &[Modifier]) -> f32 {
 
 /// Whether a Zombie at a window can swipe the Player through it: the Player is within
 /// `BARRIER_SWIPE_PLAYER_DIST` of the Zombie and `BARRIER_SWIPE_WINDOW_DIST` of the Barrier, on
-/// the same floor. Planks don't matter.
+/// the same floor. Planks don't matter. The heights are the two real body centres, so a Stance
+/// lowers the Player's side of the check but never out of the window's reach: the swipe crosses
+/// the opening whatever shape they are.
 pub fn reach_through(player: Vec3, zombie: Vec3, window: Vec3) -> bool {
     let flat = |v: Vec3| Vec2::new(v.x, v.z);
     (player.y - zombie.y).abs() < 1.5
@@ -1138,6 +1140,16 @@ mod tests {
     fn a_player_on_another_floor_is_safe() {
         let zombie = Vec3::new(0.0, 1.0, 26.75);
         assert!(!reach_through(Vec3::new(0.0, 5.0, 25.4), zombie, WINDOW));
+    }
+
+    #[test]
+    fn a_low_player_at_the_window_is_still_reached_through() {
+        let zombie = Vec3::new(0.0, 1.0, 26.75);
+        // However low the Player lies — Crouched's 0.6 m centre, lower still — the height check is
+        // on the real body centre, which stays well within a floor of the Zombie's.
+        assert!(reach_through(Vec3::new(0.0, 0.9, 25.4), zombie, WINDOW));
+        assert!(reach_through(Vec3::new(0.0, 0.6, 25.4), zombie, WINDOW));
+        assert!(reach_through(Vec3::new(0.0, 0.35, 25.4), zombie, WINDOW));
     }
 
     #[test]

@@ -1094,13 +1094,15 @@ fn attack(
             continue;
         }
         let (reach, wind_up, damage, cooldown) = zombie.attack_stats();
-        // Same floor only: a Zombie under the Balcony can't swipe the Player standing on it. The
-        // line runs chest to chest (both transforms are capsule centres), so low cover like a
-        // Yard crate doesn't block it, but a wall does.
+        // Same floor only: a Zombie under the Balcony can't swipe the Player standing on it.
+        // The same-floor check runs centre to centre (both transforms are capsule centres), while
+        // the sight ray aims at the Player's feet + `SWIPE_CHEST_HEIGHT` — standing chest height —
+        // whatever their Stance, so knee-high cover never shields a Player from a swipe, but a
+        // wall does.
         let in_reach = horizontal(player.centre - transform.translation).length() <= reach
             && (player.centre.y - transform.translation.y).abs() < 1.5
             && (!zombie.is_sapper() || slam_reaches(transform.translation, *transform.forward(), player.centre))
-            && in_sight(&spatial, transform.translation, player.centre);
+            && in_sight(&spatial, transform.translation, player.feet + Vec3::Y * SWIPE_CHEST_HEIGHT);
         let at = Some(transform.translation);
         zombie.attack_cooldown = (zombie.attack_cooldown - dt).max(0.0);
 
@@ -1705,5 +1707,79 @@ mod tests {
         assert!(nova.is_nova_crawler() && !nova.is_crawler());
         assert!(!nova.can_lose_legs(), "it never becomes a Crawler");
         assert!(Zombie::new(150.0, SpeedTier::Walker, Vec3::ZERO).can_lose_legs());
+    }
+
+    /// The teammate of the two-Players harness, Crouched where they stand: the real stance step
+    /// lowers their body, so their centre and feet are the Crouched ones.
+    fn crouched_teammate() -> (headless::Sim, Entity, Entity) {
+        use crate::player::{Locomotion, MoveInput, Stance};
+        use bevy::ecs::system::RunSystemOnce;
+        let (mut sim, local, teammate) = crate::player::two_players::two_players();
+        sim.world_mut().get_mut::<MoveInput>(teammate).unwrap().crouch = true;
+        sim.run(10);
+        assert_eq!(sim.world_mut().get::<Locomotion>(teammate).unwrap().stance, Stance::Crouched);
+        // Half a body lower than the standing one's, with the feet still on the floor.
+        let spot = sim
+            .world_mut()
+            .run_system_once(move |players: Players| players.get(teammate).unwrap())
+            .unwrap();
+        // The feet are the centre less the Crouched Stance's half-height — not the standing
+        // capsule's — so they stay on the floor the body stands on.
+        let crouched = PLAYER_RADIUS + CROUCH_COLLIDER_LENGTH / 2.0;
+        assert!(
+            (spot.feet.y - (spot.centre.y - crouched)).abs() < 1e-6,
+            "the feet are the centre less the standing half-height: {:?} vs {:?}",
+            spot.feet,
+            spot.centre
+        );
+        (sim, local, teammate)
+    }
+
+    /// Cover `tall` between the teammate and a Zombie on its other side, knee-high unless told
+    /// otherwise.
+    fn cover_between(sim: &mut headless::Sim, tall: f32) {
+        sim.world_mut().spawn((
+            RigidBody::Static,
+            Collider::cuboid(0.1, tall, 4.0),
+            Transform::from_xyz(-3.45, tall / 2.0, 20.0),
+            CollisionLayers::new(GameLayer::World, LayerMask::ALL),
+        ));
+    }
+
+    /// A Zombie walking at the teammate from the cover's other side, and every swipe it lands.
+    fn swipes_at(mut sim: headless::Sim, secs: f32) -> Vec<PlayerHit> {
+        sim.spawn(Vec3::new(-4.8, 0.0, 20.0), None);
+        let mut hits = Vec::new();
+        for _ in 0..sim.frames(secs) {
+            sim.run(1);
+            hits.extend(sim.world_mut().resource_mut::<Messages<PlayerHit>>().drain());
+        }
+        hits
+    }
+
+    #[test]
+    fn a_crouched_player_behind_knee_high_cover_still_gets_swiped() {
+        let (mut sim, _local, teammate) = crouched_teammate();
+        cover_between(&mut sim, 0.75);
+        let hits = swipes_at(sim, 3.0);
+        assert!(hits.iter().all(|hit| hit.player == teammate), "somebody else was swiped");
+        assert!(!hits.is_empty(), "the knee-high cover shielded a Crouched Player from the swipe");
+    }
+
+    #[test]
+    fn a_wall_still_stops_the_swipe_whatever_the_stance() {
+        let (mut sim, _local, _teammate) = crouched_teammate();
+        cover_between(&mut sim, 2.5);
+        let hits = swipes_at(sim, 3.0);
+        assert!(hits.is_empty(), "a swipe crossed a full-height wall");
+    }
+
+    #[test]
+    fn a_standing_player_behind_the_same_cover_is_swiped_too() {
+        // Not crouched: the chest-height ray is their centre's height either way.
+        let (mut sim, _local, _teammate) = crate::player::two_players::two_players();
+        cover_between(&mut sim, 0.75);
+        let hits = swipes_at(sim, 3.0);
+        assert!(!hits.is_empty(), "the cover shielded a standing Player");
     }
 }
