@@ -257,10 +257,21 @@ impl Rebuild {
         self.reach += (push - self.reach).clamp(-max_move, max_move);
     }
 
+    /// Whether the Player is mid-Repair: holding Use at a Barrier missing Planks.
+    pub fn is_repairing(&self) -> bool {
+        self.holding.is_some()
+    }
+
     /// The hand's state for the view model: how far up it is, and how far it's pushed.
     pub fn hand(&self) -> (f32, f32) {
         (self.hand, self.reach)
     }
+}
+
+/// Run condition: the `LocalPlayer` isn't mid-Repair, so their Weapon and Knife can be used. A
+/// Repair occupies their hands.
+pub fn not_repairing(rebuild: Res<Rebuild>) -> bool {
+    !rebuild.is_repairing()
 }
 
 /// A Barrier in the Map, on its window. Its Planks are its children.
@@ -709,7 +720,7 @@ fn face(transform: &mut Transform, direction: Vec3) {
 
 /// Holding the Use key at a Barrier missing Planks asks to put them back one at a time. Its Prompt
 /// comes from the shared pick, so it never shows while Down.
-fn rebuild_planks(
+pub(crate) fn rebuild_planks(
     controls: Controls,
     focus: Res<Focus>,
     windows: Query<&Barrier>,
@@ -834,6 +845,7 @@ fn show_planks(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::ecs::system::RunSystemOnce;
 
     #[test]
     fn a_sliding_plank_comes_in_from_inside_and_settles_in_its_slot() {
@@ -1055,6 +1067,17 @@ mod tests {
         let mut rebuild = Rebuild::default();
         assert!(!rebuild.advance(Some(BarrierId(2)), 0.9));
         assert!(!rebuild.advance(Some(BarrierId(3)), 0.5));
+    }
+
+    #[test]
+    fn a_repair_occupies_the_hands_until_it_stops() {
+        let mut world = World::new();
+        world.init_resource::<Rebuild>();
+        assert!(world.run_system_once(not_repairing).unwrap(), "idle hands can fire");
+        world.resource_mut::<Rebuild>().advance(Some(BarrierId(2)), 0.1);
+        assert!(!world.run_system_once(not_repairing).unwrap(), "a Player mid-Repair fired");
+        world.resource_mut::<Rebuild>().advance(None, 0.1);
+        assert!(world.run_system_once(not_repairing).unwrap(), "the Player can't fire after the Repair");
     }
 
     const WINDOW: Vec3 = Vec3::new(0.0, 0.0, 26.0);
