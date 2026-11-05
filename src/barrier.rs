@@ -389,11 +389,15 @@ fn window_axes(barrier: BarrierId) -> (Vec3, Vec3) {
     (out, Vec3::new(-out.z, 0.0, out.x))
 }
 
+/// How far a Plank sits in from the window's centre plane, toward the room.
+const PLANK_INSET: f32 = 0.27;
+
 /// Where the `p`th Plank from the bottom is nailed, on its Barrier (whose local −Z points out of
-/// the window, so local X runs along the wall): across the outside face, each a little askew.
+/// the window, so +Z is the room's side and local X runs along the wall): across the inside face, the
+/// Player's side, each a little askew.
 fn plank_transform(p: u8) -> Transform {
     let tilt = if p.is_multiple_of(2) { 0.12 } else { -0.1 };
-    Transform::from_xyz(0.0, 0.35 + 0.32 * p as f32, -0.27).with_rotation(Quat::from_rotation_z(tilt))
+    Transform::from_xyz(0.0, 0.35 + 0.32 * p as f32, PLANK_INSET).with_rotation(Quat::from_rotation_z(tilt))
 }
 
 /// A Barrier's own Transform, on its window.
@@ -479,7 +483,7 @@ fn spawn_barriers(
     });
 }
 
-/// A torn-off Plank comes away in the Zombie's hands and is flung aside, outside the window.
+/// A torn-off Plank comes away in the Zombie's hands and is flung out through the window, aside.
 fn toss_torn_planks(mut commands: Commands, mut torn: MessageReader<PlankTorn>, look: Option<Res<PlankLook>>) {
     let Some(look) = look else {
         torn.clear();
@@ -834,6 +838,19 @@ fn show_planks(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_plank_sits_on_the_players_side_of_its_barrier() {
+        for index in 0..WINDOWS.len() {
+            let barrier = BarrierId(index as u8);
+            let (out, _) = window_axes(barrier);
+            let centre = window_centre(barrier);
+            for p in 0..BARRIER_PLANKS {
+                let at = (barrier_transform(barrier) * plank_transform(p)).translation;
+                assert!((at - centre).dot(out) < 0.0, "Plank {p} of Barrier {index} is on the Zombies' side");
+            }
+        }
+    }
 
     #[test]
     fn a_sliding_plank_comes_in_from_inside_and_settles_in_its_slot() {
