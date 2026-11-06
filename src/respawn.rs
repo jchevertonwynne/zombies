@@ -18,7 +18,7 @@ use crate::explosive::world_filter;
 use crate::last_stand::{LastStand, go_down, self_revive};
 use crate::modifier::Modifiers;
 use crate::perk::Perks;
-use crate::player::{Health, LocalPlayer, Locomotion, Player, Seat, Stance};
+use crate::player::{Health, LocalPlayer, Locomotion, Player, Seat, Stance, StanceKeys};
 use crate::points::Points;
 use crate::round::{Round, RoundStarted};
 use crate::state::{GameState, Paused, RunType, world_runs};
@@ -60,7 +60,6 @@ pub struct BledOut {
 /// The Player came back at the start of a Round, beside a teammate.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct Respawned {
-    #[allow(dead_code, reason = "read by the HUD and audio once they react to Respawns")]
     pub player: Entity,
 }
 
@@ -101,6 +100,7 @@ impl Plugin for RespawnPlugin {
                     .chain()
                     .in_set(HostSimulation),
                 watch_teammate,
+                stand_respawned.after(respawn),
             )
                 .run_if(world_runs),
         );
@@ -262,6 +262,19 @@ fn respawn(
             .insert(Stance::Standing.collider())
             .remove::<(AwaitingRespawn, ColliderDisabled)>();
         respawned.write(Respawned { player: entity });
+    }
+}
+
+/// A Respawn places the Player Standing, the Stance they want included, in every game: on a
+/// client it comes with the Host's word that they're back.
+fn stand_respawned(
+    mut respawned: MessageReader<Respawned>,
+    mut players: Query<(&mut Locomotion, &mut Collider, Option<&mut StanceKeys>), With<Player>>,
+) {
+    for &Respawned { player } in respawned.read() {
+        if let Ok((mut locomotion, mut collider, keys)) = players.get_mut(player) {
+            StanceKeys::force_stand(&mut locomotion, &mut collider, keys);
+        }
     }
 }
 

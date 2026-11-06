@@ -9,7 +9,7 @@ use crate::gauntlet::{HeldBoons, HeldPacts, Offer, PickOffer, apply_pick, sample
 use crate::last_stand::{Down as WentDown, LastStandPlugin, go_down};
 use crate::leave_run::LeaveRunPlugin;
 use crate::net::protocol::{ToHost, encode};
-use crate::player::{MoveInput, take_hits};
+use crate::player::{Locomotion, MoveInput, Stance, StanceKeys, take_hits};
 use crate::respawn::RespawnPlugin;
 use crate::revive::revive;
 use crate::state::RunType;
@@ -168,13 +168,19 @@ fn a_bleed_out_takes_a_client_out_of_every_game_until_the_next_round() {
     }
     // Everyone else paid a tenth of what they had.
     assert_eq!(run.balance(0), 900);
+    // While they wait, their own game has them wanting Prone (a Toggle press, say).
+    let own = run.player(1, 1);
+    run.world(1).get_mut::<StanceKeys>(own).unwrap().target = Stance::Prone;
     // The next Round brings them back beside a teammate who is up.
     run.world(0).write_message(RoundStarted);
     run.step(10);
     for on in 0..3 {
         assert!(!waiting(&mut run, on, 1), "game {on} still has them gone");
     }
-    let own = run.player(1, 1);
+    // The Respawn put them Standing on their own game, the Stance they want included, so their
+    // game doesn't ask the Host to lay them down again.
+    assert_eq!(run.world(1).get::<StanceKeys>(own).unwrap().target, Stance::Standing);
+    assert_eq!(run.world(1).get::<Locomotion>(own).unwrap().stance, Stance::Standing);
     let loadout = run.world(1).get::<Loadout>(own).unwrap();
     assert!(!loadout.held().upgraded, "the starting Weapon, not the Last Stand pistol");
     assert_eq!(loadout.weapons().count(), 1);

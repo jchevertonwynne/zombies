@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::net::protocol::Seat;
-use crate::player::{Locomotion, MoveInput};
+use crate::player::{Locomotion, MoveInput, Stance};
 use crate::zombie::rig::{Activity, Swing};
 use crate::tuning::WIRE_POSITION_STEP;
 
@@ -113,7 +113,8 @@ pub struct Own {
     pub position: Vec3,
     pub velocity: Vec3,
     pub stamina: f32,
-    /// Grounded, sprinting and winded, in bits 0, 1 and 2.
+    /// Grounded, sprinting and winded, in bits 0, 1 and 2, and the Stance in bits 3–4 (Standing,
+    /// Crouched, Prone, the fourth value left free).
     pub bits: u8,
     pub points: u32,
 }
@@ -121,6 +122,7 @@ pub struct Own {
 const GROUNDED: u8 = 1;
 const SPRINTING: u8 = 2;
 const WINDED: u8 = 4;
+const STANCE_SHIFT: u8 = 3;
 
 impl Own {
     pub fn of(position: Vec3, locomotion: &Locomotion, points: u64) -> Self {
@@ -130,12 +132,23 @@ impl Own {
             stamina: locomotion.stamina,
             bits: u8::from(locomotion.grounded) * GROUNDED
                 | u8::from(locomotion.sprinting) * SPRINTING
-                | u8::from(locomotion.winded) * WINDED,
+                | u8::from(locomotion.winded) * WINDED
+                | (stance_bits(locomotion.stance) << STANCE_SHIFT),
             points: points.min(u64::from(u32::MAX)) as u32,
         }
     }
 
-    /// Puts the Player's movement back to this.
+    /// The Stance the Host has the Player in.
+    pub fn stance(&self) -> Stance {
+        match self.bits >> STANCE_SHIFT & 0b11 {
+            1 => Stance::Crouched,
+            2 => Stance::Prone,
+            _ => Stance::Standing,
+        }
+    }
+
+    /// Puts the Player's movement back to this, the Stance included: a Stance the Host has them
+    /// out of (its ceiling check saw its own world, not the client's) is healed to the Host's.
     pub fn put(&self, position: &mut Vec3, locomotion: &mut Locomotion) {
         *position = self.position;
         locomotion.velocity = self.velocity;
@@ -143,6 +156,16 @@ impl Own {
         locomotion.grounded = self.bits & GROUNDED != 0;
         locomotion.sprinting = self.bits & SPRINTING != 0;
         locomotion.winded = self.bits & WINDED != 0;
+        locomotion.heal_stance(self.stance());
+    }
+}
+
+/// A Stance in 2 bits: Standing, Crouched, Prone, and the fourth value left free.
+fn stance_bits(stance: Stance) -> u8 {
+    match stance {
+        Stance::Standing => 0,
+        Stance::Crouched => 1,
+        Stance::Prone => 2,
     }
 }
 
@@ -306,7 +329,7 @@ impl Sight {
 mod tests {
     use super::*;
     use crate::net::protocol::{DATAGRAM, encode};
-    use crate::teammate::{Action, Pose, Stance};
+    use crate::teammate::{Action, Pose};
     use crate::tuning::{ROOM_SEATS, SNAPSHOT_MAX_BYTES, SNAPSHOT_MAX_HELLHOUNDS, SNAPSHOT_MAX_SPECIALS, SNAPSHOT_MAX_ZOMBIES};
 
     #[test]
@@ -352,7 +375,7 @@ mod tests {
             position: [0xff; 6],
             yaw: 255,
             pitch: 255,
-            pose: Pose { stance: Stance::Standing, sprinting: true, aiming: true, airborne: true, last_stand: true, action: Action::Revive }.pack(),
+            pose: Pose { stance: Stance::Prone, sprinting: true, aiming: true, airborne: true, last_stand: true, action: Action::Revive }.pack(),
             shots: 255,
             points: u32::MAX,
         };
@@ -363,7 +386,7 @@ mod tests {
                 position: Vec3::splat(-123.456),
                 velocity: Vec3::splat(-9.87),
                 stamina: 1.2345,
-                bits: 7,
+                bits: 0x1f,
                 points: u32::MAX,
             },
             players: vec![sight; ROOM_SEATS - 1],
@@ -449,6 +472,36 @@ mod tests {
         assert_eq!(unpack_special(0), None);
         let one = encode(&Snapshot { specials: vec![SpecialSight { id: u16::MAX, body: 255 }], ..worst_snapshot() }).len();
         assert!(one - encode(&worst_snapshot()).len() <= 4, "a special is {} B", one - encode(&worst_snapshot()).len());
+    }
+
+    #[test]
+    fn the_own_player_carries_their_stance() {
+        for stance in [Stance::Standing, Stance::Crouched, Stance::Prone] {
+            let locomotion = Locomotion { stance, ..default() };
+            let own = Own::of(Vec3::ZERO, &locomotion, 0);
+            assert_eq!(own.stance(), stance);
+            // The Stance sits beside grounded, sprinting and winded without touching them.
+            assert_eq!(own.bits & 0b111, 0);
+        }
+        // The fourth value is free, and reads as Standing.
+        assert_eq!(Own { bits: 0b11 << 3, ..Own::of(Vec3::ZERO, &Locomotion::default(), 0) }.stance(), Stance::Standing);
+    }
+
+    #[test]
+    fn a_correction_heals_the_stance() {
+        let host = Locomotion { stance: Stance::Prone, ..default() };
+        let own = Own::of(Vec3::ZERO, &host, 0);
+        // The client had got up, where the Host's ceiling check kept them Prone.
+        let mut client = Locomotion::default();
+        let mut position = Vec3::ONE;
+        own.put(&mut position, &mut client);
+        assert_eq!(client.stance, Stance::Prone);
+        assert_eq!(client.shape(), Stance::Prone);
+        // A Stance both agree on is left as it is, mid-change or not.
+        let mut agreed = Locomotion { stance: Stance::Prone, ..default() };
+        let before = agreed.clone();
+        own.put(&mut position, &mut agreed);
+        assert_eq!((agreed.stance, agreed.eye), (before.stance, before.eye));
     }
 
     #[test]

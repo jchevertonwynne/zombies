@@ -28,7 +28,7 @@ use crate::power_up::ActivePowerUps;
 use crate::special::SpecialCue;
 use crate::zombie::rig::{Activity, Shown};
 use crate::zombie::{Dying, Gibbed, Rising, SpeedTier, Zombie, ZombieAssetsParam, ZombiePlugin, spawn_zombie};
-use crate::player::{LocalPlayer, MoveInput, Player, Seat, move_player, player_body};
+use crate::player::{LocalPlayer, Locomotion, MoveInput, Player, Seat, Stance, move_player, player_body};
 use crate::state::{GameState, Pause, world_runs};
 use crate::teammate::{Action, Pose, Shots};
 use crate::tuning::*;
@@ -239,6 +239,82 @@ fn a_player_gone_quiet_stands_still() {
     let first = run.at(0, 1);
     run.step(&|_, _| MoveInput { axes: Vec2::Y, ..default() }, 60);
     assert!(run.at(0, 1).distance(first) < 0.02, "still walking");
+}
+
+impl Run {
+    /// `seat`'s `Locomotion` on machine `on`.
+    fn locomotion(&mut self, on: usize, seat: u8) -> Locomotion {
+        let world = self.apps[on].world_mut();
+        let mut query = world.query_filtered::<(&Seat, &Locomotion), With<Player>>();
+        query.iter(world).find(|(held, _)| held.0 == seat).unwrap().1.clone()
+    }
+}
+
+/// Crouch, a crawl on the spot, a stand-up, a sprint and a Dive out of it, landing Prone.
+fn low(seat: u8, tick: u32) -> MoveInput {
+    let yaw = 0.3 * f32::from(seat);
+    if seat != 1 {
+        return MoveInput { yaw, ..default() };
+    }
+    match tick {
+        20..60 => MoveInput { axes: Vec2::X, crouch: true, yaw, ..default() },
+        60..120 => MoveInput { axes: Vec2::NEG_X, prone: true, yaw, ..default() },
+        120..170 => MoveInput { yaw, ..default() },
+        170..200 => MoveInput { axes: Vec2::Y, sprint: true, yaw, ..default() },
+        200..260 => MoveInput { axes: Vec2::Y, sprint: true, prone: true, yaw, ..default() },
+        _ => MoveInput { prone: true, yaw, ..default() },
+    }
+}
+
+/// The Stance rides the buffered Steps, so the Host replays the same presses to the same Stance
+/// and the same place: the client is never put right, the Dive's lunge included, and everyone
+/// sees the Host's stepped Stance, the Dive as Prone ∧ airborne.
+#[test]
+fn stance_and_the_dive_replay_to_the_same_place() {
+    let mut run = Run::new(2, 3, 0.0, 0);
+    let mut worst = 0.0f32;
+    let (mut crouched, mut prone, mut dived, mut seen_diving) = (false, false, false, false);
+    while run.tick < 400 {
+        run.step(&low, 1);
+        worst = worst.max(run.corrected(1));
+        let host = run.locomotion(0, 1);
+        crouched |= host.stance == Stance::Crouched;
+        prone |= host.stance == Stance::Prone && host.grounded();
+        dived |= host.diving();
+        let (seen, _) = run.pose_of(2, 1);
+        seen_diving |= seen.stance == Stance::Prone && seen.airborne;
+    }
+    assert!(crouched && prone && dived, "the Host had them crouched {crouched}, prone {prone}, diving {dived}");
+    assert!(seen_diving, "the other client never saw the Dive");
+    assert!(worst < 0.01, "the Host put the Player right by {worst} m");
+    let (own, host) = (run.locomotion(1, 1), run.locomotion(0, 1));
+    assert_eq!((own.stance, host.stance), (Stance::Prone, Stance::Prone));
+    assert!(run.at(1, 1).distance(run.at(0, 1)) < 0.01);
+    // Everyone sees them lying where the Host has them.
+    for on in [0, 2] {
+        assert_eq!(run.pose_of(on, 1).0.stance, Stance::Prone, "machine {on}");
+    }
+}
+
+/// A ceiling only the client's world has refuses their stand-up there; the Host, with room, stands
+/// them, and the next snapshot heals the client's Stance to the Host's.
+#[test]
+fn a_ceiling_check_divergence_heals_to_the_hosts_stance() {
+    let mut run = Run::new(1, 3, 0.0, 0);
+    let prone = |_: u8, _: u32| MoveInput { prone: true, ..default() };
+    run.step(&prone, 60);
+    assert_eq!(run.locomotion(1, 1).stance, Stance::Prone);
+    let feet = run.at(1, 1) - Vec3::Y * Stance::Prone.half_height();
+    run.apps[1].world_mut().spawn((
+        Transform::from_translation(feet + Vec3::Y * 1.3),
+        RigidBody::Static,
+        Collider::cuboid(1.0, 0.4, 1.0),
+        CollisionLayers::new(crate::layers::GameLayer::World, LayerMask::ALL),
+    ));
+    run.step(&prone, 5);
+    run.step(IDLE, 80);
+    assert_eq!(run.locomotion(0, 1).stance, Stance::Standing, "the Host had room to stand");
+    assert_eq!(run.locomotion(1, 1).stance, Stance::Standing, "the client wasn't healed");
 }
 
 /// A Zombie or Hellhound as machine `on` has it.

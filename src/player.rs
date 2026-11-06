@@ -126,6 +126,18 @@ impl StanceKeys {
         self.standing_jump = false;
     }
 
+    /// A forced stand-up — a Respawn, a Teleporter ride — on a Player whatever game they're in:
+    /// the body Standing at once and, for the `LocalPlayer`, the Stance wanted too. On a client
+    /// it rides the reliable event that told of it, so the Stance keys stop asking the Host for
+    /// the Stance the Player was in; the next snapshot puts the body where the Host has it.
+    pub(crate) fn force_stand(locomotion: &mut Locomotion, collider: &mut Collider, keys: Option<Mut<StanceKeys>>) {
+        if let Some(mut keys) = keys {
+            keys.stood_up();
+        }
+        locomotion.stand();
+        *collider = Stance::Standing.collider();
+    }
+
     /// One tick of the Crouch, Prone, Jump and Sprint keys into the Stance wanted, given whether
     /// the Player is `grounded` and `down`. Returns whether the jump passes this tick: a jump that
     /// stands the Player up, or one held from it, doesn't jump them.
@@ -373,6 +385,22 @@ impl Locomotion {
         self.eye_rate = 0.0;
         self.diving = false;
         self.since_dive_landing = f32::INFINITY;
+    }
+
+    /// Puts the body in the Stance the Host has it in, if this game had it otherwise: the change
+    /// glides there as one from the Stance this game had, and Prone ∧ airborne is a Dive in
+    /// flight. A Stance both agree on is left alone, mid-change or not. While Down the Stance
+    /// reads Standing on both sides, and the Down pose is the reliable events' to say.
+    pub(crate) fn heal_stance(&mut self, stance: Stance) {
+        if self.stance == stance || self.down {
+            return;
+        }
+        self.left_stance = self.stance;
+        self.stance = stance;
+        self.stance_change_secs = transition_secs(self.left_stance, stance);
+        self.since_stance_change = 0.0;
+        self.eye_rate = (stance.eye_height() - self.eye).abs() / self.stance_change_secs;
+        self.diving = stance == Stance::Prone && !self.grounded;
     }
 
     /// Whether a Dive is in flight. With airborne presses ignored there are no crouch-jumps, so
