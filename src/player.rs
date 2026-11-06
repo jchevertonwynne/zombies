@@ -9,6 +9,8 @@ use bevy::render::view::ColorGrading;
 use bevy::window::{CursorGrabMode, CursorOptions};
 use bevy_transform_interpolation::TranslationEasingState;
 
+use crate::audio::PlayCue;
+use crate::audio::mix::stance_cue;
 use crate::authority::HostSimulation;
 use crate::barrier::PlankTally;
 use crate::controls::{Action, Controls};
@@ -375,9 +377,16 @@ impl Locomotion {
 
     /// Whether a Dive is in flight. With airborne presses ignored there are no crouch-jumps, so
     /// Prone ∧ airborne can only mean a Dive in flight — the wire derives it, never encodes it.
-    #[allow(dead_code, reason = "read by the wire and feedback slices once they pose the Dive")]
     pub fn diving(&self) -> bool {
         self.diving
+    }
+
+    /// What the Player's own stance feedback reads off the body, `last_stand` or not.
+    pub fn feel(&self, last_stand: bool) -> StanceFeel {
+        StanceFeel {
+            shown: (!last_stand && !self.down).then_some(self.stance),
+            diving: self.diving(),
+        }
     }
 
     /// Whether the last Dive's landing recovery still has the Player locked: firing, aiming and
@@ -422,6 +431,35 @@ impl Default for Locomotion {
             down: false,
         }
     }
+}
+
+/// What the local Player's own stance feedback reads off their body: the HUD icon and the stance
+/// sounds. The icon follows the body's Stance, which changes at the start of a transition — the
+/// same instant the collider and the locks do — and is Prone from a Dive's launch on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct StanceFeel {
+    /// The Stance the icon shows; none while Down, which is not a Stance.
+    pub shown: Option<Stance>,
+    /// A Dive is in flight.
+    pub diving: bool,
+}
+
+/// The stance feedback the local Player last felt, for hearing what changed since.
+#[derive(Component, Debug, Clone, Copy, Default)]
+pub struct FeltStance(StanceFeel);
+
+/// Plays the local Player's own stance sounds: a rustle at the start of every stance change, and
+/// a thud when a Dive lands instead. Ignored stance input changes nothing, so it's silent.
+pub(crate) fn stance_feedback(
+    mut player: Single<(&Locomotion, &mut FeltStance, Has<LastStand>), With<LocalPlayer>>,
+    mut cues: MessageWriter<PlayCue>,
+) {
+    let (locomotion, ref mut felt, last_stand) = *player;
+    let now = locomotion.feel(last_stand);
+    if let Some(cue) = stance_cue(felt.0, now) {
+        cues.write(PlayCue { cue, at: None });
+    }
+    felt.0 = now;
 }
 
 /// How fast the eye drops in a Down's collapse, and climbs in the rise after: the standing eye to
@@ -535,7 +573,7 @@ impl Plugin for PlayerPlugin {
             .add_systems(PostUpdate, queue_teleports)
             .add_systems(
                 FixedUpdate,
-                (teleport_player, fill_move_input, move_player).chain().run_if(world_runs),
+                (teleport_player, fill_move_input, move_player, stance_feedback).chain().run_if(world_runs),
             )
             .add_systems(RunFixedMainLoop, look.run_if(input_runs).in_set(LookSystems))
             .add_systems(
@@ -589,6 +627,7 @@ pub(crate) fn player_body(seat: Seat, name: &str, run: &[Modifier]) -> impl Bund
             Locomotion::default(),
             MoveInput::default(),
             StanceKeys::default(),
+            FeltStance::default(),
             (Pose::default(), Shots::default(), HeldWeapon::default()),
         ),
         Visibility::default(),

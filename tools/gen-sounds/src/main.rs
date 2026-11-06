@@ -101,6 +101,8 @@ fn recipe(cue: Cue) -> Recipe {
         Cue::MonkeyBomb => Recipe::Synth(monkey_march()),
         Cue::ClaymorePlant => Recipe::Synth(claymore_plant()),
         Cue::Footstep => Recipe::Synth(footstep()),
+        Cue::StanceRustle => Recipe::Synth(rustle()),
+        Cue::DiveLand => Recipe::Synth(dive_land()),
         Cue::DoorOpen => Recipe::Synth(door_open()),
         Cue::PowerOn => Recipe::Synth(power_on()),
         Cue::PerkJingleJuggernog => Recipe::Synth(chiptune(&[48, 0, 48, 51, 55, 0, 53, 51, 50, 0, 50, 53, 51, 0, 48, 0], 0.3)),
@@ -641,6 +643,41 @@ fn footstep() -> Vec<f32> {
             (thud + scuff).clamp(-1.0, 1.0)
         })
         .collect()
+}
+
+/// Cloth and gear shifting: a soft swell of band-limited noise with a little scuff in it.
+fn rustle() -> Vec<f32> {
+    let mut seed = 0x57a5_0001;
+    let secs = 0.3;
+    let (mut low, mut lower) = (0.0, 0.0);
+    samples(secs)
+        .map(|t| {
+            let raw = noise(&mut seed);
+            low += (raw - low) * 0.35;
+            lower += (low - lower) * 0.35;
+            // A highpassed hiss: the cloth, not the rumble under it.
+            let cloth = (low - lower) * 2.2;
+            let swell = (PI * t / secs).sin().powf(0.6);
+            let scuff = (TAU * 18.0 * t).sin().abs() * 0.5 + 0.5;
+            (cloth * swell * scuff * 0.7).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
+/// A body hitting the floor: a heavy low thump, a slap of cloth and kit, and a short settle.
+fn dive_land() -> Vec<f32> {
+    let mut seed = 0xd1e0_0001;
+    let secs = 0.55;
+    let mut out: Vec<f32> = samples(secs)
+        .map(|t| {
+            let thump = (TAU * (70.0 - 30.0 * t) * t).sin() * (-t * 11.0).exp() * 0.85;
+            let slap = noise(&mut seed) * (-t * 35.0).exp() * 0.4;
+            thump + slap
+        })
+        .collect();
+    layer(&mut out, 0.12, &scaled(rustle(), 0.5));
+    out.truncate((secs * SAMPLE_RATE as f32) as usize);
+    clamped(out)
 }
 
 /// A deep footstep thud with a metal jangle.

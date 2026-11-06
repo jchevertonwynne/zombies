@@ -8,6 +8,7 @@ use bevy::ecs::system::RunSystemOnce;
 use bevy::time::TimeUpdateStrategy;
 
 use super::*;
+use crate::audio::cues::Cue;
 
 /// The Player as one rendered frame shows it.
 #[derive(Debug, Clone, Copy)]
@@ -20,6 +21,14 @@ pub struct Sample {
 
 #[derive(Resource, Default)]
 struct Steps(u32);
+
+/// The cues the Player's stance feedback asked for, not yet checked.
+#[derive(Resource, Default)]
+struct Heard(Vec<Cue>);
+
+fn hear(mut cues: MessageReader<PlayCue>, mut heard: ResMut<Heard>) {
+    heard.0.extend(cues.read().map(|cue| cue.cue));
+}
 
 /// A `Teleport` sent from `Update` on a chosen frame, as the Teleporter sends one.
 #[derive(Resource, Default)]
@@ -65,7 +74,13 @@ impl Sim {
         .add_systems(Update, send_teleport)
         .insert_resource(Settings::default())
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / fps)))
-        .add_systems(FixedUpdate, (teleport_player, fill_move_input, move_player, |mut steps: ResMut<Steps>| steps.0 += 1).chain())
+        .add_message::<PlayCue>()
+        .init_resource::<Heard>()
+        .add_systems(Update, hear)
+        .add_systems(
+            FixedUpdate,
+            (teleport_player, fill_move_input, move_player, stance_feedback, |mut steps: ResMut<Steps>| steps.0 += 1).chain(),
+        )
         .add_systems(RunFixedMainLoop, look.in_set(LookSystems));
         configure_look(&mut app);
         app.finish();
@@ -117,6 +132,19 @@ impl Sim {
             .single(self.app.world())
             .unwrap()
             .stance
+    }
+
+    /// What the Player's own stance feedback reads off the body as it stands.
+    pub fn feel(&mut self) -> StanceFeel {
+        let world = self.app.world_mut();
+        let (locomotion, last_stand) =
+            world.query_filtered::<(&Locomotion, Has<LastStand>), With<Player>>().single(world).unwrap();
+        locomotion.feel(last_stand)
+    }
+
+    /// The stance cues asked for since last asked, in order.
+    pub fn heard(&mut self) -> Vec<Cue> {
+        std::mem::take(&mut self.app.world_mut().resource_mut::<Heard>().0)
     }
 
     /// The Player's `Locomotion` as it stands.
@@ -1306,4 +1334,125 @@ fn a_down_mid_dive_takes_over_the_flight() {
     assert!(!landed.recovering_from_dive() && !landed.dive_on_cooldown(), "the Dive's locks survived the Down");
     assert!(!sim.firing_blocked(), "a Dive lock held while Down");
     assert!((sim.frame().pos.y - Stance::Prone.half_height() - feet).abs() < 0.05, "didn't land on the floor it left");
+}
+
+/// A tap of the Crouch key: the icon snaps to Crouched the same tick the body shrinks, and one
+/// rustle plays at the start of the change. Tapped again, it snaps back with one more.
+#[test]
+fn a_stance_change_snaps_the_icon_and_rustles_once_at_its_start() {
+    let mut sim = Sim::new(144.0);
+    sim.place(Vec3::new(0.0, 0.0, 20.0), EAST);
+    sim.heard();
+    assert_eq!(sim.feel().shown, Some(Stance::Standing));
+
+    sim.hold(&[KeyCode::KeyC]);
+    while sim.stance() == Stance::Standing {
+        sim.frame();
+    }
+    // The tick the body took the Crouch: the icon is already there, the rustle already asked for.
+    assert_eq!(sim.feel().shown, Some(Stance::Crouched), "the icon lagged the body");
+    assert!((sim.body_height() - 1.2).abs() < 1e-3, "the body never took the Crouch");
+    assert_eq!(sim.heard(), [Cue::StanceRustle], "no rustle at the start of the change");
+    sim.hold(&[]);
+    sim.run_secs(0.5);
+    assert_eq!(sim.heard(), [], "the change made more than one sound");
+
+    sim.tap_crouch();
+    sim.run_secs(0.5);
+    assert_eq!(sim.feel().shown, Some(Stance::Standing));
+    assert_eq!(sim.heard(), [Cue::StanceRustle], "the way back up didn't rustle once");
+}
+
+/// A Dive shows Prone from its launch, through the flight and the recovery, with no glyph of its
+/// own. Its launch is silent and its landing thuds in place of the rustle; a press ignored under
+/// the recovery lock does nothing at all.
+#[test]
+fn a_dive_shows_prone_throughout_and_thuds_on_landing_instead_of_rustling() {
+    let mut sim = Sim::new(144.0);
+    sim.place(Vec3::new(0.0, 0.0, 20.0), EAST);
+    sim.hold(&[KeyCode::KeyW, KeyCode::ShiftLeft]);
+    sim.run_secs(0.25);
+    sim.heard();
+
+    sim.hold(&[KeyCode::KeyZ]);
+    sim.frame();
+    sim.hold(&[]);
+    assert!(sim.feel().diving, "never Dove");
+    assert_eq!(sim.feel().shown, Some(Stance::Prone), "the icon didn't snap to Prone at the launch");
+    let mut flight = 0;
+    while sim.feel().diving && flight < 200 {
+        assert_eq!(sim.feel().shown, Some(Stance::Prone), "the icon left Prone in flight");
+        assert_eq!(sim.heard(), [], "the Dive made a sound before it landed");
+        sim.frame();
+        flight += 1;
+    }
+    assert_eq!(sim.heard(), [Cue::DiveLand], "the landing didn't thud, alone");
+
+    // Under the recovery lock a stance press is ignored outright: no sound, no change.
+    assert!(sim.locomotion().recovering_from_dive());
+    sim.tap_crouch();
+    assert_eq!(sim.feel().shown, Some(Stance::Prone), "the icon showed a recovering glyph or moved");
+    assert!(sim.locomotion().recovering_from_dive(), "the tap outlasted the recovery");
+    assert_eq!(sim.heard(), [], "an ignored press made a sound");
+}
+
+/// Down is not a Stance: the icon hides for the whole Down, and neither the collapse, the dead
+/// stance keys nor the rise after a Revive rustles. A Down mid-Dive lands with no thud.
+#[test]
+fn a_down_hides_the_icon_and_makes_no_stance_sound() {
+    let mut sim = Sim::new(144.0);
+    sim.place(Vec3::new(0.0, 0.0, 20.0), EAST);
+    sim.tap_crouch();
+    sim.run_secs(0.5);
+    sim.heard();
+
+    sim.go_down();
+    sim.frame();
+    assert_eq!(sim.feel().shown, None, "the icon showed while Down");
+    for tap in [Sim::tap_crouch, Sim::tap_prone] {
+        tap(&mut sim);
+        sim.run_secs(0.3);
+        assert_eq!(sim.feel().shown, None, "a dead stance key brought the icon back");
+    }
+    sim.get_up();
+    sim.frame();
+    assert_eq!(sim.feel().shown, Some(Stance::Standing), "the get-up didn't show Standing");
+    sim.run_secs(1.0);
+    assert_eq!(sim.heard(), [], "the Down or its get-up made a stance sound");
+
+    // Down mid-Dive: the flight ends in the Down pose, with no landing thud.
+    sim.hold(&[KeyCode::KeyW, KeyCode::ShiftLeft]);
+    sim.run_secs(0.25);
+    sim.hold(&[KeyCode::KeyZ]);
+    sim.run(3);
+    sim.hold(&[]);
+    assert!(sim.feel().diving, "never Dove");
+    sim.heard();
+    sim.go_down();
+    sim.run_secs(1.0);
+    assert_eq!(sim.heard(), [], "a Down mid-Dive made a stance sound");
+}
+
+/// Forced stand-ups are stance changes too: Jump and Sprint out of a Stance, and a Teleporter
+/// ride, each snap the icon back to Standing with one rustle.
+#[test]
+fn forced_stand_ups_snap_the_icon_and_rustle() {
+    for stand in ["jump", "sprint", "teleporter"] {
+        let mut sim = Sim::new(144.0);
+        sim.place(Vec3::new(0.0, 0.0, 20.0), EAST);
+        sim.tap_crouch();
+        sim.run_secs(0.5);
+        assert_eq!(sim.feel().shown, Some(Stance::Crouched));
+        sim.heard();
+        match stand {
+            "jump" => sim.hold(&[KeyCode::Space]),
+            "sprint" => sim.hold(&[KeyCode::ShiftLeft]),
+            _ => sim.place(Vec3::new(-10.5, 0.0, 23.0), 0.0),
+        }
+        sim.run_secs(0.05);
+        assert_eq!(sim.feel().shown, Some(Stance::Standing), "{stand}: the icon didn't snap up");
+        sim.hold(&[]);
+        sim.run_secs(0.5);
+        assert_eq!(sim.heard(), [Cue::StanceRustle], "{stand}: the stand-up didn't rustle once");
+    }
 }
