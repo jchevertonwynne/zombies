@@ -2164,6 +2164,15 @@ pub const WIRE_POSITION_STEP: f32 = 0.01;
 /// before it jumps.
 pub const PUPPET_SLACK_TICKS: f32 = 2.0;
 pub const PUPPET_JUMP_TICKS: f32 = 8.0;
+/// How far ahead of where it should be the moment a puppet is shown at may be, in ticks, before it
+/// is put back. Snapshots coming late only ever stop it, about 22 ticks ahead (see
+/// `show_puppets`), so only a break in the Host's count of ticks goes past this.
+pub const PUPPET_REWIND_TICKS: f32 = 32.0;
+/// How long a correction of the `LocalPlayer`'s place takes to ease out of how it is drawn: the
+/// time for the gap to shrink to about a third, in seconds. About 95% has gone in three times this.
+pub const CORRECTION_EASE_SECS: f32 = 0.05;
+/// A correction past this, in metres, is not eased: the Player has been moved, not put right.
+pub const CORRECTION_SNAP_METRES: f32 = 1.0;
 /// The most a snapshot may come to, in bytes: one QUIC datagram.
 pub const SNAPSHOT_MAX_BYTES: usize = 1000;
 /// The most Zombies a snapshot tells of (the Alive Cap's top end of 48 and Overkill's 8), and the

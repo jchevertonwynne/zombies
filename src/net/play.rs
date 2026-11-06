@@ -5,14 +5,16 @@
 //! their input through the jitter buffer (`Remote`), never rewinding, and 32 times a second tells
 //! each Player how things stand: their own Player in full, the others packed. A client puts its
 //! Player where the Host says, then steps it again by the input the Host hadn't heard yet, which
-//! mostly lands where it already was. The other Players are puppets: not stepped at all, but
-//! shown where the Host had them a couple of snapshots ago, as are the Zombies and Hellhounds
-//! (see `zombies`).
+//! mostly lands where it already was; where it doesn't, the gap is eased out of how the Player is
+//! drawn over a few frames rather than jumped (see `draw_correction`). The other Players are
+//! puppets: not stepped at all, but shown where the Host had them a couple of snapshots ago, as
+//! are the Zombies and Hellhounds (see `zombies`).
 
 use std::collections::VecDeque;
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
+use bevy_transform_interpolation::{TransformEasingSystems, TranslationEasingState};
 
 use super::away::{self, Rejoin};
 use super::hits::{self, Hits};
@@ -181,6 +183,16 @@ impl Plugin for PlayPlugin {
                     .chain()
                     .after(show_puppets)
                     .run_if(world_runs)
+                    .run_if(resource_exists::<Prediction>),
+            )
+            // Each frame, once the easing has drawn the `LocalPlayer` between its last two ticks,
+            // and before it notes having done so (see `crate::player::LookSystems`).
+            .add_systems(
+                RunFixedMainLoop,
+                draw_correction
+                    .in_set(RunFixedMainLoopSystems::AfterFixedMainLoop)
+                    .after(TransformEasingSystems::Ease)
+                    .before(TransformEasingSystems::UpdateEasingTick)
                     .run_if(resource_exists::<Prediction>),
             );
     }
@@ -502,6 +514,9 @@ pub struct Prediction {
     pub(super) shown: f32,
     /// How far the last snapshot moved the `LocalPlayer`, in metres.
     pub corrected: f32,
+    /// How far from where it is the `LocalPlayer` is drawn: what is left of the corrections, eased
+    /// out over `CORRECTION_EASE_SECS` (see `draw_correction`).
+    pub drawn: Vec3,
 }
 
 /// Another Player as the Host said they were at one of its ticks.
@@ -578,7 +593,16 @@ fn reconcile(
     mut crowd: ResMut<Crowd>,
     mut commands: Commands,
     mut local: Query<
-        (Entity, &mut Transform, &mut Locomotion, &Loadout, &Modifiers, Has<Drinking>, Has<LastStand>),
+        (
+            Entity,
+            &mut Transform,
+            &mut Locomotion,
+            &Loadout,
+            &Modifiers,
+            Has<Drinking>,
+            Has<LastStand>,
+            Option<&mut TranslationEasingState>,
+        ),
         With<LocalPlayer>,
     >,
     mut points: Query<(&PlayerSeat, &mut Points), With<Player>>,
@@ -606,7 +630,7 @@ fn reconcile(
             points.balance = balance;
         }
     }
-    let Ok((entity, mut transform, mut locomotion, loadout, modifiers, drinking, last_stand)) =
+    let Ok((entity, mut transform, mut locomotion, loadout, modifiers, drinking, last_stand, easing)) =
         local.single_mut()
     else {
         return;
@@ -641,6 +665,36 @@ fn reconcile(
         commands.entity(entity).insert(locomotion.shape().collider());
     }
     prediction.corrected = was.distance(position);
+    // The tick's easing starts from where the Player now is, so it doesn't spread the correction
+    // over the tick as well: the gap is all in `drawn`, eased out from where it was drawn. A gap
+    // too wide is a move, shown at once.
+    if let Some(mut easing) = easing
+        && easing.start.is_some()
+    {
+        easing.start = Some(position);
+    }
+    let drawn = prediction.drawn + (was - position);
+    prediction.drawn = if drawn.length() > CORRECTION_SNAP_METRES { Vec3::ZERO } else { drawn };
+}
+
+/// Draws the `LocalPlayer` this frame where it is plus what is left of the corrections, which
+/// shrinks a little every frame. Only the drawn Transform moves: the easing has just written it,
+/// and puts it back where the Player is before the next tick steps it, so the step never sees
+/// the gap. While there is no easing to put it back, nothing is drawn off.
+fn draw_correction(
+    time: Res<Time>,
+    mut prediction: ResMut<Prediction>,
+    local: Single<(&mut Transform, &TranslationEasingState), With<LocalPlayer>>,
+) {
+    prediction.drawn *= (-time.delta_secs() / CORRECTION_EASE_SECS).exp();
+    if prediction.drawn.length_squared() < 1e-8 {
+        prediction.drawn = Vec3::ZERO;
+        return;
+    }
+    let (mut transform, easing) = local.into_inner();
+    if easing.start.is_some() && easing.end.is_some() {
+        transform.translation += prediction.drawn;
+    }
 }
 
 /// Sends this tick's input, with the last few ticks' again in case they were lost.
@@ -666,6 +720,22 @@ fn send_inputs(
     );
 }
 
+/// Moves the moment the puppets are shown at on by a tick, towards `wanted`. It runs evenly within
+/// `PUPPET_SLACK_TICKS` of where it should be, and is drawn back gently when it has strayed
+/// farther. Behind by more than `PUPPET_JUMP_TICKS`, it jumps to where it should be. Ahead, as it
+/// is while snapshots come late, it slows to a stop (about 22 ticks ahead), and never runs
+/// backwards: a puppet stepping back before it jumps on looks worse than one standing still.
+fn advance(shown: f32, wanted: f32) -> f32 {
+    let astray = wanted - (shown + 1.0);
+    if astray > PUPPET_JUMP_TICKS || astray < -PUPPET_REWIND_TICKS {
+        wanted
+    } else if astray.abs() > PUPPET_SLACK_TICKS {
+        shown + (1.0 + (astray - PUPPET_SLACK_TICKS.copysign(astray)) * 0.05).max(0.0)
+    } else {
+        shown + 1.0
+    }
+}
+
 /// Puts the puppets where the Host had them a moment ago.
 fn show_puppets(
     mut prediction: ResMut<Prediction>,
@@ -676,15 +746,7 @@ fn show_puppets(
     // where the moment should be goes in twos; it is left to run evenly within that, and only
     // drawn back, gently, when it has strayed farther.
     let behind = (INTERPOLATION_SNAPSHOTS * SNAPSHOT_EVERY) as f32;
-    let wanted = latest as f32 - behind;
-    let astray = wanted - (prediction.shown + 1.0);
-    prediction.shown = if astray.abs() > PUPPET_JUMP_TICKS {
-        wanted
-    } else if astray.abs() > PUPPET_SLACK_TICKS {
-        prediction.shown + 1.0 + (astray - PUPPET_SLACK_TICKS.copysign(astray)) * 0.05
-    } else {
-        prediction.shown + 1.0
-    };
+    prediction.shown = advance(prediction.shown, latest as f32 - behind);
     let shown = prediction.shown;
     for (seat, mut transform, mut input, mut pose, mut shots) in &mut puppets {
         let Some(seen) = prediction.seen.get_mut(usize::from(seat.0)) else { continue };
@@ -736,6 +798,34 @@ mod tests {
         assert_eq!(show(&two, 20.0).unwrap().position.x, 1.0);
         assert_eq!(show(&two, 0.0).unwrap().position.x, 0.0);
         assert!(show(&VecDeque::new(), 1.0).is_none());
+    }
+
+    /// Snapshots stopping slow the moment shown to a stop, never back; when they come again it
+    /// carries on forwards and settles back to where it should be.
+    #[test]
+    fn the_moment_shown_stops_for_late_snapshots_and_never_runs_back() {
+        let (mut shown, mut wanted) = (100.0, 101.0);
+        let mut was = shown;
+        for tick in 0..400 {
+            // Nothing comes for 200 ticks, then a snapshot every tick again, the first 12 on.
+            if tick == 200 {
+                wanted += 12.0;
+            } else if tick > 200 {
+                wanted += 1.0;
+            }
+            shown = advance(shown, wanted);
+            assert!(shown >= was, "ran back from {was} to {shown} at {tick}");
+            assert!(shown - wanted < PUPPET_REWIND_TICKS, "ran on to {shown} at {tick}");
+            was = shown;
+        }
+        assert!((wanted - shown).abs() <= PUPPET_SLACK_TICKS + 1.0, "{shown} against {wanted}");
+    }
+
+    #[test]
+    fn the_moment_shown_jumps_on_when_far_behind_and_back_when_far_ahead() {
+        assert_eq!(advance(10.0, 30.0), 30.0);
+        assert_eq!(advance(100.0, 50.0), 50.0);
+        assert_eq!(advance(10.0, 11.0), 11.0);
     }
 
     #[test]
