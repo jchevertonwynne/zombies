@@ -9,6 +9,7 @@ use crate::attachment::Underbarrel;
 use crate::mystery_box::BoxState;
 use crate::pack_a_punch::Stage;
 use crate::perk::Perk;
+use crate::player::{Stance, StanceFeel};
 use crate::teammate::{Action, Pose};
 use crate::tuning::*;
 use crate::zombie::{SpeedTier, Zombie};
@@ -71,6 +72,19 @@ pub fn pose_cue(before: &Pose, now: &Pose) -> Option<Cue> {
         Action::Knife => Some(Cue::KnifeSwing),
         Action::Drink => Some(Cue::PerkDrink),
         Action::None | Action::Throw | Action::Revive => None,
+    }
+}
+
+/// The sound the Player's own body makes going from `before` to `now`: a rustle at the start of
+/// every stance change, deliberate or forced, both ways. A Dive's launch is silent and its landing
+/// thuds instead. Going Down, or getting up from one, isn't a stance change; it has its own sounds.
+pub fn stance_cue(before: StanceFeel, now: StanceFeel) -> Option<Cue> {
+    match (before.shown, now.shown) {
+        // The landing: still Prone, and the Dive that brought them there is over. (A Down mid-Dive
+        // ends it too, but shows no Stance; a Teleporter ride ends it Standing, which rustles.)
+        (Some(Stance::Prone), Some(Stance::Prone)) if before.diving && !now.diving => Some(Cue::DiveLand),
+        (Some(was), Some(is)) if was != is && !now.diving => Some(Cue::StanceRustle),
+        _ => None,
     }
 }
 

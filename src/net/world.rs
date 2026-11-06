@@ -44,7 +44,7 @@ use crate::map::BarrierId;
 use crate::mystery_box::{BoxState, MysteryBox, Prize};
 use crate::pack_a_punch::PackAPunch;
 use crate::perk::{Drinking, Perk, PerkMachine, Perks};
-use crate::player::{Health, LocalPlayer, Player, PlayerHit, PlayerName, Seat as PlayerSeat};
+use crate::player::{Health, LocalPlayer, Locomotion, Player, PlayerHit, PlayerName, Seat as PlayerSeat, StanceKeys};
 use crate::respawn::{AwaitingRespawn, Disconnected, Respawned, SeatReturned};
 use crate::hud::overlay::Overlays;
 use crate::mystery_box::{BoxAssets, spawn_box};
@@ -480,7 +480,7 @@ pub fn add(app: &mut App) {
                     hear_offers,
                     hear_gauntlet,
                     hear_left,
-                    (hear_extras, hear_sabotage, hear_aftereffect, hear_active).chain(),
+                    (hear_extras, hear_sabotage, hear_aftereffect, stand_after_ride, hear_active).chain(),
                 ),
             )
                 .chain()
@@ -1890,6 +1890,19 @@ fn hear_aftereffect(
         if let WorldEvent::Aftereffect(effect) = *event {
             begin_aftereffect(effect, &mut aftermath, &mut overlays, &mut shellshocks);
         }
+    }
+}
+
+/// A Teleporter ride puts the Player Standing. The Host has stood their body up already; their
+/// own game hears of it with the aftereffect, and stops asking for the Stance they rode in.
+fn stand_after_ride(
+    mut heard: MessageReader<Heard>,
+    local: Option<Single<(&mut Locomotion, &mut avian3d::prelude::Collider, Option<&mut StanceKeys>), With<LocalPlayer>>>,
+) {
+    let rode = heard.read().any(|Heard(event)| matches!(event, WorldEvent::Aftereffect(_)));
+    if let (true, Some(local)) = (rode, local) {
+        let (mut locomotion, mut collider, keys) = local.into_inner();
+        StanceKeys::force_stand(&mut locomotion, &mut collider, keys);
     }
 }
 

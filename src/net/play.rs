@@ -156,7 +156,11 @@ impl Plugin for PlayPlugin {
             )
             .add_systems(
                 FixedUpdate,
-                send_snapshots.after(move_player).run_if(world_runs).run_if(resource_exists::<Roster>),
+                (pose_by_steps, send_snapshots)
+                    .chain()
+                    .after(move_player)
+                    .run_if(world_runs)
+                    .run_if(resource_exists::<Roster>),
             )
             .add_systems(
                 FixedUpdate,
@@ -429,6 +433,16 @@ fn drive_remotes(mut players: Query<(&mut Remote, &mut MoveInput, &mut Transform
     }
 }
 
+/// Poses each remote Player's body as the Host has stepped it: their Stance, and whether they're
+/// off the floor (Prone ∧ airborne is a Dive in flight). Their game's own word on these is only
+/// an echo, and teammates, Zombies and Host-judged harm all go by where the Host has the body.
+fn pose_by_steps(mut remotes: Query<(&Locomotion, &mut Pose), With<Remote>>) {
+    for (locomotion, mut pose) in &mut remotes {
+        let stepped = Pose { stance: locomotion.stance, airborne: !locomotion.grounded(), ..*pose };
+        pose.set_if_neq(stepped);
+    }
+}
+
 /// Tells each remote Player how things stand: themselves in full, and the other Players packed.
 fn send_snapshots(
     clock: Res<Clock>,
@@ -475,8 +489,11 @@ fn send_snapshots(
 /// What the client remembers between ticks.
 #[derive(Resource, Default)]
 pub struct Prediction {
-    /// The ticks sent that the Host hasn't yet said it used.
-    sent: VecDeque<(Tick, Step)>,
+    /// The ticks sent that the Host hasn't yet said it used, each with the `Locomotion` it was
+    /// stepped from. A correction replays from the one after the Host's last used tick, so the
+    /// stance and Dive timers — which no snapshot carries — run each tick once, not again on
+    /// every replay.
+    sent: VecDeque<(Tick, Step, Locomotion)>,
     /// The Host's tick of the newest snapshot heard.
     pub(super) latest: Option<Tick>,
     /// Where each Seat's Player has been said to be, oldest first.
@@ -605,10 +622,18 @@ fn reconcile(
     let was = transform.translation;
     let mut position = was;
     let shape_was = locomotion.shape();
+    prediction.sent.retain(|(tick, ..)| *tick > snapshot.used);
+    // Back to how this game had the Player just after the Host's last used tick, when nothing has
+    // come since to say otherwise. A Down or its end since then is the reliable events' to say,
+    // so across one the Player is left as they are.
+    if let Some((.., after_used)) = prediction.sent.front()
+        && after_used.down == locomotion.down
+    {
+        *locomotion = after_used.clone();
+    }
     snapshot.own.put(&mut position, &mut locomotion);
-    prediction.sent.retain(|(tick, _)| *tick > snapshot.used);
     let mut context = MoveContext { entity, loadout, modifiers, drinking, last_stand };
-    for (_, step) in &prediction.sent {
+    for (_, step, _) in &prediction.sent {
         step_move(&mut position, &mut locomotion, &step.input(), &mut context, time.delta(), &move_and_slide);
     }
     transform.translation = position;
@@ -623,18 +648,18 @@ fn send_inputs(
     clock: Res<Clock>,
     mut wire: ResMut<Wire>,
     mut prediction: ResMut<Prediction>,
-    local: Single<(&mut MoveInput, &Pose, &Shots), With<LocalPlayer>>,
+    local: Single<(&mut MoveInput, &Locomotion, &Pose, &Shots), With<LocalPlayer>>,
 ) {
-    let (mut input, pose, shots) = local.into_inner();
+    let (mut input, locomotion, pose, shots) = local.into_inner();
     let step = Step::of(&input);
     // The Player is stepped by exactly what the Host is told.
     *input = step.input();
-    prediction.sent.push_back((clock.tick, step));
+    prediction.sent.push_back((clock.tick, step, locomotion.clone()));
     while prediction.sent.len() > REPLAY_TICKS {
         prediction.sent.pop_front();
     }
     let steps: Vec<Step> =
-        prediction.sent.iter().rev().take(INPUT_RESEND).rev().map(|(_, step)| *step).collect();
+        prediction.sent.iter().rev().take(INPUT_RESEND).rev().map(|(_, step, _)| *step).collect();
     wire.0.datagram(
         HOST,
         encode(&Inputs { last: clock.tick, steps, pose: pose.pack(), shots: shots.count() }),

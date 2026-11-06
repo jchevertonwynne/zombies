@@ -22,18 +22,10 @@ use crate::respawn::AwaitingRespawn;
 use crate::layers::GameLayer;
 use crate::muzzle::{aim_direction, muzzle_position};
 use crate::perk::{Drinking, Perk};
-use crate::player::{LocalPlayer, Locomotion, MoveInput, Player, PlayerCamera, PlayerName, Seat};
+use crate::player::{LocalPlayer, Locomotion, MoveInput, Player, PlayerCamera, PlayerName, Seat, Stance};
 use crate::state::{InRun, world_runs};
 use crate::tuning::*;
 use crate::weapon::{Knife, Loadout, UPGRADED_PURPLE, WeaponCopy, glint_of};
-
-/// How a Player stands. Crouching and prone join it with Crouch and prone (#140); the two bits it
-/// takes on the wire are already set aside for them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Stance {
-    #[default]
-    Standing,
-}
 
 /// The one-off thing a Player's hands are doing, if any.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -64,11 +56,14 @@ pub struct Pose {
 }
 
 impl Pose {
-    /// The two bytes a snapshot carries: stance in bits 0-1, then sprinting, aiming, airborne and
-    /// Last Stand, then the action in bits 6-8.
+    /// The two bytes a snapshot carries: stance in bits 0-1 (Standing, Crouched, Prone, the fourth
+    /// value left free), then sprinting, aiming, airborne and Last Stand, then the action in bits
+    /// 6-8. A Dive isn't in it: Prone ∧ airborne can only mean a Dive in flight.
     pub fn pack(self) -> u16 {
         let stance = match self.stance {
             Stance::Standing => 0,
+            Stance::Crouched => 1,
+            Stance::Prone => 2,
         };
         let action = match self.action {
             Action::None => 0,
@@ -89,7 +84,11 @@ impl Pose {
     /// The Pose in `bits`. Anything it doesn't know is read as the plain case.
     pub fn unpack(bits: u16) -> Self {
         Self {
-            stance: Stance::Standing,
+            stance: match bits & 0b11 {
+                1 => Stance::Crouched,
+                2 => Stance::Prone,
+                _ => Stance::Standing,
+            },
             sprinting: bits & (1 << 2) != 0,
             aiming: bits & (1 << 3) != 0,
             airborne: bits & (1 << 4) != 0,
@@ -196,7 +195,7 @@ fn fill_poses(
             Action::None
         };
         let filled = Pose {
-            stance: Stance::Standing,
+            stance: locomotion.stance,
             sprinting: locomotion.sprinting,
             aiming: loadout.aim > 0.5,
             airborne: !locomotion.grounded(),
@@ -864,10 +863,13 @@ mod tests {
 
     #[test]
     fn a_pose_packs_into_two_bytes_and_back() {
-        for action in [Action::None, Action::Reload, Action::Knife, Action::Throw, Action::Drink, Action::Revive] {
+        for (action, stance) in [Action::None, Action::Reload, Action::Knife, Action::Throw, Action::Drink, Action::Revive]
+            .into_iter()
+            .flat_map(|action| [Stance::Standing, Stance::Crouched, Stance::Prone].map(|stance| (action, stance)))
+        {
             for flags in 0..16u8 {
                 let pose = Pose {
-                    stance: Stance::Standing,
+                    stance,
                     sprinting: flags & 1 != 0,
                     aiming: flags & 2 != 0,
                     airborne: flags & 4 != 0,
@@ -884,6 +886,8 @@ mod tests {
     #[test]
     fn a_pose_with_unknown_bits_reads_as_the_plain_case() {
         assert_eq!(Pose::unpack(0b111 << 6).action, Action::None);
+        // The fourth stance value is free, and reads as Standing until a Stance takes it.
+        assert_eq!(Pose::unpack(0b11).stance, Stance::Standing);
     }
 
     #[test]

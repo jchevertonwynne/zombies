@@ -1,5 +1,5 @@
-//! The BO1 HUD. Bottom-left: Perk icons over the Round counter. Bottom-right: Points with ±N
-//! popups, the Weapon in hand with its Ammo Mods, Equipment and `magazine | reserve`. Under the
+//! The BO1 HUD. Bottom-left: Perk icons over the stance icon and the Round counter.
+//! Bottom-right: Points with ±N popups, the Weapon in hand with its Ammo Mods, Equipment and `magazine | reserve`. Under the
 //! crosshair: the Prompt and a Reload hint. Bottom-centre: timer bars for timed Power-ups, with a
 //! banner for instant ones. Under it all, the effect overlay layer. A Co-op Run adds teammates'
 //! rows over the Points and the rest of `coop`. No Box, Power or Pack-a-Punch state shows.
@@ -18,7 +18,8 @@ use crate::equipment::Equipment;
 use crate::last_stand::LastStand;
 use crate::modifier::Modifiers;
 use crate::perk::{Perk, Perks};
-use crate::player::{Health, LocalPlayer};
+use crate::player::{Health, LocalPlayer, Locomotion, Stance};
+use crate::respawn::AwaitingRespawn;
 use crate::points::{Points, PointsAwarded};
 use crate::power_up::{ActivePowerUps, PowerUp, PowerUpTaken};
 use crate::round::{Round, RoundPhase};
@@ -42,6 +43,10 @@ pub const BOTTOM_LEFT_HEIGHT_PX: f32 = 200.0;
 const ROUND_PX: f32 = 96.0;
 const PERK_ICON_PX: f32 = 44.0;
 const POWER_UP_BAR_PX: f32 = 120.0;
+/// The stance icon's box.
+const STANCE_ICON_PX: f32 = 36.0;
+/// The colour the stance icon's silhouettes are drawn in.
+const STANCE_WHITE: Color = Color::srgba(0.95, 0.95, 0.95, 0.85);
 
 /// What the Round counter shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -137,6 +142,59 @@ impl Banner {
     }
 }
 
+/// One block of a stance silhouette, placed in its glyph's box as fractions of it (y down).
+struct GlyphPart {
+    left: f32,
+    top: f32,
+    width: f32,
+    height: f32,
+    /// Its turn, in degrees.
+    turn: f32,
+    /// A round head rather than a square-cornered limb.
+    head: bool,
+}
+
+/// A head at `left`, `top`, `size` across.
+const fn head(left: f32, top: f32, size: f32) -> GlyphPart {
+    GlyphPart { left, top, width: size, height: size, turn: 0.0, head: true }
+}
+
+/// A limb or torso block, turned `turn` degrees.
+const fn limb(left: f32, top: f32, width: f32, height: f32, turn: f32) -> GlyphPart {
+    GlyphPart { left, top, width, height, turn, head: false }
+}
+
+/// The blocks each Stance's silhouette is drawn from, WaW/BO1 style: a figure upright, on its
+/// haunches, and flat on the ground.
+fn glyph_parts(stance: Stance) -> &'static [GlyphPart] {
+    const STANDING: &[GlyphPart] = &[
+        head(0.42, 0.02, 0.18),
+        limb(0.40, 0.22, 0.22, 0.36, 0.0),
+        limb(0.40, 0.58, 0.09, 0.40, 0.0),
+        limb(0.53, 0.58, 0.09, 0.40, 0.0),
+    ];
+    const CROUCHED: &[GlyphPart] = &[
+        head(0.50, 0.30, 0.18),
+        limb(0.34, 0.46, 0.22, 0.30, -25.0),
+        limb(0.30, 0.72, 0.40, 0.09, 0.0),
+        limb(0.62, 0.72, 0.09, 0.26, 0.0),
+    ];
+    const PRONE: &[GlyphPart] = &[
+        head(0.02, 0.70, 0.18),
+        limb(0.20, 0.74, 0.42, 0.16, 0.0),
+        limb(0.60, 0.80, 0.38, 0.09, 0.0),
+    ];
+    match stance {
+        Stance::Standing => STANDING,
+        Stance::Crouched => CROUCHED,
+        Stance::Prone => PRONE,
+    }
+}
+
+/// One Stance's silhouette in the stance icon. The one for the local Player's Stance shows.
+#[derive(Component)]
+struct StanceGlyph(Stance);
+
 /// The Round counter's numeral.
 #[derive(Component)]
 struct RoundNumeral;
@@ -231,7 +289,7 @@ impl Plugin for HudPlugin {
                 Update,
                 (
                     effect_overlays,
-                    (round_counter_text, perk_row),
+                    (round_counter_text, perk_row, stance_icon),
                     (flash_points, points_text, spawn_popups, animate_popups).chain(),
                     (weapon_text, equipment_text),
                     (prompt_text, reload_hint_text),
@@ -351,7 +409,7 @@ fn spawn_hud(mut commands: Commands) {
             below.spawn((ReloadHint, text("", 20.0, HINT_YELLOW), Visibility::Hidden));
         });
 
-    // Bottom-left: Perks over the Round counter.
+    // Bottom-left: Perks over the stance icon and the Round counter.
     commands
         .spawn((
             InRun,
@@ -364,15 +422,20 @@ fn spawn_hud(mut commands: Commands) {
         ))
         .with_children(|left| {
             left.spawn((PerkRow, row(6.0)));
-            left.spawn(Node {
-                height: px(ROUND_PX),
-                align_items: AlignItems::Center,
-                ..default()
-            })
-            .with_children(|counter| {
-                counter.spawn((RoundNumeral, text("", ROUND_PX, ROUND_RED)));
-                spawn_tallies(counter);
-            });
+            left.spawn(Node { align_items: AlignItems::FlexEnd, column_gap: px(12.0), ..default() })
+                .with_children(|bottom| {
+                    spawn_stance_icon(bottom);
+                    bottom
+                        .spawn(Node {
+                            height: px(ROUND_PX),
+                            align_items: AlignItems::Center,
+                            ..default()
+                        })
+                        .with_children(|counter| {
+                            counter.spawn((RoundNumeral, text("", ROUND_PX, ROUND_RED)));
+                            spawn_tallies(counter);
+                        });
+                });
         });
 
     // Bottom-right: Points, the Weapon, Equipment and ammo.
@@ -471,6 +534,46 @@ fn spawn_hud(mut commands: Commands) {
         .with_child((BannerText, text("", 40.0, Color::WHITE), Visibility::Hidden));
 }
 
+/// The stance icon: a silhouette for each Stance, stacked in one small box, all hidden until
+/// `stance_icon` shows the Player's.
+fn spawn_stance_icon(parent: &mut ChildSpawnerCommands) {
+    parent
+        .spawn(Node {
+            width: px(STANCE_ICON_PX),
+            height: px(STANCE_ICON_PX),
+            margin: UiRect::bottom(px(8.0)),
+            ..default()
+        })
+        .with_children(|icon| {
+            for stance in [Stance::Standing, Stance::Crouched, Stance::Prone] {
+                icon.spawn((
+                    StanceGlyph(stance),
+                    Node {
+                        display: Display::None,
+                        ..full_screen()
+                    },
+                ))
+                .with_children(|glyph| {
+                    for part in glyph_parts(stance) {
+                        glyph.spawn((
+                            Node {
+                                position_type: PositionType::Absolute,
+                                left: px(part.left * STANCE_ICON_PX),
+                                top: px(part.top * STANCE_ICON_PX),
+                                width: px(part.width * STANCE_ICON_PX),
+                                height: px(part.height * STANCE_ICON_PX),
+                                border_radius: if part.head { BorderRadius::MAX } else { BorderRadius::all(px(2.0)) },
+                                ..default()
+                            },
+                            UiTransform::from_rotation(Rot2::degrees(part.turn)),
+                            BackgroundColor(STANCE_WHITE),
+                        ));
+                    }
+                });
+            }
+        });
+}
+
 /// Four standing strokes and a fifth across them, sized to the Round counter.
 fn spawn_tallies(counter: &mut ChildSpawnerCommands) {
     let stroke = ROUND_PX * 0.08;
@@ -549,6 +652,22 @@ fn round_counter_text(
     for (Tally(i), mut node, mut background) in &mut tallies {
         node.display = if *i <= shown { Display::Flex } else { Display::None };
         background.set_if_neq(BackgroundColor(colour));
+    }
+}
+
+/// The stance icon shows the local Player's Stance, snapping to it the instant the body takes it.
+/// It hides while Down, which is not a Stance, and while waiting to Respawn, with no body at all.
+fn stance_icon(
+    player: Single<(&Locomotion, Has<LastStand>, Has<AwaitingRespawn>), With<LocalPlayer>>,
+    mut glyphs: Query<(&StanceGlyph, &mut Node)>,
+) {
+    let (locomotion, last_stand, awaiting) = *player;
+    let shown = locomotion.feel(last_stand).shown.filter(|_| !awaiting);
+    for (glyph, mut node) in &mut glyphs {
+        let display = if shown == Some(glyph.0) { Display::Flex } else { Display::None };
+        if node.display != display {
+            node.display = display;
+        }
     }
 }
 
