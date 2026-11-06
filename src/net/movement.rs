@@ -592,3 +592,52 @@ fn a_hellhound_puppet_shows_its_lightning_strike() {
     assert_eq!((strikes(&mut run, 0), strikes(&mut run, 1)), (0, 0));
     assert_eq!(bolts(&mut run), lights, "the bolt stayed");
 }
+
+/// A client at `delay` ticks each way strafing along Zombies that walk at it, grinding along them
+/// for 4 s: the worst correction, and the farthest its Player was drawn to move in a frame, and
+/// would have been without easing the corrections out.
+fn grinding(delay: u32) -> (f32, f32, f32) {
+    let mut run = Run::new(1, delay, 0.0, 0);
+    let feet = run.at(0, 1) - Vec3::Y * Stance::Standing.half_height();
+    let zombies: Vec<Entity> = (0..3).map(|i| run.zombie(feet + Vec3::new(-1.0 + i as f32 * 0.7, 0.0, -3.0))).collect();
+    run.step(IDLE, 30);
+    let (mut worst, mut drawn_stride, mut raw_stride) = (0.0f32, 0.0f32, 0.0f32);
+    let mut last: Option<(Vec3, Vec3)> = None;
+    for tick in 0..256u32 {
+        let player = run.at(0, 1);
+        let world = run.apps[0].world_mut();
+        for &zombie in &zombies {
+            let mut transform = world.get_mut::<Transform>(zombie).unwrap();
+            let to = (player - transform.translation).with_y(0.0);
+            if to.length() > 0.7 {
+                transform.translation += to.normalize() * 1.5 / FIXED_HZ as f32;
+            }
+        }
+        let strafe = if (tick / 64) % 2 == 0 { Vec2::X } else { Vec2::NEG_X };
+        run.step(&|seat, _| MoveInput { axes: if seat == 1 { strafe + Vec2::Y * 0.5 } else { Vec2::ZERO }, ..default() }, 1);
+        worst = worst.max(run.corrected(1));
+        let drawn = run.at(1, 1);
+        let raw = drawn - run.apps[1].world().resource::<Prediction>().drawn;
+        if let Some((drawn_was, raw_was)) = last
+            // The turns at each end of the strafe are no correction.
+            && tick % 64 > 4
+        {
+            drawn_stride = drawn_stride.max(drawn.distance(drawn_was));
+            raw_stride = raw_stride.max(raw.distance(raw_was));
+        }
+        last = Some((drawn, raw));
+    }
+    (worst, drawn_stride, raw_stride)
+}
+
+/// Grinding along Zombies at a 156 ms ping, the client is put right by a good deal, as its
+/// Zombies are where the Host's were a moment ago. Each correction is eased out of how it is
+/// drawn, so the Player never moves farther in a frame than its own stride.
+#[test]
+fn corrections_grinding_along_zombies_are_eased_out() {
+    let (_, stride, _) = grinding(0);
+    let (worst, drawn, raw) = grinding(5);
+    assert!(worst > 0.15, "the Host only put the Player right by {worst} m");
+    assert!(raw > stride + 0.1, "unsmoothed, a frame moved only {raw} m");
+    assert!(drawn < stride + 0.01, "a frame moved the Player {drawn} m against a stride of {stride} m");
+}
