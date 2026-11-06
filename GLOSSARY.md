@@ -7,7 +7,9 @@ _Avoid_: posture, pose
 
 **Crouch**: To lower into the Crouched Stance, or the key that does it.
 
-**Prone**: To lie flat in the Prone Stance, or the key that does it. A Player in a Last Stand is Down, not Prone.
+**Prone**: To lie face-down in the Prone Stance, or the key that does it. A Player in a Last Stand lies on their back and is Down, not Prone.
+
+**Crawl**: To move along the ground while Prone or Down.
 
 **Dive**: Going Prone straight out of a sprint, with a lunge forward.
 _Avoid_: dolphin dive, flop
