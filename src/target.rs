@@ -13,10 +13,11 @@ use crate::zone::PlayerZone;
 use crate::zombie::Zombie;
 use crate::zone::ZoneId;
 
-/// How far a Player's centre sits above their feet, from their Stance: the height of the
-/// collider they currently are. A Player with no `Locomotion` (a test's stand-in) stands.
+/// How far a Player's centre sits above their feet, from their body's shape: the height of the
+/// collider they currently are (the prone one while Down). A Player with no `Locomotion` (a
+/// test's stand-in) stands.
 pub fn half_height_above_feet(locomotion: Option<&Locomotion>) -> f32 {
-    locomotion.map_or(Stance::Standing.half_height(), |locomotion| locomotion.stance.half_height())
+    locomotion.map_or(Stance::Standing.half_height(), |locomotion| locomotion.shape().half_height())
 }
 
 /// Where a Player stands and whether Zombies can go after them.

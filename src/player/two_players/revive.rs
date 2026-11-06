@@ -121,6 +121,54 @@ fn a_revive_takes_three_seconds() {
     assert!(!in_last_stand(&mut sim, teammate), "still down after 3.1 s");
 }
 
+/// A Down from Crouched lies in the Down pose with the stance reading Standing; the Revive gets
+/// the Player up Standing, through the rise and its firing lock, never back to Crouched.
+#[test]
+fn a_revive_rises_to_standing_whatever_the_down_was_from() {
+    let (mut sim, local, teammate) = co_op();
+    sim.world_mut().get_mut::<MoveInput>(teammate).unwrap().crouch = true;
+    sim.run(30);
+    assert_eq!(sim.world_mut().get::<Locomotion>(teammate).unwrap().stance, Stance::Crouched);
+    // Stance input is dead while Down: the resolver sends Standing from here on.
+    sim.world_mut().get_mut::<MoveInput>(teammate).unwrap().crouch = false;
+    down(&mut sim, teammate);
+    sim.run(2);
+    let downed = sim.world_mut().get::<Locomotion>(teammate).unwrap().clone();
+    assert!(downed.down, "not in the Down pose");
+    assert_eq!(downed.stance, Stance::Standing, "the Down didn't reset the stance");
+
+    hold(&mut sim, local, teammate, REVIVE_SECS + 0.1);
+    assert!(!in_last_stand(&mut sim, teammate));
+    sim.run(2);
+    let rising = sim.world_mut().get::<Locomotion>(teammate).unwrap().clone();
+    assert!(!rising.down && rising.stance == Stance::Standing, "the Revive didn't get them up Standing");
+    assert!(rising.prone_transition(), "the Revive skipped the rise");
+    sim.run(sim.frames(LAST_STAND_COLLAPSE_SECS + 0.1));
+    let up = sim.world_mut().get::<Locomotion>(teammate).unwrap().clone();
+    assert!(!up.changing_stance() && up.stance == Stance::Standing, "the rise didn't end Standing");
+}
+
+/// A Self-Revive gets the Player up the same way: Standing, through the rise.
+#[test]
+fn a_self_revive_rises_to_standing() {
+    let (mut sim, _, teammate) = co_op();
+    sim.world_mut().get_mut::<MoveInput>(teammate).unwrap().prone = true;
+    sim.run(60);
+    assert_eq!(sim.world_mut().get::<Locomotion>(teammate).unwrap().stance, Stance::Prone);
+    sim.world_mut().get_mut::<MoveInput>(teammate).unwrap().prone = false;
+    let world = sim.world_mut();
+    let mut entity = world.entity_mut(teammate);
+    let stand = LastStand::begin(&mut entity.get_mut::<Loadout>().unwrap());
+    entity.insert(stand);
+    sim.run(2);
+    assert!(sim.world_mut().get::<Locomotion>(teammate).unwrap().down, "not in the Down pose");
+    sim.run(sim.frames(LAST_STAND_SECS + 0.1));
+    assert!(!in_last_stand(&mut sim, teammate), "no Self-Revive");
+    sim.run(sim.frames(LAST_STAND_COLLAPSE_SECS + 0.1));
+    let up = sim.world_mut().get::<Locomotion>(teammate).unwrap().clone();
+    assert!(!up.down && up.stance == Stance::Standing && !up.changing_stance(), "the Self-Revive didn't end Standing");
+}
+
 #[test]
 fn a_revive_with_quick_revive_takes_a_second_and_a_half() {
     let (mut sim, local, teammate) = co_op();

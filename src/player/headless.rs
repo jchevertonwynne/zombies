@@ -119,6 +119,33 @@ impl Sim {
             .stance
     }
 
+    /// The Player's `Locomotion` as it stands.
+    pub fn locomotion(&mut self) -> Locomotion {
+        self.app.world_mut().query_filtered::<&Locomotion, With<Player>>().single(self.app.world()).unwrap().clone()
+    }
+
+    /// The Player goes Down: a solo Last Stand, as the Host would start it.
+    pub fn go_down(&mut self) {
+        let world = self.app.world_mut();
+        let player = world.query_filtered::<Entity, With<Player>>().single(world).unwrap();
+        world.entity_mut(player).insert(LastStand::shown(LAST_STAND_SECS, false));
+    }
+
+    /// The Down ends, as a Revive or Self-Revive ends it.
+    pub fn get_up(&mut self) {
+        let world = self.app.world_mut();
+        let player = world.query_filtered::<Entity, With<Player>>().single(world).unwrap();
+        world.entity_mut(player).remove::<LastStand>();
+    }
+
+    /// How far the Player's body reaches above their feet: the collider's height, end to end.
+    pub fn body_height(&mut self) -> f32 {
+        let world = self.app.world_mut();
+        let collider = world.query_filtered::<&Collider, With<Player>>().single(world).unwrap();
+        let aabb = collider.aabb(Vec3::ZERO, Quat::IDENTITY, 0.0);
+        aabb.max.y - aabb.min.y
+    }
+
     /// The camera's `Eye` height above the capsule centre, as the stance glide has it.
     pub fn eye(&mut self) -> f32 {
         self.app
@@ -1147,4 +1174,136 @@ fn the_cooldown_ignores_a_dive_press_and_the_recovery_locks_every_stance_change(
     assert_eq!(stepped.stance, Stance::Prone, "the press past the cooldown didn't Dive");
     assert!(!stepped.grounded, "the Dive didn't leave the floor");
     assert!(stepped.vertical_speed() > 3.0, "the lunge didn't lift: {}", stepped.vertical_speed());
+}
+
+/// The eye above the capsule centre in the Down pose: the prone eye in the prone body.
+fn down_eye() -> f32 {
+    PRONE_EYE_HEIGHT - Stance::Prone.half_height()
+}
+
+/// A Down from any Stance lies in the one Down pose: the prone body (0.7 m), the prone eye, the
+/// stance reading Standing, the feet where they were. The collapse glides the eye down at one
+/// speed, so from Crouched or Prone, where it starts lower, it's quicker.
+#[test]
+fn a_down_from_any_stance_collapses_into_the_one_down_pose() {
+    let mut collapse_secs = Vec::new();
+    for from in [Stance::Standing, Stance::Crouched, Stance::Prone] {
+        let mut sim = Sim::new(144.0);
+        sim.place(Vec3::new(0.0, 0.0, 20.0), EAST);
+        match from {
+            Stance::Standing => {}
+            Stance::Crouched => sim.tap_crouch(),
+            Stance::Prone => sim.tap_prone(),
+        }
+        sim.run_secs(1.0);
+        assert_eq!(sim.stance(), from);
+        let feet = sim.frame().pos.y - from.half_height();
+
+        sim.go_down();
+        let mut frames = 0;
+        while (sim.eye() - down_eye()).abs() > 1e-3 && frames < 500 {
+            sim.frame();
+            frames += 1;
+        }
+        collapse_secs.push(frames as f32 * sim.frame_secs);
+        sim.run_secs(0.2);
+        let locomotion = sim.locomotion();
+        assert!(locomotion.down, "{from:?}: not in the Down pose");
+        assert_eq!(sim.stance(), Stance::Standing, "{from:?}: the Down didn't reset the stance");
+        assert!((sim.body_height() - PRONE_COLLIDER_HEIGHT).abs() < 1e-3, "{from:?}: a {} m body", sim.body_height());
+        assert!((sim.eye() - down_eye()).abs() < 1e-3, "{from:?}: the eye settled at {}", sim.eye());
+        assert!(
+            (sim.frame().pos.y - Stance::Prone.half_height() - feet).abs() < 0.05,
+            "{from:?}: the feet moved"
+        );
+    }
+    let [standing, crouched, prone] = collapse_secs[..] else { unreachable!() };
+    assert!((standing - LAST_STAND_COLLAPSE_SECS).abs() < 0.05, "the collapse from Standing took {standing} s");
+    assert!(crouched < standing, "from Crouched ({crouched} s) wasn't quicker than from Standing");
+    assert!(prone < crouched, "from Prone ({prone} s) wasn't quicker than from Crouched");
+}
+
+/// While Down the camera shares the prone look limit, and stance input is dead: the keys change
+/// nothing, and no lock of the prone transitions applies — Last Stand's own rules don't change.
+#[test]
+fn down_shares_the_prone_look_limit_and_stance_input_is_dead() {
+    let mut sim = Sim::new(144.0);
+    sim.place(Vec3::new(0.0, 0.0, 20.0), EAST);
+    sim.go_down();
+    sim.run_secs(0.5);
+    sim.mouse(Vec2::new(0.0, -400.0));
+    sim.run_secs(0.5);
+    sim.mouse(Vec2::ZERO);
+    assert!(sim.pitch() <= PRONE_LOOK_UP_MAX + 1e-3, "looked {} rad up while Down", sim.pitch());
+
+    for tap in [Sim::tap_crouch, Sim::tap_prone] {
+        tap(&mut sim);
+        sim.run_secs(0.5);
+        assert_eq!(sim.stance(), Stance::Standing, "a stance key moved a Downed Player");
+        assert!(sim.locomotion().down);
+        assert!(!sim.firing_blocked(), "a stance lock held while Down");
+    }
+}
+
+/// A Revive or Self-Revive ends Standing, through a timed rise mirroring the collapse: a change out
+/// of Prone, so the firing lock holds until upright, then lifts, with the feet where they were.
+#[test]
+fn the_end_of_a_down_rises_to_standing_under_the_stance_rules() {
+    let mut sim = Sim::new(144.0);
+    sim.place(Vec3::new(0.0, 0.0, 20.0), EAST);
+    sim.tap_prone();
+    sim.run_secs(1.0);
+    sim.go_down();
+    sim.run_secs(1.0);
+    let feet = sim.frame().pos.y - Stance::Prone.half_height();
+
+    sim.get_up();
+    sim.run_secs(0.05);
+    let rising = sim.locomotion();
+    assert!(!rising.down, "still lying Down");
+    assert_eq!(rising.stance, Stance::Standing, "the get-up wasn't to Standing");
+    assert!(rising.prone_transition(), "the rise isn't run as a change out of Prone");
+    assert!(sim.firing_blocked(), "firing wasn't blocked through the rise");
+    assert!((sim.body_height() - 2.0 * Stance::Standing.half_height()).abs() < 1e-3, "the body didn't grow at once");
+
+    sim.run_secs(LAST_STAND_COLLAPSE_SECS);
+    assert!(!sim.firing_blocked(), "the lock outlasted the rise");
+    let standing_eye = PLAYER_EYE_HEIGHT;
+    assert!((sim.eye() - standing_eye).abs() < 1e-3, "the rise settled the eye at {}", sim.eye());
+    assert!((sim.frame().pos.y - Stance::Standing.half_height() - feet).abs() < 0.05, "the feet moved");
+    assert_eq!(sim.stance(), Stance::Standing, "there's a route back to Prone through the Down");
+}
+
+/// A Down mid-Dive takes over: the recovery lock and the cooldown are wiped, physics finishes the
+/// flight, and the Player lands straight into the Down pose — no Prone, no lock.
+#[test]
+fn a_down_mid_dive_takes_over_the_flight() {
+    let mut sim = Sim::new(144.0);
+    sim.place(Vec3::new(0.0, 0.0, 20.0), EAST);
+    sim.hold(&[KeyCode::KeyW, KeyCode::ShiftLeft]);
+    sim.run_secs(0.25);
+    let feet = sim.frame().pos.y - Stance::Standing.half_height();
+    sim.hold(&[KeyCode::KeyZ]);
+    sim.run(3);
+    sim.hold(&[]);
+    assert!(sim.locomotion().diving, "never Dove");
+
+    sim.go_down();
+    let first = sim.frame();
+    let downed = sim.locomotion();
+    assert!(downed.down, "the Down didn't take over");
+    assert!(!downed.diving, "the Dive kept flying as a Dive");
+    assert!(!first.grounded, "the Down stopped the flight in the air");
+    assert_eq!(downed.stance, Stance::Standing);
+
+    let mut frames = 0;
+    while !sim.frame().grounded && frames < 300 {
+        frames += 1;
+    }
+    sim.run_secs(0.1);
+    let landed = sim.locomotion();
+    assert!(landed.down && landed.grounded, "didn't land in the Down pose");
+    assert!(!landed.recovering_from_dive() && !landed.dive_on_cooldown(), "the Dive's locks survived the Down");
+    assert!(!sim.firing_blocked(), "a Dive lock held while Down");
+    assert!((sim.frame().pos.y - Stance::Prone.half_height() - feet).abs() < 0.05, "didn't land on the floor it left");
 }

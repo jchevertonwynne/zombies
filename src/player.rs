@@ -13,7 +13,7 @@ use crate::authority::HostSimulation;
 use crate::barrier::PlankTally;
 use crate::controls::{Action, Controls};
 use crate::equipment::Equipment;
-use crate::last_stand::{LastStand, lower_eye};
+use crate::last_stand::LastStand;
 use crate::respawn::AwaitingRespawn;
 use crate::layers::GameLayer;
 use crate::map::seat_start;
@@ -128,7 +128,8 @@ impl StanceKeys {
     /// the Player is `grounded` and `down`. Returns whether the jump passes this tick: a jump that
     /// stands the Player up, or one held from it, doesn't jump them.
     ///
-    /// Stance input is dead while Down: the target comes back Standing. Airborne presses are
+    /// Stance input is dead while Down: the target comes back Standing, and a Hold key held
+    /// through it must be released and pressed again once up. Airborne presses are
     /// ignored; a Hold key still held lands the Player in its Stance when they do.
     pub fn resolve(
         &mut self,
@@ -143,7 +144,10 @@ impl StanceKeys {
         let [crouch_was, prone_was, jump_was, sprint_was] = self.held;
         self.held = [crouch, prone, jump, sprint];
         if down {
+            // A Hold key held through the Down gives way too, so the get-up ends Standing: no
+            // route back to Crouched or Prone through a Down.
             self.target = Stance::Standing;
+            self.yielded = true;
             return jump;
         }
         if !jump {
@@ -293,6 +297,10 @@ pub struct Locomotion {
     /// Seconds since the last Dive landed, counting through its recovery and its cooldown.
     /// `f32::INFINITY` until the first Dive lands.
     pub(crate) since_dive_landing: f32,
+    /// Lying in the Down pose: on the back, in the prone body. Down is not a Stance, so `stance`
+    /// reads Standing all the while; the step lays the body down when a Down starts and rises it
+    /// when the Down ends.
+    pub(crate) down: bool,
 }
 
 impl Locomotion {
@@ -312,10 +320,49 @@ impl Locomotion {
         self.changing_stance() && (self.stance == Stance::Prone || self.left_stance == Stance::Prone)
     }
 
+    /// The shape the body is in: its Stance's, or while Down the prone one, which the Down
+    /// shares — one lying-down collider, eye and look limit, two faces (Prone face-down, the
+    /// Down on the back).
+    pub fn shape(&self) -> Stance {
+        if self.down { Stance::Prone } else { self.stance }
+    }
+
+    /// Lays the body down into the Down pose, from whatever it was doing: the stance resets to
+    /// Standing, any stance change is over, and a Dive in flight hands over to plain physics —
+    /// its recovery lock and cooldown wiped — so the Player lands straight into the pose. The
+    /// eye drops to the prone eye at the collapse's speed. Returns how far the body's centre
+    /// moves up (down, here) to keep the feet where they are.
+    fn collapse(&mut self) -> f32 {
+        let lift = Stance::Prone.half_height() - self.shape().half_height();
+        // Standing at once, but for the eye, which glides down from where it is.
+        let eye = self.eye;
+        self.stand();
+        self.eye = eye;
+        self.eye_rate = collapse_rate();
+        self.down = true;
+        lift
+    }
+
+    /// Gets the body up out of the Down pose into Standing, as a Revive or Self-Revive does: a
+    /// timed rise mirroring the collapse, run as a change out of Prone, so the stance rules —
+    /// the firing lock, the slower speed, no Sprint — apply until upright. Returns how far the
+    /// body's centre moves up.
+    fn rise(&mut self) -> f32 {
+        self.down = false;
+        let lift = Stance::Standing.half_height() - Stance::Prone.half_height();
+        self.left_stance = Stance::Prone;
+        self.stance = Stance::Standing;
+        self.eye_rate = collapse_rate();
+        self.stance_change_secs = (Stance::Standing.eye_height() - self.eye).abs() / self.eye_rate;
+        self.since_stance_change = 0.0;
+        lift
+    }
+
     /// Puts the body in the Standing Stance at once, as a Respawn, a Teleporter ride or the start
     /// of a Run does. The caller sets the collider to match. A Dive in flight is over, its locks
-    /// wiped.
+    /// wiped, and so is any Down pose, with no rise to animate.
     pub(crate) fn stand(&mut self) {
+        self.down = false;
         self.stance = Stance::Standing;
         self.left_stance = Stance::Standing;
         self.stance_change_secs = 0.0;
@@ -372,8 +419,15 @@ impl Default for Locomotion {
             eye_rate: 0.0,
             diving: false,
             since_dive_landing: f32::INFINITY,
+            down: false,
         }
     }
+}
+
+/// How fast the eye drops in a Down's collapse, and climbs in the rise after: the standing eye to
+/// the prone eye in `LAST_STAND_COLLAPSE_SECS`.
+fn collapse_rate() -> f32 {
+    (Stance::Standing.eye_height() - Stance::Prone.eye_height()) / LAST_STAND_COLLAPSE_SECS
 }
 
 /// A factor on the camera's FOV from an effect, like the Teleporter's FOV warp. 1 for none. Its
@@ -436,16 +490,10 @@ pub fn not_recovering_from_dive(players: Query<(&Locomotion, Has<LastStand>), Wi
     players.iter().all(|(locomotion, last_stand)| last_stand || !locomotion.recovering_from_dive())
 }
 
-/// Places the camera's `Eye` from the stance glide: the eye's height above the feet, less the
-/// capsule's half height. While Down, Last Stand owns the eye instead (`lower_eye`).
-pub(crate) fn place_eye(
-    player: Single<(&Locomotion, Has<LastStand>), With<LocalPlayer>>,
-    mut eye: Single<&mut Eye, With<PlayerCamera>>,
-) {
-    let (locomotion, last_stand) = player.into_inner();
-    if !last_stand {
-        eye.height = locomotion.eye - locomotion.stance.half_height();
-    }
+/// Places the camera's `Eye` from the glide: the eye's height above the feet, less the body's half
+/// height. The Down's collapse and rise glide the same eye, toward the prone eye and back.
+pub(crate) fn place_eye(player: Single<&Locomotion, With<LocalPlayer>>, mut eye: Single<&mut Eye, With<PlayerCamera>>) {
+    eye.height = player.eye - player.shape().half_height();
 }
 
 /// Mouse look. It turns the Player's Transform every frame, so it runs right after the
@@ -494,9 +542,9 @@ impl Plugin for PlayerPlugin {
                 Update,
                 (take_hits, regenerate).in_set(HostSimulation).run_if(world_runs),
             )
-            // The camera rides the stance glide; Last Stand owns the eye while Down, so this
-            // runs after its `lower_eye`, and the sway reads what the two of them left.
-            .add_systems(Update, place_eye.after(lower_eye))
+            // The camera rides the stance glide, the Down's collapse and rise included; the sway
+            // reads what it left.
+            .add_systems(Update, place_eye)
             // The OS can drop the grab (e.g. on focus loss); clicking takes it back.
             .add_systems(
                 Update,
@@ -665,9 +713,9 @@ fn look(
     transform.rotate_y(-delta.x);
 
     const PITCH_LIMIT: f32 = FRAC_PI_2 - 0.01;
-    // While Prone, looking up is capped at `PRONE_LOOK_UP_MAX` above level; looking down and
-    // turning stay free.
-    let up = if locomotion.stance == Stance::Prone { PRONE_LOOK_UP_MAX } else { PITCH_LIMIT };
+    // While Prone, or Down (which shares the prone camera), looking up is capped at
+    // `PRONE_LOOK_UP_MAX` above level; looking down and turning stay free.
+    let up = if locomotion.shape() == Stance::Prone { PRONE_LOOK_UP_MAX } else { PITCH_LIMIT };
     let (_, pitch, _) = camera.rotation.to_euler(EulerRot::YXZ);
     let pitch = (pitch - delta.y).clamp(-PITCH_LIMIT, up);
     camera.rotation = Quat::from_rotation_x(pitch);
@@ -783,7 +831,7 @@ pub(crate) fn move_player(
 /// One tick of a Player's movement: advances `position` and `Locomotion` by `delta` under
 /// `input`. It reads no keyboard and no clock, so given the same start, input and world it
 /// reaches the same place every time, which is what lets a client replay inputs through it.
-/// Returns the Stance the body took this tick, if it changed.
+/// Returns the shape the body took this tick (see `Locomotion::shape`), if it changed.
 pub fn step_move(
     position: &mut Vec3,
     locomotion: &mut Locomotion,
@@ -798,6 +846,15 @@ pub fn step_move(
 
     let wish = input.axes.normalize_or_zero();
 
+    let mut changed = None;
+    // The Down pose: a Down from any Stance, on the ground or in the air, lays the body down at
+    // once, feet staying put; the end of the Down (a Revive or Self-Revive) rises it to Standing.
+    // There's no route back to Crouched or Prone through a Down.
+    if last_stand != locomotion.down {
+        position.y += if last_stand { locomotion.collapse() } else { locomotion.rise() };
+        changed = Some(locomotion.shape());
+    }
+
     // Stance: the input carries the Stance wanted, resolved from the keys. The body takes it at
     // the start of a transition, both ways: going down shrinks the capsule at once, feet staying
     // put; getting up passes the ceiling check first, then grows. Nothing changes in the air.
@@ -810,7 +867,6 @@ pub fn step_move(
     } else {
         Stance::Standing
     };
-    let mut changed = None;
     // The Dive: the target going Prone while sprinting is a lunge into a low airborne arc, not a
     // prone transition — detected here from the same bits the Host replays, so both sides see it
     // the same. It starts only from the ground (the sprint is grounded), never under the landing
@@ -843,14 +899,14 @@ pub fn step_move(
         }
         changed = Some(target);
     }
-    // The step works from the Stance's own shape; the caller puts the collider component into it.
-    let shape = locomotion.stance.collider();
+    // The step works from the body's own shape; the caller puts the collider component into it.
+    let shape = locomotion.shape().collider();
     locomotion.since_stance_change += dt;
     // (The Dive's timers count from its landing, which is found further down, once the move has
     // run. `INFINITY` stays itself.)
     locomotion.since_dive_landing += dt;
-    // The camera keeps gliding to the new stance's eye for the whole transition.
-    locomotion.eye = move_towards(locomotion.eye, locomotion.stance.eye_height(), locomotion.eye_rate * dt);
+    // The camera keeps gliding to the body's eye for the whole transition.
+    locomotion.eye = move_towards(locomotion.eye, locomotion.shape().eye_height(), locomotion.eye_rate * dt);
 
     // Sprinting only makes sense running forwards on the ground, and it runs out. Aiming stops
     // it, there's no sprinting with a Perk in hand or in Last Stand, and only Standing sprints:
@@ -1200,6 +1256,12 @@ mod tests {
             // Stance input is dead while Down: the target comes back Standing.
             assert!(down.resolve(mode, true, true, true, true, true, true), "the Down took the jump");
             assert_eq!(down.target, Stance::Standing);
+            // Up again, the keys held through the Down keep them Standing until pressed afresh.
+            down.resolve(mode, true, true, false, false, true, false);
+            assert_eq!(down.target, Stance::Standing, "{mode:?}: a key held through the Down went back down");
+            down.resolve(mode, false, false, false, false, true, false);
+            down.resolve(mode, false, true, false, false, true, false);
+            assert_eq!(down.target, Stance::Prone, "{mode:?}: a fresh press after the get-up didn't go down");
         }
     }
 

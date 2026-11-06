@@ -604,7 +604,7 @@ fn reconcile(
     }
     let was = transform.translation;
     let mut position = was;
-    let stance_was = locomotion.stance;
+    let shape_was = locomotion.shape();
     snapshot.own.put(&mut position, &mut locomotion);
     prediction.sent.retain(|(tick, _)| *tick > snapshot.used);
     let mut context = MoveContext { entity, loadout, modifiers, drinking, last_stand };
@@ -612,8 +612,8 @@ fn reconcile(
         step_move(&mut position, &mut locomotion, &step.input(), &mut context, time.delta(), &move_and_slide);
     }
     transform.translation = position;
-    if locomotion.stance != stance_was {
-        commands.entity(entity).insert(locomotion.stance.collider());
+    if locomotion.shape() != shape_was {
+        commands.entity(entity).insert(locomotion.shape().collider());
     }
     prediction.corrected = was.distance(position);
 }

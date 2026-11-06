@@ -2839,7 +2839,6 @@ mod two_player_tests {
     use crate::controls::Binding;
     use crate::equipment::{Claymore, Equipment, EquipmentPlugin, Handling};
     use crate::explosive::{Explosion, Launch};
-    use crate::last_stand::lower_eye;
     use crate::modifier::RunModifiers;
     use crate::muzzle::BulletImpact;
     use crate::player::{
@@ -2879,7 +2878,7 @@ mod two_player_tests {
                 .add_message::<RoundStarted>()
                 .add_message::<ZombieKilled>()
                 .add_plugins((BarrierPlugin, EquipmentPlugin, WeaponPlugin, SwayPlugin, BuyPlugin))
-                .add_systems(Update, (lower_eye, place_eye.after(lower_eye)))
+                .add_systems(Update, place_eye)
                 .add_systems(FixedUpdate, move_player);
         });
         let world = sim.world_mut();

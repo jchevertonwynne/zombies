@@ -10,7 +10,7 @@ use crate::authority::HostSimulation;
 use crate::buy::buy;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve_count};
 use crate::perk::{Drinking, Perk, Perks, drink, kept_on_down};
-use crate::player::{Eye, Health, LocalPlayer, Player, take_hits};
+use crate::player::{Health, Player, take_hits};
 use crate::points::Points;
 use crate::respawn::{AwaitingRespawn, BledOut};
 use crate::revive::Reviving;
@@ -157,8 +157,7 @@ impl Plugin for LastStandPlugin {
                 Update,
                 // A drink that ends in the frame of a Down is still lost, and nothing can be bought
                 // in that frame either.
-                ((go_down.after(take_hits).after(drink).before(buy), self_revive).in_set(HostSimulation), lower_eye)
-                    .run_if(world_runs),
+                (go_down.after(take_hits).after(drink).before(buy), self_revive).in_set(HostSimulation).run_if(world_runs),
             );
     }
 }
@@ -233,16 +232,6 @@ pub(crate) fn self_revive(
         health.current = SELF_REVIVE_HEALTH.min(health.max);
         commands.entity(entity).remove::<LastStand>();
         revived.write(SelfRevived);
-    }
-}
-
-/// The view drops to the floor for the crawl and comes back up after.
-pub fn lower_eye(player: Single<Has<LastStand>, With<LocalPlayer>>, mut eye: Single<&mut Eye>, time: Res<Time>) {
-    let target = if *player { PLAYER_EYE_HEIGHT - LAST_STAND_EYE_DROP } else { PLAYER_EYE_HEIGHT };
-    let step = LAST_STAND_EYE_DROP * 3.0 * time.delta_secs();
-    let y = eye.height;
-    if y != target {
-        eye.height = if y < target { (y + step).min(target) } else { (y - step).max(target) };
     }
 }
 

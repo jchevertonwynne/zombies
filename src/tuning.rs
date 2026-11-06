@@ -1841,8 +1841,10 @@ pub const LAST_STAND_WEAPON: WeaponId = WeaponId::M1911;
 pub const LAST_STAND_SPARE_MAGAZINES: u32 = 2;
 /// Zombies walk away from a Player in Last Stand until they're about this far off.
 pub const LAST_STAND_ZOMBIE_RETREAT_DISTANCE: f32 = 15.0;
-/// How far the eye drops while crawling (approx).
-pub const LAST_STAND_EYE_DROP: f32 = 0.9;
+/// Seconds a Down's collapse takes from Standing: the eye drops from the standing eye to the
+/// prone eye (which the Down shares) at the speed this sets, so from Crouched or Prone, where the
+/// drop starts lower, it's quicker. The rise after a Revive or Self-Revive mirrors it.
+pub const LAST_STAND_COLLAPSE_SECS: f32 = 1.0 / 3.0;
 /// Health after a Self-Revive.
 pub const SELF_REVIVE_HEALTH: f32 = 100.0;
 

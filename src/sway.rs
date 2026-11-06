@@ -9,7 +9,7 @@ use std::ops::{Add, Mul, Sub};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 
-use crate::last_stand::{LastStand, lower_eye};
+use crate::last_stand::LastStand;
 use crate::player::{Eye, LocalPlayer, Locomotion, PlayerCamera, Stance, place_eye};
 use crate::settings::Settings;
 use crate::state::input_runs;
@@ -130,8 +130,7 @@ impl Plugin for SwayPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, add_sway).add_systems(
             Update,
-            sway.after(lower_eye)
-                .after(place_eye)
+            sway.after(place_eye)
                 .after(AnimateViewModel)
                 .run_if(input_runs),
         );

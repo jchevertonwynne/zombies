@@ -18,7 +18,7 @@ use crate::explosive::world_filter;
 use crate::last_stand::{LastStand, go_down, self_revive};
 use crate::modifier::Modifiers;
 use crate::perk::Perks;
-use crate::player::{Health, LocalPlayer, Locomotion, Player, Seat};
+use crate::player::{Health, LocalPlayer, Locomotion, Player, Seat, Stance};
 use crate::points::Points;
 use crate::round::{Round, RoundStarted};
 use crate::state::{GameState, Paused, RunType, world_runs};
@@ -179,8 +179,14 @@ fn bleed_out(
     mut commands: Commands,
     mut bled_out: MessageReader<BledOut>,
     mut players: Query<(Entity, &mut Points, Has<Disconnected>), With<Player>>,
+    mut bodies: Query<&mut Locomotion, With<Player>>,
 ) {
     for &BledOut { player } in bled_out.read() {
+        // The body is gone, not getting up: it leaves the Down pose Standing, with no rise, so
+        // the Respawn places it Standing too.
+        if let Ok(mut locomotion) = bodies.get_mut(player) {
+            locomotion.stand();
+        }
         let dropped = players.get(player).is_ok_and(|(.., dropped)| dropped);
         for (entity, mut points, _) in &mut players {
             if entity != player && !dropped {
@@ -189,7 +195,10 @@ fn bleed_out(
             }
         }
         // Gone from the world until the next Round: no body to hit, no Last Stand to Revive.
-        commands.entity(player).remove::<LastStand>().insert((AwaitingRespawn, ColliderDisabled));
+        commands
+            .entity(player)
+            .remove::<LastStand>()
+            .insert((AwaitingRespawn, ColliderDisabled, Stance::Standing.collider()));
     }
 }
 
@@ -250,7 +259,7 @@ fn respawn(
         *locomotion = Locomotion::default();
         // A Respawn places the Player Standing, whatever they went down as.
         commands.entity(entity)
-            .insert(crate::player::Stance::Standing.collider())
+            .insert(Stance::Standing.collider())
             .remove::<(AwaitingRespawn, ColliderDisabled)>();
         respawned.write(Respawned { player: entity });
     }

@@ -156,11 +156,10 @@ fn a_player_respawns_at_the_next_round_beside_a_teammate_with_the_starting_loado
     // Beside them, a little closer than the offset if a wall pushed the body in.
     assert!((0.5..=RESPAWN_BESIDE_DISTANCE + 0.1).contains(&at.distance(beside)), "{} m from the teammate", at.distance(beside));
     assert!(is_up(&mut sim, teammate));
-    assert_eq!(
-        sim.world_mut().get::<Locomotion>(teammate).unwrap().stance,
-        Stance::Standing,
-        "the Respawn didn't place them Standing"
-    );
+    let locomotion = sim.world_mut().get::<Locomotion>(teammate).unwrap().clone();
+    assert_eq!(locomotion.stance, Stance::Standing, "the Respawn didn't place them Standing");
+    assert!(!locomotion.down, "the Respawn left them in the Down pose");
+    assert!(!locomotion.changing_stance(), "the Respawn animated a rise");
 }
 
 #[test]
