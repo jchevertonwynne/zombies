@@ -14,7 +14,7 @@ use crate::hellhound::Telegraph;
 use crate::nav::{NavGraph, Route, repath_interval};
 use crate::target::{Players, nearest_up_player};
 use crate::nova::NovaCrawlerKilled;
-use crate::player::PlayerHit;
+use crate::player::{HitGrace, PlayerHit};
 use crate::power_up::{ActivePowerUps, PowerUp};
 use crate::round::CarriesOver;
 use crate::special::{SpecialCue, SpecialKind, hit_pays};
@@ -1061,6 +1061,28 @@ pub fn slam_reaches(from: Vec3, forward: Vec3, to: Vec3) -> bool {
     flat.length() <= SAPPER_SLAM_REACH && (flat.length() < 1e-3 || horizontal(forward).angle_between(flat) <= half_arc)
 }
 
+/// Where Zombie-family melee is sent: swipes, reach-through swipes, bites and the Sapper's slam.
+/// Each one judges the Player's Hit Grace, so a hit inside it is never sent, and one that lands
+/// opens it. Explosions, Traps and fire write `PlayerHit` themselves and pass Hit Grace by.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct ZombieMelee<'w, 's> {
+    graces: Query<'w, 's, &'static mut HitGrace>,
+    hits: MessageWriter<'w, PlayerHit>,
+    clock: Res<'w, Time<Virtual>>,
+}
+
+impl ZombieMelee<'_, '_> {
+    /// Strikes `player` for `damage`, unless their Hit Grace blocks it. A blocked swing is spent
+    /// all the same: the caller starts its cooldown either way, so a pile-up can't line its next
+    /// swings up with the end of Hit Grace.
+    pub(crate) fn strike(&mut self, player: Entity, damage: f32) {
+        let now = self.clock.elapsed();
+        if self.graces.get_mut(player).map_or(true, |mut grace| grace.try_land(now)) {
+            self.hits.write(PlayerHit { player, damage });
+        }
+    }
+}
+
 /// Zombies inside swipe the Player in reach, Hellhounds bite, and the Sapper slams the Player in
 /// the arc in front of it, all only with a clear line to the Player: a wall or a closed Door
 /// stops a swipe and its wind-up. Those outside a window reach through it instead (see the
@@ -1079,7 +1101,7 @@ fn attack(
     >,
     players: Players,
     spatial: SpatialQuery,
-    mut hits: MessageWriter<PlayerHit>,
+    mut melee: ZombieMelee,
     mut cues: MessageWriter<SpecialCue>,
     time: Res<Time>,
 ) {
@@ -1114,12 +1136,10 @@ fn attack(
                     cues.write(SpecialCue { cue: Cue::SapperSlam, at });
                     zombie.attack_cooldown = cooldown;
                 }
-                // A Zombie that lands a swipe is ignored for a moment; other Zombies can still hit.
+                // A Zombie that lands a swipe is ignored for a moment; other Zombies can still hit,
+                // once the Player's Hit Grace is over.
                 if in_reach {
-                    hits.write(PlayerHit {
-                        player: player.entity,
-                        damage,
-                    });
+                    melee.strike(player.entity, damage);
                     // The Sapper's slam has its own sound, above.
                     if !zombie.is_sapper() {
                         let cue = if zombie.hellhound {
@@ -1451,6 +1471,9 @@ pub mod rig;
 
 #[cfg(test)]
 pub mod headless;
+
+#[cfg(test)]
+mod hit_grace;
 
 #[cfg(test)]
 mod tests {

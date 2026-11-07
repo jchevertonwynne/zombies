@@ -15,13 +15,13 @@ use crate::buy::{Buyable, Focus, Held, Nearby, UseRequest};
 use crate::map::{BarrierId, WINDOWS};
 use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_points};
 use crate::nav::Route;
-use crate::player::{LocalPlayer, Player, PlayerHit};
+use crate::player::{LocalPlayer, Player};
 use crate::target::Players;
 use crate::points::{Points, PointsAwarded};
 use crate::round::{Round, zombie_health};
 use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
-use crate::zombie::{Attack, DamageZombie, Dying, HitZone, KnockedDown, Stunned, Zombie};
+use crate::zombie::{Attack, DamageZombie, Dying, HitZone, KnockedDown, Stunned, Zombie, ZombieMelee};
 
 /// How far outside the wall a Zombie stands to tear at a window.
 const SPOT_OUT: f32 = 0.75;
@@ -582,7 +582,7 @@ pub(crate) fn enter_through_windows(
     >,
     players: Players,
     mut barriers: ResMut<Barriers>,
-    mut hits: MessageWriter<PlayerHit>,
+    mut melee: ZombieMelee,
     mut torn: MessageWriter<PlankTorn>,
     mut damage: MessageWriter<DamageZombie>,
     mut cues: MessageWriter<PlayCue>,
@@ -653,10 +653,7 @@ pub(crate) fn enter_through_windows(
                         if let Some(victim) = victim
                             && rand::random_bool(BARRIER_SWIPE_CHANCE)
                         {
-                            hits.write(PlayerHit {
-                                player: victim.entity,
-                                damage: ZOMBIE_SWIPE_DAMAGE,
-                            });
+                            melee.strike(victim.entity, ZOMBIE_SWIPE_DAMAGE);
                             cues.write(PlayCue {
                                 cue: Cue::ZombieAttack,
                                 at: Some(transform.translation),

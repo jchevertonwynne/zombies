@@ -1178,6 +1178,10 @@ pub const ZOMBIE_WIND_UP_SECS: f32 = 0.5;
 pub const ZOMBIE_HIT_COOLDOWN_SECS: f32 = 0.4;
 /// Two swipes Down a Player without Juggernog.
 pub const ZOMBIE_SWIPE_DAMAGE: f32 = 60.0;
+/// Hit Grace: after a Zombie-family melee hit lands on a Player, no Zombie-family melee hurts
+/// them for this long, so a pile-up can't land two swipes at once. Explosions, Traps and fire
+/// still do. Tuned by feel; no Perk, Boon or Pact changes it.
+pub const HIT_GRACE_SECS: f32 = 0.5;
 /// The height above the Player's feet that melee and reach-through sight rays aim at, whatever
 /// their Stance, so knee-high cover never shields a Player from a swipe. A standing Player's
 /// capsule centre sits exactly this high, so against them nothing changes.

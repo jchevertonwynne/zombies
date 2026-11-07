@@ -215,7 +215,28 @@ impl StanceKeys {
 }
 
 #[derive(Component)]
+#[require(HitGrace)]
 pub struct Player;
+
+/// A Player's Hit Grace: when the last Zombie-family melee hit that landed on them stops
+/// shielding them from the next, in `Time<Virtual>`'s elapsed time. The Host judges it where
+/// Zombie-family hits are sent; a hit it blocks is never sent, so it does nothing at all.
+#[derive(Component, Debug, Default)]
+pub struct HitGrace {
+    ends: Duration,
+}
+
+impl HitGrace {
+    /// Whether a Zombie-family melee hit at `now` lands. One that lands opens Hit Grace for
+    /// `HIT_GRACE_SECS`.
+    pub fn try_land(&mut self, now: Duration) -> bool {
+        if now < self.ends {
+            return false;
+        }
+        self.ends = now + Duration::from_secs_f32(HIT_GRACE_SECS);
+        true
+    }
+}
 
 /// Which of the four Seats a Player holds for the Run: 0 is the Host's, and solo is always 0. It
 /// names the Player wherever an `Entity` can't (across the network), and sets their colour.
