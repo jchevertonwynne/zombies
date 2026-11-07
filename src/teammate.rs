@@ -7,7 +7,7 @@
 //! Player's own state; on a client they will come off snapshots instead. The body reads only
 //! those, so it draws the same either way. Purely visual: nothing here is in `HostSimulation`.
 
-use std::f32::consts::{FRAC_PI_2, PI, TAU};
+use std::f32::consts::{FRAC_PI_2, TAU};
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
@@ -261,6 +261,21 @@ const PRONE_HIPS_Y: f32 = 0.18;
 const DIVE_HIPS_Y: f32 = 0.35;
 /// Prone, the Weapon comes up off the floor by this much, out ahead on the elbows.
 const PRONE_GUN_LIFT: f32 = 0.15;
+/// Down: tipped over onto the back (the opposite way to Prone), the legs turned up a little from
+/// along the floor, and the head and the pistol pitched up from level, in the world, to look and
+/// point down the body.
+const DOWN_TILT: f32 = -1.4;
+const DOWN_HIPS_Y: f32 = 0.22;
+const DOWN_LEGS: f32 = 0.2;
+const DOWN_HEAD_PITCH: f32 = 0.9;
+const DOWN_PISTOL_PITCH: f32 = 0.35;
+/// Lying on the back, the look turns the head and the pistol no further down than this, so the
+/// pistol never points into the floor (the camera's own look down is free).
+const DOWN_LOOK_DOWN_LIMIT: f32 = -0.4;
+/// The Weapon up at the eye, both hands on it: as aiming holds it, and as a Last Stand holds the
+/// pistol up over the chest.
+const GUN_TWO_HANDED: Vec3 = Vec3::new(0.0, -0.02, -0.4);
+const ARMS_TWO_HANDED: [Arm; 2] = [Arm { pitch: 1.35, yaw: 0.6 }, Arm { pitch: 1.5, yaw: 0.5 }];
 
 /// One arm's turn from hanging straight down: `pitch` swings it forward, `yaw` across the body.
 /// Written for the right arm; the left mirrors it.
@@ -336,6 +351,19 @@ impl StanceGlide {
     }
 }
 
+/// How far the look turns a body's head and Weapon: as the Player looks, but lying on the back
+/// no further down than `DOWN_LOOK_DOWN_LIMIT`.
+fn look_pitch(pose: &Pose, pitch: f32) -> f32 {
+    if pose.last_stand { pitch.max(DOWN_LOOK_DOWN_LIMIT) } else { pitch }
+}
+
+/// Whether a body tipped `from` heads for a tilt `to` on the other side of upright: face down to
+/// the back, or back to face down. Its head and feet swap ends, so it goes over at once, rather
+/// than rocking up through standing with its legs through the floor.
+fn turns_over(from: f32, to: f32) -> bool {
+    from * to < 0.0
+}
+
 /// Where a name tag floats, from where the head's pivot is: over the top of the standing body
 /// while Standing, and following the head down from there.
 fn name_tag_anchor(head: Vec3) -> Vec3 {
@@ -344,8 +372,8 @@ fn name_tag_anchor(head: Vec3) -> Vec3 {
 
 /// Where every pivot of a body should head, before it's smoothed.
 struct Body {
-    /// The hips' height above the floor, and how far the whole body tips over from upright,
-    /// face down (a Last Stand crawl).
+    /// The hips' height above the floor, and how far the whole body tips over from upright:
+    /// positive face down (Prone), negative onto the back (Down).
     hips_y: f32,
     tilt: f32,
     /// The upper body's lean forward from the hips.
@@ -404,8 +432,8 @@ fn body(doing: &Doing) -> Body {
 
     if pose.aiming {
         // The Weapon comes up to the eye, both hands on it.
-        body.gun = Vec3::new(0.0, -0.02, -0.4 + 0.04 * kick);
-        body.arms = [Arm { pitch: 1.35, yaw: 0.6 }, Arm { pitch: 1.5, yaw: 0.5 }];
+        body.gun = GUN_TWO_HANDED + Vec3::Z * 0.04 * kick;
+        body.arms = ARMS_TWO_HANDED;
         body.lean = 0.12;
     }
     if pose.sprinting {
@@ -524,17 +552,19 @@ fn body(doing: &Doing) -> Body {
         }
     }
     if pose.last_stand {
-        // Face down, hauling themselves along on their arms with their legs dragging.
-        let haul = stride * phase.sin();
-        body.hips_y = 0.22;
-        body.tilt = 1.4;
+        // On the back, feet first, the head lifted to look down the body and the pistol held up
+        // over the chest in both hands; the Crawl pushes with the heels in turn. (Prone lies face
+        // down; a Last Stand is one pose from any Stance, and a Down mid-Dive lands in it.)
+        let push = 0.3 * stride * phase.sin();
+        body.hips_y = DOWN_HIPS_Y;
+        body.tilt = DOWN_TILT;
         body.lean = 0.0;
-        body.nod = 1.2;
-        body.legs = [0.1 * haul, -0.1 * haul];
-        body.arms = [Arm { pitch: PI * 0.8 + 0.4 * haul, yaw: 0.0 }, Arm { pitch: PI * 0.8 - 0.4 * haul, yaw: 0.0 }];
-        body.gun = GUN_READY;
+        body.nod = DOWN_HEAD_PITCH + DOWN_TILT;
+        body.legs = [DOWN_LEGS + push, DOWN_LEGS - push];
+        body.arms = ARMS_TWO_HANDED;
+        body.gun = GUN_TWO_HANDED;
         body.gun_roll = 0.0;
-        body.aim = 0.0;
+        body.aim = DOWN_PISTOL_PITCH + DOWN_TILT;
         body.gun_shown = matches!(pose.action, Action::None | Action::Reload);
         body.prop = Prop::None;
     }
@@ -576,6 +606,8 @@ struct Rig {
     pass: u32,
     prop_shown: Prop,
     glide: StanceGlide,
+    /// The tilt the body last headed for.
+    tilt: f32,
 }
 
 /// A teammate's name tag, a label over their head.
@@ -712,6 +744,7 @@ fn spawn_bodies(
             pass: 0,
             prop_shown: Prop::None,
             glide: StanceGlide::default(),
+            tilt: 0.0,
         });
         commands.spawn((
             NameTag(player),
@@ -825,6 +858,9 @@ fn animate(
             progress,
             depth: rig.glide.depth,
         });
+        // Going over onto the back, or back onto the front, happens at once.
+        let follow = if turns_over(rig.tilt, target.tilt) { 1.0 } else { follow };
+        rig.tilt = target.tilt;
 
         let mut set = |part: Entity, f: &dyn Fn(&mut Transform, &mut Visibility)| {
             if let Ok((mut transform, mut visibility)) = parts.get_mut(part) {
@@ -842,9 +878,10 @@ fn animate(
         let lean = Quat::from_rotation_x(-target.lean);
         set(rig.torso, &|t, _| t.rotation = t.rotation.slerp(lean, follow));
         // The head looks where the Player does.
-        let nod = Quat::from_rotation_x(input.pitch * 0.7 + target.nod);
+        let look = look_pitch(pose, input.pitch);
+        let nod = Quat::from_rotation_x(look * 0.7 + target.nod);
         set(rig.head, &|t, _| t.rotation = t.rotation.slerp(nod, follow));
-        let aim = Quat::from_rotation_x(input.pitch * 0.8 + target.aim);
+        let aim = Quat::from_rotation_x(look * 0.8 + target.aim);
         set(rig.aim, &|t, _| t.rotation = t.rotation.slerp(aim, follow));
         for side in 0..2 {
             let arm = target.arms[side].rotation(side);
@@ -1081,11 +1118,113 @@ mod tests {
     }
 
     #[test]
-    fn a_last_stand_crawls_face_down_and_a_revive_kneels() {
+    fn a_down_lies_on_the_back_and_a_revive_kneels() {
         let down = body(&doing(Pose { last_stand: true, ..default() }, 0.0));
-        assert!(down.tilt > 1.0 && down.hips_y < 0.3);
+        assert!(down.tilt < -1.0 && down.hips_y < 0.3, "tilt {} hips {}", down.tilt, down.hips_y);
         let kneel = body(&doing(Pose { action: Action::Revive, ..default() }, 0.0));
         assert!(kneel.hips_y < LEG.y - 0.2 && kneel.legs[0] > 1.0);
+    }
+
+    /// The pitch in the world, up positive, of a pivot on the torso (the head, the aim) from the
+    /// body's tilt and lean and its own turn: each turns about the same axis, so they add (the
+    /// hips and torso turn by their negatives).
+    fn world_pitch(body: &Body, own: f32) -> f32 {
+        own - body.tilt - body.lean
+    }
+
+    /// The same for a leg, which hangs from the hips, so only the tilt turns it.
+    fn leg_pitch(body: &Body, leg: f32) -> f32 {
+        leg - body.tilt
+    }
+
+    #[test]
+    fn down_and_prone_lie_on_opposite_sides() {
+        let down = body(&doing(Pose { last_stand: true, ..default() }, 0.0));
+        let prone = body(&Doing { depth: 2.0, ..doing(at(Stance::Prone), 0.0) });
+        assert!(down.tilt * prone.tilt < 0.0, "Down {} and Prone {} lie the same way up", down.tilt, prone.tilt);
+    }
+
+    #[test]
+    fn a_down_teammate_holds_the_pistol_up_over_the_chest() {
+        for action in [Action::None, Action::Reload] {
+            let down = body(&doing(Pose { last_stand: true, action, ..default() }, 0.5));
+            assert!(down.gun_shown, "{action:?}: the pistol hid");
+            // Ahead and up from the chest, not into the floor or back over the head.
+            let pitch = world_pitch(&down, down.aim);
+            assert!(pitch > 0.1 && pitch < 0.8, "{action:?}: the pistol points at {pitch} rad");
+            // The head lifts to look down the body, toward where they look.
+            let head = world_pitch(&down, down.nod);
+            assert!(head > 0.5 && head < FRAC_PI_2, "the head is at {head} rad");
+        }
+        for action in [Action::Knife, Action::Throw, Action::Drink] {
+            assert!(!body(&doing(Pose { last_stand: true, action, ..default() }, 0.5)).gun_shown, "{action:?}");
+        }
+    }
+
+    #[test]
+    fn a_down_teammate_crawls_as_they_move_and_lies_still_when_not() {
+        let down = doing(Pose { last_stand: true, ..default() }, 0.0);
+        let still = body(&down);
+        let speed = PLAYER_WALK_SPEED * LAST_STAND_CRAWL_MULT;
+        let one = body(&Doing { speed, phase: FRAC_PI_2, ..down });
+        let other = body(&Doing { speed, phase: -FRAC_PI_2, ..down });
+        assert_eq!(still.legs[0], still.legs[1], "the heels push while still");
+        assert!((one.legs[0] - other.legs[0]).abs() > 0.2, "the heels barely push");
+        assert!(one.legs[0] > one.legs[1] && other.legs[0] < other.legs[1], "the heels don't take turns");
+        // The legs reach ahead along the floor and never through it.
+        for legs in [still.legs, one.legs, other.legs] {
+            for leg in legs {
+                let pitch = leg_pitch(&still, leg);
+                let lowest = still.hips_y - LEG.y * pitch.cos() - LEG.x / 2.0;
+                assert!(pitch.sin() > 0.9, "a leg doesn't reach ahead: {pitch}");
+                assert!(lowest > -0.005, "a leg dips {lowest} m through the floor");
+            }
+        }
+    }
+
+    #[test]
+    fn a_down_teammate_looking_down_never_points_the_pistol_into_the_floor() {
+        let pose = Pose { last_stand: true, ..default() };
+        let down = body(&doing(pose, 0.0));
+        for look in [0.0, -0.3, -0.8, -FRAC_PI_2] {
+            let look = look_pitch(&pose, look);
+            let pistol = world_pitch(&down, down.aim + 0.8 * look);
+            let head = world_pitch(&down, down.nod + 0.7 * look);
+            assert!(pistol >= 0.0, "looking down, the pistol points {pistol} rad into the floor");
+            assert!(head > 0.3, "looking down, the head folds into the chest at {head} rad");
+        }
+        // Looking up, and anyone not lying on their back, look as the Player does.
+        assert_eq!(look_pitch(&pose, 0.6), 0.6);
+        assert_eq!(look_pitch(&Pose::default(), -1.2), -1.2);
+    }
+
+    #[test]
+    fn going_over_between_face_down_and_the_back_is_at_once() {
+        let prone = body(&Doing { depth: 2.0, ..doing(at(Stance::Prone), 0.0) }).tilt;
+        let down = body(&doing(Pose { last_stand: true, ..default() }, 0.0)).tilt;
+        assert!(turns_over(prone, down), "Prone to a Last Stand rocked through upright");
+        assert!(turns_over(down, prone));
+        assert!(!turns_over(0.0, down), "a Down from Standing goes over at once");
+        assert!(!turns_over(0.0, prone) && !turns_over(prone, prone) && !turns_over(down, down));
+    }
+
+    #[test]
+    fn a_down_from_any_stance_or_mid_dive_lands_in_the_one_back_pose() {
+        let plain = body(&doing(Pose { last_stand: true, ..default() }, 0.0));
+        for (stance, airborne, depth) in [
+            (Stance::Standing, false, 0.0),
+            (Stance::Crouched, false, 1.0),
+            (Stance::Prone, false, 2.0),
+            (Stance::Prone, true, 2.0),
+            (Stance::Standing, true, 0.0),
+        ] {
+            let down = body(&Doing { depth, ..doing(Pose { stance, airborne, last_stand: true, ..default() }, 0.0) });
+            assert_eq!(
+                (down.tilt, down.hips_y, down.lean, down.nod, down.aim, down.legs, down.gun, down.arms),
+                (plain.tilt, plain.hips_y, plain.lean, plain.nod, plain.aim, plain.legs, plain.gun, plain.arms),
+                "{stance:?}, airborne {airborne}"
+            );
+        }
     }
 
     #[test]
