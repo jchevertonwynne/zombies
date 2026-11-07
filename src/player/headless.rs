@@ -1433,6 +1433,35 @@ fn a_down_hides_the_icon_and_makes_no_stance_sound() {
     assert_eq!(sim.heard(), [], "a Down mid-Dive made a stance sound");
 }
 
+/// The Player's own Crawl asks for no cue, Prone or Down, like their own footsteps. (A teammate's
+/// drag is played straight from `play_teammate_sounds`, which skips the `LocalPlayer`; this guards
+/// the cues the Player asks for.)
+#[test]
+fn the_players_own_crawl_is_silent_prone_or_down() {
+    let mut sim = Sim::new(144.0);
+    sim.place(Vec3::new(0.0, 0.0, 20.0), EAST);
+    sim.tap_prone();
+    sim.run_secs(1.0);
+    assert_eq!(sim.feel().shown, Some(Stance::Prone));
+    sim.heard();
+
+    let from = sim.frame().pos;
+    sim.hold(&[KeyCode::KeyW]);
+    sim.run_secs(2.0);
+    assert!(sim.frame().pos.distance(from) > 0.5, "the Crawl never moved");
+    assert_eq!(sim.heard(), [], "the prone Crawl made a sound");
+
+    sim.hold(&[]);
+    sim.go_down();
+    sim.run_secs(0.2);
+    sim.heard();
+    let from = sim.frame().pos;
+    sim.hold(&[KeyCode::KeyW]);
+    sim.run_secs(2.0);
+    assert!(sim.frame().pos.distance(from) > 0.5, "the Down Crawl never moved");
+    assert_eq!(sim.heard(), [], "the Down Crawl made a sound");
+}
+
 /// Forced stand-ups are stance changes too: Jump and Sprint out of a Stance, and a Teleporter
 /// ride, each snap the icon back to Standing with one rustle.
 #[test]

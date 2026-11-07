@@ -22,7 +22,7 @@ use crate::respawn::AwaitingRespawn;
 use crate::layers::GameLayer;
 use crate::muzzle::{aim_direction, muzzle_position};
 use crate::perk::{Drinking, Perk};
-use crate::player::{LocalPlayer, Locomotion, MoveInput, Player, PlayerCamera, PlayerName, Seat, Stance};
+use crate::player::{LocalPlayer, Locomotion, MoveInput, Player, PlayerCamera, PlayerName, Seat, Stance, StanceFeel};
 use crate::state::{InRun, world_runs};
 use crate::tuning::*;
 use crate::weapon::{Knife, Loadout, UPGRADED_PURPLE, WeaponCopy, glint_of};
@@ -79,6 +79,15 @@ impl Pose {
             | u16::from(self.airborne) << 4
             | u16::from(self.last_stand) << 5
             | action << 6
+    }
+
+    /// The stance feedback this Pose shows, as the local Player's `Locomotion::feel` does: no
+    /// Stance while Down, and a Dive while Prone and airborne.
+    pub fn feel(&self) -> StanceFeel {
+        StanceFeel {
+            shown: (!self.last_stand).then_some(self.stance),
+            diving: self.stance == Stance::Prone && self.airborne && !self.last_stand,
+        }
     }
 
     /// The Pose in `bits`. Anything it doesn't know is read as the plain case.

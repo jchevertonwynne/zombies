@@ -2111,6 +2111,8 @@ pub const TEAMMATE_STEP_SECS: f32 = 0.5;
 pub const TEAMMATE_SPRINT_STEP_SECS: f32 = 0.3;
 /// A teammate slower than this, in metres per second, makes no footsteps.
 pub const TEAMMATE_STEP_MIN_SPEED: f32 = 0.5;
+/// A teammate's stance rustle, as a linear volume: a touch over the Player's own.
+pub const TEAMMATE_STANCE_RUSTLE_GAIN: f32 = 0.4;
 
 // Co-op: the Room
 /// The longest a Player's Name may be, in characters.

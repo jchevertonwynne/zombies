@@ -103,6 +103,7 @@ fn recipe(cue: Cue) -> Recipe {
         Cue::Footstep => Recipe::Synth(footstep()),
         Cue::StanceRustle => Recipe::Synth(rustle()),
         Cue::DiveLand => Recipe::Synth(dive_land()),
+        Cue::CrawlDrag => Recipe::Synth(crawl_drag()),
         Cue::DoorOpen => Recipe::Synth(door_open()),
         Cue::PowerOn => Recipe::Synth(power_on()),
         Cue::PerkJingleJuggernog => Recipe::Synth(chiptune(&[48, 0, 48, 51, 55, 0, 53, 51, 50, 0, 50, 53, 51, 0, 48, 0], 0.3)),
@@ -676,6 +677,23 @@ fn dive_land() -> Vec<f32> {
         })
         .collect();
     layer(&mut out, 0.12, &scaled(rustle(), 0.5));
+    out.truncate((secs * SAMPLE_RATE as f32) as usize);
+    clamped(out)
+}
+
+/// One pull of a Crawl: a short scrape of cloth over the floor, then the soft plant of an elbow.
+fn crawl_drag() -> Vec<f32> {
+    let mut seed = 0xc4a1_0001;
+    let mut low = 0.0;
+    let secs = 0.4;
+    let mut out: Vec<f32> = samples(secs)
+        .map(|t| {
+            low += (noise(&mut seed) - low) * 0.12;
+            let swell = if t < 0.28 { (t / 0.28) * (1.0 - t / 0.28 * 0.4) } else { 0.0 };
+            low * swell * 0.9
+        })
+        .collect();
+    layer(&mut out, 0.26, &scaled(footstep(), 0.5));
     out.truncate((secs * SAMPLE_RATE as f32) as usize);
     clamped(out)
 }

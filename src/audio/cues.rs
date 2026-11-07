@@ -102,6 +102,8 @@ cues! {
     // One rustle for every stance change, both ways; a Dive's landing thuds instead.
     StanceRustle => "stance_rustle", Root, Flat, 0.35;
     DiveLand => "dive_land", Root, Flat, 0.6;
+    // Only teammates drag along a Crawl; the Player's own, like their footsteps, is silent.
+    CrawlDrag => "crawl_drag", Root, Spatial, 0.4;
 
     // Buying and the Map
     Buy => "buy", Root, Flat, 0.7;
@@ -266,8 +268,8 @@ mod tests {
             "shrieker_idle", "shrieker_windup", "shrieker_scream", "scream_hit", "shrieker_death", "scream_pop",
             "sapper_smash", "sapper_idle", "sapper_step", "sapper_sabotage", "sapper_windup", "sapper_slam",
             "helmet_off", "sapper_stun", "sapper_death",
-            // Not in the appendix: a teammate's footstep, for Co-op, and the stance cues.
-            "footstep", "stance_rustle", "dive_land",
+            // Not in the appendix: a teammate's footstep and Crawl drag, for Co-op, and the stance cues.
+            "footstep", "stance_rustle", "dive_land", "crawl_drag",
         ];
         let declared: Vec<_> = Cue::ALL.iter().map(|cue| cue.spec().name).collect();
         for slot in APPENDIX_C {

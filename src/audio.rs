@@ -239,8 +239,13 @@ impl Sounds {
     /// Plays `cue` heard from `at` whatever its mix: how a teammate's own-Player cue is heard from
     /// where they stand, at a playback `speed`.
     fn play_from(&mut self, commands: &mut Commands, cue: Cue, at: Vec3, speed: f32) {
+        self.play_from_scaled(commands, cue, at, speed, 1.0);
+    }
+
+    /// `play_from`, at `scale` of the cue's volume.
+    fn play_from_scaled(&mut self, commands: &mut Commands, cue: Cue, at: Vec3, speed: f32, scale: f32) {
         let settings = PlaybackSettings::DESPAWN
-            .with_volume(Volume::Linear(self.gain(cue)))
+            .with_volume(Volume::Linear(self.gain(cue) * scale))
             .with_speed(speed)
             .with_spatial(true);
         commands.spawn((AudioPlayer::new(self.next(cue)), settings, Transform::from_translation(at)));
@@ -492,8 +497,9 @@ fn play_player_sounds(
 }
 
 /// A teammate's sounds, heard from where they stand: their gunshots, Reloads, Weapon switches,
-/// Knife swings, Perk drinks, Downs and getting back up, and their footsteps (the Player's own are
-/// silent), quicker when they sprint. The same cues the Player hears flat from themselves.
+/// Knife swings, Perk drinks, Downs and getting back up, stance rustles and Dive landings, and
+/// their footsteps, quicker when they sprint, or the drag of their Crawl, Prone or Down (the
+/// Player's own steps and Crawl are silent). The same cues the Player hears flat from themselves.
 fn play_teammate_sounds(
     mut commands: Commands,
     mut sounds: ResMut<Sounds>,
@@ -524,14 +530,21 @@ fn play_teammate_sounds(
         if let Some(cue) = mix::pose_cue(&heard.pose, pose) {
             sounds.play_from(&mut commands, cue, at, 1.0);
         }
+        if let Some(cue) = mix::stance_cue(heard.pose.feel(), pose.feel()) {
+            sounds.play_from_scaled(&mut commands, cue, at, 1.0, mix::teammate_gain(cue));
+        }
         if dt > 0.0 {
             let speed = Vec2::new(at.x - heard.last.x, at.z - heard.last.z).length() / dt;
             heard.step += dt;
-            match mix::footstep_interval(pose, speed) {
-                Some(interval) if heard.step >= interval => {
+            match mix::movement_cue(pose, speed) {
+                Some((cue, interval)) if heard.step >= interval => {
                     heard.step = 0.0;
-                    let feet = at - Vec3::Y * (PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0);
-                    sounds.play_from(&mut commands, Cue::Footstep, feet, 1.0);
+                    // Footsteps from the feet; a crawling body drags along the ground it lies on.
+                    let from = match cue {
+                        Cue::Footstep => at - Vec3::Y * (PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0),
+                        _ => at,
+                    };
+                    sounds.play_from(&mut commands, cue, from, 1.0);
                 }
                 Some(_) => {}
                 None => heard.step = 0.0,

@@ -88,15 +88,27 @@ pub fn stance_cue(before: StanceFeel, now: StanceFeel) -> Option<Cue> {
     }
 }
 
-/// Seconds between a teammate's footsteps at `speed` m/s, or `None` while they make none: still,
-/// in the air or crawling. A sprint steps faster.
-pub fn footstep_interval(pose: &Pose, speed: f32) -> Option<f32> {
-    if speed < TEAMMATE_STEP_MIN_SPEED || pose.airborne || pose.last_stand {
+/// What a teammate's moving body sounds like at `speed` m/s, and the seconds between each one: a
+/// footstep, quicker on a sprint, or the drag of a Crawl, Prone or Down, on the walking cadence.
+/// `None` while they make none: still, or in the air (a Dive in flight is Prone and airborne).
+pub fn movement_cue(pose: &Pose, speed: f32) -> Option<(Cue, f32)> {
+    if speed < TEAMMATE_STEP_MIN_SPEED || pose.airborne {
         None
+    } else if pose.last_stand || pose.stance == Stance::Prone {
+        Some((Cue::CrawlDrag, TEAMMATE_STEP_SECS))
     } else if pose.sprinting {
-        Some(TEAMMATE_SPRINT_STEP_SECS)
+        Some((Cue::Footstep, TEAMMATE_SPRINT_STEP_SECS))
     } else {
-        Some(TEAMMATE_STEP_SECS)
+        Some((Cue::Footstep, TEAMMATE_STEP_SECS))
+    }
+}
+
+/// The factor on `cue`'s volume when a teammate makes it: their rustle is heard at
+/// `TEAMMATE_STANCE_RUSTLE_GAIN`, a touch over the Player's own; every other cue as it is.
+pub fn teammate_gain(cue: Cue) -> f32 {
+    match cue {
+        Cue::StanceRustle => TEAMMATE_STANCE_RUSTLE_GAIN / Cue::StanceRustle.spec().gain,
+        _ => 1.0,
     }
 }
 
@@ -219,6 +231,7 @@ pub fn next_jingle_secs(roll: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audio::cues::Mix;
 
     const ALL_WEAPONS: [WeaponId; 28] = {
         let mut ids = [WeaponId::M1911; 28];
@@ -278,14 +291,61 @@ mod tests {
     }
 
     #[test]
-    fn footsteps_quicken_on_a_sprint_and_stop_when_still_airborne_or_crawling() {
+    fn footsteps_quicken_on_a_sprint_and_stop_when_still_or_airborne() {
         let grounded = Pose { airborne: false, ..Pose::default() };
-        let walk = footstep_interval(&grounded, 3.0).unwrap();
-        let sprint = footstep_interval(&Pose { sprinting: true, ..grounded }, 6.0).unwrap();
+        let (cue, walk) = movement_cue(&grounded, 3.0).unwrap();
+        assert_eq!(cue, Cue::Footstep);
+        let (cue, sprint) = movement_cue(&Pose { sprinting: true, ..grounded }, 6.0).unwrap();
+        assert_eq!(cue, Cue::Footstep);
         assert!(sprint < walk);
-        assert_eq!(footstep_interval(&grounded, 0.0), None);
-        assert_eq!(footstep_interval(&Pose { airborne: true, ..grounded }, 3.0), None);
-        assert_eq!(footstep_interval(&Pose { last_stand: true, ..grounded }, 1.0), None);
+        assert_eq!(movement_cue(&Pose { stance: Stance::Crouched, ..grounded }, 2.0), Some((Cue::Footstep, walk)));
+        assert_eq!(movement_cue(&grounded, 0.0), None);
+        assert_eq!(movement_cue(&Pose { airborne: true, ..grounded }, 3.0), None);
+    }
+
+    #[test]
+    fn a_crawl_drags_on_the_footstep_cadence_prone_or_down() {
+        let grounded = Pose { airborne: false, ..Pose::default() };
+        let (_, walk) = movement_cue(&grounded, 3.0).unwrap();
+        let prone = Pose { stance: Stance::Prone, ..grounded };
+        let down = Pose { last_stand: true, ..grounded };
+        assert_eq!(movement_cue(&prone, 1.0), Some((Cue::CrawlDrag, walk)));
+        assert_eq!(movement_cue(&down, 1.0), Some((Cue::CrawlDrag, walk)));
+        assert_eq!(movement_cue(&prone, 0.0), None, "a still crawler drags nothing");
+        assert_eq!(movement_cue(&down, 0.0), None);
+        // A Dive in flight is Prone and airborne: no drag until it lands.
+        assert_eq!(movement_cue(&Pose { airborne: true, ..prone }, 6.0), None);
+        assert_eq!(Cue::CrawlDrag.spec().mix, Mix::Spatial);
+    }
+
+    #[test]
+    fn a_teammates_stance_changes_rustle_and_their_dive_lands_with_a_thud() {
+        let at = |stance| Pose { stance, airborne: false, ..Pose::default() };
+        let (standing, crouched, prone) = (at(Stance::Standing), at(Stance::Crouched), at(Stance::Prone));
+        let cue = |before: Pose, now: Pose| stance_cue(before.feel(), now.feel());
+        assert_eq!(cue(standing, crouched), Some(Cue::StanceRustle));
+        assert_eq!(cue(crouched, standing), Some(Cue::StanceRustle), "both ways");
+        assert_eq!(cue(standing, prone), Some(Cue::StanceRustle));
+        assert_eq!(cue(prone, prone), None);
+        // A Dive: Prone and airborne in flight, silent at the launch, a thud at the landing alone.
+        let flying = Pose { airborne: true, ..prone };
+        assert_eq!(cue(Pose { sprinting: true, ..standing }, flying), None, "the launch made a sound");
+        assert_eq!(cue(flying, flying), None);
+        assert_eq!(cue(flying, prone), Some(Cue::DiveLand));
+        // A jump isn't a Dive.
+        assert_eq!(cue(standing, Pose { airborne: true, ..standing }), None);
+        // Going Down and getting back up have their own sounds.
+        let down = Pose { last_stand: true, ..prone };
+        assert_eq!(cue(standing, down), None);
+        assert_eq!(cue(down, standing), None);
+        assert_eq!(cue(flying, down), None, "a Down mid-Dive thudded");
+    }
+
+    #[test]
+    fn a_teammates_rustle_is_a_touch_louder_than_the_players_own() {
+        assert!((Cue::StanceRustle.spec().gain * teammate_gain(Cue::StanceRustle) - TEAMMATE_STANCE_RUSTLE_GAIN).abs() < 1e-6);
+        assert_eq!(teammate_gain(Cue::DiveLand), 1.0);
+        assert_eq!(teammate_gain(Cue::CrawlDrag), 1.0);
     }
 
     #[test]
