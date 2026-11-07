@@ -32,6 +32,9 @@ _Avoid_: lobby, session, party
 
 **Health**: The Player's hidden life pool. It refills after a short time without being hit. The screen reddens as it drops.
 
+**Hit Grace**: A short moment after a Zombie's melee hit lands on a Player, during which no Zombie's melee hurts that Player. Explosions, Traps and fire still hurt. It can't be seen. Each Player has their own.
+_Avoid_: invulnerability, i-frames
+
 **Speed Tier**: How fast a Zombie moves: Walker, Jogger or Sprinter. It is fixed when the Zombie spawns, and faster tiers become more likely in later Rounds.
 
 **Headshot**: A hit on a Zombie's head. It does more damage and, if it kills, pays more Points than a body kill.
