@@ -22,7 +22,7 @@ use crate::respawn::AwaitingRespawn;
 use crate::layers::GameLayer;
 use crate::muzzle::{aim_direction, muzzle_position};
 use crate::perk::{Drinking, Perk};
-use crate::player::{LocalPlayer, Locomotion, MoveInput, Player, PlayerCamera, PlayerName, Seat, Stance, StanceFeel};
+use crate::player::{LocalPlayer, Locomotion, MoveInput, Player, PlayerCamera, PlayerName, Seat, Stance, StanceFeel, transition_secs};
 use crate::state::{InRun, world_runs};
 use crate::tuning::*;
 use crate::weapon::{Knife, Loadout, UPGRADED_PURPLE, WeaponCopy, glint_of};
@@ -88,6 +88,12 @@ impl Pose {
             shown: (!self.last_stand).then_some(self.stance),
             diving: self.stance == Stance::Prone && self.airborne && !self.last_stand,
         }
+    }
+
+    /// How far the feet are below the body's centre in this Pose: half its height, which changes
+    /// with the Stance at the start of a change, and is the prone body's while Down.
+    pub fn feet_below_centre(&self) -> f32 {
+        if self.last_stand { Stance::Prone.half_height() } else { self.stance.half_height() }
     }
 
     /// The Pose in `bits`. Anything it doesn't know is read as the plain case.
@@ -244,6 +250,17 @@ const KICK_SECS: f32 = 0.18;
 const GUN_READY: Vec3 = Vec3::new(0.1, -0.2, -0.42);
 /// A name tag's width in pixels; the name is centred in it.
 const NAME_TAG_WIDTH: f32 = 200.0;
+/// Crouched: the hips' height, and the legs' turn from straight down, one thigh forward and one
+/// back, as a kneel without the knee.
+const CROUCH_HIPS_Y: f32 = 0.52;
+const CROUCH_LEGS: [f32; 2] = [0.8, -0.8];
+/// Prone: how far the body tips over, face down, and the hips' height, on the floor and in a
+/// Dive's flight.
+const PRONE_TILT: f32 = 1.45;
+const PRONE_HIPS_Y: f32 = 0.18;
+const DIVE_HIPS_Y: f32 = 0.35;
+/// Prone, the Weapon comes up off the floor by this much, out ahead on the elbows.
+const PRONE_GUN_LIFT: f32 = 0.15;
 
 /// One arm's turn from hanging straight down: `pitch` swings it forward, `yaw` across the body.
 /// Written for the right arm; the left mirrors it.
@@ -282,6 +299,47 @@ struct Doing {
     /// Seconds since the action began, and how far (0 to 1) through its length that is.
     clock: f32,
     progress: f32,
+    /// How deep into its Stance the body is, gliding: 0 Standing, 1 Crouched, 2 Prone.
+    depth: f32,
+}
+
+/// A teammate body's depth into its Stance, 0 Standing, 1 Crouched, 2 Prone, gliding between them
+/// over the same transition times the Player's own camera takes (Standing↔Prone through
+/// Crouched), and snapping to Prone for a Dive in flight, which it reads off Prone ∧ airborne.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+struct StanceGlide {
+    depth: f32,
+    /// The Stance the glide set off from, and the one it heads for.
+    from: Stance,
+    to: Stance,
+}
+
+impl StanceGlide {
+    /// Follows `pose` for `dt` seconds. Whether the body snapped (a Dive's launch), for it to take
+    /// the new pose at once rather than ease into it.
+    fn follow(&mut self, pose: &Pose, dt: f32) -> bool {
+        if pose.feel().diving {
+            let snapped = self.depth != f32::from(Stance::Prone.depth());
+            *self = StanceGlide { depth: f32::from(Stance::Prone.depth()), from: Stance::Prone, to: Stance::Prone };
+            return snapped;
+        }
+        if pose.stance != self.to {
+            self.from = self.to;
+            self.to = pose.stance;
+        }
+        let target = f32::from(self.to.depth());
+        let span = (target - f32::from(self.from.depth())).abs().max(1.0);
+        let step = span / transition_secs(self.from, self.to) * dt;
+        let left = target - self.depth;
+        self.depth = if left.abs() <= step { target } else { self.depth + step.copysign(left) };
+        false
+    }
+}
+
+/// Where a name tag floats, from where the head's pivot is: over the top of the standing body
+/// while Standing, and following the head down from there.
+fn name_tag_anchor(head: Vec3) -> Vec3 {
+    head + Vec3::Y * (2.0 * Stance::Standing.half_height() - (LEG.y + TORSO.y) + NAME_TAG_LIFT)
 }
 
 /// Where every pivot of a body should head, before it's smoothed.
@@ -325,7 +383,7 @@ fn between(t: f32, from: f32, to: f32) -> f32 {
 
 /// The body for what a Player is doing.
 fn body(doing: &Doing) -> Body {
-    let Doing { pose, speed, phase, kick, progress, clock } = *doing;
+    let Doing { pose, speed, phase, kick, progress, clock, depth } = *doing;
     let stride = (speed / 1.5).min(1.0);
     let run = ((speed - 3.0) / 3.0).clamp(0.0, 1.0);
     let swing = (0.3 + 0.3 * run) * stride;
@@ -359,7 +417,9 @@ fn body(doing: &Doing) -> Body {
         body.arms = [Arm { pitch: 0.7, yaw: 0.3 }, Arm { pitch: 0.9, yaw: 0.4 }];
         body.legs = [drive, -drive];
     }
-    if pose.airborne && !pose.last_stand {
+    // A jump; Prone and airborne is a Dive's flight instead, below.
+    let diving = pose.feel().diving;
+    if pose.airborne && !pose.last_stand && !diving {
         // Legs tucked, arms thrown out a little.
         body.legs = [0.7, -0.35];
         body.arms[0].pitch += 0.3;
@@ -422,6 +482,47 @@ fn body(doing: &Doing) -> Body {
             body.gun_shown = false;
         }
     }
+    let crouch = depth.clamp(0.0, 1.0);
+    if crouch > 0.0 && pose.action != Action::Revive {
+        // Knees bent: the hips down, one thigh forward and one back, the stride shortened. (A
+        // Revive kneels already.)
+        body.hips_y -= (LEG.y - CROUCH_HIPS_Y) * crouch;
+        for side in 0..2 {
+            body.legs[side] = body.legs[side] * (1.0 - 0.5 * crouch) + CROUCH_LEGS[side] * crouch;
+        }
+        body.lean += 0.15 * crouch;
+    }
+    let prone = (depth - 1.0).clamp(0.0, 1.0);
+    if prone > 0.0 {
+        // Face down along the floor, the head and the Weapon turned back up to look ahead. On the
+        // floor they crawl, hauling on their elbows and pushing with their legs; in a Dive's
+        // flight they're stretched out, arms reaching ahead.
+        let flying = diving;
+        let haul = if flying { 0.0 } else { stride * phase.sin() };
+        body.tilt = body.tilt.lerp(PRONE_TILT, prone);
+        body.hips_y = body.hips_y.lerp(if flying { DIVE_HIPS_Y } else { PRONE_HIPS_Y }, prone);
+        body.lean = body.lean.lerp(0.04 * kick, prone);
+        body.nod += 0.85 * PRONE_TILT * prone;
+        body.aim += PRONE_TILT * prone;
+        body.gun.y += PRONE_GUN_LIFT * prone;
+        let legs = [0.35 * haul, -0.35 * haul];
+        for side in 0..2 {
+            body.legs[side] = body.legs[side].lerp(legs[side], prone);
+        }
+        if pose.action == Action::None && !pose.aiming {
+            let arms = if flying {
+                [Arm { pitch: 1.65, yaw: 0.3 }, Arm { pitch: 1.75, yaw: 0.25 }]
+            } else {
+                [Arm { pitch: 1.35 + 0.4 * haul, yaw: 0.6 }, Arm { pitch: 1.5 - 0.4 * haul, yaw: 0.5 }]
+            };
+            for side in 0..2 {
+                body.arms[side] = Arm {
+                    pitch: body.arms[side].pitch.lerp(arms[side].pitch, prone),
+                    yaw: body.arms[side].yaw.lerp(arms[side].yaw, prone),
+                };
+            }
+        }
+    }
     if pose.last_stand {
         // Face down, hauling themselves along on their arms with their legs dragging.
         let haul = stride * phase.sin();
@@ -474,6 +575,7 @@ struct Rig {
     sweep: f32,
     pass: u32,
     prop_shown: Prop,
+    glide: StanceGlide,
 }
 
 /// A teammate's name tag, a label over their head.
@@ -609,6 +711,7 @@ fn spawn_bodies(
             sweep: 0.0,
             pass: 0,
             prop_shown: Prop::None,
+            glide: StanceGlide::default(),
         });
         commands.spawn((
             NameTag(player),
@@ -672,7 +775,8 @@ fn animate(
         rig.last = Some(at);
         let speed = (moved / dt).min(MAX_GAIT_SPEED);
         rig.speed = rig.speed.lerp(speed, 1.0 - (-10.0 * dt).exp());
-        let cycle = if pose.last_stand { 0.9 } else { 1.5 + 0.12 * rig.speed };
+        let crawling = pose.last_stand || pose.stance == Stance::Prone;
+        let cycle = if crawling { 0.9 } else { 1.5 + 0.12 * rig.speed };
         rig.phase = (rig.phase + moved.min(MAX_GAIT_SPEED * dt) / cycle * TAU) % TAU;
 
         // Each step of the shot counter is a shot to kick for.
@@ -692,6 +796,9 @@ fn animate(
         } else {
             rig.kick = (rig.kick - dt / KICK_SECS).max(0.0);
         }
+
+        // A Dive's launch snaps the body into its flight; the rest of the time it eases.
+        let follow = if rig.glide.follow(pose, dt) { 1.0 } else { follow };
 
         // One-off actions play once from where they begin.
         if pose.action != rig.action {
@@ -716,6 +823,7 @@ fn animate(
             kick: rig.kick,
             clock: rig.action_clock,
             progress,
+            depth: rig.glide.depth,
         });
 
         let mut set = |part: Entity, f: &dyn Fn(&mut Transform, &mut Visibility)| {
@@ -723,6 +831,9 @@ fn animate(
                 f(&mut transform, &mut visibility);
             }
         };
+        // The feet stay on the floor as the body's centre moves with its Stance.
+        let feet = -pose.feet_below_centre();
+        set(rig.root, &|t, _| t.translation.y = feet);
         let tilt = Quat::from_rotation_x(-target.tilt);
         set(rig.hips, &|t, _| {
             t.translation.y = t.translation.y.lerp(target.hips_y, follow);
@@ -819,7 +930,8 @@ fn tag_strength(distance: f32) -> f32 {
 fn place_name_tags(
     mut commands: Commands,
     mut tags: Query<(Entity, &NameTag, &mut Node, &mut Visibility, &mut TextColor)>,
-    players: Query<(&GlobalTransform, &Seat, Has<AwaitingRespawn>), With<Player>>,
+    players: Query<(&GlobalTransform, &Seat, Option<&Rig>, Has<AwaitingRespawn>), With<Player>>,
+    heads: Query<&GlobalTransform, Without<Player>>,
     camera: Single<(&Camera, &GlobalTransform), With<PlayerCamera>>,
     spatial: SpatialQuery,
 ) {
@@ -827,11 +939,15 @@ fn place_name_tags(
     let eye = camera_at.translation();
     let filter = SpatialQueryFilter::from_mask(GameLayer::World);
     for (tag, &NameTag(player), mut node, mut visibility, mut colour) in &mut tags {
-        let Ok((at, seat, bodiless)) = players.get(player) else {
+        let Ok((at, seat, rig, bodiless)) = players.get(player) else {
             commands.entity(tag).despawn();
             continue;
         };
-        let head = at.translation() + Vec3::Y * (PLAYER_CAPSULE_LENGTH / 2.0 + PLAYER_RADIUS + NAME_TAG_LIFT);
+        // Over the posed head; before the body is posed, over the standing one.
+        let head = match rig.and_then(|rig| heads.get(rig.head).ok()) {
+            Some(head) => name_tag_anchor(head.translation()),
+            None => name_tag_anchor(at.translation() + Vec3::Y * (LEG.y + TORSO.y - Stance::Standing.half_height())),
+        };
         let distance = eye.distance(head);
         let strength = tag_strength(distance);
         let hidden = bodiless
@@ -867,7 +983,7 @@ mod tests {
     use super::*;
 
     fn doing(pose: Pose, progress: f32) -> Doing {
-        Doing { pose, speed: 0.0, phase: 0.0, kick: 0.0, clock: 0.0, progress }
+        Doing { pose, speed: 0.0, phase: 0.0, kick: 0.0, clock: 0.0, progress, depth: 0.0 }
     }
 
     #[test]
@@ -977,6 +1093,152 @@ mod tests {
         let still = body(&doing(Pose::default(), 0.0));
         let fired = body(&Doing { kick: 1.0, ..doing(Pose::default(), 0.0) });
         assert!(fired.gun.z > still.gun.z);
+    }
+
+    fn at(stance: Stance) -> Pose {
+        Pose { stance, airborne: false, ..default() }
+    }
+
+    /// Runs a glide from `from` until it settles on `to`, a frame of `dt` at a time: the seconds it
+    /// took, and each depth on the way.
+    fn glide(from: Stance, to: Stance, dt: f32) -> (f32, Vec<f32>) {
+        let mut glide = StanceGlide::default();
+        glide.follow(&at(from), 10.0);
+        let mut depths = Vec::new();
+        let mut secs = 0.0;
+        while glide.depth != f32::from(to.depth()) && secs < 5.0 {
+            glide.follow(&at(to), dt);
+            depths.push(glide.depth);
+            secs += dt;
+        }
+        (secs, depths)
+    }
+
+    #[test]
+    fn the_body_glides_between_stances_over_the_players_own_transition_times() {
+        let dt = 1.0 / 240.0;
+        for (from, to, wanted) in [
+            (Stance::Standing, Stance::Crouched, STANCE_CROUCH_SECS),
+            (Stance::Crouched, Stance::Standing, STANCE_CROUCH_SECS),
+            (Stance::Crouched, Stance::Prone, STANCE_PRONE_SECS),
+            (Stance::Prone, Stance::Crouched, STANCE_PRONE_SECS),
+            (Stance::Standing, Stance::Prone, STANCE_PRONE_FROM_STAND_SECS),
+            (Stance::Prone, Stance::Standing, STANCE_PRONE_FROM_STAND_SECS),
+        ] {
+            let (secs, depths) = glide(from, to, dt);
+            assert!((secs - wanted).abs() <= dt * 1.5, "{from:?} → {to:?} took {secs} s, not {wanted}");
+            assert!(depths.windows(2).all(|pair| (pair[1] - pair[0]).abs() > 0.0), "{from:?} → {to:?} stalled");
+        }
+        // Standing to Prone passes through Crouched on the way, halfway through.
+        let (_, depths) = glide(Stance::Standing, Stance::Prone, dt);
+        let halfway = depths[depths.len() / 2 - 1];
+        assert!((halfway - 1.0).abs() < 0.05, "halfway down was {halfway}");
+    }
+
+    #[test]
+    fn a_dive_in_flight_snaps_prone_and_lands_into_the_crawl() {
+        let mut glide = StanceGlide::default();
+        glide.follow(&Pose { sprinting: true, ..at(Stance::Standing) }, 0.1);
+        assert!(glide.follow(&Pose { airborne: true, ..at(Stance::Prone) }, 1.0 / 240.0), "the Dive didn't snap");
+        assert_eq!(glide.depth, 2.0, "the Dive glided into its flight");
+        let flight = body(&Doing { depth: glide.depth, ..doing(Pose { airborne: true, ..at(Stance::Prone) }, 0.0) });
+        let crawl = body(&Doing { depth: 2.0, ..doing(at(Stance::Prone), 0.0) });
+        assert!(flight.tilt > 1.2 && crawl.tilt > 1.2, "not laid out flat");
+        assert!(flight.hips_y > crawl.hips_y, "the flight isn't off the floor");
+        assert!(flight.arms[0].pitch > crawl.arms[0].pitch, "the arms don't reach out in flight");
+        assert_eq!(flight.legs, [0.0, 0.0], "the legs aren't straight out behind");
+        assert!(!glide.follow(&at(Stance::Prone), 1.0 / 240.0), "the landing snapped");
+        assert_eq!(glide.depth, 2.0, "the landing moved");
+    }
+
+    #[test]
+    fn a_jump_still_tucks_the_legs() {
+        let jump = body(&doing(Pose { airborne: true, ..default() }, 0.0));
+        assert_eq!(jump.legs, [0.7, -0.35]);
+    }
+
+    #[test]
+    fn a_crouch_lowers_the_hips_and_bends_the_legs() {
+        let stand = body(&doing(at(Stance::Standing), 0.0));
+        let crouch = body(&Doing { depth: 1.0, ..doing(at(Stance::Crouched), 0.0) });
+        assert!(crouch.hips_y < stand.hips_y - 0.2, "hips at {}", crouch.hips_y);
+        assert!(crouch.legs[0] > 0.5 && crouch.legs[1] < -0.3, "{:?}", crouch.legs);
+        assert!(crouch.lean > stand.lean);
+        assert_eq!(crouch.tilt, 0.0);
+        // Halfway down, halfway there.
+        let half = body(&Doing { depth: 0.5, ..doing(at(Stance::Crouched), 0.0) });
+        assert!(half.hips_y < stand.hips_y && half.hips_y > crouch.hips_y);
+    }
+
+    #[test]
+    fn a_prone_body_lies_face_down_with_the_weapon_level() {
+        let prone = body(&Doing { depth: 2.0, ..doing(at(Stance::Prone), 0.0) });
+        assert!(prone.tilt > 1.2 && prone.hips_y < 0.3, "tilt {} hips {}", prone.tilt, prone.hips_y);
+        // The aim pivot turns back by the tilt, so the Weapon points ahead, not into the floor.
+        assert!((prone.aim - prone.tilt).abs() < 0.1, "aim {} against tilt {}", prone.aim, prone.tilt);
+        assert!(prone.gun_shown);
+    }
+
+    #[test]
+    fn a_prone_teammate_crawls_as_they_move_and_lies_still_when_not() {
+        let prone = Doing { depth: 2.0, ..doing(at(Stance::Prone), 0.0) };
+        let still = body(&prone);
+        // At the prone Crawl's own speed, the haul shows from across the room.
+        let speed = PLAYER_WALK_SPEED * PRONE_SPEED_MULT;
+        let crawling = body(&Doing { speed, phase: FRAC_PI_2, ..prone });
+        let other = body(&Doing { speed, phase: -FRAC_PI_2, ..prone });
+        assert!(crawling.legs[0] != still.legs[0] && crawling.legs[0] * other.legs[0] < 0.0, "the legs don't crawl");
+        assert!((crawling.legs[0] - other.legs[0]).abs() > 0.3, "the legs barely crawl");
+        assert!((crawling.arms[0].pitch - other.arms[0].pitch).abs() > 0.4, "the arms barely haul");
+    }
+
+    #[test]
+    fn idle_aim_kick_and_actions_pose_in_every_stance() {
+        for depth in [0.0, 1.0, 2.0] {
+            let stance = [Stance::Standing, Stance::Crouched, Stance::Prone][depth as usize];
+            let with = |pose: Pose, progress| body(&Doing { depth, ..doing(Pose { stance, ..pose }, progress) });
+            let reload = Pose { action: Action::Reload, airborne: false, ..default() };
+            let start = with(reload, 0.0).arms[0].pitch;
+            assert!(with(reload, 0.45).arms[0].pitch < start - 0.5, "{stance:?}: no magazine fetch");
+            let knife = Pose { action: Action::Knife, airborne: false, ..default() };
+            assert_eq!(with(knife, 0.3).prop, Prop::Knife, "{stance:?}");
+            assert!(with(knife, 0.3).arms[1].pitch > 2.0, "{stance:?}: the blade didn't rise");
+            let throw = Pose { action: Action::Throw, airborne: false, ..default() };
+            assert_eq!(with(throw, THROW_RELEASE_AT + 0.05).prop, Prop::Empty, "{stance:?}");
+            let drink = Pose { action: Action::Drink, airborne: false, ..default() };
+            assert_eq!(with(drink, 0.5).prop, Prop::Bottle, "{stance:?}");
+            assert!(with(Pose { aiming: true, airborne: false, ..default() }, 0.0).gun.x.abs() < 0.05, "{stance:?}");
+            let kick = body(&Doing { depth, kick: 1.0, ..doing(Pose { stance, airborne: false, ..default() }, 0.0) });
+            assert!(kick.gun.z > with(Pose { airborne: false, ..default() }, 0.0).gun.z, "{stance:?}: no kick");
+            // A Revive's hands are on the teammate, not the Weapon.
+            let revive = with(Pose { action: Action::Revive, airborne: false, ..default() }, 0.0);
+            assert!(!revive.gun_shown, "{stance:?}: the hands aren't free to Revive");
+        }
+        // Down overrides any Stance with the Last Stand crawl.
+        for depth in [0.0, 1.0, 2.0] {
+            let down = body(&Doing { depth, ..doing(Pose { last_stand: true, airborne: false, ..default() }, 0.0) });
+            let plain = body(&doing(Pose { last_stand: true, airborne: false, ..default() }, 0.0));
+            assert_eq!((down.tilt, down.hips_y, down.nod), (plain.tilt, plain.hips_y, plain.nod));
+        }
+    }
+
+    #[test]
+    fn the_rig_hangs_from_the_feet_of_the_body_it_has() {
+        assert_eq!(at(Stance::Standing).feet_below_centre(), Stance::Standing.half_height());
+        assert_eq!(at(Stance::Crouched).feet_below_centre(), Stance::Crouched.half_height());
+        assert_eq!(at(Stance::Prone).feet_below_centre(), Stance::Prone.half_height());
+        // Down shares the prone body, whatever the stance field says.
+        assert_eq!(Pose { last_stand: true, ..at(Stance::Standing) }.feet_below_centre(), Stance::Prone.half_height());
+    }
+
+    #[test]
+    fn the_name_tag_rides_the_posed_head() {
+        // Standing, it sits where it always has: over the top of the standing body.
+        let standing_head = Vec3::Y * (LEG.y + TORSO.y);
+        let tag = name_tag_anchor(standing_head);
+        assert!((tag.y - (2.0 * Stance::Standing.half_height() + NAME_TAG_LIFT)).abs() < 1e-5);
+        // Lower down, it follows the head down.
+        assert!(name_tag_anchor(Vec3::Y * 0.3).y < tag.y - 1.0);
     }
 
     /// A Player in a bare world, with what `fill_poses` reads.

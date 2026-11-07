@@ -1130,7 +1130,7 @@ pub fn step_move(
 /// Seconds one Stance change takes, by the pair it joins: Standing↔Crouched
 /// `STANCE_CROUCH_SECS`, Crouched↔Prone `STANCE_PRONE_SECS`, Standing↔Prone
 /// `STANCE_PRONE_FROM_STAND_SECS` (through Crouched).
-fn transition_secs(from: Stance, to: Stance) -> f32 {
+pub(crate) fn transition_secs(from: Stance, to: Stance) -> f32 {
     match (from, to) {
         (Stance::Standing, Stance::Crouched) | (Stance::Crouched, Stance::Standing) => STANCE_CROUCH_SECS,
         (Stance::Crouched, Stance::Prone) | (Stance::Prone, Stance::Crouched) => STANCE_PRONE_SECS,

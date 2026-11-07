@@ -555,9 +555,13 @@ fn show(seen: &VecDeque<Seen>, shown: f32) -> Option<Seen> {
     let t = ((shown - a.tick as f32) / (b.tick - a.tick) as f32).clamp(0.0, 1.0);
     let turn = (b.yaw - a.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
     let (pose, shots) = if t < 1.0 { (a.pose, a.shots) } else { (b.pose, b.shots) };
+    // The feet slide between the two, and the centre sits over them as the Pose shown has it, so
+    // a stance change (whose centre jumps at its start, the feet staying put) never sinks the body
+    // into the floor or lifts it off.
+    let feet = |seen: Seen| seen.position - Vec3::Y * seen.pose.feet_below_centre();
     Some(Seen {
         tick: a.tick,
-        position: a.position.lerp(b.position, t),
+        position: feet(a).lerp(feet(b), t) + Vec3::Y * pose.feet_below_centre(),
         yaw: a.yaw + turn * t,
         pitch: a.pitch + (b.pitch - a.pitch) * t,
         pose,
@@ -764,6 +768,7 @@ fn show_puppets(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::player::Stance;
 
     fn seen(tick: Tick, x: f32) -> Seen {
         Seen { tick, position: Vec3::new(x, 0.0, 0.0), yaw: 0.0, pitch: 0.0, pose: Pose::default(), shots: 0 }
@@ -773,6 +778,22 @@ mod tests {
     fn the_snapshot_rate_divides_the_tick_rate() {
         assert_eq!(FIXED_HZ % SNAPSHOT_HZ, 0);
         assert_eq!(Time::<Fixed>::default().timestep().as_secs_f64(), 1.0 / f64::from(FIXED_HZ));
+    }
+
+    /// A stance change between two snapshots: the feet slide from one to the other, and the centre
+    /// sits over them as the Pose shown has it, never sunk into the floor.
+    #[test]
+    fn a_stance_change_between_snapshots_keeps_the_feet_on_the_floor() {
+        let standing = Seen { position: Vec3::new(0.0, Stance::Standing.half_height(), 0.0), ..seen(0, 0.0) };
+        let prone_pose = Pose { stance: Stance::Prone, ..Pose::default() };
+        let prone = Seen { tick: 2, position: Vec3::new(0.2, Stance::Prone.half_height(), 0.0), pose: prone_pose, ..standing };
+        let seen: VecDeque<Seen> = [standing, prone].into();
+        for shown in [0.0, 0.5, 1.0, 1.5, 2.0] {
+            let at = show(&seen, shown).unwrap();
+            let feet = at.position.y - at.pose.feet_below_centre();
+            assert!(feet.abs() < 1e-5, "at {shown}: the feet were at {feet}");
+        }
+        assert!((show(&seen, 1.0).unwrap().position.x - 0.1).abs() < 1e-5, "it didn't slide halfway");
     }
 
     /// A snapshot lost on the way shows nothing: the Player is where a straight line between its
