@@ -237,7 +237,7 @@ fn a_client_who_cant_afford_a_door_gets_the_refusal_and_the_door_stays_shut() {
     assert_ne!(teammate, run.player(0, 0));
 }
 
-/// The first spin of a Box gives no Teddy, so a test can count on a Weapon.
+/// Has `spinner` use the Box: a spin, or taking what it offers.
 fn spin_box(run: &mut Run, spinner: usize) {
     let mystery_box = run.find::<MysteryBox>(spinner, |_| true);
     run.use_buyable(spinner, mystery_box, false);
@@ -246,9 +246,12 @@ fn spin_box(run: &mut Run, spinner: usize) {
 #[test]
 fn the_box_weapon_is_offered_to_the_spinner_alone() {
     let mut run = Run::new(2);
-    // No Teddy Bear, so the spin always offers a Weapon.
+    // The Host rolls the spin, so rig it there to always offer a Weapon: no Teddy Bear, and give
+    // the spinner Monkey Bombs, which keeps the Monkey Bomb out of the pool while they hold some.
     let host_box = run.find::<MysteryBox>(0, |_| true);
     run.world(0).get_mut::<MysteryBox>(host_box).unwrap().teddy = false;
+    let spinner_on_host = run.player(0, 1);
+    run.world(0).get_mut::<Equipment>(spinner_on_host).unwrap().take_monkey_bombs();
     run.give_points(1, 5000);
     run.give_points(2, 5000);
     spin_box(&mut run, 1);
@@ -279,7 +282,6 @@ fn the_box_weapon_is_offered_to_the_spinner_alone() {
     spin_box(&mut run, 1);
     run.step(20);
     assert_eq!(run.world(1).get::<Loadout>(spinner).unwrap().weapons().count(), had + 1, "the spinner has the Weapon");
-    let spinner_on_host = run.player(0, 1);
     assert_eq!(run.world(0).get::<Loadout>(spinner_on_host).unwrap().weapons().count(), had + 1);
     for on in 0..3 {
         let mystery_box = run.find::<MysteryBox>(on, |_| true);
