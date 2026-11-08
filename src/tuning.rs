@@ -1237,6 +1237,11 @@ pub const ZOMBIE_PROGRESS_DIST: f32 = 1.0;
 pub const ZOMBIE_VAULT_SECS: f32 = 1.0;
 
 // Barriers
+/// A window's Sill: solid wall from the floor up to this height, which a Zombie climbs over. BO1's
+/// Sills sit at about 0.9–1.0 m, recalled rather than checked, so tune by feel.
+pub const WINDOW_SILL_HEIGHT: f32 = 0.9;
+/// The top of a window's opening, above the floor. The opening runs from the Sill up to here.
+pub const WINDOW_HEIGHT: f32 = 2.2;
 /// Planks on every Barrier. They never repair themselves.
 pub const BARRIER_PLANKS: u8 = 6;
 /// Places outside each window a Zombie can tear at it from; extra Zombies wait outside.

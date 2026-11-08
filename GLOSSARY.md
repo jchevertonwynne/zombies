@@ -129,6 +129,8 @@ _Avoid_: drop, pickup, perk
 
 **Barrier**: A planked-up window in a Zone's outer wall. Zombies tear the Planks off to climb in, and can swipe the Player through the window while they do it. The Player can never pass through a Barrier, whether it is planked or not.
 
+**Sill**: The solid wall under a Barrier's window, about waist high. Zombies climb up over it to get in. It stops shots, blasts and thrown Equipment like any wall, and the Planks cover only the opening above it.
+
 **Plank**: One piece of wood on a Barrier. A Zombie tears Planks off one at a time, and the Player earns Points for putting them back. A Barrier is only open to Zombies once every Plank is gone.
 _Avoid_: board, plank of wood
 

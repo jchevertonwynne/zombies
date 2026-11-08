@@ -36,7 +36,7 @@ pub fn seat_start(seat: u8) -> Vec3 {
 
 /// One storey.
 const STOREY: f32 = 4.0;
-const WALL_THICKNESS: f32 = 0.4;
+pub(crate) const WALL_THICKNESS: f32 = 0.4;
 const DOOR_WIDTH: f32 = 2.4;
 const DOOR_HEIGHT: f32 = 3.0;
 const RAIL_HEIGHT: f32 = 1.1;
@@ -93,7 +93,6 @@ pub const BOX_LOCATIONS: [(ZoneId, Vec2, Vec2); 5] = [
 ];
 
 const WINDOW_WIDTH: f32 = 1.6;
-const WINDOW_HEIGHT: f32 = 2.2;
 /// How far outside its window a window Spawn Point sits.
 const WINDOW_SPAWN_OUT: f32 = 2.0;
 
@@ -308,15 +307,18 @@ impl Builder<'_, '_, '_> {
             piece(self, s, e, top, height, WALL_THICKNESS, &wall_mat);
             cursor = e;
             if let Gap::Window = gap {
+                // The Sill is wall like any other; the opening above it is solid to the Player only.
+                piece(self, s, e, 0.0, WINDOW_SILL_HEIGHT, WALL_THICKNESS, &wall_mat);
+                let opening = WINDOW_HEIGHT - WINDOW_SILL_HEIGHT;
                 let mid = a + dir * *at;
                 let size = if along_x {
-                    Vec3::new(e - s, WINDOW_HEIGHT, WALL_THICKNESS)
+                    Vec3::new(e - s, opening, WALL_THICKNESS)
                 } else {
-                    Vec3::new(WALL_THICKNESS, WINDOW_HEIGHT, e - s)
+                    Vec3::new(WALL_THICKNESS, opening, e - s)
                 };
                 self.commands.spawn((
                     InRun,
-                    Transform::from_xyz(mid.x, y0 + WINDOW_HEIGHT / 2.0, mid.y),
+                    Transform::from_xyz(mid.x, y0 + WINDOW_SILL_HEIGHT + opening / 2.0, mid.y),
                     RigidBody::Static,
                     Collider::cuboid(size.x, size.y, size.z),
                     CollisionLayers::new(GameLayer::Window, LayerMask::ALL),
@@ -789,5 +791,42 @@ mod tests {
             assert_eq!(crate::nav::zone_at(at + Vec3::Y * 0.1), Some(zone), "under the Vent");
             assert_eq!(crate::nav::zone_at(at + Vec3::Y * NOVA_VENT_HEIGHT), Some(zone), "the Vent");
         }
+    }
+
+    /// Rays straight out through every window on the World layer, from 1 m inside to 1 m outside:
+    /// what solid wall stands in the way at `height` above the floor.
+    fn window_walls_at(height: f32) -> Vec<(usize, bool)> {
+        use avian3d::prelude::*;
+        use bevy::ecs::system::RunSystemOnce;
+
+        use crate::layers::GameLayer;
+
+        let mut sim = crate::zombie::headless::Sim::new(60.0, |_| {});
+        sim.world_mut()
+            .run_system_once(move |spatial: SpatialQuery| {
+                let filter = SpatialQueryFilter::from_mask(GameLayer::World);
+                WINDOWS
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (_, centre, out))| {
+                        let from = Vec3::new(centre.x, height, centre.y) - Vec3::new(out.x, 0.0, out.y);
+                        let dir = Dir3::new(Vec3::new(out.x, 0.0, out.y)).unwrap();
+                        (i, spatial.cast_ray(from, dir, 2.0, true, &filter).is_some())
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn every_window_has_a_solid_sill_below_its_opening() {
+        let open: Vec<usize> = window_walls_at(0.45).into_iter().filter(|(_, hit)| !hit).map(|(i, _)| i).collect();
+        assert!(open.is_empty(), "windows with no Sill at knee height: {open:?}");
+    }
+
+    #[test]
+    fn a_window_opening_is_open_to_everything_but_the_player() {
+        let shut: Vec<usize> = window_walls_at(1.5).into_iter().filter(|(_, hit)| *hit).map(|(i, _)| i).collect();
+        assert!(shut.is_empty(), "windows with solid wall across the opening: {shut:?}");
     }
 }
