@@ -12,7 +12,7 @@ use crate::controls::{Action, Controls};
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
 use crate::buy::{Buyable, Focus, Held, Nearby, UseRequest};
-use crate::map::{BarrierId, WINDOWS};
+use crate::map::{BarrierId, WALL_THICKNESS, WINDOWS};
 use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_points};
 use crate::nav::Route;
 use crate::player::{LocalPlayer, Player};
@@ -31,12 +31,17 @@ const SPOT_ALONG: [f32; BARRIER_ATTACK_SPOTS] = [-0.55, 0.0, 0.55];
 /// window's centre.
 const WAIT_OUT: std::ops::Range<f32> = 2.4..3.2;
 const WAIT_ALONG: f32 = 1.6;
-/// How far inside the wall a vault lands, and how high it arcs.
+/// How far inside the wall a vault lands.
 const VAULT_IN: f32 = 1.2;
 /// How far apart, along the window, the vault landings of neighbouring attack spots are: more than
 /// a Zombie's width, so Zombies vaulting together land clear of each other.
 const LAND_SPACING: f32 = 0.85;
-const VAULT_ARC: f32 = 0.6;
+/// How far a vaulting Zombie's feet clear the Sill's top.
+const VAULT_CLEARANCE: f32 = 0.05;
+/// How far through a vault, from 0 to 1, the climb onto the Sill ends, and then the crossing of
+/// the wall: the drop into the room takes the rest.
+const VAULT_CLIMB_ENDS: f32 = 0.4;
+const VAULT_CROSS_ENDS: f32 = 0.65;
 /// How close counts as having reached a spot.
 const ARRIVE_DIST: f32 = 0.1;
 /// The fastest the rebuild hand's push moves, in whole pushes per second.
@@ -408,12 +413,17 @@ fn window_axes(barrier: BarrierId) -> (Vec3, Vec3) {
 /// How far a Plank sits in from the window's centre plane, toward the room.
 const PLANK_INSET: f32 = 0.27;
 
+/// How far the bottom Plank's middle sits above the Sill, and the top Plank's below the window top.
+const PLANK_MARGIN: f32 = 0.15;
+
 /// Where the `p`th Plank from the bottom is nailed, on its Barrier (whose local −Z points out of
 /// the window, so +Z is the room's side and local X runs along the wall): across the inside face, the
-/// Player's side, each a little askew.
+/// Player's side, each a little askew. The Planks are spread evenly over the opening above the Sill.
 fn plank_transform(p: u8) -> Transform {
     let tilt = if p.is_multiple_of(2) { 0.12 } else { -0.1 };
-    Transform::from_xyz(0.0, 0.35 + 0.32 * p as f32, PLANK_INSET).with_rotation(Quat::from_rotation_z(tilt))
+    let (bottom, top) = (WINDOW_SILL_HEIGHT + PLANK_MARGIN, WINDOW_HEIGHT - PLANK_MARGIN);
+    let y = bottom + (top - bottom) * f32::from(p) / f32::from(BARRIER_PLANKS - 1);
+    Transform::from_xyz(0.0, y, PLANK_INSET).with_rotation(Quat::from_rotation_z(tilt))
 }
 
 /// A Barrier's own Transform, on its window.
@@ -697,8 +707,7 @@ pub(crate) fn enter_through_windows(
             Stage::Vaulting { elapsed, from, to } => {
                 let elapsed = elapsed + dt;
                 let t = (elapsed / vault_secs(zombie.is_crawler())).min(1.0);
-                transform.translation =
-                    from.lerp(to, t) + Vec3::Y * VAULT_ARC * (t * std::f32::consts::PI).sin();
+                transform.translation = vault_at(barrier, from, to, t);
                 face(&mut transform, -out);
                 if t >= 1.0 {
                     // In: from here it hunts the Player like any other Zombie, planning at once.
@@ -712,6 +721,30 @@ pub(crate) fn enter_through_windows(
             }
         }
     }
+}
+
+/// Where a vault from `from` (outside, at an attack spot) to `to` (its landing inside) has the
+/// Zombie at progress `t`, from 0 to 1. It climbs up onto the Sill, crosses the wall with its feet
+/// clear of the Sill's top, then drops down into the room. `from` and `to` are the body's place
+/// standing on the floor, so the climb lifts it by the Sill's height.
+fn vault_at(barrier: BarrierId, from: Vec3, to: Vec3, t: f32) -> Vec3 {
+    let (out, _) = window_axes(barrier);
+    let wall = window_centre(barrier);
+    let lift = Vec3::Y * (WINDOW_SILL_HEIGHT + VAULT_CLEARANCE);
+    // Where the body is just clear of the Sill on either side: half the wall and the body's radius
+    // from the wall line, keeping each end's place along the wall.
+    let edge = WALL_THICKNESS / 2.0 + ZOMBIE_RADIUS;
+    let to_edge = |at: Vec3, side: f32| at + out * (side * edge - (at - wall).dot(out));
+    let keys = [from, to_edge(from, 1.0) + lift, to_edge(to, -1.0) + lift, to];
+    let (climbed, crossed) = (VAULT_CLIMB_ENDS, VAULT_CROSS_ENDS);
+    let (a, b, u) = if t < climbed {
+        (keys[0], keys[1], t / climbed)
+    } else if t < crossed {
+        (keys[1], keys[2], (t - climbed) / (crossed - climbed))
+    } else {
+        (keys[2], keys[3], (t - crossed) / (1.0 - crossed))
+    };
+    a.lerp(b, u.clamp(0.0, 1.0))
 }
 
 /// Steps a Zombie up to `step` toward `target`, facing the way it walks. True once it's there.
@@ -1170,6 +1203,50 @@ mod tests {
     fn a_crawler_takes_two_seconds_to_vault() {
         assert_eq!(vault_secs(true), 2.0);
         assert_eq!(vault_secs(false), ZOMBIE_VAULT_SECS);
+    }
+
+    #[test]
+    fn the_planks_board_up_the_opening_above_the_sill() {
+        let heights: Vec<f32> = (0..BARRIER_PLANKS).map(|p| plank_transform(p).translation.y).collect();
+        for (p, y) in heights.iter().enumerate() {
+            // Each Plank's middle, 0.18 m deep, lies within the opening.
+            assert!(*y - 0.09 >= WINDOW_SILL_HEIGHT, "Plank {p} at {y} dips into the Sill");
+            assert!(*y + 0.09 <= WINDOW_HEIGHT, "Plank {p} at {y} pokes above the window");
+        }
+        // Bottom to top, from just above the Sill to just below the top, evenly.
+        assert!(heights[0] - WINDOW_SILL_HEIGHT < 0.25, "the bottom Plank leaves a gap above the Sill");
+        assert!(WINDOW_HEIGHT - heights[heights.len() - 1] < 0.25, "the top Plank leaves a gap below the top");
+        let pitches: Vec<f32> = heights.windows(2).map(|w| w[1] - w[0]).collect();
+        assert!(pitches.iter().all(|pitch| (pitch - pitches[0]).abs() < 1e-4 && *pitch > 0.0), "{pitches:?}");
+    }
+
+    #[test]
+    fn a_vault_climbs_over_the_sill_from_its_spot_to_its_landing() {
+        // A body centre 1 m up: lift above that is how high the feet are off the floor.
+        let standing = 1.0;
+        // Within this far of the wall line, a Zombie's body is over the Sill.
+        let over_sill = WALL_THICKNESS / 2.0 + ZOMBIE_RADIUS;
+        for i in 0..WINDOWS.len() {
+            let barrier = BarrierId(i as u8);
+            let (out, _) = window_axes(barrier);
+            for spot in 0..BARRIER_ATTACK_SPOTS {
+                let from = spot_at(barrier, spot).with_y(standing);
+                let to = landing_at(barrier, spot).with_y(standing);
+                assert!(vault_at(barrier, from, to, 0.0).distance(from) < 1e-4, "window {i} spot {spot} start");
+                assert!(vault_at(barrier, from, to, 1.0).distance(to) < 1e-4, "window {i} spot {spot} end");
+                for step in 0..=200 {
+                    let at = vault_at(barrier, from, to, step as f32 / 200.0);
+                    let across = (at - window_centre(barrier)).dot(out);
+                    if across.abs() <= over_sill {
+                        let feet = at.y - standing;
+                        assert!(
+                            feet >= WINDOW_SILL_HEIGHT,
+                            "window {i} spot {spot}: feet {feet} at {across} m from the wall line, under the Sill top"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]

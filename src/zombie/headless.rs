@@ -460,3 +460,59 @@ fn zombies_that_vault_a_window_together_land_apart_and_move_on() {
         }
     }
 }
+
+/// Opens window 0 and sends one Zombie in through it (a Crawler if `crawler`): where its body
+/// stood before the vault, every frame's position, and the window's centre and way out.
+fn vault_window_0(crawler: bool) -> (f32, Vec<Vec3>, Vec3, Vec3) {
+    use crate::barrier::{Barriers, Entering, PlankTorn, enter_through_windows};
+    use crate::map::{BarrierId, WINDOWS, window_spawn};
+
+    let barrier = BarrierId(0);
+    let mut sim = Sim::new(60.0, |app| {
+        app.add_message::<PlankTorn>()
+            .add_message::<crate::audio::PlayCue>()
+            .insert_resource(crate::round::Round::shown(1, None))
+            .add_systems(FixedUpdate, enter_through_windows);
+    });
+    for _ in 0..crate::tuning::BARRIER_PLANKS {
+        sim.world_mut().resource_mut::<Barriers>().tear(barrier);
+    }
+    let zombie = sim.spawn(window_spawn(barrier), None);
+    sim.run(sim.frames(0.5));
+    if crawler {
+        sim.send(Gibbed { zombie });
+        sim.run(sim.frames(0.5));
+    }
+    let standing = sim.world_mut().get::<Transform>(zombie).unwrap().translation.y;
+    sim.world_mut().entity_mut(zombie).insert(Entering::new(barrier));
+    let path = sim.track(zombie, sim.frames(6.0)).into_iter().map(|sample| sample.pos).collect();
+    let (_, centre, out) = WINDOWS[barrier.0 as usize];
+    (standing, path, Vec3::new(centre.x, 0.0, centre.y), Vec3::new(out.x, 0.0, out.y))
+}
+
+/// A Zombie, and a Crawler, get in over the Sill: never through it, and on into the room.
+#[test]
+fn zombies_and_crawlers_climb_in_over_the_window_sill() {
+    for crawler in [false, true] {
+        let (standing, path, centre, out) = vault_window_0(crawler);
+        // Within this far of the wall line, the body is over the Sill.
+        let over_sill = crate::map::WALL_THICKNESS / 2.0 + ZOMBIE_RADIUS;
+        let mut crossed = false;
+        for at in &path {
+            let across = (*at - centre).dot(out);
+            if across.abs() <= over_sill {
+                crossed = true;
+                let feet = at.y - standing;
+                assert!(
+                    feet >= crate::tuning::WINDOW_SILL_HEIGHT - 0.01,
+                    "crawler {crawler}: feet {feet} off the floor {across} m from the wall line"
+                );
+            }
+        }
+        assert!(crossed, "crawler {crawler}: never crossed the wall");
+        let end = *path.last().unwrap();
+        // Past its landing (1.2 m in): it has set off after the Player.
+        assert!((end - centre).dot(out) < -2.5, "crawler {crawler}: still at the window, at {end}");
+        assert_eq!(crate::nav::zone_at(end + Vec3::Y * 0.1), Some(crate::zone::ZoneId::StartRoom), "crawler {crawler}");
+    }
+}

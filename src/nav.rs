@@ -519,13 +519,14 @@ mod tests {
             .world_mut()
             .run_system_once(|spatial: SpatialQuery, doors: Query<Entity, With<Door>>| {
                 let graph = NavGraph::new();
-                // Doors stand open once bought; the Vents and the drop are falls, not walks.
+                // Doors stand open once bought; the Vents and the drop are falls, and a window is
+                // climbed over its Sill, not walked.
                 let filter = SpatialQueryFilter::from_mask(GameLayer::World).with_excluded_entities(doors.iter());
                 let body = Collider::sphere(ZOMBIE_RADIUS * 0.8);
                 graph
                     .edges
                     .iter()
-                    .filter(|edge| edge.gate != Gate::OneWay)
+                    .filter(|edge| !matches!(edge.gate, Gate::OneWay | Gate::Barrier(_)))
                     .filter_map(|edge| {
                         let (from, to) = (graph.nodes[edge.from].at + Vec3::Y, graph.nodes[edge.to].at + Vec3::Y);
                         let dir = Dir3::new(to - from).ok()?;

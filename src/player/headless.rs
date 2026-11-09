@@ -1485,3 +1485,45 @@ fn forced_stand_ups_snap_the_icon_and_rustle() {
         assert_eq!(sim.heard(), [Cue::StanceRustle], "{stand}: the stand-up didn't rustle once");
     }
 }
+
+/// Facing +Z: out of window 0, in the Start Room's north wall.
+const FACING_WINDOW_0: f32 = std::f32::consts::PI;
+
+/// Walking, sprinting, jumping over and over, and Diving at a window all leave the Player in the
+/// Start Room: not out of the window, and not perched on its Sill.
+#[test]
+fn the_player_cannot_leave_through_a_window_or_stand_on_its_sill() {
+    let (_, centre, out) = crate::map::WINDOWS[0];
+    assert_eq!(out, Vec2::Y, "window 0 no longer faces +Z");
+    let window = Vec3::new(centre.x, 0.0, centre.y);
+    // How close the Player's centre can come to the wall line from inside.
+    let wall_inner_face = window.z - crate::map::WALL_THICKNESS / 2.0;
+    let start = window - Vec3::Z * 5.0;
+    let tries: [(&str, &[&[KeyCode]]); 5] = [
+        ("walking", &[&[KeyCode::KeyW]]),
+        ("sprinting", &[&[KeyCode::KeyW, KeyCode::ShiftLeft]]),
+        ("jumping from a sprint", &[&[KeyCode::KeyW, KeyCode::ShiftLeft, KeyCode::Space], &[KeyCode::KeyW, KeyCode::ShiftLeft]]),
+        ("jumping from a standstill", &[&[KeyCode::KeyW], &[KeyCode::Space], &[]]),
+        ("diving", &[&[KeyCode::KeyW, KeyCode::ShiftLeft], &[KeyCode::KeyZ]]),
+    ];
+    for (name, presses) in tries {
+        let mut sim = Sim::new(144.0);
+        sim.place(start, FACING_WINDOW_0);
+        let floor = sim.frame().pos.y - Stance::Standing.half_height();
+        let mut samples = Vec::new();
+        // Each press in turn for a quarter of a second, round and round for 4 s, at the window.
+        for round in 0..16 {
+            sim.hold(presses[round % presses.len()]);
+            samples.extend(sim.run_secs(0.25));
+        }
+        sim.hold(&[]);
+        samples.extend(sim.run_secs(1.0));
+        let furthest = samples.iter().map(|s| s.pos.z).fold(f32::MIN, f32::max);
+        assert!(furthest < wall_inner_face, "{name}: got {} m into the wall", furthest - wall_inner_face);
+        assert!(furthest > wall_inner_face - 1.0, "{name}: never reached the window ({furthest})");
+        let last = samples.last().unwrap();
+        let feet = last.pos.y - sim.stance().half_height();
+        assert!(last.grounded && (feet - floor).abs() < 0.05, "{name}: came to rest {} m up", feet - floor);
+        assert_eq!(crate::nav::zone_at(last.pos), Some(crate::zone::ZoneId::StartRoom), "{name}");
+    }
+}
