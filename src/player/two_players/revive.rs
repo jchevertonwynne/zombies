@@ -223,7 +223,7 @@ fn a_hit_doesnt_reset_the_revive_and_the_reviver_cant_fire() {
     down(&mut sim, teammate);
     hold(&mut sim, local, teammate, 1.0);
     assert!(sim.world_mut().run_system_once(not_reviving).unwrap() == false, "the reviver could fire");
-    sim.send(PlayerHit { player: local, damage: 30.0 });
+    sim.send(PlayerHit { player: local, damage: 30.0, from: None });
     hold(&mut sim, local, teammate, 1.0);
     assert!(sim.world_mut().get::<Health>(local).unwrap().current < PLAYER_MAX_HEALTH, "the hit never landed");
     hold(&mut sim, local, teammate, 1.1);

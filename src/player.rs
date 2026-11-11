@@ -556,6 +556,10 @@ pub struct PlayerHit {
     /// The Player hit.
     pub player: Entity,
     pub damage: f32,
+    /// Where the hit came from, for the damage indicator: the Zombie that swung, the blast's
+    /// centre, the Trap. None for a hit with no direction to show, such as the Player's own
+    /// explosive or a fire pool underfoot.
+    pub from: Option<Vec3>,
 }
 
 /// Whether the local Player is clear to fire: not mid-prone-transition and not in a Dive's

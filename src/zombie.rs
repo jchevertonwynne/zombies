@@ -1119,13 +1119,17 @@ pub(crate) struct ZombieMelee<'w, 's> {
 }
 
 impl ZombieMelee<'_, '_> {
-    /// Strikes `player` for `damage`, unless their Hit Grace blocks it. A blocked swing is spent
-    /// all the same: the caller starts its cooldown either way, so a pile-up can't line its next
-    /// swings up with the end of Hit Grace.
-    pub(crate) fn strike(&mut self, player: Entity, damage: f32) {
+    /// Strikes `player` for `damage` from `from`, unless their Hit Grace blocks it. A blocked
+    /// swing is spent all the same: the caller starts its cooldown either way, so a pile-up can't
+    /// line its next swings up with the end of Hit Grace.
+    pub(crate) fn strike(&mut self, player: Entity, damage: f32, from: Vec3) {
         let now = self.clock.elapsed();
         if self.graces.get_mut(player).map_or(true, |mut grace| grace.try_land(now)) {
-            self.hits.write(PlayerHit { player, damage });
+            self.hits.write(PlayerHit {
+                player,
+                damage,
+                from: Some(from),
+            });
         }
     }
 }
@@ -1186,7 +1190,7 @@ fn attack(
                 // A Zombie that lands a swipe is ignored for a moment; other Zombies can still hit,
                 // once the Player's Hit Grace is over.
                 if in_reach {
-                    melee.strike(player.entity, damage);
+                    melee.strike(player.entity, damage, transform.translation);
                     // The Sapper's slam has its own sound, above.
                     if !zombie.is_sapper() {
                         let cue = if zombie.hellhound {
@@ -1834,6 +1838,21 @@ mod tests {
         let hits = swipes_at(sim, 3.0);
         assert!(hits.iter().all(|hit| hit.player == teammate), "somebody else was swiped");
         assert!(!hits.is_empty(), "the knee-high cover shielded a Crouched Player from the swipe");
+    }
+
+    #[test]
+    fn a_swipe_comes_from_the_zombie_that_swung() {
+        let (mut sim, _local, teammate) = crate::player::two_players::two_players();
+        let player = sim.world_mut().get::<Transform>(teammate).expect("a Player").translation;
+        cover_between(&mut sim, 0.75);
+        let hits = swipes_at(sim, 3.0);
+        assert!(!hits.is_empty(), "no swipe landed");
+        for hit in hits {
+            let from = hit.from.expect("a swipe has a source");
+            // The Zombie came in from −X, along the line to the Player, and swung from its reach.
+            assert!(from.x < player.x, "{from} isn't on the Zombie's side of {player}");
+            assert!((from.z - player.z).abs() < 1.0, "{from} is off the Zombie's line to {player}");
+        }
     }
 
     #[test]

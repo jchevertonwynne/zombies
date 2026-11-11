@@ -384,7 +384,11 @@ pub(crate) fn explode(
                     let left = &mut health_left.iter_mut().find(|(entity, _)| *entity == player).expect("listed above").1;
                     let taken = self_explosive_damage(*left, amount);
                     *left -= taken;
-                    player_hits.write(PlayerHit { player, damage: taken });
+                    player_hits.write(PlayerHit {
+                        player,
+                        damage: taken,
+                        from: None,
+                    });
                 }
             }
         }

@@ -516,12 +516,12 @@ fn shock_player(
         // The Player's current Stance shape, not a hard-coded standing capsule: the height the
         // Trap's volume has to reach is how far their centre sits above their feet right now.
         let half_height = half_height_above_feet(locomotion);
-        let inside = running
+        let Some(&(trap_at, _)) = running
             .iter()
-            .any(|&(centre, half)| touches(centre, half, transform.translation, PLAYER_RADIUS, half_height));
-        if !inside {
+            .find(|&&(centre, half)| touches(centre, half, transform.translation, PLAYER_RADIUS, half_height))
+        else {
             continue;
-        }
+        };
         match player_touch(perks.has(Perk::Juggernog), last_stand, still_shocked) {
             PlayerTouch::Nothing => {}
             // Enough to empty any Health; the Down itself is the Last Stand module's.
@@ -529,12 +529,14 @@ fn shock_player(
                 hits.write(PlayerHit {
                     player: entity,
                     damage: f32::MAX,
+                    from: Some(trap_at),
                 });
             }
             PlayerTouch::Shock => {
                 hits.write(PlayerHit {
                     player: entity,
                     damage: TRAP_PLAYER_DAMAGE,
+                    from: Some(trap_at),
                 });
                 modifiers.0.retain(|entry| entry.source != SHOCK_SOURCE);
                 modifiers.0.push(Modifier {

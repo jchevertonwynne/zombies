@@ -132,7 +132,7 @@ fn a_sapper_slam_that_lands_opens_hit_grace() {
 
 /// An explosion, a Trap or a fire pool: a `PlayerHit` sent straight to the Player.
 fn environmental(sim: &mut Sim, player: Entity, damage: f32) {
-    sim.send(PlayerHit { player, damage });
+    sim.send(PlayerHit { player, damage, from: None });
 }
 
 #[test]

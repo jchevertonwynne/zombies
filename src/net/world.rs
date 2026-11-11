@@ -46,6 +46,7 @@ use crate::pack_a_punch::PackAPunch;
 use crate::perk::{Drinking, Perk, PerkMachine, Perks};
 use crate::player::{Health, LocalPlayer, Locomotion, Player, PlayerHit, PlayerName, Seat as PlayerSeat, StanceKeys};
 use crate::respawn::{AwaitingRespawn, Disconnected, Respawned, SeatReturned};
+use crate::hud::damage_indicator::DamageIndicators;
 use crate::hud::overlay::Overlays;
 use crate::mystery_box::{BoxAssets, spawn_box};
 use crate::power_up::FireSaleBox;
@@ -273,6 +274,8 @@ pub enum WorldEvent {
     Status { seat: Seat, status: Status },
     /// To one Player, how much Health they have of how much.
     Health { current: f32, max: f32 },
+    /// To one Player, a hit has come from here: their damage indicator.
+    Hurt { from: [f32; 3] },
     /// To one Player, their Offer: the Round it follows, whether its cards are Pacts, and their ids.
     Offer(OfferWire),
     /// To one Player, their Offer is closed (picked, skipped, or lost to a Bleed Out).
@@ -430,6 +433,7 @@ pub fn add(app: &mut App) {
                 tell_held,
                 tell_status,
                 tell_health,
+                tell_hurts,
                 tell_offers,
                 tell_gauntlet,
                 tell_left,
@@ -476,7 +480,7 @@ pub fn add(app: &mut App) {
                     hear_perks,
                     hear_held,
                     hear_status,
-                    hear_health,
+                    (hear_health, hear_hurts),
                     hear_offers,
                     hear_gauntlet,
                     hear_left,
@@ -923,6 +927,21 @@ fn tell_health(mut tell: Tell, mut mirror: ResMut<Mirror>, players: Query<(&Play
         if now < told || (now - told).abs() >= HEALTH_TELL_STEP || full {
             mirror.health.insert(seat.0, now);
             tell.to(remote.peer, &WorldEvent::Health { current: now, max: health.max });
+        }
+    }
+}
+
+/// Each hit with a source on a remote Player who can be hurt, to them, for their damage indicator.
+fn tell_hurts(
+    mut tell: Tell,
+    mut hits: MessageReader<PlayerHit>,
+    remotes: Query<&Remote, (Without<LastStand>, Without<AwaitingRespawn>)>,
+) {
+    for hit in hits.read() {
+        if let Some(from) = hit.from
+            && let Ok(remote) = remotes.get(hit.player)
+        {
+            tell.to(remote.peer, &WorldEvent::Hurt { from: from.to_array() });
         }
     }
 }
@@ -1721,6 +1740,20 @@ fn hear_status(
     }
 }
 
+/// The Host's word of where hits on the `LocalPlayer` came from.
+fn hear_hurts(
+    mut heard: MessageReader<Heard>,
+    local: Query<&Transform, With<LocalPlayer>>,
+    indicators: Option<ResMut<DamageIndicators>>,
+) {
+    let (Ok(transform), Some(mut indicators)) = (local.single(), indicators) else { return };
+    for Heard(event) in heard.read() {
+        if let WorldEvent::Hurt { from } = *event {
+            indicators.hit(transform.translation, Vec3::from_array(from));
+        }
+    }
+}
+
 /// The Host's word of the `LocalPlayer`'s Health. A fall is a hit, for the screen and the sound.
 fn hear_health(
     mut heard: MessageReader<Heard>,
@@ -1731,7 +1764,12 @@ fn hear_health(
     for Heard(event) in heard.read() {
         let WorldEvent::Health { current, max } = *event else { continue };
         if current < health.current {
-            hits.write(PlayerHit { player, damage: health.current - current });
+            // The direction comes in its own `Hurt`.
+            hits.write(PlayerHit {
+                player,
+                damage: health.current - current,
+                from: None,
+            });
             health.since_hit = 0.0;
         }
         health.max = max;
