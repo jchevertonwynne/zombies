@@ -116,6 +116,8 @@ const NODES: &[(&str, f32, f32, f32)] = &[
     ("w4_in", -24.5, 0.0, -8.0),
     ("w4_out", -28.0, 0.0, -8.0),
     ("bal_w", -12.5, 4.0, -2.0),
+    ("w20_in", -12.0, 4.0, -11.5),
+    ("w20_out", -12.0, 4.0, -16.0),
     ("drop_top", -11.0, 4.0, 4.0),
     // Yard
     ("drop_bottom", -8.5, 0.0, 4.0),
@@ -279,6 +281,8 @@ const EDGES: &[(&str, &str, Gate)] = {
         ("ramp_mid", "ramp_top", OPEN),
         ("ramp_top", "bal_w", OPEN),
         ("bal_w", "drop_top", OPEN),
+        ("bal_w", "w20_in", OPEN),
+        ("w20_out", "w20_in", barrier(20)),
         ("drop_top", "drop_bottom", Gate::OneWay),
         // Yard
         ("drop_bottom", "yard_w", OPEN),

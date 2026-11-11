@@ -298,8 +298,8 @@ pub(crate) const EQUIPMENT_WALLS: [(EquipmentWall, ZoneId, Vec3, Vec3); 3] = [
     (EquipmentWall::Frags, ZoneId::DiningRoom, Vec3::new(-3.0, 1.5, -14.2), Vec3::NEG_Z),
     // On the Power Room's north wall, the far side of the Yard's AK-74u.
     (EquipmentWall::Claymore, ZoneId::PowerRoom, Vec3::new(6.0, 1.5, -14.2), Vec3::NEG_Z),
-    // On the full wall at the Balcony's south end, a storey up.
-    (EquipmentWall::BowieKnife, ZoneId::Balcony, Vec3::new(-12.0, 5.5, -13.8), Vec3::Z),
+    // On the West Hall wall along the Balcony, a storey up, between the window and the ramp.
+    (EquipmentWall::BowieKnife, ZoneId::Balcony, Vec3::new(-13.8, 5.5, -8.0), Vec3::X),
 ];
 
 /// What the left hand is letting go of.

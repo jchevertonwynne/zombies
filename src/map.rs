@@ -97,14 +97,14 @@ const WINDOW_WIDTH: f32 = 1.6;
 /// How far outside its window a window Spawn Point sits.
 const WINDOW_SPAWN_OUT: f32 = 2.0;
 
-/// One of the 20 windows in the outer walls, each the home of one Barrier (an index into
+/// One of the 21 windows in the outer walls, each the home of one Barrier (an index into
 /// `WINDOWS`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BarrierId(pub u8);
 
 /// The windows: the Zone each lets into, its centre on the wall (x, z), and the way out. Each is
 /// planked up by its Barrier.
-pub const WINDOWS: [(ZoneId, Vec2, Vec2); 20] = [
+pub const WINDOWS: [(ZoneId, Vec2, Vec2); 21] = [
     (ZoneId::StartRoom, Vec2::new(-7.0, 26.0), Vec2::Y),
     (ZoneId::StartRoom, Vec2::new(7.0, 26.0), Vec2::Y),
     (ZoneId::WestHall, Vec2::new(-26.0, 18.0), Vec2::NEG_X),
@@ -126,13 +126,30 @@ pub const WINDOWS: [(ZoneId, Vec2, Vec2); 20] = [
     (ZoneId::GeneratorRoom, Vec2::new(16.0, -50.0), Vec2::NEG_Y),
     (ZoneId::GeneratorRoom, Vec2::new(28.0, -50.0), Vec2::NEG_Y),
     (ZoneId::GeneratorRoom, Vec2::new(34.0, -44.0), Vec2::X),
+    // Up at the first storey, in the Balcony's south end, onto the roof over the Dining Room.
+    (ZoneId::Balcony, Vec2::new(-12.0, -14.0), Vec2::NEG_Y),
 ];
 
-/// Where a window's Spawn Point stands: on the ground just outside it.
+/// The middle of a window on the wall line, at the height of the floor it lets onto: the ground,
+/// or the first storey for the Balcony's.
+pub fn window_centre(barrier: BarrierId) -> Vec3 {
+    let (zone, centre, _) = WINDOWS[barrier.0 as usize];
+    let floor = if zone == ZoneId::Balcony { STOREY } else { 0.0 };
+    Vec3::new(centre.x, floor, centre.y)
+}
+
+/// The flat roof outside the Balcony's window, up at the first storey over the Dining Room: its
+/// corners (x, z). The Balcony's own wall bounds its north side, and a parapet the other three:
+/// below them all is the open Dining Room.
+const BALCONY_ROOF: (Vec2, Vec2) = (Vec2::new(-14.5, -18.5), Vec2::new(-9.5, -14.0));
+/// How thick the roof's parapet is. It stands as high as the Balcony's rails.
+const PARAPET_THICKNESS: f32 = 0.3;
+
+/// Where a window's Spawn Point stands: on the floor just outside it, the ground or the roof
+/// outside the Balcony.
 pub fn window_spawn(barrier: BarrierId) -> Vec3 {
-    let (_, centre, out) = WINDOWS[barrier.0 as usize];
-    let at = centre + out * WINDOW_SPAWN_OUT;
-    Vec3::new(at.x, 0.0, at.y)
+    let (_, _, out) = WINDOWS[barrier.0 as usize];
+    window_centre(barrier) + Vec3::new(out.x, 0.0, out.y) * WINDOW_SPAWN_OUT
 }
 
 /// The Yard's Risers, where Zombies climb out of the ground (x, z), on open ground clear of the
@@ -682,14 +699,27 @@ pub fn spawn_map(
     b.wall(v(-14.0, -14.0), v(0.0, -14.0), 0.0, STOREY, &[(7.0, door(Yard, DiningRoom, DOOR_PRICE_YARD_DINING))]);
     b.wall(v(0.0, -14.0), v(14.0, -14.0), 0.0, STOREY, &[]);
 
-    // Balcony: a full wall at the south end (so no one walks onto the Dining wall), and rails
-    // along the Yard side and the north end, with a gap in the Yard rail for the drop.
-    b.wall(v(-14.0, -14.0), v(-10.0, -14.0), STOREY, STOREY, &[]);
+    // Balcony: a full wall at the south end (so no one walks onto the Dining wall) with its window,
+    // and rails along the Yard side and the north end, with a gap in the Yard rail for the drop.
+    b.wall(v(-14.0, -14.0), v(-10.0, -14.0), STOREY, STOREY, &[(2.0, Gap::Window)]);
     b.wall(v(-10.0, -14.0), v(-10.0, 10.0), STOREY, RAIL_HEIGHT, &[(18.0, Gap::Open { width: DOOR_WIDTH, height: RAIL_HEIGHT })]);
     b.wall(v(-14.0, 10.0), v(-10.0, 10.0), STOREY, RAIL_HEIGHT, &[]);
     for z in [-11.0, -2.0, 7.0] {
         b.block(Vec3::new(0.5, STOREY, 0.5), Vec3::new(-10.3, STOREY / 2.0, z), palette(Some(Yard)).trim);
     }
+    // Outside the Balcony's window, a flat roof over the Dining Room's corner where Zombies
+    // gather, as thick as the Balcony's floor and level with it, with a parapet round its open
+    // edges so none of them falls into the room below.
+    let (roof_min, roof_max) = BALCONY_ROOF;
+    let roof = roof_max - roof_min;
+    let roof_mid = (roof_min + roof_max) / 2.0;
+    b.block(Vec3::new(roof.x, 0.2, roof.y), Vec3::new(roof_mid.x, STOREY - 0.1, roof_mid.y), palette(None).floor);
+    let thick = PARAPET_THICKNESS;
+    let rise = Vec3::Y * (STOREY + RAIL_HEIGHT / 2.0);
+    for x in [roof_min.x + thick / 2.0, roof_max.x - thick / 2.0] {
+        b.block(Vec3::new(thick, RAIL_HEIGHT, roof.y), Vec3::new(x, 0.0, roof_mid.y) + rise, palette(None).trim);
+    }
+    b.block(Vec3::new(roof.x, RAIL_HEIGHT, thick), Vec3::new(roof_mid.x, 0.0, roof_min.y + thick / 2.0) + rise, palette(None).trim);
 
     // Raised and sunken floors, and the steps and ramps between floors.
     for raised in RAISED_FLOORS {
@@ -894,8 +924,9 @@ mod tests {
         for (i, (zone, at, _)) in BOX_LOCATIONS.iter().enumerate() {
             fixtures.push((format!("Box Location {i} ({})", zone.name()), flat(*at, 0.0), 1.0));
         }
-        for (i, (_, at, _)) in WINDOWS.iter().enumerate() {
-            fixtures.push((format!("window {i}"), flat(*at, 1.1), WINDOW_WIDTH / 2.0));
+        for i in 0..WINDOWS.len() {
+            let at = window_centre(BarrierId(i as u8)) + Vec3::Y * 1.1;
+            fixtures.push((format!("window {i}"), at, WINDOW_WIDTH / 2.0));
         }
         for perk in Perk::ALL {
             fixtures.push((format!("{perk:?}"), perk.machine_spot().0, 0.7));
@@ -992,8 +1023,8 @@ mod tests {
             .into_iter()
             .map(|(name, at, clear)| (name, zone_at(at.with_y(at.y.min(STOREY + 0.5))), at, clear + 0.6))
             .collect();
-        for (i, (zone, centre, _)) in WINDOWS.iter().enumerate() {
-            keep.push((format!("window {i}'s landing"), Some(*zone), Vec3::new(centre.x, 0.0, centre.y), 2.6));
+        for (i, (zone, ..)) in WINDOWS.iter().enumerate() {
+            keep.push((format!("window {i}'s landing"), Some(*zone), window_centre(BarrierId(i as u8)), 2.6));
         }
         for (zone, at) in VENTS {
             keep.push((format!("{}'s Vent drop", zone.name()), Some(zone), at, 1.0));
@@ -1253,7 +1284,7 @@ mod tests {
     }
 
     /// Rays straight out through every window on the World layer, from 1 m inside to 1 m outside:
-    /// what solid wall stands in the way at `height` above the floor.
+    /// what solid wall stands in the way at `height` above the window's floor.
     fn window_walls_at(height: f32) -> Vec<(usize, bool)> {
         use avian3d::prelude::*;
         use bevy::ecs::system::RunSystemOnce;
@@ -1267,14 +1298,72 @@ mod tests {
                 WINDOWS
                     .iter()
                     .enumerate()
-                    .map(|(i, (_, centre, out))| {
-                        let from = Vec3::new(centre.x, height, centre.y) - Vec3::new(out.x, 0.0, out.y);
+                    .map(|(i, (_, _, out))| {
+                        let from = window_centre(BarrierId(i as u8)) + Vec3::Y * height - Vec3::new(out.x, 0.0, out.y);
                         let dir = Dir3::new(Vec3::new(out.x, 0.0, out.y)).unwrap();
                         (i, spatial.cast_ray(from, dir, 2.0, true, &filter).is_some())
                     })
                     .collect::<Vec<_>>()
             })
             .unwrap()
+    }
+
+    /// Every window's Spawn Point stands on a floor: the ground, or the roof outside the Balcony.
+    #[test]
+    fn every_window_spawn_point_stands_on_a_floor() {
+        use avian3d::prelude::*;
+        use bevy::ecs::system::RunSystemOnce;
+
+        use crate::layers::GameLayer;
+
+        let mut sim = crate::zombie::headless::Sim::new(60.0, |_| {});
+        let floating: Vec<usize> = sim
+            .world_mut()
+            .run_system_once(|spatial: SpatialQuery| {
+                let filter = SpatialQueryFilter::from_mask(GameLayer::World);
+                (0..WINDOWS.len())
+                    .filter(|&i| {
+                        let spawn = window_spawn(BarrierId(i as u8));
+                        let hit = spatial.cast_ray(spawn + Vec3::Y * 0.5, Dir3::NEG_Y, 0.7, true, &filter);
+                        hit.is_none()
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap();
+        assert!(floating.is_empty(), "window Spawn Points with no floor under them: {floating:?}");
+    }
+
+    /// The roof outside the Balcony's window is walled in all round, so a Zombie knocked about
+    /// out there never drops into the Dining Room or the Yard: every way out from its Spawn Point,
+    /// at knee height, meets a wall or the parapet before the roof's edge.
+    #[test]
+    fn the_roof_outside_the_balcony_window_is_walled_in() {
+        use avian3d::prelude::*;
+        use bevy::ecs::system::RunSystemOnce;
+
+        use crate::layers::GameLayer;
+
+        let i = WINDOWS.iter().position(|(zone, ..)| *zone == ZoneId::Balcony).expect("the Balcony has a window");
+        let spawn = window_spawn(BarrierId(i as u8));
+        let mut sim = crate::zombie::headless::Sim::new(60.0, |_| {});
+        let open: Vec<f32> = sim
+            .world_mut()
+            .run_system_once(move |spatial: SpatialQuery| {
+                // The window's opening lets Zombies through; only the World layer walls them in.
+                let filter = SpatialQueryFilter::from_mask(GameLayer::World);
+                (0..32)
+                    .map(|k| k as f32 / 32.0 * std::f32::consts::TAU)
+                    .filter(|&angle| {
+                        let dir = Dir3::new(Vec3::new(angle.cos(), 0.0, angle.sin())).unwrap();
+                        let toward_window = dir.dot(Vec3::Z) > 0.5;
+                        let from = spawn + Vec3::Y * if toward_window { 0.45 } else { 0.5 };
+                        spatial.cast_ray(from, dir, 4.0, true, &filter).is_none()
+                    })
+                    .map(f32::to_degrees)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap();
+        assert!(open.is_empty(), "ways off the roof at these headings (degrees): {open:?}");
     }
 
     #[test]

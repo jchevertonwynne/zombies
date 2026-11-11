@@ -546,13 +546,12 @@ fn zombies_that_vault_a_window_together_land_apart_and_move_on() {
     }
 }
 
-/// Opens window 0 and sends one Zombie in through it (a Crawler if `crawler`): where its body
-/// stood before the vault, every frame's position, and the window's centre and way out.
-fn vault_window_0(crawler: bool) -> (f32, Vec<Vec3>, Vec3, Vec3) {
+/// Opens `barrier`'s window and sends one Zombie in through it (a Crawler if `crawler`): where its
+/// body stood before the vault, every frame's position, and the window's centre and way out.
+fn vault_window(barrier: crate::map::BarrierId, crawler: bool) -> (f32, Vec<Vec3>, Vec3, Vec3) {
     use crate::barrier::{Barriers, Entering, PlankTorn, enter_through_windows};
-    use crate::map::{BarrierId, WINDOWS, window_spawn};
+    use crate::map::{WINDOWS, window_centre, window_spawn};
 
-    let barrier = BarrierId(0);
     let mut sim = Sim::new(60.0, |app| {
         app.add_message::<PlankTorn>()
             .add_message::<crate::audio::PlayCue>()
@@ -571,15 +570,15 @@ fn vault_window_0(crawler: bool) -> (f32, Vec<Vec3>, Vec3, Vec3) {
     let standing = sim.world_mut().get::<Transform>(zombie).unwrap().translation.y;
     sim.world_mut().entity_mut(zombie).insert(Entering::new(barrier));
     let path = sim.track(zombie, sim.frames(6.0)).into_iter().map(|sample| sample.pos).collect();
-    let (_, centre, out) = WINDOWS[barrier.0 as usize];
-    (standing, path, Vec3::new(centre.x, 0.0, centre.y), Vec3::new(out.x, 0.0, out.y))
+    let (_, _, out) = WINDOWS[barrier.0 as usize];
+    (standing, path, window_centre(barrier), Vec3::new(out.x, 0.0, out.y))
 }
 
-/// A Zombie, and a Crawler, get in over the Sill: never through it, and on into the room.
-#[test]
-fn zombies_and_crawlers_climb_in_over_the_window_sill() {
+/// A Zombie, and a Crawler, get in over `barrier`'s Sill into `zone`: never through it, and on
+/// into the room.
+fn climbs_in_over_the_sill(barrier: crate::map::BarrierId, zone: crate::zone::ZoneId) {
     for crawler in [false, true] {
-        let (standing, path, centre, out) = vault_window_0(crawler);
+        let (standing, path, centre, out) = vault_window(barrier, crawler);
         // Within this far of the wall line, the body is over the Sill.
         let over_sill = crate::map::WALL_THICKNESS / 2.0 + ZOMBIE_RADIUS;
         let mut crossed = false;
@@ -598,10 +597,26 @@ fn zombies_and_crawlers_climb_in_over_the_window_sill() {
         let end = *path.last().unwrap();
         // Past its landing (1.2 m in): it has set off after the Player.
         assert!((end - centre).dot(out) < -2.5, "crawler {crawler}: still at the window, at {end}");
-        assert_eq!(crate::nav::zone_at(end + Vec3::Y * 0.1), Some(crate::zone::ZoneId::StartRoom), "crawler {crawler}");
+        assert_eq!(crate::nav::zone_at(end + Vec3::Y * 0.1), Some(zone), "crawler {crawler}");
     }
 }
 
+/// A Zombie, and a Crawler, get in over the Sill: never through it, and on into the room.
+#[test]
+fn zombies_and_crawlers_climb_in_over_the_window_sill() {
+    climbs_in_over_the_sill(crate::map::BarrierId(0), crate::zone::ZoneId::StartRoom);
+}
+
+/// The Balcony has a window of its own, up at the first storey: Zombies gather on the roof outside
+/// it and climb in onto the Balcony, not down to the ground.
+#[test]
+fn zombies_climb_in_through_the_balcony_window_onto_the_balcony() {
+    use crate::map::{BarrierId, WINDOWS};
+    use crate::zone::ZoneId;
+
+    let i = WINDOWS.iter().position(|(zone, ..)| *zone == ZoneId::Balcony).expect("the Balcony has a window");
+    climbs_in_over_the_sill(BarrierId(i as u8), ZoneId::Balcony);
+}
 
 /// Every spot on every Zone's floors that a Zombie fits on has a path node near it that it can
 /// walk straight to, and one it can be walked to from, so a Zombie there, or a Player chased

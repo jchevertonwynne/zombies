@@ -12,7 +12,7 @@ use crate::controls::{Action, Controls};
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
 use crate::buy::{Buyable, Focus, Held, Nearby, UseRequest};
-use crate::map::{BarrierId, WALL_THICKNESS, WINDOWS};
+use crate::map::{BarrierId, WALL_THICKNESS, WINDOWS, window_centre};
 use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_points};
 use crate::nav::Route;
 use crate::player::{LocalPlayer, Player};
@@ -325,6 +325,8 @@ struct PlankLook {
 /// A Plank a Zombie tore off, tossed aside and left lying on the ground a moment.
 #[derive(Component)]
 struct TornPlank {
+    /// The floor outside its window, where it comes to rest.
+    floor: f32,
     velocity: Vec3,
     spin: Vec3,
     age: f32,
@@ -395,12 +397,6 @@ pub enum AtWindow {
     Working { cycle: f32 },
     /// Climbing in.
     Vaulting,
-}
-
-/// The middle of a window on the wall line, at floor height.
-fn window_centre(barrier: BarrierId) -> Vec3 {
-    let (_, centre, _) = WINDOWS[barrier.0 as usize];
-    Vec3::new(centre.x, 0.0, centre.y)
 }
 
 /// The window's way out, and the way along the wall.
@@ -531,6 +527,7 @@ fn toss_torn_planks(mut commands: Commands, mut torn: MessageReader<PlankTorn>, 
             InRun,
             Name::new("Torn Plank"),
             TornPlank {
+                floor: window_centre(plank.barrier).y,
                 velocity: out * rand::random_range(2.0..3.5)
                     + along * aside * rand::random_range(0.5..2.0)
                     + Vec3::Y * rand::random_range(1.5..3.0),
@@ -561,8 +558,8 @@ fn fly_torn_planks(
             commands.entity(entity).despawn();
             continue;
         }
-        // Lying flat on the floor (at height 0 outside every window).
-        let resting = 0.03;
+        // Lying flat on the floor outside its window.
+        let resting = plank.floor + 0.03;
         if transform.translation.y > resting || plank.velocity.y > 0.0 {
             plank.velocity.y -= GRAVITY * dt;
             transform.translation += plank.velocity * dt;
@@ -624,7 +621,7 @@ pub(crate) fn enter_through_windows(
                 .filter(|&spot| !taken.contains(&(barrier, spot)))
                 .min_by(|&a, &b| {
                     let d =
-                        |spot| spot_at(barrier, spot).distance(transform.translation.with_y(0.0));
+                        |spot| spot_at(barrier, spot).distance(transform.translation.with_y(centre.y));
                     d(a).total_cmp(&d(b))
                 });
             if let Some(spot) = free {
@@ -971,8 +968,8 @@ mod tests {
     }
 
     #[test]
-    fn there_are_twenty_barriers_and_none_in_the_yard() {
-        assert_eq!(WINDOWS.len(), 20);
+    fn there_are_twenty_one_barriers_and_none_in_the_yard() {
+        assert_eq!(WINDOWS.len(), 21);
         assert!(
             WINDOWS
                 .iter()
