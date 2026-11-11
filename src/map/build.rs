@@ -13,7 +13,7 @@ use crate::state::InRun;
 use crate::tuning::*;
 use crate::zone::ZoneId;
 
-use super::{DOOR_HEIGHT, DOOR_WIDTH, Palette, Platform, Prop, PropKind, STOREY, Slope, Sunken, WALL_THICKNESS, WINDOW_WIDTH, WINDOWS, palette};
+use super::{DOOR_HEIGHT, DOOR_WIDTH, Palette, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, WALL_THICKNESS, WINDOW_WIDTH, WINDOWS, palette};
 
 /// How tall the skirting along the foot of a wall is, and how far it stands out from the face.
 const SKIRTING: Vec2 = Vec2::new(0.16, 0.03);
@@ -24,7 +24,7 @@ const STEP_RISE: f32 = 0.15;
 /// How thick the slab under a ramp or a flight of steps is.
 const SLAB: f32 = 0.3;
 
-/// What the props are made of.
+/// What the Props are made of.
 const CRATE_WOOD: [Color; 2] = [Color::srgb(0.46, 0.33, 0.18), Color::srgb(0.38, 0.27, 0.15)];
 const TABLE_WOOD: Color = Color::srgb(0.3, 0.19, 0.11);
 const BENCH_WOOD: Color = Color::srgb(0.34, 0.22, 0.13);
@@ -138,13 +138,13 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         }
     }
 
-    /// A raised floor, with a lip of its Zone's trim round its top.
-    pub fn platform(&mut self, platform: &Platform) {
-        let (min, max, height) = (platform.min, platform.max, platform.height);
+    /// A Raised Floor, with a lip of its Zone's trim round its top.
+    pub fn raised_floor(&mut self, raised: &RaisedFloor) {
+        let (min, max, height) = (raised.min, raised.max, raised.height);
         let size = Vec3::new(max.x - min.x, height, max.y - min.y);
         let middle = (min + max) / 2.0;
-        self.block(size, Vec3::new(middle.x, height / 2.0, middle.y), platform.colour);
-        self.edging(min, max, height, palette(Some(platform.zone)).trim);
+        self.block(size, Vec3::new(middle.x, height / 2.0, middle.y), raised.colour);
+        self.edging(min, max, height, palette(Some(raised.zone)).trim);
     }
 
     /// A sunken floor: its floor a shade darker than its Zone's, its sides faced in the Zone's
@@ -170,7 +170,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         }
     }
 
-    /// A band of `colour` round the edge of `min`..`max` at height `top`: the lip of a platform,
+    /// A band of `colour` round the edge of `min`..`max` at height `top`: the lip of a Raised Floor,
     /// the coping of a sunken floor.
     fn edging(&mut self, min: Vec2, max: Vec2, top: f32, colour: Color) {
         let (wide, tall) = (0.12, 0.05);
@@ -217,8 +217,8 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         }
     }
 
-    /// A prop: solid through its whole box (round, for a drum) and drawn as its kind looks. `nth`
-    /// varies the look between props of a kind.
+    /// A Prop: solid through its whole box (round, for a drum) and drawn as its kind looks. `nth`
+    /// varies the look between Props of a kind.
     pub fn prop(&mut self, prop: &Prop, nth: usize) {
         let Prop { kind, zone, at, size } = *prop;
         let middle = at + Vec3::Y * size.y / 2.0;
@@ -228,11 +228,11 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         };
         self.bare(collider, middle, Quat::IDENTITY);
         let flat = Quat::IDENTITY;
-        // A box `size` across whose bottom is `up` above the prop's foot, `off` along the floor.
+        // A box `size` across whose bottom is `up` above the Prop's foot, `off` along the floor.
         let piece = |this: &mut Self, size: Vec3, up: f32, off: Vec2, colour: Color| {
             this.shape(size, at + Vec3::new(off.x, up + size.y / 2.0, off.y), flat, colour);
         };
-        // A band round the prop, `tall`, its middle `up` above its foot.
+        // A band round the Prop, `tall`, its middle `up` above its foot.
         let band = |this: &mut Self, up: f32, tall: f32, colour: Color| {
             piece(this, Vec3::new(size.x + 0.03, tall, size.z + 0.03), up - tall / 2.0, Vec2::ZERO, colour);
         };

@@ -57,7 +57,7 @@ pub fn repath_interval(distance: f32) -> f32 {
 
 /// How far along a straight walk from `from` to `to` (feet), measured flat, the floor first rises
 /// more than `ZOMBIE_STEP_UP` from one sample to the next, or gives out: about where the face of
-/// the ledge is. `None` if it never does.
+/// the Ledge is. `None` if it never does.
 pub fn floor_ledge(spatial: &SpatialQuery, from: Vec3, to: Vec3, filter: &SpatialQueryFilter) -> Option<f32> {
     let flat = Vec2::new(to.x - from.x, to.z - from.z).length();
     let samples = (flat / ZOMBIE_FLOOR_SAMPLE).ceil().max(1.0) as usize;
@@ -244,8 +244,8 @@ const fn barrier(id: u8) -> Gate {
 const OPEN: Gate = Gate::Open;
 
 /// The edges, by node name. Barrier and one-way edges run from the first node to the second.
-/// Every edge is a straight walk clear of walls and props, and a two-way edge never climbs a
-/// ledge: raised floors are reached by their steps and ramps.
+/// Every edge is a straight walk clear of walls and Props, and a two-way edge never climbs a
+/// Ledge: Raised Floors are reached by their steps and ramps.
 const EDGES: &[(&str, &str, Gate)] = {
     use ZoneId::*;
     &[
@@ -475,7 +475,7 @@ impl NavGraph {
 
     /// The nearest of the closest few nodes to `feet`, as `nearest` ranks them, that `reachable`
     /// accepts: the node a body there can really walk to, or be walked to from, with a crate or
-    /// a ledge in the way of a nearer one. `None` if none of them is.
+    /// a Ledge in the way of a nearer one. `None` if none of them is.
     pub fn nearest_where(&self, feet: Vec3, reachable: impl Fn(&Node) -> bool) -> Option<usize> {
         self.ranked(feet).take(NEAREST_TRIES).find(|&i| reachable(&self.nodes[i]))
     }
@@ -672,7 +672,7 @@ mod tests {
     }
 
     /// A two-way edge is walked both ways: its floor never rises more than a step either way, so
-    /// raised floors are reached by their steps and ramps, never up a ledge.
+    /// Raised Floors are reached by their steps and ramps, never up a Ledge.
     #[test]
     fn no_two_way_edge_climbs_a_ledge() {
         use bevy::ecs::system::RunSystemOnce;

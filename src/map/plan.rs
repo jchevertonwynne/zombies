@@ -55,7 +55,7 @@ fn draw() {
         let (x0, y0) = px(Vec2::new(min.x, max.z));
         let (x1, y1) = px(Vec2::new(max.x, min.z));
         // Floors dark, sunken ones darker; what a Player can get on top of amber; walls and tall
-        // props pale; anything up at the first storey see-through.
+        // Props pale; anything up at the first storey see-through.
         let tall = max.y - min.y.max(0.0);
         let (fill, opacity, stroke) = if *window {
             ("#3070ff", 0.5, "#80a0ff")

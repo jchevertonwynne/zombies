@@ -282,11 +282,11 @@ const LAMPS: [(ZoneId, Vec3); 14] = {
     ]
 };
 
-/// A raised floor standing on its Zone's floor: a stage, a dais, a dock. It covers `min`..`max`
-/// (x, z), its top `height` up. Its edges are ledges the Player can hop down from; Slopes lead up
+/// A Raised Floor standing on its Zone's floor: a stage, a dais, a dock. It covers `min`..`max`
+/// (x, z), its top `height` up. Its edges are Ledges the Player can hop down from; Slopes lead up
 /// onto it.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Platform {
+pub struct RaisedFloor {
     pub zone: ZoneId,
     pub min: Vec2,
     pub max: Vec2,
@@ -311,7 +311,7 @@ pub struct Slope {
 }
 
 /// A sunken floor, `depth` below its Zone's floor across `min`..`max` (x, z). Its edges are
-/// ledges the Player can hop down, and jump back up; Slopes lead down into it.
+/// Ledges the Player can hop down, and jump back up; Slopes lead down into it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Sunken {
     pub zone: ZoneId,
@@ -339,18 +339,18 @@ const DIP: Sunken = Sunken { zone: ZoneId::Tunnel, min: Vec2::new(12.5, -35.5), 
 const WET_CONCRETE: Color = Color::srgb(0.22, 0.23, 0.24);
 
 /// East Hall's altar dais, against the outer wall between two windows.
-const DAIS: Platform = Platform { zone: ZoneId::EastHall, min: Vec2::new(22.4, 8.0), max: Vec2::new(25.8, 14.0), height: 0.6, colour: DAIS_STONE };
+const DAIS: RaisedFloor = RaisedFloor { zone: ZoneId::EastHall, min: Vec2::new(22.4, 8.0), max: Vec2::new(25.8, 14.0), height: 0.6, colour: DAIS_STONE };
 
 /// The Workshop's loading dock along its north wall: too high to jump onto, so it's the ramp up,
 /// or a clamber, and a hop down anywhere along its edge.
-const DOCK: Platform = Platform { zone: ZoneId::Workshop, min: Vec2::new(-28.0, -40.6), max: Vec2::new(-16.0, -38.2), height: 1.1, colour: CONCRETE };
+const DOCK: RaisedFloor = RaisedFloor { zone: ZoneId::Workshop, min: Vec2::new(-28.0, -40.6), max: Vec2::new(-16.0, -38.2), height: 1.1, colour: CONCRETE };
 
 /// The Power Room's control platform, a few steps up at its east end, under the Power Switch.
-pub const CONTROL_PLATFORM: Platform =
-    Platform { zone: ZoneId::PowerRoom, min: Vec2::new(22.0, -22.6), max: Vec2::new(25.8, -17.4), height: 0.45, colour: STEEL_PLATE };
+pub const CONTROL_PLATFORM: RaisedFloor =
+    RaisedFloor { zone: ZoneId::PowerRoom, min: Vec2::new(22.0, -22.6), max: Vec2::new(25.8, -17.4), height: 0.45, colour: STEEL_PLATE };
 
-/// The raised floors.
-pub const PLATFORMS: [Platform; 3] = [
+/// The Raised Floors.
+pub const RAISED_FLOORS: [RaisedFloor; 3] = [
     DAIS,
     CONTROL_PLATFORM,
     DOCK,
@@ -431,7 +431,7 @@ pub const SLOPES: [Slope; 8] = [
 /// The sunken floors.
 pub const SUNKEN: [Sunken; 2] = [GARDEN, DIP];
 
-/// What a prop is, which sets how it looks.
+/// What a Prop is, which sets how it looks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PropKind {
     /// A wooden crate, or a stack of them.
@@ -478,7 +478,7 @@ const fn prop(kind: PropKind, zone: ZoneId, at: (f32, f32, f32), size: (f32, f32
     }
 }
 
-/// The props. Low ones (up to about 0.8 m) can be jumped onto and anything up to about 1.2 m
+/// The Props. Low ones (up to about 0.8 m) can be jumped onto and anything up to about 1.2 m
 /// clambered onto with a running jump; nothing a Player gets on top of lifts them out of a
 /// Zombie's reach. Tall ones are walls to weave round. Training loops stay clear: clutter keeps to
 /// the walls and corners, and a room's middle holds at most one island to run laps round.
@@ -692,8 +692,8 @@ pub fn spawn_map(
     }
 
     // Raised and sunken floors, and the steps and ramps between floors.
-    for platform in PLATFORMS {
-        b.platform(&platform);
+    for raised in RAISED_FLOORS {
+        b.raised_floor(&raised);
     }
     for sunken in SUNKEN {
         b.sunken(&sunken);
@@ -712,7 +712,7 @@ pub fn spawn_map(
     b.repaint = None;
     b.block(Vec3::new(6.8, 0.2, 6.8), Vec3::new(5.0, gazebo_height + 0.1, -7.0), GAZEBO.trim);
 
-    // The props.
+    // The Props.
     for (nth, prop) in PROPS.iter().enumerate() {
         b.prop(prop, nth);
     }
@@ -933,25 +933,25 @@ mod tests {
         (min - at).max(at - max).max(Vec2::ZERO).length()
     }
 
-    /// A prop's footprint.
+    /// A Prop's footprint.
     fn footprint(prop: &Prop) -> (Vec2, Vec2) {
         let (middle, half) = (Vec2::new(prop.at.x, prop.at.z), Vec2::new(prop.size.x, prop.size.z) / 2.0);
         (middle - half, middle + half)
     }
 
-    /// How far `at` is from a prop's footprint, across the floor; 0 inside it.
+    /// How far `at` is from a Prop's footprint, across the floor; 0 inside it.
     fn off_prop(prop: &Prop, at: Vec3) -> f32 {
         let (min, max) = footprint(prop);
         off(min, max, at)
     }
 
-    /// Whether `at` is on the same storey as a prop, near enough to stand in its way.
+    /// Whether `at` is on the same storey as a Prop, near enough to stand in its way.
     fn beside(prop: &Prop, at: Vec3) -> bool {
         at.y > prop.at.y - 2.5 && at.y < prop.at.y + prop.size.y + 2.5
     }
 
     /// Everything that takes up floor: a name, its Zone, its footprint, its bottom and top, and
-    /// what may stand within it all the same: things up on or over a raised floor, or down on a
+    /// what may stand within it all the same: things up on or over a Raised Floor, or down on a
     /// sunken one's floor.
     fn footprints() -> Vec<(String, ZoneId, (Vec2, Vec2), (f32, f32), Box<dyn Fn(Vec3) -> bool>)> {
         let mut all: Vec<(String, ZoneId, (Vec2, Vec2), (f32, f32), Box<dyn Fn(Vec3) -> bool>)> = Vec::new();
@@ -959,10 +959,10 @@ mod tests {
             let name = format!("the {:?} at {}", prop.kind, prop.at);
             all.push((name, prop.zone, footprint(prop), (prop.at.y, prop.at.y + prop.size.y), Box::new(|_| false)));
         }
-        for platform in PLATFORMS {
-            let top = platform.height;
-            let name = format!("the raised floor in {}", platform.zone.name());
-            all.push((name, platform.zone, (platform.min, platform.max), (0.0, top), Box::new(move |at: Vec3| at.y >= top - 0.05)));
+        for raised in RAISED_FLOORS {
+            let top = raised.height;
+            let name = format!("the Raised Floor in {}", raised.zone.name());
+            all.push((name, raised.zone, (raised.min, raised.max), (0.0, top), Box::new(move |at: Vec3| at.y >= top - 0.05)));
         }
         for slope in SLOPES {
             let end = Vec2::new(slope.foot.x, slope.foot.z) + slope.up * slope.run;
@@ -1026,13 +1026,13 @@ mod tests {
         assert!(crowded.is_empty(), "{crowded:#?}");
     }
 
-    /// The floor `prop` stands on: the Zone's own, a raised floor's top, or the Balcony.
+    /// The floor `prop` stands on: the Zone's own, a Raised Floor's top, or the Balcony.
     fn floor_under(prop: &Prop) -> Option<f32> {
         let (min, max) = (Vec2::new(prop.at.x, prop.at.z) - Vec2::new(prop.size.x, prop.size.z) / 2.0, Vec2::new(prop.at.x, prop.at.z) + Vec2::new(prop.size.x, prop.size.z) / 2.0);
-        let raised = PLATFORMS
+        let raised = RAISED_FLOORS
             .iter()
-            .find(|platform| platform.zone == prop.zone && min.cmpge(platform.min).all() && max.cmple(platform.max).all())
-            .map(|platform| platform.height);
+            .find(|raised| raised.zone == prop.zone && min.cmpge(raised.min).all() && max.cmple(raised.max).all())
+            .map(|raised| raised.height);
         let ground = if prop.zone == ZoneId::Balcony { STOREY } else { 0.0 };
         [raised, Some(ground)].into_iter().flatten().find(|&floor| (floor - prop.at.y).abs() < 1e-3)
     }
@@ -1059,9 +1059,9 @@ mod tests {
         }
     }
 
-    /// Nothing a Player can get on top of lifts them out of a Zombie's reach. A prop is climbed
+    /// Nothing a Player can get on top of lifts them out of a Zombie's reach. A Prop is climbed
     /// onto from the floor it stands on if it's no taller than a running jump clambers, or from
-    /// another such prop close beside it; every one that can be must be low enough over its floor,
+    /// another such Prop close beside it; every one that can be must be low enough over its floor,
     /// and narrow enough, for a Zombie at its side to swipe a Player anywhere on it.
     #[test]
     fn no_prop_lifts_a_player_out_of_reach() {

@@ -149,6 +149,14 @@ _Avoid_: debris, gate
 
 **Arena**: An enclosed, open area with no doors or separate rooms.
 
+**Prop**: Something standing on a Map's floor that is neither a wall nor a Buyable, such as a crate, a table, a pillar or a heap of rubble. The Player weaves round it or climbs onto it; Zombies go round it.
+_Avoid_: clutter, cover, obstacle
+
+**Raised Floor**: Part of a Zone's floor built up above the rest, such as a dais, a stage or a dock, reached by steps or a ramp.
+_Avoid_: stage, dais (for the general term)
+
+**Ledge**: An edge where one floor stops above another, too high to step up: the side of a Raised Floor or a sunken floor, or the Balcony's drop. Zombies only ever drop off a Ledge; the Player can also scramble back up a low one.
+
 **Run**: One game, from Round 1 until Game Over or quitting.
 _Avoid_: game, match
 

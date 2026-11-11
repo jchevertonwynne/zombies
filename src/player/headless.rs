@@ -387,9 +387,9 @@ fn the_balcony_drop_falls_and_lands_once() {
     assert!(samples.last().unwrap().pos.y < 1.0);
 }
 
-/// The raised floor in `zone`.
-fn platform_in(zone: crate::zone::ZoneId) -> crate::map::Platform {
-    *crate::map::PLATFORMS.iter().find(|platform| platform.zone == zone).unwrap()
+/// The Raised Floor in `zone`.
+fn raised_floor_in(zone: crate::zone::ZoneId) -> crate::map::RaisedFloor {
+    *crate::map::RAISED_FLOORS.iter().find(|raised| raised.zone == zone).unwrap()
 }
 
 /// Where the Player's feet are in a sample.
@@ -397,11 +397,11 @@ fn feet(sample: &Sample) -> Vec3 {
     sample.pos - Vec3::Y * Stance::Standing.half_height()
 }
 
-/// The altar dais's steps carry the Player up without a jump; its edge is a ledge they hop down
+/// The altar dais's steps carry the Player up without a jump; its edge is a Ledge they hop down
 /// from, and low enough to jump back up.
 #[test]
 fn the_player_walks_up_the_dais_steps_hops_off_its_edge_and_jumps_back_up() {
-    let dais = platform_in(crate::zone::ZoneId::EastHall);
+    let dais = raised_floor_in(crate::zone::ZoneId::EastHall);
     let middle = (dais.min + dais.max) / 2.0;
     let mut sim = Sim::new(144.0);
 
@@ -430,11 +430,11 @@ fn the_player_walks_up_the_dais_steps_hops_off_its_edge_and_jumps_back_up() {
     assert!(landed.z < dais.max.y && (landed.y - dais.height).abs() < 0.05, "didn't jump back up: {landed}");
 }
 
-/// The loading dock is a ledge Zombies can only drop from, but the Player gets up it either way:
+/// The loading dock's edge is a Ledge Zombies can only drop from, but the Player gets up either way:
 /// walking up its ramp, or clambering its edge with a running jump.
 #[test]
 fn the_player_walks_up_the_loading_dock_ramp_or_clambers_its_edge() {
-    let dock = platform_in(crate::zone::ZoneId::Workshop);
+    let dock = raised_floor_in(crate::zone::ZoneId::Workshop);
     let x = (dock.min.x + dock.max.x) / 2.0;
     let mut sim = Sim::new(144.0);
 
@@ -473,7 +473,7 @@ fn the_player_walks_down_through_the_tunnel_dip_and_out() {
     assert!(out.z < -36.0 && out.y.abs() < 0.05, "didn't come out the far end: {out}");
 }
 
-/// The Yard prop whose footprint covers `at` (x, z).
+/// The Yard Prop whose footprint covers `at` (x, z).
 fn yard_prop_at(at: Vec2) -> crate::map::Prop {
     *crate::map::PROPS
         .iter()
@@ -484,7 +484,7 @@ fn yard_prop_at(at: Vec2) -> crate::map::Prop {
         .unwrap()
 }
 
-/// Where a Player ends up after a running jump at a prop: starting `run_up` metres short of it,
+/// Where a Player ends up after a running jump at a Prop: starting `run_up` metres short of it,
 /// running at it along `toward`, jumping a metre out and still pressing on into it.
 fn running_jump_at(prop: &crate::map::Prop, toward: Vec2, run_up: f32) -> Vec3 {
     let mut sim = Sim::new(144.0);
@@ -499,7 +499,7 @@ fn running_jump_at(prop: &crate::map::Prop, toward: Vec2, run_up: f32) -> Vec3 {
     feet(sim.run_secs(1.0).last().unwrap())
 }
 
-/// Low props are there to be jumped onto; tall ones only to be weaved round, however the Player
+/// Low Props are there to be jumped onto; tall ones only to be weaved round, however the Player
 /// jumps at them.
 #[test]
 fn the_player_jumps_onto_a_low_crate_but_never_onto_a_tall_stack() {

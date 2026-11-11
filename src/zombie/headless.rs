@@ -302,9 +302,9 @@ fn a_zombie_walks_up_the_ramp_to_a_player_on_the_balcony() {
     assert!(top > standing(0.0) + 3.5, "got up to {top}, ended at {last}");
 }
 
-/// The raised floor in `zone`.
-fn platform_in(zone: crate::zone::ZoneId) -> crate::map::Platform {
-    *crate::map::PLATFORMS.iter().find(|platform| platform.zone == zone).unwrap()
+/// The Raised Floor in `zone`.
+fn raised_floor_in(zone: crate::zone::ZoneId) -> crate::map::RaisedFloor {
+    *crate::map::RAISED_FLOORS.iter().find(|raised| raised.zone == zone).unwrap()
 }
 
 /// Follows `zombie` for up to `secs`, until `there` says it has arrived; whether it did, and the
@@ -322,32 +322,32 @@ fn arrives(sim: &mut Sim, zombie: Entity, secs: f32, there: impl Fn(Vec3) -> boo
     (false, last)
 }
 
-/// A raised floor's edge is a ledge too high to step up: a Zombie straight in front of it, after
+/// A Raised Floor's edge is a Ledge too high to step up: a Zombie straight in front of it, after
 /// a Player up on it, goes round by the steps or the ramp instead of pushing at the edge.
 #[test]
 fn a_zombie_goes_round_by_the_steps_to_a_player_on_a_raised_floor() {
     use crate::zone::ZoneId::*;
-    // The raised floor, where the Zombie starts on the floor facing its edge, and where the
+    // The Raised Floor, where the Zombie starts on the floor facing its edge, and where the
     // Player stands up on it across that edge.
     for (zone, zombie_at, player_at) in [
         (EastHall, Vec2::new(20.6, 13.3), Vec2::new(24.3, 13.3)),
         (PowerRoom, Vec2::new(24.5, -15.6), Vec2::new(24.5, -18.2)),
         (Workshop, Vec2::new(-21.0, -42.2), Vec2::new(-21.0, -39.4)),
     ] {
-        let platform = platform_in(zone);
-        let on = |at: Vec2| at.cmpgt(platform.min).all() && at.cmplt(platform.max).all();
-        assert!(on(player_at) && !on(zombie_at), "{zone:?}: the setup is off the platform");
+        let raised = raised_floor_in(zone);
+        let on = |at: Vec2| at.cmpgt(raised.min).all() && at.cmplt(raised.max).all();
+        assert!(on(player_at) && !on(zombie_at), "{zone:?}: the setup is off the Raised Floor");
         let mut sim = Sim::new(60.0, |_| {});
-        put_player(&mut sim, Vec3::new(player_at.x, platform.height, player_at.y));
+        put_player(&mut sim, Vec3::new(player_at.x, raised.height, player_at.y));
         let zombie = sim.spawn(Vec3::new(zombie_at.x, 0.0, zombie_at.y), None);
         let (up, last) = arrives(&mut sim, zombie, 15.0, |at| {
-            at.y > standing(platform.height) - 0.05 && on(Vec2::new(at.x, at.z))
+            at.y > standing(raised.height) - 0.05 && on(Vec2::new(at.x, at.z))
         });
         assert!(up, "{zone:?}: never got up; last seen at {last}");
     }
 }
 
-/// The prop of `kind` in `zone` whose footprint covers `at` (x, z).
+/// The Prop of `kind` in `zone` whose footprint covers `at` (x, z).
 fn prop_at(kind: crate::map::PropKind, zone: crate::zone::ZoneId, at: Vec2) -> crate::map::Prop {
     *crate::map::PROPS
         .iter()
@@ -370,8 +370,8 @@ fn a_zombie_goes_round_a_dining_table_to_the_player() {
     assert!(round, "never got round the table; last seen at {last}");
 }
 
-/// The Yard's sunken garden has ledges all round but for its steps: a Zombie down in it, after a
-/// Player just over the ledge, climbs out by the steps.
+/// The Yard's sunken garden has Ledges all round but for its steps: a Zombie down in it, after a
+/// Player just over the Ledge, climbs out by the steps.
 #[test]
 fn a_zombie_climbs_out_of_the_sunken_garden_by_its_steps() {
     let garden = *crate::map::SUNKEN.iter().find(|sunken| sunken.zone == crate::zone::ZoneId::Yard).unwrap();
@@ -605,10 +605,10 @@ fn zombies_and_crawlers_climb_in_over_the_window_sill() {
 
 /// Every spot on every Zone's floors that a Zombie fits on has a path node near it that it can
 /// walk straight to, and one it can be walked to from, so a Zombie there, or a Player chased
-/// there, is never cut off from the graph by a prop, a ledge or a corner.
+/// there, is never cut off from the graph by a Prop, a Ledge or a corner.
 #[test]
 fn every_open_floor_spot_walks_to_and_from_a_path_node() {
-    use crate::map::{PLATFORMS, PROPS, SUNKEN};
+    use crate::map::{PROPS, RAISED_FLOORS, SUNKEN};
     use crate::zone::ZoneId;
 
     let mut sim = Sim::new(60.0, |_| {});
@@ -626,7 +626,7 @@ fn every_open_floor_spot_walks_to_and_from_a_path_node() {
                 let ground = if zone == ZoneId::Balcony { 4.0 } else { 0.0 };
                 let floors: Vec<f32> = [ground]
                     .into_iter()
-                    .chain(PLATFORMS.iter().filter(|p| p.zone == zone).map(|p| p.height))
+                    .chain(RAISED_FLOORS.iter().filter(|raised| raised.zone == zone).map(|raised| raised.height))
                     .chain(SUNKEN.iter().filter(|s| s.zone == zone).map(|s| -s.depth))
                     .collect();
                 let mut x = lo.x + 0.75;

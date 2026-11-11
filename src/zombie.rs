@@ -806,7 +806,7 @@ pub fn separation(me: Vec3, others: impl IntoIterator<Item = Vec3>) -> Vec3 {
 
 /// How far a Zombie-sized body, its middle `half` above its feet, gets walking straight from
 /// `from` towards `to` (its middle at each), measured along the floor, before the Map stops it:
-/// something in the way, or a ledge to climb. `None` if nothing does.
+/// something in the way, or a Ledge to climb. `None` if nothing does.
 fn walk_stop(spatial: &SpatialQuery, probe: &Collider, from: Vec3, to: Vec3, half: f32) -> Option<f32> {
     let delta = to - from;
     let Ok(dir) = Dir3::new(delta) else {
@@ -821,7 +821,7 @@ fn walk_stop(spatial: &SpatialQuery, probe: &Collider, from: Vec3, to: Vec3, hal
     if flat < 1e-3 {
         return body;
     }
-    // The floor only matters as far as the body gets. Its side meets a ledge's face a body's
+    // The floor only matters as far as the body gets. Its side meets a Ledge's face a body's
     // width short of it.
     let reach = body.map_or(1.0, |stop| stop / flat);
     let feet = from - Vec3::Y * half;
@@ -837,9 +837,9 @@ fn clear_walk(spatial: &SpatialQuery, probe: &Collider, from: Vec3, to: Vec3, ha
 
 /// The path nodes a Zombie-sized body, its middle at `centre` and `half` above its feet, follows
 /// to its target standing at `target_feet`: none where it can walk straight there, or where what
-/// stops it (a table, the edge of a ledge, a crate the Player is up on) leaves it within this
+/// stops it (a table, the edge of a Ledge, a crate the Player is up on) leaves it within this
 /// share of `reach` to swipe across. Otherwise its route runs from the nearest node it can walk
-/// to, to the nearest its target can be walked to from: nodes behind a crate or over a ledge are
+/// to, to the nearest its target can be walked to from: nodes behind a crate or over a Ledge are
 /// no use to either. No route at all (the drop is one-way) leaves it steering straight at its
 /// target until the stuck rule replaces it.
 pub(crate) fn plan_route(
