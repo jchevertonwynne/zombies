@@ -142,10 +142,10 @@ _Avoid_: board, plank of wood
 
 **Active Zone**: A Zone any Player is in, or an open Zone next to one, counting Players in a Last Stand but not those waiting to Respawn. Only Spawn Points in Active Zones send in Zombies.
 
-**Door**: A barrier between two Zones that the Player buys with Points to open for the rest of the Run. Zombies never open Doors.
+**Door**: A barrier between two Zones, or shutting off part of one, that the Player buys with Points to open for the rest of the Run. Zombies never open Doors.
 _Avoid_: debris, gate
 
-**Power Door**: A Door that cannot be bought and opens on its own when the Power comes on.
+**Power Door**: A Door that cannot be bought and opens on its own when the Power comes on, such as the one shutting the Gazebo off from the rest of the Yard.
 
 **Arena**: An enclosed, open area with no doors or separate rooms.
 
