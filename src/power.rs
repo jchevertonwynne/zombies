@@ -28,8 +28,9 @@ impl Power {
     }
 }
 
-/// The Power Switch's spot on the Power Room's east wall, and the way it faces.
-pub(crate) const SWITCH_AT: Vec3 = Vec3::new(25.6, 1.3, -20.0);
+/// The Power Switch's spot on the Power Room's east wall, at hand height over the control
+/// platform it's thrown from, and the way it faces.
+pub(crate) const SWITCH_AT: Vec3 = Vec3::new(25.6, crate::map::CONTROL_PLATFORM.height + 1.3, -20.0);
 const SWITCH_FACING: Vec3 = Vec3::NEG_X;
 
 /// The lever that turns the Power on. Used, not bought: it has a Prompt but no price.
@@ -170,6 +171,28 @@ fn flip_switch(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::player::Stance;
+
+    /// Whether a Player standing with their feet at `feet`, looking at the switch, can use it.
+    fn in_use_range(feet: Vec3) -> bool {
+        let eye = feet + Vec3::Y * Stance::Standing.eye_height();
+        let use_point = SWITCH_AT + SWITCH_FACING * 0.2;
+        crate::buy::reach(eye, (use_point - eye).normalize(), use_point, USE_RANGE).is_some()
+    }
+
+    #[test]
+    fn the_power_switch_is_thrown_from_up_on_the_control_platform() {
+        let platform = crate::map::CONTROL_PLATFORM;
+        assert!(platform.min.x < SWITCH_AT.x && SWITCH_AT.x < platform.max.x + 0.3, "the switch isn't over the platform");
+        // Up on it, in front of the switch.
+        assert!(in_use_range(Vec3::new(SWITCH_AT.x - 0.6, platform.height, SWITCH_AT.z)));
+        // On the floor at the foot of its edge, as near as the floor gets.
+        let below = Vec3::new(platform.min.x - PLAYER_RADIUS, 0.0, SWITCH_AT.z);
+        assert!(!in_use_range(below), "reached from the floor below");
+        // At hand height over the platform, as it was over the floor before there was one.
+        let hand = SWITCH_AT.y - platform.height;
+        assert!((hand - 1.3).abs() < 0.01, "the switch hangs {hand:.2} m over the platform");
+    }
 
     #[test]
     fn the_power_comes_on_once_the_flip_finishes() {

@@ -62,7 +62,8 @@ impl ZoneId {
     }
 
     /// The Zone's volume. Floors sit a little inside it, so a Player standing on one is inside.
-    /// West Hall is two storeys tall because its ramp climbs to the Balcony.
+    /// West Hall is two storeys tall because its ramp climbs to the Balcony, and a Zone with a
+    /// sunken floor (the Yard's garden, the Tunnel's dip) reaches down into it.
     pub fn volume(self) -> (Vec3, Vec3) {
         const LOW: f32 = -0.25;
         const UPPER: f32 = 3.75;
@@ -81,7 +82,8 @@ impl ZoneId {
             ZoneId::GeneratorRoom => (4.0, 34.0, LOW, UPPER, -50.0, -38.0),
             ZoneId::Tunnel => (12.5, 15.5, LOW, UPPER, -38.0, -26.0),
         };
-        (Vec3::new(x0, y0, z0), Vec3::new(x1, y1, z1))
+        let sunk = crate::map::SUNKEN.iter().filter(|sunken| sunken.zone == self).map(|sunken| sunken.depth).fold(0.0, f32::max);
+        (Vec3::new(x0, y0 - sunk, z0), Vec3::new(x1, y1, z1))
     }
 
     fn bit(self) -> u16 {

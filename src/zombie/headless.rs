@@ -164,8 +164,8 @@ pub fn standing(floor: f32) -> f32 {
 
 const FRAME_RATES: [f64; 3] = [144.0, 60.0, 90.0];
 
-/// A Riser by the Yard's Riser point, with the Player out of the way in the Start Room.
-const RISER_AT: Vec3 = Vec3::new(-7.0, 0.0, 10.0);
+/// A Riser at one of the Yard's Riser points, with the Player out of the way in the Start Room.
+const RISER_AT: Vec3 = Vec3::new(10.0, 0.0, 10.0);
 
 #[test]
 #[ignore = "prints a measurement; asserts nothing"]
@@ -302,13 +302,98 @@ fn a_zombie_walks_up_the_ramp_to_a_player_on_the_balcony() {
     assert!(top > standing(0.0) + 3.5, "got up to {top}, ended at {last}");
 }
 
-/// A Player on a Yard crate is only a metre above the floor: Zombies come to the crate and swipe
-/// from beside it.
+/// The raised floor in `zone`.
+fn platform_in(zone: crate::zone::ZoneId) -> crate::map::Platform {
+    *crate::map::PLATFORMS.iter().find(|platform| platform.zone == zone).unwrap()
+}
+
+/// Follows `zombie` for up to `secs`, until `there` says it has arrived; whether it did, and the
+/// last place it was seen.
+fn arrives(sim: &mut Sim, zombie: Entity, secs: f32, there: impl Fn(Vec3) -> bool) -> (bool, Vec3) {
+    let mut last = Vec3::ZERO;
+    for _ in 0..sim.frames(secs) {
+        sim.run(1);
+        let Some(at) = sim.world_mut().get::<Transform>(zombie).map(|t| t.translation) else { break };
+        last = at;
+        if there(at) {
+            return (true, at);
+        }
+    }
+    (false, last)
+}
+
+/// A raised floor's edge is a ledge too high to step up: a Zombie straight in front of it, after
+/// a Player up on it, goes round by the steps or the ramp instead of pushing at the edge.
 #[test]
-fn a_zombie_swipes_a_player_standing_on_a_yard_crate() {
+fn a_zombie_goes_round_by_the_steps_to_a_player_on_a_raised_floor() {
+    use crate::zone::ZoneId::*;
+    // The raised floor, where the Zombie starts on the floor facing its edge, and where the
+    // Player stands up on it across that edge.
+    for (zone, zombie_at, player_at) in [
+        (EastHall, Vec2::new(20.6, 13.3), Vec2::new(24.3, 13.3)),
+        (PowerRoom, Vec2::new(24.5, -15.6), Vec2::new(24.5, -18.2)),
+        (Workshop, Vec2::new(-21.0, -42.2), Vec2::new(-21.0, -39.4)),
+    ] {
+        let platform = platform_in(zone);
+        let on = |at: Vec2| at.cmpgt(platform.min).all() && at.cmplt(platform.max).all();
+        assert!(on(player_at) && !on(zombie_at), "{zone:?}: the setup is off the platform");
+        let mut sim = Sim::new(60.0, |_| {});
+        put_player(&mut sim, Vec3::new(player_at.x, platform.height, player_at.y));
+        let zombie = sim.spawn(Vec3::new(zombie_at.x, 0.0, zombie_at.y), None);
+        let (up, last) = arrives(&mut sim, zombie, 15.0, |at| {
+            at.y > standing(platform.height) - 0.05 && on(Vec2::new(at.x, at.z))
+        });
+        assert!(up, "{zone:?}: never got up; last seen at {last}");
+    }
+}
+
+/// The prop of `kind` in `zone` whose footprint covers `at` (x, z).
+fn prop_at(kind: crate::map::PropKind, zone: crate::zone::ZoneId, at: Vec2) -> crate::map::Prop {
+    *crate::map::PROPS
+        .iter()
+        .find(|prop| prop.kind == kind && prop.zone == zone && (Vec2::new(prop.at.x, prop.at.z) - at).abs().cmple(Vec2::new(prop.size.x, prop.size.z) / 2.0).all())
+        .unwrap()
+}
+
+/// A Zombie after a Player on the far side of a dining table goes round the table rather than
+/// pushing at it.
+#[test]
+fn a_zombie_goes_round_a_dining_table_to_the_player() {
+    use crate::map::PropKind;
+    let table = prop_at(PropKind::Table, crate::zone::ZoneId::DiningRoom, Vec2::new(-9.0, -17.9));
+    let (north, south) = (table.at.z + table.size.z / 2.0, table.at.z - table.size.z / 2.0);
     let mut sim = Sim::new(60.0, |_| {});
-    put_player(&mut sim, Vec3::new(-3.0, 1.1, -6.0));
-    sim.spawn(Vec3::new(-3.0, 0.0, 0.0), None);
+    let player = Vec3::new(table.at.x, 0.0, south - 2.0);
+    put_player(&mut sim, player);
+    let zombie = sim.spawn(Vec3::new(table.at.x, 0.0, north + 1.5), None);
+    let (round, last) = arrives(&mut sim, zombie, 15.0, |at| Vec2::new(at.x - player.x, at.z - player.z).length() < ZOMBIE_REACH);
+    assert!(round, "never got round the table; last seen at {last}");
+}
+
+/// The Yard's sunken garden has ledges all round but for its steps: a Zombie down in it, after a
+/// Player just over the ledge, climbs out by the steps.
+#[test]
+fn a_zombie_climbs_out_of_the_sunken_garden_by_its_steps() {
+    let garden = *crate::map::SUNKEN.iter().find(|sunken| sunken.zone == crate::zone::ZoneId::Yard).unwrap();
+    let x = (garden.min.x + garden.max.x) / 2.0;
+    let mut sim = Sim::new(60.0, |_| {});
+    let player = Vec3::new(x, 0.0, garden.max.y + 1.1);
+    put_player(&mut sim, player);
+    let zombie = sim.spawn(Vec3::new(x, -garden.depth, garden.max.y - 1.0), None);
+    let (out, last) = arrives(&mut sim, zombie, 20.0, |at| {
+        at.y > standing(0.0) - 0.05 && Vec2::new(at.x - player.x, at.z - player.z).length() < ZOMBIE_REACH
+    });
+    assert!(out, "never climbed out to the Player; last seen at {last}");
+}
+
+/// The Yard's sandbag wall is about the highest a Player can clamber onto, and still only a metre
+/// up: Zombies come to it and swipe the Player on top from beside it.
+#[test]
+fn a_zombie_swipes_a_player_up_on_the_yard_sandbags() {
+    let sandbags = prop_at(crate::map::PropKind::Sandbags, crate::zone::ZoneId::Yard, Vec2::new(-2.0, -12.5));
+    let mut sim = Sim::new(60.0, |_| {});
+    put_player(&mut sim, sandbags.at + Vec3::Y * sandbags.size.y);
+    sim.spawn(Vec3::new(sandbags.at.x, 0.0, sandbags.at.z + 5.0), None);
     let mut hits = 0;
     for _ in 0..sim.frames(20.0) {
         sim.run(1);
@@ -515,4 +600,70 @@ fn zombies_and_crawlers_climb_in_over_the_window_sill() {
         assert!((end - centre).dot(out) < -2.5, "crawler {crawler}: still at the window, at {end}");
         assert_eq!(crate::nav::zone_at(end + Vec3::Y * 0.1), Some(crate::zone::ZoneId::StartRoom), "crawler {crawler}");
     }
+}
+
+
+/// Every spot on every Zone's floors that a Zombie fits on has a path node near it that it can
+/// walk straight to, and one it can be walked to from, so a Zombie there, or a Player chased
+/// there, is never cut off from the graph by a prop, a ledge or a corner.
+#[test]
+fn every_open_floor_spot_walks_to_and_from_a_path_node() {
+    use crate::map::{PLATFORMS, PROPS, SUNKEN};
+    use crate::zone::ZoneId;
+
+    let mut sim = Sim::new(60.0, |_| {});
+    let (checked, cut_off): (usize, Vec<String>) = sim
+        .world_mut()
+        .run_system_once(|spatial: SpatialQuery, graph: Res<NavGraph>| {
+            let map = SpatialQueryFilter::from_mask(GameLayer::World);
+            let half = body_half_height();
+            let probe = Collider::sphere(ZOMBIE_RADIUS * 0.8);
+            let body = Collider::capsule(ZOMBIE_RADIUS, ZOMBIE_CAPSULE_LENGTH);
+            let mut cut_off = Vec::new();
+            let mut seen = std::collections::HashSet::new();
+            for zone in ZoneId::ALL {
+                let (lo, hi) = zone.volume();
+                let ground = if zone == ZoneId::Balcony { 4.0 } else { 0.0 };
+                let floors: Vec<f32> = [ground]
+                    .into_iter()
+                    .chain(PLATFORMS.iter().filter(|p| p.zone == zone).map(|p| p.height))
+                    .chain(SUNKEN.iter().filter(|s| s.zone == zone).map(|s| -s.depth))
+                    .collect();
+                let mut x = lo.x + 0.75;
+                while x < hi.x {
+                    let mut z = lo.z + 0.75;
+                    while z < hi.z {
+                        let on_prop = PROPS.iter().any(|prop| {
+                            (Vec2::new(x - prop.at.x, z - prop.at.z).abs() - Vec2::new(prop.size.x, prop.size.z) / 2.0).max_element() < ZOMBIE_RADIUS
+                        });
+                        for &floor in &floors {
+                            let Some(hit) = spatial.cast_ray(Vec3::new(x, floor + 1.0, z), Dir3::NEG_Y, 1.5, true, &map) else {
+                                continue;
+                            };
+                            let feet = Vec3::new(x, floor + 1.0 - hit.distance, z);
+                            let centre = feet + Vec3::Y * half;
+                            let fits = spatial.shape_intersections(&body, centre + Vec3::Y * 0.05, Quat::IDENTITY, &map).is_empty();
+                            if on_prop || !fits || crate::nav::zone_at(feet + Vec3::Y * 0.1) != Some(zone) {
+                                continue;
+                            }
+                            if !seen.insert((feet * 10.0).round().as_ivec3()) {
+                                continue;
+                            }
+                            let walk = |from: Vec3, to: Vec3| clear_walk(&spatial, &probe, from, to, half);
+                            let out = graph.nearest_where(feet, |node| walk(centre, node.at + Vec3::Y * half));
+                            let back = graph.nearest_where(feet, |node| walk(node.at + Vec3::Y * half, centre));
+                            if out.is_none() || back.is_none() {
+                                cut_off.push(format!("{} {feet} (out {}, back {})", zone.name(), out.is_some(), back.is_some()));
+                            }
+                        }
+                        z += 1.5;
+                    }
+                    x += 1.5;
+                }
+            }
+            (seen.len(), cut_off)
+        })
+        .unwrap();
+    assert!(checked > 1000, "only {checked} spots checked");
+    assert!(cut_off.is_empty(), "cut off from the path nodes: {cut_off:#?}");
 }

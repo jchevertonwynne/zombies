@@ -31,6 +31,14 @@ const TRAPS: [((ZoneId, ZoneId), Vec2, f32); 2] = [
 const WALL_FACE: f32 = 0.2;
 const SWITCH_HEIGHT: f32 = 1.3;
 
+/// Where every Trap's switches are: one on each face of its doorway's wall.
+#[cfg(test)]
+pub(crate) fn switch_spots() -> impl Iterator<Item = Vec3> {
+    TRAPS.into_iter().flat_map(|(_, doorway, switch_x)| {
+        [Vec3::Z, Vec3::NEG_Z].map(|facing| Vec3::new(switch_x, SWITCH_HEIGHT, doorway.y) + facing * (WALL_FACE + 0.03))
+    })
+}
+
 /// The shock's slow goes through the stat-modifier seam as its own source.
 const SHOCK_SOURCE: Source = Source("Trap Shock");
 

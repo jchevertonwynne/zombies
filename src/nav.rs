@@ -1,5 +1,6 @@
 //! Zombie navigation: a hand-authored graph of path nodes, planned over with A* (ADR 0001).
 
+use avian3d::prelude::*;
 use bevy::prelude::*;
 use pathfinding::prelude::astar;
 
@@ -11,10 +12,13 @@ use crate::state::GameState;
 use crate::tuning::*;
 use crate::zone::ZoneId;
 
+/// How many of the nodes nearest a body `NavGraph::nearest_where` tries.
+const NEAREST_TRIES: usize = 6;
+
 /// What gates an edge of the graph.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Gate {
-    /// Always open: across a room, or up and down the ramp.
+    /// Always open: across a room, or up and down the steps and ramps.
     Open,
     /// Through the Door between two Zones: open once it's bought.
     Door(ZoneId, ZoneId),
@@ -49,6 +53,32 @@ pub fn repath_interval(distance: f32) -> f32 {
     } else {
         ZOMBIE_REPATH_SECS
     }
+}
+
+/// How far along a straight walk from `from` to `to` (feet), measured flat, the floor first rises
+/// more than `ZOMBIE_STEP_UP` from one sample to the next, or gives out: about where the face of
+/// the ledge is. `None` if it never does.
+pub fn floor_ledge(spatial: &SpatialQuery, from: Vec3, to: Vec3, filter: &SpatialQueryFilter) -> Option<f32> {
+    let flat = Vec2::new(to.x - from.x, to.z - from.z).length();
+    let samples = (flat / ZOMBIE_FLOOR_SAMPLE).ceil().max(1.0) as usize;
+    let spacing = flat / samples as f32;
+    // Looking down from above the higher end, to below the lower one.
+    let top = from.y.max(to.y) + 1.0;
+    let reach = top - from.y.min(to.y) + 2.0;
+    let mut floor = from.y;
+    for i in 1..=samples {
+        let at = from.lerp(to, i as f32 / samples as f32);
+        let face = (i as f32 - 0.5) * spacing;
+        let Some(hit) = spatial.cast_ray(Vec3::new(at.x, top, at.z), Dir3::NEG_Y, reach, true, filter) else {
+            return Some(face);
+        };
+        let height = top - hit.distance;
+        if height - floor > ZOMBIE_STEP_UP {
+            return Some(face);
+        }
+        floor = height;
+    }
+    None
 }
 
 /// The Zone a point is in, or `None` outside the building.
@@ -89,11 +119,23 @@ const NODES: &[(&str, f32, f32, f32)] = &[
     ("drop_top", -11.0, 4.0, 4.0),
     // Yard
     ("drop_bottom", -8.5, 0.0, 4.0),
+    ("yard_nw", -9.5, 0.0, 12.5),
     ("yard_n", 0.0, 0.0, 12.5),
+    // Down in the sunken garden, and on the Yard floor at the top of each flight of its steps
+    ("garden", -4.5, -0.6, 8.5),
+    ("garden_e", 0.6, 0.0, 8.0),
+    ("garden_s", -4.0, 0.0, 3.4),
     ("yard_c", 0.0, 0.0, 0.0),
     ("yard_w", -8.0, 0.0, 0.0),
     ("yard_e", 11.0, 0.0, -2.0),
     ("yard_sd", -7.0, 0.0, -12.5),
+    // Round the Gazebo's back, between it and the sandbags and the Yard's south wall
+    ("yard_sw", -1.0, 0.0, -9.5),
+    ("yard_s", 5.0, 0.0, -12.0),
+    ("yard_se", 11.0, 0.0, -11.0),
+    // Outside the Gazebo's Door and inside it, before Pack-a-Punch
+    ("gazebo_door", 5.0, 0.0, -2.6),
+    ("gazebo", 5.0, 0.0, -6.6),
     // East Hall
     ("east_w", 15.5, 0.0, 20.0),
     ("east_ne", 20.0, 0.0, 20.0),
@@ -106,10 +148,16 @@ const NODES: &[(&str, f32, f32, f32)] = &[
     ("w6_out", 28.0, 0.0, 4.0),
     ("w7_in", 24.5, 0.0, -8.0),
     ("w7_out", 28.0, 0.0, -8.0),
+    // At the foot of the altar dais's steps, and up on the dais
+    ("east_steps", 20.4, 0.0, 11.0),
+    ("east_dais", 23.6, 0.6, 11.0),
     // Dining Room
     ("dining_c", -13.0, 0.0, -20.0),
+    ("dining_n", -13.0, 0.0, -15.9),
     ("dining_wn", -20.0, 0.0, -15.5),
     ("dining_yn", -7.0, 0.0, -15.5),
+    ("dining_w", -22.0, 0.0, -20.0),
+    ("dining_e", -4.0, 0.0, -20.0),
     ("dining_pe", -1.5, 0.0, -20.0),
     ("dining_ps", -12.0, 0.0, -24.5),
     ("w8_in", -18.0, 0.0, -24.5),
@@ -127,14 +175,21 @@ const NODES: &[(&str, f32, f32, f32)] = &[
     ("w11_out", 8.0, 0.0, -28.0),
     ("w12_in", 20.0, 0.0, -24.5),
     ("w12_out", 20.0, 0.0, -28.0),
+    // At the foot of the control platform's steps, and up on it by the Power Switch
+    ("power_e", 20.3, 0.0, -20.0),
+    ("power_dais", 23.4, 0.45, -20.0),
     // The Passage and the Tunnel, across the open ground to the south wing
     ("pass_n", -12.0, 0.0, -27.5),
+    ("pass_m", -11.6, 0.0, -30.6),
+    ("pass_m2", -12.4, 0.0, -34.3),
     ("pass_s", -12.0, 0.0, -36.5),
     ("tun_n", 14.0, 0.0, -27.5),
+    ("tun_dip", 14.0, -0.5, -32.0),
     ("tun_s", 14.0, 0.0, -36.5),
     // Workshop
     ("work_n", -12.0, 0.0, -39.5),
-    ("work_c", -19.0, 0.0, -44.0),
+    ("work_cn", -19.0, 0.0, -42.3),
+    ("work_cs", -21.0, 0.0, -46.8),
     ("work_w", -30.0, 0.0, -44.0),
     ("work_e", -5.5, 0.0, -44.0),
     ("w13_in", -28.0, 0.0, -48.5),
@@ -143,6 +198,10 @@ const NODES: &[(&str, f32, f32, f32)] = &[
     ("w14_out", -16.0, 0.0, -52.0),
     ("w15_in", -32.5, 0.0, -44.0),
     ("w15_out", -36.0, 0.0, -44.0),
+    // At the foot of the loading dock's ramp, and along the dock
+    ("dock_foot", -32.4, 0.0, -39.4),
+    ("dock_w", -27.0, 1.1, -39.4),
+    ("dock_e", -17.0, 1.1, -39.4),
     // Storeroom
     ("store_w", -2.5, 0.0, -44.0),
     ("store_c", 0.0, 0.0, -44.0),
@@ -151,7 +210,8 @@ const NODES: &[(&str, f32, f32, f32)] = &[
     ("w16_out", 0.0, 0.0, -52.0),
     // Generator Room
     ("gen_w", 5.5, 0.0, -44.0),
-    ("gen_c", 19.0, 0.0, -44.0),
+    ("gen_cn", 19.5, 0.0, -41.3),
+    ("gen_cs", 19.5, 0.0, -46.8),
     ("gen_n", 14.0, 0.0, -39.5),
     ("gen_e", 30.0, 0.0, -44.0),
     ("w17_in", 16.0, 0.0, -48.5),
@@ -167,6 +227,12 @@ const NODES: &[(&str, f32, f32, f32)] = &[
     ("vent_power", 13.0, NOVA_VENT_HEIGHT, -20.0),
 ];
 
+/// A path node's name, for drawing the graph.
+#[cfg(test)]
+pub fn node_name(i: usize) -> &'static str {
+    NODES[i].0
+}
+
 const fn door(a: ZoneId, b: ZoneId) -> Gate {
     Gate::Door(a, b)
 }
@@ -178,7 +244,8 @@ const fn barrier(id: u8) -> Gate {
 const OPEN: Gate = Gate::Open;
 
 /// The edges, by node name. Barrier and one-way edges run from the first node to the second.
-/// Every edge is a straight walk clear of walls and Yard cover.
+/// Every edge is a straight walk clear of walls and props, and a two-way edge never climbs a
+/// ledge: raised floors are reached by their steps and ramps.
 const EDGES: &[(&str, &str, Gate)] = {
     use ZoneId::*;
     &[
@@ -215,12 +282,28 @@ const EDGES: &[(&str, &str, Gate)] = {
         ("drop_top", "drop_bottom", Gate::OneWay),
         // Yard
         ("drop_bottom", "yard_w", OPEN),
-        ("drop_bottom", "yard_n", OPEN),
+        ("drop_bottom", "yard_nw", OPEN),
+        ("yard_nw", "yard_n", OPEN),
+        ("garden", "garden_e", OPEN),
+        ("garden", "garden_s", OPEN),
+        ("garden_e", "yard_n", OPEN),
+        ("garden_e", "yard_c", OPEN),
+        ("garden_s", "yard_c", OPEN),
+        ("garden_s", "yard_w", OPEN),
         ("yard_w", "yard_c", OPEN),
         ("yard_c", "yard_n", OPEN),
         ("yard_c", "yard_e", OPEN),
         ("yard_w", "yard_sd", OPEN),
         ("yard_sd", "dining_yn", door(Yard, DiningRoom)),
+        ("yard_c", "yard_sw", OPEN),
+        ("yard_sw", "yard_sd", OPEN),
+        ("yard_sw", "yard_s", OPEN),
+        ("yard_s", "yard_se", OPEN),
+        ("yard_se", "yard_e", OPEN),
+        // Into the Gazebo, once the Power has opened its Door.
+        ("gazebo_door", "gazebo", door(Yard, Yard)),
+        ("gazebo_door", "yard_c", OPEN),
+        ("gazebo_door", "yard_e", OPEN),
         // East Hall
         ("east_w", "east_ne", OPEN),
         ("east_ne", "east_mid", OPEN),
@@ -233,13 +316,22 @@ const EDGES: &[(&str, &str, Gate)] = {
         ("w6_out", "w6_in", barrier(6)),
         ("w7_out", "w7_in", barrier(7)),
         ("east_pd", "power_n", door(EastHall, PowerRoom)),
+        ("east_ne", "east_steps", OPEN),
+        ("east_mid", "east_steps", OPEN),
+        ("east_steps", "east_dais", OPEN),
         // Dining Room
-        ("dining_c", "dining_wn", OPEN),
-        ("dining_c", "dining_yn", OPEN),
-        ("dining_c", "dining_pe", OPEN),
-        ("dining_c", "w8_in", OPEN),
-        ("dining_c", "w9_in", OPEN),
-        ("dining_c", "w10_in", OPEN),
+        // Round the tables: the aisle down the middle, and the lanes round the edges.
+        ("dining_c", "dining_n", OPEN),
+        ("dining_c", "dining_w", OPEN),
+        ("dining_c", "dining_e", OPEN),
+        ("dining_n", "dining_wn", OPEN),
+        ("dining_n", "dining_yn", OPEN),
+        ("dining_w", "dining_wn", OPEN),
+        ("dining_w", "w10_in", OPEN),
+        ("dining_e", "dining_yn", OPEN),
+        ("dining_e", "dining_pe", OPEN),
+        ("dining_ps", "w8_in", OPEN),
+        ("dining_ps", "w9_in", OPEN),
         ("w8_out", "w8_in", barrier(8)),
         ("w9_out", "w9_in", barrier(9)),
         ("w10_out", "w10_in", barrier(10)),
@@ -255,22 +347,36 @@ const EDGES: &[(&str, &str, Gate)] = {
         ("w12_out", "w12_in", barrier(12)),
         ("power_c", "power_s", OPEN),
         ("power_s", "tun_n", door(PowerRoom, Tunnel)),
+        ("power_c", "power_e", OPEN),
+        ("power_n", "power_e", OPEN),
+        ("power_e", "power_dais", OPEN),
         // The Passage and the Tunnel, open into the wing at their south ends
-        ("pass_n", "pass_s", OPEN),
+        ("pass_n", "pass_m", OPEN),
+        ("pass_m", "pass_m2", OPEN),
+        ("pass_m2", "pass_s", OPEN),
         ("pass_s", "work_n", OPEN),
-        ("tun_n", "tun_s", OPEN),
+        ("tun_n", "tun_dip", OPEN),
+        ("tun_dip", "tun_s", OPEN),
         ("tun_s", "gen_n", OPEN),
         // Workshop
-        ("work_n", "work_c", OPEN),
-        ("work_c", "work_w", OPEN),
-        ("work_c", "work_e", OPEN),
-        ("work_c", "w13_in", OPEN),
-        ("work_c", "w14_in", OPEN),
+        // Round the workbench island.
+        ("work_n", "work_cn", OPEN),
+        ("work_cn", "work_w", OPEN),
+        ("work_cn", "work_e", OPEN),
+        ("work_cs", "work_w", OPEN),
+        ("work_cs", "work_e", OPEN),
+        ("work_cs", "w13_in", OPEN),
+        ("work_cs", "w14_in", OPEN),
         ("work_w", "w15_in", OPEN),
         ("w13_out", "w13_in", barrier(13)),
         ("w14_out", "w14_in", barrier(14)),
         ("w15_out", "w15_in", barrier(15)),
         ("work_e", "store_w", door(Workshop, Storeroom)),
+        ("work_w", "dock_foot", OPEN),
+        ("dock_foot", "dock_w", OPEN),
+        ("dock_w", "dock_e", OPEN),
+        // Off the dock's edge.
+        ("dock_e", "work_cn", Gate::OneWay),
         // Storeroom
         ("store_w", "store_c", OPEN),
         ("store_c", "store_e", OPEN),
@@ -278,11 +384,14 @@ const EDGES: &[(&str, &str, Gate)] = {
         ("w16_out", "w16_in", barrier(16)),
         ("store_e", "gen_w", door(Storeroom, GeneratorRoom)),
         // Generator Room
-        ("gen_w", "gen_c", OPEN),
-        ("gen_c", "gen_n", OPEN),
-        ("gen_c", "gen_e", OPEN),
-        ("gen_c", "w17_in", OPEN),
-        ("gen_c", "w18_in", OPEN),
+        // Round the generator.
+        ("gen_n", "gen_cn", OPEN),
+        ("gen_cn", "gen_w", OPEN),
+        ("gen_cn", "gen_e", OPEN),
+        ("gen_cs", "gen_w", OPEN),
+        ("gen_cs", "gen_e", OPEN),
+        ("gen_cs", "w17_in", OPEN),
+        ("gen_cs", "w18_in", OPEN),
         ("gen_e", "w19_in", OPEN),
         ("w17_out", "w17_in", barrier(17)),
         ("w18_out", "w18_in", barrier(18)),
@@ -361,17 +470,29 @@ impl NavGraph {
     /// Zone (or outside, if they're outside), with height counting extra so floors don't mix.
     /// Vents are never it.
     pub fn nearest(&self, feet: Vec3) -> usize {
+        self.ranked(feet).next().expect("the graph has nodes")
+    }
+
+    /// The nearest of the closest few nodes to `feet`, as `nearest` ranks them, that `reachable`
+    /// accepts: the node a body there can really walk to, or be walked to from, with a crate or
+    /// a ledge in the way of a nearer one. `None` if none of them is.
+    pub fn nearest_where(&self, feet: Vec3, reachable: impl Fn(&Node) -> bool) -> Option<usize> {
+        self.ranked(feet).take(NEAREST_TRIES).find(|&i| reachable(&self.nodes[i]))
+    }
+
+    /// Every node but the Vents, nearest `feet` first: those in its Zone, then the rest.
+    fn ranked(&self, feet: Vec3) -> impl Iterator<Item = usize> {
         let zone = zone_at(feet + Vec3::Y * 0.1);
         let cost = |node: &Node| {
             let d = node.at - feet;
             Vec2::new(d.x, d.z).length() + 3.0 * d.y.abs()
         };
-        let pick = |same_zone: bool| {
-            (0..self.nodes.len())
-                .filter(|&i| !self.nodes[i].vent && (!same_zone || self.nodes[i].zone == zone))
-                .min_by(|&a, &b| cost(&self.nodes[a]).total_cmp(&cost(&self.nodes[b])))
-        };
-        pick(true).or_else(|| pick(false)).expect("the graph has nodes")
+        let mut ranked: Vec<(bool, f32, usize)> = (0..self.nodes.len())
+            .filter(|&i| !self.nodes[i].vent)
+            .map(|i| (self.nodes[i].zone != zone, cost(&self.nodes[i]), i))
+            .collect();
+        ranked.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
+        ranked.into_iter().map(|(_, _, i)| i)
     }
 
     /// The shortest route from one node to another over the edges passable now, as a list of
@@ -475,7 +596,14 @@ fn draw_graph(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::layers::GameLayer;
     use crate::map::{WINDOWS, window_spawn};
+
+    /// Whether the floor along a straight walk from `from` to `to` (feet) never rises more than a
+    /// step at a time (see `floor_ledge`).
+    fn floor_climbable(spatial: &SpatialQuery, from: Vec3, to: Vec3, filter: &SpatialQueryFilter) -> bool {
+        floor_ledge(spatial, from, to, filter).is_none()
+    }
     use ZoneId::*;
 
     /// Every window stripped of its Planks.
@@ -493,7 +621,9 @@ mod tests {
         Some(path.into_iter().map(|i| NODES[i].0).collect())
     }
 
-    const ALL_DOORS: [(ZoneId, ZoneId); 11] = [
+    const ALL_DOORS: [(ZoneId, ZoneId); 12] = [
+        // The Gazebo's Power Door, in the Yard.
+        (Yard, Yard),
         (StartRoom, WestHall),
         (StartRoom, EastHall),
         (StartRoom, Yard),
@@ -541,6 +671,32 @@ mod tests {
         assert!(blocked.is_empty(), "blocked: {blocked:?}");
     }
 
+    /// A two-way edge is walked both ways: its floor never rises more than a step either way, so
+    /// raised floors are reached by their steps and ramps, never up a ledge.
+    #[test]
+    fn no_two_way_edge_climbs_a_ledge() {
+        use bevy::ecs::system::RunSystemOnce;
+
+        let mut sim = crate::zombie::headless::Sim::new(60.0, |_| {});
+        let ledges: Vec<String> = sim
+            .world_mut()
+            .run_system_once(|spatial: SpatialQuery, doors: Query<Entity, With<Door>>| {
+                let graph = NavGraph::new();
+                // Doors stand open once bought.
+                let filter = SpatialQueryFilter::from_mask(GameLayer::World).with_excluded_entities(doors.iter());
+                graph
+                    .edges
+                    .iter()
+                    .filter(|edge| !edge.gate.one_way())
+                    .flat_map(|edge| [(edge.from, edge.to), (edge.to, edge.from)])
+                    .filter(|&(a, b)| !floor_climbable(&spatial, graph.nodes[a].at, graph.nodes[b].at, &filter))
+                    .map(|(a, b)| format!("{} -> {}", NODES[a].0, NODES[b].0))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap();
+        assert!(ledges.is_empty(), "climbs a ledge: {ledges:?}");
+    }
+
     #[test]
     fn open_and_one_way_edges_are_always_passable() {
         assert!(passable(Gate::Open, &[], windows_open));
@@ -568,7 +724,7 @@ mod tests {
     fn every_edge_names_real_nodes() {
         let graph = NavGraph::new();
         assert_eq!(graph.edges.len(), EDGES.len());
-        assert!((40..=100).contains(&graph.nodes.len()), "about 90 nodes and the Vents, not {}", graph.nodes.len());
+        assert!((40..=160).contains(&graph.nodes.len()), "about 110 nodes and the Vents, not {}", graph.nodes.len());
     }
 
     #[test]
@@ -652,9 +808,12 @@ mod tests {
         // East Hall's Door from the Start Room is shut, so the way there is round by the Power Room.
         let open = [(StartRoom, WestHall), (WestHall, DiningRoom), (DiningRoom, PowerRoom), (EastHall, PowerRoom)];
         let path = route("start", "east_ne", &open).unwrap();
-        for on_the_way in ["west_e", "dining_c", "power_c", "east_pd"] {
-            assert!(path.contains(&on_the_way), "{path:?}");
+        let graph = NavGraph::new();
+        let zones: Vec<_> = path.iter().filter_map(|name| graph.nodes[node(name)].zone).collect();
+        for on_the_way in [WestHall, DiningRoom, PowerRoom] {
+            assert!(zones.contains(&on_the_way), "{path:?}");
         }
+        assert!(path.contains(&"east_pd"), "{path:?}");
     }
 
     #[test]
@@ -670,6 +829,19 @@ mod tests {
         assert_eq!(name(Vec3::new(-28.0, 0.0, 4.5)), "w3_out");
         // Just inside the Start Room's side of the Start–Yard Door, not the Yard's.
         assert_eq!(name(Vec3::new(0.0, 0.0, 14.5)), "start_s");
+    }
+
+    #[test]
+    fn the_nearest_reachable_node_passes_over_ones_that_cannot_be_reached() {
+        let graph = NavGraph::new();
+        let at = Vec3::new(1.0, 0.0, 19.0);
+        let start = node("start");
+        assert_eq!(graph.nearest_where(at, |_| true), Some(start));
+        // With the nearest out of reach, the next nearest in the same Zone.
+        let next = graph.nearest_where(at, |n| n.at != graph.nodes[start].at).unwrap();
+        assert_ne!(next, start);
+        assert_eq!(graph.nodes[next].zone, Some(StartRoom));
+        assert_eq!(graph.nearest_where(at, |_| false), None);
     }
 
     #[test]

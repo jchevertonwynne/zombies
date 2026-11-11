@@ -12,7 +12,8 @@ use crate::tuning::*;
 /// A Door in the Map. While closed it is solid to the Player and to Zombies alike.
 #[derive(Component)]
 pub struct Door {
-    /// The two Zones it joins. The Gazebo's Power Door joins none, since the Gazebo is in the Yard.
+    /// The two Zones it joins. The Gazebo's Power Door joins the Yard to itself, since the Gazebo is
+    /// in the Yard.
     pub joins: Option<(crate::zone::ZoneId, crate::zone::ZoneId)>,
     /// `None` for a Power Door, which can't be bought.
     pub price: Option<u64>,

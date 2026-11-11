@@ -9,9 +9,11 @@ use crate::door::Door;
 use crate::layers::GameLayer;
 use crate::modifier::{Stat, resolve};
 use crate::barrier::{Barriers, Entering};
+use crate::map::BarrierId;
+use crate::zone::ZoneId;
 use crate::explosive::in_sight;
 use crate::hellhound::Telegraph;
-use crate::nav::{NavGraph, Route, repath_interval};
+use crate::nav::{NavGraph, Route, floor_ledge, repath_interval};
 use crate::target::{Players, nearest_up_player};
 use crate::nova::NovaCrawlerKilled;
 use crate::player::{HitGrace, PlayerHit};
@@ -802,22 +804,81 @@ pub fn separation(me: Vec3, others: impl IntoIterator<Item = Vec3>) -> Vec3 {
     push
 }
 
-/// Whether a Zombie-sized body can walk straight from `from` to `to` without hitting the Map.
-fn clear_walk(spatial: &SpatialQuery, probe: &Collider, from: Vec3, to: Vec3) -> bool {
+/// How far a Zombie-sized body, its middle `half` above its feet, gets walking straight from
+/// `from` towards `to` (its middle at each), measured along the floor, before the Map stops it:
+/// something in the way, or a ledge to climb. `None` if nothing does.
+fn walk_stop(spatial: &SpatialQuery, probe: &Collider, from: Vec3, to: Vec3, half: f32) -> Option<f32> {
     let delta = to - from;
     let Ok(dir) = Dir3::new(delta) else {
-        return true;
+        return None;
     };
-    spatial
-        .cast_shape(
-            probe,
-            from,
-            Quat::IDENTITY,
-            dir,
-            &ShapeCastConfig::from_max_distance(delta.length()),
-            &SpatialQueryFilter::from_mask(GameLayer::World),
-        )
-        .is_none()
+    let flat = horizontal(delta).length();
+    let map = SpatialQueryFilter::from_mask(GameLayer::World);
+    let body = spatial
+        .cast_shape(probe, from, Quat::IDENTITY, dir, &ShapeCastConfig::from_max_distance(delta.length()), &map)
+        .map(|hit| hit.distance / delta.length() * flat);
+    // Straight up or down, there's no floor to cross.
+    if flat < 1e-3 {
+        return body;
+    }
+    // The floor only matters as far as the body gets. Its side meets a ledge's face a body's
+    // width short of it.
+    let reach = body.map_or(1.0, |stop| stop / flat);
+    let feet = from - Vec3::Y * half;
+    let ledge = floor_ledge(spatial, feet, feet + (delta * reach), &map).map(|face| (face - ZOMBIE_RADIUS).max(0.0));
+    ledge.or(body)
+}
+
+/// Whether a Zombie-sized body can walk straight from `from` to `to` (see `walk_stop`) without
+/// the Map stopping it.
+fn clear_walk(spatial: &SpatialQuery, probe: &Collider, from: Vec3, to: Vec3, half: f32) -> bool {
+    walk_stop(spatial, probe, from, to, half).is_none()
+}
+
+/// The path nodes a Zombie-sized body, its middle at `centre` and `half` above its feet, follows
+/// to its target standing at `target_feet`: none where it can walk straight there, or where what
+/// stops it (a table, the edge of a ledge, a crate the Player is up on) leaves it within this
+/// share of `reach` to swipe across. Otherwise its route runs from the nearest node it can walk
+/// to, to the nearest its target can be walked to from: nodes behind a crate or over a ledge are
+/// no use to either. No route at all (the drop is one-way) leaves it steering straight at its
+/// target until the stuck rule replaces it.
+pub(crate) fn plan_route(
+    graph: &NavGraph,
+    spatial: &SpatialQuery,
+    centre: Vec3,
+    half: f32,
+    target_feet: Vec3,
+    reach: f32,
+    open_doors: &[(ZoneId, ZoneId)],
+    barrier_open: impl Fn(BarrierId) -> bool,
+) -> Vec<Vec3> {
+    let probe = Collider::sphere(ZOMBIE_RADIUS * 0.8);
+    let feet = centre - Vec3::Y * half;
+    let target = target_feet + Vec3::Y * half;
+    let walk = |from: Vec3, to: Vec3| clear_walk(spatial, &probe, from, to, half);
+    let level = (target_feet.y - feet.y).abs() <= ZOMBIE_DIRECT_MAX_RISE;
+    let closes_in = |stop: f32| horizontal(target - centre).length() - stop <= reach * ZOMBIE_CLOSE_IN_SHARE;
+    if level && walk_stop(spatial, &probe, centre, target, half).is_none_or(closes_in) {
+        return Vec::new();
+    }
+    let from = graph
+        .nearest_where(feet, |node| walk(centre, node.at + Vec3::Y * half))
+        .unwrap_or_else(|| graph.nearest(feet));
+    let to = graph
+        .nearest_where(target_feet, |node| walk(node.at + Vec3::Y * half, target))
+        .unwrap_or_else(|| graph.nearest(target_feet));
+    let path = graph.plan(from, to, open_doors, barrier_open).unwrap_or_default();
+    let mut waypoints: Vec<Vec3> = path.into_iter().map(|i| graph.nodes[i].at).collect();
+    // Skip the first node when the second is a clear walk on the same floor, or the body is
+    // already on the edge between them (a ramp changes floor on the way), so it never doubles
+    // back to the node behind it.
+    if let [first, second, ..] = waypoints[..]
+        && (already_past(first, second, feet)
+            || ((second.y - feet.y).abs() < 0.5 && (first.y - feet.y).abs() < 0.5 && walk(centre, second + Vec3::Y * half)))
+    {
+        waypoints.remove(0);
+    }
+    waypoints
 }
 
 /// Which way a Zombie walks along the line to the Player.
@@ -876,7 +937,6 @@ fn chase(
 ) {
     let dt = time.delta_secs();
     let open_doors: Vec<_> = doors.iter().filter(|door| door.open).filter_map(|door| door.joins).collect();
-    let probe = Collider::sphere(ZOMBIE_RADIUS * 0.8);
     let filter_mask = [GameLayer::World, GameLayer::Zombie, GameLayer::Player];
     let positions: Vec<_> = zombies.iter().map(|(entity, _, _, transform, ..)| (entity, transform.translation)).collect();
 
@@ -915,29 +975,16 @@ fn chase(
         route.repath_in -= dt;
         if route.repath_in <= 0.0 {
             route.repath_in = repath_interval(feet.distance(target_feet));
-            let from = graph.nearest(feet);
-            let to = graph.nearest(target_feet);
-            let level = rise.abs() <= ZOMBIE_DIRECT_MAX_RISE;
-            let target = target_feet + Vec3::Y * half;
-            let spatial = &move_and_slide.spatial_query;
-            route.waypoints.clear();
-            if !(level && (from == to || clear_walk(spatial, &probe, transform.translation, target))) {
-                // No route at all (the drop is one-way) leaves it steering straight at its target
-                // until the stuck rule replaces it.
-                let path = graph.plan(from, to, &open_doors, |b| barriers.is_open(b)).unwrap_or_default();
-                route.waypoints = path.into_iter().map(|i| graph.nodes[i].at).collect();
-                // Skip the first node when the second is a clear walk on the same floor, or the
-                // Zombie is already on the edge between them (a ramp changes floor on the way), so
-                // it never doubles back to the node behind it.
-                if let [first, second, ..] = route.waypoints[..]
-                    && (already_past(first, second, feet)
-                        || ((second.y - feet.y).abs() < 0.5
-                            && (first.y - feet.y).abs() < 0.5
-                            && clear_walk(spatial, &probe, transform.translation, second + Vec3::Y * half)))
-                {
-                    route.waypoints.remove(0);
-                }
-            }
+            route.waypoints = plan_route(
+                &graph,
+                &move_and_slide.spatial_query,
+                transform.translation,
+                half,
+                target_feet,
+                zombie.attack_stats().0,
+                &open_doors,
+                |b| barriers.is_open(b),
+            );
         }
 
         // Reached the next node: on to the one after.

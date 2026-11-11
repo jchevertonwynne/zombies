@@ -789,14 +789,16 @@ fn run_allies(
             route.repath_in -= dt;
             if route.repath_in <= 0.0 {
                 route.repath_in = 0.5;
-                let target_feet = at - Vec3::Y * half;
-                let (from, to) = (graph.nearest(feet), graph.nearest(target_feet));
-                route.waypoints = if from == to {
-                    Vec::new()
-                } else {
-                    let path = graph.plan(from, to, &open_doors, |b| barriers.is_open(b)).unwrap_or_default();
-                    path.into_iter().skip(1).map(|i| graph.nodes[i].at).collect()
-                };
+                route.waypoints = crate::zombie::plan_route(
+                    &graph,
+                    &move_and_slide.spatial_query,
+                    transform.translation,
+                    half,
+                    at - Vec3::Y * half,
+                    ZOMBIE_REACH,
+                    &open_doors,
+                    |b| barriers.is_open(b),
+                );
             }
             if let Some(&next) = route.waypoints.first()
                 && (next - feet).with_y(0.0).length() < ZOMBIE_WAYPOINT_REACH

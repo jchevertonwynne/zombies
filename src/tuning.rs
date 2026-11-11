@@ -1218,9 +1218,19 @@ pub const ZOMBIE_RETARGET_SECS: f32 = 1.0;
 /// How close (horizontally) a Zombie gets to a path node before heading for the next one.
 pub const ZOMBIE_WAYPOINT_REACH: f32 = 0.6;
 /// The most the Player's feet can be above or below a Zombie's for it to steer straight at them.
-/// More than the Yard cover boxes' 1.1 m, so a Player standing on one is swiped from beside it,
-/// and far less than the Balcony's 4 m, which is a separate floor reached by the ramp.
+/// More than the props a Player can clamber onto (up to about 1.2 m), so one standing on a crate
+/// or the sandbags is swiped from beside it, and far less than the Balcony's 4 m, which is a
+/// separate floor reached by the ramp.
 pub const ZOMBIE_DIRECT_MAX_RISE: f32 = 1.2;
+/// The most the floor may rise between two samples a Zombie's straight walk is checked at: about
+/// a step, which a ramp or a flight of steps never beats. More is a ledge, a crate or a table it
+/// would only push against, so it takes the path nodes round instead. A drop is always fine.
+pub const ZOMBIE_STEP_UP: f32 = 0.3;
+/// How far apart along a straight walk the floor under it is sampled.
+pub const ZOMBIE_FLOOR_SAMPLE: f32 = 0.25;
+/// A Zombie stopped short of its target by a table, a ledge or a crate still walks straight at it
+/// if that leaves it within this share of its reach, to swipe across, rather than going round.
+pub const ZOMBIE_CLOSE_IN_SHARE: f32 = 0.9;
 /// Separation steering: Zombies closer than this push apart, by up to this weight of their stride.
 pub const ZOMBIE_SEPARATION_DIST: f32 = 1.0;
 pub const ZOMBIE_SEPARATION_WEIGHT: f32 = 0.6;

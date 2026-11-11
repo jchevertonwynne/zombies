@@ -4,18 +4,19 @@
 //! the Passage from the Dining Room and the Tunnel from the Power Room. The Teleporter's Pads sit
 //! at the wing's far corners.
 
-use avian3d::prelude::*;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::arsenal::WeaponId;
 use crate::buy::{Buyable, Offers};
-use crate::door::Door;
-use crate::layers::GameLayer;
 use crate::state::{GameState, InRun};
 use crate::tuning::*;
 use crate::wall_weapon::{WallWeapon, priced_for, wall_price};
 use crate::zone::ZoneId;
+
+mod build;
+
+use build::{Builder, Gap};
 
 /// Where the Player's feet start: the middle of the Start Room, facing the Yard.
 pub const PLAYER_START: Vec3 = Vec3::new(0.0, 0.0, 20.0);
@@ -134,9 +135,10 @@ pub fn window_spawn(barrier: BarrierId) -> Vec3 {
     Vec3::new(at.x, 0.0, at.y)
 }
 
-/// The Yard's Risers, where Zombies climb out of the ground (x, z).
+/// The Yard's Risers, where Zombies climb out of the ground (x, z), on open ground clear of the
+/// sunken garden.
 const RISERS: [Vec2; 4] = [
-    Vec2::new(-7.0, 10.0),
+    Vec2::new(-10.5, 12.0),
     Vec2::new(10.0, 10.0),
     Vec2::new(-4.0, -11.0),
     Vec2::new(11.0, -10.0),
@@ -167,13 +169,13 @@ const HELLHOUND_SPAWNS: [(ZoneId, Vec3); 28] = [
     (ZoneId::Yard, Vec3::new(9.0, 0.0, 9.0)),
     (ZoneId::Yard, Vec3::new(-9.0, 0.0, -10.0)),
     (ZoneId::Yard, Vec3::new(10.0, 0.0, -12.0)),
-    (ZoneId::Passage, Vec3::new(-12.0, 0.0, -32.0)),
-    (ZoneId::Workshop, Vec3::new(-18.0, 0.0, -44.0)),
+    (ZoneId::Passage, Vec3::new(-12.4, 0.0, -36.8)),
+    (ZoneId::Workshop, Vec3::new(-19.0, 0.0, -42.0)),
     (ZoneId::Workshop, Vec3::new(-8.0, 0.0, -46.0)),
     (ZoneId::Storeroom, Vec3::new(0.0, 0.0, -45.0)),
-    (ZoneId::GeneratorRoom, Vec3::new(18.0, 0.0, -44.0)),
+    (ZoneId::GeneratorRoom, Vec3::new(18.5, 0.0, -41.2)),
     (ZoneId::GeneratorRoom, Vec3::new(8.0, 0.0, -46.0)),
-    (ZoneId::Tunnel, Vec3::new(14.0, 0.0, -32.0)),
+    (ZoneId::Tunnel, Vec3::new(14.0, -0.5, -32.0)),
 ];
 
 /// The Special Spawn Points, where a Napalm or a Shrieker rises: the Zone each serves and where it
@@ -191,8 +193,8 @@ const SPECIAL_SPAWNS: [(ZoneId, Vec3); 12] = [
     (ZoneId::PowerRoom, Vec3::new(18.0, 0.0, -20.0)),
     (ZoneId::Yard, Vec3::new(-9.0, 0.0, 0.0)),
     (ZoneId::Yard, Vec3::new(9.0, 0.0, 9.0)),
-    (ZoneId::Workshop, Vec3::new(-18.0, 0.0, -44.0)),
-    (ZoneId::GeneratorRoom, Vec3::new(18.0, 0.0, -44.0)),
+    (ZoneId::Workshop, Vec3::new(-19.0, 0.0, -42.0)),
+    (ZoneId::GeneratorRoom, Vec3::new(18.5, 0.0, -41.2)),
 ];
 
 /// The Vents Nova Crawlers drop from: the Zone each is in, and the spot on the floor below it.
@@ -203,6 +205,351 @@ pub const VENTS: [(ZoneId, Vec3); 4] = [
     (ZoneId::DiningRoom, Vec3::new(-13.0, 0.0, -20.0)),
     (ZoneId::PowerRoom, Vec3::new(13.0, 0.0, -20.0)),
 ];
+
+/// A Zone's look: flat colours for its floor, its walls and the trim along their foot and top, and
+/// the tint of its lamps. The outside has one too, for the outer walls' faces and the ground.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Palette {
+    pub floor: Color,
+    pub wall: Color,
+    pub trim: Color,
+    pub light: Color,
+}
+
+const fn paints(floor: (f32, f32, f32), wall: (f32, f32, f32), trim: (f32, f32, f32), light: (f32, f32, f32)) -> Palette {
+    Palette {
+        floor: Color::srgb(floor.0, floor.1, floor.2),
+        wall: Color::srgb(wall.0, wall.1, wall.2),
+        trim: Color::srgb(trim.0, trim.1, trim.2),
+        light: Color::srgb(light.0, light.1, light.2),
+    }
+}
+
+/// The palette of a Zone, or of the outside for `None`.
+pub fn palette(zone: Option<ZoneId>) -> Palette {
+    use ZoneId::*;
+    match zone {
+        // An entrance hall: dark oak, ochre plaster, oxblood skirting, warm lamps.
+        Some(StartRoom) => paints((0.3, 0.19, 0.12), (0.62, 0.5, 0.3), (0.42, 0.11, 0.09), (1.0, 0.78, 0.5)),
+        // A library: slate floor, sage-green walls, cream trim.
+        Some(WestHall) => paints((0.2, 0.22, 0.26), (0.34, 0.45, 0.34), (0.76, 0.71, 0.56), (1.0, 0.86, 0.62)),
+        // A timber walkway with iron rails, under the moon.
+        Some(Balcony) => paints((0.42, 0.32, 0.21), (0.27, 0.3, 0.27), (0.12, 0.13, 0.14), (0.75, 0.82, 1.0)),
+        // A chapel: blue-grey flags, pale stone, deep blue trim, candlelight.
+        Some(EastHall) => paints((0.29, 0.31, 0.36), (0.63, 0.61, 0.55), (0.15, 0.21, 0.42), (1.0, 0.72, 0.42)),
+        // Parquet, burgundy walls and gilt.
+        Some(DiningRoom) => paints((0.37, 0.24, 0.14), (0.47, 0.16, 0.18), (0.74, 0.57, 0.22), (1.0, 0.8, 0.52)),
+        // Oil-stained concrete, battleship grey, hazard yellow, cold light.
+        Some(PowerRoom) => paints((0.16, 0.16, 0.17), (0.38, 0.42, 0.48), (0.86, 0.68, 0.1), (0.78, 0.9, 1.0)),
+        // Grass and dirt between brick walls with stone copings, under the moon.
+        Some(Yard) => paints((0.19, 0.24, 0.13), (0.45, 0.27, 0.19), (0.56, 0.54, 0.48), (0.7, 0.8, 1.0)),
+        // Flagstones and sooty brick.
+        Some(Passage) => paints((0.31, 0.29, 0.26), (0.33, 0.2, 0.15), (0.14, 0.12, 0.11), (1.0, 0.64, 0.34)),
+        // Bare concrete, tan board walls, safety orange.
+        Some(Workshop) => paints((0.33, 0.32, 0.3), (0.55, 0.45, 0.31), (0.82, 0.4, 0.1), (1.0, 0.84, 0.58)),
+        // Dusty boards, whitewash, olive drab.
+        Some(Storeroom) => paints((0.29, 0.25, 0.19), (0.66, 0.66, 0.6), (0.31, 0.35, 0.19), (0.95, 0.9, 0.76)),
+        // Steel plate, teal walls, red trim, sodium light.
+        Some(GeneratorRoom) => paints((0.24, 0.26, 0.28), (0.17, 0.35, 0.33), (0.62, 0.13, 0.11), (1.0, 0.6, 0.26)),
+        // Wet concrete, blue-grey walls, green pipework, a sickly light.
+        Some(Tunnel) => paints((0.17, 0.18, 0.19), (0.29, 0.33, 0.38), (0.25, 0.55, 0.3), (0.72, 1.0, 0.62)),
+        // Bare ground round weathered brick.
+        None => paints((0.15, 0.17, 0.12), (0.3, 0.21, 0.17), (0.42, 0.4, 0.36), (1.0, 0.75, 0.45)),
+    }
+}
+
+/// The Pack-a-Punch Gazebo's own look, inside and out.
+const GAZEBO: Palette = paints((0.2, 0.18, 0.22), (0.3, 0.22, 0.36), (0.66, 0.54, 0.24), (1.0, 0.8, 0.5));
+
+/// The lamps: the Zone whose tint each takes, and where it hangs.
+const LAMPS: [(ZoneId, Vec3); 14] = {
+    use ZoneId::*;
+    [
+        (StartRoom, Vec3::new(0.0, STOREY - 0.5, 20.0)),
+        (WestHall, Vec3::new(-20.0, STOREY - 0.5, 16.0)),
+        (WestHall, Vec3::new(-20.0, 2.0 * STOREY - 0.5, 0.0)),
+        (EastHall, Vec3::new(20.0, STOREY - 0.5, 16.0)),
+        (EastHall, Vec3::new(20.0, STOREY - 0.5, -2.0)),
+        (DiningRoom, Vec3::new(-13.0, STOREY - 0.5, -20.0)),
+        (PowerRoom, Vec3::new(13.0, STOREY - 0.5, -20.0)),
+        (Balcony, Vec3::new(-12.0, 2.0 * STOREY - 0.5, -2.0)),
+        (Yard, Vec3::new(0.0, STOREY + 2.0, 0.0)),
+        (Passage, Vec3::new(-12.0, STOREY - 0.5, -32.0)),
+        (Tunnel, Vec3::new(14.0, STOREY - 0.5, -32.0)),
+        (Workshop, Vec3::new(-19.0, STOREY - 0.5, -44.0)),
+        (Storeroom, Vec3::new(0.0, STOREY - 0.5, -44.0)),
+        (GeneratorRoom, Vec3::new(19.0, STOREY - 0.5, -44.0)),
+    ]
+};
+
+/// A raised floor standing on its Zone's floor: a stage, a dais, a dock. It covers `min`..`max`
+/// (x, z), its top `height` up. Its edges are ledges the Player can hop down from; Slopes lead up
+/// onto it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Platform {
+    pub zone: ZoneId,
+    pub min: Vec2,
+    pub max: Vec2,
+    pub height: f32,
+    pub colour: Color,
+}
+
+/// A flight of steps or a ramp between two floors. The middle of its foot is `foot`, on the lower
+/// floor, and it climbs `rise` over `run` towards `up` (along x or z), `width` across. Either way
+/// it's solid as a smooth ramp, so nothing trips on a step.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Slope {
+    pub zone: ZoneId,
+    pub foot: Vec3,
+    pub up: Vec2,
+    pub run: f32,
+    pub rise: f32,
+    pub width: f32,
+    /// Drawn as steps rather than a plain ramp.
+    pub steps: bool,
+    pub colour: Color,
+}
+
+/// A sunken floor, `depth` below its Zone's floor across `min`..`max` (x, z). Its edges are
+/// ledges the Player can hop down, and jump back up; Slopes lead down into it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Sunken {
+    pub zone: ZoneId,
+    pub min: Vec2,
+    pub max: Vec2,
+    pub depth: f32,
+    /// A stone coping round its rim.
+    pub rim: bool,
+}
+
+/// Dark stone, for the dais.
+const DAIS_STONE: Color = Color::srgb(0.36, 0.33, 0.3);
+/// Riveted steel plate, for the control platform.
+const STEEL_PLATE: Color = Color::srgb(0.3, 0.32, 0.34);
+/// Bare concrete, for the loading dock.
+const CONCRETE: Color = Color::srgb(0.42, 0.41, 0.38);
+/// Weathered stone, for the sunken garden's steps.
+const GARDEN_STONE: Color = Color::srgb(0.5, 0.48, 0.42);
+
+/// The Yard's sunken garden, off to one side of its open middle.
+const GARDEN: Sunken = Sunken { zone: ZoneId::Yard, min: Vec2::new(-7.5, 4.5), max: Vec2::new(-0.5, 11.5), depth: 0.6, rim: true };
+/// The Tunnel's dip, wall to wall, between a ramp down and a ramp up.
+const DIP: Sunken = Sunken { zone: ZoneId::Tunnel, min: Vec2::new(12.5, -35.5), max: Vec2::new(15.5, -28.5), depth: 0.5, rim: false };
+/// Wet concrete, for the Tunnel's ramps.
+const WET_CONCRETE: Color = Color::srgb(0.22, 0.23, 0.24);
+
+/// East Hall's altar dais, against the outer wall between two windows.
+const DAIS: Platform = Platform { zone: ZoneId::EastHall, min: Vec2::new(22.4, 8.0), max: Vec2::new(25.8, 14.0), height: 0.6, colour: DAIS_STONE };
+
+/// The Workshop's loading dock along its north wall: too high to jump onto, so it's the ramp up,
+/// or a clamber, and a hop down anywhere along its edge.
+const DOCK: Platform = Platform { zone: ZoneId::Workshop, min: Vec2::new(-28.0, -40.6), max: Vec2::new(-16.0, -38.2), height: 1.1, colour: CONCRETE };
+
+/// The Power Room's control platform, a few steps up at its east end, under the Power Switch.
+pub const CONTROL_PLATFORM: Platform =
+    Platform { zone: ZoneId::PowerRoom, min: Vec2::new(22.0, -22.6), max: Vec2::new(25.8, -17.4), height: 0.45, colour: STEEL_PLATE };
+
+/// The raised floors.
+pub const PLATFORMS: [Platform; 3] = [
+    DAIS,
+    CONTROL_PLATFORM,
+    DOCK,
+];
+
+/// The steps and ramps.
+pub const SLOPES: [Slope; 8] = [
+    // West Hall's ramp up its inner wall, from the floor at z = 8 to the landing at z = 0.
+    Slope {
+        zone: ZoneId::WestHall,
+        foot: Vec3::new(-15.7, 0.0, 8.0),
+        up: Vec2::NEG_Y,
+        run: 8.0,
+        rise: STOREY,
+        width: 3.0,
+        steps: false,
+        colour: Color::srgb(0.42, 0.32, 0.21),
+    },
+    // Up the front of the altar dais.
+    Slope { zone: ZoneId::EastHall, foot: Vec3::new(DAIS.min.x - 1.2, 0.0, 11.0), up: Vec2::X, run: 1.2, rise: DAIS.height, width: 3.0, steps: true, colour: DAIS_STONE },
+    // Up onto the control platform, facing the Power Switch.
+    Slope {
+        zone: ZoneId::PowerRoom,
+        foot: Vec3::new(CONTROL_PLATFORM.min.x - 0.9, 0.0, -20.0),
+        up: Vec2::X,
+        run: 0.9,
+        rise: CONTROL_PLATFORM.height,
+        width: 3.0,
+        steps: true,
+        colour: STEEL_PLATE,
+    },
+    // Up the west end of the loading dock.
+    Slope { zone: ZoneId::Workshop, foot: Vec3::new(DOCK.min.x - 3.6, 0.0, -39.4), up: Vec2::X, run: 3.6, rise: DOCK.height, width: 2.4, steps: false, colour: CONCRETE },
+    // Down into the sunken garden from the Yard's middle, on its east and south sides.
+    Slope {
+        zone: ZoneId::Yard,
+        foot: Vec3::new(GARDEN.max.x - 1.2, -GARDEN.depth, 8.0),
+        up: Vec2::X,
+        run: 1.2,
+        rise: GARDEN.depth,
+        width: 3.0,
+        steps: true,
+        colour: GARDEN_STONE,
+    },
+    Slope {
+        zone: ZoneId::Yard,
+        foot: Vec3::new(-4.0, -GARDEN.depth, GARDEN.min.y + 1.2),
+        up: Vec2::NEG_Y,
+        run: 1.2,
+        rise: GARDEN.depth,
+        width: 3.0,
+        steps: true,
+        colour: GARDEN_STONE,
+    },
+    // Down into the Tunnel's dip from each end.
+    Slope {
+        zone: ZoneId::Tunnel,
+        foot: Vec3::new(14.0, -DIP.depth, DIP.max.y - 2.0),
+        up: Vec2::Y,
+        run: 2.0,
+        rise: DIP.depth,
+        width: 3.0,
+        steps: false,
+        colour: WET_CONCRETE,
+    },
+    Slope {
+        zone: ZoneId::Tunnel,
+        foot: Vec3::new(14.0, -DIP.depth, DIP.min.y + 2.0),
+        up: Vec2::NEG_Y,
+        run: 2.0,
+        rise: DIP.depth,
+        width: 3.0,
+        steps: false,
+        colour: WET_CONCRETE,
+    },
+];
+
+/// The sunken floors.
+pub const SUNKEN: [Sunken; 2] = [GARDEN, DIP];
+
+/// What a prop is, which sets how it looks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PropKind {
+    /// A wooden crate, or a stack of them.
+    Crate,
+    /// A table or a workbench: a top on legs, though solid all the way down.
+    Table,
+    /// A bench or a pew.
+    Bench,
+    /// A counter.
+    Counter,
+    /// East Hall's altar, under a cloth.
+    Altar,
+    /// A square column, floor to ceiling.
+    Pillar,
+    /// A tall shelf or cabinet.
+    Shelf,
+    /// A heap of broken masonry.
+    Rubble,
+    /// A wall of sandbags.
+    Sandbags,
+    /// An oil drum, round.
+    Barrel,
+    /// A big machine: a transformer, the generator.
+    Machine,
+}
+
+/// Something standing on a floor, for the Player to weave round or jump onto and for Zombies to
+/// path round. `at` is the middle of its foot, on the floor it stands on; `size` is how wide (x),
+/// tall and deep (z) it is.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Prop {
+    pub kind: PropKind,
+    pub zone: ZoneId,
+    pub at: Vec3,
+    pub size: Vec3,
+}
+
+const fn prop(kind: PropKind, zone: ZoneId, at: (f32, f32, f32), size: (f32, f32, f32)) -> Prop {
+    Prop {
+        kind,
+        zone,
+        at: Vec3::new(at.0, at.1, at.2),
+        size: Vec3::new(size.0, size.1, size.2),
+    }
+}
+
+/// The props. Low ones (up to about 0.8 m) can be jumped onto and anything up to about 1.2 m
+/// clambered onto with a running jump; nothing a Player gets on top of lifts them out of a
+/// Zombie's reach. Tall ones are walls to weave round. Training loops stay clear: clutter keeps to
+/// the walls and corners, and a room's middle holds at most one island to run laps round.
+pub const PROPS: &[Prop] = {
+    use PropKind::*;
+    use ZoneId::*;
+    &[
+        // The Start Room: a reception desk, and a bench by the West Hall end of the south wall.
+        prop(Counter, StartRoom, (10.2, 0.0, 16.2), (3.6, 1.05, 0.8)),
+        prop(Bench, StartRoom, (-11.7, 0.0, 14.55), (2.6, 0.5, 0.5)),
+        // The Yard, round its edges: crates and drums under the Balcony, a sandbag wall by the
+        // Dining Room Door, rubble in the north-east corner and a crate in the south-east.
+        prop(Crate, Yard, (-13.15, 0.0, -5.4), (1.1, 1.6, 1.1)),
+        prop(Crate, Yard, (-13.25, 0.0, -3.2), (0.9, 0.7, 0.9)),
+        prop(Barrel, Yard, (-13.25, 0.0, 2.3), (0.65, 0.95, 0.65)),
+        prop(Barrel, Yard, (-12.5, 0.0, 2.9), (0.65, 0.95, 0.65)),
+        prop(Sandbags, Yard, (-2.0, 0.0, -12.5), (3.2, 1.05, 0.8)),
+        prop(Rubble, Yard, (12.85, 0.0, 12.8), (1.5, 0.85, 1.6)),
+        prop(Crate, Yard, (13.1, 0.0, -13.0), (1.0, 0.7, 1.0)),
+        // West Hall, a library: bookcases on the walls, a reading table, and crates stored under
+        // the ramp's landing.
+        prop(Shelf, WestHall, (-25.5, 0.0, 13.6), (0.6, 2.4, 3.2)),
+        prop(Shelf, WestHall, (-25.5, 0.0, -12.1), (0.6, 2.4, 3.0)),
+        prop(Shelf, WestHall, (-23.1, 0.0, 25.5), (4.2, 2.4, 0.6)),
+        prop(Table, WestHall, (-22.7, 0.0, 14.5), (1.2, 0.74, 2.8)),
+        prop(Crate, WestHall, (-16.5, 0.0, -3.0), (1.2, 1.5, 1.2)),
+        prop(Crate, WestHall, (-15.0, 0.0, 0.5), (0.9, 0.7, 0.9)),
+        // East Hall, a chapel: the altar up on its dais, two pews before it, and columns.
+        prop(Altar, EastHall, (25.1, DAIS.height, 11.0), (1.0, 1.0, 2.2)),
+        prop(Bench, EastHall, (18.7, 0.0, 8.3), (0.6, 0.5, 3.0)),
+        prop(Bench, EastHall, (18.7, 0.0, 13.7), (0.6, 0.5, 3.0)),
+        prop(Pillar, EastHall, (17.5, 0.0, -1.0), (0.8, STOREY, 0.8)),
+        prop(Pillar, EastHall, (22.5, 0.0, -1.0), (0.8, STOREY, 0.8)),
+        prop(Pillar, EastHall, (17.5, 0.0, 17.0), (0.8, STOREY, 0.8)),
+        prop(Pillar, EastHall, (22.5, 0.0, 22.0), (0.8, STOREY, 0.8)),
+        // The Dining Room: two long tables each side of an aisle down the middle.
+        prop(Table, DiningRoom, (-17.0, 0.0, -17.9), (5.0, 0.74, 1.0)),
+        prop(Table, DiningRoom, (-9.0, 0.0, -17.9), (5.0, 0.74, 1.0)),
+        prop(Table, DiningRoom, (-17.0, 0.0, -22.1), (5.0, 0.74, 1.0)),
+        prop(Table, DiningRoom, (-9.0, 0.0, -22.1), (5.0, 0.74, 1.0)),
+        // The Power Room: transformers along the north wall, and drums in the corner.
+        prop(Machine, PowerRoom, (10.3, 0.0, -14.8), (2.6, 2.2, 1.2)),
+        prop(Machine, PowerRoom, (14.7, 0.0, -14.8), (2.6, 2.2, 1.2)),
+        prop(Barrel, PowerRoom, (1.8, 0.0, -24.5), (0.65, 0.95, 0.65)),
+        prop(Barrel, PowerRoom, (2.6, 0.0, -25.1), (0.65, 0.95, 0.65)),
+        // The Passage, half fallen in: rubble against each wall in turn.
+        prop(Rubble, Passage, (-12.8, 0.0, -30.6), (1.0, 0.8, 2.0)),
+        prop(Rubble, Passage, (-11.2, 0.0, -34.3), (1.0, 0.7, 1.8)),
+        // The Workshop: a workbench island to run round, a tool cabinet up on the dock, a tool rack
+        // and crates.
+        prop(Table, Workshop, (-21.0, 0.0, -44.5), (7.0, 0.9, 1.4)),
+        prop(Shelf, Workshop, (-21.0, DOCK.height, -38.55), (3.0, 1.8, 0.6)),
+        prop(Shelf, Workshop, (-7.7, 0.0, -38.5), (3.4, 2.2, 0.6)),
+        prop(Crate, Workshop, (-5.2, 0.0, -48.9), (1.2, 1.5, 1.2)),
+        prop(Crate, Workshop, (-8.0, 0.0, -49.0), (0.9, 0.7, 0.9)),
+        // The Storeroom: shelving down both side walls, either side of the Doors.
+        prop(Shelf, Storeroom, (-3.5, 0.0, -48.0), (0.6, 2.2, 3.0)),
+        prop(Shelf, Storeroom, (3.5, 0.0, -48.0), (0.6, 2.2, 3.0)),
+        prop(Shelf, Storeroom, (-3.5, 0.0, -40.4), (0.6, 2.2, 2.0)),
+        prop(Shelf, Storeroom, (3.5, 0.0, -40.4), (0.6, 2.2, 2.0)),
+        // The Generator Room: the generator itself, an island to run round, with a workbench,
+        // a crate and fuel drums by the walls.
+        prop(Machine, GeneratorRoom, (19.5, 0.0, -44.0), (7.0, 2.4, 2.4)),
+        prop(Table, GeneratorRoom, (22.0, 0.0, -38.7), (4.0, 0.9, 1.0)),
+        prop(Crate, GeneratorRoom, (30.5, 0.0, -38.9), (1.2, 1.1, 1.2)),
+        prop(Barrel, GeneratorRoom, (5.6, 0.0, -48.9), (0.7, 0.95, 0.7)),
+        prop(Barrel, GeneratorRoom, (6.5, 0.0, -49.3), (0.7, 0.95, 0.7)),
+        // The Balcony: sandbags at its north end, against the West Hall wall.
+        prop(Sandbags, Balcony, (-13.4, STOREY, 6.2), (0.8, 1.05, 2.8)),
+    ]
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpawnKind {
@@ -240,131 +587,6 @@ impl Plugin for MapPlugin {
     }
 }
 
-/// A gap in a wall, at an offset along it.
-enum Gap {
-    /// A Door, joining two Zones; `None` price makes it a Power Door.
-    Door(Option<(ZoneId, ZoneId)>, Option<u64>),
-    /// An open archway.
-    Open { width: f32, height: f32 },
-    /// A window in an outer wall, open to Zombies and solid to the Player.
-    Window,
-}
-
-struct Builder<'a, 'w, 's> {
-    commands: &'a mut Commands<'w, 's>,
-    meshes: &'a mut Assets<Mesh>,
-    wall: Handle<StandardMaterial>,
-    door: Handle<StandardMaterial>,
-    power_door: Handle<StandardMaterial>,
-}
-
-impl Builder<'_, '_, '_> {
-    fn solid(&mut self, size: Vec3, at: Vec3, mat: &Handle<StandardMaterial>) -> Entity {
-        let shape = Cuboid::from_size(size);
-        self.commands
-            .spawn((
-                InRun,
-                Mesh3d(self.meshes.add(shape)),
-                MeshMaterial3d(mat.clone()),
-                Transform::from_translation(at),
-                RigidBody::Static,
-                Collider::from(shape),
-                CollisionLayers::new(GameLayer::World, LayerMask::ALL),
-            ))
-            .id()
-    }
-
-    /// An axis-aligned wall from `a` to `b` (x, z), standing on `y0`, `height` tall, with gaps
-    /// centred at offsets from `a`.
-    fn wall(&mut self, a: Vec2, b: Vec2, y0: f32, height: f32, gaps: &[(f32, Gap)]) {
-        let along_x = a.y == b.y;
-        let length = (b - a).length();
-        let dir = (b - a) / length;
-        let wall_mat = self.wall.clone();
-        // A box spanning [s, e] along the wall and [lo, hi] up from `y0`.
-        let piece = |this: &mut Self, s: f32, e: f32, lo: f32, hi: f32, thick: f32, mat: &Handle<StandardMaterial>| {
-            if e - s < 0.01 || hi - lo < 0.01 {
-                return None;
-            }
-            let mid = a + dir * (s + e) / 2.0;
-            let size = if along_x {
-                Vec3::new(e - s, hi - lo, thick)
-            } else {
-                Vec3::new(thick, hi - lo, e - s)
-            };
-            Some(this.solid(size, Vec3::new(mid.x, y0 + (lo + hi) / 2.0, mid.y), mat))
-        };
-
-        let mut cursor = 0.0;
-        for (at, gap) in gaps {
-            let (width, top) = match gap {
-                Gap::Door(..) => (DOOR_WIDTH, DOOR_HEIGHT),
-                Gap::Open { width, height } => (*width, *height),
-                Gap::Window => (WINDOW_WIDTH, WINDOW_HEIGHT),
-            };
-            let (s, e) = (at - width / 2.0, at + width / 2.0);
-            piece(self, cursor, s, 0.0, height, WALL_THICKNESS, &wall_mat);
-            piece(self, s, e, top, height, WALL_THICKNESS, &wall_mat);
-            cursor = e;
-            if let Gap::Window = gap {
-                // The Sill is wall like any other; the opening above it is solid to the Player only.
-                piece(self, s, e, 0.0, WINDOW_SILL_HEIGHT, WALL_THICKNESS, &wall_mat);
-                let opening = WINDOW_HEIGHT - WINDOW_SILL_HEIGHT;
-                let mid = a + dir * *at;
-                let size = if along_x {
-                    Vec3::new(e - s, opening, WALL_THICKNESS)
-                } else {
-                    Vec3::new(WALL_THICKNESS, opening, e - s)
-                };
-                self.commands.spawn((
-                    InRun,
-                    Transform::from_xyz(mid.x, y0 + WINDOW_SILL_HEIGHT + opening / 2.0, mid.y),
-                    RigidBody::Static,
-                    Collider::cuboid(size.x, size.y, size.z),
-                    CollisionLayers::new(GameLayer::Window, LayerMask::ALL),
-                ));
-            }
-            if let Gap::Door(joins, price) = gap {
-                let mat = if price.is_some() { self.door.clone() } else { self.power_door.clone() };
-                let door = piece(self, s, e, 0.0, DOOR_HEIGHT, 0.25, &mat).unwrap();
-                let mid = a + dir * *at;
-                self.commands.entity(door).insert((
-                    Door {
-                        joins: *joins,
-                        price: *price,
-                        open: false,
-                    },
-                    Visibility::default(),
-                ));
-                // A Power Door can't be bought, so it has no Prompt.
-                if price.is_some() {
-                    self.commands.entity(door).insert(Buyable {
-                        use_point: Vec3::new(mid.x, y0 + DOOR_HEIGHT / 2.0, mid.y),
-                        prompt: String::new(),
-                        price: *price,
-                        range: DOOR_USE_RANGE,
-                    });
-                }
-            }
-        }
-        piece(self, cursor, length, 0.0, height, WALL_THICKNESS, &wall_mat);
-    }
-
-    /// An outer wall from `a` to `b`, with a gap for each window on it.
-    fn outer_wall(&mut self, a: Vec2, b: Vec2, height: f32) {
-        let length = (b - a).length();
-        let mut gaps: Vec<_> = WINDOWS
-            .iter()
-            .map(|(_, centre, _)| *centre)
-            .filter(|&centre| (centre - a).perp_dot(b - a).abs() < 0.01)
-            .map(|centre| ((centre - a).dot(b - a) / length, Gap::Window))
-            .filter(|(at, _)| *at > 0.0 && *at < length)
-            .collect();
-        gaps.sort_by(|x, y| x.0.total_cmp(&y.0));
-        self.wall(a, b, 0.0, height, &gaps);
-    }
-}
-
 fn v(x: f32, z: f32) -> Vec2 {
     Vec2::new(x, z)
 }
@@ -380,42 +602,32 @@ pub fn spawn_map(
 ) {
     use ZoneId::*;
 
-    let floor_mat = materials.add(Color::srgb(0.22, 0.2, 0.18));
-    let yard_mat = materials.add(Color::srgb(0.18, 0.2, 0.15));
-    let crate_mat = materials.add(Color::srgb(0.4, 0.28, 0.15));
-    let ramp_mat = materials.add(Color::srgb(0.3, 0.25, 0.2));
-    let mut b = Builder {
-        commands: &mut commands,
-        meshes: &mut meshes,
-        wall: materials.add(Color::srgb(0.35, 0.3, 0.27)),
-        door: materials.add(Color::srgb(0.85, 0.45, 0.1)),
-        power_door: materials.add(Color::srgb(0.5, 0.3, 0.8)),
-    };
+    let mut b = Builder::new(&mut commands, &mut meshes, &mut materials);
+    let floor = |zone: ZoneId| palette(Some(zone)).floor;
 
-    // Floors: one per Zone, then the Balcony and the ramp's landing up at the first storey.
+    // Floors: one per Zone, round any sunken floor in it, then the Balcony and the ramp's landing
+    // up at the first storey.
     for zone in [StartRoom, WestHall, EastHall, DiningRoom, PowerRoom, Yard, Passage, Workshop, Storeroom, GeneratorRoom, Tunnel] {
-        let (lo, hi) = zone.volume();
-        let size = Vec3::new(hi.x - lo.x, 0.2, hi.z - lo.z);
-        let centre = Vec3::new((lo.x + hi.x) / 2.0, -0.1, (lo.z + hi.z) / 2.0);
-        let mat = if zone == Yard { &yard_mat } else { &floor_mat };
-        b.solid(size, centre, mat);
+        let holes: Vec<Sunken> = SUNKEN.into_iter().filter(|sunken| sunken.zone == zone).collect();
+        b.floor(zone, &holes);
     }
-    b.solid(Vec3::new(4.0, 0.2, 24.0), Vec3::new(-12.0, STOREY - 0.1, -2.0), &floor_mat);
-    b.solid(Vec3::new(3.0, 0.2, 4.0), Vec3::new(-15.7, STOREY - 0.1, -2.0), &floor_mat);
+    b.block(Vec3::new(4.0, 0.2, 24.0), Vec3::new(-12.0, STOREY - 0.1, -2.0), floor(Balcony));
+    b.block(Vec3::new(3.0, 0.2, 4.0), Vec3::new(-15.7, STOREY - 0.1, -2.0), floor(WestHall));
 
     // Ground outside the outer walls, where Zombies gather at the windows: round the ring, across
-    // the gap between the ring and the south wing (just under the Passage and Tunnel floors), and
-    // round the wing.
+    // the gap between the ring and the south wing (just under the Passage floor, and either side of
+    // the Tunnel), and round the wing.
     for (size, centre) in [
         (Vec3::new(60.0, 0.2, 4.0), Vec3::new(0.0, -0.1, 28.0)),
         (Vec3::new(4.0, 0.2, 52.0), Vec3::new(-28.0, -0.1, 0.0)),
         (Vec3::new(4.0, 0.2, 52.0), Vec3::new(28.0, -0.1, 0.0)),
-        (Vec3::new(76.0, 0.2, 12.0), Vec3::new(0.0, -0.11, -32.0)),
+        (Vec3::new(50.5, 0.2, 12.0), Vec3::new(-12.75, -0.11, -32.0)),
+        (Vec3::new(22.5, 0.2, 12.0), Vec3::new(26.75, -0.11, -32.0)),
         (Vec3::new(76.0, 0.2, 4.0), Vec3::new(0.0, -0.1, -52.0)),
         (Vec3::new(4.0, 0.2, 12.0), Vec3::new(-36.0, -0.1, -44.0)),
         (Vec3::new(4.0, 0.2, 12.0), Vec3::new(36.0, -0.1, -44.0)),
     ] {
-        b.solid(size, centre, &yard_mat);
+        b.block(size, centre, palette(None).floor);
     }
 
     // Outer walls, with the windows. West Hall's are two storeys tall, since its ramp climbs to
@@ -435,8 +647,13 @@ pub fn spawn_map(
 
     // The south wing: the Passage and the Tunnel across the open ground, then the Workshop, the
     // Storeroom and the Generator Room side by side, open to the corridors at their north ends.
-    for x in [-13.5, -10.5, 12.5, 15.5] {
+    for x in [-13.5, -10.5] {
         b.wall(v(x, -38.0), v(x, -26.0), 0.0, STOREY, &[]);
+    }
+    // The Tunnel's walls reach down past its dip.
+    let below = -DIP.depth - 0.2;
+    for x in [12.5, 15.5] {
+        b.wall(v(x, -38.0), v(x, -26.0), below, STOREY - below, &[]);
     }
     let corridor = || Gap::Open { width: 3.0, height: DOOR_HEIGHT };
     b.wall(v(-34.0, -38.0), v(34.0, -38.0), 0.0, STOREY, &[(22.0, corridor()), (48.0, corridor())]);
@@ -470,48 +687,34 @@ pub fn spawn_map(
     b.wall(v(-14.0, -14.0), v(-10.0, -14.0), STOREY, STOREY, &[]);
     b.wall(v(-10.0, -14.0), v(-10.0, 10.0), STOREY, RAIL_HEIGHT, &[(18.0, Gap::Open { width: DOOR_WIDTH, height: RAIL_HEIGHT })]);
     b.wall(v(-14.0, 10.0), v(-10.0, 10.0), STOREY, RAIL_HEIGHT, &[]);
-    let wall_mat = b.wall.clone();
     for z in [-11.0, -2.0, 7.0] {
-        b.solid(Vec3::new(0.5, STOREY, 0.5), Vec3::new(-10.3, STOREY / 2.0, z), &wall_mat);
+        b.block(Vec3::new(0.5, STOREY, 0.5), Vec3::new(-10.3, STOREY / 2.0, z), palette(Some(Yard)).trim);
     }
 
-    // Ramp up West Hall's inner wall, from the floor at z = 8 to the landing at z = 0.
-    let run = 8.0;
-    let angle = (STOREY / run).atan();
-    let ramp = Cuboid::new(3.0, 0.3, (STOREY * STOREY + run * run).sqrt());
-    let normal = Vec3::new(0.0, angle.cos(), angle.sin());
-    b.commands.spawn((
-        InRun,
-        Mesh3d(b.meshes.add(ramp)),
-        MeshMaterial3d(ramp_mat),
-        Transform::from_translation(Vec3::new(-15.7, STOREY / 2.0, run / 2.0) - normal * 0.15)
-            .with_rotation(Quat::from_rotation_x(angle)),
-        RigidBody::Static,
-        Collider::from(ramp),
-        CollisionLayers::new(GameLayer::World, LayerMask::ALL),
-    ));
+    // Raised and sunken floors, and the steps and ramps between floors.
+    for platform in PLATFORMS {
+        b.platform(&platform);
+    }
+    for sunken in SUNKEN {
+        b.sunken(&sunken);
+    }
+    for slope in SLOPES {
+        b.slope(&slope);
+    }
 
     // The Pack-a-Punch Gazebo, behind a Power Door that stays shut until the Power comes on.
     let gazebo_height = DOOR_HEIGHT;
+    b.repaint = Some(GAZEBO);
     b.wall(v(2.0, -10.0), v(8.0, -10.0), 0.0, gazebo_height, &[]);
     b.wall(v(2.0, -10.0), v(2.0, -4.0), 0.0, gazebo_height, &[]);
     b.wall(v(8.0, -10.0), v(8.0, -4.0), 0.0, gazebo_height, &[]);
-    b.wall(v(2.0, -4.0), v(8.0, -4.0), 0.0, gazebo_height, &[(3.0, Gap::Door(None, None))]);
-    b.solid(Vec3::new(6.8, 0.2, 6.8), Vec3::new(5.0, gazebo_height + 0.1, -7.0), &wall_mat);
+    b.wall(v(2.0, -4.0), v(8.0, -4.0), 0.0, gazebo_height, &[(3.0, Gap::Door(Some((Yard, Yard)), None))]);
+    b.repaint = None;
+    b.block(Vec3::new(6.8, 0.2, 6.8), Vec3::new(5.0, gazebo_height + 0.1, -7.0), GAZEBO.trim);
 
-    // Yard cover, and workbenches and crates in the south wing, against its north wall where
-    // nothing walks.
-    for (x, z, w, d) in [
-        (-5.0, 4.0, 3.0, 1.0),
-        (9.0, 3.0, 1.0, 3.0),
-        (-3.0, -6.0, 1.2, 1.2),
-        (2.0, 8.0, 1.2, 1.2),
-        (-22.0, -38.8, 4.0, 1.2),
-        (-30.5, -38.9, 1.2, 1.2),
-        (22.0, -38.8, 4.0, 1.2),
-        (30.5, -38.9, 1.2, 1.2),
-    ] {
-        b.solid(Vec3::new(w, 1.1, d), Vec3::new(x, 0.55, z), &crate_mat);
+    // The props.
+    for (nth, prop) in PROPS.iter().enumerate() {
+        b.prop(prop, nth);
     }
 
     // Chalk outlines: a pale gun shape drawn on the wall, its Buyable just in front.
@@ -624,39 +827,47 @@ pub fn spawn_map(
         },
         Transform::default().looking_at(Vec3::new(-1.0, -3.0, -2.0), Vec3::Y),
     ));
-    let lamps = [
-        (0.0, STOREY - 0.5, 20.0),
-        (-20.0, STOREY - 0.5, 16.0),
-        (-20.0, 2.0 * STOREY - 0.5, 0.0),
-        (20.0, STOREY - 0.5, 16.0),
-        (20.0, STOREY - 0.5, -2.0),
-        (-13.0, STOREY - 0.5, -20.0),
-        (13.0, STOREY - 0.5, -20.0),
-        (-12.0, 2.0 * STOREY - 0.5, -2.0),
-        (0.0, STOREY + 2.0, 0.0),
-        (-12.0, STOREY - 0.5, -32.0),
-        (14.0, STOREY - 0.5, -32.0),
-        (-19.0, STOREY - 0.5, -44.0),
-        (0.0, STOREY - 0.5, -44.0),
-        (19.0, STOREY - 0.5, -44.0),
-    ];
-    for (x, y, z) in lamps {
+    for (zone, at) in LAMPS {
         commands.spawn((
             InRun,
             PointLight {
-                color: Color::srgb(1.0, 0.75, 0.45),
+                color: palette(Some(zone)).light,
                 intensity: 400_000.0,
                 range: 25.0,
                 ..default()
             },
-            Transform::from_xyz(x, y, z),
+            Transform::from_translation(at),
         ));
     }
 }
 
 #[cfg(test)]
+mod plan;
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    /// How far apart two colours are, as straight-line distance between their sRGB values.
+    fn apart(a: Color, b: Color) -> f32 {
+        let (a, b) = (a.to_srgba(), b.to_srgba());
+        Vec3::new(a.red - b.red, a.green - b.green, a.blue - b.blue).length()
+    }
+
+    #[test]
+    fn every_zone_has_a_palette_of_its_own() {
+        let zones: Vec<Option<ZoneId>> = ZoneId::ALL.into_iter().map(Some).chain([None]).collect();
+        for (i, &a) in zones.iter().enumerate() {
+            for &b in &zones[i + 1..] {
+                let (pa, pb) = (palette(a), palette(b));
+                let unlike = apart(pa.wall, pb.wall).max(apart(pa.floor, pb.floor));
+                assert!(unlike >= 0.12, "{a:?} and {b:?} look alike ({unlike:.2} apart)");
+            }
+            // The trim stands out against its own walls.
+            let own = palette(a);
+            assert!(apart(own.trim, own.wall) >= 0.2, "{a:?}'s trim is lost against its walls");
+        }
+    }
 
     #[test]
     fn every_chalk_outline_sits_in_its_zone() {
@@ -670,7 +881,7 @@ mod tests {
 
     /// Everything fixed to the Map's walls and floors, besides the walls and Doors themselves:
     /// a name, where it stands (x, y, z), and how far round it must stay clear.
-    fn fixtures() -> Vec<(String, Vec3, f32)> {
+    pub(super) fn fixtures() -> Vec<(String, Vec3, f32)> {
         use crate::equipment::EQUIPMENT_WALLS;
         use crate::perk::Perk;
         use crate::teleporter::{MAINFRAME_AT, PadId};
@@ -714,6 +925,254 @@ mod tests {
                 assert!(gap >= clear_a + clear_b + 0.3, "{a} and {b} are only {gap:.2} m apart");
             }
         }
+    }
+
+    /// How far `at` is from the footprint `min`..`max`, across the floor; 0 inside it.
+    fn off(min: Vec2, max: Vec2, at: Vec3) -> f32 {
+        let at = Vec2::new(at.x, at.z);
+        (min - at).max(at - max).max(Vec2::ZERO).length()
+    }
+
+    /// A prop's footprint.
+    fn footprint(prop: &Prop) -> (Vec2, Vec2) {
+        let (middle, half) = (Vec2::new(prop.at.x, prop.at.z), Vec2::new(prop.size.x, prop.size.z) / 2.0);
+        (middle - half, middle + half)
+    }
+
+    /// How far `at` is from a prop's footprint, across the floor; 0 inside it.
+    fn off_prop(prop: &Prop, at: Vec3) -> f32 {
+        let (min, max) = footprint(prop);
+        off(min, max, at)
+    }
+
+    /// Whether `at` is on the same storey as a prop, near enough to stand in its way.
+    fn beside(prop: &Prop, at: Vec3) -> bool {
+        at.y > prop.at.y - 2.5 && at.y < prop.at.y + prop.size.y + 2.5
+    }
+
+    /// Everything that takes up floor: a name, its Zone, its footprint, its bottom and top, and
+    /// what may stand within it all the same: things up on or over a raised floor, or down on a
+    /// sunken one's floor.
+    fn footprints() -> Vec<(String, ZoneId, (Vec2, Vec2), (f32, f32), Box<dyn Fn(Vec3) -> bool>)> {
+        let mut all: Vec<(String, ZoneId, (Vec2, Vec2), (f32, f32), Box<dyn Fn(Vec3) -> bool>)> = Vec::new();
+        for prop in PROPS {
+            let name = format!("the {:?} at {}", prop.kind, prop.at);
+            all.push((name, prop.zone, footprint(prop), (prop.at.y, prop.at.y + prop.size.y), Box::new(|_| false)));
+        }
+        for platform in PLATFORMS {
+            let top = platform.height;
+            let name = format!("the raised floor in {}", platform.zone.name());
+            all.push((name, platform.zone, (platform.min, platform.max), (0.0, top), Box::new(move |at: Vec3| at.y >= top - 0.05)));
+        }
+        for slope in SLOPES {
+            let end = Vec2::new(slope.foot.x, slope.foot.z) + slope.up * slope.run;
+            let across = Vec2::new(slope.up.y.abs(), slope.up.x.abs()) * slope.width / 2.0;
+            let (a, b) = (Vec2::new(slope.foot.x, slope.foot.z), end);
+            let name = format!("the steps or ramp at {}", slope.foot);
+            all.push((name, slope.zone, (a.min(b) - across, a.max(b) + across), (slope.foot.y, slope.foot.y + slope.rise), Box::new(|_| false)));
+        }
+        for sunken in SUNKEN {
+            let floor = -sunken.depth;
+            let name = format!("the sunken floor in {}", sunken.zone.name());
+            all.push((name, sunken.zone, (sunken.min, sunken.max), (floor, 0.0), Box::new(move |at: Vec3| (at.y - floor).abs() < 0.05)));
+        }
+        all
+    }
+
+    #[test]
+    fn nothing_on_the_floor_crowds_anything_fixed_to_the_map() {
+        use crate::nav::zone_at;
+        use crate::teleporter::{ARRIVAL_AT, HOUNDS_AROUND};
+        use ZoneId::*;
+        // What must stay clear, the Zone it's in, and how much room round it: what's on the walls
+        // and floors with space to stand at it, where Zombies land climbing in at the windows,
+        // where Nova Crawlers drop, where the Players start and Teleport to, where the
+        // Teleporter's hounds land, and every Spawn Point. A wall between is room enough.
+        let mut keep: Vec<(String, Option<ZoneId>, Vec3, f32)> = fixtures()
+            .into_iter()
+            .map(|(name, at, clear)| (name, zone_at(at.with_y(at.y.min(STOREY + 0.5))), at, clear + 0.6))
+            .collect();
+        for (i, (zone, centre, _)) in WINDOWS.iter().enumerate() {
+            keep.push((format!("window {i}'s landing"), Some(*zone), Vec3::new(centre.x, 0.0, centre.y), 2.6));
+        }
+        for (zone, at) in VENTS {
+            keep.push((format!("{}'s Vent drop", zone.name()), Some(zone), at, 1.0));
+        }
+        for at in crate::trap::switch_spots() {
+            keep.push(("a Trap switch".into(), zone_at(at), at, 1.0));
+        }
+        for (i, at) in SEAT_STARTS.iter().enumerate() {
+            keep.push((format!("Seat {i}"), Some(StartRoom), *at, PLAYER_RADIUS + 0.8));
+        }
+        keep.push(("the Teleporter's landing".into(), Some(StartRoom), ARRIVAL_AT, PLAYER_RADIUS + 0.8));
+        let ring = HELLHOUND_AROUND_MAX_DIST + HELLHOUND_RADIUS + 0.1;
+        keep.push(("the Teleporter's hounds".into(), Some(StartRoom), HOUNDS_AROUND, ring));
+        for at in RISERS {
+            keep.push((format!("the Riser at {at}"), Some(Yard), Vec3::new(at.x, 0.0, at.y), 1.0));
+        }
+        for (zone, at) in HELLHOUND_SPAWNS.iter().chain(&SPECIAL_SPAWNS) {
+            keep.push((format!("the {} Spawn Point at {at}", zone.name()), Some(*zone), *at, 0.9));
+        }
+        let mut crowded = Vec::new();
+        for (what, its_zone, (min, max), (bottom, top), may_stand) in footprints() {
+            for (name, zone, at, clear) in &keep {
+                let gap = off(min, max, *at);
+                let same_storey = at.y > bottom - 2.5 && at.y < top + 2.5;
+                if *zone == Some(its_zone) && same_storey && gap < *clear && !may_stand(*at) {
+                    crowded.push(format!("{what} is {gap:.2} m from {name}"));
+                }
+            }
+        }
+        assert!(crowded.is_empty(), "{crowded:#?}");
+    }
+
+    /// The floor `prop` stands on: the Zone's own, a raised floor's top, or the Balcony.
+    fn floor_under(prop: &Prop) -> Option<f32> {
+        let (min, max) = (Vec2::new(prop.at.x, prop.at.z) - Vec2::new(prop.size.x, prop.size.z) / 2.0, Vec2::new(prop.at.x, prop.at.z) + Vec2::new(prop.size.x, prop.size.z) / 2.0);
+        let raised = PLATFORMS
+            .iter()
+            .find(|platform| platform.zone == prop.zone && min.cmpge(platform.min).all() && max.cmple(platform.max).all())
+            .map(|platform| platform.height);
+        let ground = if prop.zone == ZoneId::Balcony { STOREY } else { 0.0 };
+        [raised, Some(ground)].into_iter().flatten().find(|&floor| (floor - prop.at.y).abs() < 1e-3)
+    }
+
+    #[test]
+    fn every_prop_stands_on_a_floor_in_its_zone_clear_of_the_doors() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut sim = crate::zombie::headless::Sim::new(60.0, |_| {});
+        let doors: Vec<Vec3> = sim
+            .world_mut()
+            .run_system_once(|doors: Query<&Transform, With<crate::door::Door>>| doors.iter().map(|t| t.translation).collect::<Vec<_>>())
+            .unwrap();
+        assert!(!doors.is_empty());
+        for prop in PROPS {
+            let (lo, hi) = prop.zone.volume();
+            let half = Vec3::new(prop.size.x, 0.0, prop.size.z) / 2.0;
+            let (min, max) = (prop.at - half, prop.at + half);
+            assert!(min.x >= lo.x && max.x <= hi.x && min.z >= lo.z && max.z <= hi.z, "the {:?} at {} sticks out of {}", prop.kind, prop.at, prop.zone.name());
+            assert!(floor_under(prop).is_some(), "the {:?} at {} stands on no floor", prop.kind, prop.at);
+            for door in &doors {
+                let gap = off_prop(prop, *door);
+                assert!(!beside(prop, *door) || gap >= 1.8, "the {:?} at {} is {gap:.2} m from the Door at {door}", prop.kind, prop.at);
+            }
+        }
+    }
+
+    /// Nothing a Player can get on top of lifts them out of a Zombie's reach. A prop is climbed
+    /// onto from the floor it stands on if it's no taller than a running jump clambers, or from
+    /// another such prop close beside it; every one that can be must be low enough over its floor,
+    /// and narrow enough, for a Zombie at its side to swipe a Player anywhere on it.
+    #[test]
+    fn no_prop_lifts_a_player_out_of_reach() {
+        let clamber = PLAYER_JUMP_SPEED * PLAYER_JUMP_SPEED / (2.0 * GRAVITY) + PLAYER_RADIUS;
+        let top = |prop: &Prop| prop.at.y + prop.size.y;
+        let footprint = |prop: &Prop| (Vec2::new(prop.at.x - prop.size.x / 2.0, prop.at.z - prop.size.z / 2.0), Vec2::new(prop.at.x + prop.size.x / 2.0, prop.at.z + prop.size.z / 2.0));
+        let gap = |a: &Prop, b: &Prop| {
+            let ((amin, amax), (bmin, bmax)) = (footprint(a), footprint(b));
+            (amin - bmax).max(bmin - amax).max(Vec2::ZERO).length()
+        };
+        let mut climbable: Vec<bool> = PROPS.iter().map(|prop| prop.size.y <= clamber).collect();
+        loop {
+            let more: Vec<bool> = PROPS
+                .iter()
+                .enumerate()
+                .map(|(i, prop)| {
+                    climbable[i]
+                        || PROPS.iter().enumerate().any(|(j, from)| {
+                            climbable[j] && j != i && gap(prop, from) <= 1.0 && top(prop) - top(from) <= clamber
+                        })
+                })
+                .collect();
+            if more == climbable {
+                break;
+            }
+            climbable = more;
+        }
+        // A Zombie's middle stands its body's half-height over the floor; a Player's on top, theirs.
+        let zombie_half = ZOMBIE_RADIUS + ZOMBIE_CAPSULE_LENGTH / 2.0;
+        let player_half = PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0;
+        for (prop, _) in PROPS.iter().zip(&climbable).filter(|(_, up)| **up) {
+            let floor = floor_under(prop).unwrap();
+            let above = top(prop) + player_half - (floor + zombie_half);
+            assert!(above < 1.5, "a Player on the {:?} at {} stands {above:.2} m over a Zombie's middle", prop.kind, prop.at);
+            let narrow = prop.size.x.min(prop.size.z);
+            assert!(narrow / 2.0 + ZOMBIE_RADIUS <= ZOMBIE_REACH, "the {:?} at {} is too wide to swipe across", prop.kind, prop.at);
+        }
+    }
+
+    /// Hellhounds, specials, Risers and Nova Crawlers arrive standing on the floor at their Spawn
+    /// Points: there's floor just under each, and room for a Zombie's body over it, clear of the
+    /// walls and everything on the floor.
+    #[test]
+    fn every_spawn_point_inside_stands_on_open_floor() {
+        use avian3d::prelude::*;
+        use bevy::ecs::system::RunSystemOnce;
+
+        use crate::layers::GameLayer;
+        let mut sim = crate::zombie::headless::Sim::new(60.0, |_| {});
+        let blocked: Vec<String> = sim
+            .world_mut()
+            .run_system_once(|spatial: SpatialQuery, spawns: Query<(&SpawnPoint, &Transform)>| {
+                let map = SpatialQueryFilter::from_mask(GameLayer::World);
+                let body = Collider::capsule(ZOMBIE_RADIUS, ZOMBIE_CAPSULE_LENGTH);
+                let half = ZOMBIE_RADIUS + ZOMBIE_CAPSULE_LENGTH / 2.0;
+                spawns
+                    .iter()
+                    .filter(|(spawn, _)| !matches!(spawn.kind, SpawnKind::Window(_)))
+                    .filter_map(|(spawn, transform)| {
+                        let feet = transform.translation;
+                        let floor = spatial.cast_ray(feet + Vec3::Y * 0.3, Dir3::NEG_Y, 0.6, true, &map);
+                        let on_floor = floor.is_some_and(|hit| (hit.distance - 0.3).abs() < 0.05);
+                        let room = spatial.shape_intersections(&body, feet + Vec3::Y * (half + 0.05), Quat::IDENTITY, &map).is_empty();
+                        (!on_floor || !room).then(|| format!("{:?} in {} at {feet}", spawn.kind, spawn.zone.name()))
+                    })
+                    .collect::<Vec<String>>()
+            })
+            .unwrap();
+        assert!(blocked.is_empty(), "not on open floor: {blocked:#?}");
+    }
+
+    /// The Yard stays trainable: loops to lead a Train round the Gazebo, round the sunken garden
+    /// and round the whole Yard, each a level lane at least 1.6 m wide with nothing in it.
+    #[test]
+    fn the_yard_keeps_clear_loops_to_train_round() {
+        use avian3d::prelude::*;
+        use bevy::ecs::system::RunSystemOnce;
+
+        use crate::layers::GameLayer;
+        const ROUND_THE_GAZEBO: &[Vec2] = & [Vec2::new(0.0, -2.0), Vec2::new(10.5, -2.0), Vec2::new(10.5, -11.8), Vec2::new(0.4, -11.0)];
+        const ROUND_THE_GARDEN: &[Vec2] = & [Vec2::new(-9.0, 2.8), Vec2::new(0.9, 2.8), Vec2::new(0.9, 12.6), Vec2::new(-9.0, 12.6)];
+        const ROUND_THE_YARD: &[Vec2] =
+            &[Vec2::new(-9.0, 12.6), Vec2::new(11.0, 12.6), Vec2::new(11.0, -11.8), Vec2::new(1.0, -11.0), Vec2::new(-9.0, -11.0)];
+        let mut sim = crate::zombie::headless::Sim::new(60.0, |_| {});
+        let blocked: Vec<String> = sim
+            .world_mut()
+            .run_system_once(|spatial: SpatialQuery| {
+                let map = SpatialQueryFilter::from_mask(GameLayer::World);
+                let lane = Collider::sphere(0.8);
+                let mut blocked = Vec::new();
+                for (name, corners) in [("the Gazebo", ROUND_THE_GAZEBO), ("the garden", ROUND_THE_GARDEN), ("the Yard", ROUND_THE_YARD)] {
+                    for i in 0..corners.len() {
+                        let (a, b) = (corners[i], corners[(i + 1) % corners.len()]);
+                        let (from, to) = (Vec3::new(a.x, 1.0, a.y), Vec3::new(b.x, 1.0, b.y));
+                        let config = ShapeCastConfig::from_max_distance(from.distance(to));
+                        if spatial.cast_shape(&lane, from, Quat::IDENTITY, Dir3::new(to - from).unwrap(), &config, &map).is_some() {
+                            blocked.push(format!("round {name}: {a} to {b} is cluttered"));
+                        }
+                        let level = (0..=20).all(|k| {
+                            let at = from.lerp(to, k as f32 / 20.0);
+                            spatial.cast_ray(at, Dir3::NEG_Y, 1.5, true, &map).is_some_and(|hit| (hit.distance - 1.0).abs() < 0.05)
+                        });
+                        if !level {
+                            blocked.push(format!("round {name}: {a} to {b} isn't level"));
+                        }
+                    }
+                }
+                blocked
+            })
+            .unwrap();
+        assert!(blocked.is_empty(), "{blocked:#?}");
     }
 
     #[test]

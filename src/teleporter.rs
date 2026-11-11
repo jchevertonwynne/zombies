@@ -62,9 +62,9 @@ pub fn mainframe_use_point() -> Vec3 {
     MAINFRAME_AT + Vec3::Y * 1.3 + MAINFRAME_FACING * (MAINFRAME_SIZE.z / 2.0 + 0.2)
 }
 /// Where the Player lands, in front of the Mainframe.
-const ARRIVAL_AT: Vec3 = Vec3::new(-10.5, 0.0, 23.0);
+pub(crate) const ARRIVAL_AT: Vec3 = Vec3::new(-10.5, 0.0, 23.0);
 /// Teleporter hounds land in a ring round this point, which keeps the whole ring in the Start Room.
-const HOUNDS_AROUND: Vec3 = Vec3::new(-8.0, 0.0, 20.0);
+pub(crate) const HOUNDS_AROUND: Vec3 = Vec3::new(-8.0, 0.0, 20.0);
 /// The holding space's floor centre: a sealed black box far outside the Map.
 const HOLDING_AT: Vec3 = Vec3::new(0.0, 0.0, 300.0);
 const HOLDING_SIZE: Vec3 = Vec3::new(4.0, 3.0, 4.0);

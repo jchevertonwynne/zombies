@@ -373,7 +373,7 @@ fn the_balcony_drop_falls_and_lands_once() {
     let mut sim = Sim::new(144.0);
     sim.place(Vec3::new(-12.0, 4.0, 4.0), EAST);
     sim.hold(&[KeyCode::KeyW]);
-    // Through the gap in the rail and off the edge, then let go before reaching the Yard cover.
+    // Through the gap in the rail and off the edge, then let go before the sunken garden's edge.
     let mut samples = Vec::new();
     while samples.last().is_none_or(|s: &Sample| s.pos.x < -9.0) {
         samples.push(sim.frame());
@@ -385,6 +385,131 @@ fn the_balcony_drop_falls_and_lands_once() {
     let changes = grounded.windows(2).filter(|w| w[0] != w[1]).count();
     assert_eq!(changes, 2, "{grounded:?}");
     assert!(samples.last().unwrap().pos.y < 1.0);
+}
+
+/// The raised floor in `zone`.
+fn platform_in(zone: crate::zone::ZoneId) -> crate::map::Platform {
+    *crate::map::PLATFORMS.iter().find(|platform| platform.zone == zone).unwrap()
+}
+
+/// Where the Player's feet are in a sample.
+fn feet(sample: &Sample) -> Vec3 {
+    sample.pos - Vec3::Y * Stance::Standing.half_height()
+}
+
+/// The altar dais's steps carry the Player up without a jump; its edge is a ledge they hop down
+/// from, and low enough to jump back up.
+#[test]
+fn the_player_walks_up_the_dais_steps_hops_off_its_edge_and_jumps_back_up() {
+    let dais = platform_in(crate::zone::ZoneId::EastHall);
+    let middle = (dais.min + dais.max) / 2.0;
+    let mut sim = Sim::new(144.0);
+
+    // Up the steps, from the floor in front of them.
+    sim.place(Vec3::new(dais.min.x - 2.0, 0.0, middle.y), EAST);
+    sim.hold(&[KeyCode::KeyW]);
+    let up = sim.run_secs(0.7);
+    assert!(up.iter().all(|s| s.grounded), "lost the floor on the steps");
+    let top = feet(up.last().unwrap());
+    assert!(top.x > dais.min.x + 0.5 && (top.y - dais.height).abs() < 0.05, "didn't walk up onto the dais: {top}");
+
+    // Off its north edge.
+    sim.place(Vec3::new(middle.x, dais.height, dais.max.y - 1.0), std::f32::consts::PI);
+    sim.hold(&[KeyCode::KeyW]);
+    let off = sim.run_secs(0.6);
+    let down = feet(off.last().unwrap());
+    assert!(down.z > dais.max.y && down.y.abs() < 0.05 && off.last().unwrap().grounded, "didn't hop down: {down}");
+
+    // And back up with a jump, facing south.
+    sim.place(Vec3::new(middle.x, 0.0, dais.max.y + 1.5), 0.0);
+    sim.hold(&[KeyCode::KeyW, KeyCode::Space]);
+    sim.run_secs(0.1);
+    sim.hold(&[KeyCode::KeyW]);
+    let back = sim.run_secs(0.5);
+    let landed = feet(back.last().unwrap());
+    assert!(landed.z < dais.max.y && (landed.y - dais.height).abs() < 0.05, "didn't jump back up: {landed}");
+}
+
+/// The loading dock is a ledge Zombies can only drop from, but the Player gets up it either way:
+/// walking up its ramp, or clambering its edge with a running jump.
+#[test]
+fn the_player_walks_up_the_loading_dock_ramp_or_clambers_its_edge() {
+    let dock = platform_in(crate::zone::ZoneId::Workshop);
+    let x = (dock.min.x + dock.max.x) / 2.0;
+    let mut sim = Sim::new(144.0);
+
+    // Up the ramp at its west end, from the floor beyond its foot.
+    let slope = *crate::map::SLOPES.iter().find(|slope| slope.zone == crate::zone::ZoneId::Workshop).unwrap();
+    sim.place(slope.foot - Vec3::X * 0.8, EAST);
+    sim.hold(&[KeyCode::KeyW]);
+    let up = sim.run_secs(1.2);
+    assert!(up.iter().all(|s| s.grounded), "lost the floor on the ramp");
+    let on = feet(up.last().unwrap());
+    assert!(on.x > dock.min.x && (on.y - dock.height).abs() < 0.05, "didn't walk up onto the dock: {on}");
+
+    // A running jump at its edge, facing north.
+    sim.place(Vec3::new(x, 0.0, dock.min.y - 2.0), std::f32::consts::PI);
+    sim.hold(&[KeyCode::KeyW]);
+    sim.run_secs(0.15);
+    sim.hold(&[KeyCode::KeyW, KeyCode::Space]);
+    sim.run_secs(0.1);
+    sim.hold(&[KeyCode::KeyW]);
+    let on = feet(sim.run_secs(0.8).last().unwrap());
+    assert!(on.z > dock.min.y && (on.y - dock.height).abs() < 0.05, "didn't clamber up: {on}");
+}
+
+/// The Tunnel dips half a metre in the middle, down one short ramp and up another: the Player
+/// walks through without ever leaving the floor.
+#[test]
+fn the_player_walks_down_through_the_tunnel_dip_and_out() {
+    let mut sim = Sim::new(144.0);
+    sim.place(Vec3::new(14.0, 0.0, -27.0), 0.0);
+    sim.hold(&[KeyCode::KeyW]);
+    let through = sim.run_secs(1.7);
+    assert!(through.iter().all(|s| s.grounded), "left the floor in the Tunnel");
+    let lowest = through.iter().map(|s| feet(s).y).fold(f32::MAX, f32::min);
+    assert!(lowest < -0.45, "never dipped: lowest {lowest:.2}");
+    let out = feet(through.last().unwrap());
+    assert!(out.z < -36.0 && out.y.abs() < 0.05, "didn't come out the far end: {out}");
+}
+
+/// The Yard prop whose footprint covers `at` (x, z).
+fn yard_prop_at(at: Vec2) -> crate::map::Prop {
+    *crate::map::PROPS
+        .iter()
+        .find(|prop| {
+            prop.zone == crate::zone::ZoneId::Yard
+                && (Vec2::new(prop.at.x, prop.at.z) - at).abs().cmple(Vec2::new(prop.size.x, prop.size.z) / 2.0).all()
+        })
+        .unwrap()
+}
+
+/// Where a Player ends up after a running jump at a prop: starting `run_up` metres short of it,
+/// running at it along `toward`, jumping a metre out and still pressing on into it.
+fn running_jump_at(prop: &crate::map::Prop, toward: Vec2, run_up: f32) -> Vec3 {
+    let mut sim = Sim::new(144.0);
+    let start = Vec3::new(prop.at.x, 0.0, prop.at.z) - Vec3::new(toward.x, 0.0, toward.y) * (prop.size.x / 2.0 + run_up);
+    let yaw = f32::atan2(-toward.x, -toward.y);
+    sim.place(start, yaw);
+    sim.hold(&[KeyCode::KeyW]);
+    sim.run_secs((run_up - 1.0) / PLAYER_WALK_SPEED);
+    sim.hold(&[KeyCode::KeyW, KeyCode::Space]);
+    sim.run_secs(0.1);
+    sim.hold(&[KeyCode::KeyW]);
+    feet(sim.run_secs(1.0).last().unwrap())
+}
+
+/// Low props are there to be jumped onto; tall ones only to be weaved round, however the Player
+/// jumps at them.
+#[test]
+fn the_player_jumps_onto_a_low_crate_but_never_onto_a_tall_stack() {
+    let low = yard_prop_at(Vec2::new(13.1, -13.0));
+    let on = running_jump_at(&low, Vec2::X, 2.5);
+    assert!((on.y - low.size.y).abs() < 0.05, "didn't get up on the {} m crate: {on}", low.size.y);
+
+    let tall = yard_prop_at(Vec2::new(-13.15, -5.4));
+    let off = running_jump_at(&tall, Vec2::NEG_X, 2.5);
+    assert!(off.y.abs() < 0.05, "got up on the {} m stack: {off}", tall.size.y);
 }
 
 /// The floor probe mustn't hold the Player down: a jump still leaves the floor and comes back.
