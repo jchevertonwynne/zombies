@@ -1,10 +1,12 @@
 //! The BO1 HUD. Bottom-left: Perk icons over the stance icon and the Round counter.
 //! Bottom-right: Points with ±N popups, the Weapon in hand with its Ammo Mods, Equipment and `magazine | reserve`. Under the
-//! crosshair: the Prompt and a Reload hint. Bottom-centre: timer bars for timed Power-ups, with a
-//! banner for instant ones. Under it all, the effect overlay layer. A Co-op Run adds teammates'
-//! rows over the Points and the rest of `coop`. No Box, Power or Pack-a-Punch state shows.
+//! crosshair: the Prompt and a Reload hint. Around it: damage indicators. Bottom-centre: timer
+//! bars for timed Power-ups, with a banner for instant ones. Under it all, the effect overlay
+//! layer. A Co-op Run adds teammates' rows over the Points and the rest of `coop`. No Box, Power
+//! or Pack-a-Punch state shows.
 
 pub mod coop;
+pub mod damage_indicator;
 pub mod overlay;
 
 use bevy::prelude::*;
@@ -26,6 +28,7 @@ use crate::round::{Round, RoundPhase};
 use crate::state::{GameState, InRun};
 use crate::tuning::*;
 use crate::weapon::{Knife, Loadout, UPGRADED_PURPLE};
+use damage_indicator::DamageIndicatorPlugin;
 use overlay::{Overlay, OverlayPlugin, Overlays};
 
 pub const ROUND_RED: Color = Color::srgb(0.7, 0.05, 0.02);
@@ -279,7 +282,7 @@ pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(OverlayPlugin)
+        app.add_plugins((OverlayPlugin, DamageIndicatorPlugin))
             .init_resource::<PointsFlash>()
             .init_resource::<LastBalance>()
             .init_resource::<Banner>()

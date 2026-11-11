@@ -660,7 +660,7 @@ pub(crate) fn enter_through_windows(
                         if let Some(victim) = victim
                             && rand::random_bool(BARRIER_SWIPE_CHANCE)
                         {
-                            melee.strike(victim.entity, ZOMBIE_SWIPE_DAMAGE);
+                            melee.strike(victim.entity, ZOMBIE_SWIPE_DAMAGE, transform.translation);
                             cues.write(PlayCue {
                                 cue: Cue::ZombieAttack,
                                 at: Some(transform.translation),

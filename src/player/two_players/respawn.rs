@@ -101,7 +101,7 @@ fn a_player_waiting_to_respawn_has_no_body_isnt_targeted_and_holds_no_zone_open(
 fn a_player_waiting_to_respawn_cant_be_hurt() {
     let (mut sim, _, teammate) = co_op(3);
     bleed_out(&mut sim, teammate);
-    sim.send(PlayerHit { player: teammate, damage: 50.0 });
+    sim.send(PlayerHit { player: teammate, damage: 50.0, from: None });
     sim.run(2);
     assert_eq!(sim.world_mut().get::<Health>(teammate).unwrap().current, 0.0);
 }

@@ -730,6 +730,7 @@ fn special_deaths(
                         player_hits.write(PlayerHit {
                             player: player.entity,
                             damage: amount,
+                            from: Some(at),
                         });
                         if player.local {
                             shellshocks.write(Shellshock {
@@ -828,9 +829,11 @@ fn fire_pools(
         let due = pool.ticks.advance(time.delta_secs());
         if due > 0.0 {
             for player in players.iter().filter(|player| in_fire(at, player.feet)) {
+                // Underfoot: no direction to show.
                 hits.write(PlayerHit {
                     player: player.entity,
                     damage: due,
+                    from: None,
                 });
                 if player.local {
                     cues.write(SpecialCue {

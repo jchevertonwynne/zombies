@@ -1934,6 +1934,21 @@ pub const LOW_MAGAZINE_FRACTION: f32 = 0.25;
 pub const POWER_UP_BLINK_SECS: f32 = 5.0;
 /// An instant Power-up's name shows this long.
 pub const INSTANT_POWER_UP_BANNER_SECS: f32 = 2.0;
+/// A damage indicator shows this long after a hit, fading out over its last
+/// `DAMAGE_INDICATOR_FADE_SECS`.
+pub const DAMAGE_INDICATOR_SECS: f32 = 1.6;
+pub const DAMAGE_INDICATOR_FADE_SECS: f32 = 1.0;
+/// The ring the damage indicators sit on around the crosshair: its radius and thickness in pixels,
+/// and how wide an arc of it one indicator covers, in degrees.
+pub const DAMAGE_INDICATOR_RADIUS_PX: f32 = 90.0;
+pub const DAMAGE_INDICATOR_THICKNESS_PX: f32 = 14.0;
+pub const DAMAGE_INDICATOR_ARC_DEGREES: f32 = 50.0;
+/// A hit within this many degrees of a showing indicator refreshes it instead of adding another.
+pub const DAMAGE_INDICATOR_MERGE_DEGREES: f32 = 30.0;
+/// At most this many indicators show at once; a new one past it replaces the oldest.
+pub const DAMAGE_INDICATOR_MAX: usize = 6;
+/// A source closer than this along the floor has no direction to show.
+pub const DAMAGE_INDICATOR_MIN_DISTANCE: f32 = 0.1;
 
 // Settings
 /// Sensitivity runs 1–10; the default plays exactly like `MOUSE_SENSITIVITY` and the rest scale it.
