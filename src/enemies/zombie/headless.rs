@@ -701,3 +701,76 @@ fn every_open_floor_spot_walks_to_and_from_a_path_node_on(map_id: MapId) {
     assert!(checked > 500, "only {checked} spots checked on the {}", map_id.name());
     assert!(cut_off.is_empty(), "cut off from the path nodes on the {}: {cut_off:#?}", map_id.name());
 }
+
+/// Pack-a-Punch stands up on the Quarry's Headframe deck, at the end of the longest climb, behind
+/// the Power Door at the foot of its stairs. With every Door open, a Zombie from any Zone on the
+/// way there walks all the way up to a Player at the machine, never turning back and forth between
+/// two path nodes until the stuck rule takes it.
+#[test]
+fn a_zombie_climbs_to_a_player_at_the_quarry_pack_a_punch() {
+    use crate::maps::map::{MapId, QUARRY_X, STOREY};
+    let q = QUARRY_X;
+    let deck = 3.0 * STOREY;
+    let at_machine = Vec3::new(q + 2.0, deck, 36.2);
+    let starts = [
+        ("the Rail Yard", Vec3::new(q + 8.0, STOREY, 8.0)),
+        ("the Crusher Shed", Vec3::new(q - 16.0, STOREY, 9.0)),
+        ("the Winding House", Vec3::new(q + 15.0, 2.0 * STOREY, 25.5)),
+        ("the Offices", Vec3::new(q - 6.0, 2.0 * STOREY, 25.5)),
+        ("the Headframe's yard", Vec3::new(q + 3.0, 2.0 * STOREY, 29.3)),
+    ];
+    for (zone, start) in starts {
+        let mut sim = Sim::on(MapId::Quarry, 60.0, |_| {});
+        open_every_door(&mut sim);
+        put_player(&mut sim, at_machine);
+        let zombie = sim.spawn(start, None);
+        let (arrived, last) = arrives(&mut sim, zombie, 60.0, |at| at.y > standing(deck) - 0.1 && at.z > 34.5);
+        assert!(arrived, "from {zombie:?} in {zone}: last seen at {last}");
+    }
+}
+
+/// Every Door on the Map open, for following a Zombie from Zone to Zone.
+fn open_every_door(sim: &mut Sim) {
+    use crate::maps::door::{Door, open};
+    sim.world_mut()
+        .run_system_once(|mut commands: Commands, mut doors: Query<(Entity, &mut Door, &Transform)>| {
+            for (entity, mut door, transform) in &mut doors {
+                open(&mut commands, entity, &mut door, transform);
+            }
+        })
+        .unwrap();
+}
+
+/// The Quarry's ways round besides the climb: up the Incline's ramp and steps and down off its
+/// landings, out through it from the terraces, onto the Loading Dock's platform and off it, over
+/// the spoil heap, and off the Rail Yard into the pit. A Zombie walks every one to the Player.
+#[test]
+fn a_zombie_follows_the_player_round_every_way_of_the_quarry() {
+    use crate::maps::map::{MapId, QUARRY_X, STOREY};
+    let (t1, t2) = (STOREY, 2.0 * STOREY);
+    let at = |x: f32, y: f32, z: f32| Vec3::new(QUARRY_X + x, y, z);
+    let ways = [
+        ("up the Incline to its top", at(0.0, 0.0, -15.0), at(-25.0, t2, 27.5)),
+        ("up the Incline's ramp", at(0.0, 0.0, -15.0), at(-27.0, t1, 12.0)),
+        ("down the Incline's drops", at(-25.0, t2, 27.5), at(-25.0, 0.0, -5.0)),
+        ("from the Crusher Shed down the Incline", at(-10.0, t1, 14.0), at(-25.0, 0.0, -5.0)),
+        ("from the Offices down the Incline", at(-10.0, t2, 25.5), at(-25.0, 0.0, -5.0)),
+        ("up the Incline into the Crusher Shed", at(-25.0, 0.0, -5.0), at(-10.0, t1, 14.0)),
+        ("onto the Loading Dock's platform", at(-5.0, 0.0, -5.0), at(31.5, 1.1, -9.0)),
+        ("off the Loading Dock's platform", at(31.5, 1.1, -9.0), at(22.0, 0.0, -18.0)),
+        ("from the Loading Dock to the Rail Yard", at(26.0, 0.0, -11.0), at(10.0, t1, 10.0)),
+        ("up the spoil heap", at(-5.0, 0.0, -5.0), at(12.5, 1.2, -18.0)),
+        ("down the spoil heap", at(12.5, 1.2, -18.0), at(-5.0, 0.0, -5.0)),
+        ("off the Rail Yard into the pit", at(8.0, t1, 8.0), at(3.0, 0.0, -5.0)),
+    ];
+    for (way, start, player) in ways {
+        let mut sim = Sim::on(MapId::Quarry, 60.0, |_| {});
+        open_every_door(&mut sim);
+        put_player(&mut sim, player);
+        let zombie = sim.spawn(start, None);
+        let (arrived, last) = arrives(&mut sim, zombie, 60.0, |feet| {
+            (feet.y - standing(player.y)).abs() < 0.3 && Vec2::new(feet.x - player.x, feet.z - player.z).length() < 1.5
+        });
+        assert!(arrived, "{way}: last seen at {last}");
+    }
+}
