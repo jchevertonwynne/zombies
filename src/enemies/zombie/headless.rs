@@ -701,3 +701,39 @@ fn every_open_floor_spot_walks_to_and_from_a_path_node_on(map_id: MapId) {
     assert!(checked > 500, "only {checked} spots checked on the {}", map_id.name());
     assert!(cut_off.is_empty(), "cut off from the path nodes on the {}: {cut_off:#?}", map_id.name());
 }
+
+/// Follows a Walker from `start` after a Player standing at `player` below a drop, for up to
+/// `secs`: whether it got down below `under`, and where it was last seen.
+fn drops_after(map: MapId, start: Vec3, player: Vec3, under: f32, secs: f32) -> (bool, Vec3) {
+    let mut sim = Sim::on(map, 60.0, |_| {});
+    put_player(&mut sim, player);
+    let zombie = sim.spawn(start, None);
+    arrives(&mut sim, zombie, secs, |at| at.y < under)
+}
+
+/// The Rail Yard is Active as soon as the pit is, through its drops: a Zombie rising there, or
+/// climbing in at its window, after a Player down in the pit drops into the pit to get them,
+/// before the stuck rule gives up on it.
+#[test]
+fn a_zombie_in_the_rail_yard_drops_into_the_pit_after_a_player_there() {
+    use crate::maps::map::{QUARRY_X as Q, STOREY};
+    let player = Vec3::new(Q + 6.0, 0.0, -6.0);
+    // Each Riser, the window, and the middle of the yard.
+    for start in [
+        Vec3::new(Q + 4.0, STOREY, 12.0),
+        Vec3::new(Q + 12.0, STOREY, 10.0),
+        Vec3::new(Q + 18.5, STOREY, 4.5),
+        Vec3::new(Q + 8.0, STOREY, 8.0),
+    ] {
+        let (down, last) = drops_after(MapId::Quarry, start, player, standing(0.0) + 0.5, 9.0);
+        assert!(down, "from {start}: never dropped into the pit; last seen at {last}");
+    }
+}
+
+/// The same on the Greybox: a Zombie on the Balcony after a Player in the Yard below takes the
+/// drop.
+#[test]
+fn a_zombie_on_the_balcony_takes_the_drop_to_a_player_below() {
+    let (down, last) = drops_after(MapId::Greybox, Vec3::new(-12.5, 4.0, -2.0), Vec3::new(-5.5, 0.0, 4.0), 2.0, 9.0);
+    assert!(down, "never took the drop; last seen at {last}");
+}
