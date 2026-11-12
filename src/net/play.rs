@@ -29,20 +29,20 @@ use super::zombies::{
     Crowd, Horde, ZombieIds, describe_horde, forget_zombies, name_zombies, show_zombies,
 };
 use crate::authority::Authority;
-use crate::last_stand::LastStand;
-use crate::leave_run::PlayerLeft;
-use crate::perk::Drinking;
-use crate::respawn::{Disconnected, SeatDropped, SeatReturned};
-use crate::player::{
+use crate::players::last_stand::LastStand;
+use crate::run::leave_run::PlayerLeft;
+use crate::economy::perk::Drinking;
+use crate::players::respawn::{Disconnected, SeatDropped, SeatReturned};
+use crate::players::player::{
     LocalPlayer, Locomotion, MoveContext, MoveInput, Player, Seat as PlayerSeat, fill_move_input, move_player,
     step_move,
 };
 use crate::modifier::Modifiers;
-use crate::points::Points;
+use crate::economy::points::Points;
 use crate::state::{Choosing, GameState, world_runs};
-use crate::teammate::{Pose, Shots, Told};
+use crate::players::teammate::{Pose, Shots, Told};
 use crate::tuning::*;
-use crate::weapon::Loadout;
+use crate::weapons::weapon::Loadout;
 
 /// How many ticks a snapshot comes after the one before.
 pub const SNAPSHOT_EVERY: Tick = FIXED_HZ / SNAPSHOT_HZ;
@@ -186,7 +186,7 @@ impl Plugin for PlayPlugin {
                     .run_if(resource_exists::<Prediction>),
             )
             // Each frame, once the easing has drawn the `LocalPlayer` between its last two ticks,
-            // and before it notes having done so (see `crate::player::LookSystems`).
+            // and before it notes having done so (see `crate::players::player::LookSystems`).
             .add_systems(
                 RunFixedMainLoop,
                 draw_correction
@@ -611,9 +611,9 @@ fn reconcile(
     >,
     mut points: Query<(&PlayerSeat, &mut Points), With<Player>>,
     move_and_slide: MoveAndSlide,
-    (map, power): (Res<crate::map::MapId>, Option<Res<crate::power::Power>>),
+    (map, power): (Res<crate::maps::map::MapId>, Option<Res<crate::maps::power::Power>>),
 ) {
-    let jump_pads = crate::jump_pad::working(*map, power.is_some_and(|power| power.is_on()));
+    let jump_pads = crate::maps::jump_pad::working(*map, power.is_some_and(|power| power.is_on()));
     let mut heard = std::mem::take(&mut inbox.snapshots);
     heard.retain(|snapshot| prediction.latest.is_none_or(|latest| snapshot.tick > latest));
     heard.sort_by_key(|snapshot| snapshot.tick);
@@ -770,7 +770,7 @@ fn show_puppets(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::player::Stance;
+    use crate::players::player::Stance;
 
     fn seen(tick: Tick, x: f32) -> Seen {
         Seen { tick, position: Vec3::new(x, 0.0, 0.0), yaw: 0.0, pitch: 0.0, pose: Pose::default(), shots: 0 }

@@ -9,8 +9,8 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::net::protocol::Seat;
-use crate::player::{Locomotion, MoveInput, Stance};
-use crate::zombie::rig::{Activity, Swing};
+use crate::players::player::{Locomotion, MoveInput, Stance};
+use crate::enemies::zombie::rig::{Activity, Swing};
 use crate::tuning::WIRE_POSITION_STEP;
 
 /// A count of the simulation's steps. Each machine counts its own.
@@ -332,7 +332,7 @@ impl Sight {
 mod tests {
     use super::*;
     use crate::net::protocol::{DATAGRAM, encode};
-    use crate::teammate::{Action, Pose};
+    use crate::players::teammate::{Action, Pose};
     use crate::tuning::{ROOM_SEATS, SNAPSHOT_MAX_BYTES, SNAPSHOT_MAX_HELLHOUNDS, SNAPSHOT_MAX_SPECIALS, SNAPSHOT_MAX_ZOMBIES};
 
     #[test]

@@ -51,16 +51,16 @@ impl Plugin for AuthorityPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hellhound::HellhoundPlugin;
-    use crate::nova::NovaPlugin;
-    use crate::player::Player;
-    use crate::points::{Points, PointsPlugin};
-    use crate::power::Power;
-    use crate::round::{Round, RoundPlugin};
-    use crate::settings::Settings;
-    use crate::zombie::headless::Sim;
-    use crate::zombie::{Zombie, ZombieHit};
-    use crate::zone::{ActiveZones, ZoneId};
+    use crate::enemies::hellhound::HellhoundPlugin;
+    use crate::enemies::nova::NovaPlugin;
+    use crate::players::player::Player;
+    use crate::economy::points::{Points, PointsPlugin};
+    use crate::maps::power::Power;
+    use crate::run::round::{Round, RoundPlugin};
+    use crate::storage::settings::Settings;
+    use crate::enemies::zombie::headless::Sim;
+    use crate::enemies::zombie::{Zombie, ZombieHit};
+    use crate::maps::zone::{ActiveZones, ZoneId};
 
     /// A Run as `authority` for a few seconds: how many Zombies there are, the Round and how much
     /// of its Horde has spawned, and what the Player earned from a hit that pays.
@@ -70,9 +70,9 @@ mod tests {
                 .insert_resource(Settings::default())
                 .insert_resource(Power::default())
                 .insert_resource(ActiveZones(ZoneId::ALL.into_iter().collect()))
-                .init_resource::<crate::hud::overlay::Overlays>()
-                .add_message::<crate::power_up::DropPowerUp>()
-                .add_message::<crate::shellshock::Shellshock>();
+                .init_resource::<crate::ui::hud::overlay::Overlays>()
+                .add_message::<crate::economy::power_up::DropPowerUp>()
+                .add_message::<crate::players::shellshock::Shellshock>();
         });
         let world = sim.world_mut();
         let player = world

@@ -3,7 +3,7 @@
 
 use super::tests::{Run, give_weapon};
 use super::*;
-use crate::power_up::Dropped;
+use crate::economy::power_up::Dropped;
 
 #[test]
 fn planks_torn_on_the_host_are_torn_everywhere() {
@@ -155,7 +155,7 @@ fn a_trap_the_host_runs_runs_on_every_client() {
 
 #[test]
 fn a_link_the_host_starts_is_under_way_on_every_client() {
-    use crate::teleporter::{PadId, Teleporter};
+    use crate::maps::teleporter::{PadId, Teleporter};
     let mut run = Run::new(1);
     run.world(0).resource_mut::<Teleporter>().activate(PadId::Generator);
     run.step(10);

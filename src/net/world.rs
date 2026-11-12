@@ -23,48 +23,48 @@ use serde::{Deserialize, Serialize};
 use super::play::{Prediction, Roster, Wire};
 use super::protocol::{HOST, Peer, Seat, ToHost, ToPlayer, encode};
 use super::remote::Remote;
-use crate::ammo_mod::AmmoMods;
-use crate::arsenal::WeaponId;
-use crate::attachment::{Attachment, UnderbarrelAmmo};
+use crate::weapons::ammo_mod::AmmoMods;
+use crate::weapons::arsenal::WeaponId;
+use crate::weapons::attachment::{Attachment, UnderbarrelAmmo};
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
 use crate::authority::{Authority, HostSimulation};
-use crate::barrier::{Barrier, Barriers, PlankRebuilt, PlankTorn, plank_news};
-use crate::buy::{
+use crate::maps::barrier::{Barrier, Barriers, PlankRebuilt, PlankTorn, plank_news};
+use crate::economy::buy::{
     BuyRefused, Buyable, CantAfford, HoldPurchased, Purchased, RefusedByPlayer, Refused, UseRequest,
 };
-use crate::door::{Door, open};
-use crate::gauntlet::{
+use crate::maps::door::{Door, open};
+use crate::run::gauntlet::{
     HeldBoons, HeldPacts, Offer, OfferWire, PickOffer, boons_wire, pacts_wire, show_boons, show_pacts,
 };
-use crate::last_stand::{Down as WentDown, DownOutcome, LastStand};
-use crate::leave_run::PlayerLeft;
-use crate::equipment::Equipment;
-use crate::map::BarrierId;
-use crate::mystery_box::{BoxState, MysteryBox, Prize};
-use crate::pack_a_punch::PackAPunch;
-use crate::perk::{Drinking, Perk, PerkMachine, Perks};
-use crate::player::{Health, LocalPlayer, Locomotion, Player, PlayerHit, PlayerName, Seat as PlayerSeat, StanceKeys};
-use crate::respawn::{AwaitingRespawn, Disconnected, Respawned, SeatReturned};
-use crate::hud::damage_indicator::DamageIndicators;
-use crate::hud::overlay::Overlays;
-use crate::mystery_box::{BoxAssets, spawn_box};
-use crate::power_up::FireSaleBox;
-use crate::sapper::{Restore, SapperAssets, Sabotaged, Target, spawn_restore};
-use crate::shellshock::Shellshock;
-use crate::teleporter::{Aftereffect, Aftermath, begin_aftereffect};
-use crate::revive::{Revived, Reviving};
-use crate::points::Points;
-use crate::power::{Power, PowerSwitch};
-use crate::power_up::{ActivePowerUps, Dropped, PowerUp, PowerUpAssets, PowerUpTaken, spawn_drop};
-use crate::round::{Round, RoundEnded, RoundPhase, RoundStarted};
+use crate::players::last_stand::{Down as WentDown, DownOutcome, LastStand};
+use crate::run::leave_run::PlayerLeft;
+use crate::weapons::equipment::Equipment;
+use crate::maps::map::BarrierId;
+use crate::weapons::mystery_box::{BoxState, MysteryBox, Prize};
+use crate::weapons::pack_a_punch::PackAPunch;
+use crate::economy::perk::{Drinking, Perk, PerkMachine, Perks};
+use crate::players::player::{Health, LocalPlayer, Locomotion, Player, PlayerHit, PlayerName, Seat as PlayerSeat, StanceKeys};
+use crate::players::respawn::{AwaitingRespawn, Disconnected, Respawned, SeatReturned};
+use crate::ui::hud::damage_indicator::DamageIndicators;
+use crate::ui::hud::overlay::Overlays;
+use crate::weapons::mystery_box::{BoxAssets, spawn_box};
+use crate::economy::power_up::FireSaleBox;
+use crate::enemies::sapper::{Restore, SapperAssets, Sabotaged, Target, spawn_restore};
+use crate::players::shellshock::Shellshock;
+use crate::maps::teleporter::{Aftereffect, Aftermath, begin_aftereffect};
+use crate::players::revive::{Revived, Reviving};
+use crate::economy::points::Points;
+use crate::maps::power::{Power, PowerSwitch};
+use crate::economy::power_up::{ActivePowerUps, Dropped, PowerUp, PowerUpAssets, PowerUpTaken, spawn_drop};
+use crate::run::round::{Round, RoundEnded, RoundPhase, RoundStarted};
 use crate::state::{Choosing, GameState, Paused, world_runs};
-use crate::teammate::HeldWeapon;
-use crate::teleporter::{Mainframe, Pad, TeleporterView, mainframe_use_point};
-use crate::trap::{Trap, TrapPhase, TrapSwitch};
+use crate::players::teammate::HeldWeapon;
+use crate::maps::teleporter::{Mainframe, Pad, TeleporterView, mainframe_use_point};
+use crate::maps::trap::{Trap, TrapPhase, TrapSwitch};
 use crate::tuning::*;
 use crate::modifier::{Modifiers, Stat, resolve};
-use crate::weapon::{HostOp, Knife, Loadout, WeaponCopy};
+use crate::weapons::weapon::{HostOp, Knife, Loadout, WeaponCopy};
 
 /// What a machine or Buyable is called on the wire.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -403,7 +403,7 @@ pub fn add(app: &mut App) {
         .init_resource::<Power>()
         .init_resource::<Barriers>()
         .init_resource::<ActivePowerUps>()
-        .init_resource::<crate::teleporter::Teleporter>()
+        .init_resource::<crate::maps::teleporter::Teleporter>()
         .add_systems(Update, name_machines.run_if(resource_exists::<NetIds>).run_if(in_state(GameState::Playing))
                 .run_if(world_runs))
         .add_systems(
@@ -686,7 +686,7 @@ fn tell_doors(
 }
 
 fn tell_planks(mut tell: Tell, mut mirror: ResMut<Mirror>, barriers: Res<Barriers>) {
-    for barrier in 0..crate::map::WINDOWS.len() as u8 {
+    for barrier in 0..crate::maps::map::WINDOWS.len() as u8 {
         let planks = barriers.planks(BarrierId(barrier));
         let told = mirror.planks.get(&barrier).copied().unwrap_or(BARRIER_PLANKS);
         if planks != told {
@@ -760,7 +760,7 @@ fn tell_traps(mut tell: Tell, mut mirror: ResMut<Mirror>, traps: Query<(&NetId, 
     }
 }
 
-fn tell_teleporter(mut tell: Tell, mut mirror: ResMut<Mirror>, teleporter: Res<crate::teleporter::Teleporter>) {
+fn tell_teleporter(mut tell: Tell, mut mirror: ResMut<Mirror>, teleporter: Res<crate::maps::teleporter::Teleporter>) {
     let view = teleporter.view();
     // The Run starts with nothing Linked and nothing under way.
     let quiet = TeleporterView { linked: [false; 2], linking: None, trip: None, sabotaged: false };
@@ -1044,7 +1044,7 @@ fn tell_sabotage(
 /// The Teleporter's aftereffect, to each rider who plays on another game.
 fn tell_aftereffect(
     mut tell: Tell,
-    mut teleporter: ResMut<crate::teleporter::Teleporter>,
+    mut teleporter: ResMut<crate::maps::teleporter::Teleporter>,
     remotes: Query<&Remote>,
 ) {
     let Some((riders, effect)) = teleporter.take_arrival() else { return };
@@ -1074,7 +1074,7 @@ fn catch_up_world(
         Query<&PlayerSeat>,
     ),
     (teleporter, active, round): (
-        Res<crate::teleporter::Teleporter>,
+        Res<crate::maps::teleporter::Teleporter>,
         Res<ActivePowerUps>,
         Option<Res<Round>>,
     ),
@@ -1096,7 +1096,7 @@ fn catch_up_world(
         if power.is_on() {
             say(WorldEvent::PowerOn);
         }
-        for barrier in 0..crate::map::WINDOWS.len() as u8 {
+        for barrier in 0..crate::maps::map::WINDOWS.len() as u8 {
             let planks = barriers.planks(BarrierId(barrier));
             if planks != BARRIER_PLANKS {
                 say(WorldEvent::Planks { barrier, planks });
@@ -1294,7 +1294,7 @@ fn run_shown_clocks(
     mut boxes: Query<&mut MysteryBox>,
     mut machines: Query<&mut PackAPunch>,
     mut traps: Query<&mut Trap>,
-    mut teleporter: ResMut<crate::teleporter::Teleporter>,
+    mut teleporter: ResMut<crate::maps::teleporter::Teleporter>,
     mut active: ResMut<ActivePowerUps>,
     mut points: Query<&mut Points, With<Player>>,
     mut round: Option<ResMut<Round>>,
@@ -1482,7 +1482,7 @@ fn hear_traps(mut heard: MessageReader<Heard>, ids: Res<NetIds>, mut traps: Quer
 
 fn hear_teleporter(
     mut heard: MessageReader<Heard>,
-    mut teleporter: ResMut<crate::teleporter::Teleporter>,
+    mut teleporter: ResMut<crate::maps::teleporter::Teleporter>,
     mut cues: MessageWriter<PlayCue>,
 ) {
     for Heard(event) in heard.read() {

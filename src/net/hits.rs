@@ -20,20 +20,20 @@ use super::protocol::{Peer, ToHost, ToPlayer, encode};
 use super::remote::Remote;
 use super::state::Tick;
 use super::zombies::ZombieIds;
-use crate::ammo_mod::{AmmoModHit, AmmoMods};
-use crate::arsenal::{Burn, Splash, WeaponId};
-use crate::burn::Ignite;
+use crate::weapons::ammo_mod::{AmmoModHit, AmmoMods};
+use crate::weapons::arsenal::{Burn, Splash, WeaponId};
+use crate::weapons::burn::Ignite;
 use crate::authority::HostSimulation;
-use crate::combat::HitReport;
-use crate::explosive::{
+use crate::weapons::combat::HitReport;
+use crate::weapons::explosive::{
     Explosion, ExplosiveAssets, Flight, Launch, LauncherRound, Thrown, fireball, world_filter,
 };
-use crate::player::{LocalPlayer, Player};
+use crate::players::player::{LocalPlayer, Player};
 use crate::state::{InRun, world_runs};
 use crate::tuning::*;
-use crate::weapon::apply_hit_reports;
-use crate::wonder::{WonderFired, is_wonder};
-use crate::zombie::{Attack, HitZone, Zombie, ZombieHit, Dying, is_headshot};
+use crate::weapons::weapon::apply_hit_reports;
+use crate::weapons::wonder::{WonderFired, is_wonder};
+use crate::enemies::zombie::{Attack, HitZone, Zombie, ZombieHit, Dying, is_headshot};
 
 /// A bullet or Knife landed on a Zombie, as a client tells the Host.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -328,7 +328,7 @@ pub fn add(app: &mut App) {
 fn receive(
     mut inbox: ResMut<Hits>,
     ids: Res<ZombieIds>,
-    players: Query<(Entity, &Remote), (With<Player>, Without<crate::respawn::Disconnected>)>,
+    players: Query<(Entity, &Remote), (With<Player>, Without<crate::players::respawn::Disconnected>)>,
     zombies: Query<&Zombie, Without<Dying>>,
     mut reports: MessageWriter<HitReport>,
     mut launches: MessageWriter<Launch>,
@@ -578,12 +578,12 @@ fn fly_cosmetics(
 mod tests {
     use super::*;
     use bevy::gizmos::AppGizmoBuilder;
-    use crate::ammo_mod::{AmmoMod, AmmoModPlugin};
-    use crate::burn::{Burning, BurnPlugin};
+    use crate::weapons::ammo_mod::{AmmoMod, AmmoModPlugin};
+    use crate::weapons::burn::{Burning, BurnPlugin};
     use crate::net::movement::{IDLE, Run};
-    use crate::player::{PlayerCamera, Seat};
-    use crate::points::{Points, PointsPlugin};
-    use crate::zombie::{ZombieKilled, apply_damage};
+    use crate::players::player::{PlayerCamera, Seat};
+    use crate::economy::points::{Points, PointsPlugin};
+    use crate::enemies::zombie::{ZombieKilled, apply_damage};
 
     /// What the Host's Weapons would have done for the Players: hits become damage.
     fn extra(app: &mut App) {
@@ -591,7 +591,7 @@ mod tests {
             .init_asset::<bevy::gizmos::GizmoAsset>()
             .init_gizmo_group::<DefaultGizmoConfigGroup>()
             .add_message::<ZombieKilled>()
-            .add_message::<crate::zombie::StunZombie>()
+            .add_message::<crate::enemies::zombie::StunZombie>()
             .add_message::<crate::audio::PlayCue>()
             .insert_resource(Noted::default())
             .add_systems(Update, (apply_hit_reports.in_set(HostSimulation).before(apply_damage), note));
@@ -687,7 +687,7 @@ mod tests {
     #[test]
     fn a_hit_on_a_client_damages_the_host_zombie_and_the_kill_pays_the_client() {
         let mut run = run(1);
-        let zombie = run.zombie_with(crate::map::PLAYER_START + Vec3::new(8.0, 0.0, 4.0), 1000.0);
+        let zombie = run.zombie_with(crate::maps::map::PLAYER_START + Vec3::new(8.0, 0.0, 4.0), 1000.0);
         run.step(IDLE, 40);
         shoot(&mut run, 1, zombie, 100.0);
         run.step(IDLE, 20);
@@ -708,7 +708,7 @@ mod tests {
         let mut run = run(1);
         // The Host's roll wants a camera to cast Dead Wire's sight lines from.
         run.apps[0].world_mut().spawn((PlayerCamera, GlobalTransform::default()));
-        let zombie = run.zombie_with(crate::map::PLAYER_START + Vec3::new(8.0, 0.0, 4.0), 1.0e6);
+        let zombie = run.zombie_with(crate::maps::map::PLAYER_START + Vec3::new(8.0, 0.0, 4.0), 1.0e6);
         run.step(IDLE, 40);
         // Each bullet does next to nothing; only a proc can kill it.
         let ammo_mods = AmmoMods::NONE.with(AmmoMod::BlastFurnace);
@@ -716,20 +716,20 @@ mod tests {
         run.step(IDLE, 40);
         assert_eq!(kills(&run), 1, "the proc killed it");
         let host_copy = player(&mut run, 0, 1);
-        assert_eq!(run.apps[0].world().resource::<Noted>().killers, [(Some(host_copy), Attack::AmmoMod(crate::zombie::Pay::Paid))]);
+        assert_eq!(run.apps[0].world().resource::<Noted>().killers, [(Some(host_copy), Attack::AmmoMod(crate::enemies::zombie::Pay::Paid))]);
         assert!(earned(&mut run, 0, 1) > 0);
         assert_eq!(earned(&mut run, 0, 0), 0);
         // And it is that Player's own Cooldown that the proc started.
         let world = run.apps[0].world();
-        assert!(!world.get::<crate::ammo_mod::Cooldowns>(host_copy).unwrap().ready(AmmoMod::BlastFurnace));
+        assert!(!world.get::<crate::weapons::ammo_mod::Cooldowns>(host_copy).unwrap().ready(AmmoMod::BlastFurnace));
         let hosts_own = player(&mut run, 0, 0);
-        assert!(run.apps[0].world().get::<crate::ammo_mod::Cooldowns>(hosts_own).unwrap().ready(AmmoMod::BlastFurnace));
+        assert!(run.apps[0].world().get::<crate::weapons::ammo_mod::Cooldowns>(hosts_own).unwrap().ready(AmmoMod::BlastFurnace));
     }
 
     #[test]
     fn a_clients_fire_bullet_ignites_the_host_zombie() {
         let mut run = run(1);
-        let zombie = run.zombie_with(crate::map::PLAYER_START + Vec3::new(8.0, 0.0, 4.0), 1000.0);
+        let zombie = run.zombie_with(crate::maps::map::PLAYER_START + Vec3::new(8.0, 0.0, 4.0), 1000.0);
         run.step(IDLE, 40);
         shoot_with(&mut run, 1, zombie, 1, 1.0, AmmoMods::NONE, Some(Burn { damage: 20.0, tick_secs: 0.5, secs: 4.0 }));
         run.step(IDLE, 20);
@@ -745,7 +745,7 @@ mod tests {
     fn a_client_hears_its_own_blast_once() {
         let mut run = run(1);
         run.step(IDLE, 10);
-        let at = crate::map::PLAYER_START + Vec3::new(5.0, 1.0, 5.0);
+        let at = crate::maps::map::PLAYER_START + Vec3::new(5.0, 1.0, 5.0);
         let thrower = player(&mut run, 1, 1);
         run.apps[1].world_mut().write_message(Explosion {
             at,
@@ -764,7 +764,7 @@ mod tests {
     #[test]
     fn two_clients_hitting_the_same_zombie_kill_it_once_and_only_the_first_is_paid() {
         let mut run = run(2);
-        let zombie = run.zombie_with(crate::map::PLAYER_START + Vec3::new(8.0, 0.0, 4.0), 100.0);
+        let zombie = run.zombie_with(crate::maps::map::PLAYER_START + Vec3::new(8.0, 0.0, 4.0), 100.0);
         run.step(IDLE, 40);
         shoot(&mut run, 1, zombie, 500.0);
         run.step(IDLE, 15);
@@ -780,7 +780,7 @@ mod tests {
     #[test]
     fn two_clients_each_get_their_own_points_for_their_own_kills() {
         let mut run = run(2);
-        let start = crate::map::PLAYER_START;
+        let start = crate::maps::map::PLAYER_START;
         let a = run.zombie_with(start + Vec3::new(8.0, 0.0, 4.0), 100.0);
         let b = run.zombie_with(start + Vec3::new(10.0, 0.0, 4.0), 100.0);
         run.step(IDLE, 40);
@@ -798,7 +798,7 @@ mod tests {
     #[test]
     fn a_hit_on_a_zombie_the_host_no_longer_has_is_dropped() {
         let mut run = run(1);
-        let zombie = run.zombie_with(crate::map::PLAYER_START + Vec3::new(8.0, 0.0, 4.0), 1000.0);
+        let zombie = run.zombie_with(crate::maps::map::PLAYER_START + Vec3::new(8.0, 0.0, 4.0), 1000.0);
         run.step(IDLE, 40);
         shoot(&mut run, 1, zombie, 100.0);
         // It is gone from the Host before the report gets there.
@@ -811,7 +811,7 @@ mod tests {
     fn what_a_client_throws_is_simulated_on_the_host_and_flown_for_show_everywhere() {
         let mut run = run(2);
         run.step(IDLE, 10);
-        let from = crate::map::PLAYER_START + Vec3::new(0.0, 1.5, 0.0);
+        let from = crate::maps::map::PLAYER_START + Vec3::new(0.0, 1.5, 0.0);
         let thrower = player(&mut run, 1, 1);
         run.apps[1].world_mut().write_message(Launch {
             player: thrower,

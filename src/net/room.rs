@@ -9,8 +9,8 @@ use super::protocol::{
     HOST, PROTOCOL, Peer, Refusal, RoomView, Seat, SeatView, ToHost, ToPlayer, Unlocks, answer,
     clean_name, decode, encode,
 };
-use crate::map::MapId;
-use crate::mode::Mode;
+use crate::maps::map::MapId;
+use crate::run::mode::Mode;
 use crate::tuning::*;
 
 /// Someone in a Seat.

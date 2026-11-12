@@ -20,8 +20,8 @@ use serde::{Deserialize, Serialize};
 
 use super::protocol::PROTOCOL;
 use super::transport::runtime;
-use crate::map::MapId;
-use crate::mode::Mode;
+use crate::maps::map::MapId;
+use crate::run::mode::Mode;
 use crate::tuning::*;
 
 /// Where the lobby is, unless `ZOMBIES_LOBBY` says otherwise.

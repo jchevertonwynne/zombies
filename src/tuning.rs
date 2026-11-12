@@ -4,7 +4,7 @@ use std::f32::consts::FRAC_PI_4;
 
 use bevy::math::Vec3;
 
-use crate::arsenal::{
+use crate::weapons::arsenal::{
     Availability, Burn, Falloff, FireMode, Handling, Penetration, ReloadTime, Splash, WeaponClass, WeaponId,
     WeaponStats,
 };

@@ -5,15 +5,15 @@ use avian3d::prelude::Position;
 
 use super::tests::Run;
 use super::*;
-use crate::gauntlet::{HeldBoons, HeldPacts, Offer, PickOffer, apply_pick, sample_boon_ids};
-use crate::last_stand::{Down as WentDown, LastStandPlugin, go_down};
-use crate::leave_run::LeaveRunPlugin;
+use crate::run::gauntlet::{HeldBoons, HeldPacts, Offer, PickOffer, apply_pick, sample_boon_ids};
+use crate::players::last_stand::{Down as WentDown, LastStandPlugin, go_down};
+use crate::run::leave_run::LeaveRunPlugin;
 use crate::net::protocol::{ToHost, encode};
-use crate::player::{Locomotion, MoveInput, Stance, StanceKeys, take_hits};
-use crate::respawn::RespawnPlugin;
-use crate::revive::revive;
+use crate::players::player::{Locomotion, MoveInput, Stance, StanceKeys, take_hits};
+use crate::players::respawn::RespawnPlugin;
+use crate::players::revive::revive;
 use crate::state::RunType;
-use crate::stats::{RunStats, StatsPlugin};
+use crate::run::stats::{RunStats, StatsPlugin};
 
 /// What a game has been told of Downs.
 #[derive(Resource, Default)]

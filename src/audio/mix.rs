@@ -4,15 +4,15 @@
 
 use std::ops::RangeInclusive;
 
-use crate::arsenal::{WeaponClass, WeaponId};
-use crate::attachment::Underbarrel;
-use crate::mystery_box::BoxState;
-use crate::pack_a_punch::Stage;
-use crate::perk::Perk;
-use crate::player::{Stance, StanceFeel};
-use crate::teammate::{Action, Pose};
+use crate::weapons::arsenal::{WeaponClass, WeaponId};
+use crate::weapons::attachment::Underbarrel;
+use crate::weapons::mystery_box::BoxState;
+use crate::weapons::pack_a_punch::Stage;
+use crate::economy::perk::Perk;
+use crate::players::player::{Stance, StanceFeel};
+use crate::players::teammate::{Action, Pose};
 use crate::tuning::*;
-use crate::zombie::{SpeedTier, Zombie};
+use crate::enemies::zombie::{SpeedTier, Zombie};
 
 use super::cues::Cue;
 
@@ -419,7 +419,7 @@ mod tests {
 
     #[test]
     fn each_kind_of_zombie_has_its_own_idle_vocal() {
-        let napalm = Zombie::special(crate::special::SpecialKind::Napalm, 100.0, bevy::math::Vec3::ZERO);
+        let napalm = Zombie::special(crate::enemies::special::SpecialKind::Napalm, 100.0, bevy::math::Vec3::ZERO);
         assert!(idle_vocal(&napalm).is_none(), "the Napalm crackles on its own loop");
         let hound = Zombie::hellhound(100.0, bevy::math::Vec3::ZERO);
         assert_eq!(idle_vocal(&hound).map(|v| v.0), Some(Cue::HoundIdle));
