@@ -83,7 +83,7 @@ _Avoid_: wall buy, chalk gun
 **Mystery Box**: A Buyable that sells a random Box Weapon for a fixed price. It sits at one Box Location at a time and moves when it gives a Teddy Bear. Only the Player who spun it can take the Weapon it offers.
 _Avoid_: chest, magic box, random box
 
-**Box Location**: One of the fixed places on a Map where the Mystery Box can sit. Every Run starts it at the same one.
+**Box Location**: One of the fixed places on a Map where the Mystery Box can sit. Every Run starts it at the same one, two or three Doors out of the starting Zone, and none is in the starting Zone itself.
 
 **Teddy Bear**: The spin result that gives no Weapon, refunds the price and sends the Mystery Box to another Box Location.
 _Avoid_: joker, bear
@@ -138,7 +138,7 @@ _Avoid_: board, plank of wood
 
 **Map**: The playable space, made of Zones joined by Doors. There are two: the Greybox, a house round a courtyard with a wing across the field, and the Quarry, a pit and its works climbed terrace by terrace. The Player picks one beside the Mode before a Run, or the Host does in the Room. The first prototype used a single open Arena.
 
-**Terrace**: One of the Quarry's level shelves, each a storey above the last: the pit floor, then the Rail Yard and the Crusher Shed, then the Winding House and the Offices. The Headframe's deck stands a storey above the top one.
+**Terrace**: One of the Quarry's level shelves, each a storey above the last: the pit floor, then the Rail Yard and the Crusher Shed, then the Winding House and the Offices. The Headframe's deck stands a storey above the top one. Off the pit's west side, the Incline climbs past both terraces with a landing at each, a Door off each into the terrace's building.
 
 **Zone**: A named area of a Map, such as a room or a yard. Each Zone is either open or closed to the Player. Opening a Zone (usually by buying a Door) activates its Barriers and Spawn Points. Zones decide where Zombies come from, not how they move.
 
@@ -157,7 +157,7 @@ _Avoid_: clutter, cover, obstacle
 **Raised Floor**: Part of a Zone's floor built up above the rest, such as a dais, a stage or a dock, reached by steps or a ramp.
 _Avoid_: stage, dais (for the general term)
 
-**Ledge**: An edge where one floor stops above another, too high to step up: the side of a Raised Floor or a sunken floor, the Balcony's drop, or the edge of a Terrace or the Headframe's deck. Zombies only ever drop off a Ledge; the Player can also scramble back up a low one.
+**Ledge**: An edge where one floor stops above another, too high to step up: the side of a Raised Floor or a sunken floor, the Balcony's drop, or the edge of a Terrace, one of the Incline's landings or the Headframe's deck. Zombies only ever drop off a Ledge; the Player can also scramble back up a low one.
 
 **Run**: One game, from Round 1 until Game Over or quitting.
 _Avoid_: game, match

@@ -261,6 +261,10 @@ pub fn palette(zone: Option<ZoneId>) -> Palette {
         Some(Offices) => paints((0.33, 0.24, 0.17), (0.48, 0.64, 0.66), (0.22, 0.13, 0.08), (0.95, 0.92, 0.78)),
         // Black steel deck and red-oxide girders against the sky.
         Some(Headframe) => paints((0.09, 0.09, 0.1), (0.5, 0.16, 0.12), (0.84, 0.82, 0.76), (0.7, 0.78, 1.0)),
+        // Trodden clay between ochre rock walls shored with pale timber, by lantern light.
+        Some(Incline) => paints((0.28, 0.2, 0.14), (0.58, 0.42, 0.22), (0.86, 0.74, 0.52), (1.0, 0.68, 0.38)),
+        // Oily concrete, green-painted corrugated sheeting, hazard yellow, cold floodlight.
+        Some(LoadingDock) => paints((0.4, 0.4, 0.38), (0.2, 0.36, 0.26), (0.9, 0.76, 0.12), (0.82, 0.92, 1.0)),
         // Bare ground round weathered brick.
         None => paints((0.15, 0.17, 0.12), (0.3, 0.21, 0.17), (0.42, 0.4, 0.36), (1.0, 0.75, 0.45)),
     }
@@ -562,7 +566,7 @@ mod plan;
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::enemies::nav::zone_at;
+    use crate::enemies::nav::{Gate, zone_at};
     use crate::enemies::zombie::headless::Sim;
 
     /// How far apart two colours are, as straight-line distance between their sRGB values.
@@ -1005,9 +1009,42 @@ pub(crate) mod tests {
                 assert!(inside(zone, at + Vec3::Y * 0.1), "a Box Location is outside {}", zone.name());
                 assert_eq!(zone.map(), map);
             }
+            // Never in the first Zone: every Run starts the Box two or three Doors out of it, so
+            // the first Points go on opening the way to it.
+            let start = map.layout().start_zone();
+            for i in map.box_locations() {
+                assert_ne!(BOX_LOCATIONS[i].0, start, "Box Location {i} is in {}", start.name());
+            }
             let (first, ..) = BOX_LOCATIONS[map.box_locations().start];
-            assert_eq!(first, map.layout().start_zone(), "every Run starts the Box in the first Zone");
+            let doors = doors_between(map, start, first);
+            assert!((2..=3).contains(&doors), "the {}'s Box starts {doors} Doors out of {}", map.name(), start.name());
         }
+    }
+
+    /// The fewest Doors bought on the way from Zone `from` to Zone `to`: a fixed join, like a drop,
+    /// costs none.
+    fn doors_between(map: MapId, from: ZoneId, to: ZoneId) -> usize {
+        let layout = map.layout();
+        let mut joins: Vec<(ZoneId, ZoneId, usize)> = layout.fixed_joins.iter().map(|&(a, b)| (a, b, 0)).collect();
+        joins.extend(layout.nav_edges.iter().filter_map(|&(.., gate)| match gate {
+            Gate::Door(a, b) if a != b => Some((a, b, 1)),
+            _ => None,
+        }));
+        let mut best = vec![(from, 0)];
+        // Few enough Zones that relaxing every join once per Zone settles it.
+        for _ in layout.zones {
+            for &(a, b, cost) in &joins {
+                for (here, there) in [(a, b), (b, a)] {
+                    let Some(&(_, d)) = best.iter().find(|(zone, _)| *zone == here) else { continue };
+                    match best.iter_mut().find(|(zone, _)| *zone == there) {
+                        Some(known) if known.1 <= d + cost => {}
+                        Some(known) => known.1 = d + cost,
+                        None => best.push((there, d + cost)),
+                    }
+                }
+            }
+        }
+        best.iter().find(|(zone, _)| *zone == to).map_or(usize::MAX, |&(_, d)| d)
     }
 
     #[test]

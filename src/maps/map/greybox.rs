@@ -65,14 +65,15 @@ const WALL_WEAPONS: [(WeaponId, ZoneId, Vec3, Vec2); 5] = [
     (WeaponId::Ak74u, ZoneId::Yard, Vec3::new(11.0, CHALK, -13.8), Vec2::Y),
 ];
 
-/// The Box Locations, in order. Every Run starts the Box at the first.
+/// The Box Locations, in order. Every Run starts the Box at the first, in the Dining Room, two
+/// Doors from the Start Room.
 pub(super) const BOX_LOCATIONS: [(ZoneId, Vec3, Vec2); 5] = [
-    // Against the back wall, behind the Player at the start.
-    (ZoneId::StartRoom, Vec3::new(0.0, 0.0, 25.35), Vec2::NEG_Y),
+    // On the Dining Room's north wall, between the West Hall and Yard Doors.
+    (ZoneId::DiningRoom, Vec3::new(-13.5, 0.0, -14.65), Vec2::NEG_Y),
+    // Against West Hall's north wall, just through the Door from the Start Room.
+    (ZoneId::WestHall, Vec3::new(-19.0, 0.0, 25.35), Vec2::NEG_Y),
     // On the wall to the Yard, south of the Trench Gun.
     (ZoneId::EastHall, Vec3::new(14.65, 0.0, -6.0), Vec2::X),
-    // On the north wall, between the West Hall and Yard Doors.
-    (ZoneId::DiningRoom, Vec3::new(-13.5, 0.0, -14.65), Vec2::NEG_Y),
     // Against the East Hall wall.
     (ZoneId::Yard, Vec3::new(13.35, 0.0, -2.0), Vec2::NEG_X),
     // Against the Storeroom's north wall, between the wing's two halves.

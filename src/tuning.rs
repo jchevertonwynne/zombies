@@ -1572,6 +1572,12 @@ pub const DOOR_PRICE_RAIL_YARD_CRUSHER: u64 = 1000;
 pub const DOOR_PRICE_RAIL_YARD_WINDING: u64 = 1250;
 pub const DOOR_PRICE_WINDING_OFFICES: u64 = 1000;
 pub const DOOR_PRICE_WINDING_HEADFRAME: u64 = 1500;
+/// The Quarry's side ways: into the Loading Dock off the pit, into the foot of the Incline, and
+/// off its landings into the Crusher Shed and the Offices.
+pub const DOOR_PRICE_FLOOR_DOCK: u64 = 750;
+pub const DOOR_PRICE_FLOOR_INCLINE: u64 = 1000;
+pub const DOOR_PRICE_INCLINE_CRUSHER: u64 = 1000;
+pub const DOOR_PRICE_INCLINE_OFFICES: u64 = 1250;
 
 // Buying
 /// How far from a Buyable's use point the Player can buy it, height included.

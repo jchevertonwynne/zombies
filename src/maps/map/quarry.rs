@@ -5,10 +5,17 @@
 //! there to the Winding House and the Offices on the second, and the Headframe stands over them,
 //! with Pack-a-Punch up on its deck.
 //!
+//! Off the pit floor's west side, the Incline is a rock cutting that climbs past both terraces, a
+//! landing at each with a Door into the Crusher Shed and the Offices, so either terrace can be
+//! run round in a loop. Off its east side, the Loading Dock is a goods shed with wagons on the
+//! ground and a loading platform. A spoil heap stands in the pit's south-east corner, up a ramp
+//! and down a flight of steps.
+//!
 //! Going up costs Points and stairs; coming down is a drop off a Ledge, from the Rail Yard into
-//! the pit or off the Headframe's deck, which Zombies can follow but never climb back. Once the
-//! Power is on, Jump Pads throw a Player back up: from the pit floor to the Rail Yard, and from
-//! the foot of the Headframe to its deck. The Quarry has no Teleporter.
+//! the pit, from one of the Incline's landings to the one below, or off the Headframe's deck,
+//! which Zombies can follow but never climb back. Once the Power is on, Jump Pads throw a Player
+//! back up: from the pit floor to the Rail Yard, and from the foot of the Headframe to its deck.
+//! The Quarry has no Teleporter.
 //!
 //! The whole Map stands `QUARRY_X` along x from the world's middle, clear of the Greybox.
 
@@ -22,7 +29,7 @@ use crate::tuning::*;
 use crate::maps::zone::ZoneId;
 
 use super::build::{Builder, Gap};
-use super::{DOOR_HEIGHT, DOOR_WIDTH, Layout, PARAPET_THICKNESS, Prop, PropKind, RAIL_HEIGHT, STOREY, Slope, Sunken, door, palette, prop};
+use super::{DOOR_HEIGHT, DOOR_WIDTH, Layout, PARAPET_THICKNESS, Prop, PropKind, RAIL_HEIGHT, RaisedFloor, STOREY, Slope, Sunken, door, palette, prop};
 
 /// How far along x the Quarry stands from the world's middle, clear of the Greybox.
 pub const QUARRY_X: f32 = 200.0;
@@ -38,6 +45,10 @@ const DECK: f32 = 3.0 * STOREY;
 const CLIMB_X: f32 = 18.3;
 /// Where the Headframe's stairs run up its west wall (x, before `QUARRY_X`).
 const STAIR_X: f32 = -4.3;
+/// Where the Incline's ramp runs up its west wall, and its steps up its east wall (x, before
+/// `QUARRY_X`).
+const INCLINE_RAMP_X: f32 = -28.5;
+const INCLINE_STEPS_X: f32 = -22.0;
 
 /// The first of the Quarry's windows in `WINDOWS`, after the Greybox's.
 const W0: u8 = super::greybox::WINDOWS.len() as u8;
@@ -59,7 +70,7 @@ const fn barrier(i: u8) -> Gate {
 pub(super) const QUARRY: Layout = Layout {
     zones: &{
         use ZoneId::*;
-        [PumpHouse, QuarryFloor, RailYard, CrusherShed, WindingHouse, Offices, Headframe]
+        [PumpHouse, QuarryFloor, RailYard, CrusherShed, WindingHouse, Offices, Headframe, Incline, LoadingDock]
     },
     // In the Pump House, clear of its Box, its windows and the Door out.
     seats: [at(0.0, 0.0, -26.0), at(-3.0, 0.0, -26.0), at(3.0, 0.0, -26.0), at(0.0, 0.0, -23.0)],
@@ -69,7 +80,7 @@ pub(super) const QUARRY: Layout = Layout {
     hellhound_spawns: &HELLHOUND_SPAWNS,
     special_spawns: &SPECIAL_SPAWNS,
     vents: &VENTS,
-    raised_floors: &[],
+    raised_floors: &RAISED_FLOORS,
     slopes: &SLOPES,
     sunken: &[SUMP],
     props: PROPS,
@@ -79,7 +90,7 @@ pub(super) const QUARRY: Layout = Layout {
     nav_edges: EDGES,
     jump_pads: &JUMP_PADS,
     sun: Vec3::new(1.0, -3.0, -1.5),
-    plan: (Vec2::new(Q - 28.0, -38.0), Vec2::new(Q + 28.0, 44.0)),
+    plan: (Vec2::new(Q - 36.0, -38.0), Vec2::new(Q + 38.0, 44.0)),
     build,
 };
 
@@ -96,49 +107,57 @@ const WALL_WEAPONS: [(WeaponId, ZoneId, Vec3, Vec2); 5] = [
     (WeaponId::Ak74u, ZoneId::CrusherShed, at(-9.0, TERRACE_1 + 1.5, 2.2), Vec2::Y),
 ];
 
-/// The Box Locations, in order. Every Run starts the Box at the first.
-pub(super) const BOX_LOCATIONS: [(ZoneId, Vec3, Vec2); 5] = [
-    // Against the Pump House's back wall, between its windows.
-    (ZoneId::PumpHouse, at(0.0, 0.0, -29.35), Vec2::Y),
-    // Against the pit's west wall, past the sump.
-    (ZoneId::QuarryFloor, at(-19.35, 0.0, -12.0), Vec2::X),
+/// The Box Locations, in order. Every Run starts the Box at the first, at the foot of the
+/// Incline, two Doors from the Pump House.
+pub(super) const BOX_LOCATIONS: [(ZoneId, Vec3, Vec2); 6] = [
+    // Against the south wall at the foot of the Incline.
+    (ZoneId::Incline, at(-25.0, 0.0, -11.35), Vec2::Y),
+    // Against the pit's south wall, west of the Pump House.
+    (ZoneId::QuarryFloor, at(-17.5, 0.0, -19.35), Vec2::Y),
     // Against the Crusher Shed's south wall.
     (ZoneId::CrusherShed, at(-5.0, TERRACE_1, 2.65), Vec2::Y),
     // In the Offices' south-west corner.
     (ZoneId::Offices, at(-17.0, TERRACE_2, 16.65), Vec2::Y),
     // Under the Headframe's deck, against its east wall.
     (ZoneId::Headframe, at(5.35, TERRACE_2, 37.0), Vec2::NEG_X),
+    // Up on the Loading Dock's platform, against its east wall.
+    (ZoneId::LoadingDock, at(33.35, DOCK_PLATFORM.height, -11.0), Vec2::NEG_X),
 ];
 
-/// The 12 windows: three in the Pump House, an adit in each of the pit's side walls, and the
-/// rest on the terraces, each over a ledge of rock outside where Zombies gather.
-pub(super) const WINDOWS: [(ZoneId, Vec3, Vec2); 12] = [
+/// The 13 windows: three in the Pump House, an old adit planked up in the pit's west wall, two
+/// in the Loading Dock, one off each of the Incline's floors, and the rest on the terraces, each
+/// over a ledge of rock outside where Zombies gather.
+pub(super) const WINDOWS: [(ZoneId, Vec3, Vec2); 13] = [
     (ZoneId::PumpHouse, at(-4.0, 0.0, -30.0), Vec2::NEG_Y),
     (ZoneId::PumpHouse, at(4.0, 0.0, -30.0), Vec2::NEG_Y),
     (ZoneId::PumpHouse, at(-8.0, 0.0, -25.0), Vec2::NEG_X),
-    (ZoneId::QuarryFloor, at(-20.0, 0.0, -4.0), Vec2::NEG_X),
-    (ZoneId::QuarryFloor, at(20.0, 0.0, -14.0), Vec2::X),
+    (ZoneId::QuarryFloor, at(-20.0, 0.0, -16.0), Vec2::NEG_X),
+    (ZoneId::LoadingDock, at(28.0, 0.0, -2.0), Vec2::Y),
     (ZoneId::RailYard, at(20.0, TERRACE_1, 4.5), Vec2::X),
-    (ZoneId::CrusherShed, at(-20.0, TERRACE_1, 5.0), Vec2::NEG_X),
-    (ZoneId::CrusherShed, at(-20.0, TERRACE_1, 12.0), Vec2::NEG_X),
+    (ZoneId::Incline, at(-30.0, 0.0, -6.0), Vec2::NEG_X),
+    (ZoneId::Incline, at(-30.0, TERRACE_1, 12.0), Vec2::NEG_X),
     (ZoneId::WindingHouse, at(20.0, TERRACE_2, 22.0), Vec2::X),
     (ZoneId::WindingHouse, at(14.0, TERRACE_2, 28.0), Vec2::Y),
-    (ZoneId::Offices, at(-20.0, TERRACE_2, 22.0), Vec2::NEG_X),
+    (ZoneId::Incline, at(-30.0, TERRACE_2, 27.0), Vec2::NEG_X),
     (ZoneId::Offices, at(-12.0, TERRACE_2, 28.0), Vec2::Y),
+    (ZoneId::LoadingDock, at(27.0, 0.0, -20.0), Vec2::NEG_Y),
 ];
 
-/// The Risers: on the pit floor, clear of the sump and the ramp, and in the Rail Yard.
-const RISERS: [(ZoneId, Vec3); 6] = [
+/// The Risers: on the pit floor, clear of the sump, the spoil heap and the ramp, in the Rail
+/// Yard, at the foot of the Incline and on the Loading Dock's floor.
+const RISERS: [(ZoneId, Vec3); 8] = [
     (ZoneId::QuarryFloor, at(-4.0, 0.0, -15.0)),
-    (ZoneId::QuarryFloor, at(12.0, 0.0, -15.0)),
+    (ZoneId::QuarryFloor, at(15.5, 0.0, -8.5)),
     (ZoneId::QuarryFloor, at(-14.0, 0.0, -1.0)),
     (ZoneId::QuarryFloor, at(11.0, 0.0, -1.0)),
     (ZoneId::RailYard, at(4.0, TERRACE_1, 12.0)),
     (ZoneId::RailYard, at(12.0, TERRACE_1, 10.0)),
+    (ZoneId::Incline, at(-24.0, 0.0, -2.0)),
+    (ZoneId::LoadingDock, at(24.0, 0.0, -11.0)),
 ];
 
-/// The Hellhound Spawn Points, two in every Zone.
-const HELLHOUND_SPAWNS: [(ZoneId, Vec3); 15] = [
+/// The Hellhound Spawn Points, two in every Zone, and one on each of the Incline's floors.
+const HELLHOUND_SPAWNS: [(ZoneId, Vec3); 20] = [
     (ZoneId::PumpHouse, at(-5.0, 0.0, -22.5)),
     (ZoneId::PumpHouse, at(4.5, 0.0, -22.5)),
     (ZoneId::QuarryFloor, at(-2.0, 0.0, -5.0)),
@@ -154,16 +173,23 @@ const HELLHOUND_SPAWNS: [(ZoneId, Vec3); 15] = [
     (ZoneId::Offices, at(-16.0, TERRACE_2, 21.0)),
     (ZoneId::Headframe, at(4.5, TERRACE_2, 31.0)),
     (ZoneId::Headframe, at(3.5, DECK, 38.6)),
+    (ZoneId::Incline, at(-25.0, 0.0, -7.0)),
+    (ZoneId::Incline, at(-26.5, TERRACE_1, 19.0)),
+    (ZoneId::Incline, at(-26.0, TERRACE_2, 28.0)),
+    (ZoneId::LoadingDock, at(24.0, 0.0, -11.0)),
+    (ZoneId::LoadingDock, at(31.0, 0.0, -3.5)),
 ];
 
 /// The Special Spawn Points, one in each of the bigger Zones.
-const SPECIAL_SPAWNS: [(ZoneId, Vec3); 6] = [
+const SPECIAL_SPAWNS: [(ZoneId, Vec3); 8] = [
     (ZoneId::QuarryFloor, at(-2.0, 0.0, -5.0)),
     (ZoneId::QuarryFloor, at(12.0, 0.0, -6.0)),
     (ZoneId::RailYard, at(12.0, TERRACE_1, 5.5)),
     (ZoneId::CrusherShed, at(-15.0, TERRACE_1, 6.0)),
     (ZoneId::WindingHouse, at(16.0, TERRACE_2, 25.0)),
     (ZoneId::Offices, at(-3.0, TERRACE_2, 18.5)),
+    (ZoneId::Incline, at(-25.0, 0.0, -7.0)),
+    (ZoneId::LoadingDock, at(24.0, 0.0, -11.0)),
 ];
 
 /// The Vents, in the three buildings up on the terraces.
@@ -185,7 +211,7 @@ const JUMP_PADS: [JumpPad; 2] = [
 ];
 
 /// The lamps.
-const LAMPS: [(ZoneId, Vec3); 8] = [
+const LAMPS: [(ZoneId, Vec3); 12] = [
     (ZoneId::PumpHouse, at(0.0, STOREY - 0.5, -25.0)),
     (ZoneId::QuarryFloor, at(-6.0, STOREY + 2.5, -9.0)),
     (ZoneId::QuarryFloor, at(12.0, STOREY + 2.5, -12.0)),
@@ -194,19 +220,40 @@ const LAMPS: [(ZoneId, Vec3); 8] = [
     (ZoneId::WindingHouse, at(10.0, TERRACE_2 + STOREY - 0.5, 22.0)),
     (ZoneId::Offices, at(-10.0, TERRACE_2 + STOREY - 0.5, 22.0)),
     (ZoneId::Headframe, at(1.5, DECK + STOREY - 0.5, 32.0)),
+    (ZoneId::Incline, at(-25.0, STOREY + 1.0, -5.0)),
+    (ZoneId::Incline, at(-25.0, TERRACE_1 + STOREY - 0.5, 13.0)),
+    (ZoneId::Incline, at(-25.0, TERRACE_2 + STOREY - 0.5, 27.0)),
+    (ZoneId::LoadingDock, at(27.0, STOREY - 0.5, -11.0)),
 ];
 
 /// The sump: a pond gone dry in the pit floor's south-west corner, a few steps down.
 const SUMP: Sunken = Sunken { zone: ZoneId::QuarryFloor, min: v(-16.0, -16.0), max: v(-8.0, -8.0), depth: 0.6, rim: true };
 
-/// Gravel, for the ramp; pale stone, for the sump's steps; and black iron, for the Headframe's
-/// stairs.
+/// Gravel, for the ramps and the spoil heap; pale stone, for the sump's steps; black iron, for
+/// the Headframe's stairs; clay and pit timber, for the Incline's landings and steps; and
+/// concrete, for the Loading Dock's platform.
 const GRAVEL: Color = Color::srgb(0.4, 0.37, 0.31);
 const SUMP_STONE: Color = Color::srgb(0.56, 0.53, 0.46);
 const IRON: Color = Color::srgb(0.12, 0.12, 0.13);
+const CLAY: Color = Color::srgb(0.34, 0.25, 0.17);
+const TIMBER: Color = Color::srgb(0.47, 0.35, 0.22);
+const CONCRETE: Color = Color::srgb(0.52, 0.51, 0.48);
 
-/// The ramp and the stairs between floors.
-const SLOPES: [Slope; 5] = [
+/// The Incline's landings: the first terrace's, round the head of its ramp and on to the foot of
+/// its steps, and the second terrace's at the top. The south edge of each drops a storey.
+const INCLINE_LANDING: RaisedFloor = RaisedFloor { zone: ZoneId::Incline, min: v(-30.0, 8.0), max: v(-20.0, 16.0), height: TERRACE_1, colour: CLAY };
+const INCLINE_LANDING_N: RaisedFloor = RaisedFloor { zone: ZoneId::Incline, min: v(-30.0, 16.0), max: v(-24.0, 24.0), height: TERRACE_1, colour: CLAY };
+const INCLINE_TOP: RaisedFloor = RaisedFloor { zone: ZoneId::Incline, min: v(-30.0, 24.0), max: v(-20.0, 30.0), height: TERRACE_2, colour: CLAY };
+/// The Loading Dock's platform along its east wall, wagon-bed high: too high to step onto, so
+/// it's the steps up.
+const DOCK_PLATFORM: RaisedFloor = RaisedFloor { zone: ZoneId::LoadingDock, min: v(30.0, -17.0), max: v(34.0, -5.0), height: 1.1, colour: CONCRETE };
+/// The spoil heap in the pit's south-east corner: up a ramp from the west, down steps to the north.
+const SPOIL_HEAP: RaisedFloor = RaisedFloor { zone: ZoneId::QuarryFloor, min: v(9.0, -19.8), max: v(15.0, -15.0), height: 1.2, colour: GRAVEL };
+
+const RAISED_FLOORS: [RaisedFloor; 5] = [INCLINE_LANDING, INCLINE_LANDING_N, INCLINE_TOP, DOCK_PLATFORM, SPOIL_HEAP];
+
+/// The ramps and the stairs between floors.
+const SLOPES: [Slope; 10] = [
     // Up the pit's east side to the Rail Yard, a storey over eight metres.
     Slope { zone: ZoneId::QuarryFloor, foot: at(CLIMB_X, 0.0, -6.0), up: Vec2::Y, run: 8.0, rise: STOREY, width: 3.0, steps: false, colour: GRAVEL },
     // Up from the Rail Yard to the Winding House's Door.
@@ -216,6 +263,14 @@ const SLOPES: [Slope; 5] = [
     // Down into the sump on its east and north sides.
     Slope { zone: ZoneId::QuarryFloor, foot: at(-9.2, -SUMP.depth, -12.0), up: Vec2::X, run: 1.2, rise: SUMP.depth, width: 3.0, steps: true, colour: SUMP_STONE },
     Slope { zone: ZoneId::QuarryFloor, foot: at(-12.0, -SUMP.depth, -9.2), up: Vec2::Y, run: 1.2, rise: SUMP.depth, width: 3.0, steps: true, colour: SUMP_STONE },
+    // Up onto the spoil heap from the west, and down off it to the north.
+    Slope { zone: ZoneId::QuarryFloor, foot: at(5.5, 0.0, -17.4), up: Vec2::X, run: 3.5, rise: SPOIL_HEAP.height, width: 3.0, steps: false, colour: GRAVEL },
+    Slope { zone: ZoneId::QuarryFloor, foot: at(12.0, 0.0, -13.2), up: Vec2::NEG_Y, run: 1.8, rise: SPOIL_HEAP.height, width: 3.0, steps: true, colour: SUMP_STONE },
+    // Up the Incline's west wall to its first landing, and up its east wall to the top.
+    Slope { zone: ZoneId::Incline, foot: at(INCLINE_RAMP_X, 0.0, 0.0), up: Vec2::Y, run: 8.0, rise: TERRACE_1, width: 3.0, steps: false, colour: GRAVEL },
+    Slope { zone: ZoneId::Incline, foot: at(INCLINE_STEPS_X, TERRACE_1, 16.0), up: Vec2::Y, run: 8.0, rise: STOREY, width: 4.0, steps: true, colour: TIMBER },
+    // Up onto the Loading Dock's platform.
+    Slope { zone: ZoneId::LoadingDock, foot: at(28.0, 0.0, -11.0), up: Vec2::X, run: 2.0, rise: DOCK_PLATFORM.height, width: 3.0, steps: true, colour: CONCRETE },
 ];
 
 /// The Props. The pit floor keeps one island to run laps round, an old excavator's carcass.
@@ -227,7 +282,6 @@ const PROPS: &[Prop] = {
         prop(Bench, PumpHouse, (Q + 7.55, 0.0, -22.0), (0.5, 0.5, 2.4)),
         // The Quarry Floor: the excavator, rubble at the foot of the walls, and fuel drums.
         prop(Machine, QuarryFloor, (Q + 2.0, 0.0, -11.0), (4.0, 2.4, 3.0)),
-        prop(Rubble, QuarryFloor, (Q - 18.8, 0.0, -18.6), (1.4, 0.85, 1.4)),
         prop(Rubble, QuarryFloor, (Q + 18.8, 0.0, -18.8), (1.4, 0.7, 1.2)),
         prop(Barrel, QuarryFloor, (Q - 17.0, 0.0, 1.2), (0.65, 0.95, 0.65)),
         prop(Barrel, QuarryFloor, (Q - 17.8, 0.0, 0.9), (0.65, 0.95, 0.65)),
@@ -244,6 +298,14 @@ const PROPS: &[Prop] = {
         // The Offices: a big plan table, and filing cabinets.
         prop(Table, Offices, (Q - 10.0, TERRACE_2, 22.0), (4.0, 0.76, 1.4)),
         prop(Shelf, Offices, (Q - 19.4, TERRACE_2, 18.5), (0.6, 1.8, 1.6)),
+        // The Incline: an ore tub run off its rails at the foot, and drums up at the top.
+        prop(Machine, Incline, (Q - 21.2, 0.0, 2.5), (1.4, 1.2, 2.0)),
+        prop(Barrel, Incline, (Q - 29.0, 0.0, -10.8), (0.65, 0.95, 0.65)),
+        prop(Barrel, Incline, (Q - 21.0, TERRACE_2, 29.2), (0.65, 0.95, 0.65)),
+        // The Loading Dock: two wagons in from the sidings, and a crate up on the platform.
+        prop(Machine, LoadingDock, (Q + 25.75, 0.0, -6.5), (3.5, 1.5, 2.0)),
+        prop(Machine, LoadingDock, (Q + 25.75, 0.0, -15.5), (3.5, 1.5, 2.0)),
+        prop(Crate, LoadingDock, (Q + 33.0, 1.1, -15.8), (1.0, 0.8, 1.0)),
         // The Headframe: the legs holding up the front of its deck.
         prop(Pillar, Headframe, (Q - 2.0, TERRACE_2, 34.3), (0.4, STOREY - 0.2, 0.4)),
         prop(Pillar, Headframe, (Q + 5.4, TERRACE_2, 34.3), (0.4, STOREY - 0.2, 0.4)),
@@ -260,12 +322,14 @@ fn build(b: &mut Builder) {
     // onto, with a parapet round any edge Zombies could fall from.
     b.block(Vec3::new(24.0, 0.2, 4.0), at(0.0, -0.1, -32.0), outside.floor);
     b.block(Vec3::new(4.0, 0.2, 10.0), at(-10.0, -0.1, -25.0), outside.floor);
-    b.block(Vec3::new(4.0, 0.2, 8.0), at(-22.0, -0.1, -4.0), outside.floor);
-    b.block(Vec3::new(4.0, 0.2, 8.0), at(22.0, -0.1, -14.0), outside.floor);
+    b.block(Vec3::new(4.0, 0.2, 8.0), at(-22.0, -0.1, -16.0), outside.floor);
+    b.block(Vec3::new(4.0, 0.2, 8.0), at(-32.0, -0.1, -6.0), outside.floor);
+    b.block(Vec3::new(8.0, 0.2, 4.0), at(28.0, -0.1, 0.0), outside.floor);
+    b.block(Vec3::new(8.0, 0.2, 4.0), at(27.0, -0.1, -22.0), outside.floor);
     shelf(b, v(20.0, 2.0), v(24.0, 9.0), TERRACE_1, rock);
-    shelf(b, v(-24.0, 2.0), v(-20.0, 16.0), TERRACE_1, rock);
+    shelf(b, v(-34.0, 8.0), v(-30.0, 16.0), TERRACE_1, rock);
     shelf(b, v(20.0, 16.0), v(24.0, 26.0), TERRACE_2, rock);
-    shelf(b, v(-24.0, 16.0), v(-20.0, 26.0), TERRACE_2, rock);
+    shelf(b, v(-34.0, 23.0), v(-30.0, 30.0), TERRACE_2, rock);
     shelf(b, v(6.0, 28.0), v(20.0, 32.0), TERRACE_2, rock);
     shelf(b, v(-20.0, 28.0), v(-6.0, 32.0), TERRACE_2, rock);
 
@@ -275,10 +339,13 @@ fn build(b: &mut Builder) {
     b.outer_wall(v(8.0, -30.0), v(8.0, -20.0), 0.0, STOREY);
     b.wall(v(-8.0, -20.0), v(8.0, -20.0), 0.0, STOREY, &[(8.0, door(PumpHouse, QuarryFloor, DOOR_PRICE_PUMP_FLOOR))]);
 
-    // The pit's rock walls, two storeys high, with an old adit planked up in each side.
+    // The pit's rock walls, two storeys high, with an old adit planked up in the west one, the
+    // Door into the Incline beyond it, and the Door into the Loading Dock in the east one.
     let cliff = 2.0 * STOREY;
-    b.outer_wall(v(-20.0, -20.0), v(-20.0, 2.0), 0.0, cliff);
-    b.outer_wall(v(20.0, -20.0), v(20.0, 2.0), 0.0, cliff);
+    b.outer_wall(v(-20.0, -20.0), v(-20.0, -12.0), 0.0, cliff);
+    b.wall(v(-20.0, -12.0), v(-20.0, 2.0), 0.0, cliff, &[(4.0, door(QuarryFloor, Incline, DOOR_PRICE_FLOOR_INCLINE))]);
+    b.wall(v(20.0, -20.0), v(20.0, -2.0), 0.0, cliff, &[(6.0, door(QuarryFloor, LoadingDock, DOOR_PRICE_FLOOR_DOCK))]);
+    b.outer_wall(v(20.0, -2.0), v(20.0, 2.0), 0.0, cliff);
     b.wall(v(-20.0, -20.0), v(-8.0, -20.0), 0.0, cliff, &[]);
     b.wall(v(8.0, -20.0), v(20.0, -20.0), 0.0, cliff, &[]);
     // The face of the first terrace, and its edge: a solid wall either side of the Door at the top
@@ -291,7 +358,8 @@ fn build(b: &mut Builder) {
     // The first terrace: the Rail Yard's east wall, the Crusher Shed round it, and the face of the
     // second terrace behind them both.
     b.outer_wall(v(20.0, 2.0), v(20.0, 16.0), TERRACE_1, STOREY);
-    b.outer_wall(v(-20.0, 2.0), v(-20.0, 16.0), TERRACE_1, STOREY);
+    b.wall(v(-20.0, 2.0), v(-20.0, 16.0), 0.0, TERRACE_1, &[]);
+    b.wall(v(-20.0, 2.0), v(-20.0, 16.0), TERRACE_1, STOREY, &[(10.0, door(Incline, CrusherShed, DOOR_PRICE_INCLINE_CRUSHER))]);
     b.wall(v(-20.0, 2.0), v(0.0, 2.0), TERRACE_1, STOREY, &[]);
     b.wall(v(0.0, 2.0), v(0.0, 16.0), TERRACE_1, STOREY, &[(7.0, door(RailYard, CrusherShed, DOOR_PRICE_RAIL_YARD_CRUSHER))]);
     b.wall(v(-20.0, 16.0), v(20.0, 16.0), TERRACE_1, STOREY, &[]);
@@ -300,10 +368,30 @@ fn build(b: &mut Builder) {
     b.wall(v(-20.0, 16.0), v(0.0, 16.0), TERRACE_2, STOREY, &[]);
     b.wall(v(0.0, 16.0), v(20.0, 16.0), TERRACE_2, STOREY, &[(CLIMB_X, door(RailYard, WindingHouse, DOOR_PRICE_RAIL_YARD_WINDING))]);
     b.outer_wall(v(20.0, 16.0), v(20.0, 28.0), TERRACE_2, STOREY);
-    b.outer_wall(v(-20.0, 16.0), v(-20.0, 28.0), TERRACE_2, STOREY);
+    b.wall(v(-20.0, 16.0), v(-20.0, 28.0), 0.0, TERRACE_2, &[]);
+    b.wall(v(-20.0, 16.0), v(-20.0, 28.0), TERRACE_2, STOREY, &[(10.0, door(Incline, Offices, DOOR_PRICE_INCLINE_OFFICES))]);
+    b.wall(v(-20.0, 28.0), v(-20.0, 30.0), TERRACE_2, STOREY, &[]);
     b.wall(v(0.0, 16.0), v(0.0, 28.0), TERRACE_2, STOREY, &[(6.0, door(WindingHouse, Offices, DOOR_PRICE_WINDING_OFFICES))]);
     b.wall(v(0.0, 28.0), v(20.0, 28.0), TERRACE_2, STOREY, &[(3.0, door(WindingHouse, Headframe, DOOR_PRICE_WINDING_HEADFRAME)), (14.0, Gap::Window)]);
     b.outer_wall(v(-20.0, 28.0), v(0.0, 28.0), TERRACE_2, STOREY);
+
+    // The Incline: a cutting walled by the cliff to the south and west, a window off each of its
+    // floors, with a rail along the front of each landing and a gap in it to drop through. The
+    // space under its steps is boxed in solid, so nothing is ever lost in it.
+    b.outer_wall(v(-30.0, -12.0), v(-20.0, -12.0), 0.0, cliff);
+    b.outer_wall(v(-30.0, -12.0), v(-30.0, 30.0), 0.0, TERRACE_1);
+    b.outer_wall(v(-30.0, -12.0), v(-30.0, 30.0), TERRACE_1, STOREY);
+    b.outer_wall(v(-30.0, 16.0), v(-30.0, 30.0), TERRACE_2, STOREY);
+    b.outer_wall(v(-30.0, 30.0), v(-20.0, 30.0), 0.0, TERRACE_2 + STOREY);
+    b.wall(v(INCLINE_RAMP_X + 1.5, 8.0), v(-20.0, 8.0), TERRACE_1, RAIL_HEIGHT, &[(3.5, drop())]);
+    b.wall(v(-30.0, 24.0), v(-24.0, 24.0), TERRACE_2, RAIL_HEIGHT, &[(3.0, drop())]);
+    b.block(Vec3::new(4.0, TERRACE_1, 8.0), at(INCLINE_STEPS_X, TERRACE_1 / 2.0, 20.0), palette(Some(Incline)).wall);
+
+    // The Loading Dock: a goods shed of one storey off the pit's east side, a window to the
+    // sidings north and south.
+    b.outer_wall(v(20.0, -20.0), v(34.0, -20.0), 0.0, STOREY);
+    b.outer_wall(v(34.0, -20.0), v(34.0, -2.0), 0.0, STOREY);
+    b.outer_wall(v(20.0, -2.0), v(34.0, -2.0), 0.0, STOREY);
 
     // The Headframe: steel walls two storeys high round its yard, a parapet over the roofs to its
     // south, the stairs walled off from the yard and shut behind a Power Door at their foot, and
@@ -378,10 +466,17 @@ const NODES: &[(&str, f32, f32, f32)] = &[
     ("floor_n", Q + 3.0, 0.0, 0.5),
     ("floor_ne", Q + 9.0, 0.0, 0.5),
     ("floor_e", Q + 13.0, 0.0, -10.0),
-    ("w3_in", Q - 18.5, 0.0, -4.0),
-    ("w3_out", Q - 22.0, 0.0, -4.0),
-    ("w4_in", Q + 18.5, 0.0, -14.0),
-    ("w4_out", Q + 22.0, 0.0, -14.0),
+    ("w3_in", Q - 18.5, 0.0, -16.0),
+    ("w3_out", Q - 22.0, 0.0, -16.0),
+    // By the Doors into the Incline and the Loading Dock
+    ("floor_wdoor", Q - 18.5, 0.0, -8.0),
+    ("floor_edoor", Q + 18.5, 0.0, -14.0),
+    // Up the spoil heap's ramp, across its top, and down its steps
+    ("heap_foot", Q + 4.0, 0.0, -17.4),
+    ("heap_w", Q + 9.8, SPOIL_HEAP.height, -17.4),
+    ("heap_c", Q + 12.0, SPOIL_HEAP.height, -17.4),
+    ("heap_n", Q + 12.0, SPOIL_HEAP.height, -15.8),
+    ("heap_steps", Q + 12.0, 0.0, -12.4),
     // Up the ramp
     ("ramp_foot", Q + CLIMB_X, 0.0, -7.5),
     ("ramp_mid", Q + CLIMB_X, 2.0, -2.0),
@@ -407,10 +502,7 @@ const NODES: &[(&str, f32, f32, f32)] = &[
     ("shed_nw", Q - 16.0, TERRACE_1, 13.5),
     ("shed_n", Q - 10.0, TERRACE_1, 13.5),
     ("shed_ne", Q - 4.0, TERRACE_1, 13.5),
-    ("w6_in", Q - 18.5, TERRACE_1, 5.0),
-    ("w6_out", Q - 22.0, TERRACE_1, 5.0),
-    ("w7_in", Q - 18.5, TERRACE_1, 12.0),
-    ("w7_out", Q - 22.0, TERRACE_1, 12.0),
+    ("shed_wdoor", Q - 18.5, TERRACE_1, 12.0),
     // The Winding House, round the drum
     ("wind_s", Q + CLIMB_X, TERRACE_2, 17.5),
     ("wind_se", Q + 15.0, TERRACE_2, 19.0),
@@ -428,8 +520,7 @@ const NODES: &[(&str, f32, f32, f32)] = &[
     ("off_sw", Q - 15.0, TERRACE_2, 18.5),
     ("off_n", Q - 6.0, TERRACE_2, 25.5),
     ("off_nw", Q - 14.0, TERRACE_2, 25.0),
-    ("w10_in", Q - 18.5, TERRACE_2, 22.0),
-    ("w10_out", Q - 22.0, TERRACE_2, 22.0),
+    ("off_wdoor", Q - 18.5, TERRACE_2, 26.0),
     ("w11_in", Q - 12.0, TERRACE_2, 26.5),
     ("w11_out", Q - 12.0, TERRACE_2, 30.0),
     // The Headframe's yard, under its deck, and the corner by the Power Door
@@ -449,6 +540,47 @@ const NODES: &[(&str, f32, f32, f32)] = &[
     // Either side of the gap in the deck's rail
     ("deck_drop", Q + 4.5, DECK, 34.8),
     ("head_drop", Q + 4.5, TERRACE_2, 32.8),
+    // The foot of the Incline, round its gallery and up its ramp
+    ("inc_door", Q - 21.5, 0.0, -8.0),
+    ("inc_s", Q - 25.0, 0.0, -8.0),
+    ("inc_c", Q - 24.5, 0.0, -3.0),
+    ("inc_low_n", Q - 23.5, 0.0, 6.5),
+    ("w6_in", Q - 28.5, 0.0, -6.0),
+    ("w6_out", Q - 32.0, 0.0, -6.0),
+    ("inc_ramp_foot", Q + INCLINE_RAMP_X, 0.0, -1.5),
+    ("inc_ramp_mid", Q + INCLINE_RAMP_X, 2.0, 4.0),
+    ("inc_ramp_top", Q + INCLINE_RAMP_X, 3.6, 7.2),
+    // The Incline's first landing, by the Crusher Shed's Door, and up its steps
+    ("inc_land", Q - 27.0, TERRACE_1, 10.0),
+    ("inc_drop", Q - 23.5, TERRACE_1, 9.2),
+    ("inc_shed", Q - 21.5, TERRACE_1, 12.0),
+    ("w7_in", Q - 28.5, TERRACE_1, 12.0),
+    ("w7_out", Q - 32.0, TERRACE_1, 12.0),
+    ("inc_land_n", Q - 27.0, TERRACE_1, 19.0),
+    ("inc_land_drop", Q - 27.0, TERRACE_1, 22.5),
+    ("inc_steps_foot", Q + INCLINE_STEPS_X, TERRACE_1, 14.5),
+    ("inc_steps_mid", Q + INCLINE_STEPS_X, TERRACE_1 + 2.0, 20.0),
+    ("inc_steps_top", Q + INCLINE_STEPS_X, TERRACE_1 + 3.6, 23.2),
+    // The Incline's top landing, by the Offices' Door
+    ("inc_off", Q - 21.5, TERRACE_2, 26.0),
+    ("inc_top", Q - 25.0, TERRACE_2, 27.5),
+    ("inc_top_drop", Q - 27.0, TERRACE_2, 25.2),
+    ("w10_in", Q - 28.5, TERRACE_2, 27.0),
+    ("w10_out", Q - 32.0, TERRACE_2, 27.0),
+    // The Loading Dock, round its wagons, and up on its platform
+    ("dock_w", Q + 21.8, 0.0, -14.0),
+    ("dock_nw", Q + 21.8, 0.0, -4.0),
+    ("dock_sw", Q + 21.8, 0.0, -18.2),
+    ("dock_c", Q + 26.0, 0.0, -11.0),
+    ("dock_ne", Q + 29.0, 0.0, -6.5),
+    ("dock_se", Q + 29.0, 0.0, -15.5),
+    ("w4_in", Q + 28.0, 0.0, -3.6),
+    ("w4_out", Q + 28.0, 0.0, 0.0),
+    ("w12_in", Q + 27.0, 0.0, -18.4),
+    ("w12_out", Q + 27.0, 0.0, -22.0),
+    ("plat_c", Q + 31.0, DOCK_PLATFORM.height, -11.0),
+    ("plat_n", Q + 31.2, DOCK_PLATFORM.height, -6.5),
+    ("plat_s", Q + 31.2, DOCK_PLATFORM.height, -15.0),
     // Vents, up near the top of their rooms, over the spot a Nova Crawler drops to
     ("vent_shed", Q - 10.0, TERRACE_1 + NOVA_VENT_HEIGHT, 4.5),
     ("vent_wind", Q + 15.0, TERRACE_2 + NOVA_VENT_HEIGHT, 19.0),
@@ -484,8 +616,11 @@ const EDGES: &[(&str, &str, Gate)] = {
         ("sump_n", "floor_w", OPEN),
         ("sump_n", "floor_nw", OPEN),
         ("floor_w", "floor_nw", OPEN),
-        ("floor_w", "w3_in", OPEN),
+        ("floor_w", "floor_wdoor", OPEN),
+        ("floor_wdoor", "w3_in", OPEN),
+        ("floor_sw", "w3_in", OPEN),
         ("w3_out", "w3_in", barrier(3)),
+        ("floor_wdoor", "inc_door", Gate::Door(QuarryFloor, Incline)),
         ("floor_nw", "isl_n", OPEN),
         ("floor_nw", "floor_n", OPEN),
         ("floor_n", "floor_ne", OPEN),
@@ -493,8 +628,19 @@ const EDGES: &[(&str, &str, Gate)] = {
         ("floor_ne", "isl_n", OPEN),
         ("floor_ne", "floor_e", OPEN),
         ("isl_e", "floor_e", OPEN),
-        ("floor_e", "w4_in", OPEN),
-        ("w4_out", "w4_in", barrier(4)),
+        ("floor_e", "floor_edoor", OPEN),
+        ("floor_edoor", "dock_w", Gate::Door(QuarryFloor, LoadingDock)),
+        // The spoil heap
+        ("floor_s", "heap_foot", OPEN),
+        ("isl_s", "heap_foot", OPEN),
+        ("heap_foot", "heap_w", OPEN),
+        ("heap_w", "heap_c", OPEN),
+        ("heap_w", "heap_n", OPEN),
+        ("heap_c", "heap_n", OPEN),
+        ("heap_n", "heap_steps", OPEN),
+        ("heap_steps", "isl_e", OPEN),
+        ("heap_steps", "floor_e", OPEN),
+        ("heap_steps", "floor_edoor", OPEN),
         ("floor_e", "ramp_foot", OPEN),
         ("ramp_foot", "ramp_mid", OPEN),
         ("ramp_mid", "ramp_top", OPEN),
@@ -525,10 +671,8 @@ const EDGES: &[(&str, &str, Gate)] = {
         ("shed_w", "shed_nw", OPEN),
         ("shed_nw", "shed_n", OPEN),
         ("shed_n", "shed_ne", OPEN),
-        ("shed_sw", "w6_in", OPEN),
-        ("shed_nw", "w7_in", OPEN),
-        ("w6_out", "w6_in", barrier(6)),
-        ("w7_out", "w7_in", barrier(7)),
+        ("shed_w", "shed_wdoor", OPEN),
+        ("shed_nw", "shed_wdoor", OPEN),
         // The Winding House
         ("wind_s", "wind_se", OPEN),
         ("wind_se", "wind_sw", OPEN),
@@ -549,10 +693,9 @@ const EDGES: &[(&str, &str, Gate)] = {
         ("off_s", "off_sw", OPEN),
         ("off_n", "off_nw", OPEN),
         ("off_sw", "off_nw", OPEN),
-        ("off_sw", "w10_in", OPEN),
-        ("off_nw", "w10_in", OPEN),
+        ("off_sw", "off_wdoor", OPEN),
+        ("off_nw", "off_wdoor", OPEN),
         ("off_nw", "w11_in", OPEN),
-        ("w10_out", "w10_in", barrier(10)),
         ("w11_out", "w11_in", barrier(11)),
         // The Headframe
         ("head_s", "head_w", OPEN),
@@ -573,6 +716,57 @@ const EDGES: &[(&str, &str, Gate)] = {
         // Off the deck's front.
         ("deck_drop", "head_drop", Gate::OneWay),
         ("head_drop", "head_e", OPEN),
+        // The foot of the Incline
+        ("inc_door", "inc_s", OPEN),
+        ("inc_door", "inc_c", OPEN),
+        ("inc_s", "inc_c", OPEN),
+        ("inc_s", "w6_in", OPEN),
+        ("w6_out", "w6_in", barrier(6)),
+        ("w6_in", "inc_ramp_foot", OPEN),
+        ("inc_c", "inc_ramp_foot", OPEN),
+        ("inc_c", "inc_low_n", OPEN),
+        ("inc_ramp_foot", "inc_ramp_mid", OPEN),
+        ("inc_ramp_mid", "inc_ramp_top", OPEN),
+        ("inc_ramp_top", "inc_land", OPEN),
+        // Its first landing, and the drop off it
+        ("inc_land", "inc_drop", OPEN),
+        ("inc_land", "inc_shed", OPEN),
+        ("inc_drop", "inc_shed", OPEN),
+        ("inc_land", "w7_in", OPEN),
+        ("w7_out", "w7_in", barrier(7)),
+        ("inc_land", "inc_land_n", OPEN),
+        ("inc_land_n", "inc_land_drop", OPEN),
+        ("inc_shed", "inc_steps_foot", OPEN),
+        ("inc_drop", "inc_low_n", Gate::OneWay),
+        ("inc_shed", "shed_wdoor", Gate::Door(Incline, CrusherShed)),
+        // Up its steps to the top landing, and the drop off that
+        ("inc_steps_foot", "inc_steps_mid", OPEN),
+        ("inc_steps_mid", "inc_steps_top", OPEN),
+        ("inc_steps_top", "inc_off", OPEN),
+        ("inc_steps_top", "inc_top", OPEN),
+        ("inc_off", "inc_top", OPEN),
+        ("inc_top", "inc_top_drop", OPEN),
+        ("inc_top", "w10_in", OPEN),
+        ("w10_out", "w10_in", barrier(10)),
+        ("inc_top_drop", "inc_land_drop", Gate::OneWay),
+        ("inc_off", "off_wdoor", Gate::Door(Incline, Offices)),
+        // The Loading Dock
+        ("dock_w", "dock_nw", OPEN),
+        ("dock_w", "dock_sw", OPEN),
+        ("dock_w", "dock_c", OPEN),
+        ("dock_nw", "w4_in", OPEN),
+        ("dock_sw", "w12_in", OPEN),
+        ("dock_c", "dock_ne", OPEN),
+        ("dock_c", "dock_se", OPEN),
+        ("dock_ne", "w4_in", OPEN),
+        ("dock_se", "w12_in", OPEN),
+        ("w4_out", "w4_in", barrier(4)),
+        ("w12_out", "w12_in", barrier(12)),
+        ("dock_c", "plat_c", OPEN),
+        ("plat_c", "plat_n", OPEN),
+        ("plat_c", "plat_s", OPEN),
+        ("plat_n", "dock_ne", Gate::OneWay),
+        ("plat_s", "dock_se", Gate::OneWay),
         // The Vent drops
         ("vent_shed", "shed_s", Gate::OneWay),
         ("vent_wind", "wind_se", Gate::OneWay),

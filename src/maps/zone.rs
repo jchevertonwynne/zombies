@@ -41,10 +41,14 @@ pub enum ZoneId {
     Offices,
     /// The pithead tower: a yard at the second terrace's level and the deck above it.
     Headframe,
+    /// The rock cutting up the pit's west side, climbing a landing at each terrace.
+    Incline,
+    /// The goods shed off the pit's east side, with its loading platform.
+    LoadingDock,
 }
 
 impl ZoneId {
-    pub const ALL: [ZoneId; 19] = [
+    pub const ALL: [ZoneId; 21] = [
         ZoneId::StartRoom,
         ZoneId::WestHall,
         ZoneId::Balcony,
@@ -64,6 +68,8 @@ impl ZoneId {
         ZoneId::WindingHouse,
         ZoneId::Offices,
         ZoneId::Headframe,
+        ZoneId::Incline,
+        ZoneId::LoadingDock,
     ];
 
     pub fn name(self) -> &'static str {
@@ -87,6 +93,8 @@ impl ZoneId {
             ZoneId::WindingHouse => "Winding House",
             ZoneId::Offices => "Offices",
             ZoneId::Headframe => "Headframe",
+            ZoneId::Incline => "Incline",
+            ZoneId::LoadingDock => "Loading Dock",
         }
     }
 
@@ -95,7 +103,7 @@ impl ZoneId {
         use ZoneId::*;
         match self {
             StartRoom | WestHall | Balcony | EastHall | DiningRoom | PowerRoom | Yard | Passage | Workshop | Storeroom | GeneratorRoom | Tunnel => MapId::Greybox,
-            PumpHouse | QuarryFloor | RailYard | CrusherShed | WindingHouse | Offices | Headframe => MapId::Quarry,
+            PumpHouse | QuarryFloor | RailYard | CrusherShed | WindingHouse | Offices | Headframe | Incline | LoadingDock => MapId::Quarry,
         }
     }
 
@@ -105,7 +113,7 @@ impl ZoneId {
         use ZoneId::*;
         match self {
             StartRoom | WestHall | EastHall | DiningRoom | PowerRoom | Yard | Passage | Workshop | Storeroom | GeneratorRoom | Tunnel => 0.0,
-            PumpHouse | QuarryFloor => 0.0,
+            PumpHouse | QuarryFloor | Incline | LoadingDock => 0.0,
             Balcony | RailYard | CrusherShed => STOREY,
             WindingHouse | Offices | Headframe => 2.0 * STOREY,
         }
@@ -141,6 +149,8 @@ impl ZoneId {
             ZoneId::WindingHouse => (Q, Q + 20.0, TOP - 0.25, 3.0 * STOREY - 0.25, 16.0, 28.0),
             ZoneId::Offices => (Q - 20.0, Q, TOP - 0.25, 3.0 * STOREY - 0.25, 16.0, 28.0),
             ZoneId::Headframe => (Q - 6.0, Q + 6.0, TOP - 0.25, 4.0 * STOREY, 28.0, 40.0),
+            ZoneId::Incline => (Q - 30.0, Q - 20.0, LOW, 3.0 * STOREY - 0.25, -12.0, 30.0),
+            ZoneId::LoadingDock => (Q + 20.0, Q + 34.0, LOW, UPPER, -20.0, -2.0),
         };
         let sunk = self.map().layout().sunken.iter().filter(|sunken| sunken.zone == self).map(|sunken| sunken.depth).fold(0.0, f32::max);
         (Vec3::new(x0, y0 - sunk, z0), Vec3::new(x1, y1, z1))
