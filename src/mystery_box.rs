@@ -16,7 +16,9 @@ use crate::buy::{Buyable, Purchased, charged};
 use crate::equipment::Equipment;
 use crate::gun_model::GunModels;
 use crate::layers::GameLayer;
-use crate::map::BOX_LOCATIONS;
+use std::ops::Range;
+
+use crate::map::{BOX_LOCATIONS, MapId};
 use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_points};
 use crate::pack_a_punch::PackAPunch;
 use crate::player::Player;
@@ -305,8 +307,9 @@ pub fn roll_spin<R: Rng + ?Sized>(teddy_chance: f64, pool: &[Prize], rng: &mut R
 }
 
 /// The Box Locations in a fresh random order, never putting `current` first.
-pub fn shuffled_locations<R: Rng + ?Sized>(count: usize, current: usize, rng: &mut R) -> Vec<usize> {
-    let mut bag: Vec<usize> = (0..count).collect();
+pub fn shuffled_locations<R: Rng + ?Sized>(locations: Range<usize>, current: usize, rng: &mut R) -> Vec<usize> {
+    let count = locations.len();
+    let mut bag: Vec<usize> = locations.collect();
     bag.shuffle(rng);
     if count > 1 && bag[0] == current {
         let other = rng.random_range(1..count);
@@ -317,9 +320,9 @@ pub fn shuffled_locations<R: Rng + ?Sized>(count: usize, current: usize, rng: &m
 
 /// Where the Box goes after a Teddy: the next location in the Run's list, reshuffling it when
 /// it's empty.
-pub fn next_location<R: Rng + ?Sized>(bag: &mut Vec<usize>, count: usize, current: usize, rng: &mut R) -> usize {
+pub fn next_location<R: Rng + ?Sized>(bag: &mut Vec<usize>, locations: Range<usize>, current: usize, rng: &mut R) -> usize {
     if bag.is_empty() {
-        *bag = shuffled_locations(count, current, rng);
+        *bag = shuffled_locations(locations, current, rng);
     }
     bag.remove(0)
 }
@@ -337,7 +340,7 @@ const LEAVING_SECS: f32 = BOX_TEDDY_RISE_SECS + BOX_TEDDY_FLY_SECS + BOX_SHAKE_S
 /// Where a Box at a Box Location sits: its centre, turned so its front faces the Player's side.
 fn location_transform(location: usize) -> Transform {
     let (_, at, facing) = BOX_LOCATIONS[location];
-    Transform::from_xyz(at.x, BOX_SIZE.y / 2.0, at.y).with_rotation(Quat::from_rotation_y(facing.x.atan2(facing.y)))
+    Transform::from_translation(at + Vec3::Y * BOX_SIZE.y / 2.0).with_rotation(Quat::from_rotation_y(facing.x.atan2(facing.y)))
 }
 
 /// Spawns a Box at a Box Location. The Run's own Box is spawned here too; Fire Sale can add more.
@@ -436,14 +439,15 @@ impl Plugin for MysteryBoxPlugin {
 }
 
 /// Every Run starts with the Box at the first Box Location and rubble at the rest.
-fn spawn_boxes(mut commands: Commands, assets: Res<BoxAssets>, mut run: ResMut<BoxRun>) {
+fn spawn_boxes(mut commands: Commands, assets: Res<BoxAssets>, mut run: ResMut<BoxRun>, map: Res<MapId>) {
+    let locations = map.box_locations();
     *run = BoxRun {
-        bag: shuffled_locations(BOX_LOCATIONS.len(), 0, &mut rand::rng()),
+        bag: shuffled_locations(locations.clone(), locations.start, &mut rand::rng()),
         pulls: 0,
         moves: 0,
         hold_moves: false,
     };
-    for location in 0..BOX_LOCATIONS.len() {
+    for location in locations {
         let rubble = [(-0.4, 0.0, 0.3), (0.35, 0.1, -0.6), (0.1, -0.2, 1.2)].map(|(x, z, yaw)| {
             commands
                 .spawn((
@@ -457,7 +461,7 @@ fn spawn_boxes(mut commands: Commands, assets: Res<BoxAssets>, mut run: ResMut<B
             .spawn((InRun, BoxLocation(location), location_transform(location), Visibility::Hidden))
             .add_children(&rubble);
     }
-    spawn_box(&mut commands, &assets, 0, BOX_PRICE, true);
+    spawn_box(&mut commands, &assets, map.box_locations().start, BOX_PRICE, true);
 }
 
 /// A bought Box starts spinning for the Player who bought it (refunded at once if the spin is
@@ -516,6 +520,7 @@ fn run_boxes(
     pack_a_punch: Query<&PackAPunch>,
     mut run: ResMut<BoxRun>,
     mut teddies: MessageWriter<TeddyBear>,
+    map: Res<MapId>,
 ) {
     let dt = time.delta_secs();
     // A Weapon waiting in a Box or inside Pack-a-Punch is in play.
@@ -601,7 +606,7 @@ fn run_boxes(
                 if elapsed < LEAVING_SECS {
                     BoxState::Leaving { elapsed }
                 } else {
-                    let to = next_location(&mut run.bag, BOX_LOCATIONS.len(), mystery_box.location, rng);
+                    let to = next_location(&mut run.bag, map.box_locations(), mystery_box.location, rng);
                     commands.entity(entity).insert(ColliderDisabled);
                     *visibility = Visibility::Hidden;
                     BoxState::Away { left: BOX_MOVE_SECS, to }
@@ -936,7 +941,7 @@ mod tests {
         for seed in 0..500 {
             let rng = &mut StdRng::seed_from_u64(seed);
             for current in 0..4 {
-                let bag = shuffled_locations(4, current, rng);
+                let bag = shuffled_locations(0..4, current, rng);
                 assert_ne!(bag[0], current);
                 let mut sorted = bag.clone();
                 sorted.sort();
@@ -950,10 +955,10 @@ mod tests {
         for seed in 0..200 {
             let rng = &mut StdRng::seed_from_u64(seed);
             let mut current = 0;
-            let mut bag = shuffled_locations(4, current, rng);
+            let mut bag = shuffled_locations(0..4, current, rng);
             let mut visits = Vec::new();
             for _ in 0..12 {
-                let next = next_location(&mut bag, 4, current, rng);
+                let next = next_location(&mut bag, 0..4, current, rng);
                 assert_ne!(next, current, "seed {seed}");
                 visits.push(next);
                 current = next;
@@ -971,7 +976,7 @@ mod tests {
     fn the_list_reshuffles_when_empty() {
         let rng = &mut StdRng::seed_from_u64(7);
         let mut bag = Vec::new();
-        let next = next_location(&mut bag, 4, 2, rng);
+        let next = next_location(&mut bag, 0..4, 2, rng);
         assert_ne!(next, 2);
         assert_eq!(bag.len(), 3);
     }

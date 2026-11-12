@@ -18,7 +18,9 @@ use crate::equipment::Equipment;
 use crate::last_stand::LastStand;
 use crate::respawn::AwaitingRespawn;
 use crate::layers::GameLayer;
-use crate::map::seat_start;
+use crate::jump_pad::JumpPad;
+use crate::map::MapId;
+use crate::power::Power;
 use crate::party::Party;
 use crate::net::play::Puppet;
 use crate::modifier::{Modifier, Modifiers, RunModifiers, Stat, resolve};
@@ -329,6 +331,8 @@ pub struct Locomotion {
     pub(crate) eye_rate: f32,
     /// A Dive in flight: a ballistic lunge that ends Prone where it lands.
     pub(crate) diving: bool,
+    /// In flight off a Jump Pad: thrown on an arc nothing steers, until it lands.
+    pub(crate) thrown: bool,
     /// Seconds since the last Dive landed, counting through its recovery and its cooldown.
     /// `f32::INFINITY` until the first Dive lands.
     pub(crate) since_dive_landing: f32,
@@ -467,6 +471,7 @@ impl Default for Locomotion {
             velocity: Vec3::ZERO,
             grounded: false,
             sprinting: false,
+            thrown: false,
             stamina: SPRINT_DURATION_SECS,
             winded: false,
             stance: Stance::Standing,
@@ -647,11 +652,11 @@ impl Plugin for PlayerPlugin {
 }
 
 /// A new Run's Points, counters and timers for a Player.
-fn run_state(run: &[Modifier]) -> impl Bundle {
+fn run_state(run: &[Modifier], map: MapId) -> impl Bundle {
     (
         Points::starting(run),
         RunStats::default(),
-        PlayerZone::default(),
+        PlayerZone::start(map),
         Shellshocked::default(),
         Cooldowns::default(),
         SparesUsed::default(),
@@ -659,14 +664,14 @@ fn run_state(run: &[Modifier]) -> impl Bundle {
 }
 
 /// Where a Seat's Player starts: the Seat's spawn point on the Map, with the Player standing on it.
-fn seat_spawn(seat: Seat) -> Transform {
+fn seat_spawn(seat: Seat, map: MapId) -> Transform {
     let half_height = PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0;
-    Transform::from_translation(seat_start(seat.0) + Vec3::Y * (half_height + 0.05))
+    Transform::from_translation(map.layout().seat_start(seat.0) + Vec3::Y * (half_height + 0.05))
 }
 
-/// Everything a Player is at the start of a Run, in `seat`, whoever drives them. What makes one the
+/// Everything a Player is at the start of a Run on `map`, in `seat`, whoever drives them. What makes one the
 /// `LocalPlayer` (the camera and view model) is added by the caller.
-pub(crate) fn player_body(seat: Seat, name: &str, run: &[Modifier]) -> impl Bundle {
+pub(crate) fn player_body(seat: Seat, name: &str, run: &[Modifier], map: MapId) -> impl Bundle {
     (
         InRun,
         Name::new(name.to_string()),
@@ -686,9 +691,9 @@ pub(crate) fn player_body(seat: Seat, name: &str, run: &[Modifier]) -> impl Bund
         Visibility::default(),
         Loadout::new(STARTING_WEAPON),
         Modifiers(run.to_vec()),
-        (Knife::default(), Equipment::default(), run_state(run), PlankTally::default()),
+        (Knife::default(), Equipment::default(), run_state(run, map), PlankTally::default()),
         (
-            seat_spawn(seat),
+            seat_spawn(seat, map),
             RigidBody::Kinematic,
             CustomPositionIntegration,
             TranslationInterpolation,
@@ -708,7 +713,9 @@ pub(crate) fn spawn_player(
     settings: Res<Settings>,
     run: Res<RunModifiers>,
     party: Option<Res<Party>>,
+    map: Res<MapId>,
 ) {
+    let map = *map;
     // Solo is a party of one. In a Co-op Run every Seat has a Player, and only this machine's is
     // the `LocalPlayer`.
     let (seats, local) = match &party {
@@ -717,11 +724,11 @@ pub(crate) fn spawn_player(
     };
     for (seat, name) in seats {
         if seat != local {
-            commands.spawn(player_body(seat, &name, &[]));
+            commands.spawn(player_body(seat, &name, &[], map));
             continue;
         }
         commands
-            .spawn((player_body(seat, &name, &run.0), LocalPlayer))
+            .spawn((player_body(seat, &name, &run.0, map), LocalPlayer))
             .with_child((
                 PlayerCamera,
                 Eye {
@@ -755,12 +762,13 @@ pub fn spawn_debug_player(
     mut commands: Commands,
     run: Res<RunModifiers>,
     seats: Query<&Seat, With<Player>>,
+    map: Res<MapId>,
 ) {
     let seat = Seat(1);
     if seats.iter().any(|&taken| taken == seat) {
         return;
     }
-    commands.spawn(player_body(seat, "Player 2", &run.0));
+    commands.spawn(player_body(seat, "Player 2", &run.0, *map));
 }
 
 fn grab_cursor(mut cursor: Single<&mut CursorOptions>, choosing: Query<(), (With<LocalPlayer>, With<Choosing>)>) {
@@ -893,6 +901,8 @@ pub struct MoveContext<'a> {
     pub modifiers: &'a Modifiers,
     pub drinking: bool,
     pub last_stand: bool,
+    /// The Jump Pads that throw right now (see `jump_pad::working`).
+    pub jump_pads: &'static [JumpPad],
 }
 
 /// Runs this tick's `MoveInput` for every Player but a client's puppets, which move as the Host
@@ -908,9 +918,11 @@ pub(crate) fn move_player(
     mut easings: Query<&mut TranslationEasingState>,
     move_and_slide: MoveAndSlide,
     time: Res<Time>,
+    (map, power): (Option<Res<MapId>>, Option<Res<Power>>),
 ) {
+    let jump_pads = map.map_or(&[][..], |map| crate::jump_pad::working(*map, power.is_some_and(|power| power.is_on())));
     for (entity, mut transform, mut locomotion, input, loadout, modifiers, drinking, last_stand) in &mut players {
-        let mut context = MoveContext { entity, loadout, modifiers, drinking, last_stand };
+        let mut context = MoveContext { entity, loadout, modifiers, drinking, last_stand, jump_pads };
         if let Some(stance) = step_move(&mut transform.translation, &mut locomotion, input, &mut context, time.delta(), &move_and_slide) {
             commands.entity(entity).insert(stance.collider());
             if let Ok(mut easing) = easings.get_mut(entity) {
@@ -932,7 +944,7 @@ pub fn step_move(
     delta: Duration,
     move_and_slide: &MoveAndSlide,
 ) -> Option<Stance> {
-    let MoveContext { entity, loadout, modifiers, drinking, last_stand } = *context;
+    let MoveContext { entity, loadout, modifiers, drinking, last_stand, jump_pads } = *context;
     let dt = delta.as_secs_f32();
     let rotation = Quat::from_rotation_y(input.yaw);
 
@@ -1048,8 +1060,11 @@ pub fn step_move(
     let wish_world = rotation * Vec3::new(wish.x, 0.0, -wish.y) * speed;
     let horizontal = Vec3::new(locomotion.velocity.x, 0.0, locomotion.velocity.z);
     // In flight the Dive steers only slightly: the held direction turns the lunge a little and
-    // nothing slows it. Anywhere else in the air the wish moves the Player as always.
-    let horizontal = if locomotion.diving {
+    // nothing slows it. A Jump Pad's throw isn't steered at all, so it lands where it aims.
+    // Anywhere else in the air the wish moves the Player as always.
+    let horizontal = if locomotion.thrown {
+        horizontal
+    } else if locomotion.diving {
         let steer = rotation * Vec3::new(wish.x, 0.0, -wish.y);
         if steer.length_squared() > 0.0 {
             horizontal.move_towards(steer * horizontal.length(), DIVE_STEER_ACCEL * dt)
@@ -1068,7 +1083,20 @@ pub fn step_move(
     if jumped {
         vertical = PLAYER_JUMP_SPEED;
     }
-    let velocity = horizontal + Vec3::Y * vertical;
+    let mut velocity = horizontal + Vec3::Y * vertical;
+    // A Player on the floor standing on a working Jump Pad is thrown at its landing spot, whatever
+    // they're doing but crawling in a Last Stand.
+    let feet = *position - Vec3::Y * locomotion.shape().half_height();
+    let thrown = (locomotion.grounded && !last_stand)
+        .then(|| jump_pads.iter().find(|pad| pad.under(feet)))
+        .flatten()
+        .map(|pad| crate::jump_pad::throw(feet, pad.to));
+    if let Some(throw) = thrown {
+        velocity = throw;
+        locomotion.thrown = true;
+        locomotion.sprinting = false;
+    }
+    let jumped = jumped || thrown.is_some();
 
     let config = MoveAndSlideConfig::default();
     let filter = SpatialQueryFilter::from_mask([GameLayer::World, GameLayer::Zombie, GameLayer::Window])
@@ -1123,6 +1151,11 @@ pub fn step_move(
     if locomotion.diving && grounded {
         locomotion.diving = false;
         locomotion.since_dive_landing = 0.0;
+    }
+    // A throw ends where it comes down, feet planted, with none of its speed carried on.
+    if locomotion.thrown && grounded {
+        locomotion.thrown = false;
+        velocity = Vec3::ZERO;
     }
 
     *position = new_position;
@@ -1375,6 +1408,7 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(Settings::default());
         world.init_resource::<RunModifiers>();
+        world.init_resource::<MapId>();
         world.run_system_once(spawn_player).unwrap();
         let (player, seat) = world
             .query_filtered::<(Entity, &Seat), (With<Player>, With<LocalPlayer>)>()

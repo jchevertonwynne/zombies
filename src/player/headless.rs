@@ -9,6 +9,8 @@ use bevy::time::TimeUpdateStrategy;
 
 use super::*;
 use crate::audio::cues::Cue;
+use crate::map::MapId;
+use crate::power::Power;
 
 /// The Player as one rendered frame shows it.
 #[derive(Debug, Clone, Copy)]
@@ -50,8 +52,13 @@ pub struct Sim {
 }
 
 impl Sim {
-    /// The Map and the Player, rendering at `fps` while physics runs at its fixed rate.
+    /// The Greybox and the Player, rendering at `fps` while physics runs at its fixed rate.
     pub fn new(fps: f64) -> Self {
+        Self::on(MapId::Greybox, fps)
+    }
+
+    /// `map` and the Player in its first Seat, with the Power off.
+    pub fn on(map: MapId, fps: f64) -> Self {
         let mut app = App::new();
         app.add_plugins((
             MinimalPlugins,
@@ -65,6 +72,8 @@ impl Sim {
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
         .init_resource::<Steps>()
+        .insert_resource(map)
+        .init_resource::<Power>()
         .init_resource::<SendTeleport>()
         .add_message::<Teleport>()
         .init_resource::<PendingTeleports>()
@@ -148,6 +157,11 @@ impl Sim {
     }
 
     /// The Player's `Locomotion` as it stands.
+    /// Turns the Power on.
+    pub fn power_on(&mut self) {
+        self.app.world_mut().resource_mut::<Power>().switch_on();
+    }
+
     pub fn locomotion(&mut self) -> Locomotion {
         self.app.world_mut().query_filtered::<&Locomotion, With<Player>>().single(self.app.world()).unwrap().clone()
     }
@@ -387,9 +401,31 @@ fn the_balcony_drop_falls_and_lands_once() {
     assert!(samples.last().unwrap().pos.y < 1.0);
 }
 
+/// A Jump Pad does nothing with the Power off. Once it's on, standing on one throws the Player
+/// up onto the floor above, over anything in the way, to land near the spot it aims at: every
+/// Jump Pad on every Map.
+#[test]
+fn a_powered_jump_pad_throws_the_player_up_to_land_where_it_aims() {
+    for map in MapId::ALL {
+        for pad in map.layout().jump_pads {
+            let mut sim = Sim::on(map, 144.0);
+            sim.place(pad.at + Vec3::Y * JUMP_PAD_PLATE, 0.0);
+            let still = sim.run_secs(1.0);
+            assert!(still.iter().all(|s| s.grounded && feet(s).distance(pad.at) < 0.3), "thrown on the {} with the Power off", map.name());
+            sim.power_on();
+            let flight = sim.run_secs(3.0);
+            let peak = flight.iter().map(|s| feet(s).y).fold(f32::MIN, f32::max);
+            let landed = feet(flight.last().unwrap());
+            assert!(peak > pad.to.y + 1.0, "the throw from {} peaks at {peak:.2}", pad.at);
+            assert!(flight.last().unwrap().grounded, "still in the air after the throw from {}", pad.at);
+            assert!(landed.distance(pad.to) < 1.0, "the throw from {} landed at {landed}, not {}", pad.at, pad.to);
+        }
+    }
+}
+
 /// The Raised Floor in `zone`.
 fn raised_floor_in(zone: crate::zone::ZoneId) -> crate::map::RaisedFloor {
-    *crate::map::RAISED_FLOORS.iter().find(|raised| raised.zone == zone).unwrap()
+    *crate::map::MapId::Greybox.layout().raised_floors.iter().find(|raised| raised.zone == zone).unwrap()
 }
 
 /// Where the Player's feet are in a sample.
@@ -439,7 +475,7 @@ fn the_player_walks_up_the_loading_dock_ramp_or_clambers_its_edge() {
     let mut sim = Sim::new(144.0);
 
     // Up the ramp at its west end, from the floor beyond its foot.
-    let slope = *crate::map::SLOPES.iter().find(|slope| slope.zone == crate::zone::ZoneId::Workshop).unwrap();
+    let slope = *crate::map::MapId::Greybox.layout().slopes.iter().find(|slope| slope.zone == crate::zone::ZoneId::Workshop).unwrap();
     sim.place(slope.foot - Vec3::X * 0.8, EAST);
     sim.hold(&[KeyCode::KeyW]);
     let up = sim.run_secs(1.2);
@@ -475,7 +511,7 @@ fn the_player_walks_down_through_the_tunnel_dip_and_out() {
 
 /// The Yard Prop whose footprint covers `at` (x, z).
 fn yard_prop_at(at: Vec2) -> crate::map::Prop {
-    *crate::map::PROPS
+    *crate::map::MapId::Greybox.layout().props
         .iter()
         .find(|prop| {
             prop.zone == crate::zone::ZoneId::Yard
@@ -600,7 +636,7 @@ fn replaying_the_same_inputs_from_the_same_start_reaches_the_same_position_and_s
             move |player: Single<(Entity, &Loadout, &Modifiers), With<Player>>,
                   move_and_slide: MoveAndSlide| {
                 let (entity, loadout, modifiers) = *player;
-                let mut context = MoveContext { entity, loadout, modifiers, drinking: false, last_stand: false };
+                let mut context = MoveContext { entity, loadout, modifiers, drinking: false, last_stand: false, jump_pads: &[] };
                 let (mut position, mut locomotion, inputs) = args.clone();
                 for input in &inputs {
                     step_move(&mut position, &mut locomotion, input, &mut context, Duration::from_secs_f64(1.0 / 64.0), &move_and_slide);
@@ -1271,7 +1307,7 @@ fn step_once(sim: &mut Sim, position: Vec3, locomotion: Locomotion, input: MoveI
     let id = world.register_system(
         move |player: Single<(Entity, &Loadout, &Modifiers), With<Player>>, move_and_slide: MoveAndSlide| {
             let (entity, loadout, modifiers) = *player;
-            let mut context = MoveContext { entity, loadout, modifiers, drinking: false, last_stand: false };
+            let mut context = MoveContext { entity, loadout, modifiers, drinking: false, last_stand: false, jump_pads: &[] };
             let (mut position, mut locomotion, input) = args.clone();
             step_move(&mut position, &mut locomotion, &input, &mut context, Duration::from_secs_f64(1.0 / 64.0), &move_and_slide);
             locomotion
@@ -1620,7 +1656,7 @@ const FACING_WINDOW_0: f32 = std::f32::consts::PI;
 fn the_player_cannot_leave_through_a_window_or_stand_on_its_sill() {
     let (_, centre, out) = crate::map::WINDOWS[0];
     assert_eq!(out, Vec2::Y, "window 0 no longer faces +Z");
-    let window = Vec3::new(centre.x, 0.0, centre.y);
+    let window = centre;
     // How close the Player's centre can come to the wall line from inside.
     let wall_inner_face = window.z - crate::map::WALL_THICKNESS / 2.0;
     let start = window - Vec3::Z * 5.0;

@@ -9,6 +9,8 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+use crate::map::{MapId, QUARRY_X, STOREY};
+
 use crate::ammo_mod::{ammo_mod_slots, repack_price};
 use crate::arsenal::WeaponId;
 use crate::attachment::attachment_repack_price;
@@ -256,8 +258,14 @@ impl PackAPunch {
     }
 }
 
-/// The machine's spot at the back of the Gazebo, facing out of its Power Door (+Z).
-pub(crate) const MACHINE_AT: Vec3 = Vec3::new(5.0, 0.0, -9.2);
+/// The machine's spot on `map`, on the floor. It always faces +Z: on the Greybox, out of the
+/// Gazebo's Power Door; on the Quarry, along the Headframe's deck from just behind its front rail.
+pub(crate) fn machine_at(map: MapId) -> Vec3 {
+    match map {
+        MapId::Greybox => Vec3::new(5.0, 0.0, -9.2),
+        MapId::Quarry => Vec3::new(QUARRY_X + 2.0, 3.0 * STOREY, 35.2),
+    }
+}
 const MACHINE_SIZE: Vec3 = Vec3::new(1.6, 1.6, 0.9);
 
 /// Where the Weapon on the machine's tray rests when it's out, and where it is when fully inside,
@@ -294,9 +302,10 @@ fn spawn_machine(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     guns: Res<GunModels>,
+    map: Res<MapId>,
 ) {
     let body = Cuboid::from_size(MACHINE_SIZE);
-    let centre = MACHINE_AT + Vec3::Y * body.half_size.y;
+    let centre = machine_at(*map) + Vec3::Y * body.half_size.y;
     let glow = materials.add(StandardMaterial {
         base_color: UPGRADED_PURPLE,
         emissive: LinearRgba::from(UPGRADED_PURPLE) * 6.0,

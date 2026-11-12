@@ -22,6 +22,7 @@ use crate::state::{GameState, InRun, input_runs, world_runs};
 use crate::tuning::*;
 use crate::weapon::Knife;
 use crate::zombie::{Dying, Lured, Zombie};
+use crate::map::{MapId, QUARRY_X, STOREY};
 use crate::zone::ZoneId;
 
 /// The Equipment the Player carries. It never counts toward the Weapon limit.
@@ -291,16 +292,35 @@ struct EquipmentAssets {
     claymore_mat: Handle<StandardMaterial>,
 }
 
-/// Where each Equipment wall's chalk sits: its Zone, the centre on a wall's face (x, y, z), and
-/// which way that face looks.
-pub(crate) const EQUIPMENT_WALLS: [(EquipmentWall, ZoneId, Vec3, Vec3); 3] = [
-    // On the Dining Room's north wall, east of the Yard Door.
-    (EquipmentWall::Frags, ZoneId::DiningRoom, Vec3::new(-3.0, 1.5, -14.2), Vec3::NEG_Z),
-    // On the Power Room's north wall, the far side of the Yard's AK-74u.
-    (EquipmentWall::Claymore, ZoneId::PowerRoom, Vec3::new(6.0, 1.5, -14.2), Vec3::NEG_Z),
-    // On the West Hall wall along the Balcony, a storey up, between the window and the ramp.
-    (EquipmentWall::BowieKnife, ZoneId::Balcony, Vec3::new(-13.8, 5.5, -8.0), Vec3::X),
-];
+/// Where each Equipment wall's chalk sits on `map`: its Zone, the centre on a wall's face
+/// (x, y, z), and which way that face looks.
+pub(crate) fn equipment_walls(map: MapId) -> &'static [(EquipmentWall, ZoneId, Vec3, Vec3)] {
+    const Q: f32 = QUARRY_X;
+    match map {
+        MapId::Greybox => {
+            const SPOTS: [(EquipmentWall, ZoneId, Vec3, Vec3); 3] = [
+                // On the Dining Room's north wall, east of the Yard Door.
+                (EquipmentWall::Frags, ZoneId::DiningRoom, Vec3::new(-3.0, 1.5, -14.2), Vec3::NEG_Z),
+                // On the Power Room's north wall, the far side of the Yard's AK-74u.
+                (EquipmentWall::Claymore, ZoneId::PowerRoom, Vec3::new(6.0, 1.5, -14.2), Vec3::NEG_Z),
+                // On the West Hall wall along the Balcony, a storey up, between the window and the ramp.
+                (EquipmentWall::BowieKnife, ZoneId::Balcony, Vec3::new(-13.8, 5.5, -8.0), Vec3::X),
+            ];
+            &SPOTS
+        }
+        MapId::Quarry => {
+            const SPOTS: [(EquipmentWall, ZoneId, Vec3, Vec3); 3] = [
+                // On the face of the terrace, across the pit floor from the Pump House.
+                (EquipmentWall::Frags, ZoneId::QuarryFloor, Vec3::new(Q - 1.0, 1.5, 1.8), Vec3::NEG_Z),
+                // On the Crusher Shed's back wall.
+                (EquipmentWall::Claymore, ZoneId::CrusherShed, Vec3::new(Q - 5.0, STOREY + 1.5, 15.8), Vec3::NEG_Z),
+                // Up on the Headframe's deck, on its east wall.
+                (EquipmentWall::BowieKnife, ZoneId::Headframe, Vec3::new(Q + 5.8, 3.0 * STOREY + 1.5, 38.0), Vec3::NEG_X),
+            ];
+            &SPOTS
+        }
+    }
+}
 
 /// What the left hand is letting go of.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -460,13 +480,14 @@ fn spawn_walls(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    map: Res<MapId>,
 ) {
     let chalk = materials.add(StandardMaterial {
         base_color: Color::srgb(0.9, 0.9, 0.85),
         perceptual_roughness: 1.0,
         ..default()
     });
-    for (wall, _, centre, normal) in EQUIPMENT_WALLS {
+    for &(wall, _, centre, normal) in equipment_walls(*map) {
         let size = match wall {
             EquipmentWall::Frags => Vec3::new(0.3, 0.4, 0.02),
             EquipmentWall::Claymore => Vec3::new(0.5, 0.3, 0.02),
@@ -1131,7 +1152,7 @@ mod tests {
 
     #[test]
     fn every_equipment_wall_sits_in_its_zone() {
-        for (wall, zone, at, _) in EQUIPMENT_WALLS {
+        for &(wall, zone, at, _) in MapId::ALL.iter().flat_map(|&map| equipment_walls(map)) {
             let (lo, hi) = zone.volume();
             let inside = (lo.x..=hi.x).contains(&at.x) && (lo.y..=hi.y).contains(&at.y) && (lo.z..=hi.z).contains(&at.z);
             assert!(inside, "{wall:?} is outside {}", zone.name());

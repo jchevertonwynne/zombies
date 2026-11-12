@@ -1,5 +1,5 @@
-//! The built Map drawn from above as an SVG, for placing things by eye. Writes
-//! `target/map-plan.svg`: `cargo test map::plan -- --ignored`.
+//! Each built Map drawn from above as an SVG, for placing things by eye. Writes
+//! `target/map-plan-<map>.svg`: `cargo test map::plan -- --ignored`.
 
 use std::fmt::Write as _;
 
@@ -7,22 +7,23 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 
 use crate::layers::GameLayer;
-use crate::map::{SpawnKind, SpawnPoint};
+use crate::map::{MapId, SpawnKind, SpawnPoint};
 use crate::nav::{Gate, NavGraph};
 
 /// Pixels per metre.
 const SCALE: f32 = 12.0;
-const MIN: Vec2 = Vec2::new(-40.0, -56.0);
-const MAX: Vec2 = Vec2::new(40.0, 32.0);
-
-fn px(at: Vec2) -> (f32, f32) {
-    ((at.x - MIN.x) * SCALE, (MAX.y - at.y) * SCALE)
+#[test]
+#[ignore = "draws the Maps; asserts nothing"]
+fn draw() {
+    for map in MapId::ALL {
+        draw_map(map);
+    }
 }
 
-#[test]
-#[ignore = "draws the Map; asserts nothing"]
-fn draw() {
-    let mut sim = crate::zombie::headless::Sim::new(60.0, |_| {});
+fn draw_map(map: MapId) {
+    let (min, max) = map.layout().plan;
+    let px = |at: Vec2| ((at.x - min.x) * SCALE, (max.y - at.y) * SCALE);
+    let mut sim = crate::zombie::headless::Sim::on(map, 60.0, |_| {});
     let world = sim.world_mut();
     // Everything solid, as boxes from above: its bounds, and whether it's a window's opening.
     let mut boxes: Vec<(Vec3, Vec3, bool)> = world
@@ -36,17 +37,17 @@ fn draw() {
         .collect();
     boxes.sort_by(|a, b| a.1.y.total_cmp(&b.1.y));
 
-    let size = (MAX - MIN) * SCALE;
+    let size = (max - min) * SCALE;
     let mut svg = String::new();
     writeln!(svg, r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" font-family="monospace" font-size="7">"#, size.x, size.y).unwrap();
     writeln!(svg, r##"<rect width="100%" height="100%" fill="#101014"/>"##).unwrap();
     // Every metre a faint line, every 2 m a stronger one, labelled every 10.
-    for x in (MIN.x as i32)..=(MAX.x as i32) {
+    for x in (min.x as i32)..=(max.x as i32) {
         let (sx, _) = px(Vec2::new(x as f32, 0.0));
         let stroke = if x % 10 == 0 { "#444" } else if x % 2 == 0 { "#262626" } else { "#1a1a1a" };
         writeln!(svg, r#"<line x1="{sx}" y1="0" x2="{sx}" y2="{}" stroke="{stroke}"/>"#, size.y).unwrap();
     }
-    for z in (MIN.y as i32)..=(MAX.y as i32) {
+    for z in (min.y as i32)..=(max.y as i32) {
         let (_, sy) = px(Vec2::new(0.0, z as f32));
         let stroke = if z % 10 == 0 { "#444" } else if z % 2 == 0 { "#262626" } else { "#1a1a1a" };
         writeln!(svg, r#"<line x1="0" y1="{sy}" x2="{}" y2="{sy}" stroke="{stroke}"/>"#, size.x).unwrap();
@@ -82,7 +83,7 @@ fn draw() {
             writeln!(svg, r##"<text x="{}" y="{}" fill="#fff">{:.2}</text>"##, x0 + 1.0, y0 + 7.0, max.y).unwrap();
         }
     }
-    let graph = NavGraph::new();
+    let graph = NavGraph::new(map);
     for edge in &graph.edges {
         let (a, b) = (graph.nodes[edge.from].at, graph.nodes[edge.to].at);
         let colour = match edge.gate {
@@ -95,10 +96,10 @@ fn draw() {
         let (x1, y1) = px(Vec2::new(b.x, b.z));
         writeln!(svg, r#"<line x1="{x0}" y1="{y0}" x2="{x1}" y2="{y1}" stroke="{colour}" stroke-width="1"/>"#).unwrap();
     }
-    for (i, node) in graph.nodes.iter().enumerate() {
+    for node in &graph.nodes {
         let (x, y) = px(Vec2::new(node.at.x, node.at.z));
         writeln!(svg, r##"<circle cx="{x}" cy="{y}" r="2.5" fill="#fff"/>"##).unwrap();
-        writeln!(svg, r##"<text x="{}" y="{}" fill="#cfc">{} {:.1}</text>"##, x + 3.0, y - 2.0, crate::nav::node_name(i), node.at.y).unwrap();
+        writeln!(svg, r##"<text x="{}" y="{}" fill="#cfc">{} {:.1}</text>"##, x + 3.0, y - 2.0, node.name, node.at.y).unwrap();
     }
     let spawns: Vec<(Vec3, SpawnKind)> = world
         .query::<(&SpawnPoint, &Transform)>()
@@ -116,12 +117,12 @@ fn draw() {
         };
         writeln!(svg, r#"<rect x="{}" y="{}" width="6" height="6" fill="none" stroke="{colour}" stroke-width="1.5"/>"#, x - 3.0, y - 3.0).unwrap();
     }
-    for (name, at, clear) in crate::map::tests::fixtures() {
+    for (name, at, clear) in crate::map::tests::fixtures(map) {
         let (x, y) = px(Vec2::new(at.x, at.z));
         writeln!(svg, r##"<circle cx="{x}" cy="{y}" r="{}" fill="none" stroke="#ff9000" stroke-width="1"/>"##, clear * SCALE).unwrap();
         writeln!(svg, r##"<text x="{}" y="{}" fill="#ffb060">{name}</text>"##, x - 10.0, y + 10.0).unwrap();
     }
-    for zone in crate::zone::ZoneId::ALL {
+    for &zone in map.layout().zones {
         let (lo, hi) = zone.volume();
         let (x0, y0) = px(Vec2::new(lo.x, hi.z));
         let (x1, y1) = px(Vec2::new(hi.x, lo.z));
@@ -135,7 +136,7 @@ fn draw() {
         writeln!(svg, r##"<text x="{}" y="{}" fill="#fff" font-size="10">{}</text>"##, x0 + 3.0, y0 + 12.0, zone.name()).unwrap();
     }
     writeln!(svg, "</svg>").unwrap();
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/map-plan.svg");
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("target/map-plan-{}.svg", map.name().to_lowercase()));
     std::fs::write(&path, svg).unwrap();
     println!("wrote {}", path.display());
 }

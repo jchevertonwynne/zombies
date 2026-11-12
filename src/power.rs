@@ -5,6 +5,8 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+use crate::map::{MapId, QUARRY_X, STOREY};
+
 use crate::authority::HostSimulation;
 use crate::buy::{Buyable, Purchased};
 use crate::layers::GameLayer;
@@ -28,10 +30,19 @@ impl Power {
     }
 }
 
-/// The Power Switch's spot on the Power Room's east wall, at hand height over the control
-/// platform it's thrown from, and the way it faces.
+/// The Greybox's Power Switch: on the Power Room's east wall, at hand height over the control
+/// platform it's thrown from.
 pub(crate) const SWITCH_AT: Vec3 = Vec3::new(25.6, crate::map::CONTROL_PLATFORM.height + 1.3, -20.0);
 const SWITCH_FACING: Vec3 = Vec3::NEG_X;
+
+/// Where the Power Switch is on `map`, and the way it faces.
+pub(crate) fn switch_spot(map: MapId) -> (Vec3, Vec3) {
+    match map {
+        MapId::Greybox => (SWITCH_AT, SWITCH_FACING),
+        // On the Offices' south wall, at hand height: the top of the climb but the Headframe.
+        MapId::Quarry => (Vec3::new(QUARRY_X - 10.0, 2.0 * STOREY + 1.3, 16.4), Vec3::Z),
+    }
+}
 
 /// The lever that turns the Power on. Used, not bought: it has a Prompt but no price.
 #[derive(Component, Default)]
@@ -98,7 +109,9 @@ fn spawn_switch(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    map: Res<MapId>,
 ) {
+    let (at, facing) = switch_spot(*map);
     let panel = Cuboid::new(0.8, 1.2, 0.3);
     commands
         .spawn((
@@ -106,14 +119,14 @@ fn spawn_switch(
             Name::new("Power Switch"),
             PowerSwitch::default(),
             Buyable {
-                use_point: SWITCH_AT + SWITCH_FACING * 0.2,
+                use_point: at + facing * 0.2,
                 prompt: "Press F to turn on the Power".into(),
                 price: None,
                 range: USE_RANGE,
             },
             Mesh3d(meshes.add(panel)),
             MeshMaterial3d(materials.add(Color::srgb(0.3, 0.32, 0.3))),
-            Transform::from_translation(SWITCH_AT).looking_to(SWITCH_FACING, Vec3::Y),
+            Transform::from_translation(at).looking_to(facing, Vec3::Y),
             RigidBody::Static,
             Collider::from(panel),
             CollisionLayers::new(GameLayer::World, LayerMask::ALL),

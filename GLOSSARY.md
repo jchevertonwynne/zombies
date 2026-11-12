@@ -136,7 +136,9 @@ _Avoid_: board, plank of wood
 
 **Riser**: A Spawn Point in open ground, where a Zombie climbs up out of the dirt with no Barrier in its way.
 
-**Map**: The playable space. The first prototype used a single open Arena; real Maps are made of Zones joined by Doors.
+**Map**: The playable space, made of Zones joined by Doors. There are two: the Greybox, a house round a courtyard with a wing across the field, and the Quarry, a pit and its works climbed terrace by terrace. The Player picks one beside the Mode before a Run, or the Host does in the Room. The first prototype used a single open Arena.
+
+**Terrace**: One of the Quarry's level shelves, each a storey above the last: the pit floor, then the Rail Yard and the Crusher Shed, then the Winding House and the Offices. The Headframe's deck stands a storey above the top one.
 
 **Zone**: A named area of a Map, such as a room or a yard. Each Zone is either open or closed to the Player. Opening a Zone (usually by buying a Door) activates its Barriers and Spawn Points. Zones decide where Zombies come from, not how they move.
 
@@ -155,7 +157,7 @@ _Avoid_: clutter, cover, obstacle
 **Raised Floor**: Part of a Zone's floor built up above the rest, such as a dais, a stage or a dock, reached by steps or a ramp.
 _Avoid_: stage, dais (for the general term)
 
-**Ledge**: An edge where one floor stops above another, too high to step up: the side of a Raised Floor or a sunken floor, or the Balcony's drop. Zombies only ever drop off a Ledge; the Player can also scramble back up a low one.
+**Ledge**: An edge where one floor stops above another, too high to step up: the side of a Raised Floor or a sunken floor, the Balcony's drop, or the edge of a Terrace or the Headframe's deck. Zombies only ever drop off a Ledge; the Player can also scramble back up a low one.
 
 **Run**: One game, from Round 1 until Game Over or quitting.
 _Avoid_: game, match
@@ -197,14 +199,17 @@ _Avoid_: perk-a-cola, buff
 
 **Quick Revive**: A Perk. Solo, it lets the Player get back up from one Down instead of reaching Game Over. In Co-op, it only makes the Player's Revives of others faster.
 
-**Power**: A state of the whole Map that starts off and, once turned on, stays on for the rest of the Run. Most Perk Machines, every Power Door and every Trap wait for it.
+**Power**: A state of the whole Map that starts off and, once turned on, stays on for the rest of the Run. Most Perk Machines, every Power Door, every Trap and every Jump Pad wait for it.
 
 **Power Switch**: The lever that turns Power on. It is free to use.
 
 **Trap**: A Buyable hazard across a doorway that, once switched on, kills every Zombie that walks into it for a short time and can Down the Player too. It then needs a cooldown before it can be bought again.
 _Avoid_: electric fence, zapper
 
-**Teleporter**: A Map's set of Teleporter Pads and the Mainframe they send the Player to. It needs Power and only carries the Player one way, to the Mainframe; Zombies have to walk.
+**Jump Pad**: A plate in the floor that, once the Power is on, throws a Player who steps onto it up to a fixed spot on a higher floor, over anything in the way. It costs nothing, nothing steers the throw, and Zombies never use one. Only the Quarry has them.
+_Avoid_: launch pad, bounce pad, trampoline
+
+**Teleporter**: A Map's set of Teleporter Pads and the Mainframe they send the Player to. Only the Greybox has one. It needs Power and only carries the Player one way, to the Mainframe; Zombies have to walk.
 
 **Teleporter Pad**: A Buyable platform that, once Linked, sends the Player to the Mainframe for Points. It kills the Zombies crowded around it when it fires.
 _Avoid_: teleporter (for one pad), portal

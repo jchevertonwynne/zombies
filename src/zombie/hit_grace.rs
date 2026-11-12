@@ -198,7 +198,7 @@ fn hit_grace_is_per_player() {
         .spawn((
             Player,
             crate::modifier::Modifiers::default(),
-            crate::zone::PlayerZone::default(),
+            crate::zone::PlayerZone::start(crate::map::MapId::Greybox),
             Transform::from_translation(other_feet + Vec3::Y * (PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0)),
         ))
         .id();

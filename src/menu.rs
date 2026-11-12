@@ -40,7 +40,9 @@ pub enum MenuButton {
     EditName,
     /// Highlights a Mode on the Mode screen, remembering it as the last Mode.
     PickMode(Mode),
-    /// Starts a Run in the highlighted Mode.
+    /// Highlights a Map on the Mode screen, remembering it as the last Map.
+    PickMap(MapId),
+    /// Starts a Run in the highlighted Mode on the highlighted Map.
     Start,
     Armory,
     Records,
@@ -323,7 +325,7 @@ fn spawn_main_menu(mut commands: Commands) {
 }
 
 fn spawn_mode_screen(mut commands: Commands, settings: Res<Settings>) {
-    let mode = settings.last_mode;
+    let (mode, map) = (settings.last_mode, settings.last_map);
     let screen = screen(&mut commands, MENU_BACKGROUND, |screen| {
         screen.spawn((
             text("MODE", 64.0, Color::WHITE),
@@ -342,7 +344,7 @@ fn spawn_mode_screen(mut commands: Commands, settings: Res<Settings>) {
                     ..default()
                 },
             ))
-            .with_children(|board| mode_board(board, mode));
+            .with_children(|board| mode_board(board, mode, map));
         button(screen, "Back", MenuButton::Back, 280.0);
     });
     commands
@@ -350,9 +352,9 @@ fn spawn_mode_screen(mut commands: Commands, settings: Res<Settings>) {
         .insert(DespawnOnExit(MainMenuScreen::Mode));
 }
 
-/// The Mode buttons with the highlighted one in red, what it plays like, the Armory while
-/// Gauntlet is highlighted, and Start.
-fn mode_board(board: &mut ChildSpawnerCommands, highlighted: Mode) {
+/// The Mode buttons and the Map buttons, each with the highlighted one in red and a line on what
+/// it's like, the Armory while Gauntlet is highlighted, and Start.
+fn mode_board(board: &mut ChildSpawnerCommands, highlighted: Mode, map: MapId) {
     board
         .spawn(Node {
             column_gap: px(16.0),
@@ -373,6 +375,19 @@ fn mode_board(board: &mut ChildSpawnerCommands, highlighted: Mode) {
         Mode::Gauntlet => "Classic, with a build that grows Round by Round.",
     };
     board.spawn(text(blurb, 22.0, HINT_GREY));
+    board
+        .spawn(Node {
+            column_gap: px(16.0),
+            margin: UiRect::top(px(10.0)),
+            ..default()
+        })
+        .with_children(|row| {
+            for choice in MapId::ALL {
+                let color = if choice == map { ROUND_RED } else { Color::WHITE };
+                colored_button(row, choice.name(), MenuButton::PickMap(choice), 240.0, color);
+            }
+        });
+    board.spawn(text(map.blurb(), 22.0, HINT_GREY));
     if highlighted == Mode::Gauntlet {
         button(board, "Armory", MenuButton::Armory, 280.0);
     }
@@ -384,12 +399,12 @@ fn refresh_mode_screen(
     board: Query<Entity, With<ModeBoard>>,
     settings: Res<Settings>,
 ) {
-    let mode = settings.last_mode;
+    let (mode, map) = (settings.last_mode, settings.last_map);
     for board in &board {
         commands
             .entity(board)
             .despawn_children()
-            .with_children(|board| mode_board(board, mode));
+            .with_children(|board| mode_board(board, mode, map));
     }
 }
 
@@ -1075,7 +1090,7 @@ fn activate_button(
     buttons: Query<&MenuButton>,
     settings_screen: Query<Entity, With<SettingsScreen>>,
     confirmation: Query<Entity, With<ResetConfirmation>>,
-    mut mode: ResMut<Mode>,
+    (mut mode, mut map): (ResMut<Mode>, ResMut<MapId>),
     (mut tab, mut records_players, mut records): (
         ResMut<RecordsTab>,
         ResMut<RecordsPlayers>,
@@ -1109,8 +1124,14 @@ fn activate_button(
                 settings.last_mode = picked;
             }
         }
+        MenuButton::PickMap(picked) => {
+            if settings.last_map != picked {
+                settings.last_map = picked;
+            }
+        }
         MenuButton::Start => {
             *mode = settings.last_mode;
+            *map = settings.last_map;
             next_game.set(GameState::Playing);
         }
         MenuButton::Coop => {

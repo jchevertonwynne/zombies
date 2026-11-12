@@ -611,7 +611,9 @@ fn reconcile(
     >,
     mut points: Query<(&PlayerSeat, &mut Points), With<Player>>,
     move_and_slide: MoveAndSlide,
+    (map, power): (Res<crate::map::MapId>, Option<Res<crate::power::Power>>),
 ) {
+    let jump_pads = crate::jump_pad::working(*map, power.is_some_and(|power| power.is_on()));
     let mut heard = std::mem::take(&mut inbox.snapshots);
     heard.retain(|snapshot| prediction.latest.is_none_or(|latest| snapshot.tick > latest));
     heard.sort_by_key(|snapshot| snapshot.tick);
@@ -660,7 +662,7 @@ fn reconcile(
         *locomotion = after_used.clone();
     }
     snapshot.own.put(&mut position, &mut locomotion);
-    let mut context = MoveContext { entity, loadout, modifiers, drinking, last_stand };
+    let mut context = MoveContext { entity, loadout, modifiers, drinking, last_stand, jump_pads };
     for (_, step, _) in &prediction.sent {
         step_move(&mut position, &mut locomotion, &step.input(), &mut context, time.delta(), &move_and_slide);
     }

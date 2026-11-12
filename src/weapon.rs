@@ -2885,14 +2885,14 @@ mod two_player_tests {
         // The Sim's stand-in Player gives way to two real ones, the local one with its camera.
         let stand_in = world.query_filtered::<Entity, With<Player>>().single(world).unwrap();
         world.entity_mut(stand_in).despawn();
-        let local = world.spawn((player_body(Seat(0), "Player", &[]), LocalPlayer)).id();
+        let local = world.spawn((player_body(Seat(0), "Player", &[], crate::map::MapId::Greybox), LocalPlayer)).id();
         world.entity_mut(local).with_child((
             PlayerCamera,
             Eye { height: PLAYER_EYE_HEIGHT },
             CameraSway::default(),
             Transform::from_xyz(0.0, PLAYER_EYE_HEIGHT, 0.0),
         ));
-        let teammate = world.spawn(player_body(Seat(1), "Player 2", &[])).id();
+        let teammate = world.spawn(player_body(Seat(1), "Player 2", &[], crate::map::MapId::Greybox)).id();
         sim.run(30);
         (sim, local, teammate)
     }

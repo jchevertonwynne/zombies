@@ -113,8 +113,8 @@ pub struct Own {
     pub position: Vec3,
     pub velocity: Vec3,
     pub stamina: f32,
-    /// Grounded, sprinting and winded, in bits 0, 1 and 2, and the Stance in bits 3–4 (Standing,
-    /// Crouched, Prone, the fourth value left free).
+    /// Grounded, sprinting and winded, in bits 0, 1 and 2, the Stance in bits 3–4 (Standing,
+    /// Crouched, Prone, the fourth value left free), and in flight off a Jump Pad in bit 5.
     pub bits: u8,
     pub points: u32,
 }
@@ -123,6 +123,7 @@ const GROUNDED: u8 = 1;
 const SPRINTING: u8 = 2;
 const WINDED: u8 = 4;
 const STANCE_SHIFT: u8 = 3;
+const THROWN: u8 = 32;
 
 impl Own {
     pub fn of(position: Vec3, locomotion: &Locomotion, points: u64) -> Self {
@@ -133,6 +134,7 @@ impl Own {
             bits: u8::from(locomotion.grounded) * GROUNDED
                 | u8::from(locomotion.sprinting) * SPRINTING
                 | u8::from(locomotion.winded) * WINDED
+                | u8::from(locomotion.thrown) * THROWN
                 | (stance_bits(locomotion.stance) << STANCE_SHIFT),
             points: points.min(u64::from(u32::MAX)) as u32,
         }
@@ -156,6 +158,7 @@ impl Own {
         locomotion.grounded = self.bits & GROUNDED != 0;
         locomotion.sprinting = self.bits & SPRINTING != 0;
         locomotion.winded = self.bits & WINDED != 0;
+        locomotion.thrown = self.bits & THROWN != 0;
         locomotion.heal_stance(self.stance());
     }
 }
@@ -502,6 +505,18 @@ mod tests {
         let before = agreed.clone();
         own.put(&mut position, &mut agreed);
         assert_eq!((agreed.stance, agreed.eye), (before.stance, before.eye));
+    }
+
+    /// A client put right mid-throw off a Jump Pad keeps flying unsteered, as the Host has it.
+    #[test]
+    fn a_correction_carries_a_jump_pad_throw() {
+        let host = Locomotion { thrown: true, velocity: Vec3::new(0.0, 9.0, 5.0), ..default() };
+        let (mut client, mut position) = (Locomotion::default(), Vec3::ZERO);
+        Own::of(Vec3::ZERO, &host, 0).put(&mut position, &mut client);
+        assert!(client.thrown);
+        let landed = Locomotion { grounded: true, ..default() };
+        Own::of(Vec3::ZERO, &landed, 0).put(&mut position, &mut client);
+        assert!(!client.thrown);
     }
 
     #[test]

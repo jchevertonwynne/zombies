@@ -26,6 +26,7 @@ use crate::settings::Settings;
 use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 use crate::zombie::{Attack, DamageZombie, Dying, HitZone, Zombie};
+use crate::map::MapId;
 use crate::zone::{PlayerZone, ZoneId};
 
 /// One of the two Pads.
@@ -516,11 +517,20 @@ impl Plugin for TeleporterPlugin {
     }
 }
 
+/// Whether `map` has the Teleporter. Only the Greybox does; its spots are the ones here.
+pub fn stands_on(map: MapId) -> bool {
+    map == MapId::Greybox
+}
+
 fn spawn_teleporter(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    map: Res<MapId>,
 ) {
+    if !stands_on(*map) {
+        return;
+    }
     let lamp = |materials: &mut Assets<StandardMaterial>, colour: Color, glow: f32| {
         materials.add(StandardMaterial {
             base_color: colour,
@@ -1276,7 +1286,7 @@ mod tests {
             assert_eq!(zone_at(pad.at() + Vec3::Y * 0.5), Some(zone));
             // Clear of the Box Locations.
             for (_, at, _) in BOX_LOCATIONS {
-                assert!(Vec2::new(pad.at().x, pad.at().z).distance(at) > 3.0);
+                assert!(Vec2::new(pad.at().x, pad.at().z).distance(Vec2::new(at.x, at.z)) > 3.0);
             }
         }
         assert_eq!(

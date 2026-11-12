@@ -1563,6 +1563,15 @@ pub const DOOR_PRICE_DINING_PASSAGE: u64 = 1000;
 pub const DOOR_PRICE_POWER_TUNNEL: u64 = 1000;
 pub const DOOR_PRICE_WORKSHOP_STOREROOM: u64 = 1250;
 pub const DOOR_PRICE_STOREROOM_GENERATOR: u64 = 1250;
+/// The Quarry's Doors, dearer the higher the climb: out of the Pump House, up the ramp to the
+/// Rail Yard, into the Crusher Shed, up the steps to the Winding House, through to the Offices,
+/// and out to the Headframe.
+pub const DOOR_PRICE_PUMP_FLOOR: u64 = 750;
+pub const DOOR_PRICE_FLOOR_RAIL_YARD: u64 = 1000;
+pub const DOOR_PRICE_RAIL_YARD_CRUSHER: u64 = 1000;
+pub const DOOR_PRICE_RAIL_YARD_WINDING: u64 = 1250;
+pub const DOOR_PRICE_WINDING_OFFICES: u64 = 1000;
+pub const DOOR_PRICE_WINDING_HEADFRAME: u64 = 1500;
 
 // Buying
 /// How far from a Buyable's use point the Player can buy it, height included.
@@ -1828,6 +1837,14 @@ pub const TELEPORTER_RETELEPORT_HOUNDS: u32 = 4;
 /// A Pad's radius, and how far from its centre it can be used (approx).
 pub const TELEPORTER_PAD_RADIUS: f32 = 1.2;
 pub const TELEPORTER_PAD_USE_RANGE: f32 = 2.5;
+
+// Jump Pads
+/// A Jump Pad's plate: how far a Player's feet can be from its middle and still be thrown, and how
+/// thick it is, low enough to walk onto like a step.
+pub const JUMP_PAD_RADIUS: f32 = 0.9;
+pub const JUMP_PAD_PLATE: f32 = 0.06;
+/// How high over the higher of its two ends a Jump Pad's throw peaks.
+pub const JUMP_PAD_APEX: f32 = 2.5;
 
 // Last Stand
 pub const LAST_STAND_SECS: f32 = 10.0;

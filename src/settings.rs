@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::controls::Bindings;
+use crate::map::MapId;
 use crate::mode::Mode;
 use crate::save::{self, SaveFile};
 use crate::tuning::*;
@@ -35,6 +36,10 @@ pub struct Settings {
     pub stance_keys: StanceMode,
     /// The Mode last picked, so the Mode screen can start on it.
     pub last_mode: Mode,
+    /// The Map last picked, likewise. Missing from Settings saved before there was a choice of
+    /// Map, which start on the Greybox.
+    #[serde(default)]
+    pub last_map: MapId,
     /// Key bindings changed from the defaults. Missing from Settings saved before they existed,
     /// which start with every default.
     #[serde(default)]
@@ -57,6 +62,7 @@ impl Default for Settings {
             special_zombies: SpecialZombies::default(),
             stance_keys: StanceMode::default(),
             last_mode: Mode::default(),
+            last_map: MapId::default(),
             bindings: Bindings::default(),
             name: String::new(),
         }

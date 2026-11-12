@@ -388,7 +388,7 @@ mod tests {
         .add_message::<crate::special::SpecialCue>()
         .add_message::<crate::nova::NovaCrawlerKilled>()
         .init_resource::<crate::power_up::ActivePowerUps>()
-        .insert_resource(crate::nav::NavGraph::new())
+        .insert_resource(crate::nav::NavGraph::new(crate::map::MapId::Greybox))
         .insert_resource(crate::barrier::Barriers::default())
         .add_plugins((crate::zombie::ZombiePlugin, crate::hellhound::HellhoundPlugin))
         .add_systems(Startup, (crate::special::load_assets, crate::sapper::load_assets, crate::nova::load_assets))

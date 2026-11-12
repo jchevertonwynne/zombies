@@ -13,7 +13,8 @@ use crate::state::InRun;
 use crate::tuning::*;
 use crate::zone::ZoneId;
 
-use super::{DOOR_HEIGHT, DOOR_WIDTH, Palette, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, WALL_THICKNESS, WINDOW_WIDTH, WINDOWS, palette};
+use super::{DOOR_HEIGHT, DOOR_WIDTH, Palette, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, WALL_THICKNESS, WINDOW_WIDTH, palette};
+use crate::jump_pad::JumpPad;
 
 /// How tall the skirting along the foot of a wall is, and how far it stands out from the face.
 const SKIRTING: Vec2 = Vec2::new(0.16, 0.03);
@@ -40,6 +41,8 @@ const DRUM_PAINT: [Color; 2] = [Color::srgb(0.45, 0.16, 0.1), Color::srgb(0.27, 
 const DRUM_RING: Color = Color::srgb(0.15, 0.15, 0.15);
 const MACHINE_STEEL: Color = Color::srgb(0.21, 0.26, 0.24);
 const MACHINE_PANEL: Color = Color::srgb(0.3, 0.35, 0.33);
+/// Hazard yellow, for the Jump Pads.
+const JUMP_PAD_PAINT: Color = Color::srgb(0.86, 0.68, 0.1);
 
 /// A gap in a wall, at an offset along it.
 pub(super) enum Gap {
@@ -65,15 +68,22 @@ pub(super) struct Builder<'a, 'w, 's> {
     power_door: Handle<StandardMaterial>,
     /// While set, walls are painted in this instead of their Zones' palettes.
     pub repaint: Option<Palette>,
+    /// The Map's windows, which its outer walls leave gaps for.
+    windows: &'static [(ZoneId, Vec3, Vec2)],
 }
 
 impl<'a, 'w, 's> Builder<'a, 'w, 's> {
-    pub fn new(commands: &'a mut Commands<'w, 's>, meshes: &'a mut Assets<Mesh>, materials: &'a mut Assets<StandardMaterial>) -> Self {
+    pub fn new(
+        commands: &'a mut Commands<'w, 's>,
+        meshes: &'a mut Assets<Mesh>,
+        materials: &'a mut Assets<StandardMaterial>,
+        windows: &'static [(ZoneId, Vec3, Vec2)],
+    ) -> Self {
         let cube = meshes.add(Cuboid::from_length(1.0));
         let cylinder = meshes.add(Cylinder::new(0.5, 1.0));
         let door = materials.add(Color::srgb(0.85, 0.45, 0.1));
         let power_door = materials.add(Color::srgb(0.5, 0.3, 0.8));
-        Self { commands, meshes, materials, cube, cylinder, paints: HashMap::new(), door, power_door, repaint: None }
+        Self { commands, meshes, materials, cube, cylinder, paints: HashMap::new(), door, power_door, repaint: None, windows }
     }
 
     /// The material for a flat colour.
@@ -123,17 +133,18 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         self.bare(Collider::cuboid(size.x, size.y, size.z), at, Quat::IDENTITY)
     }
 
-    /// A Zone's floor, round any sunken floors in it, and deep enough that their edges are solid
-    /// all the way down.
+    /// A Zone's floor at its height, round any sunken floors in it, and deep enough that their
+    /// edges are solid all the way down.
     pub fn floor(&mut self, zone: ZoneId, holes: &[Sunken]) {
         let (lo, hi) = zone.volume();
+        let height = zone.floor();
         let deepest = holes.iter().map(|hole| hole.depth).fold(0.0, f32::max);
         let thick = 0.2 + deepest;
         let colour = palette(Some(zone)).floor;
         let cut: Vec<_> = holes.iter().map(|hole| (hole.min, hole.max)).collect();
         for (min, max) in rects_around((Vec2::new(lo.x, lo.z), Vec2::new(hi.x, hi.z)), &cut) {
             let size = Vec3::new(max.x - min.x, thick, max.y - min.y);
-            let centre = Vec3::new((min.x + max.x) / 2.0, -thick / 2.0, (min.y + max.y) / 2.0);
+            let centre = Vec3::new((min.x + max.x) / 2.0, height - thick / 2.0, (min.y + max.y) / 2.0);
             self.block(size, centre, colour);
         }
     }
@@ -183,6 +194,35 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
             (Vec2::new(max.x, middle.y), Vec2::new(wide, max.y - min.y + wide)),
         ] {
             self.shape(Vec3::new(size.x, tall, size.y), Vec3::new(centre.x, y, centre.y), Quat::IDENTITY, colour);
+        }
+    }
+
+    /// A Jump Pad's plate: a low steel disc in hazard paint, with a lamp-black ring, and an
+    /// arrow on it pointing where it throws. Only the disc is solid, as low as a step.
+    pub fn jump_pad(&mut self, pad: &JumpPad) {
+        let plate = Vec3::new(JUMP_PAD_RADIUS * 2.0, JUMP_PAD_PLATE, JUMP_PAD_RADIUS * 2.0);
+        let paint = self.paint(JUMP_PAD_PAINT);
+        let rim = self.paint(DRUM_RING);
+        self.commands.spawn((
+            InRun,
+            Mesh3d(self.cylinder.clone()),
+            MeshMaterial3d(rim),
+            Transform::from_translation(pad.at + Vec3::Y * (JUMP_PAD_PLATE / 2.0 - 0.005)).with_scale(plate + Vec3::new(0.24, -0.01, 0.24)),
+        ));
+        self.commands.spawn((
+            InRun,
+            Mesh3d(self.cylinder.clone()),
+            MeshMaterial3d(paint),
+            Transform::from_translation(pad.at + Vec3::Y * JUMP_PAD_PLATE / 2.0).with_scale(plate),
+        ));
+        self.bare(Collider::cylinder(JUMP_PAD_RADIUS, JUMP_PAD_PLATE), pad.at + Vec3::Y * JUMP_PAD_PLATE / 2.0, Quat::IDENTITY);
+        let flat = Vec3::new(pad.to.x - pad.at.x, 0.0, pad.to.z - pad.at.z).normalize_or(Vec3::Z);
+        let rotation = Quat::from_rotation_arc(Vec3::Z, flat);
+        let top = pad.at + Vec3::Y * (JUMP_PAD_PLATE + 0.01);
+        self.shape(Vec3::new(0.18, 0.02, 0.9), top - flat * 0.15, rotation, DRUM_RING);
+        for side in [-1.0, 1.0] {
+            let wing = rotation * Quat::from_rotation_y(side * 0.7);
+            self.shape(Vec3::new(0.16, 0.02, 0.55), top + flat * 0.2 + rotation * Vec3::X * side * 0.14, wing, DRUM_RING);
         }
     }
 
@@ -410,18 +450,21 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         self.piece(a, b, cursor, length, y0, 0.0, height);
     }
 
-    /// An outer wall from `a` to `b`, with a gap for each window on it.
-    pub fn outer_wall(&mut self, a: Vec2, b: Vec2, height: f32) {
+    /// An outer wall from `a` to `b`, standing on `y0`, with a gap for each window on it at that
+    /// height.
+    pub fn outer_wall(&mut self, a: Vec2, b: Vec2, y0: f32, height: f32) {
         let length = (b - a).length();
-        let mut gaps: Vec<_> = WINDOWS
+        let mut gaps: Vec<_> = self
+            .windows
             .iter()
-            .map(|(_, centre, _)| *centre)
+            .filter(|(_, centre, _)| (centre.y - y0).abs() < 0.01)
+            .map(|(_, centre, _)| Vec2::new(centre.x, centre.z))
             .filter(|&centre| (centre - a).perp_dot(b - a).abs() < 0.01)
             .map(|centre| ((centre - a).dot(b - a) / length, Gap::Window))
             .filter(|(at, _)| *at > 0.0 && *at < length)
             .collect();
         gaps.sort_by(|x, y| x.0.total_cmp(&y.0));
-        self.wall(a, b, 0.0, height, &gaps);
+        self.wall(a, b, y0, height, &gaps);
     }
 
     /// A plain piece of the wall from `a` to `b`: solid from `s` to `e` along it and `lo` to `hi`

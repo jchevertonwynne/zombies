@@ -181,7 +181,7 @@ mod tests {
 
     #[test]
     fn nearer_by_path_wins_over_nearer_in_a_straight_line() {
-        let graph = NavGraph::new();
+        let graph = NavGraph::new(crate::map::MapId::Greybox);
         let all_open = ZoneId::ALL.iter().flat_map(|&a| ZoneId::ALL.iter().map(move |&b| (a, b))).collect::<Vec<_>>();
         // From the West Hall's middle: the Yard's west end is close through the wall but the way
         // round is up the ramp and over the Balcony, and the Hall's north end is further off but
@@ -199,7 +199,7 @@ mod tests {
 
     #[test]
     fn a_shut_door_makes_the_far_side_the_longer_way() {
-        let graph = NavGraph::new();
+        let graph = NavGraph::new(crate::map::MapId::Greybox);
         let zombie = Vec3::new(0.0, 0.0, 20.0);
         let behind_a_door = Vec3::new(-12.5, 0.0, 20.0);
         let players = [spot(1, behind_a_door, true), spot(2, Vec3::new(12.5, 0.0, 20.0), true)];
@@ -210,7 +210,7 @@ mod tests {
 
     #[test]
     fn players_who_are_not_up_are_never_chosen() {
-        let graph = NavGraph::new();
+        let graph = NavGraph::new(crate::map::MapId::Greybox);
         let zombie = Vec3::new(0.0, 0.0, 0.0);
         let down_beside_it = spot(1, Vec3::new(0.5, 0.0, 0.0), false);
         let up_far_off = spot(2, Vec3::new(11.0, 0.0, -2.0), true);
@@ -222,7 +222,7 @@ mod tests {
 
     #[test]
     fn the_only_player_up_is_chosen_without_planning_a_path() {
-        let graph = NavGraph::new();
+        let graph = NavGraph::new(crate::map::MapId::Greybox);
         let down = spot(1, Vec3::new(0.5, 0.0, 0.0), false);
         let up = spot(2, Vec3::new(0.0, 0.0, 20.0), true);
         // The barrier test is called when a route from outside the window is planned.
@@ -237,7 +237,7 @@ mod tests {
 
     #[test]
     fn the_only_player_up_is_always_chosen_even_with_no_way_through() {
-        let graph = NavGraph::new();
+        let graph = NavGraph::new(crate::map::MapId::Greybox);
         // Outside a shut window: no route in.
         let outside = Vec3::new(-7.0, 0.0, 28.0);
         let inside = spot(1, Vec3::new(0.0, 0.0, 20.0), true);
@@ -247,7 +247,7 @@ mod tests {
 
     #[test]
     fn a_player_no_path_reaches_comes_after_one_that_one_does() {
-        let graph = NavGraph::new();
+        let graph = NavGraph::new(crate::map::MapId::Greybox);
         let outside = Vec3::new(-7.0, 0.0, 28.0);
         let near_but_cut_off = spot(1, Vec3::new(0.0, 0.0, 20.0), true);
         let reachable = spot(2, Vec3::new(-7.0, 0.0, 33.0), true);

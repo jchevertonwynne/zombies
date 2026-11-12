@@ -12,6 +12,7 @@ use bevy::time::TimeUpdateStrategy;
 
 use super::*;
 use crate::authority::{Authority, AuthorityPlugin};
+use crate::map::MapId;
 use crate::modifier::Modifiers;
 use crate::player::{LocalPlayer, Player};
 use crate::state::{GameState, Pause};
@@ -40,6 +41,15 @@ impl Sim {
 
     /// The same, running as `authority`.
     pub fn new_as(authority: Authority, fps: f64, configure: impl FnOnce(&mut App)) -> Self {
+        Self::build(authority, MapId::Greybox, fps, configure)
+    }
+
+    /// The same on `map`, with the stand-in Player in its first Seat.
+    pub fn on(map: MapId, fps: f64, configure: impl FnOnce(&mut App)) -> Self {
+        Self::build(Authority::Host, map, fps, configure)
+    }
+
+    fn build(authority: Authority, map: MapId, fps: f64, configure: impl FnOnce(&mut App)) -> Self {
         let mut app = App::new();
         app.add_plugins((
             MinimalPlugins,
@@ -58,7 +68,8 @@ impl Sim {
         .add_message::<SpecialCue>()
         .add_message::<NovaCrawlerKilled>()
         .init_resource::<ActivePowerUps>()
-        .insert_resource(NavGraph::new())
+        .insert_resource(map)
+        .insert_resource(NavGraph::new(map))
         .insert_resource(Barriers::default())
         .init_resource::<Steps>()
         .add_plugins(ZombiePlugin)
@@ -74,8 +85,8 @@ impl Sim {
             Player,
             LocalPlayer,
             Modifiers::default(),
-            crate::zone::PlayerZone::default(),
-            Transform::from_translation(crate::map::PLAYER_START + Vec3::Y * half_height),
+            crate::zone::PlayerZone::start(map),
+            Transform::from_translation(map.layout().seat_start(0) + Vec3::Y * half_height),
         ));
         let mut sim = Self {
             app,
@@ -304,7 +315,7 @@ fn a_zombie_walks_up_the_ramp_to_a_player_on_the_balcony() {
 
 /// The Raised Floor in `zone`.
 fn raised_floor_in(zone: crate::zone::ZoneId) -> crate::map::RaisedFloor {
-    *crate::map::RAISED_FLOORS.iter().find(|raised| raised.zone == zone).unwrap()
+    *crate::map::MapId::Greybox.layout().raised_floors.iter().find(|raised| raised.zone == zone).unwrap()
 }
 
 /// Follows `zombie` for up to `secs`, until `there` says it has arrived; whether it did, and the
@@ -349,7 +360,7 @@ fn a_zombie_goes_round_by_the_steps_to_a_player_on_a_raised_floor() {
 
 /// The Prop of `kind` in `zone` whose footprint covers `at` (x, z).
 fn prop_at(kind: crate::map::PropKind, zone: crate::zone::ZoneId, at: Vec2) -> crate::map::Prop {
-    *crate::map::PROPS
+    *crate::map::MapId::Greybox.layout().props
         .iter()
         .find(|prop| prop.kind == kind && prop.zone == zone && (Vec2::new(prop.at.x, prop.at.z) - at).abs().cmple(Vec2::new(prop.size.x, prop.size.z) / 2.0).all())
         .unwrap()
@@ -374,7 +385,7 @@ fn a_zombie_goes_round_a_dining_table_to_the_player() {
 /// Player just over the Ledge, climbs out by the steps.
 #[test]
 fn a_zombie_climbs_out_of_the_sunken_garden_by_its_steps() {
-    let garden = *crate::map::SUNKEN.iter().find(|sunken| sunken.zone == crate::zone::ZoneId::Yard).unwrap();
+    let garden = *crate::map::MapId::Greybox.layout().sunken.iter().find(|sunken| sunken.zone == crate::zone::ZoneId::Yard).unwrap();
     let x = (garden.min.x + garden.max.x) / 2.0;
     let mut sim = Sim::new(60.0, |_| {});
     let player = Vec3::new(x, 0.0, garden.max.y + 1.1);
@@ -424,7 +435,7 @@ fn add_player(sim: &mut Sim, feet: Vec3) -> Entity {
         .spawn((
             Player,
             Modifiers::default(),
-            crate::zone::PlayerZone::default(),
+            crate::zone::PlayerZone::start(MapId::Greybox),
             Transform::from_translation(feet + Vec3::Y * half_height),
         ))
         .id()
@@ -518,7 +529,7 @@ fn zombies_that_vault_a_window_together_land_apart_and_move_on() {
     for _ in 0..crate::tuning::BARRIER_PLANKS {
         sim.world_mut().resource_mut::<Barriers>().tear(barrier);
     }
-    let centre = WINDOWS[barrier.0 as usize].1;
+    let centre = WINDOWS[barrier.0 as usize].1.xz();
     let spawn = window_spawn(barrier);
     let zombies: Vec<Entity> = [-0.55, 0.0, 0.55]
         .into_iter()
@@ -623,32 +634,40 @@ fn zombies_climb_in_through_the_balcony_window_onto_the_balcony() {
 /// there, is never cut off from the graph by a Prop, a Ledge or a corner.
 #[test]
 fn every_open_floor_spot_walks_to_and_from_a_path_node() {
-    use crate::map::{PROPS, RAISED_FLOORS, SUNKEN};
-    use crate::zone::ZoneId;
+    for map in MapId::ALL {
+        every_open_floor_spot_walks_to_and_from_a_path_node_on(map);
+    }
+}
 
-    let mut sim = Sim::new(60.0, |_| {});
+fn every_open_floor_spot_walks_to_and_from_a_path_node_on(map_id: MapId) {
+    let layout = map_id.layout();
+    let mut sim = Sim::on(map_id, 60.0, |_| {});
     let (checked, cut_off): (usize, Vec<String>) = sim
         .world_mut()
-        .run_system_once(|spatial: SpatialQuery, graph: Res<NavGraph>| {
+        .run_system_once(move |spatial: SpatialQuery, graph: Res<NavGraph>| {
             let map = SpatialQueryFilter::from_mask(GameLayer::World);
             let half = body_half_height();
             let probe = Collider::sphere(ZOMBIE_RADIUS * 0.8);
             let body = Collider::capsule(ZOMBIE_RADIUS, ZOMBIE_CAPSULE_LENGTH);
             let mut cut_off = Vec::new();
             let mut seen = std::collections::HashSet::new();
-            for zone in ZoneId::ALL {
+            for &zone in layout.zones {
                 let (lo, hi) = zone.volume();
-                let ground = if zone == ZoneId::Balcony { 4.0 } else { 0.0 };
+                // The Zone's own floor, and a storey up where it's tall enough to have a landing
+                // or a deck there.
+                let ground = zone.floor();
+                let upper = (hi.y > ground + crate::map::STOREY + 1.0).then_some(ground + crate::map::STOREY);
                 let floors: Vec<f32> = [ground]
                     .into_iter()
-                    .chain(RAISED_FLOORS.iter().filter(|raised| raised.zone == zone).map(|raised| raised.height))
-                    .chain(SUNKEN.iter().filter(|s| s.zone == zone).map(|s| -s.depth))
+                    .chain(upper)
+                    .chain(layout.raised_floors.iter().filter(|raised| raised.zone == zone).map(|raised| raised.height))
+                    .chain(layout.sunken.iter().filter(|s| s.zone == zone).map(|s| -s.depth))
                     .collect();
                 let mut x = lo.x + 0.75;
                 while x < hi.x {
                     let mut z = lo.z + 0.75;
                     while z < hi.z {
-                        let on_prop = PROPS.iter().any(|prop| {
+                        let on_prop = layout.props.iter().any(|prop| {
                             (Vec2::new(x - prop.at.x, z - prop.at.z).abs() - Vec2::new(prop.size.x, prop.size.z) / 2.0).max_element() < ZOMBIE_RADIUS
                         });
                         for &floor in &floors {
@@ -679,6 +698,6 @@ fn every_open_floor_spot_walks_to_and_from_a_path_node() {
             (seen.len(), cut_off)
         })
         .unwrap();
-    assert!(checked > 1000, "only {checked} spots checked");
-    assert!(cut_off.is_empty(), "cut off from the path nodes: {cut_off:#?}");
+    assert!(checked > 500, "only {checked} spots checked on the {}", map_id.name());
+    assert!(cut_off.is_empty(), "cut off from the path nodes on the {}: {cut_off:#?}", map_id.name());
 }

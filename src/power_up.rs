@@ -15,7 +15,7 @@ use crate::barrier::Barriers;
 use crate::door::Door;
 use crate::equipment::Equipment;
 use crate::last_stand::LastStand;
-use crate::map::BOX_LOCATIONS;
+use crate::map::{BOX_LOCATIONS, MapId};
 use crate::modifier::{Modifiers, Stat, resolve, resolve_count};
 use crate::mystery_box::{BoxAssets, BoxRun, BoxState, MysteryBox, spawn_box};
 use crate::nav::zone_at;
@@ -27,7 +27,7 @@ use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 use crate::weapon::Loadout;
 use crate::zombie::{Attack, DamageZombie, Dying, HitZone, Pay, Zombie, ZombieKilled};
-use crate::zone::{FIXED_JOINS, PlayerZone, ZoneId, ZoneSet};
+use crate::zone::{PlayerZone, ZoneId, ZoneSet};
 
 /// The six Power-ups.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -454,14 +454,18 @@ fn drop_power_ups(
     active: Res<ActivePowerUps>,
     assets: Res<PowerUpAssets>,
     player: Single<&Modifiers, With<LocalPlayer>>,
+    map: Res<MapId>,
 ) {
     if rounds.read().count() > 0 {
         meter.new_round();
     }
     meter.watch(points.iter().map(|points| points.earned).sum());
 
-    let joins: Vec<_> = FIXED_JOINS
-        .into_iter()
+    let joins: Vec<_> = map
+        .layout()
+        .fixed_joins
+        .iter()
+        .copied()
         .chain(doors.iter().filter(|door| door.open).filter_map(|door| door.joins))
         .collect();
     let reachable = zones
@@ -631,6 +635,7 @@ fn fire_sale(
     assets: Res<BoxAssets>,
     mut boxes: Query<(Entity, &mut MysteryBox, Has<FireSaleBox>)>,
     mut run: ResMut<BoxRun>,
+    map: Res<MapId>,
 ) {
     let on = active.active(PowerUp::FireSale);
     let price = if on { FIRE_SALE_BOX_PRICE } else { BOX_PRICE };
@@ -654,7 +659,7 @@ fn fire_sale(
         extras += added as u32;
     }
     if on {
-        for location in (0..BOX_LOCATIONS.len()).filter(|&location| !occupied[location]) {
+        for location in map.box_locations().filter(|&location| !occupied[location]) {
             let added = spawn_box(&mut commands, &assets, location, FIRE_SALE_BOX_PRICE, false);
             commands.entity(added).insert(FireSaleBox);
             extras += 1;
@@ -855,10 +860,11 @@ mod tests {
 
     #[test]
     fn drops_land_only_in_zones_the_player_can_reach() {
-        let start_only = reachable_zones(ZoneId::StartRoom, &FIXED_JOINS);
+        const JOINS: &[(ZoneId, ZoneId)] = MapId::Greybox.layout().fixed_joins;
+        let start_only = reachable_zones(ZoneId::StartRoom, JOINS);
         assert_eq!(start_only.iter().collect::<Vec<_>>(), [ZoneId::StartRoom]);
 
-        let joins = [FIXED_JOINS[0], FIXED_JOINS[1], (ZoneId::StartRoom, ZoneId::WestHall)];
+        let joins = [JOINS[0], JOINS[1], (ZoneId::StartRoom, ZoneId::WestHall)];
         let reached = reachable_zones(ZoneId::StartRoom, &joins);
         for zone in [ZoneId::StartRoom, ZoneId::WestHall, ZoneId::Balcony, ZoneId::Yard] {
             assert!(reached.contains(zone));

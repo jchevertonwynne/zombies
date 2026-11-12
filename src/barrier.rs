@@ -12,7 +12,7 @@ use crate::controls::{Action, Controls};
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
 use crate::buy::{Buyable, Focus, Held, Nearby, UseRequest};
-use crate::map::{BarrierId, WALL_THICKNESS, WINDOWS, window_centre};
+use crate::map::{BarrierId, MapId, WALL_THICKNESS, WINDOWS, window_centre};
 use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_points};
 use crate::nav::Route;
 use crate::player::{LocalPlayer, Player};
@@ -476,6 +476,7 @@ fn spawn_barriers(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    map: Res<MapId>,
 ) {
     let plank = meshes.add(Cuboid::new(1.9, 0.18, 0.05));
     let wood = materials.add(StandardMaterial {
@@ -483,8 +484,7 @@ fn spawn_barriers(
         perceptual_roughness: 0.9,
         ..default()
     });
-    for i in 0..WINDOWS.len() {
-        let barrier = BarrierId(i as u8);
+    for barrier in map.barriers() {
         commands
             .spawn((
                 InRun,
@@ -968,8 +968,8 @@ mod tests {
     }
 
     #[test]
-    fn there_are_twenty_one_barriers_and_none_in_the_yard() {
-        assert_eq!(WINDOWS.len(), 21);
+    fn the_greybox_has_twenty_one_barriers_and_none_in_the_yard() {
+        assert_eq!(MapId::Greybox.barriers().count(), 21);
         assert!(
             WINDOWS
                 .iter()

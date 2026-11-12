@@ -4,6 +4,8 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+use crate::map::{MapId, QUARRY_X, STOREY};
+
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
 use crate::authority::HostSimulation;
@@ -96,17 +98,26 @@ impl Perk {
         self == Perk::QuickRevive && buys >= solo_buys
     }
 
-    /// Where its machine stands, against a wall of its Zone, and the way it faces.
-    pub(crate) fn machine_spot(self) -> (Vec3, Vec3) {
-        match self {
+    /// Where its machine stands on `map`, against a wall of its Zone, and the way it faces.
+    pub(crate) fn machine_spot(self, map: MapId) -> (Vec3, Vec3) {
+        const Q: f32 = QUARRY_X;
+        match (map, self) {
             // West Hall's outer wall.
-            Perk::Juggernog => (Vec3::new(-25.2, 0.0, 10.0), Vec3::X),
+            (MapId::Greybox, Perk::Juggernog) => (Vec3::new(-25.2, 0.0, 10.0), Vec3::X),
             // The Dining Room's south wall, west of the Passage Door.
-            Perk::SpeedCola => (Vec3::new(-23.0, 0.0, -25.2), Vec3::Z),
+            (MapId::Greybox, Perk::SpeedCola) => (Vec3::new(-23.0, 0.0, -25.2), Vec3::Z),
             // The Power Room's south wall, east of the Tunnel Door.
-            Perk::DoubleTap => (Vec3::new(24.0, 0.0, -25.2), Vec3::Z),
+            (MapId::Greybox, Perk::DoubleTap) => (Vec3::new(24.0, 0.0, -25.2), Vec3::Z),
             // The Start Room's north wall, away from its Spawn Points.
-            Perk::QuickRevive => (Vec3::new(11.5, 0.0, 25.2), Vec3::NEG_Z),
+            (MapId::Greybox, Perk::QuickRevive) => (Vec3::new(11.5, 0.0, 25.2), Vec3::NEG_Z),
+            // The Crusher Shed's back wall, against the terrace above.
+            (MapId::Quarry, Perk::Juggernog) => (Vec3::new(Q - 15.0, STOREY, 15.2), Vec3::NEG_Z),
+            // The Winding House's south wall, beside the Door up from the Rail Yard.
+            (MapId::Quarry, Perk::SpeedCola) => (Vec3::new(Q + 8.0, 2.0 * STOREY, 16.8), Vec3::Z),
+            // The Offices' north wall.
+            (MapId::Quarry, Perk::DoubleTap) => (Vec3::new(Q - 5.0, 2.0 * STOREY, 27.2), Vec3::NEG_Z),
+            // The Pump House's east wall.
+            (MapId::Quarry, Perk::QuickRevive) => (Vec3::new(Q + 7.2, 0.0, -25.0), Vec3::NEG_X),
         }
     }
 
@@ -301,11 +312,12 @@ fn spawn_machines(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    map: Res<MapId>,
 ) {
     let body = Cuboid::new(1.2, 2.2, 0.9);
     let sign = Cuboid::new(1.0, 0.4, 0.05);
     for perk in Perk::ALL {
-        let (at, facing) = perk.machine_spot();
+        let (at, facing) = perk.machine_spot(*map);
         let centre = at + Vec3::Y * body.half_size.y;
         let lit = materials.add(StandardMaterial {
             base_color: perk.colour(),

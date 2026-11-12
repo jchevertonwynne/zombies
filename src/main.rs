@@ -21,6 +21,7 @@ mod gun_model;
 mod hands;
 mod hellhound;
 mod hud;
+mod jump_pad;
 mod last_stand;
 mod layers;
 mod leave_run;

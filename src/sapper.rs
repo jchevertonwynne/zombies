@@ -18,7 +18,7 @@ use crate::authority::HostSimulation;
 use crate::barrier::{Barriers, Entering};
 use crate::buy::{Buyable, HoldBuy, HoldPurchased};
 use crate::door::Door;
-use crate::map::{SpawnKind, SpawnPoint};
+use crate::map::{MapId, SpawnKind, SpawnPoint};
 use crate::mystery_box::{BoxState, MysteryBox, box_use_point};
 use crate::nav::{NavGraph, Route, zone_at};
 use crate::target::Players;
@@ -417,8 +417,7 @@ fn spawn_sapper(
     zombie_assets: ZombieAssetsParam,
     assets: Res<SapperAssets>,
     mut cues: MessageWriter<SpecialCue>,
-    settings: Res<Settings>,
-    time: Res<Time>,
+    (settings, time, map): (Res<Settings>, Res<Time>, Option<Res<MapId>>),
 ) {
     let Some(at) = plan.at else {
         return;
@@ -456,7 +455,7 @@ fn spawn_sapper(
                 SpawnKind::Window(barrier) => Some((point.zone, (t.translation, barrier))),
                 _ => None,
             }),
-        players.first().map_or(ZoneId::StartRoom, |player| player.zone),
+        players.first().map_or_else(|| map.map_or_else(MapId::default, |map| *map).layout().start_zone(), |player| player.zone),
         active.0,
     );
     if windows.is_empty() || !(round.take_from_horde() || plan.summoned) {
@@ -606,7 +605,7 @@ fn candidates(
     traps: &Query<(Entity, &Trap, &Transform), Without<Sabotaged>>,
     machines: &Query<(Entity, &PackAPunch, &Transform), Without<Sabotaged>>,
     doors: &Query<&Door>,
-    teleporter: &Teleporter,
+    teleporter: Option<&Teleporter>,
     power_on: bool,
     drinking: Option<Perk>,
     active: ZoneSet,
@@ -664,7 +663,7 @@ fn candidates(
             in_use,
         ));
     }
-    if !teleporter.sabotaged() {
+    if let Some(teleporter) = teleporter.filter(|teleporter| !teleporter.sabotaged()) {
         let spots = PadId::ALL
             .map(|pad| pad.at() + Vec3::Y * 1.0)
             .into_iter()
@@ -712,6 +711,7 @@ fn sabotage(
     active: Res<ActiveZones>,
     assets: Res<SapperAssets>,
     time: Res<Time>,
+    map: Res<MapId>,
 ) {
     if sappers.is_empty() {
         return;
@@ -722,7 +722,7 @@ fn sabotage(
         &traps,
         &machines,
         &doors,
-        &teleporter,
+        crate::teleporter::stands_on(*map).then_some(&*teleporter),
         power.is_on(),
         drinking.iter().next().map(|drinking| drinking.perk),
         active.0,
@@ -1128,7 +1128,7 @@ mod tests {
     fn a_stuck_sapper_moves_to_a_path_node_cleanly() {
         use crate::map::PLAYER_START;
         use crate::zombie::headless::Sim;
-        let graph = NavGraph::new();
+        let graph = NavGraph::new(crate::map::MapId::Greybox);
         let node = graph.nodes[graph.nearest(PLAYER_START)].at;
         let near = |a: Vec3, b: Vec3| a.with_y(0.0).distance(b.with_y(0.0)) < 0.5;
         for fps in [144.0, 60.0, 90.0] {

@@ -47,7 +47,8 @@ pub(super) fn machine(local: u8, seats: u8, install: impl FnOnce(&mut App)) -> A
         .add_message::<SpecialCue>()
         .add_message::<NovaCrawlerKilled>()
         .init_resource::<ActivePowerUps>()
-        .insert_resource(NavGraph::new())
+        .insert_resource(crate::map::MapId::Greybox)
+        .insert_resource(NavGraph::new(crate::map::MapId::Greybox))
         .insert_resource(Barriers::default())
         .add_plugins((ZombiePlugin, HellhoundPlugin))
         .add_systems(Startup, (special::load_assets, sapper::load_assets, crate::nova::load_assets))
@@ -58,7 +59,7 @@ pub(super) fn machine(local: u8, seats: u8, install: impl FnOnce(&mut App)) -> A
     app.cleanup();
     app.world_mut().run_system_once(crate::map::spawn_map).unwrap();
     for seat in 0..seats {
-        let mut player = app.world_mut().spawn(player_body(Seat(seat), "Player", &[]));
+        let mut player = app.world_mut().spawn(player_body(Seat(seat), "Player", &[], crate::map::MapId::Greybox));
         if seat == local {
             player.insert(LocalPlayer);
         }

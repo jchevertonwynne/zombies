@@ -45,8 +45,8 @@ pub(crate) fn two_players_with(configure: impl FnOnce(&mut App)) -> (Sim, Entity
     // The Sim's stand-in Player gives way to two real ones.
     let stand_in = world.query_filtered::<Entity, With<Player>>().single(world).unwrap();
     world.entity_mut(stand_in).despawn();
-    let local = world.spawn((player_body(Seat(0), "Player", &[]), LocalPlayer)).id();
-    let teammate = world.spawn(player_body(Seat(1), "Player 2", &[])).id();
+    let local = world.spawn((player_body(Seat(0), "Player", &[], crate::map::MapId::Greybox), LocalPlayer)).id();
+    let teammate = world.spawn(player_body(Seat(1), "Player 2", &[], crate::map::MapId::Greybox)).id();
     sim.run(30);
     (sim, local, teammate)
 }

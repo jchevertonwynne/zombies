@@ -4,6 +4,7 @@ use bevy::prelude::*;
 
 use crate::debug::DebugView;
 use crate::door::Door;
+use crate::map::{MapId, QUARRY_X, STOREY};
 use crate::player::{LocalPlayer, Player};
 use crate::respawn::AwaitingRespawn;
 use crate::state::GameState;
@@ -26,10 +27,24 @@ pub enum ZoneId {
     GeneratorRoom,
     /// The corridor south from the Power Room to the Generator Room.
     Tunnel,
+    /// The Quarry's start: a brick pump house at the foot of the pit.
+    PumpHouse,
+    /// The open pit floor, with the sump pond and the Risers.
+    QuarryFloor,
+    /// The first terrace's open sidings, up the ramp from the pit floor.
+    RailYard,
+    /// The shed on the first terrace, round the stone crusher.
+    CrusherShed,
+    /// The engine house on the second terrace, round its winding drum.
+    WindingHouse,
+    /// The mine offices on the second terrace.
+    Offices,
+    /// The pithead tower: a yard at the second terrace's level and the deck above it.
+    Headframe,
 }
 
 impl ZoneId {
-    pub const ALL: [ZoneId; 12] = [
+    pub const ALL: [ZoneId; 19] = [
         ZoneId::StartRoom,
         ZoneId::WestHall,
         ZoneId::Balcony,
@@ -42,6 +57,13 @@ impl ZoneId {
         ZoneId::Storeroom,
         ZoneId::GeneratorRoom,
         ZoneId::Tunnel,
+        ZoneId::PumpHouse,
+        ZoneId::QuarryFloor,
+        ZoneId::RailYard,
+        ZoneId::CrusherShed,
+        ZoneId::WindingHouse,
+        ZoneId::Offices,
+        ZoneId::Headframe,
     ];
 
     pub fn name(self) -> &'static str {
@@ -58,16 +80,47 @@ impl ZoneId {
             ZoneId::Storeroom => "Storeroom",
             ZoneId::GeneratorRoom => "Generator Room",
             ZoneId::Tunnel => "Tunnel",
+            ZoneId::PumpHouse => "Pump House",
+            ZoneId::QuarryFloor => "Quarry Floor",
+            ZoneId::RailYard => "Rail Yard",
+            ZoneId::CrusherShed => "Crusher Shed",
+            ZoneId::WindingHouse => "Winding House",
+            ZoneId::Offices => "Offices",
+            ZoneId::Headframe => "Headframe",
+        }
+    }
+
+    /// The Map the Zone is part of.
+    pub fn map(self) -> MapId {
+        use ZoneId::*;
+        match self {
+            StartRoom | WestHall | Balcony | EastHall | DiningRoom | PowerRoom | Yard | Passage | Workshop | Storeroom | GeneratorRoom | Tunnel => MapId::Greybox,
+            PumpHouse | QuarryFloor | RailYard | CrusherShed | WindingHouse | Offices | Headframe => MapId::Quarry,
+        }
+    }
+
+    /// The height of the Zone's floor: the ground, a storey up for the Balcony, and a terrace's
+    /// height in the Quarry.
+    pub fn floor(self) -> f32 {
+        use ZoneId::*;
+        match self {
+            StartRoom | WestHall | EastHall | DiningRoom | PowerRoom | Yard | Passage | Workshop | Storeroom | GeneratorRoom | Tunnel => 0.0,
+            PumpHouse | QuarryFloor => 0.0,
+            Balcony | RailYard | CrusherShed => STOREY,
+            WindingHouse | Offices | Headframe => 2.0 * STOREY,
         }
     }
 
     /// The Zone's volume. Floors sit a little inside it, so a Player standing on one is inside.
     /// West Hall is two storeys tall because its ramp climbs to the Balcony, and a Zone with a
-    /// sunken floor (the Yard's garden, the Tunnel's dip) reaches down into it.
+    /// sunken floor (the Yard's garden, the Tunnel's dip) reaches down into it. The Quarry's Zones
+    /// stand at its own patch of the world, `QUARRY_X` along x, and a Zone a ramp or stairs climb
+    /// out of is tall enough to hold a Player on them.
     pub fn volume(self) -> (Vec3, Vec3) {
         const LOW: f32 = -0.25;
         const UPPER: f32 = 3.75;
         const TOP: f32 = 8.0;
+        const Q: f32 = QUARRY_X;
         let (x0, x1, y0, y1, z0, z1) = match self {
             ZoneId::StartRoom => (-14.0, 14.0, LOW, UPPER, 14.0, 26.0),
             ZoneId::WestHall => (-26.0, -14.0, LOW, TOP, -14.0, 26.0),
@@ -81,19 +134,26 @@ impl ZoneId {
             ZoneId::Storeroom => (-4.0, 4.0, LOW, UPPER, -50.0, -38.0),
             ZoneId::GeneratorRoom => (4.0, 34.0, LOW, UPPER, -50.0, -38.0),
             ZoneId::Tunnel => (12.5, 15.5, LOW, UPPER, -38.0, -26.0),
+            ZoneId::PumpHouse => (Q - 8.0, Q + 8.0, LOW, UPPER, -30.0, -20.0),
+            ZoneId::QuarryFloor => (Q - 20.0, Q + 20.0, LOW, TOP - 0.25, -20.0, 2.0),
+            ZoneId::RailYard => (Q, Q + 20.0, UPPER, 3.0 * STOREY - 0.25, 2.0, 16.0),
+            ZoneId::CrusherShed => (Q - 20.0, Q, UPPER, TOP - 0.25, 2.0, 16.0),
+            ZoneId::WindingHouse => (Q, Q + 20.0, TOP - 0.25, 3.0 * STOREY - 0.25, 16.0, 28.0),
+            ZoneId::Offices => (Q - 20.0, Q, TOP - 0.25, 3.0 * STOREY - 0.25, 16.0, 28.0),
+            ZoneId::Headframe => (Q - 6.0, Q + 6.0, TOP - 0.25, 4.0 * STOREY, 28.0, 40.0),
         };
-        let sunk = crate::map::SUNKEN.iter().filter(|sunken| sunken.zone == self).map(|sunken| sunken.depth).fold(0.0, f32::max);
+        let sunk = self.map().layout().sunken.iter().filter(|sunken| sunken.zone == self).map(|sunken| sunken.depth).fold(0.0, f32::max);
         (Vec3::new(x0, y0 - sunk, z0), Vec3::new(x1, y1, z1))
     }
 
-    fn bit(self) -> u16 {
-        1 << self as u16
+    fn bit(self) -> u32 {
+        1 << self as u32
     }
 }
 
 /// A set of Zones.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ZoneSet(u16);
+pub struct ZoneSet(u32);
 
 impl ZoneSet {
     pub fn insert(&mut self, zone: ZoneId) {
@@ -123,16 +183,6 @@ impl FromIterator<ZoneId> for ZoneSet {
         set
     }
 }
-
-/// Joins that never close: the ramp from West Hall up to the Balcony, the drop from the
-/// Balcony into the Yard, and the open ends of the Passage and the Tunnel into the south wing.
-/// The drop is one-way to walk but counts both ways for activation.
-pub const FIXED_JOINS: [(ZoneId, ZoneId); 4] = [
-    (ZoneId::WestHall, ZoneId::Balcony),
-    (ZoneId::Balcony, ZoneId::Yard),
-    (ZoneId::Passage, ZoneId::Workshop),
-    (ZoneId::Tunnel, ZoneId::GeneratorRoom),
-];
 
 /// The Zone the Player is in after moving. They change Zone only once their whole body
 /// (`min`..`max`) is inside the new one; until then they stay in the old Zone.
@@ -166,9 +216,10 @@ pub fn active_zones(player: ZoneId, open_joins: impl IntoIterator<Item = (ZoneId
 #[derive(Component)]
 pub struct PlayerZone(pub ZoneId);
 
-impl Default for PlayerZone {
-    fn default() -> Self {
-        Self(ZoneId::StartRoom)
+impl PlayerZone {
+    /// Where every Player on `map` starts.
+    pub fn start(map: MapId) -> Self {
+        Self(map.layout().start_zone())
     }
 }
 
@@ -213,9 +264,17 @@ fn track_player(mut players: Query<(&Transform, &mut PlayerZone), With<Player>>)
     }
 }
 
-pub(crate) fn update_active_zones(players: Query<&PlayerZone, (With<Player>, Without<AwaitingRespawn>)>, doors: Query<&Door>, mut active: ResMut<ActiveZones>) {
-    let joins: Vec<_> = FIXED_JOINS
-        .into_iter()
+pub(crate) fn update_active_zones(
+    players: Query<&PlayerZone, (With<Player>, Without<AwaitingRespawn>)>,
+    doors: Query<&Door>,
+    map: Res<MapId>,
+    mut active: ResMut<ActiveZones>,
+) {
+    let joins: Vec<_> = map
+        .layout()
+        .fixed_joins
+        .iter()
+        .copied()
         .chain(doors.iter().filter(|door| door.open).filter_map(|door| door.joins))
         .collect();
     let set = players
@@ -226,8 +285,8 @@ pub(crate) fn update_active_zones(players: Query<&PlayerZone, (With<Player>, Wit
     }
 }
 
-fn draw_zones(mut gizmos: Gizmos<ZoneGizmos>, zone: Single<&PlayerZone, With<LocalPlayer>>, active: Res<ActiveZones>) {
-    for id in ZoneId::ALL {
+fn draw_zones(mut gizmos: Gizmos<ZoneGizmos>, zone: Single<&PlayerZone, With<LocalPlayer>>, active: Res<ActiveZones>, map: Res<MapId>) {
+    for &id in map.layout().zones {
         let (lo, hi) = id.volume();
         let colour = if id == zone.0 {
             Color::WHITE
@@ -280,6 +339,9 @@ fn show_debug_text(view: Res<DebugView>, mut visibility: Single<&mut Visibility,
 mod tests {
     use super::*;
     use ZoneId::*;
+
+    /// The Greybox's joins that never close.
+    const JOINS: &[(ZoneId, ZoneId)] = MapId::Greybox.layout().fixed_joins;
 
     /// A Player-sized box with its feet at `(x, y, z)`.
     fn body(x: f32, y: f32, z: f32) -> (Vec3, Vec3) {
@@ -340,38 +402,38 @@ mod tests {
 
     #[test]
     fn the_start_room_alone_is_active_with_every_door_shut() {
-        let active = active_zones(StartRoom, FIXED_JOINS);
+        let active = active_zones(StartRoom, JOINS.iter().copied());
         assert_eq!(active.iter().collect::<Vec<_>>(), vec![StartRoom]);
     }
 
     #[test]
     fn open_doors_activate_the_zone_on_the_other_side() {
-        let active = active_zones(StartRoom, FIXED_JOINS.into_iter().chain([(StartRoom, WestHall)]));
+        let active = active_zones(StartRoom, JOINS.iter().copied().chain([(StartRoom, WestHall)]));
         assert!(active.contains(WestHall));
         assert!(!active.contains(Balcony), "only one join away counts");
     }
 
     #[test]
     fn west_hall_activates_the_balcony_but_not_the_yard() {
-        let active = active_zones(WestHall, FIXED_JOINS);
+        let active = active_zones(WestHall, JOINS.iter().copied());
         assert!(active.contains(Balcony));
         assert!(!active.contains(Yard));
     }
 
     #[test]
     fn the_balcony_activates_west_hall_and_the_yard() {
-        let active = active_zones(Balcony, FIXED_JOINS);
+        let active = active_zones(Balcony, JOINS.iter().copied());
         assert_eq!(active, ZoneSet::from_iter([Balcony, WestHall, Yard]));
     }
 
     #[test]
     fn the_drop_counts_both_ways_for_activation() {
-        assert!(active_zones(Yard, FIXED_JOINS).contains(Balcony));
+        assert!(active_zones(Yard, JOINS.iter().copied()).contains(Balcony));
     }
 
     #[test]
     fn a_far_open_door_activates_nothing() {
-        let active = active_zones(StartRoom, FIXED_JOINS.into_iter().chain([(DiningRoom, PowerRoom)]));
+        let active = active_zones(StartRoom, JOINS.iter().copied().chain([(DiningRoom, PowerRoom)]));
         assert_eq!(active, ZoneSet::from_iter([StartRoom]));
     }
 }
