@@ -3,6 +3,7 @@
 
 mod audio;
 mod authority;
+mod bench;
 mod debug;
 mod economy;
 mod enemies;
@@ -22,7 +23,8 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 
 fn main() {
-    App::new()
+    let mut app = App::new();
+    app
         .add_plugins((
             DefaultPlugins.set(WindowPlugin {
                 primary_window: Some(Window {
@@ -97,6 +99,9 @@ fn main() {
         ))
         // Gauntlet, layered on top of everything above.
         .add_plugins(run::gauntlet::GauntletPlugin)
-        .add_plugins(players::teammate::TeammatePlugin)
-        .run();
+        .add_plugins(players::teammate::TeammatePlugin);
+    if let Some(bench) = bench::Bench::from_env() {
+        app.add_plugins(bench::BenchPlugin(bench));
+    }
+    app.run();
 }
