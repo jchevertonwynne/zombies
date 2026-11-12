@@ -273,8 +273,8 @@ const SLOPES: [Slope; 1] = [Slope {
 }];
 
 /// The Props. Most stand flush against a wall, so nothing hides behind them; the islands to run
-/// round are the Market's cross, the Mill's millstones and the Graveyard's mausoleum (built with
-/// the walls).
+/// round are the Market's cross and the Graveyard's mausoleum (both built with the walls) and the
+/// Mill's millstones.
 const PROPS: &[Prop] = {
     use PropKind::*;
     use ZoneId::*;
@@ -283,8 +283,7 @@ const PROPS: &[Prop] = {
         prop(Counter, Inn, (V - 7.4, 0.0, 14.0), (0.8, 1.1, 5.0)),
         prop(Table, Inn, (V - 3.5, 0.0, 9.5), (1.4, 0.76, 1.4)),
         prop(Table, Inn, (V - 3.5, 0.0, 18.5), (1.4, 0.76, 1.4)),
-        // The Market: the market cross in the middle, and a stall either side.
-        prop(Pillar, Market, (V, 0.0, -8.0), (1.2, 3.5, 1.2)),
+        // The Market: a stall either side of the market cross (built with the walls).
         prop(Counter, Market, (V - 14.0, 0.0, -16.0), (2.6, 1.0, 1.0)),
         prop(Counter, Market, (V + 14.0, 0.0, -16.0), (2.6, 1.0, 1.0)),
         // The West End and the East End: a cart against the south side, and drums against the
@@ -351,6 +350,15 @@ const PROPS: &[Prop] = {
         prop(Headstone, Graveyard, (V + 68.0, 0.0, 51.0), HEADSTONE),
     ]
 };
+
+/// The middle of the market cross (x, z).
+const MARKET_CROSS: Vec2 = v(0.0, -8.0);
+/// Weathered limestone, for the market cross.
+const CROSS_STONE: Color = Color::srgb(0.55, 0.53, 0.47);
+/// How wide the market cross's base is each way, and how tall: wide enough to run a Train round,
+/// and too tall for a Player to clamber onto.
+const MARKET_CROSS_BASE: f32 = 5.0;
+const MARKET_CROSS_BASE_HEIGHT: f32 = 1.5;
 
 /// A headstone's size: wide across the row, waist-high and thin.
 const HEADSTONE: (f32, f32, f32) = (0.8, 0.9, 0.25);
@@ -475,6 +483,16 @@ fn build(b: &mut Builder) {
     b.block(Vec3::new(size.x, tall, size.y), Vec3::new(mid.x, tall / 2.0, mid.y), stone);
     b.block(Vec3::new(size.x + 0.4, 0.4, size.y + 0.4), Vec3::new(mid.x, tall + 0.2, mid.y), palette(Some(Graveyard)).trim);
 
+    // The market cross in the middle of the Market: its shaft on a broad base of sheer stone, with
+    // a moulding round the base's top and a cap on the shaft.
+    let trim = palette(Some(Market)).trim;
+    let (base, high) = (MARKET_CROSS_BASE, MARKET_CROSS_BASE_HEIGHT);
+    let cross = |y: f32| Vec3::new(MARKET_CROSS.x, y, MARKET_CROSS.y);
+    b.block(Vec3::new(base, high, base), cross(high / 2.0), CROSS_STONE);
+    b.block(Vec3::new(base + 0.2, 0.25, base + 0.2), cross(high - 0.125), trim);
+    b.block(Vec3::new(0.9, 3.0, 0.9), cross(high + 1.5), CROSS_STONE);
+    b.block(Vec3::new(1.3, 0.3, 1.3), cross(high + 3.15), trim);
+
     // The church tower, in the garden by the Church, standing over the whole village.
     let tower = palette(Some(Church)).wall;
     b.block(Vec3::new(4.0, 14.0, 4.0), at(46.0, 7.0, 19.5), tower);
@@ -504,10 +522,10 @@ const NODES: &[(&str, f32, f32, f32)] = &[
     ("mk_edoor", V + 22.5, 0.0, 0.0),
     ("mk_nw", V - 16.0, 0.0, -3.0),
     ("mk_ne", V + 16.0, 0.0, -3.0),
-    ("mk_cn", V, 0.0, -3.0),
-    ("mk_cw", V - 5.0, 0.0, -8.0),
-    ("mk_ce", V + 5.0, 0.0, -8.0),
-    ("mk_cs", V, 0.0, -13.0),
+    ("mk_cn", V, 0.0, -1.5),
+    ("mk_cw", V - 6.5, 0.0, -8.0),
+    ("mk_ce", V + 6.5, 0.0, -8.0),
+    ("mk_cs", V, 0.0, -14.5),
     ("mk_w", V - 20.0, 0.0, -11.0),
     ("mk_e", V + 20.0, 0.0, -11.0),
     ("mk_sw", V - 19.0, 0.0, -19.0),
@@ -978,3 +996,34 @@ const EDGES: &[(&str, &str, Gate)] = {
         ("vent_church", "ch_c", Gate::OneWay),
     ]
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::maps::map::MapId;
+
+    /// The Village keeps an island to lead a Train round at each stage of a Run: the market cross
+    /// in the Market off the Inn, the millstones by the Power, and the mausoleum by Pack-a-Punch.
+    /// Each loop is a level lane at least 1.6 m wide with nothing in it.
+    #[test]
+    fn the_village_keeps_clear_loops_to_train_round() {
+        const fn c(x: f32, z: f32) -> Vec2 {
+            v(x, z)
+        }
+        const LOOPS: &[(&str, &[Vec2])] = &[
+            ("the market cross", &[c(-4.5, -3.5), c(4.5, -3.5), c(4.5, -12.5), c(-4.5, -12.5)]),
+            ("the millstones", &[c(-66.0, 10.0), c(-58.0, 10.0), c(-58.0, 18.0), c(-66.0, 18.0)]),
+            ("the mausoleum", &[c(50.5, 37.5), c(61.5, 37.5), c(61.5, 48.5), c(50.5, 48.5)]),
+        ];
+        let spoilt = crate::maps::map::tests::spoilt_loops(MapId::Village, 0.0, LOOPS);
+        assert!(spoilt.is_empty(), "{spoilt:#?}");
+    }
+
+    /// The market cross is a real island, not a post: its base is wide enough that a Train led
+    /// round it stays a body's length behind, and too tall to climb onto.
+    #[test]
+    fn the_market_cross_stands_on_a_base_too_wide_to_cut_round_and_too_tall_to_climb() {
+        assert!(MARKET_CROSS_BASE >= 4.0);
+        assert!(MARKET_CROSS_BASE_HEIGHT > 1.3, "a Player could clamber onto the market cross's base");
+    }
+}
