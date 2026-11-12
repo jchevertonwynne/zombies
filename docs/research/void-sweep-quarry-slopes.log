@@ -1,0 +1,51 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+warning: function `not_recovering_from_dive` is never used
+   --> src/players/player.rs:585:8
+    |
+585 | pub fn not_recovering_from_dive(players: Query<(&Locomotion, Has<LastStand>), With<LocalPlayer>>) -> bool {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zombies` (bin "zombies" test) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 0.81s
+     Running unittests src/main.rs (target/aarch64-apple-darwin/release/deps/zombies-75b9cc6e51dcb018)
+
+running 1 test
+test players::player::headless::void_sweep::void_slopes_quarry has been running for over 60 seconds
+=== Quarry slope probe: 27 distinct exits
+Quarry slope RailYard from [217.2, 7.55, 15] yaw 315 run 0.3 jumphold 0.1: first out [220.10513, 8.009994, 9.603306] end [223.34001, 4.0096006, 5.5213184]
+Quarry slope RailYard from [219.40001, 7.05, 14] yaw 345 run 0.05 jumphold 0.1: first out [220.04504, 8.00994, 10.193333] end [222.16869, 4.01, 2.6600046]
+Quarry slope RailYard from [218.3, 7.3, 14.5] yaw 300 run 0.3 jumphold 0.1: first out [220.05786, 8.009661, 10.547827] end [224.89737, -5.14045, 7.709752]
+Quarry slope RailYard from [217.2, 7.3, 14.5] yaw 315 run 0.05 jumphold 0.1: first out [220.11905, 8.009996, 10.851692] end [223.34001, 4.0099998, 6.259093]
+Quarry slope RailYard from [219.40001, 7.05, 14] yaw 330 run 0.05 jumphold 0.1: first out [220.12877, 8.01, 11.277883] end [223.34001, 4.0098004, 3.3677258]
+Quarry slope RailYard from [219.40001, 7.05, 14] yaw 285 run 0.3 jumphold 0.1: first out [220.08183, 8.01, 12.085938] end [225.78871, -21.046692, 10.552203]
+Quarry slope RailYard from [219.40001, 7.05, 14] yaw 300 run 0.05 jumphold 0.1: first out [220.19199, 8.009386, 12.568978] end [227.34116, -34.56083, 8.441329]
+Quarry slope RailYard from [218.3, 7.05, 14] yaw 300 run 0.05 jumphold 0.1: first out [220.0212, 8.099929, 12.89197] end [227.42557, -35.31281, 8.6168585]
+Quarry slope RailYard from [219.40001, 7.05, 14] yaw 285 run 0.05 jumphold 0.1: first out [220.08455, 8.075119, 13.474389] end [228.40855, -36.59571, 11.243925]
+Quarry slope RailYard from [217.2, 6.55, 13] yaw 270 run 0.3 jumphold 1.5: first out [220.1997, 8.006172, 14.01214] end [228.31522, -33.0393, 14.012164]
+Quarry slope RailYard from [219.40001, 6.8, 13.5] yaw 255 run 0.3 jumphold 0.1: first out [220.10725, 8.031388, 14.404614] end [227.8447, -32.35797, 16.477901]
+Quarry slope RailYard from [217.2, 4.55, 9] yaw 240 run 0.3 jumphold 1.5: first out [220.18158, 8.074625, 15.187927] end [228.2461, -40.099857, 18.011583]
+Quarry slope QuarryFloor from [217.2, 4.05, 2] yaw 210 run 0.3 jumphold 1.5: first out [220.04977, 8.01, 15.440372] end [221.6943, -7.530377, 15.63987]
+Quarry slope RailYard from [217.2, 7.55, 15] yaw 315 run 0.3 jumphold 1.5: first out [220.12244, 8.51919, 9.95971] end [230.7506, -44.647724, -0.66739106]
+Quarry slope RailYard from [218.3, 7.3, 14.5] yaw 300 run 0.3 jumphold 1.5: first out [220.01038, 8.372811, 10.7541275] end [232.69191, -70.94277, 3.4321136]
+Quarry slope RailYard from [219.40001, 7.3, 14.5] yaw 300 run 0.3 jumphold 1.5: first out [220.13705, 8.455531, 11.954359] end [234.52483, -89.32089, 3.6471987]
+Quarry slope RailYard from [219.40001, 7.05, 14] yaw 285 run 0.3 jumphold 1.5: first out [220.1423, 8.42117, 12.640059] end [235.98724, -86.47452, 8.394326]
+Quarry slope RailYard from [219.40001, 7.55, 15] yaw 300 run 0.3 jumphold 1.5: first out [220.08939, 8.39756, 13.079035] end [235.55022, -100.37647, 4.152314]
+Quarry slope RailYard from [219.40001, 7.55, 15] yaw 330 run 0.05 jumphold 0.1: first out [220.10324, 8.369158, 13.500766] end [224.59845, -38.261616, 7.9994526]
+Quarry slope RailYard from [219.40001, 7.55, 15] yaw 315 run 0.05 jumphold 0.1: first out [220.06131, 8.266996, 14.07139] end [226.7591, -38.619354, 7.374281]
+Quarry slope RailYard from [219.40001, 5.8, 11.5] yaw 255 run 0.3 jumphold 1.5: first out [220.02628, 8.348717, 14.616333] end [229.79535, -37.587658, 17.178516]
+Quarry slope RailYard from [219.40001, 5.3, 10.5] yaw 240 run 0.3 jumphold 1.5: first out [220.04002, 8.375939, 15.141676] end [230.70279, -30.500315, 20.692402]
+Quarry slope RailYard from [219.40001, 4.3, 8.5] yaw 195 run 0.3 jumphold 1.5: first out [220.02925, 8.361742, 15.44041] end [223.34001, 8.009986, 25.34]
+Quarry slope RailYard from [218.3, 4.55, 9] yaw 195 run 0.3 jumphold 1.5: first out [220.03625, 8.790717, 15.440779] end [223.01878, -56.707474, 19.672682]
+Quarry slope RailYard from [217.2, 7.3, 14.5] yaw 300 run 0.05 jumphold 0.1: first out [220.25703, 8.00127, 12.722111] end [226.82971, -30.97723, 8.927209]
+Quarry slope RailYard from [219.40001, 6.55, 13] yaw 270 run 0.3 jumphold 1.5: first out [220.25911, 8.004867, 14.012804] end [228.29228, -33.383682, 14.012805]
+Quarry slope RailYard from [219.40001, 7.8, 15.5] yaw 300 run 0.05 jumphold 0.1: first out [220.25017, 8.002371, 14.343107] end [227.96631, -38.8235, 9.887999]
+test players::player::headless::void_sweep::void_slopes_quarry ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1165 filtered out; finished in 992.51s
+

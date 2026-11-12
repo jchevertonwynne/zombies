@@ -1,0 +1,61 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+warning: function `not_recovering_from_dive` is never used
+   --> src/players/player.rs:585:8
+    |
+585 | pub fn not_recovering_from_dive(players: Query<(&Locomotion, Has<LastStand>), With<LocalPlayer>>) -> bool {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zombies` (bin "zombies" test) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 0.71s
+     Running unittests src/main.rs (target/aarch64-apple-darwin/release/deps/zombies-75b9cc6e51dcb018)
+
+running 1 test
+test players::player::headless::void_sweep::void_slopes_greybox has been running for over 60 seconds
+=== Greybox slope probe: 39 distinct exits
+Greybox slope WestHall from [-15.7, 4.05, -0.5] yaw 255 run 0.3 jumphold 0.1: first out [-9.977761, 4.004782, 3.2621443] end [-9.3798065, 0.00999999, 3.4308982]
+Greybox slope WestHall from [-14.599999, 4.05, -0.5] yaw 225 run 0.3 jumphold 0.1: first out [-9.870223, 3.9836206, 3.7772608] end [-6.187859, -0.59000015, 7.459552]
+Greybox slope WestHall from [-15.7, 4.05, 0] yaw 330 run 0.3 jumphold 1.5: first out [-9.917087, 5.11, -11.892838] end [-4.377511, 0.00993669, -20.151566]
+Greybox slope WestHall from [-15.7, 3.8, 0.5] yaw 330 run 0.3 jumphold 1.5: first out [-9.895603, 5.109945, -10.86186] end [-5.1411085, 0.0099692345, -17.878767]
+Greybox slope WestHall from [-16.8, 3.55, 1] yaw 330 run 0.3 jumphold 1.5: first out [-9.966177, 5.109982, -10.471727] end [-4.531336, 0.00999999, -13.439931]
+Greybox slope WestHall from [-16.8, 3.3, 1.5] yaw 330 run 0.3 jumphold 1.5: first out [-9.936552, 5.109989, -10.012863] end [-4.4849606, 0.009973705, -13.439959]
+Greybox slope WestHall from [-15.7, 2.05, 4] yaw 330 run 0.3 jumphold 1.5: first out [-9.99519, 5.109997, -9.233893] end [-5.7861624, 0.00999999, -13.333874]
+Greybox slope WestHall from [-16.8, 2.05, 4] yaw 330 run 0.3 jumphold 1.5: first out [-9.957829, 5.1099987, -8.7419405] end [-5.5629997, 0.009999931, -13.2729435]
+Greybox slope WestHall from [-16.8, 3.55, 1] yaw 315 run 0.3 jumphold 1.5: first out [-9.975455, 5.136809, -7.9745] end [-2.9241152, 0.009968996, -13.439966]
+Greybox slope WestHall from [-16.8, 3.3, 1.5] yaw 315 run 0.3 jumphold 1.5: first out [-9.881433, 5.109989, -7.2663107] end [-1.972934, 0.009966254, -13.44]
+Greybox slope WestHall from [-15.7, 3.3, 1.5] yaw 315 run 0.3 jumphold 1.5: first out [-9.853938, 5.1099715, -7.1994467] end [-1.9652674, 0.009966195, -13.439999]
+Greybox slope WestHall from [-16.8, 1.8, 4.5] yaw 315 run 0.3 jumphold 1.5: first out [-9.97961, 5.11, -6.406497] end [-5.26795, 0.009983897, -11.11807]
+Greybox slope WestHall from [-14.599999, 2.3, 3.5] yaw 315 run 0.3 jumphold 1.5: first out [-9.886369, 5.1099997, -6.0927] end [-3.9911923, 0.009976268, -12.212318]
+Greybox slope WestHall from [-15.7, 2.05, 4] yaw 315 run 0.3 jumphold 1.5: first out [-9.933189, 5.1099076, -5.3664517] end [-3.1052692, 0.009975195, -11.74]
+Greybox slope WestHall from [-16.8, 2.05, 4] yaw 315 run 0.3 jumphold 1.5: first out [-9.992619, 5.1759915, -5.046434] end [-3.020382, 0.009975076, -11.739963]
+Greybox slope WestHall from [-14.599999, 3.3, 1.5] yaw 300 run 0.3 jumphold 1.5: first out [-9.938021, 5.14218, -4.267763] end [0.37880394, 0.00996995, -10.224174]
+Greybox slope WestHall from [-16.8, 3.05, 2] yaw 300 run 0.3 jumphold 1.5: first out [-9.8595495, 5.119217, -3.7813659] end [0.74630785, 0.009970069, -9.904655]
+Greybox slope WestHall from [-16.8, 2.3, 3.5] yaw 300 run 0.3 jumphold 1.5: first out [-9.878677, 5.125442, -3.653656] end [-2.4217956, 0.009986877, -7.9588947]
+Greybox slope WestHall from [-16.8, 2.05, 4] yaw 300 run 0.3 jumphold 1.5: first out [-9.840619, 5.194378, -3.0988297] end [-2.3718293, 0.009989083, -7.410946]
+Greybox slope WestHall from [-16.8, 3.55, 1] yaw 285 run 0.3 jumphold 1.5: first out [-9.810608, 5.114594, -2.6673024] end [1.1906977, 0.00999999, -5.6151013]
+Greybox slope WestHall from [-16.8, 3.3, 1.5] yaw 285 run 0.3 jumphold 1.5: first out [-9.894934, 5.142992, -1.8326601] end [1.4399999, 0.009990394, -4.88336]
+Greybox slope WestHall from [-14.599999, 3.3, 1.5] yaw 285 run 0.3 jumphold 1.5: first out [-9.875895, 5.177048, -1.6223481] end [1.3465062, 0.009997606, -4.6293893]
+Greybox slope WestHall from [-16.8, 4.05, 0] yaw 270 run 0.3 jumphold 1.5: first out [-9.912496, 5.1417665, -0.39301398] end [0.8478522, 0.009999812, -0.3930108]
+Greybox slope WestHall from [-14.599999, 4.05, -0.5] yaw 255 run 0.3 jumphold 0.1: first out [-9.850775, 5.166337, 0.77804047] end [-1.2985225, 0.0099362135, 3.0696049]
+Greybox slope WestHall from [-15.7, 4.05, -0.5] yaw 255 run 0.3 jumphold 1.5: first out [-9.831757, 5.121018, 1.619242] end [5.25717, 0.009994507, 5.6623163]
+Greybox slope WestHall from [-14.599999, 4.05, -0.5] yaw 225 run 0.3 jumphold 1.5: first out [-9.964264, 4.876065, 3.590614] end [-0.8600004, -0.5901927, 11.139999]
+Greybox slope WestHall from [-14.599999, 4.05, -0.5] yaw 330 run 0.3 jumphold 1.5: first out [-9.995294, 5.6262107, -8.80345] end [-3.276118, 0.009999335, -13.439996]
+Greybox slope WestHall from [-14.599999, 4.05, 0] yaw 330 run 0.3 jumphold 1.5: first out [-9.907411, 5.707819, -8.622488] end [-3.4055867, 0.009970546, -13.439979]
+Greybox slope WestHall from [-15.7, 4.05, -0.5] yaw 315 run 0.3 jumphold 1.5: first out [-9.954361, 5.5320787, -6.9279113] end [0.43084353, 0.009959102, -13.44]
+Greybox slope WestHall from [-14.599999, 3.55, 1] yaw 315 run 0.3 jumphold 1.5: first out [-9.931639, 5.566321, -6.278492] end [-2.4414208, 0.009967566, -13.440001]
+Greybox slope WestHall from [-15.7, 3.05, 2] yaw 315 run 0.3 jumphold 1.5: first out [-9.882564, 5.589398, -6.0468287] end [-3.753486, 0.009971499, -13.439999]
+Greybox slope WestHall from [-14.599999, 3.05, 2] yaw 315 run 0.3 jumphold 1.5: first out [-9.949442, 5.536177, -5.7370987] end [-3.7246172, 0.009976983, -11.7603855]
+Greybox slope WestHall from [-14.599999, 2.8, 2.5] yaw 315 run 0.3 jumphold 1.5: first out [-9.979733, 5.5041647, -5.1029773] end [-1.7171648, 0.01000005, -11.739975]
+Greybox slope WestHall from [-15.7, 3.3, 1.5] yaw 300 run 0.3 jumphold 1.5: first out [-9.8504925, 5.5481405, -4.6029434] end [-0.57497597, 0.009999812, -9.958171]
+Greybox slope WestHall from [-15.7, 3.05, 2] yaw 300 run 0.3 jumphold 1.5: first out [-9.938413, 5.487528, -3.5802712] end [0.033937123, 0.009993732, -9.337821]
+Greybox slope WestHall from [-16.8, 2.8, 2.5] yaw 300 run 0.3 jumphold 1.5: first out [-9.812895, 5.5732675, -3.14287] end [0.46474475, 0.009973645, -9.076682]
+Greybox slope WestHall from [-14.599999, 3.55, 1] yaw 285 run 0.3 jumphold 1.5: first out [-9.842569, 5.531503, -2.0587125] end [0.47030437, 0.009999514, -4.822047]
+Greybox slope WestHall from [-15.7, 3.3, 1.5] yaw 285 run 0.3 jumphold 1.5: first out [-9.940477, 5.4569836, -1.6605549] end [1.1692121, 0.009998679, -4.637396]
+Greybox slope WestHall from [-16.8, 4.05, -0.5] yaw 270 run 0.3 jumphold 1.5: first out [-9.979729, 5.420512, -0.49999982] end [5.7153144, 0.009999573, -0.5]
+test players::player::headless::void_sweep::void_slopes_greybox ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1165 filtered out; finished in 909.13s
+

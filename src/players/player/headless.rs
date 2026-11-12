@@ -1688,3 +1688,6 @@ fn the_player_cannot_leave_through_a_window_or_stand_on_its_sill() {
         assert_eq!(crate::enemies::nav::zone_at(last.pos), Some(crate::maps::zone::ZoneId::StartRoom), "{name}");
     }
 }
+
+#[cfg(test)]
+mod void_sweep;
