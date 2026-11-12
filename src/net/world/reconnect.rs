@@ -7,7 +7,7 @@ use super::*;
 use crate::net::away::{Reach, Rejoin};
 use crate::net::play::Held;
 use crate::net::protocol::Refusal;
-use crate::power_up::ActivePowerUps;
+use crate::economy::power_up::ActivePowerUps;
 
 fn run(clients: u8) -> Run {
     Run::with(clients, &coop)
@@ -33,8 +33,8 @@ fn a_dropped_player_is_held_and_never_up() {
     assert!(run.world(0).resource::<Held>().away.contains(&1));
     // Their row is held on every machine that has the Player.
     let player = run.player(0, 1);
-    assert!(run.world(0).get::<crate::hud::coop::SeatHeld>(player).is_some());
-    assert!(!crate::target::is_up(false, false, true));
+    assert!(run.world(0).get::<crate::ui::hud::coop::SeatHeld>(player).is_some());
+    assert!(!crate::enemies::target::is_up(false, false, true));
 }
 
 #[test]
@@ -43,7 +43,7 @@ fn a_client_redials_with_its_token_and_is_back_at_the_next_round_in_its_own_seat
     run.give_points(1, 1_234);
     let host_copy = run.player(0, 1);
     run.world(0).get_mut::<Perks>(host_copy).unwrap().0.push(Perk::Juggernog);
-    let boon = crate::gauntlet::sample_boon_ids(1).remove(0);
+    let boon = crate::run::gauntlet::sample_boon_ids(1).remove(0);
     show_boons(&mut run.world(0).get_mut::<HeldBoons>(host_copy).unwrap(), &[(boon, 1)]);
     run.step(10);
     run.cut(1);

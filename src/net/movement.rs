@@ -15,22 +15,22 @@ use super::play::{Prediction, install_client, install_host};
 use super::protocol::Peer;
 use super::zombies::{ZombieId, ZombieIds};
 use crate::authority::{Authority, AuthorityPlugin};
-use crate::barrier::Barriers;
-use crate::hellhound::{HellhoundAssetsParam, HellhoundPlugin, spawn_hellhound};
-use crate::nav::NavGraph;
-use crate::hellhound::Telegraph;
-use crate::map::SpawnKind;
-use crate::nova::{Burst, GasCloud, NovaAssetsParam, NovaCrawlerKilled, spawn_nova_crawler};
-use crate::sapper::{self, Sapper, SapperAssetsParam};
-use crate::special::{self, Napalm, SpecialAssetsParam, SpecialKind};
-use crate::player::PlayerHit;
-use crate::power_up::ActivePowerUps;
-use crate::special::SpecialCue;
-use crate::zombie::rig::{Activity, Shown};
-use crate::zombie::{Dying, Gibbed, Rising, SpeedTier, Zombie, ZombieAssetsParam, ZombiePlugin, spawn_zombie};
-use crate::player::{LocalPlayer, Locomotion, MoveInput, Player, Seat, Stance, move_player, player_body};
+use crate::maps::barrier::Barriers;
+use crate::enemies::hellhound::{HellhoundAssetsParam, HellhoundPlugin, spawn_hellhound};
+use crate::enemies::nav::NavGraph;
+use crate::enemies::hellhound::Telegraph;
+use crate::maps::map::SpawnKind;
+use crate::enemies::nova::{Burst, GasCloud, NovaAssetsParam, NovaCrawlerKilled, spawn_nova_crawler};
+use crate::enemies::sapper::{self, Sapper, SapperAssetsParam};
+use crate::enemies::special::{self, Napalm, SpecialAssetsParam, SpecialKind};
+use crate::players::player::PlayerHit;
+use crate::economy::power_up::ActivePowerUps;
+use crate::enemies::special::SpecialCue;
+use crate::enemies::zombie::rig::{Activity, Shown};
+use crate::enemies::zombie::{Dying, Gibbed, Rising, SpeedTier, Zombie, ZombieAssetsParam, ZombiePlugin, spawn_zombie};
+use crate::players::player::{LocalPlayer, Locomotion, MoveInput, Player, Seat, Stance, move_player, player_body};
 use crate::state::{GameState, Pause, world_runs};
-use crate::teammate::{Action, Pose, Shots};
+use crate::players::teammate::{Action, Pose, Shots};
 use crate::tuning::*;
 
 /// One machine of the Run: the Map and all `seats` Players, the one in `local` the `LocalPlayer`.
@@ -47,19 +47,19 @@ pub(super) fn machine(local: u8, seats: u8, install: impl FnOnce(&mut App)) -> A
         .add_message::<SpecialCue>()
         .add_message::<NovaCrawlerKilled>()
         .init_resource::<ActivePowerUps>()
-        .insert_resource(crate::map::MapId::Greybox)
-        .insert_resource(NavGraph::new(crate::map::MapId::Greybox))
+        .insert_resource(crate::maps::map::MapId::Greybox)
+        .insert_resource(NavGraph::new(crate::maps::map::MapId::Greybox))
         .insert_resource(Barriers::default())
         .add_plugins((ZombiePlugin, HellhoundPlugin))
-        .add_systems(Startup, (special::load_assets, sapper::load_assets, crate::nova::load_assets))
+        .add_systems(Startup, (special::load_assets, sapper::load_assets, crate::enemies::nova::load_assets))
         .add_systems(FixedUpdate, move_player.run_if(world_runs))
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / f64::from(FIXED_HZ))));
     install(&mut app);
     app.finish();
     app.cleanup();
-    app.world_mut().run_system_once(crate::map::spawn_map).unwrap();
+    app.world_mut().run_system_once(crate::maps::map::spawn_map).unwrap();
     for seat in 0..seats {
-        let mut player = app.world_mut().spawn(player_body(Seat(seat), "Player", &[], crate::map::MapId::Greybox));
+        let mut player = app.world_mut().spawn(player_body(Seat(seat), "Player", &[], crate::maps::map::MapId::Greybox));
         if seat == local {
             player.insert(LocalPlayer);
         }
@@ -387,7 +387,7 @@ pub(super) const IDLE: &dyn Fn(u8, u32) -> MoveInput = &|_, _| MoveInput::defaul
 /// they are.
 fn horde(clients: u8) {
     let mut run = Run::new(clients, 2, 0.05, 1);
-    let start = crate::map::PLAYER_START;
+    let start = crate::maps::map::PLAYER_START;
     let zombies: Vec<Entity> = (0..5).map(|i| run.zombie(start + Vec3::new(8.0 + 1.5 * i as f32, 0.0, 4.0))).collect();
     let hound = run.hellhound(start + Vec3::new(-8.0, 0.0, 4.0));
     run.step(IDLE, 150);
@@ -467,7 +467,7 @@ fn zombies_and_hellhounds_appear_move_and_go_on_every_client() {
 #[test]
 fn a_puppet_is_posed_as_the_host_has_its_zombie() {
     let mut run = Run::new(1, 2, 0.0, 0);
-    let zombie = run.zombie(crate::map::PLAYER_START + Vec3::new(8.0, 0.0, 4.0));
+    let zombie = run.zombie(crate::maps::map::PLAYER_START + Vec3::new(8.0, 0.0, 4.0));
     run.step(IDLE, 60);
     assert_eq!(run.puppets(1)[0].1.shown, Activity::Moving);
     run.apps[0].world_mut().entity_mut(zombie).insert(Rising::new(0.5, 0.5, 50.0));
@@ -517,7 +517,7 @@ impl Run {
 #[test]
 fn each_special_zombie_has_its_own_body_on_the_client() {
     let mut run = Run::new(2, 2, 0.0, 0);
-    let start = crate::map::PLAYER_START;
+    let start = crate::maps::map::PLAYER_START;
     let napalm = run.special(start + Vec3::new(8.0, 0.0, 4.0), SpecialKind::Napalm);
     let shrieker = run.special(start + Vec3::new(9.5, 0.0, 4.0), SpecialKind::Shrieker);
     let sapper = run.special(start + Vec3::new(11.0, 0.0, 4.0), SpecialKind::Sapper);
@@ -580,7 +580,7 @@ fn a_hellhound_puppet_shows_its_lightning_strike() {
         query.iter(world).count()
     };
     let lights = bolts(&mut run);
-    run.hellhound(crate::map::PLAYER_START + Vec3::new(-8.0, 0.0, 4.0));
+    run.hellhound(crate::maps::map::PLAYER_START + Vec3::new(-8.0, 0.0, 4.0));
     run.step(IDLE, 45);
     let strikes = |run: &mut Run, on: usize| {
         let world = run.apps[on].world_mut();

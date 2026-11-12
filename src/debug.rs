@@ -2,14 +2,14 @@ use avian3d::prelude::*;
 use bevy::input::common_conditions::input_just_pressed;
 use bevy::prelude::*;
 
-use crate::arsenal::WeaponId;
-use crate::equipment::Equipment;
-use crate::hud::overlay::{Overlay, Overlays};
-use crate::player::{LocalPlayer, spawn_debug_player};
-use crate::power_up::DropPowerUp;
-use crate::sapper::SummonSapper;
+use crate::weapons::arsenal::WeaponId;
+use crate::weapons::equipment::Equipment;
+use crate::ui::hud::overlay::{Overlay, Overlays};
+use crate::players::player::{LocalPlayer, spawn_debug_player};
+use crate::economy::power_up::DropPowerUp;
+use crate::enemies::sapper::SummonSapper;
 use crate::state::input_runs;
-use crate::weapon::{Loadout, WeaponCopy};
+use crate::weapons::weapon::{Loadout, WeaponCopy};
 
 /// The Weapons F2 hands over in turn: one to try switching with, then the special Box Weapons,
 /// so each can be tried without spinning the Box for it.

@@ -9,10 +9,10 @@ use bevy::ui_widgets::Activate;
 
 use super::play::Wire;
 use super::protocol::ToHost;
-use crate::hud::text;
-use crate::menu::{button, screen};
-use crate::player::LocalPlayer;
-use crate::records::SaveRecord;
+use crate::ui::hud::text;
+use crate::ui::menu::{button, screen};
+use crate::players::player::LocalPlayer;
+use crate::storage::records::SaveRecord;
 use crate::state::{Choosing, GameState};
 use crate::tuning::*;
 

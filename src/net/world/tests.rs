@@ -2,20 +2,20 @@
 //! world and the Host confirms, and every game shows the result.
 
 use super::*;
-use crate::buy::resolve_use;
-use crate::door::DoorPlugin;
-use crate::gun_model::GunModels;
-use crate::mystery_box::MysteryBoxPlugin;
+use crate::economy::buy::resolve_use;
+use crate::maps::door::DoorPlugin;
+use crate::weapons::gun_model::GunModels;
+use crate::weapons::mystery_box::MysteryBoxPlugin;
 use crate::net::link::Hub;
 use crate::net::away::Rejoin;
 use crate::net::play::{Held, install_client, install_host};
 use crate::net::protocol::{PROTOCOL, ToHost};
-use crate::pack_a_punch::PackAPunchPlugin;
-use crate::power_up::PowerUpAssets;
-use crate::trap::TrapPlugin;
+use crate::weapons::pack_a_punch::PackAPunchPlugin;
+use crate::economy::power_up::PowerUpAssets;
+use crate::maps::trap::TrapPlugin;
 use crate::net::movement::machine;
-use crate::power::PowerPlugin;
-use crate::wall_weapon::{WallWeapon, WallWeaponPlugin};
+use crate::maps::power::PowerPlugin;
+use crate::weapons::wall_weapon::{WallWeapon, WallWeaponPlugin};
 
 /// What a game has been told so far.
 #[derive(Resource, Default)]

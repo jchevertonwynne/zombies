@@ -18,14 +18,14 @@ use super::state::{
     Snapshot, SpecialBody, SpecialSight, Tick, ZombieSight, pack_anim, pack_position, pack_special, pack_yaw, unpack_anim,
     unpack_special, unpack_yaw,
 };
-use crate::barrier::Entering;
-use crate::hellhound::{HellhoundAssetsParam, Telegraph, end_strike, spawn_hellhound_puppet};
-use crate::nova::{Burst, NovaAssetsParam, show_gas, spawn_nova_puppet};
-use crate::sapper::{self, Sapper, SapperAssetsParam};
-use crate::special::{self, Shrieker, SpecialAssetsParam, SpecialKind};
+use crate::maps::barrier::Entering;
+use crate::enemies::hellhound::{HellhoundAssetsParam, Telegraph, end_strike, spawn_hellhound_puppet};
+use crate::enemies::nova::{Burst, NovaAssetsParam, show_gas, spawn_nova_puppet};
+use crate::enemies::sapper::{self, Sapper, SapperAssetsParam};
+use crate::enemies::special::{self, Shrieker, SpecialAssetsParam, SpecialKind};
 use crate::tuning::{PUPPET_SNAP_METRES, SNAPSHOT_MAX_HELLHOUNDS, SNAPSHOT_MAX_SPECIALS, SNAPSHOT_MAX_ZOMBIES};
-use crate::zombie::rig::{Activity, Shown, Swing, describe};
-use crate::zombie::{
+use crate::enemies::zombie::rig::{Activity, Shown, Swing, describe};
+use crate::enemies::zombie::{
     Dying, KnockedDown, Rising, Stunned, Zombie, ZombieAssetsParam, make_puppet_crawler, spawn_puppet,
 };
 

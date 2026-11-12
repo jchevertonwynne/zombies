@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 
 use super::hits::{Burst, Hit, Launched, Throw};
 use super::world::{Request, WorldEvent};
-use crate::map::MapId;
-use crate::mode::Mode;
+use crate::maps::map::MapId;
+use crate::run::mode::Mode;
 use crate::tuning::{PLAYER_NAME_MAX_CHARS, ROOM_SEATS};
 
 /// Who a message is from or for, as the Host numbers them. The Host is `HOST`.

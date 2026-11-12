@@ -1,68 +1,22 @@
 // Bevy systems routinely take many params and complex query types.
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
-mod ammo_mod;
-mod arsenal;
-mod attachment;
 mod audio;
 mod authority;
-mod barrier;
-mod buy;
-mod burn;
-mod combat;
-mod controls;
-mod coop;
 mod debug;
-mod door;
-mod equipment;
-mod explosive;
-mod gauntlet;
-mod gun_model;
-mod hands;
-mod hellhound;
-mod hud;
-mod jump_pad;
-mod last_stand;
+mod economy;
+mod enemies;
 mod layers;
-mod leave_run;
-mod map;
-mod menu;
+mod maps;
 mod modifier;
-mod mode;
-mod muzzle;
-mod pack_a_punch;
-mod party;
-mod perk;
-mod mystery_box;
-mod nav;
 mod net;
-mod nova;
-mod player;
-mod points;
-mod records;
-mod power;
-mod power_up;
-mod respawn;
-mod revive;
-mod round;
-mod sapper;
-mod save;
-mod settings;
-mod special;
-mod shellshock;
+mod players;
+mod run;
 mod state;
-mod stats;
-mod sway;
-mod target;
-mod teammate;
-mod teleporter;
-mod trap;
+mod storage;
 mod tuning;
-mod wall_weapon;
-mod weapon;
-mod wonder;
-mod zombie;
-mod zone;
+mod ui;
+mod weapons;
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
@@ -82,67 +36,67 @@ fn main() {
         .add_plugins((
             state::StatePlugin,
             authority::AuthorityPlugin,
-            leave_run::LeaveRunPlugin,
-            party::PartyPlugin,
-            settings::SettingsPlugin,
-            menu::MenuPlugin,
-            coop::CoopPlugin,
+            run::leave_run::LeaveRunPlugin,
+            run::party::PartyPlugin,
+            storage::settings::SettingsPlugin,
+            ui::menu::MenuPlugin,
+            ui::coop::CoopPlugin,
         ))
         // The Map and everything played on it.
         .add_plugins((
-            map::MapPlugin,
-            zone::ZonePlugin,
-            nav::NavPlugin,
-            barrier::BarrierPlugin,
-            door::DoorPlugin,
-            buy::BuyPlugin,
-            player::PlayerPlugin,
-            weapon::WeaponPlugin,
-            attachment::AttachmentPlugin,
+            maps::map::MapPlugin,
+            maps::zone::ZonePlugin,
+            enemies::nav::NavPlugin,
+            maps::barrier::BarrierPlugin,
+            maps::door::DoorPlugin,
+            economy::buy::BuyPlugin,
+            players::player::PlayerPlugin,
+            weapons::weapon::WeaponPlugin,
+            weapons::attachment::AttachmentPlugin,
             // Buying and carrying beyond the starting Weapon.
             (
-                wall_weapon::WallWeaponPlugin,
-                mystery_box::MysteryBoxPlugin,
-                equipment::EquipmentPlugin,
-                explosive::ExplosivePlugin,
-                wonder::WonderPlugin,
+                weapons::wall_weapon::WallWeaponPlugin,
+                weapons::mystery_box::MysteryBoxPlugin,
+                weapons::equipment::EquipmentPlugin,
+                weapons::explosive::ExplosivePlugin,
+                weapons::wonder::WonderPlugin,
             ),
             (
-                zombie::ZombiePlugin,
-                hellhound::HellhoundPlugin,
-                nova::NovaPlugin,
-                special::SpecialPlugin,
-                sapper::SapperPlugin,
-                shellshock::ShellshockPlugin,
+                enemies::zombie::ZombiePlugin,
+                enemies::hellhound::HellhoundPlugin,
+                enemies::nova::NovaPlugin,
+                enemies::special::SpecialPlugin,
+                enemies::sapper::SapperPlugin,
+                players::shellshock::ShellshockPlugin,
             ),
-            round::RoundPlugin,
-            points::PointsPlugin,
-            stats::StatsPlugin,
-            records::RecordsPlugin,
+            run::round::RoundPlugin,
+            economy::points::PointsPlugin,
+            run::stats::StatsPlugin,
+            storage::records::RecordsPlugin,
         ))
         // How the Run looks and sounds, and the debug keys.
         .add_plugins((
-            hud::HudPlugin,
-            sway::SwayPlugin,
-            muzzle::MuzzlePlugin,
+            ui::hud::HudPlugin,
+            players::sway::SwayPlugin,
+            weapons::muzzle::MuzzlePlugin,
             audio::AudioPlugin,
             debug::DebugPlugin,
         ))
         .add_plugins((
-            power::PowerPlugin,
-            perk::PerkPlugin,
-            last_stand::LastStandPlugin,
-            revive::RevivePlugin,
-            respawn::RespawnPlugin,
-            pack_a_punch::PackAPunchPlugin,
-            burn::BurnPlugin,
-            trap::TrapPlugin,
-            teleporter::TeleporterPlugin,
-            ammo_mod::AmmoModPlugin,
-            power_up::PowerUpPlugin,
+            maps::power::PowerPlugin,
+            economy::perk::PerkPlugin,
+            players::last_stand::LastStandPlugin,
+            players::revive::RevivePlugin,
+            players::respawn::RespawnPlugin,
+            weapons::pack_a_punch::PackAPunchPlugin,
+            weapons::burn::BurnPlugin,
+            maps::trap::TrapPlugin,
+            maps::teleporter::TeleporterPlugin,
+            weapons::ammo_mod::AmmoModPlugin,
+            economy::power_up::PowerUpPlugin,
         ))
         // Gauntlet, layered on top of everything above.
-        .add_plugins(gauntlet::GauntletPlugin)
-        .add_plugins(teammate::TeammatePlugin)
+        .add_plugins(run::gauntlet::GauntletPlugin)
+        .add_plugins(players::teammate::TeammatePlugin)
         .run();
 }

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::player::{LocalPlayer, Player, SpawnPlayers};
+use crate::players::player::{LocalPlayer, Player, SpawnPlayers};
 
 #[derive(States, Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum GameState {
