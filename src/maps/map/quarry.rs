@@ -11,6 +11,9 @@
 //! ground and a loading platform. A spoil heap stands in the pit's south-east corner, up a ramp
 //! and down a flight of steps.
 //!
+//! The deck has a window of its own, onto the lip of the pit behind the tower, so Zombies come in
+//! up there as well as up the stairs.
+//!
 //! Going up costs Points and stairs; coming down is a drop off a Ledge, from the Rail Yard into
 //! the pit, from one of the Incline's landings to the one below, or off the Headframe's deck,
 //! which Zombies can follow but never climb back. Once the Power is on, Jump Pads throw a Player
@@ -124,10 +127,11 @@ pub(super) const BOX_LOCATIONS: [(ZoneId, Vec3, Vec2); 6] = [
     (ZoneId::LoadingDock, at(33.35, DOCK_PLATFORM.height, -11.0), Vec2::NEG_X),
 ];
 
-/// The 13 windows: three in the Pump House, an old adit planked up in the pit's west wall, two
-/// in the Loading Dock, one off each of the Incline's floors, and the rest on the terraces, each
-/// over a ledge of rock outside where Zombies gather.
-pub(super) const WINDOWS: [(ZoneId, Vec3, Vec2); 13] = [
+/// The 14 windows: three in the Pump House, an old adit planked up in the pit's west wall, two
+/// in the Loading Dock, one off each of the Incline's floors, the rest on the terraces, each
+/// over a ledge of rock outside where Zombies gather, and one up on the Headframe's deck, onto
+/// the lip of the pit behind it, so camping at Pack-a-Punch isn't free.
+pub(super) const WINDOWS: [(ZoneId, Vec3, Vec2); 14] = [
     (ZoneId::PumpHouse, at(-4.0, 0.0, -30.0), Vec2::NEG_Y),
     (ZoneId::PumpHouse, at(4.0, 0.0, -30.0), Vec2::NEG_Y),
     (ZoneId::PumpHouse, at(-8.0, 0.0, -25.0), Vec2::NEG_X),
@@ -141,7 +145,15 @@ pub(super) const WINDOWS: [(ZoneId, Vec3, Vec2); 13] = [
     (ZoneId::Incline, at(-30.0, TERRACE_2, 27.0), Vec2::NEG_X),
     (ZoneId::Offices, at(-12.0, TERRACE_2, 28.0), Vec2::Y),
     (ZoneId::LoadingDock, at(27.0, 0.0, -20.0), Vec2::NEG_Y),
+    (ZoneId::Headframe, at(DECK_WINDOW_X, DECK, 40.0), Vec2::Y),
 ];
+
+/// Where along the Headframe's back wall its deck's window is, between the stairs' landing and
+/// the Bowie Knife's chalk.
+const DECK_WINDOW_X: f32 = 1.0;
+/// The lip of the pit behind the Headframe, outside the deck's window: a ledge of rock at the
+/// deck's height (x, z corners).
+const PIT_LIP: (Vec2, Vec2) = (v(DECK_WINDOW_X - 3.0, 40.0), v(DECK_WINDOW_X + 3.0, 44.0));
 
 /// The Risers: on the pit floor, clear of the sump, the spoil heap and the ramp, in the Rail
 /// Yard, at the foot of the Incline and on the Loading Dock's floor.
@@ -332,6 +344,7 @@ fn build(b: &mut Builder) {
     shelf(b, v(-34.0, 23.0), v(-30.0, 30.0), TERRACE_2, rock);
     shelf(b, v(6.0, 28.0), v(20.0, 32.0), TERRACE_2, rock);
     shelf(b, v(-20.0, 28.0), v(-6.0, 32.0), TERRACE_2, rock);
+    shelf(b, PIT_LIP.0, PIT_LIP.1, DECK, rock);
 
     // The Pump House, with the Trap's Door out to the pit.
     b.outer_wall(v(-8.0, -30.0), v(8.0, -30.0), 0.0, STOREY);
@@ -399,7 +412,9 @@ fn build(b: &mut Builder) {
     let girder = palette(Some(Headframe)).wall;
     b.wall(v(-6.0, 28.0), v(-6.0, 40.0), TERRACE_2, 2.0 * STOREY, &[]);
     b.wall(v(6.0, 28.0), v(6.0, 40.0), TERRACE_2, 2.0 * STOREY, &[]);
-    b.wall(v(-6.0, 40.0), v(6.0, 40.0), TERRACE_2, 2.0 * STOREY, &[]);
+    // The back wall, with the deck's window up in its top storey.
+    b.wall(v(-6.0, 40.0), v(6.0, 40.0), TERRACE_2, STOREY, &[]);
+    b.outer_wall(v(-6.0, 40.0), v(6.0, 40.0), DECK, STOREY);
     b.wall(v(-6.0, 28.0), v(6.0, 28.0), DECK, STOREY, &[]);
     b.wall(v(-6.0, 30.0), v(-2.6, 30.0), TERRACE_2, DOOR_HEIGHT, &[(STAIR_X + 6.0, Gap::Door(Some((Headframe, Headframe)), None))]);
     b.wall(v(-2.6, 30.0), v(-2.6, 38.0), TERRACE_2, STOREY + RAIL_HEIGHT, &[]);
@@ -537,6 +552,8 @@ const NODES: &[(&str, f32, f32, f32)] = &[
     ("deck_w", Q - 1.0, DECK, 38.8),
     ("deck_c", Q + 1.5, DECK, 37.5),
     ("deck_e", Q + 4.6, DECK, 36.5),
+    ("w13_in", Q + DECK_WINDOW_X, DECK, 38.5),
+    ("w13_out", Q + DECK_WINDOW_X, DECK, 42.0),
     // Either side of the gap in the deck's rail
     ("deck_drop", Q + 4.5, DECK, 34.8),
     ("head_drop", Q + 4.5, TERRACE_2, 32.8),
@@ -713,6 +730,9 @@ const EDGES: &[(&str, &str, Gate)] = {
         ("deck_w", "deck_c", OPEN),
         ("deck_c", "deck_e", OPEN),
         ("deck_e", "deck_drop", OPEN),
+        ("w13_in", "deck_w", OPEN),
+        ("w13_in", "deck_c", OPEN),
+        ("w13_out", "w13_in", barrier(13)),
         // Off the deck's front.
         ("deck_drop", "head_drop", Gate::OneWay),
         ("head_drop", "head_e", OPEN),
@@ -773,3 +793,30 @@ const EDGES: &[(&str, &str, Gate)] = {
         ("vent_off", "off_nw", Gate::OneWay),
     ]
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::maps::map::MapId;
+
+    /// The deck's window, onto the lip of the pit.
+    const DECK_WINDOW: BarrierId = BarrierId(W0 + 13);
+
+    /// Pack-a-Punch's deck isn't a free camp: a window lets Zombies onto it from the lip of the
+    /// pit, besides the stairs.
+    #[test]
+    fn the_headframe_deck_has_a_window_of_its_own() {
+        let (zone, centre, _) = WINDOWS[13];
+        assert_eq!(zone, ZoneId::Headframe);
+        assert_eq!(centre.y, DECK);
+        assert_eq!(crate::maps::map::WINDOWS[DECK_WINDOW.0 as usize].1, centre);
+    }
+
+    /// The lip of the pit outside the deck's window is walled in all round, so a Zombie knocked
+    /// about up there never falls off the edge of the Map.
+    #[test]
+    fn the_lip_outside_the_deck_window_is_walled_in() {
+        let open = crate::maps::map::tests::ways_off_outside(MapId::Quarry, DECK_WINDOW);
+        assert!(open.is_empty(), "ways off the lip at these headings (degrees): {open:?}");
+    }
+}

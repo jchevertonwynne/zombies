@@ -557,13 +557,14 @@ fn zombies_that_vault_a_window_together_land_apart_and_move_on() {
     }
 }
 
-/// Opens `barrier`'s window and sends one Zombie in through it (a Crawler if `crawler`): where its
-/// body stood before the vault, every frame's position, and the window's centre and way out.
-fn vault_window(barrier: crate::maps::map::BarrierId, crawler: bool) -> (f32, Vec<Vec3>, Vec3, Vec3) {
+/// Opens `barrier`'s window on `map` and sends one Zombie in through it (a Crawler if `crawler`):
+/// where its body stood before the vault, every frame's position, and the window's centre and way
+/// out.
+fn vault_window(map: MapId, barrier: crate::maps::map::BarrierId, crawler: bool) -> (f32, Vec<Vec3>, Vec3, Vec3) {
     use crate::maps::barrier::{Barriers, Entering, PlankTorn, enter_through_windows};
     use crate::maps::map::{WINDOWS, window_centre, window_spawn};
 
-    let mut sim = Sim::new(60.0, |app| {
+    let mut sim = Sim::on(map, 60.0, |app| {
         app.add_message::<PlankTorn>()
             .add_message::<crate::audio::PlayCue>()
             .insert_resource(crate::run::round::Round::shown(1, None))
@@ -588,8 +589,9 @@ fn vault_window(barrier: crate::maps::map::BarrierId, crawler: bool) -> (f32, Ve
 /// A Zombie, and a Crawler, get in over `barrier`'s Sill into `zone`: never through it, and on
 /// into the room.
 fn climbs_in_over_the_sill(barrier: crate::maps::map::BarrierId, zone: crate::maps::zone::ZoneId) {
+    let map = zone.map();
     for crawler in [false, true] {
-        let (standing, path, centre, out) = vault_window(barrier, crawler);
+        let (standing, path, centre, out) = vault_window(map, barrier, crawler);
         // Within this far of the wall line, the body is over the Sill.
         let over_sill = crate::maps::map::WALL_THICKNESS / 2.0 + ZOMBIE_RADIUS;
         let mut crossed = false;
@@ -627,6 +629,17 @@ fn zombies_climb_in_through_the_balcony_window_onto_the_balcony() {
 
     let i = WINDOWS.iter().position(|(zone, ..)| *zone == ZoneId::Balcony).expect("the Balcony has a window");
     climbs_in_over_the_sill(BarrierId(i as u8), ZoneId::Balcony);
+}
+
+/// The Headframe's deck has a window of its own, onto the lip of the pit: Zombies gather up there
+/// and climb in onto the deck, by Pack-a-Punch.
+#[test]
+fn zombies_climb_in_through_the_deck_window_onto_the_headframe_deck() {
+    use crate::maps::map::{BarrierId, WINDOWS};
+    use crate::maps::zone::ZoneId;
+
+    let i = WINDOWS.iter().position(|(zone, ..)| *zone == ZoneId::Headframe).expect("the Headframe has a window");
+    climbs_in_over_the_sill(BarrierId(i as u8), ZoneId::Headframe);
 }
 
 /// Every spot on every Zone's floors that a Zombie fits on has a path node near it that it can
