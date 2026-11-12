@@ -488,6 +488,14 @@ impl Round {
     }
 }
 
+impl Round {
+    /// Round `number`, under way with `players` Players and no Hellhounds, for the benchmark to
+    /// jump straight to a late Round.
+    pub fn for_bench(number: u32, players: u32) -> Self {
+        Self::begin(number, HellhoundSchedule::new(u32::MAX), &[], false, players)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
