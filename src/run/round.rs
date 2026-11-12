@@ -116,6 +116,15 @@ pub fn spawn_candidates<T>(points: impl IntoIterator<Item = (ZoneId, T)>, active
         .collect()
 }
 
+/// Of `points` (each with where it stands), those within `ZOMBIE_SPAWN_MAX_DIST` of one of
+/// `players`: a Zombie from farther off would count as lost and be cleaned up before it got
+/// there, which on a long Map is most of an Active Zone. Every one of them if none is that near.
+pub fn near_enough<T>(points: Vec<(Vec3, T)>, players: &[Vec3]) -> Vec<T> {
+    let near = |at: &Vec3| players.iter().any(|player| at.distance(*player) <= ZOMBIE_SPAWN_MAX_DIST);
+    let any_near = points.iter().any(|(at, _)| near(at));
+    points.into_iter().filter(|(at, _)| !any_near || near(at)).map(|(_, point)| point).collect()
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum RoundPhase {
     Active,
@@ -310,12 +319,13 @@ fn spawn_horde(
         return;
     }
 
+    // Where the Players new arrivals are placed round: those who are up, or all if none is.
+    let anchors: Vec<Vec3> = players.spawn_anchors().iter().map(|spot| spot.centre).collect();
     let hound_points = || {
         let points = spawn_points
             .iter()
             .filter(|(_, point)| point.kind == SpawnKind::Hellhound)
             .map(|(t, point)| (point.zone, t.translation));
-        let anchors: Vec<Vec3> = players.spawn_anchors().iter().map(|spot| spot.centre).collect();
         hellhound_spawn_candidates(points, active.0, &anchors)
     };
     let on = settings.special_zombies;
@@ -355,9 +365,10 @@ fn spawn_horde(
             spawn_points
                 .iter()
                 .filter(|(_, point)| nova_crawler_entry(point.kind))
-                .map(|(t, point)| (point.zone, (t.translation, point.kind))),
+                .map(|(t, point)| (point.zone, (t.translation, (t.translation, point.kind)))),
             active.0,
         );
+        let points = near_enough(points, &anchors);
         if !points.is_empty() {
             let (at, kind) = points[rand::random_range(0..points.len())];
             spawn_nova_crawler(&mut commands, &nova_assets, kind, at, nova_crawler_health(round.number));
@@ -371,9 +382,10 @@ fn spawn_horde(
         spawn_points
             .iter()
             .filter(|(_, point)| matches!(point.kind, SpawnKind::Window(_) | SpawnKind::Riser))
-            .map(|(t, point)| (point.zone, (t, point.kind))),
+            .map(|(t, point)| (point.zone, (t.translation, (t, point.kind)))),
         active.0,
     );
+    let points = near_enough(points, &anchors);
     if points.is_empty() {
         return;
     }
@@ -487,6 +499,18 @@ mod tests {
         let active = ZoneSet::from_iter([StartRoom, Yard]);
         assert_eq!(spawn_candidates(points, active), vec![0, 1, 3]);
         assert!(spawn_candidates(points, ZoneSet::from_iter([DiningRoom])).is_empty());
+    }
+
+    /// On a long Map an Active Zone can reach far past the cleanup distance: a Zombie only comes
+    /// from a Spawn Point near enough a Player to arrive, unless none is.
+    #[test]
+    fn a_zombie_comes_from_a_spawn_point_near_enough_a_player() {
+        let points = vec![(Vec3::new(10.0, 0.0, 0.0), 'a'), (Vec3::new(80.0, 0.0, 0.0), 'b'), (Vec3::new(0.0, 0.0, -30.0), 'c')];
+        assert_eq!(near_enough(points.clone(), &[Vec3::ZERO]), vec!['a', 'c']);
+        // A second Player out by the far one brings it in reach too.
+        assert_eq!(near_enough(points.clone(), &[Vec3::ZERO, Vec3::new(90.0, 0.0, 0.0)]), vec!['a', 'b', 'c']);
+        // With none near, any will do rather than none.
+        assert_eq!(near_enough(points, &[Vec3::new(0.0, 0.0, 200.0)]), vec!['a', 'b', 'c']);
     }
 
     #[test]

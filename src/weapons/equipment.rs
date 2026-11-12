@@ -22,7 +22,7 @@ use crate::state::{GameState, InRun, input_runs, world_runs};
 use crate::tuning::*;
 use crate::weapons::weapon::Knife;
 use crate::enemies::zombie::{Dying, Lured, Zombie};
-use crate::maps::map::{MapId, QUARRY_X, STOREY};
+use crate::maps::map::{MapId, QUARRY_X, STOREY, VILLAGE_X};
 use crate::maps::zone::ZoneId;
 
 /// The Equipment the Player carries. It never counts toward the Weapon limit.
@@ -316,6 +316,18 @@ pub(crate) fn equipment_walls(map: MapId) -> &'static [(EquipmentWall, ZoneId, V
                 (EquipmentWall::Claymore, ZoneId::CrusherShed, Vec3::new(Q - 5.0, STOREY + 1.5, 15.8), Vec3::NEG_Z),
                 // Up on the Headframe's deck, on its east wall.
                 (EquipmentWall::BowieKnife, ZoneId::Headframe, Vec3::new(Q + 5.8, 3.0 * STOREY + 1.5, 38.0), Vec3::NEG_X),
+            ];
+            &SPOTS
+        }
+        MapId::Village => {
+            const V: f32 = VILLAGE_X;
+            const SPOTS: [(EquipmentWall, ZoneId, Vec3, Vec3); 3] = [
+                // On the Market's south wall, behind the cross.
+                (EquipmentWall::Frags, ZoneId::Market, Vec3::new(V, 1.5, -21.8), Vec3::Z),
+                // On the Mill's front wall, beside the Door in from the street.
+                (EquipmentWall::Claymore, ZoneId::Mill, Vec3::new(V - 67.0, 1.5, 6.2), Vec3::Z),
+                // On the back of the mausoleum.
+                (EquipmentWall::BowieKnife, ZoneId::Graveyard, Vec3::new(V + 56.0, 1.5, 45.7), Vec3::Z),
             ];
             &SPOTS
         }

@@ -550,6 +550,26 @@ mod tests {
         assert_eq!(names, ["head_corner", "stair_low", "stair_mid"]);
     }
 
+    /// The Village's lanes are three dead ends until the Power opens the gates either end of the
+    /// Back Lane. Then a Zombie in the Back Lane can walk out along either lane.
+    #[test]
+    fn the_villages_lanes_join_up_only_with_the_power() {
+        let graph = NavGraph::new(MapId::Village);
+        let named = |name: &str| graph.node(name).unwrap();
+        // Every Door bought, but the Power's gates are not bought: they open with the Power.
+        let gates = [(BackLane, MillLane), (BackLane, ChurchLane)];
+        let gated = |&(a, b): &(ZoneId, ZoneId)| gates.contains(&(a, b)) || gates.contains(&(b, a));
+        let bought: Vec<_> = all_doors(MapId::Village).into_iter().filter(|join| !gated(join)).collect();
+        for lane in ["ml_c", "cl_c"] {
+            // The long way round, down through a building, along the High Street and back up.
+            let around = graph.plan(named("bl_c"), named(lane), &bought, windows_open).expect("the long way round");
+            assert!(around.iter().any(|&i| graph.nodes[i].zone == Some(Market)), "to {lane} without the Power: {around:?}");
+            let gated: Vec<_> = bought.iter().copied().chain(gates).collect();
+            let through = graph.plan(named("bl_c"), named(lane), &gated, windows_open).unwrap();
+            assert!(through.iter().all(|&i| matches!(graph.nodes[i].zone, Some(BackLane | MillLane | ChurchLane))), "to {lane} with the Power: {through:?}");
+        }
+    }
+
     #[test]
     fn shut_doors_block_zombies() {
         assert_eq!(route("start", "west_ne", &[]), None);

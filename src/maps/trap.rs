@@ -17,7 +17,7 @@ use crate::enemies::target::half_height_above_feet;
 use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 use crate::enemies::zombie::{Attack, DamageZombie, Dying, HitZone, Rising, Zombie};
-use crate::maps::map::{MapId, QUARRY_X};
+use crate::maps::map::{MapId, QUARRY_X, VILLAGE_X};
 use crate::maps::zone::ZoneId;
 
 /// A Map's Traps: the Door whose doorway each spans, the doorway's centre on the ground floor
@@ -36,6 +36,16 @@ pub(crate) fn traps(map: MapId) -> &'static [((ZoneId, ZoneId), Vec2, f32)] {
         // The Pump House's Door out to the pit floor.
         MapId::Quarry => {
             const SPOTS: [((ZoneId, ZoneId), Vec2, f32); 1] = [((ZoneId::PumpHouse, ZoneId::QuarryFloor), Vec2::new(Q, -20.0), Q + 2.2)];
+            &SPOTS
+        }
+        // The Doors off the High Street into the Smithy and the Schoolhouse, the cut-throughs to
+        // the lanes nearest the Market.
+        MapId::Village => {
+            const V: f32 = VILLAGE_X;
+            const SPOTS: [((ZoneId, ZoneId), Vec2, f32); 2] = [
+                ((ZoneId::WestEnd, ZoneId::Smithy), Vec2::new(V - 32.0, 6.0), V - 29.8),
+                ((ZoneId::EastEnd, ZoneId::Schoolhouse), Vec2::new(V + 32.0, 6.0), V + 34.2),
+            ];
             &SPOTS
         }
     }

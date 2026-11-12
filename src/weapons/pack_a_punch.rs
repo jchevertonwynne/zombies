@@ -9,7 +9,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
-use crate::maps::map::{MapId, QUARRY_X, STOREY};
+use crate::maps::map::{MapId, QUARRY_X, STOREY, VILLAGE_X};
 
 use crate::weapons::ammo_mod::{ammo_mod_slots, repack_price};
 use crate::weapons::arsenal::WeaponId;
@@ -259,11 +259,13 @@ impl PackAPunch {
 }
 
 /// The machine's spot on `map`, on the floor. It always faces +Z: on the Greybox, out of the
-/// Gazebo's Power Door; on the Quarry, along the Headframe's deck from just behind its front rail.
+/// Gazebo's Power Door; on the Quarry, along the Headframe's deck from just behind its front rail;
+/// on the Village, along the Church's chancel from its south end.
 pub(crate) fn machine_at(map: MapId) -> Vec3 {
     match map {
         MapId::Greybox => Vec3::new(5.0, 0.0, -9.2),
         MapId::Quarry => Vec3::new(QUARRY_X + 2.0, 3.0 * STOREY, 35.2),
+        MapId::Village => Vec3::new(VILLAGE_X + 69.0, 0.45, 9.0),
     }
 }
 const MACHINE_SIZE: Vec3 = Vec3::new(1.6, 1.6, 0.9);

@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use crate::debug::DebugView;
 use crate::maps::door::Door;
-use crate::maps::map::{MapId, QUARRY_X, STOREY};
+use crate::maps::map::{MapId, QUARRY_X, STOREY, VILLAGE_X};
 use crate::players::player::{LocalPlayer, Player};
 use crate::players::respawn::AwaitingRespawn;
 use crate::state::GameState;
@@ -45,10 +45,39 @@ pub enum ZoneId {
     Incline,
     /// The goods shed off the pit's east side, with its loading platform.
     LoadingDock,
+    /// The Village's start: the inn in the middle of the village, between the Market and the
+    /// Back Lane.
+    Inn,
+    /// The open market place in the middle of the High Street, round its market cross.
+    Market,
+    /// The High Street west of the Market, out to the Mill.
+    WestEnd,
+    /// The High Street east of the Market, out to the Church.
+    EastEnd,
+    /// The lane behind the Inn, gated off from the lanes either side until the Power comes on.
+    BackLane,
+    /// The lane behind the west end of the village, out to the Orchard.
+    MillLane,
+    /// The lane behind the east end of the village, out to the Graveyard.
+    ChurchLane,
+    /// The watermill at the west end, with the Power Switch.
+    Mill,
+    /// The smithy, between the West End and Mill Lane.
+    Smithy,
+    /// The bakery, between the Market and the Back Lane.
+    Bakery,
+    /// The schoolhouse, between the East End and Church Lane.
+    Schoolhouse,
+    /// The church at the east end, with Pack-a-Punch on its chancel.
+    Church,
+    /// The orchard off Mill Lane.
+    Orchard,
+    /// The churchyard off Church Lane, round the mausoleum.
+    Graveyard,
 }
 
 impl ZoneId {
-    pub const ALL: [ZoneId; 21] = [
+    pub const ALL: [ZoneId; 35] = [
         ZoneId::StartRoom,
         ZoneId::WestHall,
         ZoneId::Balcony,
@@ -70,6 +99,20 @@ impl ZoneId {
         ZoneId::Headframe,
         ZoneId::Incline,
         ZoneId::LoadingDock,
+        ZoneId::Inn,
+        ZoneId::Market,
+        ZoneId::WestEnd,
+        ZoneId::EastEnd,
+        ZoneId::BackLane,
+        ZoneId::MillLane,
+        ZoneId::ChurchLane,
+        ZoneId::Mill,
+        ZoneId::Smithy,
+        ZoneId::Bakery,
+        ZoneId::Schoolhouse,
+        ZoneId::Church,
+        ZoneId::Orchard,
+        ZoneId::Graveyard,
     ];
 
     pub fn name(self) -> &'static str {
@@ -95,6 +138,20 @@ impl ZoneId {
             ZoneId::Headframe => "Headframe",
             ZoneId::Incline => "Incline",
             ZoneId::LoadingDock => "Loading Dock",
+            ZoneId::Inn => "Inn",
+            ZoneId::Market => "Market",
+            ZoneId::WestEnd => "West End",
+            ZoneId::EastEnd => "East End",
+            ZoneId::BackLane => "Back Lane",
+            ZoneId::MillLane => "Mill Lane",
+            ZoneId::ChurchLane => "Church Lane",
+            ZoneId::Mill => "Mill",
+            ZoneId::Smithy => "Smithy",
+            ZoneId::Bakery => "Bakery",
+            ZoneId::Schoolhouse => "Schoolhouse",
+            ZoneId::Church => "Church",
+            ZoneId::Orchard => "Orchard",
+            ZoneId::Graveyard => "Graveyard",
         }
     }
 
@@ -104,16 +161,18 @@ impl ZoneId {
         match self {
             StartRoom | WestHall | Balcony | EastHall | DiningRoom | PowerRoom | Yard | Passage | Workshop | Storeroom | GeneratorRoom | Tunnel => MapId::Greybox,
             PumpHouse | QuarryFloor | RailYard | CrusherShed | WindingHouse | Offices | Headframe | Incline | LoadingDock => MapId::Quarry,
+            Inn | Market | WestEnd | EastEnd | BackLane | MillLane | ChurchLane | Mill | Smithy | Bakery | Schoolhouse | Church | Orchard | Graveyard => MapId::Village,
         }
     }
 
     /// The height of the Zone's floor: the ground, a storey up for the Balcony, and a terrace's
-    /// height in the Quarry.
+    /// height in the Quarry. The Village is all on the ground.
     pub fn floor(self) -> f32 {
         use ZoneId::*;
         match self {
             StartRoom | WestHall | EastHall | DiningRoom | PowerRoom | Yard | Passage | Workshop | Storeroom | GeneratorRoom | Tunnel => 0.0,
             PumpHouse | QuarryFloor | Incline | LoadingDock => 0.0,
+            Inn | Market | WestEnd | EastEnd | BackLane | MillLane | ChurchLane | Mill | Smithy | Bakery | Schoolhouse | Church | Orchard | Graveyard => 0.0,
             Balcony | RailYard | CrusherShed => STOREY,
             WindingHouse | Offices | Headframe => 2.0 * STOREY,
         }
@@ -123,12 +182,13 @@ impl ZoneId {
     /// West Hall is two storeys tall because its ramp climbs to the Balcony, and a Zone with a
     /// sunken floor (the Yard's garden, the Tunnel's dip) reaches down into it. The Quarry's Zones
     /// stand at its own patch of the world, `QUARRY_X` along x, and a Zone a ramp or stairs climb
-    /// out of is tall enough to hold a Player on them.
+    /// out of is tall enough to hold a Player on them. The Village's stand `VILLAGE_X` along x.
     pub fn volume(self) -> (Vec3, Vec3) {
         const LOW: f32 = -0.25;
         const UPPER: f32 = 3.75;
         const TOP: f32 = 8.0;
         const Q: f32 = QUARRY_X;
+        const V: f32 = VILLAGE_X;
         let (x0, x1, y0, y1, z0, z1) = match self {
             ZoneId::StartRoom => (-14.0, 14.0, LOW, UPPER, 14.0, 26.0),
             ZoneId::WestHall => (-26.0, -14.0, LOW, TOP, -14.0, 26.0),
@@ -151,19 +211,33 @@ impl ZoneId {
             ZoneId::Headframe => (Q - 6.0, Q + 6.0, TOP - 0.25, 4.0 * STOREY, 28.0, 40.0),
             ZoneId::Incline => (Q - 30.0, Q - 20.0, LOW, 3.0 * STOREY - 0.25, -12.0, 30.0),
             ZoneId::LoadingDock => (Q + 20.0, Q + 34.0, LOW, UPPER, -20.0, -2.0),
+            ZoneId::Inn => (V - 8.0, V + 8.0, LOW, UPPER, 6.0, 22.0),
+            ZoneId::Market => (V - 24.0, V + 24.0, LOW, UPPER, -22.0, 6.0),
+            ZoneId::WestEnd => (V - 72.0, V - 24.0, LOW, UPPER, -6.0, 6.0),
+            ZoneId::EastEnd => (V + 24.0, V + 72.0, LOW, UPPER, -6.0, 6.0),
+            ZoneId::BackLane => (V - 24.0, V + 24.0, LOW, UPPER, 22.0, 30.0),
+            ZoneId::MillLane => (V - 72.0, V - 24.0, LOW, UPPER, 22.0, 30.0),
+            ZoneId::ChurchLane => (V + 24.0, V + 72.0, LOW, UPPER, 22.0, 30.0),
+            ZoneId::Mill => (V - 72.0, V - 52.0, LOW, UPPER, 6.0, 22.0),
+            ZoneId::Smithy => (V - 40.0, V - 24.0, LOW, UPPER, 6.0, 22.0),
+            ZoneId::Bakery => (V - 24.0, V - 8.0, LOW, UPPER, 6.0, 22.0),
+            ZoneId::Schoolhouse => (V + 24.0, V + 40.0, LOW, UPPER, 6.0, 22.0),
+            ZoneId::Church => (V + 52.0, V + 72.0, LOW, UPPER, 6.0, 22.0),
+            ZoneId::Orchard => (V - 72.0, V - 40.0, LOW, UPPER, 30.0, 54.0),
+            ZoneId::Graveyard => (V + 40.0, V + 72.0, LOW, UPPER, 30.0, 54.0),
         };
         let sunk = self.map().layout().sunken.iter().filter(|sunken| sunken.zone == self).map(|sunken| sunken.depth).fold(0.0, f32::max);
         (Vec3::new(x0, y0 - sunk, z0), Vec3::new(x1, y1, z1))
     }
 
-    fn bit(self) -> u32 {
+    fn bit(self) -> u64 {
         1 << self as u32
     }
 }
 
 /// A set of Zones.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ZoneSet(u32);
+pub struct ZoneSet(u64);
 
 impl ZoneSet {
     pub fn insert(&mut self, zone: ZoneId) {

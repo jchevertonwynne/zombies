@@ -729,6 +729,43 @@ fn a_zombie_climbs_to_a_player_at_the_quarry_pack_a_punch() {
     }
 }
 
+/// The Village's ways round: along the High Street past the barricades, through its buildings
+/// between the street and the lanes, round the Market's cross and the Mill's millstones, through
+/// the Power's gates along the lanes, among the Orchard's trees and the Graveyard's graves, and
+/// up the Church's chancel steps to Pack-a-Punch. A Zombie walks every one to the Player.
+#[test]
+fn a_zombie_follows_the_player_round_every_way_of_the_village() {
+    use crate::maps::map::{MapId, VILLAGE_X};
+    let at = |x: f32, y: f32, z: f32| Vec3::new(VILLAGE_X + x, y, z);
+    // Each start within the cleanup distance of the Player, as a spawn would be.
+    let ways = [
+        ("out of the Inn across the Market", at(0.0, 0.0, 14.0), at(10.0, 0.0, -18.0)),
+        ("round the market cross", at(0.0, 0.0, -14.0), at(0.0, 0.0, -2.0)),
+        ("along the High Street into the Mill", at(-36.0, 0.0, 0.0), at(-66.0, 0.0, 14.0)),
+        ("along the High Street into the Church", at(36.0, 0.0, 0.0), at(56.0, 0.0, 14.0)),
+        ("up the chancel to Pack-a-Punch", at(56.0, 0.0, 18.0), at(69.0, 0.45, 11.0)),
+        ("through the Smithy to Mill Lane", at(-40.0, 0.0, 0.0), at(-40.0, 0.0, 26.0)),
+        ("through the Bakery to the Back Lane", at(-14.0, 0.0, -6.0), at(-20.0, 0.0, 26.0)),
+        ("through the Schoolhouse to Church Lane", at(40.0, 0.0, 0.0), at(40.0, 0.0, 26.0)),
+        ("along the lanes through the west gate", at(-10.0, 0.0, 26.0), at(-40.0, 0.0, 26.0)),
+        ("along the lanes through the east gate", at(10.0, 0.0, 26.0), at(40.0, 0.0, 26.0)),
+        ("into the Orchard among the trees", at(-40.0, 0.0, 26.0), at(-66.0, 0.0, 48.0)),
+        ("round the mausoleum", at(56.0, 0.0, 33.0), at(56.0, 0.0, 49.0)),
+        ("among the graves", at(56.0, 0.0, 26.0), at(45.5, 0.0, 45.0)),
+        ("out of the Church into the Graveyard", at(60.0, 0.0, 14.0), at(66.0, 0.0, 50.0)),
+    ];
+    for (way, start, player) in ways {
+        let mut sim = Sim::on(MapId::Village, 60.0, |_| {});
+        open_every_door(&mut sim);
+        put_player(&mut sim, player);
+        let zombie = sim.spawn(start, None);
+        let (arrived, last) = arrives(&mut sim, zombie, 90.0, |feet| {
+            (feet.y - standing(player.y)).abs() < 0.3 && Vec2::new(feet.x - player.x, feet.z - player.z).length() < 1.5
+        });
+        assert!(arrived, "{way}: last seen at {last}");
+    }
+}
+
 /// Every Door on the Map open, for following a Zombie from Zone to Zone.
 fn open_every_door(sim: &mut Sim) {
     use crate::maps::door::{Door, open};

@@ -18,6 +18,7 @@ use crate::maps::zone::ZoneId;
 mod build;
 mod greybox;
 mod quarry;
+mod village;
 
 use build::{Builder, Gap};
 
@@ -25,6 +26,7 @@ pub use greybox::CONTROL_PLATFORM;
 #[cfg(test)]
 pub use greybox::PLAYER_START;
 pub use quarry::QUARRY_X;
+pub use village::VILLAGE_X;
 
 use crate::maps::jump_pad::JumpPad;
 
@@ -45,15 +47,19 @@ pub enum MapId {
     Greybox,
     /// An open-cast quarry climbed terrace by terrace, from the pit floor to the Headframe.
     Quarry,
+    /// A village strung along its High Street and the lanes behind it, the Power at one end and
+    /// Pack-a-Punch at the other.
+    Village,
 }
 
 impl MapId {
-    pub const ALL: [MapId; 2] = [MapId::Greybox, MapId::Quarry];
+    pub const ALL: [MapId; 3] = [MapId::Greybox, MapId::Quarry, MapId::Village];
 
     pub fn name(self) -> &'static str {
         match self {
             MapId::Greybox => "Greybox",
             MapId::Quarry => "Quarry",
+            MapId::Village => "Village",
         }
     }
 
@@ -62,6 +68,7 @@ impl MapId {
         match self {
             MapId::Greybox => "A house round a courtyard, and a wing across the field.",
             MapId::Quarry => "A pit and its works, climbed terrace by terrace.",
+            MapId::Village => "A long village of streets and lanes, walked end to end.",
         }
     }
 
@@ -70,6 +77,7 @@ impl MapId {
         match self {
             MapId::Greybox => &greybox::GREYBOX,
             MapId::Quarry => &quarry::QUARRY,
+            MapId::Village => &village::VILLAGE,
         }
     }
 }
@@ -158,12 +166,15 @@ const fn concat<T: Copy, const A: usize, const B: usize, const N: usize>(a: [T; 
 /// Every Map's windows, each Map's in a run of its own in `MapId::ALL` order, so a `BarrierId`
 /// names one window in one Map: the Zone it lets into, its centre on the wall line at the height
 /// of the floor it lets onto, and the way out. Each is planked up by its Barrier.
-pub const WINDOWS: [(ZoneId, Vec3, Vec2); greybox::WINDOWS.len() + quarry::WINDOWS.len()] = concat(greybox::WINDOWS, quarry::WINDOWS);
+pub const WINDOWS: [(ZoneId, Vec3, Vec2); GREYBOX_AND_QUARRY_WINDOWS.len() + village::WINDOWS.len()] = concat(GREYBOX_AND_QUARRY_WINDOWS, village::WINDOWS);
+const GREYBOX_AND_QUARRY_WINDOWS: [(ZoneId, Vec3, Vec2); greybox::WINDOWS.len() + quarry::WINDOWS.len()] = concat(greybox::WINDOWS, quarry::WINDOWS);
 
 /// Every Map's Box Locations, each Map's in a run of its own, in order: the Zone, where the Box's
 /// centre sits on the floor, and which way its front faces (where the Player stands). Every Run
 /// starts the Box at its Map's first.
-pub const BOX_LOCATIONS: [(ZoneId, Vec3, Vec2); greybox::BOX_LOCATIONS.len() + quarry::BOX_LOCATIONS.len()] =
+pub const BOX_LOCATIONS: [(ZoneId, Vec3, Vec2); GREYBOX_AND_QUARRY_BOXES.len() + village::BOX_LOCATIONS.len()] =
+    concat(GREYBOX_AND_QUARRY_BOXES, village::BOX_LOCATIONS);
+const GREYBOX_AND_QUARRY_BOXES: [(ZoneId, Vec3, Vec2); greybox::BOX_LOCATIONS.len() + quarry::BOX_LOCATIONS.len()] =
     concat(greybox::BOX_LOCATIONS, quarry::BOX_LOCATIONS);
 
 impl MapId {
@@ -265,6 +276,34 @@ pub fn palette(zone: Option<ZoneId>) -> Palette {
         Some(Incline) => paints((0.28, 0.2, 0.14), (0.58, 0.42, 0.22), (0.86, 0.74, 0.52), (1.0, 0.68, 0.38)),
         // Oily concrete, green-painted corrugated sheeting, hazard yellow, cold floodlight.
         Some(LoadingDock) => paints((0.4, 0.4, 0.38), (0.2, 0.36, 0.26), (0.9, 0.76, 0.12), (0.82, 0.92, 1.0)),
+        // Wide dark boards, plaster gone the colour of pipe smoke, oak beams, a fire's glow.
+        Some(Inn) => paints((0.24, 0.16, 0.1), (0.7, 0.56, 0.4), (0.2, 0.12, 0.07), (1.0, 0.7, 0.4)),
+        // Cobbles between cream-rendered, black-beamed house fronts, under gas lamps.
+        Some(Market) => paints((0.36, 0.34, 0.32), (0.82, 0.74, 0.56), (0.14, 0.11, 0.09), (1.0, 0.78, 0.5)),
+        // A rutted road between ochre house fronts with brick dressings.
+        Some(WestEnd) => paints((0.27, 0.22, 0.16), (0.72, 0.58, 0.26), (0.5, 0.2, 0.14), (1.0, 0.8, 0.52)),
+        // A rutted road between dusty pink house fronts with white dressings.
+        Some(EastEnd) => paints((0.3, 0.27, 0.22), (0.72, 0.5, 0.5), (0.92, 0.9, 0.84), (1.0, 0.8, 0.55)),
+        // A grassy track between flint walls with pale copings, under the moon.
+        Some(BackLane) => paints((0.24, 0.3, 0.14), (0.3, 0.31, 0.36), (0.62, 0.6, 0.52), (0.7, 0.8, 1.0)),
+        // A cart track between old brick walls.
+        Some(MillLane) => paints((0.32, 0.26, 0.18), (0.42, 0.3, 0.22), (0.7, 0.68, 0.6), (0.75, 0.82, 1.0)),
+        // Gravel between clipped yew hedges.
+        Some(ChurchLane) => paints((0.42, 0.4, 0.36), (0.14, 0.24, 0.15), (0.6, 0.58, 0.5), (0.75, 0.85, 1.0)),
+        // Worn flags, limewashed boards, tarred timber, by lantern.
+        Some(Mill) => paints((0.4, 0.38, 0.33), (0.6, 0.55, 0.44), (0.36, 0.24, 0.13), (1.0, 0.8, 0.55)),
+        // Beaten earth and soot-black stone, lit orange by the forge.
+        Some(Smithy) => paints((0.1, 0.09, 0.09), (0.24, 0.24, 0.27), (0.85, 0.38, 0.08), (1.0, 0.55, 0.25)),
+        // Terracotta tiles, flour-white walls, blue-grey woodwork.
+        Some(Bakery) => paints((0.5, 0.28, 0.18), (0.85, 0.82, 0.74), (0.3, 0.36, 0.46), (1.0, 0.85, 0.6)),
+        // Pine boards, pale green walls, a blackboard-dark dado.
+        Some(Schoolhouse) => paints((0.52, 0.4, 0.26), (0.6, 0.7, 0.58), (0.12, 0.18, 0.14), (0.95, 0.95, 0.85)),
+        // Stone flags, pale limestone, altar-cloth red, candlelight.
+        Some(Church) => paints((0.45, 0.45, 0.48), (0.78, 0.76, 0.7), (0.5, 0.08, 0.1), (1.0, 0.72, 0.45)),
+        // Long grass inside dry-stone walls, under the moon.
+        Some(Orchard) => paints((0.16, 0.22, 0.1), (0.5, 0.47, 0.4), (0.3, 0.22, 0.14), (0.7, 0.8, 1.0)),
+        // Dark churchyard grass inside lichened grey walls, under a cold moon.
+        Some(Graveyard) => paints((0.12, 0.17, 0.11), (0.52, 0.5, 0.56), (0.2, 0.2, 0.24), (0.6, 0.75, 1.0)),
         // Bare ground round weathered brick.
         None => paints((0.15, 0.17, 0.12), (0.3, 0.21, 0.17), (0.42, 0.4, 0.36), (1.0, 0.75, 0.45)),
     }
@@ -335,6 +374,10 @@ pub enum PropKind {
     Barrel,
     /// A big machine: a transformer, the generator.
     Machine,
+    /// A tree: its trunk is solid, its crown is drawn overhead, out of reach.
+    Tree,
+    /// A headstone.
+    Headstone,
 }
 
 /// Something standing on a floor, for the Player to weave round or jump onto and for Zombies to

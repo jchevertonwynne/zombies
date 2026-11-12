@@ -4,7 +4,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
-use crate::maps::map::{MapId, QUARRY_X, STOREY};
+use crate::maps::map::{MapId, QUARRY_X, STOREY, VILLAGE_X};
 
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
@@ -101,6 +101,7 @@ impl Perk {
     /// Where its machine stands on `map`, against a wall of its Zone, and the way it faces.
     pub(crate) fn machine_spot(self, map: MapId) -> (Vec3, Vec3) {
         const Q: f32 = QUARRY_X;
+        const V: f32 = VILLAGE_X;
         match (map, self) {
             // West Hall's outer wall.
             (MapId::Greybox, Perk::Juggernog) => (Vec3::new(-25.2, 0.0, 10.0), Vec3::X),
@@ -118,6 +119,14 @@ impl Perk {
             (MapId::Quarry, Perk::DoubleTap) => (Vec3::new(Q - 5.0, 2.0 * STOREY, 27.2), Vec3::NEG_Z),
             // The Pump House's east wall.
             (MapId::Quarry, Perk::QuickRevive) => (Vec3::new(Q + 7.2, 0.0, -25.0), Vec3::NEG_X),
+            // The Schoolhouse's back wall, east of the Market.
+            (MapId::Village, Perk::Juggernog) => (Vec3::new(V + 37.5, 0.0, 21.2), Vec3::NEG_Z),
+            // The Smithy's back wall, west of the Market.
+            (MapId::Village, Perk::SpeedCola) => (Vec3::new(V - 37.0, 0.0, 21.2), Vec3::NEG_Z),
+            // The front of the mausoleum, out in the Graveyard.
+            (MapId::Village, Perk::DoubleTap) => (Vec3::new(V + 56.0, 0.0, 39.9), Vec3::NEG_Z),
+            // The Inn's back wall.
+            (MapId::Village, Perk::QuickRevive) => (Vec3::new(V + 5.0, 0.0, 21.2), Vec3::NEG_Z),
         }
     }
 

@@ -41,6 +41,9 @@ const DRUM_PAINT: [Color; 2] = [Color::srgb(0.45, 0.16, 0.1), Color::srgb(0.27, 
 const DRUM_RING: Color = Color::srgb(0.15, 0.15, 0.15);
 const MACHINE_STEEL: Color = Color::srgb(0.21, 0.26, 0.24);
 const MACHINE_PANEL: Color = Color::srgb(0.3, 0.35, 0.33);
+const BARK: Color = Color::srgb(0.22, 0.16, 0.11);
+const LEAVES: [Color; 2] = [Color::srgb(0.12, 0.2, 0.09), Color::srgb(0.16, 0.24, 0.1)];
+const HEADSTONE: [Color; 3] = [Color::srgb(0.55, 0.55, 0.53), Color::srgb(0.46, 0.47, 0.46), Color::srgb(0.6, 0.58, 0.52)];
 /// Hazard yellow, for the Jump Pads.
 const JUMP_PAD_PAINT: Color = Color::srgb(0.86, 0.68, 0.1);
 
@@ -371,6 +374,21 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                 piece(self, size, 0.0, Vec2::ZERO, MACHINE_STEEL);
                 band(self, size.y * 0.7, 0.14, palette(Some(zone)).trim);
                 piece(self, Vec3::new(size.x * 0.6, 0.12, size.z * 0.6), size.y, Vec2::ZERO, MACHINE_PANEL);
+            }
+            PropKind::Tree => {
+                piece(self, size, 0.0, Vec2::ZERO, BARK);
+                // The crown, drawn but not solid, so nothing catches on it.
+                let turn = if nth % 2 == 0 { 1.0 } else { -1.0 };
+                piece(self, Vec3::new(2.8, 1.4, 2.6), size.y - 0.5, Vec2::ZERO, LEAVES[nth % 2]);
+                piece(self, Vec3::new(1.9, 1.0, 2.1), size.y + 0.8, Vec2::new(0.25 * turn, -0.2), LEAVES[(nth + 1) % 2]);
+            }
+            PropKind::Headstone => {
+                // A slab with a narrower cap, leaning a little this way or that.
+                let stone = HEADSTONE[nth % 3];
+                let lean = Quat::from_rotation_x(((nth % 5) as f32 - 2.0) * 0.03);
+                let slab = size.y - 0.12;
+                self.shape(Vec3::new(size.x, slab, size.z), at + Vec3::Y * slab / 2.0, lean, stone);
+                self.shape(Vec3::new(size.x * 0.7, 0.12, size.z), at + lean * (Vec3::Y * (slab + 0.06)), lean, stone);
             }
         }
     }

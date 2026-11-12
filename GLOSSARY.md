@@ -136,18 +136,18 @@ _Avoid_: board, plank of wood
 
 **Riser**: A Spawn Point in open ground, where a Zombie climbs up out of the dirt with no Barrier in its way.
 
-**Map**: The playable space, made of Zones joined by Doors. There are two: the Greybox, a house round a courtyard with a wing across the field, and the Quarry, a pit and its works climbed terrace by terrace. The Player picks one beside the Mode before a Run, or the Host does in the Room. The first prototype used a single open Arena.
+**Map**: The playable space, made of Zones joined by Doors. There are three: the Greybox, a house round a courtyard with a wing across the field; the Quarry, a pit and its works climbed terrace by terrace; and the Village, a long village of streets and lanes with the Power at one end and Pack-a-Punch at the other. The Player picks one beside the Mode before a Run, or the Host does in the Room. The first prototype used a single open Arena.
 
 **Terrace**: One of the Quarry's level shelves, each a storey above the last: the pit floor, then the Rail Yard and the Crusher Shed, then the Winding House and the Offices. The Headframe's deck stands a storey above the top one. Off the pit's west side, the Incline climbs past both terraces with a landing at each, a Door off each into the terrace's building.
 
 **Zone**: A named area of a Map, such as a room or a yard. Each Zone is either open or closed to the Player. Opening a Zone (usually by buying a Door) activates its Barriers and Spawn Points. Zones decide where Zombies come from, not how they move.
 
-**Active Zone**: A Zone any Player is in, or an open Zone next to one, counting Players in a Last Stand but not those waiting to Respawn. Only Spawn Points in Active Zones send in Zombies.
+**Active Zone**: A Zone any Player is in, or an open Zone next to one, counting Players in a Last Stand but not those waiting to Respawn. Only Spawn Points in Active Zones send in Zombies, and of those only ones near enough a Player for the Zombie to get there, whenever any is.
 
 **Door**: A barrier between two Zones, or shutting off part of one, that the Player buys with Points to open for the rest of the Run. Zombies never open Doors.
 _Avoid_: debris, gate
 
-**Power Door**: A Door that cannot be bought and opens on its own when the Power comes on, such as the one shutting the Gazebo off from the rest of the Yard.
+**Power Door**: A Door that cannot be bought and opens on its own when the Power comes on, such as the one shutting the Gazebo off from the rest of the Yard, or the Village's gates at either end of the Back Lane.
 
 **Arena**: An enclosed, open area with no doors or separate rooms.
 

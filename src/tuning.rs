@@ -1240,6 +1240,9 @@ pub const ZOMBIE_RISE_SECS: f32 = 1.5;
 /// Player, for `ZOMBIE_CLEANUP_SECS` despawns and goes back into the Horde.
 pub const ZOMBIE_CLEANUP_DIST: f32 = 40.0;
 pub const ZOMBIE_CLEANUP_SECS: f32 = 10.0;
+/// A new Zombie comes from a Spawn Point this near a Player when any in an Active Zone is, so it
+/// isn't lost far off and cleaned up before it arrives. Comfortably inside `ZOMBIE_CLEANUP_DIST`.
+pub const ZOMBIE_SPAWN_MAX_DIST: f32 = 35.0;
 /// Moving this far counts as progress for the stuck rule.
 pub const ZOMBIE_PROGRESS_DIST: f32 = 1.0;
 /// Seconds a Zombie takes to climb in through a Barrier with no Planks left. It can be shot
@@ -1578,6 +1581,24 @@ pub const DOOR_PRICE_FLOOR_DOCK: u64 = 750;
 pub const DOOR_PRICE_FLOOR_INCLINE: u64 = 1000;
 pub const DOOR_PRICE_INCLINE_CRUSHER: u64 = 1000;
 pub const DOOR_PRICE_INCLINE_OFFICES: u64 = 1250;
+/// The Village's Doors: out of the Inn either way, into the Bakery, along the High Street past
+/// the barricades, and through each building between the street and its lane. The buildings at
+/// the far ends, the Mill with the Power and the Church with Pack-a-Punch, cost most to get into
+/// from the street.
+pub const DOOR_PRICE_INN_MARKET: u64 = 750;
+pub const DOOR_PRICE_INN_BACK_LANE: u64 = 750;
+pub const DOOR_PRICE_MARKET_BAKERY: u64 = 1000;
+pub const DOOR_PRICE_BAKERY_BACK_LANE: u64 = 750;
+pub const DOOR_PRICE_MARKET_WEST_END: u64 = 1000;
+pub const DOOR_PRICE_MARKET_EAST_END: u64 = 1000;
+pub const DOOR_PRICE_WEST_END_SMITHY: u64 = 1000;
+pub const DOOR_PRICE_SMITHY_MILL_LANE: u64 = 1000;
+pub const DOOR_PRICE_WEST_END_MILL: u64 = 1250;
+pub const DOOR_PRICE_MILL_MILL_LANE: u64 = 1000;
+pub const DOOR_PRICE_EAST_END_SCHOOLHOUSE: u64 = 1000;
+pub const DOOR_PRICE_SCHOOLHOUSE_CHURCH_LANE: u64 = 1000;
+pub const DOOR_PRICE_EAST_END_CHURCH: u64 = 1250;
+pub const DOOR_PRICE_CHURCH_CHURCH_LANE: u64 = 1000;
 
 // Buying
 /// How far from a Buyable's use point the Player can buy it, height included.

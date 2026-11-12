@@ -5,7 +5,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
-use crate::maps::map::{MapId, QUARRY_X, STOREY};
+use crate::maps::map::{MapId, QUARRY_X, STOREY, VILLAGE_X};
 
 use crate::authority::HostSimulation;
 use crate::economy::buy::{Buyable, Purchased};
@@ -41,6 +41,8 @@ pub(crate) fn switch_spot(map: MapId) -> (Vec3, Vec3) {
         MapId::Greybox => (SWITCH_AT, SWITCH_FACING),
         // On the Offices' south wall, at hand height: the top of the climb but the Headframe.
         MapId::Quarry => (Vec3::new(QUARRY_X - 10.0, 2.0 * STOREY + 1.3, 16.4), Vec3::Z),
+        // On the Mill's west wall, at the far end of the village from Pack-a-Punch.
+        MapId::Village => (Vec3::new(VILLAGE_X - 71.6, 1.3, 19.0), Vec3::X),
     }
 }
 
