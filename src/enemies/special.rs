@@ -22,7 +22,7 @@ use crate::authority::HostSimulation;
 use crate::weapons::burn::Burning;
 use crate::weapons::explosive::in_sight;
 use crate::ui::hud::overlay::{Overlay, Overlays};
-use crate::maps::map::{SpawnKind, SpawnPoint};
+use crate::maps::map::{MapId, SpawnKind, SpawnPoint};
 use crate::enemies::nav::Route;
 use crate::players::player::{LocalPlayer, Player, PlayerCamera, PlayerHit};
 use crate::enemies::target::Players;
@@ -938,8 +938,9 @@ fn fade_fireballs(mut commands: Commands, mut fireballs: Query<(Entity, &mut Fir
 }
 
 /// A special that's stuck, or lost far from the Player, is moved to a fresh Special Spawn Point
-/// instead of being cleaned up, so it never leaves the Horde or its slot. Moved in the physics
-/// step, like the chase, as a clean cut: the easing starts from the new spot too.
+/// instead of being cleaned up, so it never leaves the Horde or its slot; so is one Out of Bounds,
+/// at once. Moved in the physics step, like the chase, as a clean cut: the easing starts from the
+/// new spot too.
 fn unstick(
     mut specials: Query<
         (&mut SpecialWatch, &mut Transform, &mut TranslationEasingState, &mut Route),
@@ -948,13 +949,15 @@ fn unstick(
     players: Players,
     spawn_points: Query<(&Transform, &SpawnPoint), (Without<SpecialWatch>, Without<Player>)>,
     active: Res<ActiveZones>,
+    map: Res<MapId>,
     time: Res<Time>,
 ) {
     for (mut watch, mut transform, mut easing, mut route) in &mut specials {
         let Some(player) = players.nearest(transform.translation) else {
             continue;
         };
-        if !watch.0.update(transform.translation, player.centre, time.delta_secs()) {
+        let stuck = watch.0.update(transform.translation, player.centre, time.delta_secs());
+        if !stuck && !map.layout().out_of_bounds(transform.translation) {
             continue;
         }
         let points = special_spawn_candidates(

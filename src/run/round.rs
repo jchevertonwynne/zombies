@@ -281,7 +281,7 @@ fn start_first_round(
 
 /// A cleaned-up Zombie goes back into the Horde's left-to-spawn count; its replacement rolls a
 /// fresh Speed Tier when it spawns.
-fn requeue_cleaned_up(mut round: ResMut<Round>, mut cleaned: MessageReader<ZombieCleanedUp>) {
+pub(crate) fn requeue_cleaned_up(mut round: ResMut<Round>, mut cleaned: MessageReader<ZombieCleanedUp>) {
     let count = cleaned.read().count() as u32;
     if count > 0 {
         round.left_to_spawn = round.left_to_spawn.saturating_add(count);

@@ -9,7 +9,7 @@ use crate::maps::door::Door;
 use crate::layers::GameLayer;
 use crate::modifier::{Stat, resolve};
 use crate::maps::barrier::{Barriers, Entering};
-use crate::maps::map::BarrierId;
+use crate::maps::map::{BarrierId, MapId};
 use crate::maps::zone::ZoneId;
 use crate::weapons::explosive::in_sight;
 use crate::enemies::hellhound::Telegraph;
@@ -1071,8 +1071,9 @@ fn rise(mut commands: Commands, mut risers: Query<(Entity, &mut Rising, &mut Tra
 /// A Zombie that's stuck, or lost far from the Player, is quietly removed and sent back into the
 /// Horde, so a Round never stalls. A Zombie outside a window is waiting on its Planks, not
 /// stuck, so its clock only starts once it's in. A Crawler can't tear them, though, so for it
-/// waiting at a planked Barrier too long is stuck. A Zombie that carries over between Rounds is
-/// never cleaned up here: its own module moves it instead.
+/// waiting at a planked Barrier too long is stuck. A Zombie Out of Bounds goes the same way at
+/// once. A Zombie that carries over between Rounds is never cleaned up here, and nor is a
+/// Hellhound Out of Bounds: their own modules move them instead.
 fn clean_up_stuck(
     mut commands: Commands,
     mut zombies: Query<
@@ -1081,11 +1082,19 @@ fn clean_up_stuck(
     >,
     players: Players,
     barriers: Res<Barriers>,
+    map: Res<MapId>,
     mut cleaned: MessageWriter<ZombieCleanedUp>,
     time: Res<Time>,
 ) {
     let dt = time.delta_secs();
     for (entity, mut zombie, transform, entering) in &mut zombies {
+        if map.layout().out_of_bounds(transform.translation) {
+            if !zombie.hellhound {
+                commands.entity(entity).despawn();
+                cleaned.write(ZombieCleanedUp);
+            }
+            continue;
+        }
         if let Some(entering) = entering {
             zombie.stuck = StuckWatch::new(transform.translation);
             let planked = zombie.crawler && entering.at_barrier() && barriers.planks(entering.barrier) > 0;

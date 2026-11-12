@@ -71,6 +71,20 @@ pub(crate) const HOUNDS_AROUND: Vec3 = Vec3::new(-8.0, 0.0, 20.0);
 const HOLDING_AT: Vec3 = Vec3::new(0.0, 0.0, 300.0);
 const HOLDING_SIZE: Vec3 = Vec3::new(4.0, 3.0, 4.0);
 
+/// Whether a Player with their feet at `feet` is in the holding space, riders' spacing and all.
+/// It lies past the Greybox's plan, but a rider waiting in it isn't Out of Bounds.
+pub fn in_holding_space(feet: Vec3) -> bool {
+    let from = HOLDING_AT - Vec3::new(HOLDING_SIZE.x, 1.0, HOLDING_SIZE.z);
+    let to = HOLDING_AT + rider_offset(3) + Vec3::new(HOLDING_SIZE.x, HOLDING_SIZE.y + 1.0, HOLDING_SIZE.z);
+    feet.cmpge(from).all() && feet.cmple(to).all()
+}
+
+/// Where the `index`th rider of a trip waits in the holding space, on its floor.
+#[cfg(test)]
+pub fn holding_feet(index: usize) -> Vec3 {
+    HOLDING_AT + rider_offset(index)
+}
+
 /// Where a trip is, with the seconds left in that phase.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum TripPhase {

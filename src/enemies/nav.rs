@@ -176,6 +176,12 @@ impl NavGraph {
         self.ranked(feet).next().expect("the graph has nodes")
     }
 
+    /// The node nearest `feet` that's inside a Zone, as `nearest` ranks them: never a Vent or a
+    /// node outside a window. Where a Player Out of Bounds is put back, so a teammate can reach them.
+    pub fn nearest_in_zone(&self, feet: Vec3) -> usize {
+        self.ranked(feet).find(|&i| self.nodes[i].zone.is_some()).expect("the graph has nodes in Zones")
+    }
+
     /// The nearest of the closest few nodes to `feet`, as `nearest` ranks them, that `reachable`
     /// accepts: the node a body there can really walk to, or be walked to from, with a crate or
     /// a Ledge in the way of a nearer one. `None` if none of them is.

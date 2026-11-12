@@ -16,6 +16,7 @@ use crate::maps::barrier::PlankTally;
 use crate::players::controls::{Action, Controls};
 use crate::weapons::equipment::Equipment;
 use crate::players::last_stand::LastStand;
+use crate::players::out_of_bounds::Footing;
 use crate::players::respawn::AwaitingRespawn;
 use crate::layers::GameLayer;
 use crate::maps::jump_pad::JumpPad;
@@ -217,7 +218,7 @@ impl StanceKeys {
 }
 
 #[derive(Component)]
-#[require(HitGrace)]
+#[require(HitGrace, Footing)]
 pub struct Player;
 
 /// A Player's Hit Grace: when the last Zombie-family melee hit that landed on them stops

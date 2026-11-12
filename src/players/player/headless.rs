@@ -403,7 +403,7 @@ fn the_balcony_drop_falls_and_lands_once() {
 
 /// A Jump Pad does nothing with the Power off. Once it's on, standing on one throws the Player
 /// up onto the floor above, over anything in the way, to land near the spot it aims at: every
-/// Jump Pad on every Map.
+/// Jump Pad on every Map. No frame of the throw is Out of Bounds.
 #[test]
 fn a_powered_jump_pad_throws_the_player_up_to_land_where_it_aims() {
     for map in MapId::ALL {
@@ -414,6 +414,8 @@ fn a_powered_jump_pad_throws_the_player_up_to_land_where_it_aims() {
             assert!(still.iter().all(|s| s.grounded && feet(s).distance(pad.at) < 0.3), "thrown on the {} with the Power off", map.name());
             sim.power_on();
             let flight = sim.run_secs(3.0);
+            let out = flight.iter().map(feet).find(|&at| map.layout().out_of_bounds(at));
+            assert!(out.is_none(), "the throw from {} on the {} goes Out of Bounds at {}", pad.at, map.name(), out.unwrap_or_default());
             let peak = flight.iter().map(|s| feet(s).y).fold(f32::MIN, f32::max);
             let landed = feet(flight.last().unwrap());
             assert!(peak > pad.to.y + 1.0, "the throw from {} peaks at {peak:.2}", pad.at);
