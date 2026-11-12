@@ -1240,6 +1240,8 @@ pub const ZOMBIE_RISE_SECS: f32 = 1.5;
 /// Player, for `ZOMBIE_CLEANUP_SECS` despawns and goes back into the Horde.
 pub const ZOMBIE_CLEANUP_DIST: f32 = 40.0;
 pub const ZOMBIE_CLEANUP_SECS: f32 = 10.0;
+/// Out of Bounds: how far below its Map's lowest floor anyone has fallen once they're out.
+pub const OUT_OF_BOUNDS_DROP: f32 = 3.0;
 /// A new Zombie comes from a Spawn Point this near a Player when any in an Active Zone is, so it
 /// isn't lost far off and cleaned up before it arrives. Comfortably inside `ZOMBIE_CLEANUP_DIST`.
 pub const ZOMBIE_SPAWN_MAX_DIST: f32 = 35.0;

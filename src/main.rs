@@ -86,6 +86,7 @@ fn main() {
             maps::power::PowerPlugin,
             economy::perk::PerkPlugin,
             players::last_stand::LastStandPlugin,
+            players::out_of_bounds::OutOfBoundsPlugin,
             players::revive::RevivePlugin,
             players::respawn::RespawnPlugin,
             weapons::pack_a_punch::PackAPunchPlugin,

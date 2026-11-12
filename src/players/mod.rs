@@ -3,6 +3,7 @@
 pub mod controls;
 pub mod hands;
 pub mod last_stand;
+pub mod out_of_bounds;
 pub mod player;
 pub mod respawn;
 pub mod revive;

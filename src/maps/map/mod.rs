@@ -127,8 +127,8 @@ pub struct Layout {
     pub jump_pads: &'static [JumpPad],
     /// The way the moonlight falls.
     pub sun: Vec3,
-    /// The corners (x, z) of the patch of the world the Map takes up, for drawing its plan.
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// The corners (x, z) of the patch of the world the Map takes up: everything playable is
+    /// inside it, and past its edge is Out of Bounds.
     pub plan: (Vec2, Vec2),
     /// Builds the walls, the Doors and everything else the data above doesn't cover.
     build: fn(&mut Builder),
@@ -145,6 +145,20 @@ impl Layout {
         self.seats[usize::from(seat) % self.seats.len()]
     }
 
+    /// The height of the Map's lowest floor: its lowest Zone's, or the bottom of its deepest
+    /// sunken floor.
+    pub fn lowest_floor(&self) -> f32 {
+        let zones = self.zones.iter().map(|zone| zone.floor());
+        let sunken = self.sunken.iter().map(|sunken| sunken.zone.floor() - sunken.depth);
+        zones.chain(sunken).fold(f32::INFINITY, f32::min)
+    }
+
+    /// Whether `at` is Out of Bounds: outside the Map's plan, or more than `OUT_OF_BOUNDS_DROP`
+    /// below its lowest floor.
+    pub fn out_of_bounds(&self, at: Vec3) -> bool {
+        let (min, max) = self.plan;
+        at.x < min.x || at.x > max.x || at.z < min.y || at.z > max.y || at.y < self.lowest_floor() - OUT_OF_BOUNDS_DROP
+    }
 }
 
 /// Two arrays end to end.
@@ -645,6 +659,49 @@ pub(crate) mod tests {
             let layout = map.layout();
             for zone in ZoneId::ALL {
                 assert_eq!(layout.zones.contains(&zone), zone.map() == map, "{} on the {}", zone.name(), map.name());
+            }
+        }
+    }
+
+    /// Out of Bounds is past the edge of the plan, or `OUT_OF_BOUNDS_DROP` below the lowest
+    /// floor: the Quarry's sump, 0.6 m down, is its lowest.
+    #[test]
+    fn out_of_bounds_is_past_the_plan_or_well_below_the_lowest_floor() {
+        assert_eq!(MapId::Quarry.layout().lowest_floor(), -0.6);
+        assert_eq!(MapId::Village.layout().lowest_floor(), 0.0);
+        for map in MapId::ALL {
+            let layout = map.layout();
+            let (min, max) = layout.plan;
+            let middle = (min + max) / 2.0;
+            let floor = layout.lowest_floor();
+            assert!(!layout.out_of_bounds(Vec3::new(middle.x, floor, middle.y)));
+            assert!(!layout.out_of_bounds(Vec3::new(middle.x, floor - OUT_OF_BOUNDS_DROP + 0.1, middle.y)));
+            assert!(layout.out_of_bounds(Vec3::new(middle.x, floor - OUT_OF_BOUNDS_DROP - 0.1, middle.y)), "{}", map.name());
+            for past in [Vec2::new(min.x - 0.1, middle.y), Vec2::new(max.x + 0.1, middle.y), Vec2::new(middle.x, min.y - 0.1), Vec2::new(middle.x, max.y + 0.1)] {
+                assert!(layout.out_of_bounds(Vec3::new(past.x, 0.0, past.y)), "{} at {past}", map.name());
+                assert!(layout.out_of_bounds(Vec3::new(past.x, 50.0, past.y)), "{} high over {past}", map.name());
+            }
+        }
+    }
+
+    /// Nothing a Map places is Out of Bounds: its path nodes, Seats, Spawn Points, Vents, Box
+    /// Locations, windows and Jump Pads.
+    #[test]
+    fn nothing_a_map_places_is_out_of_bounds() {
+        for map in MapId::ALL {
+            let layout = map.layout();
+            let mut spots: Vec<(String, Vec3)> = Vec::new();
+            spots.extend(layout.nav_nodes.iter().map(|&(name, x, y, z)| (format!("path node {name}"), Vec3::new(x, y, z))));
+            spots.extend(layout.seats.iter().map(|&at| ("a Seat".to_string(), at)));
+            spots.extend(layout.risers.iter().map(|&(zone, at)| (format!("a Riser in {}", zone.name()), at)));
+            spots.extend(layout.hellhound_spawns.iter().map(|&(zone, at)| (format!("a Hellhound Spawn Point in {}", zone.name()), at)));
+            spots.extend(layout.special_spawns.iter().map(|&(zone, at)| (format!("a Special Spawn Point in {}", zone.name()), at)));
+            spots.extend(layout.vents.iter().flat_map(|&(zone, at)| [(format!("a Vent in {}", zone.name()), at), (format!("a Vent's opening in {}", zone.name()), at + Vec3::Y * NOVA_VENT_HEIGHT)]));
+            spots.extend(map.barriers().flat_map(|barrier| [("a window".to_string(), window_centre(barrier)), ("a window's Spawn Point".to_string(), window_spawn(barrier))]));
+            spots.extend(map.box_locations().map(|i| ("a Box Location".to_string(), BOX_LOCATIONS[i].1)));
+            spots.extend(layout.jump_pads.iter().flat_map(|pad| [("a Jump Pad".to_string(), pad.at), ("a Jump Pad's landing".to_string(), pad.to)]));
+            for (what, at) in spots {
+                assert!(!layout.out_of_bounds(at), "{what} on the {} at {at} is Out of Bounds", map.name());
             }
         }
     }

@@ -52,6 +52,7 @@ pub(crate) fn two_players_with(configure: impl FnOnce(&mut App)) -> (Sim, Entity
 }
 
 mod hud;
+mod out_of_bounds;
 mod respawn;
 mod revive;
 

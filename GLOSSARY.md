@@ -159,10 +159,13 @@ _Avoid_: stage, dais (for the general term)
 
 **Ledge**: An edge where one floor stops above another, too high to step up: the side of a Raised Floor or a sunken floor, the Balcony's drop, or the edge of a Terrace, one of the Incline's landings or the Headframe's deck. Zombies only ever drop off a Ledge; the Player can also scramble back up a low one.
 
+**Out of Bounds**: Anywhere outside the Map's playable space: past the edge of its plan, or fallen well below its lowest floor. A Player Out of Bounds goes Down and is put back where a teammate can reach them. A Zombie Out of Bounds goes back into the Horde, and a special is moved to a fresh spawn point.
+_Avoid_: OOB, the void, kill plane
+
 **Run**: One game, from Round 1 until Game Over or quitting.
 _Avoid_: game, match
 
-**Down**: A Player's Health reaching zero. Solo, a Down ends the Run unless the Player holds Quick Revive, in which case it starts a Last Stand. In Co-op, every Down starts a Last Stand.
+**Down**: A Player's Health reaching zero, or the Player getting Out of Bounds. Solo, a Down ends the Run unless the Player holds Quick Revive, in which case it starts a Last Stand. In Co-op, every Down starts a Last Stand.
 
 **Last Stand**: The time after a Down when the Player crawls with the Last Stand pistol and cannot be hurt, while Zombies go after anyone else. Solo, it is short and ends in a Self-Revive. In Co-op, it ends in a Revive or a Bleed Out, and the end of a Round doesn't stop it.
 _Avoid_: downed state

@@ -907,8 +907,8 @@ fn prune_restores(
 }
 
 /// A Sapper that makes no progress toward its goal for `SAPPER_STUCK_SECS` is moved to the path
-/// node nearest its target instead of being cleaned up. Moved in the fixed step, like the chase,
-/// as a clean cut: the easing starts from the new spot too.
+/// node nearest its target instead of being cleaned up; so is one Out of Bounds, at once. Moved in
+/// the fixed step, like the chase, as a clean cut: the easing starts from the new spot too.
 fn unstick(
     mut sappers: Query<
         (
@@ -923,6 +923,7 @@ fn unstick(
     >,
     players: Players,
     graph: Res<NavGraph>,
+    map: Res<MapId>,
     time: Res<Time>,
 ) {
     let half = ZOMBIE_RADIUS + ZOMBIE_CAPSULE_LENGTH / 2.0;
@@ -935,10 +936,8 @@ fn unstick(
         let at_goal = stunned
             || sapper.working.is_some()
             || (goal - feet).with_y(0.0).length() <= SAPPER_SABOTAGE_REACH + 0.5;
-        if !sapper
-            .watch
-            .update(transform.translation, at_goal, time.delta_secs())
-        {
+        let stuck = sapper.watch.update(transform.translation, at_goal, time.delta_secs());
+        if !stuck && !map.layout().out_of_bounds(transform.translation) {
             continue;
         }
         let node = graph.nodes[graph.nearest(goal)].at;

@@ -87,6 +87,29 @@ fn a_down_on_the_host_is_a_last_stand_on_every_game() {
     assert_eq!(run.world(0).get::<RunStats>(on_host).unwrap().downs, 1);
 }
 
+/// A client's Player who gets Out of Bounds is Downed by the Host, which judges it from where it
+/// has them, and every game sees the Last Stand.
+#[test]
+fn a_client_out_of_bounds_is_downed_by_the_host() {
+    use crate::players::out_of_bounds::OutOfBoundsPlugin;
+    let mut run = Run::with(2, &|app| {
+        coop(app);
+        app.add_message::<crate::players::player::Teleport>().add_plugins(OutOfBoundsPlugin);
+    });
+    run.step(5);
+    let (min, _) = crate::maps::map::MapId::Greybox.layout().plan;
+    let out = Vec3::new(min.x - 5.0, 1.0, 20.0);
+    let on_host = run.player(0, 1);
+    run.world(0).get_mut::<Transform>(on_host).unwrap().translation = out;
+    run.world(0).entity_mut(on_host).insert(Position(out));
+    run.step(10);
+    for on in 0..3 {
+        assert!(down(&mut run, on, 1), "game {on} doesn't see the Down");
+    }
+    assert!(!down(&mut run, 0, 0), "the Host's own Player went Down too");
+    assert_eq!(run.world(1).resource::<Downs>().0, 1, "the Down is heard");
+}
+
 #[test]
 fn a_client_is_hurt_by_the_hosts_word() {
     let mut run = run(1);

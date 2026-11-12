@@ -824,3 +824,24 @@ fn a_zombie_follows_the_player_round_every_way_of_the_quarry() {
         assert!(arrived, "{way}: last seen at {last}");
     }
 }
+
+/// A Zombie Out of Bounds is quietly removed at once, wherever it is, and goes back into the
+/// Horde: past the edge of the plan, or fallen well below the lowest floor.
+#[test]
+fn a_zombie_out_of_bounds_goes_back_into_the_horde_at_once() {
+    use crate::run::round::{Round, requeue_cleaned_up};
+    let (min, _) = MapId::Greybox.layout().plan;
+    let under = MapId::Greybox.layout().lowest_floor() - OUT_OF_BOUNDS_DROP - 1.0;
+    for out in [Vec3::new(min.x - 2.0, 0.0, 0.0), Vec3::new(0.0, under, 0.0)] {
+        let mut sim = Sim::new(60.0, |app| {
+            app.insert_resource(Round::in_progress(3)).add_systems(Update, requeue_cleaned_up.after(clean_up_stuck));
+        });
+        assert!(sim.world_mut().resource_mut::<Round>().take_from_horde());
+        let spawned = sim.world_mut().resource::<Round>().horde_spawned();
+        let zombie = sim.spawn(out, None);
+        sim.run(2);
+        assert!(sim.world_mut().get_entity(zombie).is_err(), "a Zombie at {out} is still there");
+        assert_eq!(sim.world_mut().resource::<Round>().horde_spawned(), spawned - 1, "it isn't back in the Horde");
+        assert!(sim.world_mut().resource::<Messages<ZombieKilled>>().is_empty(), "it counted as a kill");
+    }
+}

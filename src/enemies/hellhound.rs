@@ -13,12 +13,15 @@ use bevy::prelude::*;
 use crate::authority::HostSimulation;
 use crate::layers::GameLayer;
 use crate::enemies::nav::Route;
-use crate::players::player::PlayerCamera;
+use crate::players::player::{Player, PlayerCamera};
 use crate::run::round::{Round, RoundPhase};
 use crate::state::{InRun, world_runs};
 use crate::tuning::*;
-use crate::enemies::zombie::{HitArea, HitZone, Zombie};
-use crate::maps::zone::{ZoneId, ZoneSet};
+use crate::enemies::target::Players;
+use crate::enemies::zombie::{Dying, HitArea, HitZone, Zombie};
+use crate::maps::map::{MapId, SpawnKind, SpawnPoint};
+use crate::maps::zone::{ActiveZones, ZoneId, ZoneSet};
+use bevy_transform_interpolation::TranslationEasingState;
 
 /// When the Hellhound Rounds fall: the first in `HELLHOUND_FIRST_ROUNDS`, then one every
 /// `HELLHOUND_ROUND_GAPS` Rounds after the last.
@@ -197,6 +200,7 @@ impl Plugin for HellhoundPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<SpawnHellhounds>()
             .add_systems(Startup, load_assets)
+            .add_systems(FixedUpdate, return_out_of_bounds.in_set(HostSimulation).run_if(world_runs))
             .add_systems(
                 Update,
                 ((spawn_around, strike).in_set(HostSimulation), flicker.after(strike), pull_in_fog).run_if(world_runs),
@@ -258,6 +262,44 @@ pub fn spawn_hellhound(
         bolt,
     });
     hound
+}
+
+/// A hound Out of Bounds is moved at once to a fresh Hellhound Spawn Point, picked as a new hound's
+/// is, rather than cleaned up. Moved in the physics step, like the chase, as a clean cut: the
+/// easing starts from the new spot too.
+fn return_out_of_bounds(
+    mut hounds: Query<
+        (&Zombie, &mut Transform, &mut TranslationEasingState, &mut Route),
+        (Without<Dying>, Without<Telegraph>, Without<Player>, Without<SpawnPoint>),
+    >,
+    spawn_points: Query<(&Transform, &SpawnPoint), (Without<Zombie>, Without<Player>)>,
+    players: Players,
+    active: Option<Res<ActiveZones>>,
+    map: Res<MapId>,
+) {
+    for (zombie, mut transform, mut easing, mut route) in &mut hounds {
+        if !zombie.is_hellhound() || !map.layout().out_of_bounds(transform.translation) {
+            continue;
+        }
+        let points = || {
+            spawn_points
+                .iter()
+                .filter(|(_, point)| point.kind == SpawnKind::Hellhound && point.zone.map() == *map)
+                .map(|(t, point)| (point.zone, t.translation))
+        };
+        let anchors: Vec<Vec3> = players.spawn_anchors().iter().map(|spot| spot.centre).collect();
+        let active = active.as_ref().map_or(ZoneSet::default(), |active| active.0);
+        let mut candidates = hellhound_spawn_candidates(points(), active, &anchors);
+        if candidates.is_empty() {
+            candidates = hellhound_spawn_candidates(points(), ZoneId::ALL.into_iter().collect(), &anchors);
+        }
+        let Some(&at) = candidates.get(rand::random_range(0..candidates.len().max(1))) else {
+            continue;
+        };
+        transform.translation = at + Vec3::Y * (HELLHOUND_RADIUS + 0.02);
+        easing.start = Some(transform.translation);
+        *route = Route::default();
+    }
 }
 
 /// A bolt of lightning's body.
@@ -613,5 +655,37 @@ mod tests {
         assert_eq!(approach(45.0, 20.0, 5.0), 40.0);
         assert_eq!(approach(21.0, 20.0, 5.0), 20.0);
         assert_eq!(approach(10.0, 20.0, 5.0), 15.0);
+    }
+
+    /// A hound Out of Bounds isn't cleaned up but moved at once to a Hellhound Spawn Point, on
+    /// every frame rate, with no frame anywhere between.
+    #[test]
+    fn a_hellhound_out_of_bounds_is_moved_to_a_hellhound_spawn_point() {
+        use bevy::ecs::system::RunSystemOnce;
+        use crate::enemies::zombie::headless::Sim;
+        let (min, _) = MapId::Greybox.layout().plan;
+        let out = Vec3::new(min.x - 2.0, 0.0, 0.0);
+        for fps in [144.0, 60.0, 90.0] {
+            let mut sim = Sim::new(fps, |app| {
+                app.add_plugins(HellhoundPlugin).insert_resource(ActiveZones(ZoneId::ALL.into_iter().collect()));
+            });
+            let world = sim.world_mut();
+            let points: Vec<Vec3> = world
+                .query::<(&Transform, &SpawnPoint)>()
+                .iter(world)
+                .filter(|(_, point)| point.kind == SpawnKind::Hellhound)
+                .map(|(t, _)| t.translation)
+                .collect();
+            let on_a_point = |at: Vec3| points.iter().any(|p| p.with_y(0.0).distance(at.with_y(0.0)) < 0.5);
+            let hound = world
+                .run_system_once(move |mut commands: Commands, assets: HellhoundAssetsParam| spawn_hellhound(&mut commands, &assets, out, 100.0))
+                .unwrap();
+            // It waits out its strike where it is, then the first frame after shows it on a point.
+            let samples = sim.track(hound, sim.frames(HELLHOUND_TELEGRAPH_SECS + 0.3));
+            let moved = samples.iter().position(|s| s.pos.with_y(0.0).distance(out.with_y(0.0)) >= 0.5).expect("never moved");
+            let there = samples[moved].pos;
+            assert!(on_a_point(there), "{fps} fps: moved to {there}");
+            assert!(!MapId::Greybox.layout().out_of_bounds(there));
+        }
     }
 }
