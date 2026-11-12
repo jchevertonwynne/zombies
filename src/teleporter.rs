@@ -936,11 +936,13 @@ fn prompt_teleporter(
 /// charging Pad.
 fn show_teleporter(
     teleporter: Res<Teleporter>,
-    looks: Res<LampLooks>,
+    looks: Option<Res<LampLooks>>,
     mut lamps: Query<(&TeleporterLamp, &mut MeshMaterial3d<StandardMaterial>)>,
     mut columns: Query<(&ChargeColumn, &mut Visibility)>,
     time: Res<Time>,
 ) {
+    // Only a Map with the Teleporter has its lamps.
+    let Some(looks) = looks else { return };
     // An attempt under way blinks.
     let blink = (time.elapsed_secs() * 4.0).fract() < 0.5;
     for (lamp, mut material) in &mut lamps {
@@ -1275,6 +1277,19 @@ mod tests {
                 .iter()
                 .all(|&f| (f - 1.0).abs() <= TELEPORTER_FOV_WARP + 1e-6)
         );
+    }
+
+    /// A Map without the Teleporter builds none of it, and its systems run on with nothing to do.
+    #[test]
+    fn a_map_without_the_teleporter_runs_without_one() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut sim = crate::zombie::headless::Sim::on(MapId::Quarry, 60.0, |app| {
+            app.init_resource::<Teleporter>();
+        });
+        let world = sim.world_mut();
+        world.run_system_once(spawn_teleporter).unwrap();
+        assert_eq!(world.query::<&Pad>().iter(world).count(), 0);
+        world.run_system_once(show_teleporter).expect("the lamps' system runs with no Teleporter built");
     }
 
     #[test]
