@@ -12,7 +12,7 @@ use crate::state::GameState;
 use crate::tuning::*;
 use crate::maps::zone::ZoneId;
 
-/// How many of the nodes nearest a body `NavGraph::nearest_where` tries.
+/// How many of the nodes nearest a body `NavGraph::near_where` tries.
 const NEAREST_TRIES: usize = 6;
 
 /// What gates an edge of the graph.
@@ -179,8 +179,19 @@ impl NavGraph {
     /// The nearest of the closest few nodes to `feet`, as `nearest` ranks them, that `reachable`
     /// accepts: the node a body there can really walk to, or be walked to from, with a crate or
     /// a Ledge in the way of a nearer one. `None` if none of them is.
+    #[cfg(test)]
     pub fn nearest_where(&self, feet: Vec3, reachable: impl Fn(&Node) -> bool) -> Option<usize> {
         self.ranked(feet).take(NEAREST_TRIES).find(|&i| reachable(&self.nodes[i]))
+    }
+
+    /// Every one of the closest few nodes to `feet`, as `nearest` ranks them, that `reachable`
+    /// accepts, each with how far it is from `feet`.
+    pub fn near_where(&self, feet: Vec3, reachable: impl Fn(&Node) -> bool) -> Vec<(usize, f32)> {
+        self.ranked(feet)
+            .take(NEAREST_TRIES)
+            .filter(|&i| reachable(&self.nodes[i]))
+            .map(|i| (i, self.nodes[i].at.distance(feet)))
+            .collect()
     }
 
     /// Every node but the Vents, nearest `feet` first: those in its Zone, then the rest.
@@ -221,6 +232,50 @@ impl NavGraph {
                 .collect::<Vec<_>>()
         };
         astar(&from, successors, |&node| cm(node, to), |&node| node == to).map(|(path, _)| path)
+    }
+
+    /// The shortest route over the edges passable now from any of `starts` to any of `ends`, each
+    /// given with how far it is to walk onto it (from the body) or off it (on to the target), as
+    /// a list of nodes; `None` if there is no way through. A body between nodes sets off for
+    /// whichever leads on best, not just the nearest: the nearest can lie behind it, and planning
+    /// from it turns the body back until a step later another node is nearest and it turns again.
+    pub fn plan_between(
+        &self,
+        starts: &[(usize, f32)],
+        ends: &[(usize, f32)],
+        open_doors: &[(ZoneId, ZoneId)],
+        barrier_open: impl Fn(BarrierId) -> bool,
+    ) -> Option<Vec<usize>> {
+        // Stand-ins for the body and its target, joined to the nodes they can walk to and from.
+        const BODY: usize = usize::MAX;
+        const TARGET: usize = usize::MAX - 1;
+        let cm = |metres: f32| (metres * 100.0) as u32;
+        let successors = |&node: &usize| -> Vec<(usize, u32)> {
+            match node {
+                BODY => starts.iter().map(|&(i, walk)| (i, cm(walk))).collect(),
+                TARGET => Vec::new(),
+                _ => self.exits[node]
+                    .iter()
+                    .map(|&i| &self.edges[i])
+                    .filter(|edge| passable(edge.gate, open_doors, &barrier_open))
+                    .map(|edge| {
+                        let next = if edge.from == node { edge.to } else { edge.from };
+                        (next, cm(self.nodes[node].at.distance(self.nodes[next].at)))
+                    })
+                    .chain(ends.iter().filter(|&&(end, _)| end == node).map(|&(_, walk)| (TARGET, cm(walk))))
+                    .collect(),
+            }
+        };
+        let heuristic = |&node: &usize| match node {
+            BODY | TARGET => 0,
+            _ => ends
+                .iter()
+                .map(|&(end, walk)| cm(self.nodes[node].at.distance(self.nodes[end].at) + walk))
+                .min()
+                .unwrap_or(0),
+        };
+        let (path, _) = astar(&BODY, successors, heuristic, |&node| node == TARGET)?;
+        Some(path.into_iter().filter(|&node| node != BODY && node != TARGET).collect())
     }
 }
 
@@ -477,6 +532,22 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Just west of the Quarry's `head_s`, `head_w` is the nearest node, but it only leads back by
+    /// `head_s`: a body there bound up the Headframe's stairs sets off straight for the corner by
+    /// the Power Door instead.
+    #[test]
+    fn a_route_sets_off_from_whichever_near_node_leads_on_best() {
+        let graph = NavGraph::new(MapId::Quarry);
+        let named = |name: &str| graph.node(name).unwrap();
+        let feet = Vec3::new(crate::maps::map::QUARRY_X, 2.0 * crate::maps::map::STOREY, 29.1);
+        assert_eq!(graph.nearest(feet), named("head_w"));
+        // Anything on the yard's floor is a clear walk from there; the stairs are behind a wall.
+        let from = graph.near_where(feet, |node| node.at.y == feet.y);
+        let path = graph.plan_between(&from, &[(named("stair_mid"), 0.0)], &all_doors(MapId::Quarry), windows_open).unwrap();
+        let names: Vec<_> = path.iter().map(|&i| graph.nodes[i].name).collect();
+        assert_eq!(names, ["head_corner", "stair_low", "stair_mid"]);
     }
 
     #[test]

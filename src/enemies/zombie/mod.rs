@@ -838,9 +838,9 @@ fn clear_walk(spatial: &SpatialQuery, probe: &Collider, from: Vec3, to: Vec3, ha
 /// The path nodes a Zombie-sized body, its middle at `centre` and `half` above its feet, follows
 /// to its target standing at `target_feet`: none where it can walk straight there, or where what
 /// stops it (a table, the edge of a Ledge, a crate the Player is up on) leaves it within this
-/// share of `reach` to swipe across. Otherwise its route runs from the nearest node it can walk
-/// to, to the nearest its target can be walked to from: nodes behind a crate or over a Ledge are
-/// no use to either. No route at all (the drop is one-way) leaves it steering straight at its
+/// share of `reach` to swipe across. Otherwise its route runs from one of the nearest nodes it can
+/// walk to, to one of the nearest its target can be walked to from, whichever pair makes the
+/// shortest walk all told: nodes behind a crate or over a Ledge are no use to either. No route at all (the drop is one-way) leaves it steering straight at its
 /// target until the stuck rule replaces it.
 pub(crate) fn plan_route(
     graph: &NavGraph,
@@ -861,13 +861,15 @@ pub(crate) fn plan_route(
     if level && walk_stop(spatial, &probe, centre, target, half).is_none_or(closes_in) {
         return Vec::new();
     }
-    let from = graph
-        .nearest_where(feet, |node| walk(centre, node.at + Vec3::Y * half))
-        .unwrap_or_else(|| graph.nearest(feet));
-    let to = graph
-        .nearest_where(target_feet, |node| walk(node.at + Vec3::Y * half, target))
-        .unwrap_or_else(|| graph.nearest(target_feet));
-    let path = graph.plan(from, to, open_doors, barrier_open).unwrap_or_default();
+    let mut from = graph.near_where(feet, |node| walk(centre, node.at + Vec3::Y * half));
+    if from.is_empty() {
+        from.push((graph.nearest(feet), 0.0));
+    }
+    let mut to = graph.near_where(target_feet, |node| walk(node.at + Vec3::Y * half, target));
+    if to.is_empty() {
+        to.push((graph.nearest(target_feet), 0.0));
+    }
+    let path = graph.plan_between(&from, &to, open_doors, barrier_open).unwrap_or_default();
     let mut waypoints: Vec<Vec3> = path.into_iter().map(|i| graph.nodes[i].at).collect();
     // Skip the first node when the second is a clear walk on the same floor, or the body is
     // already on the edge between them (a ramp changes floor on the way), so it never doubles
@@ -906,10 +908,15 @@ pub fn heading(distance: f32, reach: f32, swinging: bool, last_stand: bool) -> H
 /// already on the edge between them and past `first`. Halfway up a ramp the nearest node is still
 /// the one behind, and without this the Zombie keeps turning back for it and never climbs. No cast
 /// is needed: the Map's tests check every edge is walkable, and a straight cast clips a ramp.
+/// Measured across the floor: off a drop the edge plunges, so a Zombie walking out to the Ledge
+/// would only get further from it, and turn back for the node behind it at the brink.
 fn already_past(first: Vec3, second: Vec3, feet: Vec3) -> bool {
-    let edge = second - first;
-    let along = (feet - first).dot(edge) / edge.length_squared();
-    along > 0.0 && feet.distance(first + edge * along.min(1.0)) < ZOMBIE_WAYPOINT_REACH
+    let edge = horizontal(second - first);
+    if edge.length_squared() < 1e-4 {
+        return false;
+    }
+    let along = horizontal(feet - first).dot(edge) / edge.length_squared();
+    along > 0.0 && horizontal(feet - first - edge * along.min(1.0)).length() < ZOMBIE_WAYPOINT_REACH
 }
 
 /// Zombies find a Player (or the Monkey Bomb pulling them) anywhere on the Map: every so often they
