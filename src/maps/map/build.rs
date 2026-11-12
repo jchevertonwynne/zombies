@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
-use crate::economy::buy::Buyable;
-use crate::maps::door::Door;
+use crate::economy::buy::{Buyable, Refused};
+use crate::maps::door::{Door, LINKED_DOOR_PROMPT, OpensOnLinks};
 use crate::layers::GameLayer;
 use crate::state::InRun;
 use crate::tuning::*;
@@ -51,6 +51,9 @@ const JUMP_PAD_PAINT: Color = Color::srgb(0.86, 0.68, 0.1);
 pub(super) enum Gap {
     /// A Door, joining two Zones; `None` price makes it a Power Door.
     Door(Option<(ZoneId, ZoneId)>, Option<u64>),
+    /// A Door that can't be bought and opens once every Teleporter Pad is Linked, like the
+    /// Gazebo's.
+    LinkedDoor(Option<(ZoneId, ZoneId)>),
     /// An open archway.
     Open { width: f32, height: f32 },
     /// A window in an outer wall, open to Zombies and solid to the Player.
@@ -419,7 +422,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let mut cursor = 0.0;
         for (at, gap) in gaps {
             let (width, top) = match gap {
-                Gap::Door(..) => (DOOR_WIDTH, DOOR_HEIGHT),
+                Gap::Door(..) | Gap::LinkedDoor(_) => (DOOR_WIDTH, DOOR_HEIGHT),
                 Gap::Open { width, height } => (*width, *height),
                 Gap::Window => (WINDOW_WIDTH, WINDOW_HEIGHT),
             };
@@ -463,6 +466,28 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                         range: DOOR_USE_RANGE,
                     });
                 }
+            }
+            if let Gap::LinkedDoor(joins) = gap {
+                let at = Vec3::new(mid.x, y0 + DOOR_HEIGHT / 2.0, mid.y);
+                let door = self.door_slab(across(0.25, DOOR_HEIGHT), at, true);
+                // It can't be bought either, but its Prompt says what opens it, and the Use key
+                // buzzes.
+                self.commands.entity(door).insert((
+                    Door {
+                        joins: *joins,
+                        price: None,
+                        open: false,
+                    },
+                    OpensOnLinks,
+                    Buyable {
+                        use_point: at,
+                        prompt: LINKED_DOOR_PROMPT.into(),
+                        price: None,
+                        range: DOOR_USE_RANGE,
+                    },
+                    Refused,
+                    Visibility::default(),
+                ));
             }
         }
         self.piece(a, b, cursor, length, y0, 0.0, height);

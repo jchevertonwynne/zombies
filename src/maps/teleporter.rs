@@ -3,6 +3,7 @@
 //! using the Mainframe in time. A trip charges at the Pad, killing Zombies around it, holds the
 //! Player in a black space nothing can reach, then lands them at the Mainframe, killing every
 //! Zombie around it, with a random aftereffect and an arrival drop. All its kills are Unpaid.
+//! Linking both Pads opens the Gazebo, and Pack-a-Punch inside it (see `door::OpensOnLinks`).
 
 use avian3d::prelude::*;
 use bevy::prelude::*;

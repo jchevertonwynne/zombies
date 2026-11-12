@@ -2,7 +2,8 @@
 //! reached by a ramp in West Hall, with a one-way drop back down. South of the ring, across open
 //! ground, lies the south wing: the Workshop, the Storeroom and the Generator Room, reached down
 //! the Passage from the Dining Room and the Tunnel from the Power Room. The Teleporter's Pads sit
-//! at the wing's far corners.
+//! at the wing's far corners, and Linking both opens the Gazebo in the Yard, with Pack-a-Punch
+//! inside: the Power alone doesn't, so Pack-a-Punch is earned with a trip round the south wing.
 
 use bevy::prelude::*;
 
@@ -489,13 +490,13 @@ fn build(b: &mut Builder) {
     }
     b.block(Vec3::new(roof.x, RAIL_HEIGHT, thick), Vec3::new(roof_mid.x, 0.0, roof_min.y + thick / 2.0) + rise, palette(None).trim);
 
-    // The Pack-a-Punch Gazebo, behind a Power Door that stays shut until the Power comes on.
+    // The Pack-a-Punch Gazebo, behind a Door that stays shut until both Teleporter Pads are Linked.
     let gazebo_height = DOOR_HEIGHT;
     b.repaint = Some(GAZEBO);
     b.wall(v(2.0, -10.0), v(8.0, -10.0), 0.0, gazebo_height, &[]);
     b.wall(v(2.0, -10.0), v(2.0, -4.0), 0.0, gazebo_height, &[]);
     b.wall(v(8.0, -10.0), v(8.0, -4.0), 0.0, gazebo_height, &[]);
-    b.wall(v(2.0, -4.0), v(8.0, -4.0), 0.0, gazebo_height, &[(3.0, Gap::Door(Some((Yard, Yard)), None))]);
+    b.wall(v(2.0, -4.0), v(8.0, -4.0), 0.0, gazebo_height, &[(3.0, Gap::LinkedDoor(Some((Yard, Yard))))]);
     b.repaint = None;
     b.block(Vec3::new(6.8, 0.2, 6.8), Vec3::new(5.0, gazebo_height + 0.1, -7.0), GAZEBO.trim);
 }
@@ -808,8 +809,7 @@ const EDGES: &[(&str, &str, Gate)] = {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::maps::map::{MapId, window_spawn};
-    use crate::enemies::zombie::headless::Sim;
+    use crate::maps::map::MapId;
 
     /// The Balcony's window, the one onto the roof.
     const BALCONY_WINDOW: BarrierId = BarrierId(20);
@@ -818,42 +818,13 @@ mod tests {
     /// and round the whole Yard, each a level lane at least 1.6 m wide with nothing in it.
     #[test]
     fn the_yard_keeps_clear_loops_to_train_round() {
-        use avian3d::prelude::*;
-        use bevy::ecs::system::RunSystemOnce;
-
-        use crate::layers::GameLayer;
-        const ROUND_THE_GAZEBO: &[Vec2] = &[Vec2::new(0.0, -2.0), Vec2::new(10.5, -2.0), Vec2::new(10.5, -11.8), Vec2::new(0.4, -11.0)];
-        const ROUND_THE_GARDEN: &[Vec2] = &[Vec2::new(-9.0, 2.8), Vec2::new(0.9, 2.8), Vec2::new(0.9, 12.6), Vec2::new(-9.0, 12.6)];
-        const ROUND_THE_YARD: &[Vec2] =
-            &[Vec2::new(-9.0, 12.6), Vec2::new(11.0, 12.6), Vec2::new(11.0, -11.8), Vec2::new(1.0, -11.0), Vec2::new(-9.0, -11.0)];
-        let mut sim = Sim::new(60.0, |_| {});
-        let blocked: Vec<String> = sim
-            .world_mut()
-            .run_system_once(|spatial: SpatialQuery| {
-                let map = SpatialQueryFilter::from_mask(GameLayer::World);
-                let lane = Collider::sphere(0.8);
-                let mut blocked = Vec::new();
-                for (name, corners) in [("the Gazebo", ROUND_THE_GAZEBO), ("the garden", ROUND_THE_GARDEN), ("the Yard", ROUND_THE_YARD)] {
-                    for i in 0..corners.len() {
-                        let (a, b) = (corners[i], corners[(i + 1) % corners.len()]);
-                        let (from, to) = (Vec3::new(a.x, 1.0, a.y), Vec3::new(b.x, 1.0, b.y));
-                        let config = ShapeCastConfig::from_max_distance(from.distance(to));
-                        if spatial.cast_shape(&lane, from, Quat::IDENTITY, Dir3::new(to - from).unwrap(), &config, &map).is_some() {
-                            blocked.push(format!("round {name}: {a} to {b} is cluttered"));
-                        }
-                        let level = (0..=20).all(|k| {
-                            let at = from.lerp(to, k as f32 / 20.0);
-                            spatial.cast_ray(at, Dir3::NEG_Y, 1.5, true, &map).is_some_and(|hit| (hit.distance - 1.0).abs() < 0.05)
-                        });
-                        if !level {
-                            blocked.push(format!("round {name}: {a} to {b} isn't level"));
-                        }
-                    }
-                }
-                blocked
-            })
-            .unwrap();
-        assert!(blocked.is_empty(), "{blocked:#?}");
+        const LOOPS: &[(&str, &[Vec2])] = &[
+            ("the Gazebo", &[Vec2::new(0.0, -2.0), Vec2::new(10.5, -2.0), Vec2::new(10.5, -11.8), Vec2::new(0.4, -11.0)]),
+            ("the garden", &[Vec2::new(-9.0, 2.8), Vec2::new(0.9, 2.8), Vec2::new(0.9, 12.6), Vec2::new(-9.0, 12.6)]),
+            ("the Yard", &[Vec2::new(-9.0, 12.6), Vec2::new(11.0, 12.6), Vec2::new(11.0, -11.8), Vec2::new(1.0, -11.0), Vec2::new(-9.0, -11.0)]),
+        ];
+        let spoilt = crate::maps::map::tests::spoilt_loops(MapId::Greybox, 0.0, LOOPS);
+        assert!(spoilt.is_empty(), "{spoilt:#?}");
     }
 
     /// The roof outside the Balcony's window is walled in all round, so a Zombie knocked about
@@ -861,31 +832,8 @@ mod tests {
     /// at knee height, meets a wall or the parapet before the roof's edge.
     #[test]
     fn the_roof_outside_the_balcony_window_is_walled_in() {
-        use avian3d::prelude::*;
-        use bevy::ecs::system::RunSystemOnce;
-
-        use crate::layers::GameLayer;
-
         assert_eq!(WINDOWS[BALCONY_WINDOW.0 as usize].0, ZoneId::Balcony);
-        let spawn = window_spawn(BALCONY_WINDOW);
-        let mut sim = Sim::new(60.0, |_| {});
-        let open: Vec<f32> = sim
-            .world_mut()
-            .run_system_once(move |spatial: SpatialQuery| {
-                // The window's opening lets Zombies through; only the World layer walls them in.
-                let filter = SpatialQueryFilter::from_mask(GameLayer::World);
-                (0..32)
-                    .map(|k| k as f32 / 32.0 * std::f32::consts::TAU)
-                    .filter(|&angle| {
-                        let dir = Dir3::new(Vec3::new(angle.cos(), 0.0, angle.sin())).unwrap();
-                        let toward_window = dir.dot(Vec3::Z) > 0.5;
-                        let from = spawn + Vec3::Y * if toward_window { 0.45 } else { 0.5 };
-                        spatial.cast_ray(from, dir, 4.0, true, &filter).is_none()
-                    })
-                    .map(f32::to_degrees)
-                    .collect::<Vec<_>>()
-            })
-            .unwrap();
+        let open = crate::maps::map::tests::ways_off_outside(MapId::Greybox, BALCONY_WINDOW);
         assert!(open.is_empty(), "ways off the roof at these headings (degrees): {open:?}");
     }
 

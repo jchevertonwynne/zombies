@@ -677,6 +677,75 @@ pub(crate) mod tests {
         }
     }
 
+    /// What spoils each of `map`'s loops to lead a Train round: each loop is a name and its
+    /// corners (x, z) on the floor at `floor`, and every leg must be a level lane at least 1.6 m
+    /// wide with nothing in it. Empty when every loop is clear.
+    pub(crate) fn spoilt_loops(map: MapId, floor: f32, loops: &'static [(&'static str, &'static [Vec2])]) -> Vec<String> {
+        use avian3d::prelude::*;
+        use bevy::ecs::system::RunSystemOnce;
+
+        use crate::layers::GameLayer;
+
+        let mut sim = Sim::on(map, 60.0, |_| {});
+        sim.world_mut()
+            .run_system_once(move |spatial: SpatialQuery| {
+                let solid = SpatialQueryFilter::from_mask(GameLayer::World);
+                let lane = Collider::sphere(0.8);
+                let mut spoilt = Vec::new();
+                for &(name, corners) in loops {
+                    for i in 0..corners.len() {
+                        let (a, b) = (corners[i], corners[(i + 1) % corners.len()]);
+                        let (from, to) = (Vec3::new(a.x, floor + 1.0, a.y), Vec3::new(b.x, floor + 1.0, b.y));
+                        let config = ShapeCastConfig::from_max_distance(from.distance(to));
+                        if spatial.cast_shape(&lane, from, Quat::IDENTITY, Dir3::new(to - from).unwrap(), &config, &solid).is_some() {
+                            spoilt.push(format!("round {name}: {a} to {b} is cluttered"));
+                        }
+                        let level = (0..=20).all(|k| {
+                            let at = from.lerp(to, k as f32 / 20.0);
+                            spatial.cast_ray(at, Dir3::NEG_Y, 1.5, true, &solid).is_some_and(|hit| (hit.distance - 1.0).abs() < 0.05)
+                        });
+                        if !level {
+                            spoilt.push(format!("round {name}: {a} to {b} isn't level"));
+                        }
+                    }
+                }
+                spoilt
+            })
+            .unwrap()
+    }
+
+    /// The headings (degrees) a Zombie could leave the ledge or roof outside a raised window by:
+    /// from `barrier`'s Spawn Point, every way out at knee height that meets no wall or parapet
+    /// within 4 m. Empty when it's walled in all round, so nothing knocked about out there falls.
+    pub(crate) fn ways_off_outside(map: MapId, barrier: BarrierId) -> Vec<f32> {
+        use avian3d::prelude::*;
+        use bevy::ecs::system::RunSystemOnce;
+
+        use crate::layers::GameLayer;
+
+        let spawn = window_spawn(barrier);
+        let (_, _, out) = WINDOWS[barrier.0 as usize];
+        let inward = -Vec3::new(out.x, 0.0, out.y);
+        let mut sim = Sim::on(map, 60.0, |_| {});
+        sim.world_mut()
+            .run_system_once(move |spatial: SpatialQuery| {
+                // The window's opening lets Zombies through; only the World layer walls them in.
+                let filter = SpatialQueryFilter::from_mask(GameLayer::World);
+                (0..32)
+                    .map(|k| k as f32 / 32.0 * std::f32::consts::TAU)
+                    .filter(|&angle| {
+                        let dir = Dir3::new(Vec3::new(angle.cos(), 0.0, angle.sin())).unwrap();
+                        // Under the window's opening, its Sill.
+                        let toward_window = dir.dot(inward) > 0.5;
+                        let from = spawn + Vec3::Y * if toward_window { 0.45 } else { 0.5 };
+                        spatial.cast_ray(from, dir, 4.0, true, &filter).is_none()
+                    })
+                    .map(f32::to_degrees)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap()
+    }
+
     /// Everything fixed to `map`'s walls and floors, besides the walls and Doors themselves:
     /// a name, where it stands (x, y, z), and how far round it must stay clear.
     pub(crate) fn fixtures(map: MapId) -> Vec<(String, Vec3, f32)> {

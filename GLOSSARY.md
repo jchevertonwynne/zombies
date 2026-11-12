@@ -147,7 +147,7 @@ _Avoid_: board, plank of wood
 **Door**: A barrier between two Zones, or shutting off part of one, that the Player buys with Points to open for the rest of the Run. Zombies never open Doors.
 _Avoid_: debris, gate
 
-**Power Door**: A Door that cannot be bought and opens on its own when the Power comes on, such as the one shutting the Gazebo off from the rest of the Yard, or the Village's gates at either end of the Back Lane.
+**Power Door**: A Door that cannot be bought and opens on its own when the Power comes on, such as the Headframe's at the foot of its stairs, or the Village's gates at either end of the Back Lane.
 
 **Arena**: An enclosed, open area with no doors or separate rooms.
 
@@ -217,7 +217,7 @@ _Avoid_: teleporter (for one pad), portal
 **Mainframe**: The machine at the Teleporter's single arrival point. Each Teleporter Pad is Linked by using it after activating that pad.
 _Avoid_: core, hub
 
-**Link**: Joining a Teleporter Pad to the Mainframe, by activating the pad and then reaching the Mainframe in time. A Link lasts for the rest of the Run.
+**Link**: Joining a Teleporter Pad to the Mainframe, by activating the pad and then reaching the Mainframe in time. A Link lasts for the rest of the Run. Linking both pads opens the Door shutting the Gazebo, and Pack-a-Punch inside it, off from the rest of the Yard; that Door cannot be bought, and the Power alone doesn't open it.
 
 **Mode**: The ruleset a Run is played under: Classic or Gauntlet. Every Run has exactly one Mode, chosen before it starts and fixed for the whole Run.
 _Avoid_: game type, difficulty

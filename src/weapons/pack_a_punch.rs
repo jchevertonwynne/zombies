@@ -1,5 +1,5 @@
-//! Pack-a-Punch: the machine in the Gazebo that, once the Power is on, takes the Weapon in hand
-//! for `PAP_PRICE`, works on it for `PAP_PROCESS_SECS`, then holds its Upgraded form for
+//! Pack-a-Punch: the machine that, once the Power is on, takes the Weapon in hand for
+//! `PAP_PRICE`, works on it for `PAP_PROCESS_SECS`, then holds its Upgraded form for
 //! `PAP_PICKUP_SECS`. A Weapon not taken in time is lost, with no refund.
 //!
 //! An Upgraded Weapon in hand is Repacked instead, through the same flow: a tap adds a random Ammo
@@ -259,7 +259,7 @@ impl PackAPunch {
 }
 
 /// The machine's spot on `map`, on the floor. It always faces +Z: on the Greybox, out of the
-/// Gazebo's Power Door; on the Quarry, along the Headframe's deck from just behind its front rail;
+/// Gazebo's Door; on the Quarry, along the Headframe's deck from just behind its front rail;
 /// on the Village, along the Church's chancel from its south end.
 pub(crate) fn machine_at(map: MapId) -> Vec3 {
     match map {

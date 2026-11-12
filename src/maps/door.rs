@@ -6,19 +6,28 @@ use bevy::prelude::*;
 use crate::authority::HostSimulation;
 use crate::economy::buy::{Buyable, Purchased};
 use crate::maps::power::Power;
+use crate::maps::teleporter::Teleporter;
 use crate::state::world_runs;
 use crate::tuning::*;
 
 /// A Door in the Map. While closed it is solid to the Player and to Zombies alike.
 #[derive(Component)]
 pub struct Door {
-    /// The two Zones it joins. The Gazebo's Power Door joins the Yard to itself, since the Gazebo is
+    /// The two Zones it joins. The Gazebo's Door joins the Yard to itself, since the Gazebo is
     /// in the Yard.
     pub joins: Option<(crate::maps::zone::ZoneId, crate::maps::zone::ZoneId)>,
     /// `None` for a Power Door, which can't be bought.
     pub price: Option<u64>,
     pub open: bool,
 }
+
+/// A Door that can't be bought and waits for the Teleporter, not the Power: it opens once every
+/// Teleporter Pad is Linked. The Gazebo's, so Pack-a-Punch is earned in the south wing.
+#[derive(Component)]
+pub struct OpensOnLinks;
+
+/// What a Door that `OpensOnLinks` says while it's shut.
+pub const LINKED_DOOR_PROMPT: &str = "Link both Teleporter Pads to open";
 
 /// A Door that has just been opened: it shakes, sinks into the floor, and is then hidden. It is
 /// already open and not solid; this is only for show.
@@ -48,7 +57,13 @@ impl Plugin for DoorPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (price_doors, open_bought_doors.in_set(HostSimulation), open_power_doors.in_set(HostSimulation), slide_open_doors)
+            (
+                price_doors,
+                open_bought_doors.in_set(HostSimulation),
+                open_power_doors.in_set(HostSimulation),
+                open_linked_doors.in_set(HostSimulation),
+                slide_open_doors,
+            )
                 .chain()
                 .run_if(world_runs),
         );
@@ -83,13 +98,29 @@ fn open_bought_doors(
 fn open_power_doors(
     mut commands: Commands,
     power: Res<Power>,
-    mut doors: Query<(Entity, &mut Door, &Transform)>,
+    mut doors: Query<(Entity, &mut Door, &Transform), Without<OpensOnLinks>>,
 ) {
     if !power.is_on() {
         return;
     }
     for (entity, mut door, transform) in &mut doors {
         if door.price.is_none() && !door.open {
+            open(&mut commands, entity, &mut door, transform);
+        }
+    }
+}
+
+/// Doors that wait for the Teleporter open on their own once every Pad is Linked.
+fn open_linked_doors(
+    mut commands: Commands,
+    teleporter: Option<Res<Teleporter>>,
+    mut doors: Query<(Entity, &mut Door, &Transform), With<OpensOnLinks>>,
+) {
+    if !teleporter.is_some_and(|teleporter| teleporter.both_linked()) {
+        return;
+    }
+    for (entity, mut door, transform) in &mut doors {
+        if !door.open {
             open(&mut commands, entity, &mut door, transform);
         }
     }
@@ -127,6 +158,45 @@ fn slide_open_doors(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The Gazebo stays shut through the Power and the first Link, and opens with the second, so
+    /// Pack-a-Punch on the Greybox is earned in the south wing. Until then its Prompt says why.
+    #[test]
+    fn the_gazebo_opens_once_both_pads_are_linked_and_not_before() {
+        use crate::economy::buy::Refused;
+        use crate::enemies::zombie::headless::Sim;
+        use crate::maps::teleporter::PadId;
+
+        let mut sim = Sim::new(60.0, |app| {
+            app.add_message::<Purchased>().init_resource::<Power>().init_resource::<Teleporter>().add_plugins(DoorPlugin);
+        });
+        let gazebo = |sim: &mut Sim| {
+            let world = sim.world_mut();
+            let (door, buyable, refused) = world
+                .query_filtered::<(&Door, Option<&Buyable>, Has<Refused>), With<OpensOnLinks>>()
+                .single(world)
+                .expect("the Greybox has one Door that waits for the Teleporter");
+            (door.open, buyable.map(|buyable| buyable.prompt.clone()), refused)
+        };
+        let shut = (false, Some(LINKED_DOOR_PROMPT.to_string()), true);
+        assert_eq!(gazebo(&mut sim), shut);
+
+        sim.world_mut().resource_mut::<Power>().switch_on();
+        sim.run(2);
+        assert_eq!(gazebo(&mut sim), shut, "the Power alone doesn't open the Gazebo");
+
+        let link = |sim: &mut Sim, pad| {
+            let mut teleporter = sim.world_mut().resource_mut::<Teleporter>();
+            teleporter.activate(pad);
+            teleporter.link();
+            sim.run(2);
+        };
+        link(&mut sim, PadId::Workshop);
+        assert_eq!(gazebo(&mut sim), shut, "one Link isn't enough");
+        link(&mut sim, PadId::Generator);
+        let (open, prompt, _) = gazebo(&mut sim);
+        assert!(open && prompt.is_none(), "both Links open the Gazebo and take its Prompt away");
+    }
 
     #[test]
     fn a_door_shakes_in_place_then_sinks_and_is_gone() {
