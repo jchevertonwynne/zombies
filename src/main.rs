@@ -4,6 +4,7 @@
 mod audio;
 mod authority;
 mod bench;
+mod darkness_prototype;
 mod debug;
 mod economy;
 mod enemies;
@@ -100,6 +101,7 @@ fn main() {
         // Gauntlet, layered on top of everything above.
         .add_plugins(run::gauntlet::GauntletPlugin)
         .add_plugins(players::teammate::TeammatePlugin);
+    app.add_plugins(darkness_prototype::DarknessPrototypePlugin);
     if let Some(bench) = bench::Bench::from_env() {
         app.add_plugins(bench::BenchPlugin(bench));
     }

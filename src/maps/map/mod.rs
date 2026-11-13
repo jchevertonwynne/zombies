@@ -486,6 +486,7 @@ pub fn spawn_map(
         perceptual_roughness: 1.0,
         ..default()
     });
+    commands.insert_resource(crate::darkness_prototype::ChalkMat(chalk_mat.clone()));
     let barrel = meshes.add(Cuboid::new(1.2, 0.12, 0.02));
     let grip = meshes.add(Cuboid::new(0.12, 0.3, 0.02));
     for &(weapon, _, centre, facing) in layout.wall_weapons {
@@ -592,6 +593,7 @@ pub fn spawn_map(
     for &(zone, at) in layout.lamps {
         commands.spawn((
             InRun,
+            crate::darkness_prototype::Lamp { zone, full: 400_000.0 },
             PointLight {
                 color: palette(Some(zone)).light,
                 intensity: 400_000.0,
