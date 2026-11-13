@@ -5,6 +5,7 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 
 use crate::authority::HostSimulation;
+use crate::maps::darkness::Chalk;
 use crate::players::controls::{Action, Controls};
 use crate::weapons::ammo_mod::AmmoMods;
 use crate::maps::barrier::Entering;
@@ -511,7 +512,7 @@ fn spawn_walls(
         perceptual_roughness: 1.0,
         ..default()
     });
-    for &(wall, _, centre, normal) in equipment_walls(*map) {
+    for &(wall, zone, centre, normal) in equipment_walls(*map) {
         let size = match wall {
             EquipmentWall::Frags => Vec3::new(0.3, 0.4, 0.02),
             EquipmentWall::Claymore => Vec3::new(0.5, 0.3, 0.02),
@@ -520,6 +521,7 @@ fn spawn_walls(
         commands.spawn((
             InRun,
             wall,
+            Chalk(zone),
             Buyable {
                 use_point: centre + normal * 0.05,
                 prompt: String::new(),

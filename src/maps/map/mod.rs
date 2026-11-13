@@ -30,6 +30,7 @@ pub use quarry::QUARRY_X;
 pub use village::VILLAGE_X;
 pub use dam::DAM_X;
 
+use crate::maps::darkness::{Chalk, Lamp};
 use crate::maps::generator::{Generator, SectionId};
 use crate::maps::jump_pad::JumpPad;
 
@@ -140,6 +141,9 @@ pub struct Layout {
     /// The Generators, one per Section. A Map with any never turns its `Power` on and has no
     /// Power Switch.
     pub generators: &'static [Generator],
+    /// Whether the Map has Darkness: no ambient light, close black fog, and a Zone's lamps on
+    /// only while its Section is Powered (see `darkness`).
+    pub darkness: bool,
     /// The way the moonlight falls.
     pub sun: Vec3,
     /// The corners (x, z) of the patch of the world the Map takes up: everything playable is
@@ -482,7 +486,7 @@ impl Plugin for MapPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(GlobalAmbientLight {
             color: Color::srgb(0.6, 0.65, 0.8),
-            brightness: 120.0,
+            brightness: AMBIENT_BRIGHTNESS,
             ..default()
         })
         .insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.04)))
@@ -546,7 +550,7 @@ pub fn spawn_map(
     });
     let barrel = meshes.add(Cuboid::new(1.2, 0.12, 0.02));
     let grip = meshes.add(Cuboid::new(0.12, 0.3, 0.02));
-    for &(weapon, _, centre, facing) in layout.wall_weapons {
+    for &(weapon, zone, centre, facing) in layout.wall_weapons {
         let price = wall_price(weapon).expect("only Wall Weapons go on walls");
         let normal = Vec3::new(facing.x, 0.0, facing.y);
         // Lay the outline flat against the wall, its length along the wall.
@@ -563,11 +567,13 @@ pub fn spawn_map(
                     price: Some(price),
                     range: USE_RANGE,
                 },
+                Chalk(zone),
                 Mesh3d(barrel.clone()),
                 MeshMaterial3d(chalk_mat.clone()),
                 Transform::from_translation(centre + normal * 0.01).with_rotation(rotation),
             ))
             .with_child((
+                Chalk(zone),
                 Mesh3d(grip.clone()),
                 MeshMaterial3d(chalk_mat.clone()),
                 Transform::from_xyz(0.3, -0.2, 0.0),
@@ -650,9 +656,10 @@ pub fn spawn_map(
     for &(zone, at) in layout.lamps {
         commands.spawn((
             InRun,
+            Lamp::in_zone(zone),
             PointLight {
                 color: palette(Some(zone)).light,
-                intensity: 400_000.0,
+                intensity: LAMP_INTENSITY,
                 range: 25.0,
                 ..default()
             },

@@ -102,7 +102,8 @@ fn main() {
         .add_plugins(run::gauntlet::GauntletPlugin)
         .add_plugins(players::teammate::TeammatePlugin)
         .add_plugins(maps::generator::GeneratorPlugin)
-        .add_plugins(maps::surge::SurgePlugin);
+        .add_plugins(maps::surge::SurgePlugin)
+        .add_plugins(maps::darkness::DarknessPlugin);
     if let Some(bench) = bench::Bench::from_env() {
         app.add_plugins(bench::BenchPlugin(bench));
     }

@@ -141,12 +141,12 @@ pub fn hellhound_spawn_candidates(
 }
 
 /// The fog's linear falloff (start, end) to head for: pulled in while a Hellhound Round is under
-/// way, normal otherwise.
-pub fn fog_target(hellhound_round: bool) -> (f32, f32) {
-    if hellhound_round {
-        (HELLHOUND_FOG_START, HELLHOUND_FOG_END)
-    } else {
-        (FOG_START, FOG_END)
+/// way, and otherwise normal, or closer on a Map with Darkness.
+pub fn fog_target(hellhound_round: bool, darkness: bool) -> (f32, f32) {
+    match (hellhound_round, darkness) {
+        (true, _) => (HELLHOUND_FOG_START, HELLHOUND_FOG_END),
+        (false, false) => (FOG_START, FOG_END),
+        (false, true) => (DARK_FOG_START, DARK_FOG_END),
     }
 }
 
@@ -469,10 +469,11 @@ fn pull_in_fog(
     round: Option<Res<Round>>,
     mut fogs: Query<&mut DistanceFog, With<PlayerCamera>>,
     time: Res<Time>,
+    map: Res<crate::maps::map::MapId>,
 ) {
     let hellhound_round =
         round.is_some_and(|round| round.hellhound.is_some() && round.phase == RoundPhase::Active);
-    let (start, end) = fog_target(hellhound_round);
+    let (start, end) = fog_target(hellhound_round, map.layout().darkness);
     let step = FOG_PULL_SPEED * time.delta_secs();
     for mut fog in &mut fogs {
         if let FogFalloff::Linear { start: s, end: e } = fog.falloff
@@ -649,12 +650,19 @@ mod tests {
 
     #[test]
     fn the_fog_pulls_in_for_a_hellhound_round() {
-        let (start, end) = fog_target(true);
+        let (start, end) = fog_target(true, false);
         assert!(start < FOG_START && end < FOG_END);
-        assert_eq!(fog_target(false), (FOG_START, FOG_END));
+        assert_eq!(fog_target(false, false), (FOG_START, FOG_END));
+        let (dark_start, dark_end) = fog_target(true, true);
+        assert!(dark_start < DARK_FOG_START && dark_end < DARK_FOG_END, "and in on a dark Map too");
         assert_eq!(approach(45.0, 20.0, 5.0), 40.0);
         assert_eq!(approach(21.0, 20.0, 5.0), 20.0);
         assert_eq!(approach(10.0, 20.0, 5.0), 15.0);
+    }
+
+    #[test]
+    fn on_a_dark_map_the_fog_rests_closer() {
+        assert_eq!(fog_target(false, true), (DARK_FOG_START, DARK_FOG_END));
     }
 
     /// A hound Out of Bounds isn't cleaned up but moved at once to a Hellhound Spawn Point, on
