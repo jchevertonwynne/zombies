@@ -45,6 +45,11 @@ _Avoid_: invulnerability, i-frames
 
 **Train**: A tightly packed group of Zombies following the Player in a line, which the Player leads around the Map so they can be shot from the front.
 
+**Sapper**: A mini-boss on a counter of its own, not part of the Horde, that comes through a Barrier after a warning and walks to a system near the Player to Sabotage it, slamming any Player in its way.
+_Avoid_: saboteur, bruiser
+
+**Sabotage**: A Sapper putting a system out of action: the Mystery Box, a working Perk Machine other than Quick Revive, a Trap, the Teleporter or Pack-a-Punch. A Sabotaged system stays dead until a Player restores it for Points or the Sapper dies, which brings back everything it Sabotaged.
+
 **Intermission**: The short pause after a Round ends and before the next one begins spawning.
 
 **Weapon**: A gun the Player carries. It has a Magazine and Reserve Ammo.
@@ -97,10 +102,10 @@ _Avoid_: grenade (when meaning the slot)
 
 **Points**: Currency the Player earns by damaging and killing Zombies and spends on Doors and other buys. Each Player has their own and can't give them to anyone else. Not the same as score.
 
-**Buyable**: Anything in the Map the Player spends Points on with the Use key: a Door, Wall Weapon, Mystery Box, Perk Machine, Pack-a-Punch, Trap or Teleporter Pad. The Power Switch is used but not bought, so it is not a Buyable.
+**Buyable**: Anything in the Map the Player spends Points on with the Use key: a Door, Wall Weapon, Mystery Box, Perk Machine, Pack-a-Punch, Trap, Teleporter Pad or Generator. The Power Switch is used but not bought, so it is not a Buyable.
 _Avoid_: purchasable, trigger
 
-**Use key**: The single key the Player presses to buy a Buyable or flip the Power Switch, or holds to put Planks back on a Barrier.
+**Use key**: The single key the Player presses to buy a Buyable or flip the Power Switch, or holds to put Planks back on a Barrier or to Claim or Reclaim a Generator.
 
 **Prompt**: The on-screen line saying what the Use key will do here and what it costs.
 
@@ -199,9 +204,34 @@ _Avoid_: perk-a-cola, buff
 
 **Quick Revive**: A Perk. Solo, it lets the Player get back up from one Down instead of reaching Game Over. In Co-op, it only makes the Player's Revives of others faster.
 
-**Power**: A state of the whole Map that starts off and, once turned on, stays on for the rest of the Run. Most Perk Machines, every Power Door, every Trap and every Jump Pad wait for it.
+**Power**: A state of the whole Map that starts off and, once turned on, stays on for the rest of the Run. Most Perk Machines, every Power Door, every Trap and every Jump Pad wait for it. A Map with Generators has no Power and no Power Switch.
 
 **Power Switch**: The lever that turns Power on. It is free to use.
+
+**Generator**: A Buyable machine that Powers its Section while it is Held. It starts Unclaimed, is Held once a Player Claims it, and is Lost if a Sapper takes it. Only the Dam has them.
+_Avoid_: power node, objective, capture point
+
+**Section**: A group of Zones Powered by one Generator. Not every Zone is in a Section.
+_Avoid_: wing, area, district, region
+
+**Powered**: A Section whose Generator is Held. On a Map with Generators, a Perk Machine or Trap that would wait for the Power waits for its Section to be Powered instead, and works only while it is. Pack-a-Punch there works only while every Generator is Held.
+
+**Claim**: Taking an Unclaimed Generator, by buying it and then holding the Use key on its plate while Zombies rush in.
+
+**Reclaim**: Taking back a Lost Generator, by holding the Use key on its plate as in a Claim but for no Points.
+
+**Unclaimed**: A Generator no Player has Claimed yet.
+
+**Held**: A Generator the Players have Claimed or Reclaimed and that is not Lost.
+
+**Lost**: A Generator a Sapper has taken. Unlike a Sabotaged system, it stays Lost after the Sapper dies, until a Player Reclaims it.
+_Avoid_: Sabotaged (for a Generator), unpowered
+
+**Dark**: A Zone with no light but the Players' Weapon Lights and whatever glows: a Zone whose Section isn't Powered, or one that waits for every Generator to be Held.
+_Avoid_: unlit, blackout
+
+**Weapon Light**: The narrow light every Player carries, always on, on a Map with Dark Zones.
+_Avoid_: flashlight, torch
 
 **Trap**: A Buyable hazard across a doorway that, once switched on, kills every Zombie that walks into it for a short time and can Down the Player too. It then needs a cooldown before it can be bought again.
 _Avoid_: electric fence, zapper
