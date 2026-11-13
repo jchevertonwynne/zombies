@@ -155,6 +155,7 @@ mod tests {
             zone,
             attack,
             at: Vec3::ZERO,
+            surge: false,
         }
     }
 
@@ -258,6 +259,7 @@ mod tests {
             zone: HitZone::Head,
             attack: Attack::Bullet,
             at: Vec3::ZERO,
+            surge: false,
         });
         // No Player behind it, so no one is paid.
         app.world_mut().write_message(ZombieHit { player: None, pays: true, headshot: false });

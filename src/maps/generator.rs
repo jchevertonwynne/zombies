@@ -268,7 +268,7 @@ fn claim(mut purchases: MessageReader<Purchased>, plates: Query<&GeneratorPlate>
 }
 
 /// Each bought Generator Charges while a Player who is up, and can shoot, stands on its plate.
-fn charge(
+pub(crate) fn charge(
     players: Query<
         (&Transform, Option<&Locomotion>, Has<LastStand>, Has<AwaitingRespawn>, Has<Disconnected>, Has<Choosing>, Has<Paused>),
         With<Player>,

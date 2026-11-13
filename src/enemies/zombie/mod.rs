@@ -19,6 +19,7 @@ use crate::enemies::nova::NovaCrawlerKilled;
 use crate::players::player::{HitGrace, PlayerHit};
 use crate::economy::power_up::{ActivePowerUps, PowerUp};
 use crate::run::round::CarriesOver;
+use crate::maps::surge::Surge;
 use crate::enemies::special::{SpecialCue, SpecialKind, hit_pays};
 use crate::audio::cues::Cue;
 use crate::state::{InRun, world_runs};
@@ -209,6 +210,8 @@ pub struct ZombieKilled {
     pub attack: Attack,
     /// Where the Zombie's feet were when it died, for a Power-up to drop at.
     pub at: Vec3,
+    /// A Surge Zombie: it pays as normal but drops no Power-up.
+    pub surge: bool,
 }
 
 /// The damage side of a kill made by a hit, sent beside its `ZombieKilled` for rules that need
@@ -1080,12 +1083,13 @@ fn rise(mut commands: Commands, mut risers: Query<(Entity, &mut Rising, &mut Tra
 /// stuck, so its clock only starts once it's in. A Crawler can't tear them, though, so for it
 /// waiting at a planked Barrier too long is stuck. A Zombie Out of Bounds goes the same way at
 /// once. A Zombie that carries over between Rounds is never cleaned up here, and nor is a
-/// Hellhound Out of Bounds: their own modules move them instead.
+/// Hellhound Out of Bounds: their own modules move them instead. A Surge Zombie, which also
+/// carries over, is cleaned up here but goes back into no Horde.
 fn clean_up_stuck(
     mut commands: Commands,
     mut zombies: Query<
-        (Entity, &mut Zombie, &Transform, Option<&Entering>),
-        (Without<Dying>, Without<Rising>, Without<Telegraph>, Without<CarriesOver>),
+        (Entity, &mut Zombie, &Transform, Option<&Entering>, Has<Surge>),
+        (Without<Dying>, Without<Rising>, Without<Telegraph>, Or<(Without<CarriesOver>, With<Surge>)>),
     >,
     players: Players,
     barriers: Res<Barriers>,
@@ -1094,31 +1098,25 @@ fn clean_up_stuck(
     time: Res<Time>,
 ) {
     let dt = time.delta_secs();
-    for (entity, mut zombie, transform, entering) in &mut zombies {
-        if map.layout().out_of_bounds(transform.translation) {
-            if !zombie.hellhound {
-                commands.entity(entity).despawn();
-                cleaned.write(ZombieCleanedUp);
-            }
-            continue;
-        }
-        if let Some(entering) = entering {
+    for (entity, mut zombie, transform, entering, surge) in &mut zombies {
+        let gone = if map.layout().out_of_bounds(transform.translation) {
+            !zombie.hellhound
+        } else if let Some(entering) = entering {
             zombie.stuck = StuckWatch::new(transform.translation);
             let planked = zombie.crawler && entering.at_barrier() && barriers.planks(entering.barrier) > 0;
             let stuck;
             (zombie.planked_wait, stuck) = planked_wait(zombie.planked_wait, planked, dt);
-            if stuck {
-                commands.entity(entity).despawn();
+            stuck
+        } else if let Some(player) = players.nearest(transform.translation) {
+            zombie.stuck.update(transform.translation, player.centre, dt)
+        } else {
+            false
+        };
+        if gone {
+            commands.entity(entity).despawn();
+            if !surge {
                 cleaned.write(ZombieCleanedUp);
             }
-            continue;
-        }
-        let Some(player) = players.nearest(transform.translation) else {
-            continue;
-        };
-        if zombie.stuck.update(transform.translation, player.centre, dt) {
-            commands.entity(entity).despawn();
-            cleaned.write(ZombieCleanedUp);
         }
     }
 }
@@ -1412,7 +1410,7 @@ pub fn make_puppet_crawler(commands: &mut Commands, assets: &ZombieAssetsParam, 
 pub fn apply_damage(
     mut commands: Commands,
     mut requests: MessageReader<DamageZombie>,
-    mut zombies: Query<(&mut Zombie, &Children, &Transform, Option<&Rising>), (Without<Dying>, Without<Telegraph>)>,
+    mut zombies: Query<(&mut Zombie, &Children, &Transform, Option<&Rising>, Has<Surge>), (Without<Dying>, Without<Telegraph>)>,
     hit_areas: Query<(), With<HitArea>>,
     power_ups: Res<ActivePowerUps>,
     mut hits: MessageWriter<ZombieHit>,
@@ -1422,7 +1420,7 @@ pub fn apply_damage(
 ) {
     let insta_kill = power_ups.active(PowerUp::InstaKill);
     for request in requests.read() {
-        let Ok((mut zombie, children, transform, rising)) = zombies.get_mut(request.zombie) else {
+        let Ok((mut zombie, children, transform, rising, surge)) = zombies.get_mut(request.zombie) else {
             continue;
         };
         // Several hits can land in one frame; only the first lethal one counts.
@@ -1464,6 +1462,7 @@ pub fn apply_damage(
             zone: request.zone,
             attack: request.attack,
             at,
+            surge,
         });
         kill_damage.write(KillDamage {
             player: request.player,

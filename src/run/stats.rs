@@ -90,6 +90,7 @@ mod tests {
             zone: if headshot { HitZone::Head } else { HitZone::Torso },
             attack: Attack::Bullet,
             at: bevy::math::Vec3::ZERO,
+            surge: false,
         }
     }
 

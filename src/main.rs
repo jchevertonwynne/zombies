@@ -101,7 +101,8 @@ fn main() {
         // Gauntlet, layered on top of everything above.
         .add_plugins(run::gauntlet::GauntletPlugin)
         .add_plugins(players::teammate::TeammatePlugin)
-        .add_plugins(maps::generator::GeneratorPlugin);
+        .add_plugins(maps::generator::GeneratorPlugin)
+        .add_plugins(maps::surge::SurgePlugin);
     if let Some(bench) = bench::Bench::from_env() {
         app.add_plugins(bench::BenchPlugin(bench));
     }
