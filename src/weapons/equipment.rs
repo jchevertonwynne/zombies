@@ -451,7 +451,8 @@ pub struct EquipmentPlugin;
 
 impl Plugin for EquipmentPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, load_assets)
+        app.add_message::<LethalThrown>()
+            .add_systems(Startup, load_assets)
             .add_systems(OnEnter(GameState::Playing), spawn_walls)
             .add_systems(
                 Update,
@@ -602,6 +603,21 @@ fn buy_walls(
             buy_equipment(*wall, &mut equipment, &mut knife.bowie);
         }
     }
+}
+
+/// A kind of Lethal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lethal {
+    Frag,
+}
+
+/// A Lethal left a Player's hand at `at`; `projectile` is it in flight.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct LethalThrown {
+    pub player: Entity,
+    pub kind: Lethal,
+    pub at: Vec3,
+    pub projectile: Entity,
 }
 
 /// A thrown frag or Monkey Bomb: it bounces off the world and passes through everyone.
@@ -755,12 +771,23 @@ fn release_handled(
 
 /// Makes what a `Launch` threw or planted: a frag or Monkey Bomb in flight, or a Claymore on the
 /// floor, each remembering who it's from.
-fn launch_equipment(mut commands: Commands, mut launches: MessageReader<Launch>, assets: Res<EquipmentAssets>) {
+fn launch_equipment(
+    mut commands: Commands,
+    mut launches: MessageReader<Launch>,
+    assets: Res<EquipmentAssets>,
+    mut lethals: MessageWriter<LethalThrown>,
+) {
     for launch in launches.read() {
         let thrower = launch.player;
         match launch.thrown {
             Thrown::Frag { from, aim, fuse } => {
-                commands.spawn((Frag { thrower, fuse }, thrown(&assets.frag, &assets.frag_mat, from, aim)));
+                let projectile = commands.spawn((Frag { thrower, fuse }, thrown(&assets.frag, &assets.frag_mat, from, aim))).id();
+                lethals.write(LethalThrown {
+                    player: thrower,
+                    kind: Lethal::Frag,
+                    at: from,
+                    projectile,
+                });
             }
             Thrown::MonkeyBomb { from, aim } => {
                 commands.spawn((
