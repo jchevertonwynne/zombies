@@ -55,11 +55,21 @@ const FLAME_LINGER_SECS: f32 = 0.2;
 /// A Crawler still for this long stops dragging.
 const DRAG_STILL_SECS: f32 = 0.3;
 
-/// Asks for a cue: heard from `at` if the cue is spatial, or flat without it.
+/// Asks for a cue: heard from `at` if the cue is spatial, or flat without it, at `pitch` (its
+/// playback speed) and `gain` (a share of its usual volume). Classic asks at 1.0 and 1.0.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct PlayCue {
     pub cue: Cue,
     pub at: Option<Vec3>,
+    pub pitch: f32,
+    pub gain: f32,
+}
+
+impl PlayCue {
+    /// `cue` as it usually sounds.
+    pub fn new(cue: Cue, at: Option<Vec3>) -> Self {
+        Self { cue, at, pitch: 1.0, gain: 1.0 }
+    }
 }
 
 struct Slot {
@@ -222,9 +232,14 @@ impl Sounds {
 
     /// Plays `cue` at a playback `speed`, which shifts its pitch.
     fn play_at_speed(&mut self, commands: &mut Commands, cue: Cue, at: Option<Vec3>, speed: f32) {
+        self.play_scaled(commands, cue, at, speed, 1.0);
+    }
+
+    /// `play_at_speed`, at `scale` of the cue's volume.
+    fn play_scaled(&mut self, commands: &mut Commands, cue: Cue, at: Option<Vec3>, speed: f32, scale: f32) {
         let player = AudioPlayer::new(self.next(cue));
         let settings = PlaybackSettings::DESPAWN
-            .with_volume(Volume::Linear(self.gain(cue)))
+            .with_volume(Volume::Linear(self.gain(cue) * scale))
             .with_speed(speed);
         match (cue.spec().mix, at) {
             (Mix::Spatial, Some(at)) => {
@@ -330,16 +345,16 @@ fn play_cues(
 ) {
     let requests = asked
         .read()
-        .map(|cue| (cue.cue, cue.at))
-        .chain(specials.read().map(|cue| (cue.cue, cue.at)))
+        .copied()
+        .chain(specials.read().map(|cue| PlayCue::new(cue.cue, cue.at)))
         .collect::<Vec<_>>();
     let mut screamed = loops.iter().any(|sound| sound.cue == Cue::ScreamHit);
-    for (cue, at) in requests {
+    for PlayCue { cue, at, pitch, gain } in requests {
         if cue == Cue::ScreamHit {
             hold_flat_loop(&mut commands, &mut sounds, &mut loops, cue, SHRIEKER_BLUR_SECS);
             screamed = true;
         } else {
-            sounds.play(&mut commands, cue, at);
+            sounds.play_scaled(&mut commands, cue, at, pitch, gain);
         }
     }
     for _ in shellshocks.read() {

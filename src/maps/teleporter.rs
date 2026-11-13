@@ -683,20 +683,14 @@ fn use_teleporter(
                 teleporter.depart(pad.pad);
                 if idle && teleporter.in_use() {
                     teleporter.payer = Some(player);
-                    cues.write(PlayCue {
-                        cue: Cue::TeleporterCharge,
-                        at: Some(pad.pad.at()),
-                    });
+                    cues.write(PlayCue::new(Cue::TeleporterCharge, Some(pad.pad.at())));
                 }
             } else {
                 teleporter.activate(pad.pad);
             }
         } else if mainframes.contains(buyable) {
             if teleporter.linking().is_some() {
-                cues.write(PlayCue {
-                    cue: Cue::MainframeLink,
-                    at: Some(mainframe_use_point()),
-                });
+                cues.write(PlayCue::new(Cue::MainframeLink, Some(mainframe_use_point())));
             }
             teleporter.link();
         }
@@ -776,10 +770,7 @@ fn run_trips(
                     });
                 }
                 teleporter.riders = riders;
-                cues.write(PlayCue {
-                    cue: Cue::TeleporterFire,
-                    at: Some(pad.at()),
-                });
+                cues.write(PlayCue::new(Cue::TeleporterFire, Some(pad.at())));
             } else {
                 teleporter.abort();
             }
@@ -800,10 +791,7 @@ fn run_trips(
                 local_rides |= local;
             }
             kill(MAINFRAME_AT, TELEPORTER_ARRIVAL_KILL_RADIUS, usize::MAX);
-            cues.write(PlayCue {
-                cue: Cue::TeleporterArrive,
-                at: Some(ARRIVAL_AT),
-            });
+            cues.write(PlayCue::new(Cue::TeleporterArrive, Some(ARRIVAL_AT)));
 
             let rng = &mut rand::rng();
             let effect = Aftereffect::ALL[rng.random_range(0..Aftereffect::ALL.len())];

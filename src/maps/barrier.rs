@@ -661,10 +661,7 @@ pub(crate) fn enter_through_windows(
                             && rand::random_bool(BARRIER_SWIPE_CHANCE)
                         {
                             melee.strike(victim.entity, ZOMBIE_SWIPE_DAMAGE, transform.translation);
-                            cues.write(PlayCue {
-                                cue: Cue::ZombieAttack,
-                                at: Some(transform.translation),
-                            });
+                            cues.write(PlayCue::new(Cue::ZombieAttack, Some(transform.translation)));
                         }
                     }
                     SpotAction::Tear => {
