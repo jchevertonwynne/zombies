@@ -1798,6 +1798,15 @@ pub const TURNED_LAST_SWING_SECS: f32 = 0.5;
 /// How long the Power Switch's lever takes to throw.
 pub const POWER_SWITCH_FLIP_SECS: f32 = 0.3;
 
+// Contested Power: the Surge
+/// While a Generator is Charging, one Surge Zombie comes this often. A fixed gap: it doesn't
+/// follow the Round's spawn gap.
+pub const SURGE_SPAWN_GAP_SECS: f32 = 1.5;
+/// The most Surge Zombies alive at once with one Player up.
+pub const SURGE_ALIVE_MAX: u32 = 6;
+/// More Surge Zombies alive at once for each Player up past the first.
+pub const SURGE_ALIVE_PER_EXTRA_PLAYER: u32 = 2;
+
 // Contested Power: Generators
 /// The Dam's Generators' Claim prices. No Co-op scaling; Gold Rush applies as to any price.
 pub const GENERATOR_PRICE_INTAKE_TOWER: u64 = 1500;

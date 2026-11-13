@@ -136,6 +136,7 @@ fn killed(by: Entity, pay: Pay, attack: Attack) -> ZombieKilled {
         zone: HitZone::Torso,
         attack,
         at: Vec3::ZERO,
+        surge: false,
     }
 }
 

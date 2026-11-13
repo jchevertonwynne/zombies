@@ -390,24 +390,36 @@ fn spawn_horde(
         return;
     }
     let (point, kind) = points[rand::random_range(0..points.len())];
-    let jitter = Vec3::new(rand::random_range(-0.75..0.75), 0.0, rand::random_range(-0.75..0.75));
-    let tier = speed_tier(rand::random_range(speed_roll_range(round.number)));
-    let tier = spawn_tier(tier, &modifiers.0, rand::random());
+    spawn_normal_zombie(&mut commands, &assets, round.number, &modifiers.0, point.translation, kind);
+    round.left_to_spawn -= 1;
+    round.spawn_timer = spawn_delay(round.number);
+}
 
+/// A normal Zombie at Round `number`'s health, rolling its Speed Tier, at the spawn point `at` of
+/// `kind`: a Riser rises, and one outside a window has to get in through its Barrier.
+pub fn spawn_normal_zombie(
+    commands: &mut Commands,
+    assets: &ZombieAssetsParam,
+    number: u32,
+    player: &[Modifier],
+    at: Vec3,
+    kind: SpawnKind,
+) -> Entity {
+    let jitter = Vec3::new(rand::random_range(-0.75..0.75), 0.0, rand::random_range(-0.75..0.75));
+    let tier = speed_tier(rand::random_range(speed_roll_range(number)));
+    let tier = spawn_tier(tier, player, rand::random());
     let zombie = spawn_zombie(
-        &mut commands,
-        &assets,
-        point.translation + jitter,
-        zombie_health(round.number) as f32,
+        commands,
+        assets,
+        at + jitter,
+        zombie_health(number) as f32,
         tier,
         (kind == SpawnKind::Riser).then_some(ZOMBIE_RISE_SECS),
     );
-    // A Zombie outside a window has to get in through its Barrier.
     if let SpawnKind::Window(barrier) = kind {
         commands.entity(zombie).insert(Entering::new(barrier));
     }
-    round.left_to_spawn -= 1;
-    round.spawn_timer = spawn_delay(round.number);
+    zombie
 }
 
 /// In the Rounds listed, the Horde's last Zombie sprints so the Round can't be stalled.
