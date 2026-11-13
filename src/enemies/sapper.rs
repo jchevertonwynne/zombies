@@ -2,7 +2,9 @@
 //! window, tearing every Plank off in one blow, and walks to the system nearest the Player to
 //! Sabotage it: the Box, a powered Perk machine (never Quick Revive), a Trap, the Teleporter or
 //! Pack-a-Punch. A Sabotaged system goes dead, and its Prompt becomes a hold to restore it for
-//! `SAPPER_RESTORE_PRICE`, until the Sapper dies and everything comes back.
+//! `SAPPER_RESTORE_PRICE`, until the Sapper dies and everything comes back. On a Map with
+//! Generators it goes first for the Held Generator nearest the Player and takes it: the Generator
+//! is Lost, and stays Lost after the Sapper dies, until a Player Reclaims it.
 //!
 //! It wears a helmet that turns Headshots into body hits until it has lost a share of its health,
 //! slams the Player in front of it, shrugs off the Nuke, Insta-Kill, Monkey Bombs and the
@@ -26,7 +28,9 @@ use crate::weapons::pack_a_punch::{self, PackAPunch};
 use crate::economy::perk::{Drinking, Perk, PerkMachine};
 use crate::players::player::Player;
 use crate::economy::points::BonusPoints;
-use crate::maps::power::Power;
+use crate::maps::generator::{GeneratorState, Generators};
+use crate::maps::power::{Power, pack_a_punch_powered, powered};
+use crate::maps::trap::trap_zone;
 use crate::economy::power_up::DropPowerUp;
 use crate::run::round::{CarriesOver, Round, RoundPhase, zombie_health};
 use crate::storage::settings::Settings;
@@ -41,6 +45,24 @@ use crate::enemies::zombie::{
 };
 use crate::maps::zone::{ActiveZones, ZoneId, ZoneSet};
 
+/// When a Map's Sappers come, as `Layout` data: the Rounds the first can come in, and the gaps
+/// between the Rounds the rest come in, each drawn at random.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SapperTiming {
+    pub first: std::ops::RangeInclusive<u32>,
+    pub gaps: std::ops::RangeInclusive<u32>,
+}
+
+impl SapperTiming {
+    /// The usual timing, on every Map that doesn't say otherwise.
+    pub const DEFAULT: Self = Self { first: SAPPER_FIRST_ROUNDS, gaps: SAPPER_ROUND_GAPS };
+
+    /// A drawn gap to the next Sapper's Round.
+    pub fn gap(&self) -> u32 {
+        rand::random_range(self.gaps.clone())
+    }
+}
+
 /// The Sapper's cadence: the Round it's next due in. Each time one appears, the next is a drawn
 /// gap after that Round.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,6 +74,11 @@ impl SapperCadence {
     /// A Run's cadence, with the first Sapper Round.
     pub fn new(first: u32) -> Self {
         Self { next: first }
+    }
+
+    /// A Run's cadence with a Map's `timing`, its first Sapper Round drawn.
+    pub fn for_map(timing: &SapperTiming) -> Self {
+        Self::new(rand::random_range(timing.first.clone()))
     }
 
     /// Whether a Sapper comes in Round `round`: once it's due, never on a Hellhound Round (it
@@ -97,14 +124,17 @@ pub enum SabotageKind {
     Trap,
     Teleporter,
     PackAPunch,
+    /// A Generator, which it takes rather than Sabotages: `powered` while it's Held.
+    Generator,
 }
 
 /// Whether the Sapper will go for a system: never Quick Revive, only a powered one (the Box needs
-/// no Power), and never one that's mid-use, though a running Trap is fair game.
+/// no Power), and never one that's mid-use, though a running Trap is fair game. A Generator only
+/// while it's Held, Players on its plate or not.
 pub fn can_sabotage(kind: SabotageKind, powered: bool, in_use: bool) -> bool {
     match kind {
         SabotageKind::Perk(Perk::QuickRevive) => false,
-        SabotageKind::Trap => powered,
+        SabotageKind::Trap | SabotageKind::Generator => powered,
         SabotageKind::MysteryBox => !in_use,
         SabotageKind::Perk(_) | SabotageKind::Teleporter | SabotageKind::PackAPunch => {
             powered && !in_use
@@ -125,7 +155,8 @@ pub struct Candidate<T> {
     pub in_use: bool,
 }
 
-/// The system the Sapper goes for: of those it can Sabotage, the one nearest the Player.
+/// The system the Sapper goes for: the Held Generator nearest the Player, or with none Held, of
+/// those it can Sabotage, the one nearest the Player.
 pub fn pick_target<T>(
     candidates: impl IntoIterator<Item = Candidate<T>>,
     player: Vec3,
@@ -133,7 +164,10 @@ pub fn pick_target<T>(
     candidates
         .into_iter()
         .filter(|c| can_sabotage(c.kind, c.powered, c.in_use))
-        .min_by(|a, b| a.spot.distance(player).total_cmp(&b.spot.distance(player)))
+        .min_by(|a, b| {
+            let sabotage = |c: &Candidate<T>| c.kind != SabotageKind::Generator;
+            sabotage(a).cmp(&sabotage(b)).then(a.spot.distance(player).total_cmp(&b.spot.distance(player)))
+        })
 }
 
 /// Whether the helmet still holds on a Sapper with `health` of `max_health`: until it has lost
@@ -179,11 +213,13 @@ impl SapperWatch {
     }
 }
 
-/// What the Sapper Sabotages: a system's entity, or the Teleporter (a resource).
+/// What the Sapper Sabotages: a system's entity, or the Teleporter (a resource). Or the
+/// Generator at this place in `Layout.generators`, which it takes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
     Entity(Entity),
     Teleporter,
+    Generator(usize),
 }
 
 /// A system the Sapper has Sabotaged: it's dead, and shows no Prompt of its own until it's
@@ -357,8 +393,9 @@ pub(crate) fn load_assets(
     });
 }
 
-fn reset(mut commands: Commands) {
-    commands.insert_resource(SapperCadence::new(rand::random_range(SAPPER_FIRST_ROUNDS)));
+fn reset(mut commands: Commands, map: Option<Res<MapId>>) {
+    let map = map.map_or_else(MapId::default, |map| *map);
+    commands.insert_resource(SapperCadence::for_map(&map.layout().sapper));
     commands.insert_resource(SapperPlan::default());
 }
 
@@ -455,7 +492,7 @@ fn spawn_sapper(
                 SpawnKind::Window(barrier) => Some((point.zone, (t.translation, barrier))),
                 _ => None,
             }),
-        players.first().map_or_else(|| map.map_or_else(MapId::default, |map| *map).layout().start_zone(), |player| player.zone),
+        players.first().map_or_else(|| map.as_deref().copied().unwrap_or_default().layout().start_zone(), |player| player.zone),
         active.0,
     );
     if windows.is_empty() || !(round.take_from_horde() || plan.summoned) {
@@ -487,7 +524,8 @@ fn spawn_sapper(
         cue: Cue::SapperSmash,
         at: Some(point),
     });
-    cadence.appeared(round.number, rand::random_range(SAPPER_ROUND_GAPS));
+    let map = map.map_or_else(MapId::default, |map| *map);
+    cadence.appeared(round.number, map.layout().sapper.gap());
     *plan = SapperPlan {
         round: round.number,
         ..default()
@@ -580,13 +618,14 @@ fn helmets(
     }
 }
 
-/// A stun starts a Sabotage under way over.
+/// A stun starts a Sabotage under way over. Taking a Generator it only pauses.
 fn stun_restarts(
     mut sappers: Query<(&mut Sapper, &Transform), (Added<Stunned>, Without<Dying>)>,
     mut cues: MessageWriter<SpecialCue>,
 ) {
     for (mut sapper, transform) in &mut sappers {
-        if sapper.working.is_some() {
+        let taking = sapper.goal.is_some_and(|goal| goal.kind == SabotageKind::Generator);
+        if sapper.working.is_some() && !taking {
             sapper.working = Some(SAPPER_SABOTAGE_SECS);
         }
         cues.write(SpecialCue {
@@ -596,8 +635,8 @@ fn stun_restarts(
     }
 }
 
-/// Every system the Sapper could go for right now, those already Sabotaged left out. Only
-/// systems in Active Zones count, so it never heads somewhere it can't reach.
+/// Every system the Sapper could go for right now, those already Sabotaged left out, and every
+/// Held Generator. Only those in Active Zones count, so it never heads somewhere it can't reach.
 #[allow(clippy::too_many_arguments)]
 fn candidates(
     boxes: &Query<(Entity, &MysteryBox, &Transform), Without<Sabotaged>>,
@@ -606,18 +645,21 @@ fn candidates(
     machines: &Query<(Entity, &PackAPunch, &Transform), Without<Sabotaged>>,
     doors: &Query<&Door>,
     teleporter: Option<&Teleporter>,
-    power_on: bool,
+    (power_on, generators): (bool, Option<&Generators>),
     drinking: Option<Perk>,
     active: ZoneSet,
+    graph: &NavGraph,
 ) -> Vec<Candidate<Target>> {
+    // It stands on the floor under where the system is used from, on whichever storey that is.
     let candidate = |target, kind, use_point: Vec3, powered, in_use| Candidate {
         target,
         kind,
-        spot: use_point.with_y(0.0),
+        spot: use_point.with_y(graph.nodes[graph.nearest(use_point)].at.y),
         use_point,
         powered,
         in_use,
     };
+    let powers = |zone| powered(power_on, generators, zone);
     let mut all = Vec::new();
     for (entity, mystery_box, transform) in boxes {
         let in_use = mystery_box.state != BoxState::Idle;
@@ -635,7 +677,7 @@ fn candidates(
             Target::Entity(entity),
             kind,
             machine.use_point(),
-            power_on,
+            powers(machine.zone()),
             drinking == Some(machine.perk),
         ));
     }
@@ -648,7 +690,7 @@ fn candidates(
             Target::Entity(entity),
             SabotageKind::Trap,
             use_point,
-            power_on && door_open,
+            powers(Some(trap_zone(trap.joins()))) && door_open,
             false,
         ));
     }
@@ -659,7 +701,7 @@ fn candidates(
             Target::Entity(entity),
             SabotageKind::PackAPunch,
             use_point,
-            power_on,
+            pack_a_punch_powered(power_on, generators),
             in_use,
         ));
     }
@@ -673,18 +715,32 @@ fn candidates(
                 Target::Teleporter,
                 SabotageKind::Teleporter,
                 use_point,
-                power_on,
+                powers(None),
                 teleporter.in_use(),
             ));
+        }
+    }
+    for (index, (generator, &state)) in generators.iter().flat_map(|generators| generators.layout().iter().zip(generators.states())).enumerate() {
+        if state == GeneratorState::Held {
+            all.push(Candidate {
+                target: Target::Generator(index),
+                kind: SabotageKind::Generator,
+                spot: generator.at,
+                use_point: generator.at + Vec3::Y,
+                powered: true,
+                in_use: false,
+            });
         }
     }
     all.retain(|c| zone_at(c.spot + Vec3::Y * 0.5).is_none_or(|zone| active.contains(zone)));
     all
 }
 
-/// The Sapper heads for the system nearest the Player, or turns on the Player close by, or hunts
-/// them when there's nothing left to Sabotage. At its target it works for `SAPPER_SABOTAGE_SECS`
-/// (damage doesn't stop it), and then the system goes dead and a restore Buyable takes its place.
+/// The Sapper heads for the Held Generator nearest the Player, or else the system nearest them, or
+/// turns on the Player close by, or hunts them when there's nothing left to Sabotage. At its
+/// target it works for `SAPPER_SABOTAGE_SECS` (damage doesn't stop it), and then the system goes
+/// dead and a restore Buyable takes its place. A Generator takes `SAPPER_TAKE_GENERATOR_SECS`,
+/// and is then Lost.
 #[allow(clippy::too_many_arguments)]
 fn sabotage(
     mut commands: Commands,
@@ -707,11 +763,10 @@ fn sabotage(
     machines: Query<(Entity, &PackAPunch, &Transform), Without<Sabotaged>>,
     doors: Query<&Door>,
     mut teleporter: ResMut<Teleporter>,
-    power: Res<Power>,
+    (power, mut generators): (Res<Power>, Option<ResMut<Generators>>),
     active: Res<ActiveZones>,
     assets: Res<SapperAssets>,
-    time: Res<Time>,
-    map: Res<MapId>,
+    (time, map, graph): (Res<Time>, Res<MapId>, Res<NavGraph>),
 ) {
     if sappers.is_empty() {
         return;
@@ -723,9 +778,10 @@ fn sabotage(
         &machines,
         &doors,
         crate::maps::teleporter::stands_on(*map).then_some(&*teleporter),
-        power.is_on(),
+        (power.is_on(), generators.as_deref()),
         drinking.iter().next().map(|drinking| drinking.perk),
         active.0,
+        &graph,
     );
     let dt = time.delta_secs();
     for (entity, mut sapper, transform, route, seeking, stunned) in &mut sappers {
@@ -755,6 +811,13 @@ fn sabotage(
                     commands.entity(target).insert(Sabotaged);
                 }
                 Target::Teleporter => teleporter.sabotage(),
+                // Lost for good: there's nothing to restore, only a Reclaim.
+                Target::Generator(index) => {
+                    if let Some(generators) = generators.as_mut() {
+                        generators.lose(index);
+                    }
+                    continue;
+                }
             }
             spawn_restore(&mut commands, &assets, goal.target, goal.use_point);
             continue;
@@ -782,7 +845,8 @@ fn sabotage(
                     && (goal.spot - feet).with_y(0.0).length() <= SAPPER_SABOTAGE_REACH
                     && (goal.spot.y - feet.y).abs() < 1.5
                 {
-                    sapper.working = Some(SAPPER_SABOTAGE_SECS);
+                    let secs = if goal.kind == SabotageKind::Generator { SAPPER_TAKE_GENERATOR_SECS } else { SAPPER_SABOTAGE_SECS };
+                    sapper.working = Some(secs);
                     commands.entity(entity).insert(Sabotaging);
                 }
             }
@@ -830,6 +894,7 @@ fn restore(commands: &mut Commands, teleporter: &mut Teleporter, target: Target)
             }
         }
         Target::Teleporter => teleporter.restore(),
+        Target::Generator(_) => {}
     }
 }
 
@@ -899,6 +964,7 @@ fn prune_restores(
         let still = match pending.target {
             Target::Entity(target) => sabotaged.contains(target),
             Target::Teleporter => teleporter.sabotaged(),
+            Target::Generator(_) => false,
         };
         if !still {
             commands.entity(entity).despawn();
@@ -988,6 +1054,22 @@ mod tests {
         assert!(!cadence.due(10, false, false, true));
         assert!(!cadence.due(13, false, false, true));
         assert!(cadence.due(14, false, false, true));
+    }
+
+    /// The timing is the Map's: the Dam brings the Sapper sooner and more often, and every other
+    /// Map keeps the usual first in Round 8 to 10, then every 4 to 6.
+    #[test]
+    fn the_dam_brings_its_first_sapper_in_round_six_to_eight_then_every_three_to_five() {
+        let dam = &MapId::Dam.layout().sapper;
+        assert_eq!((dam.first.clone(), dam.gaps.clone()), (6..=8, 3..=5));
+        for map in [MapId::Greybox, MapId::Quarry, MapId::Village] {
+            assert_eq!(map.layout().sapper, SapperTiming::DEFAULT, "the {}", map.name());
+        }
+        assert_eq!((SapperTiming::DEFAULT.first, SapperTiming::DEFAULT.gaps), (8..=10, 4..=6));
+        let firsts: std::collections::BTreeSet<u32> = (0..200).map(|_| SapperCadence::for_map(dam).next).collect();
+        assert_eq!(firsts, (6..=8).collect());
+        let gaps: std::collections::BTreeSet<u32> = (0..200).map(|_| dam.gap()).collect();
+        assert_eq!(gaps, (3..=5).collect());
     }
 
     #[test]
@@ -1095,6 +1177,23 @@ mod tests {
         assert_eq!(picked.map(|c| c.target), Some(3));
     }
 
+    /// On a Map with Generators it goes for the Held one nearest the Player, however much nearer
+    /// a system is, and only Sabotages when none is Held. A Player on the plate doesn't stop it.
+    #[test]
+    fn the_sapper_goes_for_the_held_generator_nearest_the_player_before_any_sabotage() {
+        let player = Vec3::ZERO;
+        let box_near = at(1, SabotageKind::MysteryBox, 1.0, true, false);
+        let far_held = at(2, SabotageKind::Generator, 30.0, true, true);
+        let near_held = at(3, SabotageKind::Generator, 20.0, true, false);
+        // Unclaimed, Charging or Lost: not Held, so not a target.
+        let not_held = at(4, SabotageKind::Generator, 2.0, false, false);
+        let picked = |candidates: &[Candidate<u32>]| pick_target(candidates.iter().copied(), player).map(|c| c.target);
+        assert_eq!(picked(&[box_near, far_held, near_held, not_held]), Some(3));
+        assert_eq!(picked(&[box_near, far_held, not_held]), Some(2), "a Player on its plate doesn't stop it");
+        assert_eq!(picked(&[box_near, not_held]), Some(1), "none Held: it Sabotages");
+        assert_eq!(picked(&[not_held]), None);
+    }
+
     #[test]
     fn headshots_are_body_hits_until_the_helmet_comes_off_at_fifteen_percent() {
         assert!(helmet_holds(1000.0, 1000.0));
@@ -1149,5 +1248,79 @@ mod tests {
                 assert!(near(last, node), "{fps} fps, offset {offset}: ended at {last}");
             }
         }
+    }
+}
+
+/// A Sapper taking a Generator on the built Dam.
+#[cfg(test)]
+mod taking_tests {
+    use super::*;
+    use crate::economy::points::BonusPoints;
+    use crate::enemies::zombie::headless::Sim;
+    use crate::maps::generator::SectionId;
+
+    const TURBINE: usize = 2;
+
+    /// The Dam with only the Turbine Hall's Generator Held, and a Sapper standing on its plate.
+    fn sapper_on_the_turbine_plate() -> (Sim, Entity) {
+        let mut sim = Sim::on(MapId::Dam, 30.0, |app| {
+            app.init_resource::<Teleporter>()
+                .init_resource::<Power>()
+                .insert_resource(ActiveZones(ZoneSet::from_iter(ZoneId::ALL)))
+                .add_message::<BonusPoints>()
+                .add_message::<DropPowerUp>()
+                .add_systems(Startup, load_assets)
+                .add_systems(Update, (stun_restarts, sabotage, sapper_deaths).chain());
+        });
+        let mut generators = Generators::for_map(MapId::Dam);
+        generators.hold(TURBINE);
+        sim.world_mut().insert_resource(generators);
+        let at = MapId::Dam.layout().generators[TURBINE].at;
+        assert_eq!(MapId::Dam.layout().generators[TURBINE].section, SectionId::TurbineHall);
+        let sapper = sim.spawn(at, None);
+        // A Sapper's body, which is never cleaned up.
+        sim.world_mut().entity_mut(sapper).insert((Zombie::special(SpecialKind::Sapper, 1000.0, at), Sapper::new(at), CarriesOver));
+        (sim, sapper)
+    }
+
+    fn turbine(sim: &mut Sim) -> GeneratorState {
+        sim.world_mut().resource::<Generators>().states()[TURBINE]
+    }
+
+    #[test]
+    fn a_sapper_takes_a_held_generator_in_eight_seconds_and_it_stays_lost_after_it_dies() {
+        let (mut sim, sapper) = sapper_on_the_turbine_plate();
+        sim.run(sim.frames(SAPPER_TAKE_GENERATOR_SECS - 0.5));
+        assert_eq!(turbine(&mut sim), GeneratorState::Held, "still working on it");
+        assert!(sim.world_mut().get::<Sabotaging>(sapper).is_some());
+        sim.run(sim.frames(1.0));
+        assert_eq!(turbine(&mut sim), GeneratorState::Lost);
+        assert!(!sim.world_mut().resource::<Generators>().section_powered(SectionId::TurbineHall));
+        sim.send(DamageZombie { player: None, zombie: sapper, damage: 1.0e9, zone: HitZone::Torso, attack: Attack::Trap });
+        sim.run(sim.frames(1.0));
+        assert!(sim.world_mut().get::<Dying>(sapper).is_some(), "it died");
+        assert_eq!(turbine(&mut sim), GeneratorState::Lost, "a Lost Generator stays Lost");
+    }
+
+    #[test]
+    fn a_stun_pauses_the_take_and_doesnt_start_it_over() {
+        let (mut sim, sapper) = sapper_on_the_turbine_plate();
+        sim.run(sim.frames(5.0));
+        sim.send(StunZombie { zombie: sapper, secs: 3.0 });
+        sim.run(sim.frames(3.0 + SAPPER_TAKE_GENERATOR_SECS - 5.0 - 0.5));
+        assert_eq!(turbine(&mut sim), GeneratorState::Held, "paused while it was stunned");
+        sim.run(sim.frames(1.0));
+        assert_eq!(turbine(&mut sim), GeneratorState::Lost, "picked up where it left off");
+    }
+
+    #[test]
+    fn damage_doesnt_interrupt_the_take() {
+        let (mut sim, sapper) = sapper_on_the_turbine_plate();
+        for _ in 0..8 {
+            sim.send(DamageZombie { player: None, zombie: sapper, damage: 1.0, zone: HitZone::Torso, attack: Attack::Trap });
+            sim.run(sim.frames(1.0));
+        }
+        sim.run(sim.frames(0.5));
+        assert_eq!(turbine(&mut sim), GeneratorState::Lost);
     }
 }

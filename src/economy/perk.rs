@@ -299,6 +299,11 @@ impl PerkMachine {
     pub fn use_point(&self) -> Vec3 {
         self.use_point
     }
+
+    /// The Zone it stands in.
+    pub fn zone(&self) -> Option<ZoneId> {
+        self.zone
+    }
 }
 
 /// A machine that has sold its last Perk: it waits, floats away, and is gone.

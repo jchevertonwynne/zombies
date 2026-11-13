@@ -1053,7 +1053,7 @@ fn tell_sabotage(
                 // Named in a moment.
                 Err(_) => continue,
             },
-            Target::Teleporter => None,
+            Target::Teleporter | Target::Generator(_) => None,
         };
         mirror.restores.insert(entity, id.0);
         tell.all(&WorldEvent::Sabotage { restore: id.0, target, at: transform.translation.to_array() });
@@ -1170,7 +1170,7 @@ fn catch_up_world(
         for (id, restore, at) in &restores {
             let target = match restore.target {
                 Target::Entity(target) => ids.get(target).ok().map(|target| target.0),
-                Target::Teleporter => None,
+                Target::Teleporter | Target::Generator(_) => None,
             };
             say(WorldEvent::Sabotage { restore: id.0, target, at: at.translation.to_array() });
         }

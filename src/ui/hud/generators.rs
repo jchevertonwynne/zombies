@@ -1,5 +1,5 @@
 //! A row of Generator marks along the top left, on a Map with Generators: each Unclaimed, Charging
-//! with a meter, or Held.
+//! with a meter, Held, or Lost.
 
 use bevy::prelude::*;
 
@@ -14,6 +14,7 @@ pub enum Mark {
     /// With how full its meter is, and whether it's filling now.
     Charging { fill: f32, live: bool },
     Held,
+    Lost,
 }
 
 /// A Generator's mark, from its state.
@@ -22,6 +23,7 @@ pub fn mark(state: GeneratorState) -> Mark {
         GeneratorState::Unclaimed => Mark::Unclaimed,
         GeneratorState::Charging { live, .. } => Mark::Charging { fill: state.fraction(), live },
         GeneratorState::Held => Mark::Held,
+        GeneratorState::Lost => Mark::Lost,
     }
 }
 
@@ -31,6 +33,7 @@ const UNCLAIMED_GREY: Color = Color::srgba(0.35, 0.35, 0.35, 0.8);
 const CHARGING_AMBER: Color = Color::srgb(1.0, 0.65, 0.1);
 const PAUSED_AMBER: Color = Color::srgb(0.55, 0.36, 0.08);
 const HELD_GREEN: Color = Color::srgb(0.35, 0.95, 0.45);
+const LOST_RED: Color = Color::srgb(0.9, 0.15, 0.12);
 
 impl Mark {
     fn colour(self) -> Color {
@@ -39,6 +42,7 @@ impl Mark {
             Mark::Charging { live: true, .. } => CHARGING_AMBER,
             Mark::Charging { live: false, .. } => PAUSED_AMBER,
             Mark::Held => HELD_GREEN,
+            Mark::Lost => LOST_RED,
         }
     }
 }
@@ -160,6 +164,7 @@ mod tests {
     fn each_state_has_its_mark_and_a_charge_shows_how_far_it_has_come() {
         assert_eq!(mark(GeneratorState::Unclaimed), Mark::Unclaimed);
         assert_eq!(mark(GeneratorState::Held), Mark::Held);
+        assert_eq!(mark(GeneratorState::Lost), Mark::Lost);
         assert_eq!(
             mark(GeneratorState::Charging { charged: 5.0, needed: 20.0, live: false }),
             Mark::Charging { fill: 0.25, live: false }

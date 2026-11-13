@@ -33,6 +33,7 @@ pub use dam::DAM_X;
 use crate::maps::darkness::{Chalk, Lamp};
 use crate::maps::generator::{Generator, SectionId};
 use crate::maps::jump_pad::JumpPad;
+use crate::enemies::sapper::SapperTiming;
 
 /// One storey.
 pub(crate) const STOREY: f32 = 4.0;
@@ -135,6 +136,8 @@ pub struct Layout {
     pub nav_edges: &'static [(&'static str, &'static str, Gate)],
     /// The Jump Pads.
     pub jump_pads: &'static [JumpPad],
+    /// When the Sappers come.
+    pub sapper: SapperTiming,
     /// The Sections, each with the Zones its Generator Powers. A Zone is in at most one, and many
     /// are in none. Empty on a Map without Generators.
     pub sections: &'static [(SectionId, &'static [ZoneId])],

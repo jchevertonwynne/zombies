@@ -379,11 +379,19 @@ fn use_switches(
 }
 
 /// The cooldown resolves through the modifier seam from the Player's entries. A Sabotaged Trap
-/// goes dead at once, even mid-run.
-fn run_traps(mut traps: Query<(&mut Trap, Has<Sabotaged>)>, player: Query<&Modifiers, With<Player>>, time: Res<Time>) {
+/// goes dead at once, even mid-run, and so does one whose Section loses Power.
+fn run_traps(
+    mut traps: Query<(&mut Trap, Has<Sabotaged>)>,
+    player: Query<&Modifiers, With<Player>>,
+    supply: Supply,
+    time: Res<Time>,
+) {
     let cooldown = resolve(Stat::TrapCooldown, TRAP_COOLDOWN_SECS, player.iter().flat_map(|modifiers| &modifiers.0));
     for (mut trap, sabotaged) in &mut traps {
-        if sabotaged {
+        // A Trap whose Section loses its Generator stops at once. (A Power Switch's Power never
+        // goes back off.)
+        let unpowered = supply.on_generators() && !supply.powers(Some(trap_zone(trap.joins)));
+        if sabotaged || unpowered {
             trap.phase = TrapPhase::Idle;
         } else if trap.phase != TrapPhase::Idle {
             trap.phase.advance(time.delta_secs(), cooldown);
@@ -836,6 +844,26 @@ mod two_player_tests {
         // ducks under a running Trap.
         *sim.world_mut().get_mut::<Transform>(trap).unwrap() = Transform::from_xyz(x, TRAP_SIZE.y / 2.0, z);
         assert!(downed(&mut sim, 3).contains(&teammate), "the running Trap let a Crouched Player duck under");
+    }
+
+    /// A running Trap in a Section stops at once when its Generator is Lost.
+    #[test]
+    fn a_running_trap_stops_at_once_when_its_section_loses_power() {
+        use crate::maps::generator::{Generators, SectionId};
+        use crate::maps::map::MapId;
+        let (mut sim, _, _, trap, _) = setup();
+        let turbine = MapId::Dam.layout().generators.iter().position(|g| g.section == SectionId::TurbineHall).unwrap();
+        let mut generators = Generators::for_map(MapId::Dam);
+        generators.hold(turbine);
+        sim.world_mut().insert_resource(generators);
+        let mut running = sim.world_mut().get_mut::<Trap>(trap).unwrap();
+        running.joins = (ZoneId::TurbineHall, ZoneId::DrainageGallery);
+        running.phase = TrapPhase::Running(0.0);
+        sim.run(sim.frames(1.0));
+        assert!(sim.world_mut().get::<Trap>(trap).unwrap().running(), "Powered, it runs on");
+        sim.world_mut().resource_mut::<Generators>().lose(turbine);
+        sim.run(1);
+        assert_eq!(sim.world_mut().get::<Trap>(trap).unwrap().phase, TrapPhase::Idle);
     }
 
     #[test]

@@ -1464,6 +1464,8 @@ pub const SAPPER_SLAM_WIND_UP_SECS: f32 = 0.8;
 pub const SAPPER_SLAM_COOLDOWN_SECS: f32 = 2.5;
 /// A Sabotage takes this long. Damage doesn't interrupt it; a stun starts it over.
 pub const SAPPER_SABOTAGE_SECS: f32 = 3.0;
+/// How long the Sapper works on a Held Generator before it's Lost. A stun pauses it.
+pub const SAPPER_TAKE_GENERATOR_SECS: f32 = 8.0;
 /// How close to a system it must stand to Sabotage it (invented).
 pub const SAPPER_SABOTAGE_REACH: f32 = 3.0;
 /// Holding the Use key on a Sabotaged system restores it for this.
@@ -1834,6 +1836,8 @@ pub const GENERATOR_PRICE_SPILLWAY_GALLERY: u64 = 1500;
 pub const GENERATOR_PRICE_TURBINE_HALL: u64 = 2000;
 /// Seconds of Charge a Claim takes, however many Players stand on the plate.
 pub const GENERATOR_CLAIM_CHARGE_SECS: f32 = 20.0;
+/// Seconds of Charge a Reclaim of a Lost Generator takes. It's free.
+pub const GENERATOR_RECLAIM_CHARGE_SECS: f32 = 10.0;
 /// How far from the middle of a Generator's plate a Player's feet can be and still Charge it.
 pub const GENERATOR_PLATE_RADIUS: f32 = 1.2;
 /// How far a Player's feet can be above or below the plate and still be on it.

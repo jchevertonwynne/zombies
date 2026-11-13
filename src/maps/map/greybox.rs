@@ -9,6 +9,7 @@ use bevy::prelude::*;
 
 use crate::weapons::arsenal::WeaponId;
 use crate::enemies::nav::Gate;
+use crate::enemies::sapper::SapperTiming;
 use crate::tuning::*;
 use crate::maps::zone::ZoneId;
 
@@ -47,6 +48,7 @@ pub(super) const GREYBOX: Layout = Layout {
     nav_nodes: NODES,
     nav_edges: EDGES,
     jump_pads: &[],
+    sapper: SapperTiming::DEFAULT,
     sections: &[],
     generators: &[],
     darkness: false,

@@ -81,13 +81,15 @@ pub enum GeneratorState {
     Charging { charged: f32, needed: f32, live: bool },
     /// Claimed: its Section is Powered.
     Held,
+    /// Taken by a Sapper: its Section has no Power until a Player Reclaims it, with a free Charge.
+    Lost,
 }
 
 impl GeneratorState {
     /// How far the Charge has come, 0 to 1: none before it's bought, all once Held.
     pub fn fraction(self) -> f32 {
         match self {
-            GeneratorState::Unclaimed => 0.0,
+            GeneratorState::Unclaimed | GeneratorState::Lost => 0.0,
             GeneratorState::Charging { charged, needed, .. } => (charged / needed).clamp(0.0, 1.0),
             GeneratorState::Held => 1.0,
         }
@@ -173,6 +175,37 @@ impl Generators {
         true
     }
 
+    /// A Sapper has taken Generator `index`: it's Lost. False if it isn't Held.
+    pub fn lose(&mut self, index: usize) -> bool {
+        let Some(state) = self.states.get_mut(index) else { return false };
+        if *state != GeneratorState::Held {
+            return false;
+        }
+        *state = GeneratorState::Lost;
+        true
+    }
+
+    /// The Held Generator nearest `at`, if any is.
+    pub fn nearest_held(&self, at: Vec3) -> Option<usize> {
+        self.layout()
+            .iter()
+            .zip(&self.states)
+            .enumerate()
+            .filter(|(_, (_, state))| **state == GeneratorState::Held)
+            .min_by(|(_, (a, _)), (_, (b, _))| a.at.distance(at).total_cmp(&b.at.distance(at)))
+            .map(|(index, _)| index)
+    }
+
+    /// Starts the free Charge that Reclaims Lost Generator `index`. False if it isn't Lost.
+    pub fn reclaim(&mut self, index: usize) -> bool {
+        let Some(state) = self.states.get_mut(index) else { return false };
+        if *state != GeneratorState::Lost {
+            return false;
+        }
+        *state = GeneratorState::Charging { charged: 0.0, needed: GENERATOR_RECLAIM_CHARGE_SECS, live: false };
+        true
+    }
+
     /// Advances Generator `index`'s Charge by `dt` while `on_plate` (a Player who is up and can
     /// shoot stands on it), or pauses it. True on the frame it becomes Held.
     pub fn charge(&mut self, index: usize, dt: f32, on_plate: bool) -> bool {
@@ -220,7 +253,7 @@ impl Plugin for GeneratorPlugin {
                 (
                     (claim, charge).chain().in_set(HostSimulation),
                     run_shown_charge.run_if(in_state(Authority::Client)),
-                    (prompt_plates, announce_held),
+                    (prompt_plates, announce),
                 )
                     .chain()
                     .run_if(world_runs),
@@ -244,6 +277,25 @@ fn claim_buyable(generator: &Generator) -> Buyable {
     }
 }
 
+/// The free Reclaim on a Lost Generator's console.
+fn reclaim_buyable(generator: &Generator) -> Buyable {
+    Buyable {
+        prompt: format!("Press F to Reclaim the {} Generator", generator.section.name()),
+        price: None,
+        ..claim_buyable(generator)
+    }
+}
+
+/// What a Generator's console offers in `state`: a Claim while it's Unclaimed, a Reclaim while
+/// it's Lost, and nothing otherwise.
+fn offer(generator: &Generator, state: GeneratorState) -> Option<Buyable> {
+    match state {
+        GeneratorState::Unclaimed => Some(claim_buyable(generator)),
+        GeneratorState::Lost => Some(reclaim_buyable(generator)),
+        GeneratorState::Charging { .. } | GeneratorState::Held => None,
+    }
+}
+
 fn spawn_plates(mut commands: Commands, map: Res<MapId>) {
     for (index, generator) in map.layout().generators.iter().enumerate() {
         let (foot, size) = generator.console();
@@ -257,12 +309,14 @@ fn spawn_plates(mut commands: Commands, map: Res<MapId>) {
     }
 }
 
-/// A bought Generator starts its Charge. The purchase flow has charged the price, Gold Rush and
-/// all.
+/// A bought Generator starts its Charge, and so does a Reclaimed one. The purchase flow has
+/// charged the price, Gold Rush and all; a Reclaim is free.
 fn claim(mut purchases: MessageReader<Purchased>, plates: Query<&GeneratorPlate>, mut generators: ResMut<Generators>) {
     for purchase in purchases.read() {
-        if let Ok(&GeneratorPlate(index)) = plates.get(purchase.buyable) {
-            generators.claim(index);
+        if let Ok(&GeneratorPlate(index)) = plates.get(purchase.buyable)
+            && !generators.claim(index)
+        {
+            generators.reclaim(index);
         }
     }
 }
@@ -303,28 +357,39 @@ fn run_shown_charge(mut generators: ResMut<Generators>, time: Res<Time>) {
     }
 }
 
-/// An Unclaimed Generator offers its Claim; once bought it offers nothing.
-fn prompt_plates(mut commands: Commands, plates: Query<(Entity, &GeneratorPlate, Has<Buyable>)>, generators: Res<Generators>) {
+/// An Unclaimed Generator offers its Claim, and a Lost one its Reclaim; one being Charged or Held
+/// offers nothing.
+fn prompt_plates(mut commands: Commands, plates: Query<(Entity, &GeneratorPlate, Option<&Buyable>)>, generators: Res<Generators>) {
     for (entity, &GeneratorPlate(index), offered) in &plates {
         let Some(&state) = generators.states().get(index) else { continue };
-        let wanted = state == GeneratorState::Unclaimed;
-        if wanted && !offered {
-            commands.entity(entity).insert(claim_buyable(&generators.layout()[index]));
-        } else if !wanted && offered {
-            commands.entity(entity).remove::<Buyable>();
+        let wanted = offer(&generators.layout()[index], state);
+        match (wanted, offered) {
+            (Some(wanted), Some(offered)) if wanted.prompt == offered.prompt => {}
+            (Some(wanted), _) => {
+                commands.entity(entity).insert(wanted);
+            }
+            (None, Some(_)) => {
+                commands.entity(entity).remove::<Buyable>();
+            }
+            (None, None) => {}
         }
     }
 }
 
-/// Everyone hears it, wherever they are, when a Generator becomes Held.
-fn announce_held(generators: Res<Generators>, mut was: Local<Vec<GeneratorState>>, mut cues: MessageWriter<PlayCue>) {
+/// Everyone hears it, wherever they are, when a Generator becomes Held, and when one is Lost.
+fn announce(generators: Res<Generators>, mut was: Local<Vec<GeneratorState>>, mut cues: MessageWriter<PlayCue>) {
     if !generators.is_changed() {
         return;
     }
     if was.len() == generators.states().len() {
-        for (before, &now) in was.iter().zip(generators.states()) {
-            if now == GeneratorState::Held && *before != GeneratorState::Held {
-                cues.write(PlayCue { cue: Cue::GeneratorHeld, at: None });
+        for (&before, &now) in was.iter().zip(generators.states()) {
+            let cue = match now {
+                GeneratorState::Held => Cue::GeneratorHeld,
+                GeneratorState::Lost => Cue::GeneratorLost,
+                _ => continue,
+            };
+            if before != now {
+                cues.write(PlayCue { cue, at: None });
             }
         }
     }
@@ -449,6 +514,62 @@ mod tests {
         assert!(generators.ever_held());
     }
 
+    /// A Lost Generator unpowers its Section at once, but the Power still counts as having been
+    /// on, and only a Held one can be Lost.
+    #[test]
+    fn a_lost_generator_unpowers_its_section_but_the_power_has_still_been_on() {
+        let mut generators = dam();
+        let turbine = of(SectionId::TurbineHall);
+        assert!(!generators.lose(turbine), "an Unclaimed Generator can't be Lost");
+        generators.hold(turbine);
+        generators.hold(of(SectionId::IntakeTower));
+        generators.hold(of(SectionId::SpillwayGallery));
+        assert!(generators.lose(turbine));
+        assert_eq!(generators.states()[turbine], GeneratorState::Lost);
+        assert!(!generators.section_powered(SectionId::TurbineHall));
+        assert!(!generators.powers(Some(ZoneId::SwitchgearRoom)));
+        assert!(generators.powers(Some(ZoneId::TowerHead)), "the other Sections keep theirs");
+        assert!(!generators.all_held(), "Pack-a-Punch goes off");
+        assert!(generators.ever_held());
+        assert!(!generators.lose(turbine), "Lost once");
+        assert!(!generators.claim(turbine), "a Lost Generator isn't bought again");
+    }
+
+    #[test]
+    fn the_nearest_held_generator_is_the_nearest_of_those_held() {
+        let mut generators = dam();
+        let [intake, spillway, turbine] = [SectionId::IntakeTower, SectionId::SpillwayGallery, SectionId::TurbineHall].map(of);
+        let by_intake = MapId::Dam.layout().generators[intake].at;
+        assert_eq!(generators.nearest_held(by_intake), None);
+        generators.hold(spillway);
+        generators.hold(turbine);
+        let nearest = generators.nearest_held(by_intake).unwrap();
+        assert!(nearest == spillway || nearest == turbine);
+        generators.hold(intake);
+        assert_eq!(generators.nearest_held(by_intake), Some(intake));
+    }
+
+    /// A Reclaim is a free Charge of ten seconds, by the same rules as a Claim's.
+    #[test]
+    fn a_reclaim_charges_for_ten_seconds_on_the_plate_then_is_held_again() {
+        let mut generators = dam();
+        let intake = of(SectionId::IntakeTower);
+        assert!(!generators.reclaim(intake), "only a Lost Generator is Reclaimed");
+        generators.hold(intake);
+        assert!(!generators.reclaim(intake));
+        generators.lose(intake);
+        assert!(generators.reclaim(intake));
+        assert!(!generators.reclaim(intake), "once");
+        assert_eq!(GENERATOR_RECLAIM_CHARGE_SECS, 10.0);
+        generators.charge(intake, 6.0, true);
+        generators.charge(intake, 30.0, false);
+        assert!((generators.states()[intake].fraction() - 0.6).abs() < 1e-4, "an empty plate pauses it");
+        assert!(!generators.section_powered(SectionId::IntakeTower));
+        assert!(generators.charge(intake, 4.0, true));
+        assert_eq!(generators.states()[intake], GeneratorState::Held);
+        assert!(generators.section_powered(SectionId::IntakeTower));
+    }
+
     #[test]
     fn the_dams_zones_are_in_its_three_sections_but_the_crest_road_and_the_control_room() {
         use SectionId::{IntakeTower, SpillwayGallery};
@@ -566,6 +687,31 @@ mod claim_tests {
         sim.run(sim.frames(1.5));
         assert_eq!(state(&mut sim, turbine), GeneratorState::Held);
         assert!(sim.world_mut().resource::<Generators>().section_powered(SectionId::TurbineHall));
+    }
+
+    /// A Lost Generator's console offers a free Reclaim, and ten seconds on the plate Hold it again.
+    #[test]
+    fn a_lost_generator_is_reclaimed_for_free_with_ten_seconds_on_its_plate() {
+        let (mut sim, player) = dam();
+        let spillway = 1;
+        let generator = MapId::Dam.layout().generators[spillway];
+        let console = console(&mut sim, spillway);
+        let mut generators = sim.world_mut().resource_mut::<Generators>();
+        generators.hold(spillway);
+        generators.lose(spillway);
+        sim.run(2);
+        let offered = sim.world_mut().get::<Buyable>(console).expect("a Lost Generator offers its Reclaim");
+        assert_eq!(offered.price, None, "a Reclaim is free");
+        assert_eq!(offered.prompt, "Press F to Reclaim the Spillway Gallery Generator");
+        sim.send(UseRequest { player, buyable: console, hold: false });
+        sim.run(2);
+        assert_eq!(sim.world_mut().get::<Points>(player).unwrap().balance, 5000);
+        assert!(sim.world_mut().get::<Buyable>(console).is_none(), "a Reclaim under way offers nothing");
+        stand(&mut sim, player, generator.at);
+        sim.run(sim.frames(GENERATOR_RECLAIM_CHARGE_SECS - 1.0));
+        assert!(state(&mut sim, spillway).live());
+        sim.run(sim.frames(1.5));
+        assert_eq!(state(&mut sim, spillway), GeneratorState::Held);
     }
 
     #[test]
