@@ -871,10 +871,11 @@ pub(crate) fn plan_route(
     }
     let path = graph.plan_between(&from, &to, open_doors, barrier_open).unwrap_or_default();
     let mut waypoints: Vec<Vec3> = path.into_iter().map(|i| graph.nodes[i].at).collect();
-    // Skip the first node when the second is a clear walk on the same floor, or the body is
+    // Skip the first node while the second is a clear walk on the same floor, or the body is
     // already on the edge between them (a ramp changes floor on the way), so it never doubles
-    // back to the node behind it.
-    if let [first, second, ..] = waypoints[..]
+    // back to a node behind it. More than one can be behind it: through a window it is past the
+    // node inside the sill, then past the one after that.
+    while let [first, second, ..] = waypoints[..]
         && (already_past(first, second, feet)
             || ((second.y - feet.y).abs() < 0.5 && (first.y - feet.y).abs() < 0.5 && walk(centre, second + Vec3::Y * half)))
     {
@@ -904,19 +905,25 @@ pub fn heading(distance: f32, reach: f32, swinging: bool, last_stand: bool) -> H
     }
 }
 
+/// How far outside the heights of an edge's two nodes a Zombie's feet may be and still be on it.
+const ALREADY_PAST_HEIGHT: f32 = 0.5;
+
 /// Whether a Zombie at `feet`, planning from its nearest node `first` to the next one `second`, is
 /// already on the edge between them and past `first`. Halfway up a ramp the nearest node is still
 /// the one behind, and without this the Zombie keeps turning back for it and never climbs. No cast
 /// is needed: the Map's tests check every edge is walkable, and a straight cast clips a ramp.
 /// Measured across the floor: off a drop the edge plunges, so a Zombie walking out to the Ledge
-/// would only get further from it, and turn back for the node behind it at the brink.
+/// would only get further from it, and turn back for the node behind it at the brink. Its feet
+/// must also lie between the two nodes' heights, so a Zombie on another floor under or over the
+/// edge is never on it.
 fn already_past(first: Vec3, second: Vec3, feet: Vec3) -> bool {
     let edge = horizontal(second - first);
     if edge.length_squared() < 1e-4 {
         return false;
     }
+    let (low, high) = (first.y.min(second.y) - ALREADY_PAST_HEIGHT, first.y.max(second.y) + ALREADY_PAST_HEIGHT);
     let along = horizontal(feet - first).dot(edge) / edge.length_squared();
-    along > 0.0 && horizontal(feet - first - edge * along.min(1.0)).length() < ZOMBIE_WAYPOINT_REACH
+    (low..=high).contains(&feet.y) && along > 0.0 && horizontal(feet - first - edge * along.min(1.0)).length() < ZOMBIE_WAYPOINT_REACH
 }
 
 /// Zombies find a Player (or the Monkey Bomb pulling them) anywhere on the Map: every so often they
@@ -1547,6 +1554,19 @@ mod tests {
     use super::*;
 
     const STEP: f32 = 0.1;
+
+    /// A Zombie is past `first` only on the edge's own floor: walking level out of the top node of
+    /// a drop it is, but on another floor directly under or over the edge it never is.
+    #[test]
+    fn a_zombie_on_another_floor_is_never_past_a_node() {
+        let (top, bottom) = (Vec3::new(0.0, 4.0, 0.0), Vec3::new(3.0, 0.0, 0.0));
+        assert!(already_past(top, bottom, Vec3::new(1.0, 4.0, 0.0)), "walking out to the lip");
+        assert!(already_past(top, bottom, Vec3::new(1.0, 3.0, 0.0)), "mid-fall");
+        let level = Vec3::new(3.0, 4.0, 0.0);
+        assert!(already_past(top, level, Vec3::new(1.0, 4.0, 0.0)), "walking level");
+        assert!(!already_past(top, level, Vec3::new(1.0, 0.0, 0.0)), "on the floor under the edge");
+        assert!(!already_past(top, level, Vec3::new(1.0, 8.0, 0.0)), "on the floor over the edge");
+    }
 
     /// Runs the stuck watch for `secs`, with the Zombie at `at(t)` and the Player at `player`.
     /// Returns when it fired, if it did.

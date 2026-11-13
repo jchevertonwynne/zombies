@@ -881,3 +881,35 @@ fn a_zombie_on_the_balcony_takes_the_drop_to_a_player_below() {
     let (down, last) = drops_after(MapId::Greybox, Vec3::new(-12.5, 4.0, -2.0), Vec3::new(-5.5, 0.0, 4.0), 2.0, 9.0);
     assert!(down, "never took the drop; last seen at {last}");
 }
+
+/// Every drop on every Map: the one-way edges that aren't a Vent's. A Walker at the top node of
+/// one, after a Player standing at its bottom node, takes it and reaches them within a few
+/// seconds, well before the stuck rule gives up on it.
+#[test]
+fn a_zombie_takes_every_drop_to_a_player_below() {
+    let mut failures = Vec::new();
+    let mut checked = 0;
+    for map in MapId::ALL {
+        let layout = map.layout();
+        let node = |name: &str| {
+            let &(_, x, y, z) = layout.nav_nodes.iter().find(|(n, ..)| *n == name).unwrap();
+            Vec3::new(x, y, z)
+        };
+        for &(top, bottom, gate) in layout.nav_edges {
+            if gate != crate::enemies::nav::Gate::OneWay || top.starts_with("vent_") {
+                continue;
+            }
+            let (from, to) = (node(top), node(bottom));
+            if from.y - to.y < 1.0 {
+                continue;
+            }
+            checked += 1;
+            let (arrived, last) = drops_after(map, from, to, to.y + 1.0, ZOMBIE_CLEANUP_SECS - 3.0);
+            if !arrived {
+                failures.push(format!("{} {top} -> {bottom}: last seen at {last}", map.name()));
+            }
+        }
+    }
+    assert!(checked >= 3, "only {checked} drops checked");
+    assert!(failures.is_empty(), "stalled at a drop: {failures:#?}");
+}
