@@ -1,0 +1,5 @@
+today: bench map=Greybox round=30 frames=10659 mean_ms=5.63 fps=177.7 p50_ms=5.15 p95_ms=8.24 p99_ms=9.76 max_ms=27.16 over_16.7ms=0.1% zombies_mean=47.9 zombies_max=48
+moonlit: bench map=Greybox round=30 frames=7712 mean_ms=7.78 fps=128.5 p50_ms=7.79 p95_ms=8.89 p99_ms=9.87 max_ms=15.37 over_16.7ms=0.0% zombies_mean=47.7 zombies_max=48
+dusk: bench map=Greybox round=30 frames=9539 mean_ms=6.29 fps=159.0 p50_ms=6.59 p95_ms=8.22 p99_ms=9.25 max_ms=15.80 over_16.7ms=0.0% zombies_mean=47.8 zombies_max=48
+lamplit: bench map=Greybox round=30 frames=7201 mean_ms=8.33 fps=120.0 p50_ms=8.25 p95_ms=10.00 p99_ms=10.60 max_ms=23.14 over_16.7ms=0.1% zombies_mean=47.9 zombies_max=48
+

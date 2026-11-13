@@ -581,6 +581,7 @@ pub fn spawn_map(
     // Lighting: a dim moon, and a warm lamp in each room.
     commands.spawn((
         InRun,
+        crate::look_prototype::Moon,
         DirectionalLight {
             illuminance: 800.0,
             shadow_maps_enabled: true,
@@ -592,6 +593,7 @@ pub fn spawn_map(
     for &(zone, at) in layout.lamps {
         commands.spawn((
             InRun,
+            crate::look_prototype::Lamp(zone),
             PointLight {
                 color: palette(Some(zone)).light,
                 intensity: 400_000.0,

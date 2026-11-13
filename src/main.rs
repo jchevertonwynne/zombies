@@ -8,6 +8,7 @@ mod debug;
 mod economy;
 mod enemies;
 mod layers;
+mod look_prototype;
 mod maps;
 mod modifier;
 mod net;
@@ -99,7 +100,8 @@ fn main() {
         ))
         // Gauntlet, layered on top of everything above.
         .add_plugins(run::gauntlet::GauntletPlugin)
-        .add_plugins(players::teammate::TeammatePlugin);
+        .add_plugins(players::teammate::TeammatePlugin)
+        .add_plugins(look_prototype::LookPrototypePlugin);
     if let Some(bench) = bench::Bench::from_env() {
         app.add_plugins(bench::BenchPlugin(bench));
     }
