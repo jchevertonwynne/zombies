@@ -177,7 +177,10 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let colours = palette(Some(sunken.zone));
         let middle = (min + max) / 2.0;
         let size = Vec3::new(max.x - min.x, 0.2, max.y - min.y);
+        // PROTOTYPE (#288): the sunken floor takes its Zone's floor texture.
+        self.tag = Some(crate::tex_prototype::Surface { zone: Some(sunken.zone), kind: crate::tex_prototype::SurfaceKind::Floor });
         self.block(size, Vec3::new(middle.x, -depth - 0.1, middle.y), darker(colours.floor));
+        self.tag = None;
         // Thin facings on its four sides, just inside the hole.
         let facing = 0.02;
         for (centre, size) in [

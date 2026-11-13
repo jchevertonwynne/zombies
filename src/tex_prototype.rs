@@ -1,16 +1,20 @@
-//! PROTOTYPE, throwaway (wayfinder ticket #278 "How should one Zone look with real PBR textures?").
-//! Not for main.
+//! PROTOTYPE, throwaway (wayfinder ticket #288 "Which material set does each of the slice's other
+//! Zones get?", building on #278). Not for main.
 //!
-//! Textures the Greybox's Start Room (floor, wall faces, skirting and cornice) with CC0 Poly Haven
-//! sets, the way the texturing research chose: each piece gets its own cuboid mesh with world-space
-//! box UVs (metres ÷ tile size) and generated tangents, and a plain `StandardMaterial`. A few
-//! ambientCG grime streaks go on the walls as alpha-blended quads. Images are 1K JPGs with a mip
-//! chain box-filtered on load, standing in for offline KTX2.
+//! Textures the vertical slice's six Greybox Zones with CC0 Poly Haven sets. The Start Room keeps
+//! the approved Ruined set; each of the other five has three candidate sets (floor + wall faces) to
+//! choose from, or its flat palette. Trim stays flat paint in the Zone's trim colour (#278).
+//! Same technique as #278: per-piece cuboid meshes with world-space box UVs at each texture's
+//! real-world size, a plain `StandardMaterial`, and a box-filtered mip chain made on load.
 //!
-//! Keys: `.` / `,` cycle the material set (flat, kept, neglected, ruined); `-` cycles the tiling
-//! scale (×0.5, ×1, ×2 of each texture's real-world size); `=` toggles textured or flat trim.
-//! `ZOMBIES_TEX=<set>` picks the set at start; `ZOMBIES_TEX_ALL=1` textures every Zone with it (for
-//! the bench's worst case); `ZOMBIES_TEX_TOUR=<dir>` shoots the comparison set and quits.
+//! Keys: `.` / `,` cycle the candidate for the Zone the Player stands in (0 is flat).
+//! `ZOMBIES_ZONESETS=west_hall=2,dining_room=1,...` picks at start (default: candidate 1
+//! everywhere). Run with `ZOMBIES_LOOK=dusk`.
+//! `ZOMBIES_TEX_TOUR=<dir>` shoots every candidate of every Zone and quits;
+//! `ZOMBIES_TEX_TOUR=<dir> ZOMBIES_TEX_ROUTE=1` instead shoots the route through the Doors (open,
+//! hidden for the shot) with the `ZOMBIES_ZONESETS` picks.
+
+use std::collections::HashMap;
 
 use bevy::asset::AssetEvent;
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
@@ -19,11 +23,12 @@ use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 
 use crate::look_prototype::Look;
+use crate::maps::door::Door;
 use crate::maps::map::MapId;
 use crate::maps::zone::ZoneId;
 use crate::players::player::{Health, LocalPlayer, Player, PlayerCamera, Teleport};
 use crate::run::mode::Mode;
-use crate::state::{GameState, InRun};
+use crate::state::GameState;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SurfaceKind {
@@ -47,58 +52,70 @@ struct Original {
     scale: Vec3,
 }
 
-#[derive(Component)]
-struct Decal;
+/// A candidate set: its name, then (Poly Haven id, real-world size in metres) for floor and walls.
+type Candidate = (&'static str, (&'static str, f32), (&'static str, f32));
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Set {
-    Flat,
-    Kept,
-    Neglected,
-    Ruined,
-}
+const SLICE: [ZoneId; 6] = [ZoneId::StartRoom, ZoneId::WestHall, ZoneId::DiningRoom, ZoneId::Passage, ZoneId::Workshop, ZoneId::Yard];
 
-const SETS: [Set; 4] = [Set::Flat, Set::Kept, Set::Neglected, Set::Ruined];
-const SCALES: [f32; 3] = [0.5, 1.0, 2.0];
-
-impl Set {
-    fn name(self) -> &'static str {
-        match self {
-            Set::Flat => "flat",
-            Set::Kept => "kept",
-            Set::Neglected => "neglected",
-            Set::Ruined => "ruined",
-        }
-    }
-
-    /// The Poly Haven texture for each kind of surface, and its real-world size in metres.
-    fn texture(self, kind: SurfaceKind) -> Option<(&'static str, f32)> {
-        Some(match (self, kind) {
-            (Set::Flat, _) => return None,
-            (Set::Kept, SurfaceKind::Floor) => ("wood_floor_worn", 2.0),
-            (Set::Kept, SurfaceKind::Wall) => ("yellow_plaster", 2.0),
-            (Set::Kept, SurfaceKind::Trim) => ("red_plaster_weathered", 2.0),
-            (Set::Neglected, SurfaceKind::Floor) => ("old_wood_floor", 3.0),
-            (Set::Neglected, SurfaceKind::Wall) => ("decrepit_wallpaper", 2.5),
-            (Set::Neglected, SurfaceKind::Trim) => ("dark_wooden_planks", 2.0),
-            (Set::Ruined, SurfaceKind::Floor) => ("dark_wooden_planks", 2.0),
-            (Set::Ruined, SurfaceKind::Wall) => ("damaged_plaster", 1.85),
-            (Set::Ruined, SurfaceKind::Trim) => ("black_painted_planks", 1.6),
-        })
+fn key(zone: ZoneId) -> &'static str {
+    match zone {
+        ZoneId::StartRoom => "start_room",
+        ZoneId::WestHall => "west_hall",
+        ZoneId::DiningRoom => "dining_room",
+        ZoneId::Passage => "passage",
+        ZoneId::Workshop => "workshop",
+        ZoneId::Yard => "yard",
+        _ => "other",
     }
 }
 
-#[derive(Resource, Clone, Copy, PartialEq, Debug)]
-struct TexState {
-    set: Set,
-    scale: usize,
-    trim_textured: bool,
-    all_zones: bool,
+/// Each slice Zone's candidates. Index 0 in the picks is flat; 1.. index into this.
+fn candidates(zone: ZoneId) -> &'static [Candidate] {
+    match zone {
+        ZoneId::StartRoom => &[("ruined", ("dark_wooden_planks", 2.0), ("damaged_plaster", 1.85))],
+        ZoneId::WestHall => &[
+            ("tiled", ("floor_tiles_06", 3.0), ("worn_mossy_plasterwall", 1.8)),
+            ("panelled", ("herringbone_parquet", 3.4), ("dark_paneled_wood", 1.4)),
+            ("bare", ("floor_tiles_08", 1.5), ("worn_plaster_wall", 1.8)),
+        ],
+        ZoneId::DiningRoom => &[
+            ("peeling", ("diagonal_parquet", 2.36), ("peeling_painted_wall", 1.8)),
+            ("terracotta", ("terracotta_floor_tiles", 2.08), ("rough_plaster_broken", 1.5)),
+            ("panelled", ("rectangular_parquet", 2.25), ("wooden_panels", 2.1)),
+        ],
+        ZoneId::Passage => &[
+            ("brick", ("worn_brick_floor", 2.0), ("brick_wall_001", 3.0)),
+            ("whitewash", ("concrete_floor_worn_001", 3.0), ("whitewashed_brick", 2.0)),
+            ("service", ("dirty_tiles", 2.26), ("painted_worn_brick", 1.8)),
+        ],
+        ZoneId::Workshop => &[
+            ("rusty-tin", ("concrete_floor_02", 2.0), ("rusty_corrugated_iron", 2.0)),
+            ("brick-works", ("dirty_concrete", 3.0), ("factory_brick", 1.5)),
+            ("grey-tin", ("hangar_concrete_floor", 2.0), ("corrugated_iron_02", 2.7)),
+        ],
+        ZoneId::Yard => &[
+            ("garden", ("forrest_ground_01", 2.0), ("red_brick_03", 1.0)),
+            ("muddy", ("brown_mud_leaves_01", 1.3), ("brick_wall_02", 2.0)),
+            ("cobbled", ("mossy_cobblestone", 2.0), ("plastered_stone_wall", 2.5)),
+        ],
+        _ => &[],
+    }
 }
+
+fn candidate(zone: ZoneId, pick: usize) -> Option<&'static Candidate> {
+    pick.checked_sub(1).and_then(|i| candidates(zone).get(i))
+}
+
+fn pick_name(zone: ZoneId, pick: usize) -> &'static str {
+    candidate(zone, pick).map_or("flat", |c| c.0)
+}
+
+#[derive(Resource, Clone, PartialEq, Debug)]
+struct Picks(HashMap<ZoneId, usize>);
 
 #[derive(Resource, Default)]
 struct Library {
-    materials: std::collections::HashMap<&'static str, Handle<StandardMaterial>>,
+    materials: HashMap<&'static str, Handle<StandardMaterial>>,
     images: Vec<AssetId<Image>>,
 }
 
@@ -106,43 +123,52 @@ pub struct TexPrototypePlugin;
 
 impl Plugin for TexPrototypePlugin {
     fn build(&self, app: &mut App) {
-        let set = std::env::var("ZOMBIES_TEX")
-            .ok()
-            .map(|name| *SETS.iter().find(|set| set.name() == name).unwrap_or_else(|| panic!("ZOMBIES_TEX={name}: expected flat, kept, neglected or ruined")))
-            .unwrap_or(Set::Flat);
-        app.insert_resource(TexState {
-            set,
-            scale: 1,
-            trim_textured: true,
-            all_zones: std::env::var("ZOMBIES_TEX_ALL").is_ok(),
-        })
-        .init_resource::<Library>()
-        .add_systems(OnEnter(GameState::Playing), (spawn_decals, preload))
-        .add_systems(Update, (keys, apply, show_decals).chain().run_if(in_state(GameState::Playing)))
-        .add_systems(Update, mip_on_load);
+        let mut picks: HashMap<ZoneId, usize> = SLICE.iter().map(|&z| (z, 1)).collect();
+        if let Ok(spec) = std::env::var("ZOMBIES_ZONESETS") {
+            for part in spec.split(',').filter(|p| !p.is_empty()) {
+                let (name, pick) = part.split_once('=').expect("ZOMBIES_ZONESETS: zone=n,...");
+                let zone = *SLICE.iter().find(|&&z| key(z) == name).unwrap_or_else(|| panic!("unknown zone {name}"));
+                picks.insert(zone, pick.parse().unwrap());
+            }
+        }
+        app.insert_resource(Picks(picks))
+            .init_resource::<Library>()
+            .add_systems(OnEnter(GameState::Playing), preload)
+            .add_systems(Update, (keys, apply).chain().run_if(in_state(GameState::Playing)))
+            .add_systems(Update, mip_on_load);
         if let Ok(dir) = std::env::var("ZOMBIES_TEX_TOUR") {
             std::fs::create_dir_all(&dir).unwrap();
-            app.insert_resource(Tour { dir, ..default() })
+            let route = std::env::var("ZOMBIES_TEX_ROUTE").is_ok();
+            app.insert_resource(Tour { dir, route, ..default() })
                 .add_systems(OnEnter(GameState::MainMenu), start_run)
                 .add_systems(Update, (keep_unhurt, tour).run_if(in_state(GameState::Playing)));
         }
     }
 }
 
-fn keys(keys: Res<ButtonInput<KeyCode>>, mut state: ResMut<TexState>) {
-    let at = SETS.iter().position(|&set| set == state.set).unwrap();
-    if keys.just_pressed(KeyCode::Period) {
-        state.set = SETS[(at + 1) % SETS.len()];
+fn zone_at(at: Vec3) -> Option<ZoneId> {
+    SLICE.into_iter().find(|zone| {
+        let (lo, hi) = zone.volume();
+        at.x >= lo.x && at.x <= hi.x && at.z >= lo.z && at.z <= hi.z && at.y >= lo.y - 1.0 && at.y <= hi.y
+    })
+}
+
+fn keys(keys: Res<ButtonInput<KeyCode>>, mut picks: ResMut<Picks>, player: Query<&GlobalTransform, With<LocalPlayer>>) {
+    let step = if keys.just_pressed(KeyCode::Period) {
+        1
     } else if keys.just_pressed(KeyCode::Comma) {
-        state.set = SETS[(at + SETS.len() - 1) % SETS.len()];
-    } else if keys.just_pressed(KeyCode::Minus) {
-        state.scale = (state.scale + 1) % SCALES.len();
-    } else if keys.just_pressed(KeyCode::Equal) {
-        state.trim_textured = !state.trim_textured;
+        -1
     } else {
         return;
-    }
-    info!("tex: {} ×{} trim {}", state.set.name(), SCALES[state.scale], if state.trim_textured { "textured" } else { "flat" });
+    };
+    let Ok(player) = player.single() else { return };
+    let Some(zone) = zone_at(player.translation()) else { return };
+    let count = candidates(zone).len() as i32 + 1;
+    let pick = picks.0.entry(zone).or_insert(0);
+    *pick = (*pick as i32 + step).rem_euclid(count) as usize;
+    info!("tex: {} = {} ({})", key(zone), *pick, pick_name(zone, *pick));
+    let all: Vec<_> = SLICE.iter().map(|&z| format!("{}={}", key(z), picks.0[&z])).collect();
+    info!("tex: ZOMBIES_ZONESETS={}", all.join(","));
 }
 
 fn load(asset_server: &AssetServer, library: &mut Library, path: String, srgb: bool) -> Handle<Image> {
@@ -162,12 +188,7 @@ fn load(asset_server: &AssetServer, library: &mut Library, path: String, srgb: b
     handle
 }
 
-fn material(
-    id: &'static str,
-    asset_server: &AssetServer,
-    library: &mut Library,
-    materials: &mut Assets<StandardMaterial>,
-) -> Handle<StandardMaterial> {
+fn material(id: &'static str, asset_server: &AssetServer, library: &mut Library, materials: &mut Assets<StandardMaterial>) -> Handle<StandardMaterial> {
     if let Some(material) = library.materials.get(id) {
         return material.clone();
     }
@@ -221,7 +242,7 @@ fn box_uv_mesh(size: Vec3, at: Vec3, tile: f32) -> Mesh {
 
 fn apply(
     mut commands: Commands,
-    state: Res<TexState>,
+    picks: Res<Picks>,
     asset_server: Res<AssetServer>,
     mut library: ResMut<Library>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -229,25 +250,22 @@ fn apply(
     mut pieces: Query<(Entity, &Surface, &mut Transform, &mut Mesh3d, &mut MeshMaterial3d<StandardMaterial>, Option<&Original>)>,
     added: Query<(), Added<Surface>>,
 ) {
-    if !state.is_changed() && added.is_empty() {
+    if !picks.is_changed() && added.is_empty() {
         return;
     }
     for (entity, surface, mut transform, mut mesh, mut paint, original) in &mut pieces {
-        if !state.all_zones && surface.zone != Some(ZoneId::StartRoom) {
+        let Some(zone) = surface.zone.filter(|z| SLICE.contains(z)) else { continue };
+        if surface.kind == SurfaceKind::Trim {
             continue;
         }
         let (orig_mesh, orig_material, orig_scale) = match original {
             Some(o) => (o.mesh.clone(), o.material.clone(), o.scale),
             None => {
-                commands.entity(entity).insert(Original {
-                    mesh: mesh.0.clone(),
-                    material: paint.0.clone(),
-                    scale: transform.scale,
-                });
+                commands.entity(entity).insert(Original { mesh: mesh.0.clone(), material: paint.0.clone(), scale: transform.scale });
                 (mesh.0.clone(), paint.0.clone(), transform.scale)
             }
         };
-        let texture = state.set.texture(surface.kind).filter(|_| surface.kind != SurfaceKind::Trim || state.trim_textured);
+        let texture = candidate(zone, picks.0[&zone]).map(|c| if surface.kind == SurfaceKind::Floor { c.1 } else { c.2 });
         match texture {
             None => {
                 mesh.0 = orig_mesh;
@@ -255,8 +273,7 @@ fn apply(
                 transform.scale = orig_scale;
             }
             Some((id, size)) => {
-                let tile = size * SCALES[state.scale];
-                mesh.0 = meshes.add(box_uv_mesh(orig_scale, transform.translation, tile));
+                mesh.0 = meshes.add(box_uv_mesh(orig_scale, transform.translation, size));
                 paint.0 = material(id, &asset_server, &mut library, &mut materials);
                 transform.scale = Vec3::ONE;
             }
@@ -306,90 +323,53 @@ fn mip_on_load(mut events: MessageReader<AssetEvent<Image>>, library: Res<Librar
     }
 }
 
-/// Grime streaks on the Start Room's walls: (centre, the way the face looks, width, height, decal).
-const DECALS: [(Vec3, Vec3, f32, f32, &str); 4] = [
-    (Vec3::new(-9.5, 2.3, 14.212), Vec3::Z, 2.2, 2.8, "Leaking012A"),
-    (Vec3::new(9.0, 2.6, 14.212), Vec3::Z, 1.6, 2.2, "Leaking017B"),
-    (Vec3::new(7.0, 2.3, 25.788), Vec3::NEG_Z, 2.4, 2.8, "Leaking017B"),
-    (Vec3::new(13.788, 2.4, 19.0), Vec3::NEG_X, 2.0, 2.6, "Leaking012A"),
-];
-
-/// Loads every set's images up front, so the first frame a set is shown it has them all.
+/// Loads every candidate's images up front, so the first frame a set is shown it has them all.
 fn preload(asset_server: Res<AssetServer>, mut library: ResMut<Library>, mut materials: ResMut<Assets<StandardMaterial>>) {
-    for set in SETS {
-        for kind in [SurfaceKind::Floor, SurfaceKind::Wall, SurfaceKind::Trim] {
-            if let Some((id, _)) = set.texture(kind) {
-                material(id, &asset_server, &mut library, &mut materials);
-            }
+    for zone in SLICE {
+        for c in candidates(zone) {
+            material(c.1.0, &asset_server, &mut library, &mut materials);
+            material(c.2.0, &asset_server, &mut library, &mut materials);
         }
-    }
-}
-
-fn spawn_decals(
-    mut commands: Commands,
-    map: Res<MapId>,
-    asset_server: Res<AssetServer>,
-    mut library: ResMut<Library>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    if *map != MapId::Greybox {
-        return;
-    }
-    for (at, normal, width, height, id) in DECALS {
-        let colour = load(&asset_server, &mut library, format!("prototype_textures/{id}_decal.png"), true);
-        let material = materials.add(StandardMaterial {
-            base_color_texture: Some(colour),
-            alpha_mode: AlphaMode::Blend,
-            perceptual_roughness: 0.6,
-            depth_bias: 50.0,
-            ..default()
-        });
-        commands.spawn((
-            InRun,
-            Decal,
-            Mesh3d(meshes.add(Rectangle::new(width, height))),
-            MeshMaterial3d(material),
-            Transform::from_translation(at).looking_to(-normal, Vec3::Y),
-            Visibility::Hidden,
-        ));
-    }
-}
-
-fn show_decals(state: Res<TexState>, mut decals: Query<&mut Visibility, With<Decal>>, added: Query<(), Added<Decal>>) {
-    if !state.is_changed() && added.is_empty() {
-        return;
-    }
-    for mut visibility in &mut decals {
-        *visibility = if state.set == Set::Flat { Visibility::Hidden } else { Visibility::Inherited };
     }
 }
 
 // --- The screenshot tour ---------------------------------------------------------------------
 
-/// (name, feet, looking at, pitch)
-const VIEWS: [(&str, Vec3, Vec3, f32); 3] = [
-    ("room", Vec3::new(-4.0, 0.0, 25.4), Vec3::new(9.0, 0.0, 14.5), -0.1),
-    ("wall", Vec3::new(-6.5, 0.0, 17.0), Vec3::new(-10.0, 0.0, 14.0), -0.12),
-    ("floor", Vec3::new(2.0, 0.0, 24.0), Vec3::new(-2.0, 0.0, 17.0), -0.55),
+/// (name, zone, feet, looking at, pitch)
+type View = (&'static str, ZoneId, Vec3, Vec3, f32);
+
+const ZONE_VIEWS: [View; 10] = [
+    ("west-hall-room", ZoneId::WestHall, Vec3::new(-20.0, 0.0, 24.0), Vec3::new(-20.0, 0.0, -10.0), 0.08),
+    ("west-hall-wall", ZoneId::WestHall, Vec3::new(-16.0, 0.0, 4.0), Vec3::new(-26.0, 0.0, 1.0), -0.15),
+    ("dining-room-room", ZoneId::DiningRoom, Vec3::new(-24.0, 0.0, -16.0), Vec3::new(-2.0, 0.0, -24.0), -0.05),
+    ("dining-room-wall", ZoneId::DiningRoom, Vec3::new(-14.0, 0.0, -17.0), Vec3::new(-11.0, 0.0, -26.0), -0.2),
+    ("passage-room", ZoneId::Passage, Vec3::new(-12.0, 0.0, -26.5), Vec3::new(-12.0, 0.0, -38.0), -0.1),
+    ("passage-wall", ZoneId::Passage, Vec3::new(-10.9, 0.0, -30.0), Vec3::new(-13.5, 0.0, -33.0), -0.25),
+    ("workshop-room", ZoneId::Workshop, Vec3::new(-32.0, 0.0, -40.0), Vec3::new(-6.0, 0.0, -48.0), -0.05),
+    ("workshop-wall", ZoneId::Workshop, Vec3::new(-24.0, 0.0, -42.0), Vec3::new(-20.0, 0.0, -50.0), -0.2),
+    ("yard-room", ZoneId::Yard, Vec3::new(10.0, 0.0, 11.0), Vec3::new(-8.0, 0.0, -10.0), 0.05),
+    ("yard-house", ZoneId::Yard, Vec3::new(4.0, 0.0, 2.0), Vec3::new(-4.0, 0.0, 14.0), 0.1),
 ];
 
-/// Every shot: (view, set, scale index, trim textured).
-fn shots() -> Vec<(usize, Set, usize, bool)> {
+const ROUTE_VIEWS: [View; 6] = [
+    ("1-start-to-west", ZoneId::StartRoom, Vec3::new(-4.0, 0.0, 20.0), Vec3::new(-26.0, 0.0, 20.0), 0.0),
+    ("2-west-to-dining", ZoneId::WestHall, Vec3::new(-20.0, 0.0, 0.0), Vec3::new(-20.0, 0.0, -24.0), 0.0),
+    ("3-dining-to-passage", ZoneId::DiningRoom, Vec3::new(-12.0, 0.0, -15.0), Vec3::new(-12.0, 0.0, -36.0), -0.05),
+    ("4-passage-to-workshop", ZoneId::Passage, Vec3::new(-12.0, 0.0, -28.0), Vec3::new(-14.0, 0.0, -48.0), -0.15),
+    ("5-yard-to-start", ZoneId::Yard, Vec3::new(0.0, 0.0, 2.0), Vec3::new(0.0, 0.0, 24.0), 0.0),
+    ("6-yard-to-dining", ZoneId::Yard, Vec3::new(-7.0, 0.0, 8.0), Vec3::new(-7.0, 0.0, -24.0), 0.0),
+];
+
+/// Every shot: (view, picks override for its zone).
+fn shots(route: bool) -> Vec<(View, Option<usize>)> {
+    if route {
+        return ROUTE_VIEWS.iter().map(|&v| (v, None)).collect();
+    }
     let mut shots = Vec::new();
-    for view in 0..VIEWS.len() {
-        for set in SETS {
-            shots.push((view, set, 1, true));
+    for view in ZONE_VIEWS {
+        for pick in 0..=candidates(view.1).len() {
+            shots.push((view, Some(pick)));
         }
-    }
-    for view in 0..2 {
-        for scale in [0, 2] {
-            shots.push((view, Set::Kept, scale, true));
-            shots.push((view, Set::Ruined, scale, true));
-        }
-    }
-    for set in [Set::Kept, Set::Neglected, Set::Ruined] {
-        shots.push((1, set, 1, false));
     }
     shots
 }
@@ -397,17 +377,15 @@ fn shots() -> Vec<(usize, Set, usize, bool)> {
 #[derive(Resource, Default)]
 struct Tour {
     dir: String,
+    route: bool,
     frames: u32,
     shot: usize,
     settle: u32,
 }
 
-const TOUR_WARM_UP: u32 = 240;
+const TOUR_WARM_UP: u32 = 300;
 
 fn start_run(mut map: ResMut<MapId>, mut mode: ResMut<Mode>, mut next: ResMut<NextState<GameState>>) {
-    if std::env::var("ZOMBIES_BENCH").is_ok() {
-        return;
-    }
     *map = MapId::Greybox;
     *mode = Mode::Classic;
     next.set(GameState::Playing);
@@ -417,7 +395,6 @@ fn keep_unhurt(mut commands: Commands, mut players: Query<&mut Health, With<Play
     for mut health in &mut players {
         health.current = health.max;
     }
-    // Keep the shots clear.
     for zombie in &zombies {
         commands.entity(zombie).despawn();
     }
@@ -426,8 +403,9 @@ fn keep_unhurt(mut commands: Commands, mut players: Query<&mut Health, With<Play
 fn tour(
     mut commands: Commands,
     mut tour: ResMut<Tour>,
-    mut state: ResMut<TexState>,
+    mut picks: ResMut<Picks>,
     mut look: ResMut<Look>,
+    mut doors: Query<&mut Visibility, With<Door>>,
     player: Query<Entity, With<LocalPlayer>>,
     mut camera: Query<&mut Transform, (With<PlayerCamera>, Without<LocalPlayer>)>,
     mut body: Query<&mut Transform, (With<LocalPlayer>, Without<PlayerCamera>)>,
@@ -438,7 +416,7 @@ fn tour(
     if tour.frames < TOUR_WARM_UP {
         return;
     }
-    let shots = shots();
+    let shots = shots(tour.route);
     if tour.shot == shots.len() {
         tour.settle += 1;
         if tour.settle > 30 {
@@ -447,8 +425,7 @@ fn tour(
         return;
     }
     let Ok(player) = player.single() else { return };
-    let (view, set, scale, trim) = shots[tour.shot];
-    let (name, feet, at, pitch) = VIEWS[view];
+    let ((name, zone, feet, at, pitch), pick) = shots[tour.shot];
     let facing = Transform::from_translation(feet).looking_at(Vec3::new(at.x, feet.y, at.z), Vec3::Y).rotation;
     for mut transform in &mut body {
         transform.rotation = facing;
@@ -457,37 +434,30 @@ fn tour(
         transform.rotation = Quat::from_rotation_x(pitch);
     }
     if tour.settle == 0 {
-        teleports.write(Teleport {
-            player,
-            feet,
-            facing: Some(facing),
-        });
+        teleports.write(Teleport { player, feet, facing: Some(facing) });
         if *look != Look::Dusk {
             *look = Look::Dusk;
         }
-        let want = TexState {
-            set,
-            scale,
-            trim_textured: trim,
-            all_zones: state.all_zones,
-        };
-        if *state != want {
-            *state = want;
+        if tour.route {
+            for mut visibility in &mut doors {
+                *visibility = Visibility::Hidden;
+            }
+        }
+        if let Some(pick) = pick
+            && picks.0[&zone] != pick
+        {
+            picks.0.insert(zone, pick);
         }
     }
     tour.settle += 1;
-    let wait = if tour.shot < 4 { 150 } else { 45 };
+    let wait = if tour.shot == 0 { 200 } else { 50 };
     if tour.settle < wait {
         return;
     }
-    let path = format!(
-        "{}/{}-{}-x{}{}.png",
-        tour.dir,
-        name,
-        set.name(),
-        SCALES[scale],
-        if trim { "" } else { "-flattrim" }
-    );
+    let path = match pick {
+        Some(pick) => format!("{}/{}-{}-{}.png", tour.dir, name, pick, pick_name(zone, pick)),
+        None => format!("{}/{}.png", tour.dir, name),
+    };
     info!("tour: {path}");
     commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
     tour.settle = 0;
