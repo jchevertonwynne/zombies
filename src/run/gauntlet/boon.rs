@@ -94,6 +94,7 @@ pub fn requirement_line(requirements: &[Requirement]) -> Option<String> {
 /// The Classic state Requirements are checked against, read when an Offer is drawn.
 #[derive(Debug, Clone, Default)]
 pub struct RunFacts {
+    /// The Power has been on this Run: the Power Switch thrown, or any Generator ever Held.
     pub power_on: bool,
     /// The stable IDs of the Pacts held.
     pub held_pacts: Vec<&'static str>,

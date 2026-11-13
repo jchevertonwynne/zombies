@@ -55,6 +55,7 @@ use crate::players::shellshock::Shellshock;
 use crate::maps::teleporter::{Aftereffect, Aftermath, begin_aftereffect};
 use crate::players::revive::{Revived, Reviving};
 use crate::economy::points::Points;
+use crate::maps::generator::{GeneratorState, Generators};
 use crate::maps::power::{Power, PowerSwitch};
 use crate::economy::power_up::{ActivePowerUps, Dropped, PowerUp, PowerUpAssets, PowerUpTaken, spawn_drop};
 use crate::run::round::{Round, RoundEnded, RoundPhase, RoundStarted};
@@ -252,6 +253,10 @@ pub enum WorldEvent {
     /// Pack-a-Punch holds this, or nothing.
     Machine { id: u16, inside: Option<Inside> },
     Trap { id: u16, phase: TrapPhase },
+    /// The Generator at this place in `Layout.generators` is in this state: told when it's
+    /// bought, Held, or starts or stops Charging, and every `GENERATOR_CHARGE_TELL_SECS` while
+    /// its Charge moves.
+    Generator { index: u8, state: GeneratorState },
     Teleporter(TeleporterView),
     /// A Power-up lies on the ground.
     DropAppeared { id: u32, power_up: PowerUp, at: [f32; 3] },
@@ -313,6 +318,8 @@ pub struct Mirror {
     boxes: HashMap<u16, (u8, BoxPhase)>,
     machines: HashMap<u16, Option<(WeaponId, Option<Seat>)>>,
     traps: HashMap<u16, std::mem::Discriminant<TrapPhase>>,
+    /// Each Generator as last told, and the seconds since.
+    generators: HashMap<u8, (GeneratorState, f32)>,
     teleporter: Option<TeleporterView>,
     drops: HashMap<Entity, u32>,
     next_drop: u32,
@@ -425,6 +432,7 @@ pub fn add(app: &mut App) {
                 tell_boxes,
                 tell_machines,
                 tell_traps,
+                tell_generators,
                 tell_teleporter,
                 tell_drops,
                 tell_rounds,
@@ -473,6 +481,7 @@ pub fn add(app: &mut App) {
                     hear_boxes,
                     hear_machines,
                     hear_traps,
+                    hear_generators,
                     hear_teleporter,
                     hear_drops,
                     hear_rounds,
@@ -756,6 +765,22 @@ fn tell_traps(mut tell: Tell, mut mirror: ResMut<Mirror>, traps: Query<(&NetId, 
         if kind != told {
             mirror.traps.insert(id.0, kind);
             tell.all(&WorldEvent::Trap { id: id.0, phase });
+        }
+    }
+}
+
+/// Each Generator's state when it changes, and its Charge's progress now and then.
+fn tell_generators(mut tell: Tell, mut mirror: ResMut<Mirror>, generators: Option<Res<Generators>>, time: Res<Time>) {
+    let Some(generators) = generators else { return };
+    for (index, &now) in generators.states().iter().enumerate() {
+        let index = index as u8;
+        let (told, since) = mirror.generators.entry(index).or_insert((GeneratorState::Unclaimed, 0.0));
+        *since += time.delta_secs();
+        let news = std::mem::discriminant(told) != std::mem::discriminant(&now) || told.live() != now.live();
+        if news || (*told != now && *since >= GENERATOR_CHARGE_TELL_SECS) {
+            *told = now;
+            *since = 0.0;
+            tell.all(&WorldEvent::Generator { index, state: now });
         }
     }
 }
@@ -1073,10 +1098,11 @@ fn catch_up_world(
         Query<(&NetId, &Trap)>,
         Query<&PlayerSeat>,
     ),
-    (teleporter, active, round): (
+    (teleporter, active, round, generators): (
         Res<crate::maps::teleporter::Teleporter>,
         Res<ActivePowerUps>,
         Option<Res<Round>>,
+        Option<Res<Generators>>,
     ),
     (drops, restores, ids): (Query<(Entity, &Dropped)>, Query<(&NetId, &Restore, &Transform)>, Query<&NetId>),
 ) {
@@ -1095,6 +1121,11 @@ fn catch_up_world(
         }
         if power.is_on() {
             say(WorldEvent::PowerOn);
+        }
+        for (index, &state) in generators.iter().flat_map(|generators| generators.states().iter().enumerate()) {
+            if state != GeneratorState::Unclaimed {
+                say(WorldEvent::Generator { index: index as u8, state });
+            }
         }
         for barrier in 0..crate::maps::map::WINDOWS.len() as u8 {
             let planks = barriers.planks(BarrierId(barrier));
@@ -1477,6 +1508,14 @@ fn hear_traps(mut heard: MessageReader<Heard>, ids: Res<NetIds>, mut traps: Quer
         {
             trap.show(phase);
         }
+    }
+}
+
+fn hear_generators(mut heard: MessageReader<Heard>, generators: Option<ResMut<Generators>>) {
+    let Some(mut generators) = generators else { return };
+    for Heard(event) in heard.read() {
+        let WorldEvent::Generator { index, state } = *event else { continue };
+        generators.show(usize::from(index), state);
     }
 }
 

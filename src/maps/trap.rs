@@ -11,7 +11,7 @@ use crate::players::last_stand::LastStand;
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve, resolve_points};
 use crate::economy::perk::{Perk, Perks};
 use crate::players::player::{Locomotion, Player, PlayerHit, take_hits};
-use crate::maps::power::Power;
+use crate::maps::power::Supply;
 use crate::enemies::sapper::Sabotaged;
 use crate::enemies::target::half_height_above_feet;
 use crate::state::{GameState, InRun, world_runs};
@@ -61,6 +61,12 @@ pub(crate) fn traps(map: MapId) -> &'static [((ZoneId, ZoneId), Vec3, f32)] {
             &SPOTS
         }
     }
+}
+
+/// The Zone a Trap across the Door between `joins` counts as standing in, for the Section that
+/// Powers it: the first. Both are in the same Section, if either is.
+pub fn trap_zone(joins: (ZoneId, ZoneId)) -> ZoneId {
+    joins.0
 }
 
 /// How far each face of a doorway's wall is from its middle.
@@ -393,7 +399,7 @@ fn prompt_switches(
     mut lights: Query<&mut Visibility, With<SwitchLight>>,
     traps: Query<(&Trap, Has<Sabotaged>)>,
     doors: Query<&Door>,
-    power: Res<Power>,
+    supply: Supply,
     player: Query<&Modifiers, With<Player>>,
 ) {
     let price = resolve_points(Stat::TrapPrice, TRAP_PRICE, player.iter().flat_map(|modifiers| &modifiers.0));
@@ -403,7 +409,7 @@ fn prompt_switches(
         let want = if sabotaged {
             TrapPrompt::NoPrompt
         } else {
-            trap_prompt(door_open, power.is_on(), trap.phase)
+            trap_prompt(door_open, supply.powers(Some(trap_zone(trap.joins))), trap.phase)
         };
         for child in children {
             if let Ok(mut light) = lights.get_mut(*child) {
@@ -433,7 +439,7 @@ fn prompt_switches(
                 switch_entity.remove::<(Buyable, Refused)>();
             }
             TrapPrompt::NeedsPower => {
-                switch_entity.insert((buyable("You must turn on the Power first", None), Refused));
+                switch_entity.insert((buyable(&supply.refusal(Some(trap_zone(trap.joins))), None), Refused));
             }
             TrapPrompt::Buy => {
                 switch_entity
@@ -591,6 +597,22 @@ fn shock_player(
 
 #[cfg(test)]
 mod tests {
+    /// The Dam has a Trap in each Section, both sides of its doorway in it.
+    #[test]
+    fn the_dams_traps_stand_one_in_each_section() {
+        use crate::maps::generator::SectionId;
+        let dam = MapId::Dam.layout();
+        let sections: Vec<_> = traps(MapId::Dam)
+            .iter()
+            .map(|&((a, b), ..)| {
+                assert_eq!(dam.section_of(a), dam.section_of(b), "a Trap between two Sections");
+                trap_zone((a, b))
+            })
+            .map(|zone| dam.section_of(zone))
+            .collect();
+        assert_eq!(sections, [Some(SectionId::IntakeTower), Some(SectionId::SpillwayGallery), Some(SectionId::TurbineHall)]);
+    }
+
     use super::*;
     use crate::enemies::nav::zone_at;
 

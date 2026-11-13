@@ -134,6 +134,7 @@ fn recipe(cue: Cue) -> Recipe {
         Cue::AmmoModTurned => Recipe::Synth(reversed(chime(&[220.0, 261.6, 311.1, 370.0], 1.5, 2.0))),
         Cue::PowerDown => Recipe::Synth(power_down()),
         Cue::PowerRestore => Recipe::Synth(power_restore()),
+        Cue::GeneratorHeld => Recipe::Synth(generator_held()),
         Cue::ZombieWalkerIdle => Recipe::Synth(moan(1.8, 95.0, 0x6a00_0020)),
         Cue::ZombieJoggerIdle => Recipe::Synth(grunts()),
         Cue::ZombieSprinterIdle => Recipe::Synth(shriek(0.6, 900.0, 1300.0, 0x6a00_0021)),
@@ -1232,6 +1233,23 @@ fn power_restore() -> Vec<f32> {
         .collect();
     layer(&mut out, 1.2, &tick(0.04, 2000.0));
     layer(&mut out, 1.25, &chime(&[1046.5, 1568.0], 0.8, 5.0));
+    clamped(out)
+}
+
+/// A generator spinning up to speed, then a relay's clunk and a two-note chime.
+fn generator_held() -> Vec<f32> {
+    let mut phase = 0.0;
+    let secs = 1.8;
+    let mut out: Vec<f32> = samples(secs)
+        .map(|t| {
+            let p = t / secs;
+            phase += TAU * (40.0 + 80.0 * p.sqrt()) / SAMPLE_RATE as f32;
+            let tone = phase.sin() + 0.5 * (phase * 2.0).sin() + 0.25 * (phase * 4.0).sin();
+            tone * p.sqrt() * (1.0 - p.powi(8)) * 0.3
+        })
+        .collect();
+    layer(&mut out, 1.5, &thud(0.3, 90.0));
+    layer(&mut out, 1.6, &chime(&[784.0, 1174.7], 0.9, 4.0));
     clamped(out)
 }
 

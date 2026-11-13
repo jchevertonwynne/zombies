@@ -32,7 +32,7 @@ use crate::economy::perk::{Perk, PerkMachine};
 use crate::players::player::{LocalPlayer, Player, Seat};
 use crate::players::respawn::{BledOut, Disconnected, SeatDropped};
 use crate::economy::points::BonusPoints;
-use crate::maps::power::Power;
+use crate::maps::power::Supply;
 use crate::economy::power_up::{DropPowerUp, GivePowerUp, PowerUp, PowerUpTaken};
 use crate::storage::records::{RecordExtra, RecordExtras};
 use crate::run::round::{IntermissionHold, Round, RoundEnded, RoundPhase};
@@ -368,7 +368,7 @@ fn open_offer(
     )>,
     pacts: Res<HeldPacts>,
     unlock_all: Res<UnlockAll>,
-    power: Option<Res<Power>>,
+    supply: Supply,
     run_type: Res<RunType>,
     time: Res<Time>,
     mut cues: MessageWriter<PlayCue>,
@@ -396,7 +396,7 @@ fn open_offer(
         }
         let round = pending.owed.remove(0);
         let run = RunFacts {
-            power_on: power.as_ref().is_some_and(|power| power.is_on()),
+            power_on: supply.has_been_on(),
             held_pacts: pacts.ids(),
             used_box: bought.from_box,
             bought_quick_revive: bought.quick_revive,

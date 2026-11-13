@@ -71,6 +71,8 @@ pub(super) const VILLAGE: Layout = Layout {
     nav_nodes: NODES,
     nav_edges: EDGES,
     jump_pads: &[],
+    sections: &[],
+    generators: &[],
     sun: Vec3::new(-1.0, -3.0, 1.5),
     plan: (Vec2::new(V - 80.0, -30.0), Vec2::new(V + 80.0, 60.0)),
     build,

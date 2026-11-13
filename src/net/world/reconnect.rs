@@ -108,8 +108,16 @@ fn the_state_a_returning_player_missed_is_told_to_them() {
     run.step(5);
     run.cut(1);
     run.step(2);
-    // While they are away: a Plank is torn, Fire Sale starts, a Power-up lies about.
+    for on in 0..2 {
+        run.world(on).insert_resource(Generators::for_map(crate::maps::map::MapId::Dam));
+    }
+    // While they are away: a Plank is torn, Fire Sale starts, a Power-up lies about, one
+    // Generator is Held and another bought.
     run.world(0).resource_mut::<Barriers>().tear(BarrierId(3));
+    run.world(0).resource_mut::<Generators>().hold(0);
+    run.world(0).resource_mut::<Generators>().claim(2);
+    run.world(0).resource_mut::<Generators>().charge(2, 4.0, true);
+    run.world(0).resource_mut::<Generators>().charge(2, 0.0, false);
     run.world(0).resource_mut::<ActivePowerUps>().start(PowerUp::DoublePoints, 0.0);
     run.world(0).spawn(Dropped::new(PowerUp::Carpenter, Vec3::new(40.0, 1.0, 40.0)));
     run.step(10);
@@ -118,6 +126,9 @@ fn the_state_a_returning_player_missed_is_told_to_them() {
     run.step(10);
     assert_eq!(run.world(1).resource::<Barriers>().planks(BarrierId(3)), BARRIER_PLANKS - 1);
     assert!(run.world(1).resource::<ActivePowerUps>().active(PowerUp::DoublePoints));
+    let generators = run.world(1).resource::<Generators>();
+    assert_eq!(generators.states()[0], GeneratorState::Held);
+    assert!((generators.states()[2].fraction() - 0.2).abs() < 0.01, "{:?}", generators.states()[2]);
     let world = run.world(1);
     let mut query = world.query::<&Dropped>();
     assert_eq!(query.iter(world).count(), 1);

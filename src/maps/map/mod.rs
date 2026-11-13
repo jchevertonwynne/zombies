@@ -30,6 +30,7 @@ pub use quarry::QUARRY_X;
 pub use village::VILLAGE_X;
 pub use dam::DAM_X;
 
+use crate::maps::generator::{Generator, SectionId};
 use crate::maps::jump_pad::JumpPad;
 
 /// One storey.
@@ -133,6 +134,12 @@ pub struct Layout {
     pub nav_edges: &'static [(&'static str, &'static str, Gate)],
     /// The Jump Pads.
     pub jump_pads: &'static [JumpPad],
+    /// The Sections, each with the Zones its Generator Powers. A Zone is in at most one, and many
+    /// are in none. Empty on a Map without Generators.
+    pub sections: &'static [(SectionId, &'static [ZoneId])],
+    /// The Generators, one per Section. A Map with any never turns its `Power` on and has no
+    /// Power Switch.
+    pub generators: &'static [Generator],
     /// The way the moonlight falls.
     pub sun: Vec3,
     /// The corners (x, z) of the patch of the world the Map takes up: everything playable is
@@ -522,6 +529,9 @@ pub fn spawn_map(
     for jump_pad in layout.jump_pads {
         b.jump_pad(jump_pad);
     }
+    for generator in layout.generators {
+        b.generator(generator);
+    }
 
     // The Props.
     for (nth, prop) in layout.props.iter().enumerate() {
@@ -872,6 +882,10 @@ pub(crate) mod tests {
         for (i, pad) in layout.jump_pads.iter().enumerate() {
             fixtures.push((format!("Jump Pad {i}"), pad.at, JUMP_PAD_RADIUS));
         }
+        for generator in layout.generators {
+            let (console, size) = generator.console();
+            fixtures.push((format!("{} Generator's console", generator.section.name()), console, size.x.max(size.z) / 2.0));
+        }
         if let Some((at, _)) = crate::maps::power::switch_spot(map) {
             fixtures.push(("Power Switch".into(), at, 0.5));
         }
@@ -913,6 +927,7 @@ pub(crate) mod tests {
             standing.extend(crate::economy::perk::Perk::ALL.map(|perk| (format!("{perk:?}"), perk.machine_spot(map).0)));
             standing.push(("Pack-a-Punch".into(), crate::weapons::pack_a_punch::machine_at(map)));
             standing.extend(map.layout().jump_pads.iter().map(|pad| ("a Jump Pad".to_string(), pad.at)));
+            standing.extend(map.layout().generators.iter().map(|generator| (format!("the {} Generator's plate", generator.section.name()), generator.at)));
             let mut sim = Sim::on(map, 60.0, |_| {});
             let floating: Vec<String> = sim
                 .world_mut()

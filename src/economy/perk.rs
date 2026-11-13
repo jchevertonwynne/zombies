@@ -13,7 +13,8 @@ use crate::economy::buy::{Buyable, Purchased, Refused};
 use crate::layers::GameLayer;
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve_count, resolve_points};
 use crate::players::player::{LocalPlayer, Player};
-use crate::maps::power::Power;
+use crate::maps::power::Supply;
+use crate::maps::zone::ZoneId;
 use crate::enemies::sapper::Sabotaged;
 use crate::state::{GameState, InRun, RunType, world_runs};
 use crate::tuning::*;
@@ -98,6 +99,12 @@ impl Perk {
     /// `solo_buys` (see `quick_revive_buys`).
     pub fn machine_leaves(self, buys: u32, solo_buys: u32) -> bool {
         self == Perk::QuickRevive && buys >= solo_buys
+    }
+
+    /// The Zone its machine stands in on `map`.
+    pub fn machine_zone(self, map: MapId) -> Option<ZoneId> {
+        let (at, facing) = self.machine_spot(map);
+        crate::enemies::nav::zone_at(at + facing * 0.5 + Vec3::Y * 0.5)
     }
 
     /// Where its machine stands on `map`, against a wall of its Zone, and the way it faces.
@@ -276,11 +283,18 @@ impl OncePerPlayer {
 pub struct PerkMachine {
     pub perk: Perk,
     use_point: Vec3,
+    /// The Zone it stands in, which decides the Section that Powers it on a Map with Generators.
+    zone: Option<ZoneId>,
     /// How many times it has sold its Perk this Run.
     buys: u32,
 }
 
 impl PerkMachine {
+    /// Whether it works now: with the Power its Perk needs on `map`, or always if it needs none.
+    pub fn powered(&self, supply: &Supply, run: RunType, map: MapId) -> bool {
+        !self.perk.needs_power(run, map) || supply.powers(self.zone)
+    }
+
     /// Where it's bought from, in front of it.
     pub fn use_point(&self) -> Vec3 {
         self.use_point
@@ -306,7 +320,7 @@ pub fn leaving_rise(elapsed: f32) -> Option<f32> {
 
 /// The sign on a machine, lit once the Power is on (or from the start, if its Perk needs none).
 #[derive(Component)]
-struct MachineLight(Perk);
+struct MachineLight;
 
 pub struct PerkPlugin;
 
@@ -351,6 +365,7 @@ fn spawn_machines(
                 PerkMachine {
                     perk,
                     use_point: centre + facing * (body.half_size.z + 0.1),
+                    zone: perk.machine_zone(*map),
                     buys: 0,
                 },
                 Mesh3d(meshes.add(body)),
@@ -362,7 +377,7 @@ fn spawn_machines(
             ))
             // The machine's +Z faces out into the room.
             .with_child((
-                MachineLight(perk),
+                MachineLight,
                 Mesh3d(meshes.add(sign)),
                 MeshMaterial3d(lit),
                 Transform::from_xyz(0.0, 0.75, body.half_size.z + 0.03),
@@ -457,7 +472,7 @@ fn prompt_machines(
     mut commands: Commands,
     machines: Query<(Entity, &PerkMachine, Option<&Buyable>, Has<Refused>, Has<Sabotaged>), Without<Leaving>>,
     players: Query<(&Perks, &Modifiers, Has<Drinking>, Has<LocalPlayer>), With<Player>>,
-    power: Res<Power>,
+    supply: Supply,
     run: Res<RunType>,
     map: Res<MapId>,
 ) {
@@ -470,8 +485,9 @@ fn prompt_machines(
             MachinePrompt::NoPrompt
         } else {
             // Offered while any Player can still buy it; each is refused for their own Perk.
+            let powered = machine.powered(&supply, *run, *map);
             let prompts = players.iter().map(|(perks, _, drinking, _)| {
-                machine_prompt(perk, power.is_on(), perks.has(perk), drinking, *run, *map)
+                machine_prompt(perk, powered, perks.has(perk), drinking, *run, *map)
             });
             prompts.max_by_key(|&prompt| match prompt {
                 MachinePrompt::Buy => 2,
@@ -502,10 +518,7 @@ fn prompt_machines(
                 machine_entity.remove::<(Buyable, Refused)>();
             }
             MachinePrompt::NeedsPower => {
-                machine_entity.insert((
-                    buyable("You must turn on the Power first".into(), None),
-                    Refused,
-                ));
+                machine_entity.insert((buyable(supply.refusal(machine.zone), None), Refused));
             }
             MachinePrompt::Buy => {
                 machine_entity.remove::<Refused>().insert(buyable(
@@ -517,9 +530,16 @@ fn prompt_machines(
     }
 }
 
-fn light_machines(power: Res<Power>, run: Res<RunType>, map: Res<MapId>, mut lights: Query<(&MachineLight, &mut Visibility)>) {
-    for (&MachineLight(perk), mut light) in &mut lights {
-        let lit = power.is_on() || !perk.needs_power(*run, *map);
+fn light_machines(
+    supply: Supply,
+    run: Res<RunType>,
+    map: Res<MapId>,
+    machines: Query<&PerkMachine>,
+    mut lights: Query<(&ChildOf, &mut Visibility), With<MachineLight>>,
+) {
+    for (parent, mut light) in &mut lights {
+        let Ok(machine) = machines.get(parent.parent()) else { continue };
+        let lit = machine.powered(&supply, *run, *map);
         let want = if lit { Visibility::Inherited } else { Visibility::Hidden };
         if *light != want {
             *light = want;
@@ -700,6 +720,19 @@ mod tests {
         }
     }
 
+    /// Each of the Dam's machines but Quick Revive's stands in a Section, and waits for it.
+    #[test]
+    fn the_dams_perk_machines_stand_in_their_sections() {
+        use crate::maps::generator::SectionId;
+        let dam = MapId::Dam.layout();
+        let section = |perk: Perk| perk.machine_zone(MapId::Dam).and_then(|zone| dam.section_of(zone));
+        assert_eq!(section(Perk::Juggernog), Some(SectionId::TurbineHall));
+        assert_eq!(section(Perk::SpeedCola), Some(SectionId::SpillwayGallery));
+        assert_eq!(section(Perk::DoubleTap), Some(SectionId::IntakeTower));
+        assert_eq!(section(Perk::QuickRevive), None);
+        assert_eq!(Perk::QuickRevive.machine_zone(MapId::Dam), Some(crate::maps::zone::ZoneId::CrestRoad));
+    }
+
     #[test]
     fn quick_revive_puts_no_entries_on_the_player() {
         assert!(Perk::QuickRevive.modifiers().is_empty());
@@ -804,7 +837,7 @@ mod two_player_tests {
         let machine = sim
             .world_mut()
             .spawn((
-                PerkMachine { perk, use_point: Vec3::ZERO, buys: 0 },
+                PerkMachine { perk, use_point: Vec3::ZERO, zone: None, buys: 0 },
                 OncePerPlayer(perk),
                 Buyable { use_point: Vec3::ZERO, prompt: String::new(), price: Some(perk.price(RunType::Coop)), range: USE_RANGE },
                 Transform::default(),
