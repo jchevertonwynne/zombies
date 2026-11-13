@@ -1292,6 +1292,11 @@ mod taking_tests {
 
     /// The Dam with only the Turbine Hall's Generator Held, and a Sapper standing on its plate.
     fn sapper_on_the_turbine_plate() -> (Sim, Entity) {
+        sapper_on_the_plate_of(TURBINE)
+    }
+
+    /// The Dam with only Generator `index` Held, and a Sapper standing on its plate.
+    fn sapper_on_the_plate_of(index: usize) -> (Sim, Entity) {
         let mut sim = Sim::on(MapId::Dam, 30.0, |app| {
             app.init_resource::<Teleporter>()
                 .init_resource::<Power>()
@@ -1302,10 +1307,9 @@ mod taking_tests {
                 .add_systems(Update, (stun_restarts, sabotage, sapper_deaths).chain());
         });
         let mut generators = Generators::for_map(MapId::Dam);
-        generators.hold(TURBINE);
+        generators.hold(index);
         sim.world_mut().insert_resource(generators);
-        let at = MapId::Dam.layout().generators[TURBINE].at;
-        assert_eq!(MapId::Dam.layout().generators[TURBINE].section, SectionId::TurbineHall);
+        let at = MapId::Dam.layout().generators[index].at;
         let sapper = sim.spawn(at, None);
         // A Sapper's body, which is never cleaned up.
         sim.world_mut().entity_mut(sapper).insert((Zombie::special(SpecialKind::Sapper, 1000.0, at), Sapper::new(at), CarriesOver));
@@ -1313,7 +1317,12 @@ mod taking_tests {
     }
 
     fn turbine(sim: &mut Sim) -> GeneratorState {
-        sim.world_mut().resource::<Generators>().states()[TURBINE]
+        assert_eq!(MapId::Dam.layout().generators[TURBINE].section, SectionId::TurbineHall);
+        state(sim, TURBINE)
+    }
+
+    fn state(sim: &mut Sim, index: usize) -> GeneratorState {
+        sim.world_mut().resource::<Generators>().states()[index]
     }
 
     #[test]
@@ -1340,6 +1349,41 @@ mod taking_tests {
         assert_eq!(turbine(&mut sim), GeneratorState::Held, "paused while it was stunned");
         sim.run(sim.frames(1.0));
         assert_eq!(turbine(&mut sim), GeneratorState::Lost, "picked up where it left off");
+    }
+
+    /// Where the Sapper is headed.
+    fn seeking(sim: &mut Sim, sapper: Entity) -> Option<Vec3> {
+        sim.world_mut().get::<Seeking>(sapper).map(|seeking| seeking.0)
+    }
+
+    #[test]
+    fn having_taken_one_generator_it_goes_for_the_next_held_one() {
+        // The Intake Tower's is the nearer the Player up on the Crest Road, so it's taken first.
+        const INTAKE: usize = 0;
+        assert_eq!(MapId::Dam.layout().generators[INTAKE].section, SectionId::IntakeTower);
+        let (mut sim, sapper) = sapper_on_the_plate_of(INTAKE);
+        sim.world_mut().resource_mut::<Generators>().hold(TURBINE);
+        sim.run(sim.frames(SAPPER_TAKE_GENERATOR_SECS + 0.5));
+        assert_eq!(state(&mut sim, INTAKE), GeneratorState::Lost);
+        assert_eq!(turbine(&mut sim), GeneratorState::Held);
+        assert_eq!(seeking(&mut sim, sapper), Some(MapId::Dam.layout().generators[TURBINE].at), "off to the Turbine Hall's");
+    }
+
+    /// A system on an upper storey is worked from that storey's floor, not the ground's.
+    #[test]
+    fn it_heads_for_the_floor_under_a_system_on_an_upper_storey() {
+        let (mut sim, sapper) = sapper_on_the_turbine_plate();
+        sim.world_mut().resource_mut::<Generators>().lose(TURBINE);
+        let crest = 2.0 * crate::maps::map::STOREY;
+        // A Box on the Crest Road, two storeys up, with no Generator Held.
+        let at = Vec3::new(crate::maps::map::DAM_X - 10.0, crest, 27.0);
+        sim.world_mut().spawn((
+            MysteryBox { location: 0, price: 950, teddy: true, state: BoxState::Idle },
+            Transform::from_translation(at),
+        ));
+        sim.run(2);
+        let spot = seeking(&mut sim, sapper).expect("it's headed for the Box");
+        assert!((spot.y - crest).abs() < 0.1, "it heads for {spot}, not the Crest Road at {crest}");
     }
 
     #[test]
