@@ -136,6 +136,18 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
             .id()
     }
 
+    /// An invisible box that stops the Player only: Zombies and bullets pass through it, as at a
+    /// window's opening.
+    pub fn player_wall(&mut self, size: Vec3, at: Vec3) {
+        self.commands.spawn((
+            InRun,
+            Transform::from_translation(at),
+            RigidBody::Static,
+            Collider::cuboid(size.x, size.y, size.z),
+            CollisionLayers::new(GameLayer::Window, LayerMask::ALL),
+        ));
+    }
+
     /// A solid box drawn in `colour`.
     pub fn block(&mut self, size: Vec3, at: Vec3, colour: Color) -> Entity {
         self.shape(size, at, Quat::IDENTITY, colour);

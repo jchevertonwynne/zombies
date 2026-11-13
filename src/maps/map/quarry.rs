@@ -375,7 +375,9 @@ fn build(b: &mut Builder) {
 
     // The first terrace: the Rail Yard's east wall, the Crusher Shed round it, and the face of the
     // second terrace behind them both.
-    b.outer_wall(v(20.0, 2.0), v(20.0, 16.0), TERRACE_1, STOREY);
+    // Two storeys high, so the iron steps beside it top out 4 m under its top: nothing can climb
+    // onto it and off the far side.
+    b.outer_wall(v(20.0, 2.0), v(20.0, 16.0), TERRACE_1, 2.0 * STOREY);
     b.wall(v(-20.0, 2.0), v(-20.0, 16.0), 0.0, TERRACE_1, &[]);
     b.wall(v(-20.0, 2.0), v(-20.0, 16.0), TERRACE_1, STOREY, &[(10.0, door(Incline, CrusherShed, DOOR_PRICE_INCLINE_CRUSHER))]);
     b.wall(v(-20.0, 2.0), v(0.0, 2.0), TERRACE_1, STOREY, &[]);
@@ -434,7 +436,8 @@ fn build(b: &mut Builder) {
 }
 
 /// A ledge of rock outside a terrace's windows, `min`..`max` across and its top at `top`, with a
-/// parapet along each edge that isn't against the building.
+/// parapet along each edge that isn't against the building. A Player can clear a parapet, so an
+/// invisible wall a storey higher stops them going over; Zombies pass it.
 fn shelf(b: &mut Builder, min: Vec2, max: Vec2, top: f32, rock: Color) {
     let size = max - min;
     let mid = (min + max) / 2.0;
@@ -448,6 +451,7 @@ fn shelf(b: &mut Builder, min: Vec2, max: Vec2, top: f32, rock: Color) {
             continue;
         }
         b.block(Vec3::new(thick, RAIL_HEIGHT, size.y), Vec3::new(x, rise, mid.y), rock);
+        b.player_wall(Vec3::new(thick, STOREY, size.y), Vec3::new(x, top + RAIL_HEIGHT + STOREY / 2.0, mid.y));
     }
     for z in [min.y + thick / 2.0, max.y - thick / 2.0] {
         // The north ledges back onto the buildings to their south.
@@ -455,6 +459,7 @@ fn shelf(b: &mut Builder, min: Vec2, max: Vec2, top: f32, rock: Color) {
             continue;
         }
         b.block(Vec3::new(size.x, RAIL_HEIGHT, thick), Vec3::new(mid.x, rise, z), rock);
+        b.player_wall(Vec3::new(size.x, STOREY, thick), Vec3::new(mid.x, top + RAIL_HEIGHT + STOREY / 2.0, z));
     }
 }
 
