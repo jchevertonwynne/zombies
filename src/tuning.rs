@@ -1601,6 +1601,22 @@ pub const DOOR_PRICE_EAST_END_SCHOOLHOUSE: u64 = 1000;
 pub const DOOR_PRICE_SCHOOLHOUSE_CHURCH_LANE: u64 = 1000;
 pub const DOOR_PRICE_EAST_END_CHURCH: u64 = 1250;
 pub const DOOR_PRICE_CHURCH_CHURCH_LANE: u64 = 1000;
+/// The Dam's Doors: off the Crest Road either way, down into the dark, round the two loops of the
+/// Control Room, and the foot ring along the toe that closes them.
+pub const DOOR_PRICE_CREST_TOWER_HEAD: u64 = 750;
+pub const DOOR_PRICE_CREST_GATEHOUSE: u64 = 750;
+pub const DOOR_PRICE_TOWER_HEAD_GATE_SHAFT: u64 = 1000;
+pub const DOOR_PRICE_GATE_SHAFT_INTAKE: u64 = 1000;
+pub const DOOR_PRICE_GATEHOUSE_SPILLWAY_GALLERY: u64 = 1000;
+pub const DOOR_PRICE_SPILLWAY_GALLERY_STAIR: u64 = 1000;
+pub const DOOR_PRICE_INTAKE_CONTROL: u64 = 1250;
+pub const DOOR_PRICE_SPILLWAY_GALLERY_CONTROL: u64 = 1250;
+pub const DOOR_PRICE_CONTROL_PENSTOCK: u64 = 1000;
+pub const DOOR_PRICE_PENSTOCK_TURBINE_HALL: u64 = 1250;
+pub const DOOR_PRICE_TURBINE_HALL_SWITCHGEAR: u64 = 1000;
+pub const DOOR_PRICE_TURBINE_HALL_DRAINAGE: u64 = 1000;
+pub const DOOR_PRICE_DRAINAGE_INTAKE: u64 = 1250;
+pub const DOOR_PRICE_SPILLWAY_STAIR_DRAINAGE: u64 = 1000;
 
 // Buying
 /// How far from a Buyable's use point the Player can buy it, height included.

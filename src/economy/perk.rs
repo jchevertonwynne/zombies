@@ -4,7 +4,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
-use crate::maps::map::{MapId, QUARRY_X, STOREY, VILLAGE_X};
+use crate::maps::map::{DAM_X, MapId, QUARRY_X, STOREY, VILLAGE_X};
 
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
@@ -51,11 +51,13 @@ impl Perk {
         }
     }
 
-    /// Whether its machine waits for the Power. Quick Revive does in Co-op.
-    pub fn needs_power(self, run: RunType) -> bool {
+    /// Whether its machine waits for the Power on `map`. Quick Revive does in Co-op, but only on a
+    /// Map with a Power Switch: on one without, like the Dam, it stands outside every Section and
+    /// always works.
+    pub fn needs_power(self, run: RunType, map: MapId) -> bool {
         match self {
             Perk::Juggernog | Perk::SpeedCola | Perk::DoubleTap => true,
-            Perk::QuickRevive => run.is_coop(),
+            Perk::QuickRevive => run.is_coop() && crate::maps::power::switch_spot(map).is_some(),
         }
     }
 
@@ -102,6 +104,7 @@ impl Perk {
     pub(crate) fn machine_spot(self, map: MapId) -> (Vec3, Vec3) {
         const Q: f32 = QUARRY_X;
         const V: f32 = VILLAGE_X;
+        const D: f32 = DAM_X;
         match (map, self) {
             // West Hall's outer wall.
             (MapId::Greybox, Perk::Juggernog) => (Vec3::new(-25.2, 0.0, 10.0), Vec3::X),
@@ -127,6 +130,14 @@ impl Perk {
             (MapId::Village, Perk::DoubleTap) => (Vec3::new(V + 56.0, 0.0, 39.9), Vec3::NEG_Z),
             // The Inn's back wall.
             (MapId::Village, Perk::QuickRevive) => (Vec3::new(V + 5.0, 0.0, 21.2), Vec3::NEG_Z),
+            // The Switchgear Room's south wall, at the foot of the dam.
+            (MapId::Dam, Perk::Juggernog) => (Vec3::new(D + 18.0, 0.0, -51.2), Vec3::Z),
+            // The Spillway Gatehouse's north wall.
+            (MapId::Dam, Perk::SpeedCola) => (Vec3::new(D + 38.0, 2.0 * STOREY, 31.2), Vec3::NEG_Z),
+            // The Tower Head's north wall.
+            (MapId::Dam, Perk::DoubleTap) => (Vec3::new(D - 38.0, 2.0 * STOREY, 31.2), Vec3::NEG_Z),
+            // The Crest Road's reservoir parapet, between the two cheap guns.
+            (MapId::Dam, Perk::QuickRevive) => (Vec3::new(D, 2.0 * STOREY, 29.2), Vec3::NEG_Z),
         }
     }
 
@@ -165,10 +176,10 @@ pub enum MachinePrompt {
 /// A Perk Machine's Prompt, given the Power and what the Player holds. There's no Perk limit.
 /// Holding Quick Revive is holding an unused life (solo) or a faster Revive (Co-op), so it can't
 /// be bought again until a Down.
-pub fn machine_prompt(perk: Perk, power_on: bool, owned: bool, drinking: bool, run: RunType) -> MachinePrompt {
+pub fn machine_prompt(perk: Perk, power_on: bool, owned: bool, drinking: bool, run: RunType, map: MapId) -> MachinePrompt {
     if owned || drinking {
         MachinePrompt::NoPrompt
-    } else if perk.needs_power(run) && !power_on {
+    } else if perk.needs_power(run, map) && !power_on {
         MachinePrompt::NeedsPower
     } else {
         MachinePrompt::Buy
@@ -448,6 +459,7 @@ fn prompt_machines(
     players: Query<(&Perks, &Modifiers, Has<Drinking>, Has<LocalPlayer>), With<Player>>,
     power: Res<Power>,
     run: Res<RunType>,
+    map: Res<MapId>,
 ) {
     // The price is the one the `LocalPlayer` sees.
     let Some(modifiers) = players.iter().find(|player| player.3).map(|player| player.1) else { return };
@@ -459,7 +471,7 @@ fn prompt_machines(
         } else {
             // Offered while any Player can still buy it; each is refused for their own Perk.
             let prompts = players.iter().map(|(perks, _, drinking, _)| {
-                machine_prompt(perk, power.is_on(), perks.has(perk), drinking, *run)
+                machine_prompt(perk, power.is_on(), perks.has(perk), drinking, *run, *map)
             });
             prompts.max_by_key(|&prompt| match prompt {
                 MachinePrompt::Buy => 2,
@@ -505,9 +517,9 @@ fn prompt_machines(
     }
 }
 
-fn light_machines(power: Res<Power>, run: Res<RunType>, mut lights: Query<(&MachineLight, &mut Visibility)>) {
+fn light_machines(power: Res<Power>, run: Res<RunType>, map: Res<MapId>, mut lights: Query<(&MachineLight, &mut Visibility)>) {
     for (&MachineLight(perk), mut light) in &mut lights {
-        let lit = power.is_on() || !perk.needs_power(*run);
+        let lit = power.is_on() || !perk.needs_power(*run, *map);
         let want = if lit { Visibility::Inherited } else { Visibility::Hidden };
         if *light != want {
             *light = want;
@@ -602,7 +614,7 @@ mod tests {
     fn before_power_the_machines_refuse() {
         for perk in [Perk::Juggernog, Perk::SpeedCola, Perk::DoubleTap] {
             assert_eq!(
-                machine_prompt(perk, false, false, false, RunType::Solo),
+                machine_prompt(perk, false, false, false, RunType::Solo, MapId::Greybox),
                 MachinePrompt::NeedsPower
             );
         }
@@ -611,7 +623,7 @@ mod tests {
     #[test]
     fn with_power_an_unheld_perk_is_buyable() {
         for perk in Perk::ALL {
-            assert_eq!(machine_prompt(perk, true, false, false, RunType::Solo), MachinePrompt::Buy);
+            assert_eq!(machine_prompt(perk, true, false, false, RunType::Solo, MapId::Greybox), MachinePrompt::Buy);
         }
     }
 
@@ -619,7 +631,7 @@ mod tests {
     fn a_held_perk_shows_no_prompt() {
         for power_on in [false, true] {
             assert_eq!(
-                machine_prompt(Perk::Juggernog, power_on, true, false, RunType::Solo),
+                machine_prompt(Perk::Juggernog, power_on, true, false, RunType::Solo, MapId::Greybox),
                 MachinePrompt::NoPrompt
             );
         }
@@ -628,7 +640,7 @@ mod tests {
     #[test]
     fn no_machine_sells_while_drinking() {
         assert_eq!(
-            machine_prompt(Perk::DoubleTap, true, false, true, RunType::Solo),
+            machine_prompt(Perk::DoubleTap, true, false, true, RunType::Solo, MapId::Greybox),
             MachinePrompt::NoPrompt
         );
     }
@@ -643,7 +655,7 @@ mod tests {
     #[test]
     fn quick_revive_sells_without_power() {
         assert_eq!(
-            machine_prompt(Perk::QuickRevive, false, false, false, RunType::Solo),
+            machine_prompt(Perk::QuickRevive, false, false, false, RunType::Solo, MapId::Greybox),
             MachinePrompt::Buy
         );
     }
@@ -652,7 +664,7 @@ mod tests {
     fn quick_revive_cannot_be_bought_while_its_life_is_unused() {
         for power_on in [false, true] {
             assert_eq!(
-                machine_prompt(Perk::QuickRevive, power_on, true, false, RunType::Solo),
+                machine_prompt(Perk::QuickRevive, power_on, true, false, RunType::Solo, MapId::Greybox),
                 MachinePrompt::NoPrompt
             );
         }
@@ -662,16 +674,29 @@ mod tests {
     fn co_op_quick_revive_costs_1500_and_waits_for_the_power() {
         assert_eq!(Perk::QuickRevive.price(RunType::Coop), 1500);
         assert_eq!(
-            machine_prompt(Perk::QuickRevive, false, false, false, RunType::Coop),
+            machine_prompt(Perk::QuickRevive, false, false, false, RunType::Coop, MapId::Greybox),
             MachinePrompt::NeedsPower
         );
-        assert_eq!(machine_prompt(Perk::QuickRevive, true, false, false, RunType::Coop), MachinePrompt::Buy);
+        assert_eq!(machine_prompt(Perk::QuickRevive, true, false, false, RunType::Coop, MapId::Greybox), MachinePrompt::Buy);
         // Held, it can't be bought again, until a Down takes it.
-        assert_eq!(machine_prompt(Perk::QuickRevive, true, true, false, RunType::Coop), MachinePrompt::NoPrompt);
+        assert_eq!(machine_prompt(Perk::QuickRevive, true, true, false, RunType::Coop, MapId::Greybox), MachinePrompt::NoPrompt);
         // The other Perks are the same in both.
         for perk in [Perk::Juggernog, Perk::SpeedCola, Perk::DoubleTap] {
             assert_eq!(perk.price(RunType::Coop), perk.price(RunType::Solo));
-            assert!(perk.needs_power(RunType::Coop));
+            assert!(perk.needs_power(RunType::Coop, MapId::Greybox));
+        }
+    }
+
+    /// On a Map with no Power Switch, like the Dam, Quick Revive stands outside every Section and
+    /// sells from the start, in Co-op too; the other Perks still wait.
+    #[test]
+    fn quick_revive_needs_no_power_on_a_map_without_a_power_switch() {
+        for run in [RunType::Solo, RunType::Coop] {
+            assert_eq!(machine_prompt(Perk::QuickRevive, false, false, false, run, MapId::Dam), MachinePrompt::Buy);
+            assert!(!Perk::QuickRevive.needs_power(run, MapId::Dam));
+            for perk in [Perk::Juggernog, Perk::SpeedCola, Perk::DoubleTap] {
+                assert_eq!(machine_prompt(perk, false, false, false, run, MapId::Dam), MachinePrompt::NeedsPower);
+            }
         }
     }
 

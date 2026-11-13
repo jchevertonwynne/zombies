@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use crate::debug::DebugView;
 use crate::maps::door::Door;
-use crate::maps::map::{MapId, QUARRY_X, STOREY, VILLAGE_X};
+use crate::maps::map::{DAM_X, MapId, QUARRY_X, STOREY, VILLAGE_X};
 use crate::players::player::{LocalPlayer, Player};
 use crate::players::respawn::AwaitingRespawn;
 use crate::state::GameState;
@@ -74,10 +74,37 @@ pub enum ZoneId {
     Orchard,
     /// The churchyard off Church Lane, round the mausoleum.
     Graveyard,
+    /// The Dam's start: the road along its crest, the only Zone out of doors.
+    CrestRoad,
+    /// The top of the intake tower, at the west end of the crest.
+    TowerHead,
+    /// The stairwell down the intake tower, from the Tower Head to the Intake Gallery.
+    GateShaft,
+    /// The gallery inside the dam from the foot of the Gate Shaft, along to the Control Room and
+    /// down the dam's west side to the Drainage Gallery.
+    IntakeGallery,
+    /// The gatehouse over the spillway, at the east end of the crest.
+    SpillwayGatehouse,
+    /// The gallery inside the dam under the Spillway Gatehouse, along to the Control Room and down
+    /// the dam's east side to the Spillway Stair.
+    SpillwayGallery,
+    /// The stairs down from the Spillway Gallery to the Drainage Gallery.
+    SpillwayStair,
+    /// The control room in the middle of the dam, with Pack-a-Punch on its dais.
+    ControlRoom,
+    /// The tunnel and stairs down beside the penstock, from the Control Room to the Turbine Hall.
+    PenstockTunnel,
+    /// The powerhouse at the dam's foot, round its turbine deck.
+    TurbineHall,
+    /// The room of breaker cabinets off the Turbine Hall.
+    SwitchgearRoom,
+    /// The gallery along the dam's toe, from under the Intake Gallery to the foot of the Spillway
+    /// Stair.
+    DrainageGallery,
 }
 
 impl ZoneId {
-    pub const ALL: [ZoneId; 35] = [
+    pub const ALL: [ZoneId; 47] = [
         ZoneId::StartRoom,
         ZoneId::WestHall,
         ZoneId::Balcony,
@@ -113,6 +140,18 @@ impl ZoneId {
         ZoneId::Church,
         ZoneId::Orchard,
         ZoneId::Graveyard,
+        ZoneId::CrestRoad,
+        ZoneId::TowerHead,
+        ZoneId::GateShaft,
+        ZoneId::IntakeGallery,
+        ZoneId::SpillwayGatehouse,
+        ZoneId::SpillwayGallery,
+        ZoneId::SpillwayStair,
+        ZoneId::ControlRoom,
+        ZoneId::PenstockTunnel,
+        ZoneId::TurbineHall,
+        ZoneId::SwitchgearRoom,
+        ZoneId::DrainageGallery,
     ];
 
     pub fn name(self) -> &'static str {
@@ -152,6 +191,18 @@ impl ZoneId {
             ZoneId::Church => "Church",
             ZoneId::Orchard => "Orchard",
             ZoneId::Graveyard => "Graveyard",
+            ZoneId::CrestRoad => "Crest Road",
+            ZoneId::TowerHead => "Tower Head",
+            ZoneId::GateShaft => "Gate Shaft",
+            ZoneId::IntakeGallery => "Intake Gallery",
+            ZoneId::SpillwayGatehouse => "Spillway Gatehouse",
+            ZoneId::SpillwayGallery => "Spillway Gallery",
+            ZoneId::SpillwayStair => "Spillway Stair",
+            ZoneId::ControlRoom => "Control Room",
+            ZoneId::PenstockTunnel => "Penstock Tunnel",
+            ZoneId::TurbineHall => "Turbine Hall",
+            ZoneId::SwitchgearRoom => "Switchgear Room",
+            ZoneId::DrainageGallery => "Drainage Gallery",
         }
     }
 
@@ -162,19 +213,25 @@ impl ZoneId {
             StartRoom | WestHall | Balcony | EastHall | DiningRoom | PowerRoom | Yard | Passage | Workshop | Storeroom | GeneratorRoom | Tunnel => MapId::Greybox,
             PumpHouse | QuarryFloor | RailYard | CrusherShed | WindingHouse | Offices | Headframe | Incline | LoadingDock => MapId::Quarry,
             Inn | Market | WestEnd | EastEnd | BackLane | MillLane | ChurchLane | Mill | Smithy | Bakery | Schoolhouse | Church | Orchard | Graveyard => MapId::Village,
+            CrestRoad | TowerHead | GateShaft | IntakeGallery | SpillwayGatehouse | SpillwayGallery | SpillwayStair | ControlRoom | PenstockTunnel | TurbineHall
+            | SwitchgearRoom | DrainageGallery => MapId::Dam,
         }
     }
 
     /// The height of the Zone's floor: the ground, a storey up for the Balcony, and a terrace's
-    /// height in the Quarry. The Village is all on the ground.
+    /// height in the Quarry. The Village is all on the ground. The Dam has three levels: the foot,
+    /// the gallery a storey up and the crest two up.
     pub fn floor(self) -> f32 {
         use ZoneId::*;
         match self {
             StartRoom | WestHall | EastHall | DiningRoom | PowerRoom | Yard | Passage | Workshop | Storeroom | GeneratorRoom | Tunnel => 0.0,
             PumpHouse | QuarryFloor | Incline | LoadingDock => 0.0,
             Inn | Market | WestEnd | EastEnd | BackLane | MillLane | ChurchLane | Mill | Smithy | Bakery | Schoolhouse | Church | Orchard | Graveyard => 0.0,
+            PenstockTunnel | TurbineHall | SwitchgearRoom | SpillwayStair | DrainageGallery => 0.0,
             Balcony | RailYard | CrusherShed => STOREY,
+            GateShaft | IntakeGallery | SpillwayGallery | ControlRoom => STOREY,
             WindingHouse | Offices | Headframe => 2.0 * STOREY,
+            CrestRoad | TowerHead | SpillwayGatehouse => 2.0 * STOREY,
         }
     }
 
@@ -182,13 +239,17 @@ impl ZoneId {
     /// West Hall is two storeys tall because its ramp climbs to the Balcony, and a Zone with a
     /// sunken floor (the Yard's garden, the Tunnel's dip) reaches down into it. The Quarry's Zones
     /// stand at its own patch of the world, `QUARRY_X` along x, and a Zone a ramp or stairs climb
-    /// out of is tall enough to hold a Player on them. The Village's stand `VILLAGE_X` along x.
+    /// out of is tall enough to hold a Player on them. The Village's stand `VILLAGE_X` along x,
+    /// and the Dam's `DAM_X`, where a Zone with stairs up a storey is two storeys tall.
     pub fn volume(self) -> (Vec3, Vec3) {
         const LOW: f32 = -0.25;
         const UPPER: f32 = 3.75;
         const TOP: f32 = 8.0;
         const Q: f32 = QUARRY_X;
         const V: f32 = VILLAGE_X;
+        const D: f32 = DAM_X;
+        const GALLERY: f32 = STOREY - 0.25;
+        const CREST: f32 = 2.0 * STOREY - 0.25;
         let (x0, x1, y0, y1, z0, z1) = match self {
             ZoneId::StartRoom => (-14.0, 14.0, LOW, UPPER, 14.0, 26.0),
             ZoneId::WestHall => (-26.0, -14.0, LOW, TOP, -14.0, 26.0),
@@ -225,6 +286,18 @@ impl ZoneId {
             ZoneId::Church => (V + 52.0, V + 72.0, LOW, UPPER, 6.0, 22.0),
             ZoneId::Orchard => (V - 72.0, V - 40.0, LOW, UPPER, 30.0, 54.0),
             ZoneId::Graveyard => (V + 40.0, V + 72.0, LOW, UPPER, 30.0, 54.0),
+            ZoneId::CrestRoad => (D - 30.0, D + 30.0, CREST, CREST + STOREY, 22.0, 30.0),
+            ZoneId::TowerHead => (D - 46.0, D - 30.0, CREST, CREST + STOREY, 18.0, 32.0),
+            ZoneId::SpillwayGatehouse => (D + 30.0, D + 46.0, CREST, CREST + STOREY, 18.0, 32.0),
+            ZoneId::GateShaft => (D - 44.0, D - 38.0, GALLERY, CREST + STOREY, 2.0, 18.0),
+            ZoneId::IntakeGallery => (D - 44.0, D - 10.0, GALLERY, CREST, -56.0, 2.0),
+            ZoneId::ControlRoom => (D - 10.0, D + 10.0, GALLERY, CREST, -6.0, 8.0),
+            ZoneId::SpillwayGallery => (D + 10.0, D + 44.0, GALLERY, CREST + STOREY, -32.0, 18.0),
+            ZoneId::PenstockTunnel => (D - 3.0, D + 3.0, LOW, CREST, -28.0, -6.0),
+            ZoneId::TurbineHall => (D - 10.0, D + 10.0, LOW, CREST, -56.0, -28.0),
+            ZoneId::SwitchgearRoom => (D + 10.0, D + 26.0, LOW, UPPER, -52.0, -40.0),
+            ZoneId::SpillwayStair => (D + 38.0, D + 44.0, LOW, CREST, -56.0, -32.0),
+            ZoneId::DrainageGallery => (D - 44.0, D + 44.0, LOW, CREST, -62.0, -56.0),
         };
         let sunk = self.map().layout().sunken.iter().filter(|sunken| sunken.zone == self).map(|sunken| sunken.depth).fold(0.0, f32::max);
         (Vec3::new(x0, y0 - sunk, z0), Vec3::new(x1, y1, z1))

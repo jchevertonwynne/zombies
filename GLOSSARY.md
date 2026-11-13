@@ -141,7 +141,7 @@ _Avoid_: board, plank of wood
 
 **Riser**: A Spawn Point in open ground, where a Zombie climbs up out of the dirt with no Barrier in its way.
 
-**Map**: The playable space, made of Zones joined by Doors. There are three: the Greybox, a house round a courtyard with a wing across the field; the Quarry, a pit and its works climbed terrace by terrace; and the Village, a long village of streets and lanes with the Power at one end and Pack-a-Punch at the other. The Player picks one beside the Mode before a Run, or the Host does in the Room. The first prototype used a single open Arena.
+**Map**: The playable space, made of Zones joined by Doors. There are four: the Greybox, a house round a courtyard with a wing across the field; the Quarry, a pit and its works climbed terrace by terrace; the Village, a long village of streets and lanes with the Power at one end and Pack-a-Punch at the other; and the Dam, a road along a dam's crest with galleries inside it and a turbine hall at its foot. The Player picks one beside the Mode before a Run, or the Host does in the Room. The first prototype used a single open Arena.
 
 **Terrace**: One of the Quarry's level shelves, each a storey above the last: the pit floor, then the Rail Yard and the Crusher Shed, then the Winding House and the Offices. The Headframe's deck stands a storey above the top one. Off the pit's west side, the Incline climbs past both terraces with a landing at each, a Door off each into the terrace's building.
 
