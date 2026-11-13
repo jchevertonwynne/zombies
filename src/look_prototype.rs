@@ -41,7 +41,7 @@ pub struct Moon;
 pub struct Lamp(pub ZoneId);
 
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
-enum Look {
+pub enum Look {
     Today,
     Moonlit,
     Dusk,
@@ -60,7 +60,7 @@ impl Look {
         }
     }
 
-    fn from_env() -> Self {
+    pub fn from_env() -> Self {
         let Ok(name) = std::env::var("ZOMBIES_LOOK") else { return Look::Today };
         LOOKS
             .into_iter()

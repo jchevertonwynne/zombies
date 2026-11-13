@@ -76,6 +76,8 @@ pub(super) struct Builder<'a, 'w, 's> {
     pub repaint: Option<Palette>,
     /// The Map's windows, which its outer walls leave gaps for.
     windows: &'static [(ZoneId, Vec3, Vec2)],
+    /// PROTOTYPE (#278): what the next shapes are, for the texture prototype to find them.
+    tag: Option<crate::tex_prototype::Surface>,
 }
 
 impl<'a, 'w, 's> Builder<'a, 'w, 's> {
@@ -89,7 +91,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let cylinder = meshes.add(Cylinder::new(0.5, 1.0));
         let door = materials.add(Color::srgb(0.85, 0.45, 0.1));
         let power_door = materials.add(Color::srgb(0.5, 0.3, 0.8));
-        Self { commands, meshes, materials, cube, cylinder, paints: HashMap::new(), door, power_door, repaint: None, windows }
+        Self { commands, meshes, materials, cube, cylinder, paints: HashMap::new(), door, power_door, repaint: None, windows, tag: None }
     }
 
     /// The material for a flat colour.
@@ -110,14 +112,16 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
     /// A box drawn in `colour`, `size` across before `rotation`, centred on `at`. Not solid.
     fn shape(&mut self, size: Vec3, at: Vec3, rotation: Quat, colour: Color) -> Entity {
         let paint = self.paint(colour);
-        self.commands
-            .spawn((
-                InRun,
-                Mesh3d(self.cube.clone()),
-                MeshMaterial3d(paint),
-                Transform { translation: at, rotation, scale: size },
-            ))
-            .id()
+        let mut shape = self.commands.spawn((
+            InRun,
+            Mesh3d(self.cube.clone()),
+            MeshMaterial3d(paint),
+            Transform { translation: at, rotation, scale: size },
+        ));
+        if let Some(tag) = self.tag {
+            shape.insert(tag);
+        }
+        shape.id()
     }
 
     /// Something solid with nothing drawn: what's seen of it is drawn on its own.
@@ -148,11 +152,13 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let thick = 0.2 + deepest;
         let colour = palette(Some(zone)).floor;
         let cut: Vec<_> = holes.iter().map(|hole| (hole.min, hole.max)).collect();
+        self.tag = Some(crate::tex_prototype::Surface { zone: Some(zone), kind: crate::tex_prototype::SurfaceKind::Floor });
         for (min, max) in rects_around((Vec2::new(lo.x, lo.z), Vec2::new(hi.x, hi.z)), &cut) {
             let size = Vec3::new(max.x - min.x, thick, max.y - min.y);
             let centre = Vec3::new((min.x + max.x) / 2.0, height - thick / 2.0, (min.y + max.y) / 2.0);
             self.block(size, centre, colour);
         }
+        self.tag = None;
     }
 
     /// A Raised Floor, with a lip of its Zone's trim round its top.
@@ -551,7 +557,10 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         };
         let half = WALL_THICKNESS / 2.0;
         let (bottom, top) = face.y;
+        use crate::tex_prototype::{Surface, SurfaceKind};
+        self.tag = Some(Surface { zone: face.zone, kind: SurfaceKind::Wall });
         slab(self, 0.0, half, bottom, top, colours.wall);
+        self.tag = Some(Surface { zone: face.zone, kind: SurfaceKind::Trim });
         if foot == Some(bottom) && top - bottom > SKIRTING.x {
             slab(self, half, SKIRTING.y, bottom, bottom + SKIRTING.x, colours.trim);
         }
@@ -559,6 +568,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         if storey_top && top - bottom >= 0.6 {
             slab(self, half, CORNICE.y, top - CORNICE.x, top, colours.trim);
         }
+        self.tag = None;
     }
 }
 
