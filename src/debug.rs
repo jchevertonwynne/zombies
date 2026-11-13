@@ -33,7 +33,8 @@ pub struct DebugView(pub bool);
 /// bag just ahead of the Player. F8 pulses the next effect overlay. F4 (hold fn on a Mac) puts a
 /// second Player in Seat 1. F10 summons the Sapper, after
 /// its warning, once the Round is under way. [ (beside it, and not an F-key, which a Mac's
-/// keyboard takes) Claims every Generator at once, on the Host.
+/// keyboard takes) Claims every Generator at once, on the Host, and ] Loses the Held one nearest
+/// the Player.
 pub struct DebugPlugin;
 
 impl Plugin for DebugPlugin {
@@ -86,6 +87,14 @@ impl Plugin for DebugPlugin {
             )
             .add_systems(
                 Update,
+                lose_nearest_generator
+                    .in_set(HostSimulation)
+                    .run_if(resource_exists::<Generators>)
+                    .run_if(input_runs)
+                    .run_if(input_just_pressed(KeyCode::BracketRight)),
+            )
+            .add_systems(
+                Update,
                 spawn_debug_player
                     .run_if(input_runs)
                     .run_if(input_just_pressed(KeyCode::F4)),
@@ -102,6 +111,14 @@ impl Plugin for DebugPlugin {
 fn claim_every_generator(mut generators: ResMut<Generators>) {
     for index in 0..generators.states().len() {
         generators.hold(index);
+    }
+}
+
+/// Loses the Held Generator nearest the local Player, as a Sapper would.
+fn lose_nearest_generator(mut generators: ResMut<Generators>, player: Query<&Transform, With<LocalPlayer>>) {
+    let Ok(player) = player.single() else { return };
+    if let Some(index) = generators.nearest_held(player.translation) {
+        generators.lose(index);
     }
 }
 

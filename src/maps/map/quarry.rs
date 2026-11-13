@@ -28,6 +28,7 @@ use crate::weapons::arsenal::WeaponId;
 use crate::maps::jump_pad::JumpPad;
 use crate::maps::map::BarrierId;
 use crate::enemies::nav::Gate;
+use crate::enemies::sapper::SapperTiming;
 use crate::tuning::*;
 use crate::maps::zone::ZoneId;
 
@@ -92,6 +93,7 @@ pub(super) const QUARRY: Layout = Layout {
     nav_nodes: NODES,
     nav_edges: EDGES,
     jump_pads: &JUMP_PADS,
+    sapper: SapperTiming::DEFAULT,
     sections: &[],
     generators: &[],
     darkness: false,

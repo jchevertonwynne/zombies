@@ -67,6 +67,28 @@ fn every_game_sees_a_generator_charge_and_then_be_held() {
     }
 }
 
+#[test]
+fn every_game_sees_a_generator_lost_and_reclaimed() {
+    let mut run = Run::new(2);
+    on_the_dams_generators(&mut run, 3);
+    run.world(0).resource_mut::<Generators>().hold(2);
+    run.step(10);
+    run.world(0).resource_mut::<Generators>().lose(2);
+    run.step(10);
+    for on in 1..3 {
+        let generators = run.world(on).resource::<Generators>();
+        assert_eq!(generators.states()[2], GeneratorState::Lost, "game {on}");
+        assert!(generators.ever_held());
+    }
+    run.world(0).resource_mut::<Generators>().reclaim(2);
+    run.world(0).resource_mut::<Generators>().charge(2, 2.0, true);
+    run.step(10);
+    for on in 1..3 {
+        let shown = run.world(on).resource::<Generators>().states()[2];
+        assert!(shown.live(), "game {on} doesn't see the Reclaim: {shown:?}");
+    }
+}
+
 /// The Host doesn't say how far a Charge has come every frame, only every so often.
 #[test]
 fn the_host_tells_a_charge_at_a_low_rate() {

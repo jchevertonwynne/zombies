@@ -21,6 +21,7 @@
 use bevy::prelude::*;
 
 use crate::enemies::nav::Gate;
+use crate::enemies::sapper::SapperTiming;
 use crate::maps::generator::{Generator, SectionId};
 use crate::maps::map::BarrierId;
 use crate::maps::zone::ZoneId;
@@ -134,6 +135,7 @@ pub(super) const DAM: Layout = Layout {
     nav_nodes: NODES,
     nav_edges: EDGES,
     jump_pads: &[],
+    sapper: SapperTiming { first: 6..=8, gaps: 3..=5 },
     sections: &SECTIONS,
     generators: &GENERATORS,
     darkness: true,

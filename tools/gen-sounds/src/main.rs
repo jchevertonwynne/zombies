@@ -135,6 +135,7 @@ fn recipe(cue: Cue) -> Recipe {
         Cue::PowerDown => Recipe::Synth(power_down()),
         Cue::PowerRestore => Recipe::Synth(power_restore()),
         Cue::GeneratorHeld => Recipe::Synth(generator_held()),
+        Cue::GeneratorLost => Recipe::Synth(generator_lost()),
         Cue::ZombieWalkerIdle => Recipe::Synth(moan(1.8, 95.0, 0x6a00_0020)),
         Cue::ZombieJoggerIdle => Recipe::Synth(grunts()),
         Cue::ZombieSprinterIdle => Recipe::Synth(shriek(0.6, 900.0, 1300.0, 0x6a00_0021)),
@@ -1250,6 +1251,25 @@ fn generator_held() -> Vec<f32> {
         .collect();
     layer(&mut out, 1.5, &thud(0.3, 90.0));
     layer(&mut out, 1.6, &chime(&[784.0, 1174.7], 0.9, 4.0));
+    clamped(out)
+}
+
+/// A breaker's crack, then a generator winding down under a two-note chime: the opposite of
+/// `generator_held`.
+fn generator_lost() -> Vec<f32> {
+    let mut phase = 0.0;
+    let secs = 2.0;
+    let mut out = zap(0.25, 0x6a00_0090);
+    let wind_down: Vec<f32> = samples(secs)
+        .map(|t| {
+            let p = t / secs;
+            phase += TAU * (120.0 - 90.0 * p.sqrt()) / SAMPLE_RATE as f32;
+            let tone = phase.sin() + 0.5 * (phase * 2.0).sin() + 0.25 * (phase * 4.0).sin();
+            tone * (1.0 - p).powi(2) * 0.3
+        })
+        .collect();
+    layer(&mut out, 0.1, &wind_down);
+    layer(&mut out, 0.3, &chime(&[1174.7, 587.3], 0.9, 4.0));
     clamped(out)
 }
 
