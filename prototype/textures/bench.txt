@@ -1,0 +1,5 @@
+flat: bench map=Greybox round=30 frames=6050 mean_ms=9.92 fps=100.8 p50_ms=8.99 p95_ms=17.70 p99_ms=20.32 max_ms=30.87 over_16.7ms=8.7% zombies_mean=47.9 zombies_max=48
+kept-startroom: bench map=Greybox round=30 frames=6417 mean_ms=9.35 fps=107.0 p50_ms=8.85 p95_ms=14.79 p99_ms=19.67 max_ms=33.73 over_16.7ms=3.0% zombies_mean=47.9 zombies_max=48
+kept-all: bench map=Greybox round=30 frames=6292 mean_ms=9.54 fps=104.9 p50_ms=9.08 p95_ms=14.17 p99_ms=19.42 max_ms=34.46 over_16.7ms=2.7% zombies_mean=47.8 zombies_max=48
+
+# Noisy: the GPU was not idle (flat dusk measured 6.29 ms in the lighting prototype). Compare within this file only.
