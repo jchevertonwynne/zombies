@@ -170,7 +170,7 @@ fn fade(level: f32, lit: bool, dt: f32) -> f32 {
 /// How much of its light a lamp coming on at `level` gives: it stutters on the way up, the same
 /// way for every lamp, and is steady once full.
 fn flicker(level: f32) -> f32 {
-    if level < 1.0 && (level * LAMP_FLICKER_RATE).sin() < -0.3 { LAMP_FLICKER_DIP } else { 1.0 }
+    if level < 1.0 && (level * LAMP_FLICKER_RATE).sin() < LAMP_FLICKER_BELOW { LAMP_FLICKER_DIP } else { 1.0 }
 }
 
 pub mod weapon_light;

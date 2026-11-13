@@ -1448,6 +1448,10 @@ pub const SHRIEKER_IDLE_SECS: std::ops::RangeInclusive<f32> = 2.0..=4.0;
 /// due this many Rounds later, drawn uniformly.
 pub const SAPPER_FIRST_ROUNDS: std::ops::RangeInclusive<u32> = 8..=10;
 pub const SAPPER_ROUND_GAPS: std::ops::RangeInclusive<u32> = 4..=6;
+/// The Dam brings its Sappers sooner and more often: the first in one of these Rounds, the rest
+/// this many Rounds apart.
+pub const DAM_SAPPER_FIRST_ROUNDS: std::ops::RangeInclusive<u32> = 6..=8;
+pub const DAM_SAPPER_ROUND_GAPS: std::ops::RangeInclusive<u32> = 3..=5;
 /// The announcer's warning plays this long before the Sapper comes through its window.
 pub const SAPPER_WARNING_SECS: f32 = 2.0;
 /// Health as a multiple of the Round's Zombie health, with no cap.
@@ -1565,6 +1569,8 @@ pub const LAMP_FADE_DOWN_SECS: f32 = 0.3;
 /// (invented).
 pub const LAMP_FLICKER_DIP: f32 = 0.15;
 pub const LAMP_FLICKER_RATE: f32 = 47.0;
+/// They dip while the sine of the level times `LAMP_FLICKER_RATE` is below this.
+pub const LAMP_FLICKER_BELOW: f32 = -0.3;
 /// Every Player's Weapon Light: a narrow spot, always on, casting shadows (#283; the intensity,
 /// in lumens, and colour from the prototype).
 pub const WEAPON_LIGHT_INTENSITY: f32 = 900_000.0;
@@ -1857,10 +1863,20 @@ pub const GENERATOR_PLATE_RADIUS: f32 = 1.2;
 pub const GENERATOR_PLATE_SLACK: f32 = 0.4;
 /// A Generator's console at the back of its plate: across, high, and deep from its face.
 pub const GENERATOR_CONSOLE: Vec3 = Vec3::new(1.4, 1.8, 0.5);
+/// How high up its console a Generator's dial and Prompt sit…
+pub const GENERATOR_DIAL_HEIGHT: f32 = 1.3;
+/// …and how far out in front of the console's face the Prompt is used from.
+pub const GENERATOR_PROMPT_OUT: f32 = 0.1;
+/// A client runs a live Charge on to at most this share of what it needs: only the Host's word
+/// makes it Held.
+pub const GENERATOR_SHOWN_CHARGE_MAX: f32 = 0.999;
 /// How often, at most, the Host tells everyone how far a Charge has come.
 pub const GENERATOR_CHARGE_TELL_SECS: f32 = 0.5;
 /// How long drinking a Perk takes. The Perk applies at the end.
 pub const PERK_DRINK_SECS: f32 = 2.8;
+/// Which Zone a Perk machine is in is the Zone this far out in front of it and this far up.
+pub const PERK_MACHINE_ZONE_PROBE_OUT: f32 = 0.5;
+pub const PERK_MACHINE_ZONE_PROBE_UP: f32 = 0.5;
 pub const PERK_PRICE_JUGGERNOG: u64 = 2500;
 pub const PERK_PRICE_SPEED_COLA: u64 = 3000;
 pub const PERK_PRICE_DOUBLE_TAP: u64 = 2000;

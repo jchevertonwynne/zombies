@@ -135,7 +135,7 @@ pub(super) const DAM: Layout = Layout {
     nav_nodes: NODES,
     nav_edges: EDGES,
     jump_pads: &[],
-    sapper: SapperTiming { first: 6..=8, gaps: 3..=5 },
+    sapper: SapperTiming { first: DAM_SAPPER_FIRST_ROUNDS, gaps: DAM_SAPPER_ROUND_GAPS },
     sections: &SECTIONS,
     generators: &GENERATORS,
     darkness: true,

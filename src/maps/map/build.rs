@@ -241,7 +241,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let (foot, size) = generator.console();
         self.block(size, foot + Vec3::Y * size.y / 2.0, GENERATOR_CONSOLE_PAINT);
         let face = foot + generator.facing * (GENERATOR_CONSOLE.z / 2.0 + 0.01);
-        self.shape(Vec3::new(0.9, 0.5, 0.02), face + Vec3::Y * 1.3, Quat::from_rotation_arc(Vec3::Z, generator.facing), DRUM_RING);
+        self.shape(Vec3::new(0.9, 0.5, 0.02), face + Vec3::Y * GENERATOR_DIAL_HEIGHT, Quat::from_rotation_arc(Vec3::Z, generator.facing), DRUM_RING);
         let plate = Vec3::new(GENERATOR_PLATE_RADIUS * 2.0, 0.02, GENERATOR_PLATE_RADIUS * 2.0);
         let rim = self.paint(DRUM_RING);
         self.commands.spawn((
