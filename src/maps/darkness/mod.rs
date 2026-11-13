@@ -3,6 +3,7 @@
 //! Powered, the Zone Pack-a-Punch is in waits for every Generator to be Held, and any other Zone
 //! is always lit. Everything here follows `Generators`, so every Player sees the same Zones lit.
 
+use avian3d::collider_tree::ColliderTrees;
 use bevy::camera::Hdr;
 use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
@@ -81,7 +82,20 @@ impl Plugin for DarknessPlugin {
         app.init_resource::<ChalkMaterials>()
             .add_observer(light_camera)
             .add_systems(OnEnter(GameState::Playing), set_ambient)
-            .add_systems(Update, (light_lamps, light_chalk).run_if(in_state(GameState::Playing)));
+            .add_systems(Update, (light_lamps, light_chalk).run_if(in_state(GameState::Playing)))
+            .add_systems(
+                PostUpdate,
+                (
+                    weapon_light::light_teammates,
+                    weapon_light::aim_teammate_lights,
+                    weapon_light::keep_out_of_walls.run_if(resource_exists::<ColliderTrees>),
+                    weapon_light::place_weapon_lights,
+                )
+                    .chain()
+                    .before(TransformSystems::Propagate)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(PostUpdate, weapon_light::view_model_casts_no_shadow);
     }
 }
 
@@ -90,8 +104,8 @@ fn set_ambient(map: Res<MapId>, mut ambient: ResMut<GlobalAmbientLight>) {
     ambient.brightness = if map.layout().darkness { 0.0 } else { AMBIENT_BRIGHTNESS };
 }
 
-/// On a dark Map, the Player camera has HDR and bloom, so what glows halos in the dark, and close
-/// black fog. Both are there from the camera's first frame, while the Map loads: the shaders bloom
+/// On a dark Map, the Player camera has HDR and bloom, so what glows halos in the dark, close
+/// black fog, and the local Player's Weapon Light. Both are there from the camera's first frame, while the Map loads: the shaders bloom
 /// needs compile then, and never stall a Round by being switched on later.
 fn light_camera(add: On<Add<PlayerCamera>>, map: Res<MapId>, mut commands: Commands) {
     if !map.layout().darkness {
@@ -106,6 +120,7 @@ fn light_camera(add: On<Add<PlayerCamera>>, map: Res<MapId>, mut commands: Comma
             ..default()
         },
     ));
+    weapon_light::light_camera(add.entity, &mut commands);
 }
 
 /// Each chalk outline glows faintly while its Zone is Dark.
@@ -157,6 +172,10 @@ fn fade(level: f32, lit: bool, dt: f32) -> f32 {
 fn flicker(level: f32) -> f32 {
     if level < 1.0 && (level * LAMP_FLICKER_RATE).sin() < -0.3 { LAMP_FLICKER_DIP } else { 1.0 }
 }
+
+pub mod weapon_light;
+
+pub use weapon_light::WeaponLight;
 
 #[cfg(test)]
 mod tests;

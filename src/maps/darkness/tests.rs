@@ -7,6 +7,7 @@ use bevy::time::TimeUpdateStrategy;
 use super::*;
 use crate::maps::generator::Generators;
 use crate::maps::map::MapId;
+use crate::players::player::{Seat, player_body};
 use crate::state::GameState;
 
 /// A frame of this many seconds.
@@ -14,8 +15,15 @@ const FRAME: f32 = 0.05;
 
 /// `map` built and Playing, with its Generators all Unclaimed and Darkness running.
 fn playing(map: MapId) -> App {
+    playing_with(map, |_| {})
+}
+
+/// The same, with `extra` added first.
+fn playing_with(map: MapId, extra: impl FnOnce(&mut App)) -> App {
     let mut app = App::new();
-    app.add_plugins((MinimalPlugins, AssetPlugin::default(), TransformPlugin, StatesPlugin))
+    app.add_plugins((MinimalPlugins, AssetPlugin::default(), TransformPlugin, StatesPlugin));
+    extra(&mut app);
+    app
         .init_asset::<Mesh>()
         .init_asset::<StandardMaterial>()
         .insert_state(GameState::Playing)
@@ -24,6 +32,8 @@ fn playing(map: MapId) -> App {
         .insert_resource(GlobalAmbientLight::default())
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(FRAME)))
         .add_plugins(DarknessPlugin);
+    app.finish();
+    app.cleanup();
     app.world_mut().run_system_once(crate::maps::map::spawn_map).unwrap();
     app.update();
     app
@@ -137,6 +147,7 @@ fn camera(app: &mut App) -> Entity {
         .world_mut()
         .spawn((
             crate::players::player::PlayerCamera,
+            Transform::default(),
             DistanceFog {
                 color: Color::srgb(0.02, 0.02, 0.04),
                 falloff: FogFalloff::Linear { start: FOG_START, end: FOG_END },
@@ -198,4 +209,125 @@ fn chalk_glows_faintly_only_in_dark_zones() {
     let mut app = playing(MapId::Greybox);
     let zone = MapId::Greybox.layout().wall_weapons[0].1;
     assert_eq!(chalk_glow(&mut app, zone), 0.0);
+}
+
+/// The Weapon Lights in `app`, each with the entity it hangs from.
+fn weapon_lights(app: &mut App) -> Vec<(Entity, SpotLight)> {
+    let mut query = app.world_mut().query_filtered::<(&ChildOf, &SpotLight), With<WeaponLight>>();
+    query.iter(app.world()).map(|(parent, light)| (parent.parent(), light.clone())).collect()
+}
+
+/// A teammate on `app`'s Map, in Seat 1, as a Co-op Run spawns one.
+fn teammate(app: &mut App, map: MapId) -> Entity {
+    let teammate = app.world_mut().spawn(player_body(Seat(1), "Player 2", &[], map)).id();
+    app.update();
+    teammate
+}
+
+#[test]
+fn on_a_dark_map_the_camera_carries_a_narrow_shadow_casting_weapon_light() {
+    let mut app = playing(MapId::Dam);
+    let camera = camera(&mut app);
+    let lights = weapon_lights(&mut app);
+    assert_eq!(lights.len(), 1, "one light, on the camera");
+    let (on, light) = &lights[0];
+    assert_eq!(*on, camera);
+    assert!((light.range - 30.0).abs() < 1.0, "about 30 m: {}", light.range);
+    assert!((light.inner_angle - 0.12).abs() < 0.01 && (light.outer_angle - 0.30).abs() < 0.01);
+    assert!(light.intensity > 0.0, "always on");
+    assert!(light.shadow_maps_enabled, "it casts shadows");
+}
+
+#[test]
+fn on_other_maps_nobody_carries_a_weapon_light() {
+    let mut app = playing(MapId::Greybox);
+    camera(&mut app);
+    teammate(&mut app, MapId::Greybox);
+    run(&mut app, 0.1);
+    assert!(weapon_lights(&mut app).is_empty());
+}
+
+/// Where `app`'s one Weapon Light hanging from `parent` is, and which way it points, in the world.
+fn light_on(app: &mut App, parent: Entity) -> (Vec3, Vec3) {
+    let mut query = app.world_mut().query_filtered::<(&ChildOf, &GlobalTransform), With<WeaponLight>>();
+    let lights: Vec<_> = query.iter(app.world()).filter(|(on, _)| on.parent() == parent).map(|(_, at)| *at).collect();
+    assert_eq!(lights.len(), 1, "one Weapon Light on {parent:?}");
+    (lights[0].translation(), *lights[0].forward())
+}
+
+#[test]
+fn each_teammate_carries_one_at_eye_height_pointing_where_they_look() {
+    let mut app = playing(MapId::Dam);
+    let body = teammate(&mut app, MapId::Dam);
+    let pitch = -0.4;
+    let yaw = 1.0;
+    {
+        let mut entity = app.world_mut().entity_mut(body);
+        entity.get_mut::<crate::players::player::MoveInput>().unwrap().pitch = pitch;
+        entity.get_mut::<Transform>().unwrap().rotation = Quat::from_rotation_y(yaw);
+    }
+    run(&mut app, 0.1);
+    let (_, light) = weapon_lights(&mut app).into_iter().find(|(on, _)| *on == body).expect("the teammate has a light");
+    assert!(light.shadow_maps_enabled, "a teammate's light casts shadows too");
+    let centre = app.world().entity(body).get::<GlobalTransform>().unwrap().translation();
+    let (at, pointing) = light_on(&mut app, body);
+    let look = crate::weapons::muzzle::aim_direction(yaw, pitch);
+    assert!(pointing.dot(look) > 0.999, "points where they look: {pointing} vs {look}");
+    let eye = centre + Vec3::Y * PLAYER_EYE_HEIGHT;
+    let from_eye = at - eye;
+    assert!(from_eye.normalize().dot(look) > 0.999, "out along the look from their eye: {from_eye}");
+    assert!(from_eye.length() > 1.0, "ahead of their Weapon: {from_eye}");
+}
+
+#[test]
+fn the_camera_light_sits_ahead_of_the_longest_view_model_muzzle() {
+    for row in crate::tuning::WEAPON_HANDLING {
+        let muzzle = crate::weapons::weapon::view_muzzle_depth(row.class);
+        assert!(WEAPON_LIGHT_AHEAD > muzzle + 0.1, "{:?}'s muzzle is {muzzle} m ahead", row.class);
+    }
+    let mut app = playing(MapId::Dam);
+    let camera = camera(&mut app);
+    let (at, pointing) = light_on(&mut app, camera);
+    assert_eq!(pointing, Vec3::NEG_Z);
+    assert!((at - Vec3::NEG_Z * WEAPON_LIGHT_AHEAD).length() < 1e-4, "dead ahead, past the muzzle: {at}");
+}
+
+#[test]
+fn a_weapon_light_comes_in_short_of_a_wall_in_reach() {
+    assert_eq!(weapon_light::reach(None), WEAPON_LIGHT_AHEAD);
+    assert_eq!(weapon_light::reach(Some(10.0)), WEAPON_LIGHT_AHEAD);
+    assert!((weapon_light::reach(Some(0.6)) - 0.5).abs() < 1e-6);
+    assert_eq!(weapon_light::reach(Some(0.0)), 0.0, "never behind the eye");
+}
+
+#[test]
+fn nothing_on_the_camera_casts_a_shadow() {
+    for map in [MapId::Dam, MapId::Greybox] {
+        let mut app = playing(map);
+        let camera = camera(&mut app);
+        let gun = app.world_mut().spawn((Mesh3d::default(), ChildOf(camera))).id();
+        let part = app.world_mut().spawn((Mesh3d::default(), ChildOf(gun))).id();
+        let elsewhere = app.world_mut().spawn(Mesh3d::default()).id();
+        app.update();
+        let casts = |e: Entity| !app.world().entity(e).contains::<bevy::light::NotShadowCaster>();
+        assert!(!casts(gun) && !casts(part), "the view model on {map:?}");
+        assert!(casts(elsewhere), "the world still does");
+    }
+}
+
+#[test]
+fn a_weapon_light_never_reaches_through_a_wall() {
+    use avian3d::prelude::*;
+    let mut app = playing_with(MapId::Dam, |app| {
+        app.add_plugins(PhysicsPlugins::default());
+    });
+    // Off the Map, a teammate faces a wall 0.7 m from their eye.
+    let body = teammate(&mut app, MapId::Dam);
+    let centre = Vec3::new(0.0, 500.0, 0.0);
+    let eye = centre + Vec3::Y * PLAYER_EYE_HEIGHT;
+    app.world_mut().entity_mut(body).insert((Transform::from_translation(centre), Position(centre)));
+    app.world_mut().spawn((RigidBody::Static, Collider::cuboid(4.0, 4.0, 0.2), Transform::from_translation(eye - Vec3::Z * 0.8)));
+    run(&mut app, 0.2);
+    let (at, _) = light_on(&mut app, body);
+    assert!((at - (eye - Vec3::Z * (0.7 - WEAPON_LIGHT_WALL_GAP))).length() < 0.02, "just short of the wall: {at}");
 }
