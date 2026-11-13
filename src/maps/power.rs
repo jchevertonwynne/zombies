@@ -1,6 +1,7 @@
 //! Power: off at the start of every Run until the Player throws the Power Switch in the Power
-//! Room, then on for the rest of the Run. Perk Machines, Power Doors, Traps, and later the
-//! Teleporter, read `Power` to know.
+//! Room, then on for the rest of the Run. Power Doors, Jump Pads and the Teleporter read `Power`
+//! to know. Perk Machines, Traps and Pack-a-Punch ask `Supply`, which reads `Power` on a Map with
+//! a Power Switch and the Generators (see `generator`) on a Map with them.
 
 use avian3d::prelude::*;
 use bevy::ecs::system::SystemParam;

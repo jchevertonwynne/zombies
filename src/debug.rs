@@ -8,6 +8,8 @@ use crate::ui::hud::overlay::{Overlay, Overlays};
 use crate::players::player::{LocalPlayer, spawn_debug_player};
 use crate::economy::power_up::DropPowerUp;
 use crate::enemies::sapper::SummonSapper;
+use crate::authority::HostSimulation;
+use crate::maps::generator::Generators;
 use crate::state::input_runs;
 use crate::weapons::weapon::{Loadout, WeaponCopy};
 
@@ -30,7 +32,8 @@ pub struct DebugView(pub bool);
 /// Mystery Box would. F6 Pack-a-Punches the Weapon in hand. F7 drops the next Power-up from the
 /// bag just ahead of the Player. F8 pulses the next effect overlay. F4 (hold fn on a Mac) puts a
 /// second Player in Seat 1. F10 summons the Sapper, after
-/// its warning, once the Round is under way.
+/// its warning, once the Round is under way. [ (beside it, and not an F-key, which a Mac's
+/// keyboard takes) Claims every Generator at once, on the Host.
 pub struct DebugPlugin;
 
 impl Plugin for DebugPlugin {
@@ -75,6 +78,14 @@ impl Plugin for DebugPlugin {
             )
             .add_systems(
                 Update,
+                claim_every_generator
+                    .in_set(HostSimulation)
+                    .run_if(resource_exists::<Generators>)
+                    .run_if(input_runs)
+                    .run_if(input_just_pressed(KeyCode::BracketLeft)),
+            )
+            .add_systems(
+                Update,
                 spawn_debug_player
                     .run_if(input_runs)
                     .run_if(input_just_pressed(KeyCode::F4)),
@@ -85,6 +96,12 @@ impl Plugin for DebugPlugin {
                     .run_if(input_runs)
                     .run_if(input_just_pressed(KeyCode::F8)),
             );
+    }
+}
+
+fn claim_every_generator(mut generators: ResMut<Generators>) {
+    for index in 0..generators.states().len() {
+        generators.hold(index);
     }
 }
 
