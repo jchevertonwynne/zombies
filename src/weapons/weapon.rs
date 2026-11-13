@@ -1206,7 +1206,7 @@ fn fire(
     if !loadout.try_fire(pressed, just_pressed, entries) {
         // Pulling the trigger on an empty Magazine clicks, and starts a Reload.
         if just_pressed && loadout.gun_ammo().0 == 0 {
-            cues.write(PlayCue { cue: Cue::EmptyClick, at: None });
+            cues.write(PlayCue::new(Cue::EmptyClick, None));
             loadout.start_reload(entries);
         }
         return;
@@ -1403,7 +1403,7 @@ fn knife(
         return;
     }
     knife.cooldown = KNIFE_COOLDOWN_SECS;
-    cues.write(PlayCue { cue: Cue::KnifeSwing, at: None });
+    cues.write(PlayCue::new(Cue::KnifeSwing, None));
 
     if let Some(hit) = spatial.cast_shape(
         &Collider::sphere(KNIFE_RADIUS),
@@ -1424,7 +1424,7 @@ fn knife(
             ammo_mods: AmmoMods::NONE,
             burn: None,
         });
-        cues.write(PlayCue { cue: Cue::KnifeHit, at: None });
+        cues.write(PlayCue::new(Cue::KnifeHit, None));
     }
 }
 
