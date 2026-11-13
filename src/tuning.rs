@@ -1544,6 +1544,25 @@ pub const HELLHOUND_FOG_END: f32 = 20.0;
 /// …moving at this many metres a second (approx).
 pub const FOG_PULL_SPEED: f32 = 8.0;
 
+// Darkness
+/// The ambient light's brightness on a Map without Darkness.
+pub const AMBIENT_BRIGHTNESS: f32 = 120.0;
+/// On a Map with Darkness, the black fog is linear from start to end (#283).
+pub const DARK_FOG_START: f32 = 8.0;
+pub const DARK_FOG_END: f32 = 40.0;
+/// A chalk outline in a Dark Zone glows this much (#283).
+pub const CHALK_GLOW: f32 = 0.25;
+/// A lamp's full intensity, in lumens.
+pub const LAMP_INTENSITY: f32 = 400_000.0;
+/// A Zone's lamps fade up over this long as it goes lit (#283)…
+pub const LAMP_FADE_UP_SECS: f32 = 1.2;
+/// …and drop over this long as it goes Dark (invented: "faster").
+pub const LAMP_FADE_DOWN_SECS: f32 = 0.3;
+/// On the way up they stutter down to this fraction of their light, this often over the fade
+/// (invented).
+pub const LAMP_FLICKER_DIP: f32 = 0.15;
+pub const LAMP_FLICKER_RATE: f32 = 47.0;
+
 // Points
 pub const STARTING_POINTS: u64 = 500;
 /// Paid for each hit a Zombie survives. The killing hit pays kill Points only.
