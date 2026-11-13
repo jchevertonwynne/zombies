@@ -1529,7 +1529,7 @@ fn hear_teleporter(
         let before = teleporter.view();
         teleporter.show(view);
         let mut cue = |cue, at| {
-            cues.write(PlayCue { cue, at: Some(at) });
+            cues.write(PlayCue::new(cue, Some(at)));
         };
         if before.linking.is_some() && view.linking.is_none() && view.linked != before.linked {
             cue(Cue::MainframeLink, mainframe_use_point());
@@ -1829,7 +1829,7 @@ fn hear_offers(
             WorldEvent::Offer(wire) => {
                 let Some(offer) = Offer::from_wire(wire) else { continue };
                 let cue = if wire.1 { Cue::PactOffer } else { Cue::BoonOffer };
-                cues.write(PlayCue { cue, at: None });
+                cues.write(PlayCue::new(cue, None));
                 commands.entity(player).insert((offer, Choosing));
             }
             WorldEvent::OfferClosed => {
