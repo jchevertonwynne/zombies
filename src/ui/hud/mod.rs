@@ -2,11 +2,13 @@
 //! Bottom-right: Points with ±N popups, the Weapon in hand with its Ammo Mods, Equipment and `magazine | reserve`. Under the
 //! crosshair: the Prompt and a Reload hint. Around it: damage indicators. Bottom-centre: timer
 //! bars for timed Power-ups, with a banner for instant ones. Under it all, the effect overlay
-//! layer. A Co-op Run adds teammates' rows over the Points and the rest of `coop`. No Box, Power
-//! or Pack-a-Punch state shows.
+//! layer. A Co-op Run adds teammates' rows over the Points and the rest of `coop`. On a Map with
+//! Generators, a row of marks along the top left shows each (`generators`). No Box, Power or
+//! Pack-a-Punch state shows.
 
 pub mod coop;
 pub mod damage_indicator;
+pub mod generators;
 pub mod overlay;
 
 use bevy::prelude::*;
@@ -282,7 +284,7 @@ pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((OverlayPlugin, DamageIndicatorPlugin))
+        app.add_plugins((OverlayPlugin, DamageIndicatorPlugin, generators::GeneratorHudPlugin))
             .init_resource::<PointsFlash>()
             .init_resource::<LastBalance>()
             .init_resource::<Banner>()
