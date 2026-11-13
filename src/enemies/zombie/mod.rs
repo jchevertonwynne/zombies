@@ -7,7 +7,7 @@ use bevy_transform_interpolation::{TransformEasingSystems, TranslationEasingStat
 use crate::authority::HostSimulation;
 use crate::maps::door::Door;
 use crate::layers::GameLayer;
-use crate::modifier::{Stat, resolve};
+use crate::modifier::{Source, Stat, resolve};
 use crate::maps::barrier::{Barriers, Entering};
 use crate::maps::map::{BarrierId, MapId};
 use crate::maps::zone::ZoneId;
@@ -147,6 +147,40 @@ pub struct DamageZombie {
 pub struct StunZombie {
     pub zombie: Entity,
     pub secs: f32,
+}
+
+/// Factors on one Zombie's move speed, one per source, multiplied together. Absent, or empty, it
+/// moves at its usual speed. Classic never adds one; anything layered on it may (ADR 0007).
+#[derive(Component, Debug, Default, Clone, PartialEq)]
+pub struct ZombieMoveFactor(Vec<(Source, f32)>);
+
+impl ZombieMoveFactor {
+    /// Sets `source`'s factor, replacing any it already had.
+    pub fn set(&mut self, source: Source, factor: f32) {
+        match self.0.iter_mut().find(|(held, _)| *held == source) {
+            Some((_, held)) => *held = factor,
+            None => self.0.push((source, factor)),
+        }
+    }
+
+    /// Takes `source`'s factor off.
+    pub fn clear(&mut self, source: Source) {
+        self.0.retain(|(held, _)| *held != source);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Every source's factor, multiplied.
+    pub fn factor(&self) -> f32 {
+        self.0.iter().map(|(_, factor)| factor).product()
+    }
+}
+
+/// A Zombie's move speed of `speed`, after its move factors if it has any.
+pub fn moved_speed(speed: f32, factor: Option<&ZombieMoveFactor>) -> f32 {
+    speed * factor.map_or(1.0, ZombieMoveFactor::factor)
 }
 
 /// A stunned Zombie, standing still for `left` more seconds.
@@ -935,7 +969,16 @@ fn already_past(first: Vec3, second: Vec3, feet: Vec3) -> bool {
 /// under gravity with grounded move-and-slide.
 fn chase(
     mut zombies: Query<
-        (Entity, &mut Zombie, &mut Route, &mut Transform, &Collider, Option<&Lured>, Option<&Seeking>),
+        (
+            Entity,
+            &mut Zombie,
+            &mut Route,
+            &mut Transform,
+            &Collider,
+            Option<&Lured>,
+            Option<&Seeking>,
+            Option<&ZombieMoveFactor>,
+        ),
         (
             Without<Dying>,
             Without<Rising>,
@@ -957,7 +1000,7 @@ fn chase(
     let filter_mask = [GameLayer::World, GameLayer::Zombie, GameLayer::Player];
     let positions: Vec<_> = zombies.iter().map(|(entity, _, _, transform, ..)| (entity, transform.translation)).collect();
 
-    for (entity, mut zombie, mut route, mut transform, collider, lured, seeking) in &mut zombies {
+    for (entity, mut zombie, mut route, mut transform, collider, lured, seeking, move_factor) in &mut zombies {
         let half = zombie.half_height();
         let feet = transform.translation - Vec3::Y * half;
 
@@ -1034,7 +1077,7 @@ fn chase(
         if facing.length_squared() > 1e-4 {
             transform.rotation = Quat::from_rotation_y(f32::atan2(-facing.x, -facing.z));
         }
-        let speed = resolve(Stat::ZombieSpeed, zombie.speed(), modifiers);
+        let speed = moved_speed(resolve(Stat::ZombieSpeed, zombie.speed(), modifiers), move_factor);
         let stride = if planted { Vec3::ZERO } else { heading * speed };
         let velocity = stride + Vec3::Y * (zombie.fall_speed - GRAVITY * dt);
 
@@ -1553,6 +1596,28 @@ mod tests {
     use super::*;
 
     const STEP: f32 = 0.1;
+
+    #[test]
+    fn a_zombie_without_a_move_factor_moves_at_its_speed() {
+        assert_eq!(moved_speed(3.0, None), 3.0);
+        assert_eq!(moved_speed(3.0, Some(&ZombieMoveFactor::default())), 3.0);
+    }
+
+    #[test]
+    fn move_factors_from_different_sources_multiply_and_one_source_holds_one() {
+        let mut factor = ZombieMoveFactor::default();
+        factor.set(Source("slow"), 0.5);
+        factor.set(Source("fast"), 1.25);
+        assert!((moved_speed(4.0, Some(&factor)) - 2.5).abs() < 1e-6);
+        // Setting a source again replaces its factor rather than stacking it.
+        factor.set(Source("slow"), 0.5);
+        assert!((moved_speed(4.0, Some(&factor)) - 2.5).abs() < 1e-6);
+        factor.clear(Source("slow"));
+        assert!((moved_speed(4.0, Some(&factor)) - 5.0).abs() < 1e-6);
+        assert!(!factor.is_empty());
+        factor.clear(Source("fast"));
+        assert!(factor.is_empty());
+    }
 
     /// A Zombie is past `first` only on the edge's own floor: walking level out of the top node of
     /// a drop it is, but on another floor directly under or over the edge it never is.
