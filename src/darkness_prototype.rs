@@ -210,7 +210,7 @@ fn apply(
     let local_cam = local_camera.iter().next();
     for (mut light, parent) in &mut spots {
         light.intensity = if v == 0 { 0.0 } else { 900_000.0 };
-        light.shadow_maps_enabled = v == 2 && Some(parent.parent()) == local_cam;
+        light.shadow_maps_enabled = v == 2 && (std::env::var("ZOMBIES_DARK_ALL_SHADOWS").is_ok() || Some(parent.parent()) == local_cam);
     }
     let here_dark = local_zone(&player)
         .and_then(|z| dark.zones.get(&z))
