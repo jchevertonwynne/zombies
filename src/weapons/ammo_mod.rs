@@ -223,13 +223,26 @@ pub struct Struck {
 /// The held Ammo Mods that trigger on one damage event. Each ready one rolls on its own, taking
 /// one number in [0, 1) from `roll`, so two can trigger on the same hit. Every trigger but
 /// Turned's kills the shot Zombie, so Turned rolls last and never on a hit another one kills.
-pub fn triggers(held: AmmoMods, cooldowns: &Cooldowns, struck: Struck, mut roll: impl FnMut() -> f32) -> Vec<AmmoMod> {
+pub fn triggers(held: AmmoMods, cooldowns: &Cooldowns, struck: Struck, roll: impl FnMut() -> f32) -> Vec<AmmoMod> {
+    triggers_within(held, cooldowns, struck, true, roll)
+}
+
+/// `triggers`, with `turn_room` saying whether another Turned ally fits under the
+/// `TurnedAllyCap`. Without room Turned isn't rolled at all, so it starts no cooldown.
+pub fn triggers_within(
+    held: AmmoMods,
+    cooldowns: &Cooldowns,
+    struck: Struck,
+    turn_room: bool,
+    mut roll: impl FnMut() -> f32,
+) -> Vec<AmmoMod> {
     let mut fired = Vec::new();
     let mut lethal = struck.lethal;
     for ammo_mod in held.iter() {
         if !cooldowns.ready(ammo_mod)
             || (lethal && !ammo_mod.on_killing_hit())
             || (struck.emerging && !ammo_mod.on_emerging())
+            || (ammo_mod == AmmoMod::Turned && !turn_room)
         {
             continue;
         }
@@ -254,6 +267,11 @@ pub struct Link {
 /// Zombie hit arcs on to every Zombie not yet hit within its jump's radius, given a clear line,
 /// until the radii run out or `DEAD_WIRE_MAX_ZOMBIES` (the shot one included) are hit.
 pub fn dead_wire_chain(shot: Vec3, others: &[Vec3], clear: impl Fn(Vec3, Vec3) -> bool) -> Vec<Link> {
+    chain(shot, others, DEAD_WIRE_MAX_ZOMBIES - 1, clear)
+}
+
+/// A chain out from `shot` at Dead Wire's jump radii, striking at most `max` of the others.
+pub fn chain(shot: Vec3, others: &[Vec3], max: usize, clear: impl Fn(Vec3, Vec3) -> bool) -> Vec<Link> {
     let mut links: Vec<Link> = Vec::new();
     let mut hit = vec![false; others.len()];
     // Breadth first: (index or the shot, where it stands, its depth).
@@ -261,7 +279,7 @@ pub fn dead_wire_chain(shot: Vec3, others: &[Vec3], clear: impl Fn(Vec3, Vec3) -
     while let Some((from, at, depth)) = queue.pop_front() {
         let Some(&radius) = DEAD_WIRE_JUMP_RADII.get(depth as usize) else { continue };
         for (index, &other) in others.iter().enumerate() {
-            if links.len() + 1 >= DEAD_WIRE_MAX_ZOMBIES {
+            if links.len() >= max {
                 return links;
             }
             if hit[index] || at.distance(other) > radius || !clear(at, other) {
@@ -338,18 +356,102 @@ pub struct AmmoModHit {
     pub ammo_mods: AmmoMods,
 }
 
+/// The most Turned allies alive at once, counting every source of them: at the cap a Turned
+/// trigger doesn't fire and starts no cooldown. Classic has none (ADR 0007).
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct TurnedAllyCap(pub Option<u32>);
+
+impl TurnedAllyCap {
+    /// Whether one more fits beside the `alive` allies.
+    pub fn has_room(self, alive: usize) -> bool {
+        self.0.is_none_or(|cap| alive < cap as usize)
+    }
+}
+
+/// An Ammo Mod element a `CastEffect` asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Element {
+    /// Dead Wire's shock.
+    Shock,
+    /// Blast Furnace's burn.
+    Fire,
+    /// Thunder Wall's fling, all round.
+    Knockback,
+    /// Fireworks' phantom gun.
+    PhantomGun,
+    /// A Turned ally.
+    Turned,
+}
+
+/// Where a `CastEffect` lands.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CastTarget {
+    Zombie(Entity),
+    Point(Vec3),
+}
+
+/// A request to cast an Ammo Mod element, as if a trigger had fired, but from a Zombie or a point
+/// rather than a shot (ADR 0007). Its damage is `Attack::AmmoMod(pay)`, so it never rolls an Ammo
+/// Mod. It plays no cue.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct CastEffect {
+    /// Whose it is, who its kills credit.
+    pub player: Entity,
+    pub element: Element,
+    pub target: CastTarget,
+    /// How big: Shock, the Zombies struck; Fire, its radius in metres; Knockback, the Zombies
+    /// flung; PhantomGun, its shots; Turned, the ally's lifetime in seconds.
+    pub size: f32,
+    /// Shock: strike every Zombie this close to the target straight from it, rather than
+    /// chaining. Knockback: how close a Zombie must be (Thunder Wall's radius without it).
+    pub reach: Option<f32>,
+    /// Fire: seconds it stays as a pool setting alight any Zombie that steps in; 0 burns once.
+    pub lasts: f32,
+    pub pay: Pay,
+    /// A ring of this colour on the target for `CAST_ACCENT_SECS`.
+    pub accent: Option<Color>,
+    /// False skips every visual, but not the effect.
+    pub show: bool,
+}
+
 /// A Zombie on the Player's side after a Turned trigger. It's no longer a `Zombie`, so nothing
 /// can hurt it and the Round doesn't wait for it.
-#[derive(Component, Debug, Default)]
+#[derive(Component, Debug)]
 pub struct TurnedAlly {
     /// The Player whose Weapon turned it, who its kills credit.
     player: Option<Entity>,
+    /// Seconds it lives.
+    pub(crate) lifetime: f32,
     elapsed: f32,
     kills: u32,
     wind_up: Option<f32>,
     /// Seconds left of its last swing once its time or kills are up.
     ending: Option<f32>,
     fall_speed: f32,
+}
+
+impl Default for TurnedAlly {
+    fn default() -> Self {
+        Self {
+            player: None,
+            lifetime: TURNED_LIFETIME_SECS,
+            elapsed: 0.0,
+            kills: 0,
+            wind_up: None,
+            ending: None,
+            fall_speed: 0.0,
+        }
+    }
+}
+
+/// A fire pool a `CastEffect` left: it sets alight every Zombie that stands in it.
+#[derive(Component, Debug)]
+struct FirePool {
+    player: Entity,
+    at: Vec3,
+    radius: f32,
+    left: f32,
+    show: bool,
 }
 
 /// A body thrown by a Thunder Wall or a turn.
@@ -369,11 +471,16 @@ struct Phantom {
     base: Vec3,
     elapsed: f32,
     shots: u32,
+    /// The shots it fires in all.
+    total: u32,
+    pay: Pay,
+    show: bool,
 }
 
-/// Dead Wire hits waiting out their delay: (seconds left, Zombie, Player whose Weapon it was).
+/// Dead Wire hits waiting out their delay: (seconds left, Zombie, Player whose Weapon it was, its
+/// pay).
 #[derive(Resource, Default)]
-struct DelayedHits(Vec<(f32, Entity, Entity)>);
+struct DelayedHits(Vec<(f32, Entity, Entity, Pay)>);
 
 /// Short-lived lines and bursts showing each Ammo Mod at work.
 #[derive(Resource, Default)]
@@ -388,6 +495,8 @@ struct Flash {
 enum Shape {
     Line(Vec3, Vec3),
     Burst(Vec3, f32),
+    /// A flat ring on the ground: (centre, radius).
+    Ring(Vec3, f32),
 }
 
 const FLASH_SECS: f32 = 0.25;
@@ -404,6 +513,8 @@ pub struct AmmoModPlugin;
 impl Plugin for AmmoModPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<AmmoModHit>()
+            .add_message::<CastEffect>()
+            .init_resource::<TurnedAllyCap>()
             .init_resource::<DelayedHits>()
             .init_resource::<Flashes>()
             .add_systems(Startup, load_assets)
@@ -411,8 +522,11 @@ impl Plugin for AmmoModPlugin {
             .add_systems(
                 Update,
                 (
-                    (roll_ammo_mods, run_delayed_hits, fire_phantoms).chain().in_set(HostSimulation).before(apply_damage),
-                    draw_flashes,
+                    (roll_ammo_mods, cast_effects, burn_in_pools, run_delayed_hits, fire_phantoms)
+                        .chain()
+                        .in_set(HostSimulation)
+                        .before(apply_damage),
+                    (draw_flashes, draw_pools),
                 )
                     .run_if(world_runs),
             )
@@ -470,8 +584,10 @@ fn roll_ammo_mods(
     mut ignite: MessageWriter<Ignite>,
     mut kills: MessageWriter<ZombieKilled>,
     (mut stuns, mut cues): (MessageWriter<StunZombie>, MessageWriter<PlayCue>),
+    (cap, allies): (Res<TurnedAllyCap>, Query<(), With<TurnedAlly>>),
     time: Res<Time>,
 ) {
+    let mut allies = allies.iter().count();
     for (_, mut cooldowns) in &mut players {
         cooldowns.tick(time.delta_secs());
     }
@@ -491,7 +607,7 @@ fn roll_ammo_mods(
             lethal: dying || zombie.health() <= 0.0 || hit.damage >= zombie.health(),
             emerging: rising,
         };
-        let fired = triggers(hit.ammo_mods, &cooldowns, struck, rand::random::<f32>);
+        let fired = triggers_within(hit.ammo_mods, &cooldowns, struck, cap.has_room(allies), rand::random::<f32>);
         if fired.is_empty() {
             continue;
         }
@@ -509,10 +625,7 @@ fn roll_ammo_mods(
                 continue;
             }
             cooldowns.start(ammo_mod, resolve(Stat::AmmoModCooldown, ammo_mod.cooldown_secs(), &modifiers.0));
-            cues.write(PlayCue {
-                cue: ammo_mod.cue(),
-                at: Some(at),
-            });
+            cues.write(PlayCue::new(ammo_mod.cue(), Some(at)));
             let colour = ammo_mod.glint();
             match ammo_mod {
                 AmmoMod::BlastFurnace => {
@@ -548,7 +661,7 @@ fn roll_ammo_mods(
                         } else {
                             0.0
                         };
-                        delayed.0.push((delay, zombie, hit.player));
+                        delayed.0.push((delay, zombie, hit.player, Pay::Paid));
                         spent.push(zombie);
                     }
                 }
@@ -563,6 +676,9 @@ fn roll_ammo_mods(
                             base: feet,
                             elapsed: 0.0,
                             shots: 0,
+                            total: FIREWORKS_SHOTS,
+                            pay: Pay::Unpaid,
+                            show: true,
                         },
                         Mesh3d(assets.gun.clone()),
                         MeshMaterial3d(assets.phantom.clone()),
@@ -588,45 +704,323 @@ fn roll_ammo_mods(
                     flashes.burst(at, THUNDER_WALL_RADIUS, colour);
                 }
                 AmmoMod::Turned => {
-                    // The turn counts toward the Round as an Unpaid Kill; the ally lives on.
-                    kills.write(ZombieKilled {
-                        player: Some(hit.player),
-                        pay: Pay::Unpaid,
-                        headshot: false,
-                        zone: HitZone::Torso,
-                        attack: Attack::AmmoMod(Pay::Unpaid),
+                    allies += 1;
+                    let special = |zombie| zombies.get(zombie).is_ok_and(|(_, other, ..)| other.special_kind().is_some());
+                    let turn = Turn {
+                        player: hit.player,
+                        zombie: shot,
                         at,
-                        surge: false,
-                    });
-                    commands
-                        .entity(shot)
-                        .remove::<(Zombie, Lured, Burning)>()
-                        .insert((
-                            TurnedAlly {
-                                player: Some(hit.player),
-                                ..default()
-                            },
-                            MeshMaterial3d(assets.ally.clone()),
-                        ));
-                    // Bullets pass through it.
-                    for child in children.iter() {
-                        if hit_areas.contains(child) {
-                            commands.entity(child).remove::<(Collider, CollisionLayers)>();
-                        }
-                    }
-                    for i in turn_blast_targets(at, &positions) {
-                        if zombies.get(others[i]).is_ok_and(|(_, other, ..)| other.special_kind().is_some()) {
-                            continue;
-                        }
-                        kill(&mut damage, Some(hit.player), others[i], Pay::Unpaid);
-                        commands.entity(others[i]).insert(Flung::away(at, positions[i], TURNED_FLING_SPEED, TURNED_FLING_LIFT));
-                        spent.push(others[i]);
-                    }
-                    flashes.burst(at, TURNED_BLAST_RADIUS, colour);
+                        lifetime: TURNED_LIFETIME_SECS,
+                        show: true,
+                    };
+                    spent.extend(turn.apply(
+                        &mut commands,
+                        &assets,
+                        children,
+                        &hit_areas,
+                        (&others, &positions, special),
+                        (&mut kills, &mut damage, &mut flashes),
+                    ));
                 }
             }
         }
         spent.push(shot);
+    }
+}
+
+/// One Zombie turned: it counts toward the Round as an Unpaid Kill and lives on as an ally for
+/// `lifetime`, and its turn kills (Unpaid) and throws the closest Zombies around it, leaving
+/// Napalms and Shriekers be.
+struct Turn {
+    player: Entity,
+    zombie: Entity,
+    at: Vec3,
+    lifetime: f32,
+    show: bool,
+}
+
+impl Turn {
+    /// Plays the turn out among the `others` at `positions`, returning the Zombies its blast
+    /// killed.
+    fn apply(
+        self,
+        commands: &mut Commands,
+        assets: &AmmoModAssets,
+        children: &Children,
+        hit_areas: &Query<(), With<HitArea>>,
+        (others, positions, special): (&[Entity], &[Vec3], impl Fn(Entity) -> bool),
+        (kills, damage, flashes): (&mut MessageWriter<ZombieKilled>, &mut MessageWriter<DamageZombie>, &mut Flashes),
+    ) -> Vec<Entity> {
+        let Turn { player, zombie, at, lifetime, show } = self;
+        kills.write(ZombieKilled {
+            player: Some(player),
+            pay: Pay::Unpaid,
+            headshot: false,
+            zone: HitZone::Torso,
+            attack: Attack::AmmoMod(Pay::Unpaid),
+            at,
+            surge: false,
+        });
+        commands.entity(zombie).remove::<(Zombie, Lured, Burning)>().insert((
+            TurnedAlly {
+                player: Some(player),
+                lifetime,
+                ..default()
+            },
+            MeshMaterial3d(assets.ally.clone()),
+        ));
+        // Bullets pass through it.
+        for child in children.iter() {
+            if hit_areas.contains(child) {
+                commands.entity(child).remove::<(Collider, CollisionLayers)>();
+            }
+        }
+        let mut blasted = Vec::new();
+        for i in turn_blast_targets(at, positions) {
+            if special(others[i]) {
+                continue;
+            }
+            kill(damage, Some(player), others[i], Pay::Unpaid);
+            commands.entity(others[i]).insert(Flung::away(at, positions[i], TURNED_FLING_SPEED, TURNED_FLING_LIFT));
+            blasted.push(others[i]);
+        }
+        if show {
+            flashes.burst(at, TURNED_BLAST_RADIUS, AmmoMod::Turned.glint());
+        }
+        blasted
+    }
+}
+
+/// Each `CastEffect` plays out as its Ammo Mod's trigger would, from its target: a Zombie, or a
+/// point. A Turned cast at the `TurnedAllyCap` turns nothing.
+fn cast_effects(
+    mut commands: Commands,
+    mut casts: MessageReader<CastEffect>,
+    mut delayed: ResMut<DelayedHits>,
+    mut flashes: ResMut<Flashes>,
+    zombies: Query<(Entity, &Zombie, &Transform, &Children, Has<Dying>, Has<Rising>), Without<Telegraph>>,
+    hit_areas: Query<(), With<HitArea>>,
+    spatial: SpatialQuery,
+    assets: Res<AmmoModAssets>,
+    (cap, allies): (Res<TurnedAllyCap>, Query<(), With<TurnedAlly>>),
+    mut damage: MessageWriter<DamageZombie>,
+    mut ignite: MessageWriter<Ignite>,
+    mut kills: MessageWriter<ZombieKilled>,
+) {
+    let mut allies = allies.iter().count();
+    // Zombies already killed or turned by a cast this frame.
+    let mut spent: Vec<Entity> = Vec::new();
+    for cast in casts.read() {
+        let target = match cast.target {
+            CastTarget::Zombie(zombie) => zombies
+                .get(zombie)
+                .ok()
+                .filter(|(_, _, _, _, dying, _)| !dying && !spent.contains(&zombie))
+                .map(|(entity, _, transform, ..)| (Some(entity), transform.translation)),
+            CastTarget::Point(at) => Some((None, at)),
+        };
+        let Some((struck, at)) = target else {
+            continue;
+        };
+        // Every other living Zombie, with where it stands.
+        let (others, positions): (Vec<Entity>, Vec<Vec3>) = zombies
+            .iter()
+            .filter(|(entity, _, _, _, dying, _)| Some(*entity) != struck && !dying && !spent.contains(entity))
+            .map(|(entity, _, transform, ..)| (entity, transform.translation))
+            .unzip();
+        let player = cast.player;
+        let show = cast.show;
+        match cast.element {
+            Element::Shock => {
+                let colour = AmmoMod::DeadWire.glint();
+                let count = cast.size.max(0.0) as usize;
+                let links: Vec<Link> = match cast.reach {
+                    Some(reach) => closest_within(at, &positions, reach, count, |_| true)
+                        .into_iter()
+                        .map(|index| Link { index, from: None, depth: 1 })
+                        .collect(),
+                    None => chain(at, &positions, count, |a, b| in_sight(&spatial, a + Vec3::Y * 0.6, b + Vec3::Y * 0.6)),
+                };
+                if let Some(zombie) = struck {
+                    kill(&mut damage, Some(player), zombie, cast.pay);
+                    spent.push(zombie);
+                }
+                for link in links {
+                    if show {
+                        let from = link.from.map_or(at, |from| positions[from]);
+                        flashes.line(from, positions[link.index], colour);
+                    }
+                    let delay = if link.depth > 1 {
+                        rand::random_range(DEAD_WIRE_DELAY_MIN_SECS..DEAD_WIRE_DELAY_MAX_SECS) * link.depth as f32
+                    } else {
+                        0.0
+                    };
+                    delayed.0.push((delay, others[link.index], player, cast.pay));
+                    spent.push(others[link.index]);
+                }
+                if show {
+                    flashes.burst(at, 0.6, colour);
+                }
+            }
+            Element::Fire => {
+                let radius = cast.size.max(0.0);
+                for (i, &other) in positions.iter().enumerate() {
+                    if at.with_y(0.0).distance(other.with_y(0.0)) <= radius
+                        && let Ok((_, target, ..)) = zombies.get(others[i])
+                    {
+                        ignite.write(Ignite {
+                            player,
+                            zombie: others[i],
+                            burn: blast_furnace_burn(target.health()),
+                        });
+                    }
+                }
+                if cast.lasts > 0.0 {
+                    commands.spawn((
+                        InRun,
+                        Name::new("Fire pool"),
+                        FirePool {
+                            player,
+                            at,
+                            radius,
+                            left: cast.lasts,
+                            show,
+                        },
+                    ));
+                }
+                if show {
+                    flashes.burst(at, radius, AmmoMod::BlastFurnace.glint());
+                }
+            }
+            Element::Knockback => {
+                let reach = cast.reach.unwrap_or(THUNDER_WALL_RADIUS);
+                let count = cast.size.max(0.0) as usize;
+                if let Some(zombie) = struck {
+                    kill(&mut damage, Some(player), zombie, cast.pay);
+                    spent.push(zombie);
+                }
+                for i in closest_within(at, &positions, reach, count, |_| true) {
+                    kill(&mut damage, Some(player), others[i], cast.pay);
+                    // The Sapper survives it, so it stays on its feet.
+                    if !zombies.get(others[i]).is_ok_and(|(_, other, ..)| other.is_sapper()) {
+                        commands
+                            .entity(others[i])
+                            .insert(Flung::away(at, positions[i], THUNDER_WALL_FLING_SPEED, THUNDER_WALL_FLING_LIFT));
+                    }
+                    spent.push(others[i]);
+                }
+                if show {
+                    flashes.burst(at, reach, AmmoMod::ThunderWall.glint());
+                }
+            }
+            Element::PhantomGun => {
+                let feet = match struck {
+                    Some(_) => at - Vec3::Y * (ZOMBIE_RADIUS + ZOMBIE_CAPSULE_LENGTH / 2.0),
+                    None => at,
+                };
+                let mut phantom = commands.spawn((
+                    InRun,
+                    Name::new("Phantom gun"),
+                    Phantom {
+                        player,
+                        base: feet,
+                        elapsed: 0.0,
+                        shots: 0,
+                        total: cast.size.max(0.0) as u32,
+                        pay: cast.pay,
+                        show,
+                    },
+                    Transform::from_translation(feet),
+                ));
+                if show {
+                    phantom.insert((Mesh3d(assets.gun.clone()), MeshMaterial3d(assets.phantom.clone())));
+                    flashes.burst(at, 0.6, AmmoMod::Fireworks.glint());
+                }
+            }
+            Element::Turned => {
+                if !cap.has_room(allies) {
+                    continue;
+                }
+                // The Zombie asked for, or the nearest one to the point that's out of the ground.
+                let turned = match struck {
+                    Some(zombie) => zombies.get(zombie).ok(),
+                    None => zombies
+                        .iter()
+                        .filter(|(entity, _, _, _, dying, rising)| !dying && !rising && !spent.contains(entity))
+                        .filter(|(_, zombie, ..)| zombie.special_kind().is_none())
+                        .min_by(|a, b| a.2.translation.distance(at).total_cmp(&b.2.translation.distance(at))),
+                };
+                let Some((zombie, body, transform, children, _, rising)) = turned else {
+                    continue;
+                };
+                // Turned does nothing to a Napalm, a Shrieker or the Sapper, nor to a Zombie still
+                // climbing out.
+                if body.special_kind().is_some() || rising {
+                    continue;
+                }
+                allies += 1;
+                let at = transform.translation;
+                let (others, positions): (Vec<Entity>, Vec<Vec3>) = zombies
+                    .iter()
+                    .filter(|(entity, _, _, _, dying, _)| *entity != zombie && !dying && !spent.contains(entity))
+                    .map(|(entity, _, transform, ..)| (entity, transform.translation))
+                    .unzip();
+                let special = |zombie| zombies.get(zombie).is_ok_and(|(_, other, ..)| other.special_kind().is_some());
+                let turn = Turn {
+                    player,
+                    zombie,
+                    at,
+                    lifetime: cast.size,
+                    show,
+                };
+                spent.push(zombie);
+                spent.extend(turn.apply(
+                    &mut commands,
+                    &assets,
+                    children,
+                    &hit_areas,
+                    (&others, &positions, special),
+                    (&mut kills, &mut damage, &mut flashes),
+                ));
+            }
+        }
+        if let Some(colour) = cast.accent {
+            flashes.ring(at, CAST_ACCENT_RADIUS, colour, CAST_ACCENT_SECS);
+        }
+    }
+}
+
+/// Fire pools set alight every Zombie standing in them that isn't burning already, until they go
+/// out.
+fn burn_in_pools(
+    mut commands: Commands,
+    mut pools: Query<(Entity, &mut FirePool)>,
+    zombies: Query<(Entity, &Zombie, &Transform), (Without<Dying>, Without<Burning>, Without<Telegraph>)>,
+    mut ignite: MessageWriter<Ignite>,
+    time: Res<Time>,
+) {
+    for (entity, mut pool) in &mut pools {
+        pool.left -= time.delta_secs();
+        if pool.left <= 0.0 {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        for (zombie, body, transform) in &zombies {
+            if transform.translation.with_y(0.0).distance(pool.at.with_y(0.0)) <= pool.radius {
+                ignite.write(Ignite {
+                    player: pool.player,
+                    zombie,
+                    burn: blast_furnace_burn(body.health()),
+                });
+            }
+        }
+    }
+}
+
+fn draw_pools(pools: Query<&FirePool>, mut gizmos: Gizmos) {
+    let flat = Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
+    for pool in pools.iter().filter(|pool| pool.show) {
+        gizmos.circle(Isometry3d::new(pool.at + Vec3::Y * 0.05, flat), pool.radius, AmmoMod::BlastFurnace.glint());
     }
 }
 
@@ -640,7 +1034,7 @@ fn run_delayed_hits(
     time: Res<Time>,
 ) {
     let dt = time.delta_secs();
-    delayed.0.retain_mut(|(left, zombie, player)| {
+    delayed.0.retain_mut(|(left, zombie, player, pay)| {
         *left -= dt;
         if *left > 0.0 {
             return true;
@@ -657,7 +1051,7 @@ fn run_delayed_hits(
                 zombie: *zombie,
                 damage: target.health() + DEAD_WIRE_EXTRA_DAMAGE,
                 zone: HitZone::Torso,
-                attack: Attack::AmmoMod(Pay::Paid),
+                attack: Attack::AmmoMod(*pay),
             });
         }
         false
@@ -678,7 +1072,7 @@ fn fire_phantoms(
     for (entity, mut phantom, mut transform) in &mut phantoms {
         phantom.elapsed += time.delta_secs();
         let t = phantom.elapsed;
-        let firing_ends = FIREWORKS_RISE_SECS + FIREWORKS_SHOTS as f32 * FIREWORKS_SHOT_SECS;
+        let firing_ends = FIREWORKS_RISE_SECS + phantom.total as f32 * FIREWORKS_SHOT_SECS;
         let rise = if t < FIREWORKS_RISE_SECS {
             t / FIREWORKS_RISE_SECS
         } else if t < firing_ends {
@@ -693,7 +1087,7 @@ fn fire_phantoms(
         let muzzle = phantom.base + Vec3::Y * FIREWORKS_RISE * rise;
         transform.translation = muzzle;
 
-        while phantom.shots < FIREWORKS_SHOTS
+        while phantom.shots < phantom.total
             && t >= FIREWORKS_RISE_SECS + phantom.shots as f32 * FIREWORKS_SHOT_SECS
         {
             phantom.shots += 1;
@@ -708,7 +1102,7 @@ fn fire_phantoms(
             let aim = match target {
                 Some(i) => {
                     let (zombie, at) = candidates[i];
-                    kill(&mut damage, Some(phantom.player), zombie, Pay::Unpaid);
+                    kill(&mut damage, Some(phantom.player), zombie, phantom.pay);
                     doomed.push(zombie);
                     at
                 }
@@ -721,7 +1115,9 @@ fn fire_phantoms(
             if let Ok(direction) = Dir3::new(aim - muzzle) {
                 transform.rotation = Transform::IDENTITY.looking_to(direction, Vec3::Y).rotation;
             }
-            flashes.line(muzzle, aim, AmmoMod::Fireworks.glint());
+            if phantom.show {
+                flashes.line(muzzle, aim, AmmoMod::Fireworks.glint());
+            }
         }
     }
 }
@@ -745,7 +1141,7 @@ fn run_allies(
     let filter_mask = [GameLayer::World, GameLayer::Zombie, GameLayer::Player];
     for (entity, mut ally, mut route, mut transform, collider) in &mut allies {
         ally.elapsed += dt;
-        if ally.ending.is_none() && (ally.elapsed >= TURNED_LIFETIME_SECS || ally.kills >= TURNED_MAX_KILLS) {
+        if ally.ending.is_none() && (ally.elapsed >= ally.lifetime || ally.kills >= TURNED_MAX_KILLS) {
             ally.ending = Some(TURNED_LAST_SWING_SECS);
         }
         if let Some(left) = &mut ally.ending {
@@ -897,6 +1293,14 @@ impl Flashes {
             life: FLASH_SECS,
         });
     }
+
+    fn ring(&mut self, at: Vec3, radius: f32, colour: Color, secs: f32) {
+        self.0.push(Flash {
+            shape: Shape::Ring(at, radius),
+            colour,
+            life: secs,
+        });
+    }
 }
 
 fn draw_flashes(mut flashes: ResMut<Flashes>, mut gizmos: Gizmos, time: Res<Time>) {
@@ -911,6 +1315,10 @@ fn draw_flashes(mut flashes: ResMut<Flashes>, mut gizmos: Gizmos, time: Res<Time
                 // The burst grows out to its radius as it fades.
                 let grown = radius * (1.0 - flash.life / FLASH_SECS).clamp(0.1, 1.0);
                 gizmos.sphere(Isometry3d::from_translation(at), grown, flash.colour);
+            }
+            Shape::Ring(at, radius) => {
+                let flat = Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
+                gizmos.circle(Isometry3d::new(at, flat), radius, flash.colour);
             }
         }
         flash.life > 0.0
@@ -1121,6 +1529,32 @@ mod tests {
     }
 
     #[test]
+    fn turned_never_triggers_at_the_ally_cap_so_starts_no_cooldown() {
+        let cooldowns = Cooldowns::default();
+        let turned = held(&[AmmoMod::Turned]);
+        assert!(triggers_within(turned, &cooldowns, ALIVE, false, rolls(&[])).is_empty(), "not even rolled");
+        assert_eq!(triggers_within(turned, &cooldowns, ALIVE, true, rolls(&[0.0])), vec![AmmoMod::Turned]);
+        // The other Ammo Mods roll as ever at the cap.
+        let both = held(&[AmmoMod::DeadWire, AmmoMod::Turned]);
+        assert_eq!(triggers_within(both, &cooldowns, ALIVE, false, rolls(&[0.0])), vec![AmmoMod::DeadWire]);
+    }
+
+    #[test]
+    fn the_turned_ally_cap_is_neutral_until_set() {
+        assert_eq!(TurnedAllyCap::default(), TurnedAllyCap(None));
+        assert!(TurnedAllyCap(None).has_room(1000));
+        assert!(TurnedAllyCap(Some(3)).has_room(2));
+        assert!(!TurnedAllyCap(Some(3)).has_room(3));
+    }
+
+    #[test]
+    fn a_cast_shock_chain_is_capped_at_its_size() {
+        let crowd: Vec<_> = (0..20).map(|i| Vec3::new((i % 5) as f32 * 0.3, 0.0, (i / 5) as f32 * 0.3)).collect();
+        assert_eq!(chain(Vec3::ZERO, &crowd, 3, |_, _| true).len(), 3);
+        assert_eq!(chain(Vec3::ZERO, &crowd, 7, |_, _| true).len(), 7);
+    }
+
+    #[test]
     fn only_ammo_mod_kills_choose_their_pay() {
         assert_eq!(Attack::AmmoMod(Pay::Unpaid).pay(), Pay::Unpaid);
         assert_eq!(Attack::AmmoMod(Pay::Paid).pay(), Pay::Paid);
@@ -1129,12 +1563,99 @@ mod tests {
 
     mod headless {
         use super::*;
+        use bevy::ecs::system::RunSystemOnce;
         use crate::enemies::zombie::headless::Sim;
 
         const FRAME_RATES: [f64; 3] = [144.0, 60.0, 90.0];
 
         fn movement(app: &mut App) {
             app.add_systems(FixedUpdate, (run_allies, fling));
+        }
+
+        /// Every kill the Sim has seen.
+        #[derive(Resource, Default)]
+        struct Kills(Vec<ZombieKilled>);
+
+        /// The `CastEffect` seam on its own, with the Zombie systems.
+        fn casting(cap: Option<u32>) -> impl FnOnce(&mut App) {
+            move |app: &mut App| {
+                app.add_message::<AmmoModHit>()
+                    .add_message::<CastEffect>()
+                    .add_message::<Ignite>()
+                    .add_message::<PlayCue>()
+                    .init_resource::<DelayedHits>()
+                    .init_resource::<Flashes>()
+                    .init_resource::<Kills>()
+                    .insert_resource(TurnedAllyCap(cap))
+                    .add_systems(Update, (cast_effects, run_delayed_hits, fire_phantoms).chain().before(apply_damage))
+                    .add_systems(PostUpdate, |mut read: MessageReader<ZombieKilled>, mut kills: ResMut<Kills>| {
+                        kills.0.extend(read.read().copied());
+                    })
+                    .add_systems(FixedUpdate, (run_allies, fling));
+                app.world_mut().run_system_once(load_assets).unwrap();
+            }
+        }
+
+        fn player(sim: &mut Sim) -> Entity {
+            let world = sim.world_mut();
+            world.query_filtered::<Entity, With<Player>>().single(world).unwrap()
+        }
+
+        fn cast(player: Entity, element: Element, target: CastTarget, size: f32, pay: Pay) -> CastEffect {
+            CastEffect { player, element, target, size, reach: None, lasts: 0.0, pay, accent: None, show: true }
+        }
+
+        #[test]
+        fn cast_effect_damage_is_ammo_mod_damage_at_its_pay_and_never_rolls_an_ammo_mod() {
+            for pay in [Pay::Paid, Pay::Unpaid] {
+                let mut sim = Sim::new(60.0, casting(None));
+                let feet = Vec3::new(4.0, 0.0, 12.0);
+                sim.spawn(feet, None);
+                sim.spawn(feet + Vec3::X, None);
+                sim.run(5);
+                let player = player(&mut sim);
+                sim.send(cast(player, Element::Knockback, CastTarget::Point(feet), 6.0, pay));
+                sim.run(3);
+                let kills = &sim.world_mut().resource::<Kills>().0;
+                assert_eq!(kills.len(), 2, "{pay:?}");
+                assert!(kills.iter().all(|kill| kill.attack == Attack::AmmoMod(pay) && kill.pay == pay));
+                assert!(kills.iter().all(|kill| kill.player == Some(player)));
+                assert!(sim.world_mut().resource::<Messages<AmmoModHit>>().is_empty(), "no Ammo Mod roll");
+            }
+        }
+
+        #[test]
+        fn a_cast_turn_at_the_ally_cap_turns_nothing() {
+            for (cap, turns) in [(None, true), (Some(1), true), (Some(0), false)] {
+                let mut sim = Sim::new(60.0, casting(cap));
+                let zombie = sim.spawn(Vec3::new(4.0, 0.0, 12.0), None);
+                sim.run(5);
+                let player = player(&mut sim);
+                sim.send(cast(player, Element::Turned, CastTarget::Zombie(zombie), 7.0, Pay::Unpaid));
+                sim.run(3);
+                let world = sim.world_mut();
+                assert_eq!(world.get::<TurnedAlly>(zombie).is_some(), turns, "cap {cap:?}");
+                assert_eq!(world.get::<Zombie>(zombie).is_none(), turns, "cap {cap:?}");
+                if turns {
+                    assert_eq!(world.get::<TurnedAlly>(zombie).unwrap().lifetime, 7.0, "lives as long as asked");
+                }
+            }
+        }
+
+        #[test]
+        fn a_cast_phantom_gun_fires_its_size_in_shots() {
+            let mut sim = Sim::new(60.0, casting(None));
+            let feet = Vec3::new(4.0, 0.0, 12.0);
+            for i in 0..6 {
+                sim.spawn(feet + Vec3::new(i as f32 * 0.8 - 2.0, 0.0, 3.0), None);
+            }
+            sim.run(5);
+            let player = player(&mut sim);
+            sim.send(cast(player, Element::PhantomGun, CastTarget::Point(feet), 2.0, Pay::Unpaid));
+            sim.run(sim.frames(FIREWORKS_RISE_SECS + 10.0 * FIREWORKS_SHOT_SECS + 1.0));
+            let kills = &sim.world_mut().resource::<Kills>().0;
+            assert_eq!(kills.len(), 2);
+            assert!(kills.iter().all(|kill| kill.attack == Attack::AmmoMod(Pay::Unpaid)));
         }
 
         /// Throwing a body from `Update` was undone whenever the next frame ran a physics step, so
