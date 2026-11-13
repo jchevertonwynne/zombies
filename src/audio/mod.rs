@@ -30,7 +30,7 @@ use crate::enemies::nova::{GasCloud, VentDrop};
 use crate::weapons::pack_a_punch::{PackAPunch, Stage};
 use crate::economy::perk::{Drinking, PerkMachine};
 use crate::players::player::{Health, LocalPlayer, Player, PlayerCamera, PlayerHit};
-use crate::maps::power::Power;
+use crate::maps::power::{Power, Supply};
 use crate::economy::power_up::{ActivePowerUps, Dropped, PowerUp, PowerUpTaken};
 use crate::run::round::{Round, RoundEnded, RoundStarted};
 use crate::enemies::sapper::{Sabotaged, Sabotaging, Sapper};
@@ -729,7 +729,7 @@ fn perk_jingles(
     mut sounds: ResMut<Sounds>,
     mut machines: Query<(Entity, &PerkMachine, &GlobalTransform, Option<&mut Jingle>, Has<Sabotaged>)>,
     mut purchases: MessageReader<Purchased>,
-    power: Res<Power>,
+    supply: Supply,
     run: Res<crate::state::RunType>,
     map: Res<crate::maps::map::MapId>,
     time: Res<Time>,
@@ -742,7 +742,7 @@ fn perk_jingles(
             });
             continue;
         };
-        let powered = (!machine.perk.needs_power(*run, *map) || power.is_on()) && !sabotaged;
+        let powered = machine.powered(&supply, *run, *map) && !sabotaged;
         if powered {
             jingle.next -= time.delta_secs();
         }

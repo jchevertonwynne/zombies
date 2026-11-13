@@ -92,6 +92,8 @@ pub(super) const QUARRY: Layout = Layout {
     nav_nodes: NODES,
     nav_edges: EDGES,
     jump_pads: &JUMP_PADS,
+    sections: &[],
+    generators: &[],
     sun: Vec3::new(1.0, -3.0, -1.5),
     plan: (Vec2::new(Q - 36.0, -38.0), Vec2::new(Q + 38.0, 44.0)),
     build,

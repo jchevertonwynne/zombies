@@ -34,6 +34,57 @@ fn the_power_comes_on_everywhere_when_the_host_throws_the_switch() {
     }
 }
 
+/// Every game on the Dam's Generators, all Unclaimed.
+fn on_the_dams_generators(run: &mut Run, games: usize) {
+    for on in 0..games {
+        run.world(on).insert_resource(Generators::for_map(crate::maps::map::MapId::Dam));
+    }
+}
+
+#[test]
+fn every_game_sees_a_generator_charge_and_then_be_held() {
+    let mut run = Run::new(2);
+    on_the_dams_generators(&mut run, 3);
+    let mut host = run.world(0).resource_mut::<Generators>();
+    host.claim(1);
+    host.charge(1, 5.0, true);
+    run.step(10);
+    for on in 1..3 {
+        let shown = run.world(on).resource::<Generators>().states()[1];
+        assert!(shown.live(), "game {on} doesn't see the Charge running: {shown:?}");
+        assert!((shown.fraction() - 0.25).abs() < 0.05, "game {on} shows {shown:?}");
+    }
+    // Stepping off pauses it everywhere.
+    run.world(0).resource_mut::<Generators>().charge(1, 0.1, false);
+    run.step(10);
+    assert!(!run.world(1).resource::<Generators>().states()[1].live());
+    run.world(0).resource_mut::<Generators>().hold(1);
+    run.step(10);
+    for on in 1..3 {
+        let generators = run.world(on).resource::<Generators>();
+        assert_eq!(generators.states()[1], GeneratorState::Held, "game {on}");
+        assert!(generators.ever_held());
+    }
+}
+
+/// The Host doesn't say how far a Charge has come every frame, only every so often.
+#[test]
+fn the_host_tells_a_charge_at_a_low_rate() {
+    let mut run = Run::new(1);
+    on_the_dams_generators(&mut run, 2);
+    run.world(0).resource_mut::<Generators>().claim(0);
+    run.step(5);
+    let mut told = Vec::new();
+    for _ in 0..FIXED_HZ {
+        run.world(0).resource_mut::<Generators>().charge(0, 1.0 / FIXED_HZ as f32, true);
+        run.step(1);
+        told.push(run.world(1).resource::<Generators>().states()[0].fraction());
+    }
+    told.dedup();
+    let most = (1.0 / GENERATOR_CHARGE_TELL_SECS).ceil() as usize + 2;
+    assert!(told.len() <= most, "told {} times in a second: {told:?}", told.len());
+}
+
 #[test]
 fn the_host_tells_every_game_when_a_round_begins_and_ends() {
     let mut run = Run::new(2);

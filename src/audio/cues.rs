@@ -140,6 +140,8 @@ cues! {
     AmmoModTurned => "ammo_mod_turned", Root, Spatial, 0.9;
     PowerDown => "power_down", Root, Spatial, 0.9;
     PowerRestore => "power_restore", Root, Flat, 0.8;
+    // Heard Map-wide, wherever the Generator is.
+    GeneratorHeld => "generator_held", Root, Flat, 0.9;
 
     // Zombies. The idle vocals share a cap of voices, nearest first; attacks and deaths never wait.
     ZombieWalkerIdle => "zombie_walker_idle", Root, Spatial, 0.6;
@@ -261,6 +263,7 @@ mod tests {
             "powerup_hum", "powerup_pickup", "nuke_blast", "trap_active", "trap_kill", "teleporter_charge",
             "teleporter_fire", "teleporter_arrive", "mainframe_link", "ammo_mod_blast_furnace", "ammo_mod_dead_wire",
             "ammo_mod_fireworks", "ammo_mod_thunder_wall", "ammo_mod_turned", "power_down", "power_restore",
+            "generator_held",
             "zombie_walker_idle", "zombie_jogger_idle", "zombie_sprinter_idle", "zombie_attack", "zombie_death",
             "zombie_riser", "hound_idle", "hound_bite", "hound_death", "hound_spawn", "crawler_gib", "crawler_vocal",
             "crawler_drag", "nova_vocal", "nova_vent", "nova_attack", "nova_burst", "nova_gas", "napalm_rise",

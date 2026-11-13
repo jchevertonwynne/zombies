@@ -14,6 +14,7 @@ use crate::tuning::*;
 use crate::maps::zone::ZoneId;
 
 use super::{DOOR_HEIGHT, DOOR_WIDTH, Palette, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, WALL_THICKNESS, WINDOW_WIDTH, palette};
+use crate::maps::generator::Generator;
 use crate::maps::jump_pad::JumpPad;
 
 /// How tall the skirting along the foot of a wall is, and how far it stands out from the face.
@@ -45,6 +46,8 @@ const BARK: Color = Color::srgb(0.22, 0.16, 0.11);
 const LEAVES: [Color; 2] = [Color::srgb(0.12, 0.2, 0.09), Color::srgb(0.16, 0.24, 0.1)];
 const HEADSTONE: [Color; 3] = [Color::srgb(0.55, 0.55, 0.53), Color::srgb(0.46, 0.47, 0.46), Color::srgb(0.6, 0.58, 0.52)];
 /// Hazard yellow, for the Jump Pads.
+const GENERATOR_CONSOLE_PAINT: Color = Color::srgb(0.32, 0.36, 0.3);
+const GENERATOR_PLATE_PAINT: Color = Color::srgb(0.75, 0.42, 0.08);
 const JUMP_PAD_PAINT: Color = Color::srgb(0.86, 0.68, 0.1);
 
 /// A gap in a wall, at an offset along it.
@@ -230,6 +233,30 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
             let wing = rotation * Quat::from_rotation_y(side * 0.7);
             self.shape(Vec3::new(0.16, 0.02, 0.55), top + flat * 0.2 + rotation * Vec3::X * side * 0.14, wing, DRUM_RING);
         }
+    }
+
+    /// A Generator: its console, solid, at the back of its plate, and the plate drawn on the floor
+    /// in front of it, flush enough to walk over.
+    pub fn generator(&mut self, generator: &Generator) {
+        let (foot, size) = generator.console();
+        self.block(size, foot + Vec3::Y * size.y / 2.0, GENERATOR_CONSOLE_PAINT);
+        let face = foot + generator.facing * (GENERATOR_CONSOLE.z / 2.0 + 0.01);
+        self.shape(Vec3::new(0.9, 0.5, 0.02), face + Vec3::Y * 1.3, Quat::from_rotation_arc(Vec3::Z, generator.facing), DRUM_RING);
+        let plate = Vec3::new(GENERATOR_PLATE_RADIUS * 2.0, 0.02, GENERATOR_PLATE_RADIUS * 2.0);
+        let rim = self.paint(DRUM_RING);
+        self.commands.spawn((
+            InRun,
+            Mesh3d(self.cylinder.clone()),
+            MeshMaterial3d(rim),
+            Transform::from_translation(generator.at + Vec3::Y * 0.005).with_scale(plate + Vec3::new(0.2, 0.0, 0.2)),
+        ));
+        let paint = self.paint(GENERATOR_PLATE_PAINT);
+        self.commands.spawn((
+            InRun,
+            Mesh3d(self.cylinder.clone()),
+            MeshMaterial3d(paint),
+            Transform::from_translation(generator.at + Vec3::Y * 0.01).with_scale(plate),
+        ));
     }
 
     /// A flight of steps or a ramp. It's solid as one smooth ramp from its foot to its top, a slab

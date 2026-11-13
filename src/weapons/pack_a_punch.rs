@@ -21,7 +21,7 @@ use crate::layers::GameLayer;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve_points};
 use crate::economy::perk::Drinking;
 use crate::players::player::{LocalPlayer, Player};
-use crate::maps::power::Power;
+use crate::maps::power::Supply;
 use crate::enemies::sapper::Sabotaged;
 use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
@@ -464,18 +464,25 @@ impl Hands<'_> {
     }
 }
 
-/// What the machine shows `hands`, if anything.
-fn shown(machine: &PackAPunch, hands: &Hands, sabotaged: bool, power_on: bool) -> Option<Shown> {
+/// The refusal the machine shows while it waits for Power, or `None` once it's Powered: the Power,
+/// or every Generator Held.
+fn unpowered(supply: &Supply) -> Option<String> {
+    (!supply.powers_pack_a_punch()).then(|| supply.refusal(None))
+}
+
+/// What the machine shows `hands`, if anything. `unpowered` is the refusal it shows while it waits
+/// for Power, `None` once it's Powered.
+fn shown(machine: &PackAPunch, hands: &Hands, sabotaged: bool, unpowered: Option<&str>) -> Option<Shown> {
     let want = if sabotaged {
         MachinePrompt::NoPrompt
     } else {
-        machine_prompt(power_on, machine.stage(), hands.held, !hands.drinking)
+        machine_prompt(unpowered.is_none(), machine.stage(), hands.held, !hands.drinking)
     };
     // The hold half, if this Prompt has one, and whether a tap buys alongside it.
     let mut hold = None;
     let (prompt, price, refuse) = match want {
         MachinePrompt::NoPrompt => return None,
-        MachinePrompt::NeedsPower => ("You must turn on the Power first".to_string(), None, true),
+        MachinePrompt::NeedsPower => (unpowered.unwrap_or_default().to_string(), None, true),
         MachinePrompt::Upgrade => ("Press F to Pack-a-Punch your Weapon".to_string(), Some(hands.upgrade_price()), false),
         MachinePrompt::OnlyWeapon => ("Press F to Pack-a-Punch your Weapon".to_string(), Some(hands.upgrade_price()), true),
         MachinePrompt::Repack { tap, hold: holds } | MachinePrompt::RepackOnlyWeapon { tap, hold: holds } => {
@@ -504,12 +511,13 @@ fn shown(machine: &PackAPunch, hands: &Hands, sabotaged: bool, power_on: bool) -
 fn offer_machines(
     mut machines: Query<(&PackAPunch, &mut Offers, Has<Sabotaged>)>,
     players: Query<(Entity, &Loadout, &Modifiers, Has<Drinking>), (With<Player>, Without<LocalPlayer>)>,
-    power: Res<Power>,
+    supply: Supply,
 ) {
+    let unpowered = unpowered(&supply);
     for (machine, mut offers, sabotaged) in &mut machines {
         for (player, loadout, modifiers, drinking) in &players {
             let hands = Hands::new(player, loadout, modifiers, drinking);
-            let offer = shown(machine, &hands, sabotaged, power.is_on()).map(|shown| Offer {
+            let offer = shown(machine, &hands, sabotaged, unpowered.as_deref()).map(|shown| Offer {
                 price: shown.price,
                 tap: shown.hold.unwrap_or(true),
                 hold: shown.hold.map(|_| hands.hold_price()),
@@ -534,14 +542,15 @@ fn prompt_machine(
         Has<Sabotaged>,
     )>,
     player: Single<(Entity, &Loadout, &Modifiers, Has<Drinking>), With<LocalPlayer>>,
-    power: Res<Power>,
+    supply: Supply,
 ) {
+    let unpowered = unpowered(&supply);
     let (local, loadout, modifiers, drinking) = *player;
     let hands = Hands::new(local, loadout, modifiers, drinking);
     let hold_price = hands.hold_price();
     let hold_prompt = "Hold F to Repack an Attachment".to_string();
     for (entity, machine, transform, buyable, hold_buy, refused, sabotaged) in &mut machines {
-        let Some(Shown { prompt, price, refuse, hold }) = shown(machine, &hands, sabotaged, power.is_on()) else {
+        let Some(Shown { prompt, price, refuse, hold }) = shown(machine, &hands, sabotaged, unpowered.as_deref()) else {
             if buyable.is_some() {
                 commands.entity(entity).remove::<(Buyable, HoldBuy, Refused)>();
             }
@@ -608,7 +617,7 @@ fn show_machine(
     >,
     mut lights: Query<&mut Visibility, (With<MachineLight>, Without<Tray>)>,
     guns: Res<GunModels>,
-    power: Res<Power>,
+    supply: Supply,
 ) {
     let shown = |on: bool| if on { Visibility::Inherited } else { Visibility::Hidden };
     for (machine, children) in &machines {
@@ -630,7 +639,7 @@ fn show_machine(
                 }
             }
             if let Ok(mut light) = lights.get_mut(*child) {
-                light.set_if_neq(shown(power.is_on()));
+                light.set_if_neq(shown(supply.powers_pack_a_punch()));
             }
         }
     }

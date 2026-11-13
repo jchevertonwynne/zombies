@@ -2,6 +2,7 @@
 
 pub mod barrier;
 pub mod door;
+pub mod generator;
 pub mod jump_pad;
 pub mod map;
 pub mod power;

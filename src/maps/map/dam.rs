@@ -21,6 +21,7 @@
 use bevy::prelude::*;
 
 use crate::enemies::nav::Gate;
+use crate::maps::generator::{Generator, SectionId};
 use crate::maps::map::BarrierId;
 use crate::maps::zone::ZoneId;
 use crate::tuning::*;
@@ -57,6 +58,42 @@ const fn at(x: f32, y: f32, z: f32) -> Vec3 {
 const fn v(x: f32, z: f32) -> Vec2 {
     Vec2::new(D + x, z)
 }
+
+/// The three Sections. The Crest Road and the Control Room are in none.
+const SECTIONS: [(SectionId, &[ZoneId]); 3] = {
+    use ZoneId::*;
+    [
+        (SectionId::IntakeTower, &[TowerHead, GateShaft, IntakeGallery]),
+        (SectionId::SpillwayGallery, &[SpillwayGatehouse, SpillwayGallery, SpillwayStair]),
+        (SectionId::TurbineHall, &[PenstockTunnel, TurbineHall, SwitchgearRoom, DrainageGallery]),
+    ]
+};
+
+/// The Generators: in the Intake Gallery and the Spillway Gallery, each against a wall of its
+/// corridor down the dam's side, and on the Turbine Hall's deck, its console at the deck's east edge.
+const GENERATORS: [Generator; 3] = [
+    Generator {
+        section: SectionId::IntakeTower,
+        zone: ZoneId::IntakeGallery,
+        at: at(-39.7, GALLERY, -22.0),
+        facing: Vec3::NEG_X,
+        price: GENERATOR_PRICE_INTAKE_TOWER,
+    },
+    Generator {
+        section: SectionId::SpillwayGallery,
+        zone: ZoneId::SpillwayGallery,
+        at: at(39.7, GALLERY, -26.0),
+        facing: Vec3::X,
+        price: GENERATOR_PRICE_SPILLWAY_GALLERY,
+    },
+    Generator {
+        section: SectionId::TurbineHall,
+        zone: ZoneId::TurbineHall,
+        at: at(3.3, TURBINE_DECK.height, -40.5),
+        facing: Vec3::NEG_X,
+        price: GENERATOR_PRICE_TURBINE_HALL,
+    },
+];
 
 const fn barrier(i: u8) -> Gate {
     Gate::Barrier(BarrierId(W0 + i))
@@ -97,6 +134,8 @@ pub(super) const DAM: Layout = Layout {
     nav_nodes: NODES,
     nav_edges: EDGES,
     jump_pads: &[],
+    sections: &SECTIONS,
+    generators: &GENERATORS,
     sun: Vec3::new(1.0, -3.0, -1.0),
     plan: (Vec2::new(D - 52.0, -68.0), Vec2::new(D + 52.0, 36.0)),
     build,

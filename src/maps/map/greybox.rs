@@ -47,6 +47,8 @@ pub(super) const GREYBOX: Layout = Layout {
     nav_nodes: NODES,
     nav_edges: EDGES,
     jump_pads: &[],
+    sections: &[],
+    generators: &[],
     sun: Vec3::new(-1.0, -3.0, -2.0),
     plan: (Vec2::new(-40.0, -56.0), Vec2::new(40.0, 32.0)),
     build,

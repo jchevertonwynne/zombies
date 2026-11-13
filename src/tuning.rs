@@ -1797,6 +1797,23 @@ pub const TURNED_LAST_SWING_SECS: f32 = 0.5;
 // Power and Perks
 /// How long the Power Switch's lever takes to throw.
 pub const POWER_SWITCH_FLIP_SECS: f32 = 0.3;
+
+// Contested Power: Generators
+/// The Dam's Generators' Claim prices. No Co-op scaling; Gold Rush applies as to any price.
+pub const GENERATOR_PRICE_INTAKE_TOWER: u64 = 1500;
+pub const GENERATOR_PRICE_SPILLWAY_GALLERY: u64 = 1500;
+/// Deeper in: two more Doors, and the main Train space.
+pub const GENERATOR_PRICE_TURBINE_HALL: u64 = 2000;
+/// Seconds of Charge a Claim takes, however many Players stand on the plate.
+pub const GENERATOR_CLAIM_CHARGE_SECS: f32 = 20.0;
+/// How far from the middle of a Generator's plate a Player's feet can be and still Charge it.
+pub const GENERATOR_PLATE_RADIUS: f32 = 1.2;
+/// How far a Player's feet can be above or below the plate and still be on it.
+pub const GENERATOR_PLATE_SLACK: f32 = 0.4;
+/// A Generator's console at the back of its plate: across, high, and deep from its face.
+pub const GENERATOR_CONSOLE: Vec3 = Vec3::new(1.4, 1.8, 0.5);
+/// How often, at most, the Host tells everyone how far a Charge has come.
+pub const GENERATOR_CHARGE_TELL_SECS: f32 = 0.5;
 /// How long drinking a Perk takes. The Perk applies at the end.
 pub const PERK_DRINK_SECS: f32 = 2.8;
 pub const PERK_PRICE_JUGGERNOG: u64 = 2500;
