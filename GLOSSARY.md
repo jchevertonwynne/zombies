@@ -105,7 +105,7 @@ _Avoid_: grenade (when meaning the slot)
 **Buyable**: Anything in the Map the Player spends Points on with the Use key: a Door, Wall Weapon, Mystery Box, Perk Machine, Pack-a-Punch, Trap, Teleporter Pad or Generator. The Power Switch is used but not bought, so it is not a Buyable.
 _Avoid_: purchasable, trigger
 
-**Use key**: The single key the Player presses to buy a Buyable or flip the Power Switch, or holds to put Planks back on a Barrier or to Claim or Reclaim a Generator.
+**Use key**: The single key the Player presses to buy a Buyable or flip the Power Switch, or holds to put Planks back on a Barrier.
 
 **Prompt**: The on-screen line saying what the Use key will do here and what it costs.
 
@@ -217,11 +217,17 @@ _Avoid_: power node, objective, capture point
 **Section**: A group of Zones Powered by one Generator. Not every Zone is in a Section.
 _Avoid_: wing, area, district, region
 
-**Powered**: A Section whose Generator is Held. On a Map with Generators, a Perk Machine or Trap that would wait for the Power waits for its Section to be Powered instead, and works only while it is. Pack-a-Punch there works only while every Generator is Held.
+**Powered**: A Section whose Generator is Held. On a Map with Generators, a Perk Machine or Trap that would wait for the Power waits for its Section to be Powered instead, and works only while it is. Pack-a-Punch there works only while every Generator is Held, and a Perk Machine or Trap in a Zone outside every Section never waits.
 
-**Claim**: Taking an Unclaimed Generator, by buying it and then holding the Use key on its plate while Zombies rush in.
+**Claim**: Taking an Unclaimed Generator, by buying it and then Charging it.
 
-**Reclaim**: Taking back a Lost Generator, by holding the Use key on its plate as in a Claim but for no Points.
+**Charge**: Standing on a Generator's plate, while up, until it is Held. Stepping off or going Down pauses the Charge without losing it, and a Surge comes for as long as it runs.
+_Avoid_: hold, capture
+
+**Reclaim**: Taking back a Lost Generator, by Charging it again for no Points.
+
+**Surge**: Extra Zombies that come through a Section's Barriers while its Generator is being Charged. They are not part of the Horde, so they don't hold up the end of the Round, and they drop no Power-ups.
+_Avoid_: rush, wave, event
 
 **Unclaimed**: A Generator no Player has Claimed yet.
 
