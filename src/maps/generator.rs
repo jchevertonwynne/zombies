@@ -268,7 +268,7 @@ fn reset(mut commands: Commands, map: Res<MapId>) {
 /// The Claim on an Unclaimed Generator's console.
 fn claim_buyable(generator: &Generator) -> Buyable {
     let (foot, _) = generator.console();
-    let face = foot + generator.facing * (GENERATOR_CONSOLE.z / 2.0 + 0.1) + Vec3::Y * 1.3;
+    let face = foot + generator.facing * (GENERATOR_CONSOLE.z / 2.0 + GENERATOR_PROMPT_OUT) + Vec3::Y * GENERATOR_DIAL_HEIGHT;
     Buyable {
         use_point: face,
         prompt: format!("Press F to Claim the {} Generator", generator.section.name()),
@@ -352,7 +352,7 @@ pub(crate) fn charge(
 fn run_shown_charge(mut generators: ResMut<Generators>, time: Res<Time>) {
     for state in &mut generators.states {
         if let GeneratorState::Charging { charged, needed, live: true } = state {
-            *charged = (*charged + time.delta_secs()).min(*needed * 0.999);
+            *charged = (*charged + time.delta_secs()).min(*needed * GENERATOR_SHOWN_CHARGE_MAX);
         }
     }
 }
