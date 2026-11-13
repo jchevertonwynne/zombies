@@ -301,18 +301,28 @@ fn a_weapon_light_comes_in_short_of_a_wall_in_reach() {
     assert_eq!(weapon_light::reach(Some(0.0)), 0.0, "never behind the eye");
 }
 
+/// A view model on `map`'s camera, its part, and a mesh elsewhere in the world: whether each
+/// casts a shadow.
+fn view_model_casts(map: MapId) -> (bool, bool, bool) {
+    let mut app = playing(map);
+    let camera = camera(&mut app);
+    let gun = app.world_mut().spawn((Mesh3d::default(), ChildOf(camera))).id();
+    let part = app.world_mut().spawn((Mesh3d::default(), ChildOf(gun))).id();
+    let elsewhere = app.world_mut().spawn(Mesh3d::default()).id();
+    app.update();
+    let casts = |e: Entity| !app.world().entity(e).contains::<bevy::light::NotShadowCaster>();
+    (casts(gun), casts(part), casts(elsewhere))
+}
+
 #[test]
-fn nothing_on_the_camera_casts_a_shadow() {
-    for map in [MapId::Dam, MapId::Greybox] {
-        let mut app = playing(map);
-        let camera = camera(&mut app);
-        let gun = app.world_mut().spawn((Mesh3d::default(), ChildOf(camera))).id();
-        let part = app.world_mut().spawn((Mesh3d::default(), ChildOf(gun))).id();
-        let elsewhere = app.world_mut().spawn(Mesh3d::default()).id();
-        app.update();
-        let casts = |e: Entity| !app.world().entity(e).contains::<bevy::light::NotShadowCaster>();
-        assert!(!casts(gun) && !casts(part), "the view model on {map:?}");
-        assert!(casts(elsewhere), "the world still does");
+fn on_a_dark_map_nothing_on_the_camera_casts_a_shadow() {
+    assert_eq!(view_model_casts(MapId::Dam), (false, false, true), "the view model doesn't; the world still does");
+}
+
+#[test]
+fn on_other_maps_the_view_model_casts_shadows_as_it_did() {
+    for map in [MapId::Greybox, MapId::Quarry, MapId::Village] {
+        assert_eq!(view_model_casts(map), (true, true, true), "on the {}", map.name());
     }
 }
 

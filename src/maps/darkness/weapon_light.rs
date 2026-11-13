@@ -3,8 +3,8 @@
 //! eye height and points where they look, so it shows from outside the cone and from another Zone.
 //!
 //! Each light sits ahead of its Player's muzzle, so it never lights their own Weapon or throws its
-//! shadow, but never inside a wall, or it would light the Zone on the far side. The view model
-//! casts no shadow at all.
+//! shadow, but never inside a wall, or it would light the Zone on the far side. On a dark Map the
+//! view model casts no shadow at all.
 //!
 //! Every Weapon Light is there from the moment its Player is, shadows and all, and is never
 //! switched: the shadow-casting shaders compile while the Map loads, not mid-Round.
@@ -125,14 +125,18 @@ pub(super) fn place_weapon_lights(mut lights: Query<(&WeaponLight, &mut Transfor
     }
 }
 
-/// Nothing on the camera (the view model, its hands and parts) casts a shadow, so no light, the
-/// Player's own above all, throws the Weapon's shadow across the world.
+/// On a dark Map, nothing on the camera (the view model, its hands and parts) casts a shadow, so
+/// no light, the Player's own above all, throws the Weapon's shadow across the world.
 pub(super) fn view_model_casts_no_shadow(
+    map: Option<Res<MapId>>,
     cameras: Query<Entity, With<PlayerCamera>>,
     children: Query<&Children>,
     meshes: Query<(), (With<Mesh3d>, Without<NotShadowCaster>)>,
     mut commands: Commands,
 ) {
+    if !map.is_some_and(|map| map.layout().darkness) {
+        return;
+    }
     for camera in &cameras {
         for part in children.iter_descendants(camera) {
             if meshes.contains(part) {
