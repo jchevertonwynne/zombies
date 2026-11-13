@@ -836,9 +836,10 @@ impl Loadout {
         true
     }
 
-    /// Advance a Reload against its resolved time, filling the Magazine when it's done.
-    pub fn advance_reload(&mut self, dt: f32, player: &[Modifier]) {
-        let Some(secs) = self.reload_secs(player) else { return };
+    /// Advance a Reload against its resolved time, filling the Magazine when it's done. True on
+    /// the frame it finishes.
+    pub fn advance_reload(&mut self, dt: f32, player: &[Modifier]) -> bool {
+        let Some(secs) = self.reload_secs(player) else { return false };
         let size = self.magazine_size(player);
         let reload = self.reload.as_mut().expect("reloading");
         reload.elapsed += dt;
@@ -873,6 +874,7 @@ impl Loadout {
         };
         *reserve -= taken;
         *magazine += taken;
+        done
     }
 
     /// Whether the gun that fires now fires, given the trigger. Spends the bullet when it does.
@@ -967,6 +969,22 @@ pub struct ShotFired {
     pub underbarrel: Option<Underbarrel>,
 }
 
+/// A Reload finished, the automatic one after the last bullet included.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct Reloaded {
+    pub player: Entity,
+    pub weapon: WeaponId,
+}
+
+/// A shot just fired the last bullet in the Magazine. `at` is where that shot first landed, if it
+/// was a hitscan one that hit something.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct MagazineEmptied {
+    pub player: Entity,
+    pub weapon: WeaponId,
+    pub at: Option<Vec3>,
+}
+
 /// The on-screen Weapon model, a child of the camera.
 #[derive(Component)]
 pub struct ViewModel {
@@ -1019,6 +1037,8 @@ impl Plugin for WeaponPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<ShotFired>()
             .add_message::<HitReport>()
+            .add_message::<Reloaded>()
+            .add_message::<MagazineEmptied>()
             .init_resource::<GunModels>()
             .add_systems(Update, spawn_view_model)
             .add_systems(
@@ -1159,15 +1179,21 @@ fn switch_weapons(
 }
 
 fn reload(
-    player: Single<(&mut Loadout, &Modifiers), With<LocalPlayer>>,
+    player: Single<(Entity, &mut Loadout, &Modifiers), With<LocalPlayer>>,
     controls: Controls,
     time: Res<Time>,
+    mut reloaded: MessageWriter<Reloaded>,
 ) {
-    let (mut loadout, modifiers) = player.into_inner();
+    let (entity, mut loadout, modifiers) = player.into_inner();
     if controls.just_pressed(Action::Reload) {
         loadout.start_reload(&modifiers.0);
     }
-    loadout.advance_reload(time.delta_secs(), &modifiers.0);
+    if loadout.advance_reload(time.delta_secs(), &modifiers.0) {
+        reloaded.write(Reloaded {
+            player: entity,
+            weapon: loadout.held().id,
+        });
+    }
     loadout.feed_from_reserve(&modifiers.0);
 }
 
@@ -1196,7 +1222,7 @@ fn fire(
     mut explosions: MessageWriter<Explosion>,
     mut flames: MessageWriter<FlameFired>,
     mut cues: MessageWriter<PlayCue>,
-    mut impacts: MessageWriter<BulletImpact>,
+    (mut impacts, mut emptied): (MessageWriter<BulletImpact>, MessageWriter<MagazineEmptied>),
 ) {
     let (entity, mut loadout, modifiers) = player.into_inner();
     let entries = &modifiers.0;
@@ -1268,6 +1294,8 @@ fn fire(
     }
     let filter = attack_filter(entity);
     let sights = loadout.sights(entries);
+    // Where the shot first landed.
+    let mut landed: Option<Vec3> = None;
     let pellets = if is_wonder(stats.class) { 0 } else { stats.pellets };
     for _ in 0..pellets {
         let direction = spread_direction(camera.forward(), spread, rand::random(), rand::random());
@@ -1321,6 +1349,7 @@ fn fire(
             }
             // Burst just short of the surface, so the world doesn't block its own blast.
             let impact = camera.translation() + *direction * (hit.distance - 0.1).max(0.0);
+            landed.get_or_insert(impact);
             explosions.write(Explosion {
                 at: impact,
                 thrower: Some(entity),
@@ -1345,6 +1374,7 @@ fn fire(
         crossed.sort_by(|a, b| a.distance.total_cmp(&b.distance));
         // The first thing the line crosses gets the puffs.
         if let Some(first) = crossed.first() {
+            landed.get_or_insert(camera.translation() + *direction * first.distance);
             impacts.write(BulletImpact {
                 at: camera.translation() + *direction * first.distance,
                 normal: first.normal,
@@ -1383,6 +1413,11 @@ fn fire(
 
     // Like the real thing: firing the last bullet starts a Reload.
     if loadout.gun_ammo().0 == 0 {
+        emptied.write(MagazineEmptied {
+            player: entity,
+            weapon: loadout.held().id,
+            at: landed,
+        });
         loadout.start_reload(entries);
     }
 }
@@ -2850,7 +2885,7 @@ mod two_player_tests {
     use crate::weapons::burn::Ignite;
     use crate::economy::buy::{Buyable, BuyPlugin, Focus, Purchased};
     use crate::players::controls::Binding;
-    use crate::weapons::equipment::{Claymore, Equipment, EquipmentPlugin, Handling};
+    use crate::weapons::equipment::{Claymore, Equipment, EquipmentPlugin, Handling, Lethal, LethalThrown};
     use crate::weapons::explosive::{Explosion, Launch};
     use crate::modifier::RunModifiers;
     use crate::weapons::muzzle::BulletImpact;
@@ -3148,5 +3183,52 @@ mod two_player_tests {
             "never bought prone"
         );
         assert_eq!(sim.world_mut().get::<Points>(local).unwrap().balance, 800);
+    }
+
+    #[test]
+    fn the_shot_that_empties_the_magazine_sends_magazine_emptied_and_its_reload_sends_reloaded() {
+        let (mut sim, local, _) = fighting();
+        // One bullet left.
+        {
+            let mut loadout = sim.world_mut().get_mut::<Loadout>(local).unwrap();
+            *loadout.gun_ammo_mut().0 = 2;
+        }
+        tap_mouse(&mut sim, MouseButton::Left);
+        assert!(messages::<MagazineEmptied>(&mut sim).is_empty(), "a bullet is still left");
+        sim.run(sim.frames(0.5));
+        tap_mouse(&mut sim, MouseButton::Left);
+        let emptied = messages::<MagazineEmptied>(&mut sim);
+        assert_eq!(emptied.len(), 1, "the last bullet empties it");
+        assert_eq!(emptied[0].player, local);
+        assert_eq!(emptied[0].weapon, STARTING_WEAPON);
+        // Firing the last bullet starts a Reload, which sends `Reloaded` once it's done.
+        assert!(messages::<Reloaded>(&mut sim).is_empty());
+        let frames = sim.frames(4.0);
+        let reloaded = collect::<Reloaded>(&mut sim, frames);
+        assert_eq!(reloaded.len(), 1);
+        assert_eq!((reloaded[0].player, reloaded[0].weapon), (local, STARTING_WEAPON));
+    }
+
+    /// Runs `frames` frames, gathering every message of this kind sent in them.
+    fn collect<M: Message>(sim: &mut Sim, frames: usize) -> Vec<M> {
+        let mut seen = Vec::new();
+        for _ in 0..frames {
+            sim.run(1);
+            seen.extend(messages::<M>(sim));
+        }
+        seen
+    }
+
+    #[test]
+    fn a_thrown_frag_sends_lethal_thrown_as_it_leaves_the_hand() {
+        let (mut sim, local, _) = fighting();
+        let lethal = key(&mut sim, Action::Lethal);
+        tap_key(&mut sim, lethal);
+        assert!(messages::<LethalThrown>(&mut sim).is_empty(), "still in the hand");
+        let frames = sim.frames(1.0);
+        let thrown = collect::<LethalThrown>(&mut sim, frames);
+        assert_eq!(thrown.len(), 1);
+        assert_eq!((thrown[0].player, thrown[0].kind), (local, Lethal::Frag));
+        assert!(sim.world_mut().get_entity(thrown[0].projectile).is_ok(), "it names the frag in flight");
     }
 }
