@@ -17,34 +17,46 @@ use crate::enemies::target::half_height_above_feet;
 use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 use crate::enemies::zombie::{Attack, DamageZombie, Dying, HitZone, Rising, Zombie};
-use crate::maps::map::{MapId, QUARRY_X, VILLAGE_X};
+use crate::maps::map::{DAM_X, MapId, QUARRY_X, STOREY, VILLAGE_X};
 use crate::maps::zone::ZoneId;
 
-/// A Map's Traps: the Door whose doorway each spans, the doorway's centre on the ground floor
-/// (x, z), and where along the wall (x) its two switches sit, one on each face. Every doorway is
-/// in a wall running along x, so a Trap's width lies along x and its depth along z.
-pub(crate) fn traps(map: MapId) -> &'static [((ZoneId, ZoneId), Vec2, f32)] {
+/// A Map's Traps: the Door whose doorway each spans, the doorway's centre on its floor (x, y, z),
+/// and where along the wall (x) its two switches sit, one on each face. Every doorway is in a wall
+/// running along x, so a Trap's width lies along x and its depth along z.
+pub(crate) fn traps(map: MapId) -> &'static [((ZoneId, ZoneId), Vec3, f32)] {
     const Q: f32 = QUARRY_X;
     match map {
         MapId::Greybox => {
-            const SPOTS: [((ZoneId, ZoneId), Vec2, f32); 2] = [
-                ((ZoneId::WestHall, ZoneId::DiningRoom), Vec2::new(-20.0, -14.0), -17.8),
-                ((ZoneId::EastHall, ZoneId::PowerRoom), Vec2::new(20.0, -14.0), 17.8),
+            const SPOTS: [((ZoneId, ZoneId), Vec3, f32); 2] = [
+                ((ZoneId::WestHall, ZoneId::DiningRoom), Vec3::new(-20.0, 0.0, -14.0), -17.8),
+                ((ZoneId::EastHall, ZoneId::PowerRoom), Vec3::new(20.0, 0.0, -14.0), 17.8),
             ];
             &SPOTS
         }
         // The Pump House's Door out to the pit floor.
         MapId::Quarry => {
-            const SPOTS: [((ZoneId, ZoneId), Vec2, f32); 1] = [((ZoneId::PumpHouse, ZoneId::QuarryFloor), Vec2::new(Q, -20.0), Q + 2.2)];
+            const SPOTS: [((ZoneId, ZoneId), Vec3, f32); 1] = [((ZoneId::PumpHouse, ZoneId::QuarryFloor), Vec3::new(Q, 0.0, -20.0), Q + 2.2)];
             &SPOTS
         }
         // The Doors off the High Street into the Smithy and the Schoolhouse, the cut-throughs to
         // the lanes nearest the Market.
         MapId::Village => {
             const V: f32 = VILLAGE_X;
-            const SPOTS: [((ZoneId, ZoneId), Vec2, f32); 2] = [
-                ((ZoneId::WestEnd, ZoneId::Smithy), Vec2::new(V - 32.0, 6.0), V - 29.8),
-                ((ZoneId::EastEnd, ZoneId::Schoolhouse), Vec2::new(V + 32.0, 6.0), V + 34.2),
+            const SPOTS: [((ZoneId, ZoneId), Vec3, f32); 2] = [
+                ((ZoneId::WestEnd, ZoneId::Smithy), Vec3::new(V - 32.0, 0.0, 6.0), V - 29.8),
+                ((ZoneId::EastEnd, ZoneId::Schoolhouse), Vec3::new(V + 32.0, 0.0, 6.0), V + 34.2),
+            ];
+            &SPOTS
+        }
+        // The doorways down from the Gate Shaft into the Intake Gallery and from the Spillway
+        // Gallery onto the Spillway Stair, a storey up, and from the Turbine Hall out to the
+        // Drainage Gallery: one in each Section.
+        MapId::Dam => {
+            const D: f32 = DAM_X;
+            const SPOTS: [((ZoneId, ZoneId), Vec3, f32); 3] = [
+                ((ZoneId::GateShaft, ZoneId::IntakeGallery), Vec3::new(D - 41.0, STOREY, 2.0), D - 38.8),
+                ((ZoneId::SpillwayGallery, ZoneId::SpillwayStair), Vec3::new(D + 41.0, STOREY, -32.0), D + 38.8),
+                ((ZoneId::TurbineHall, ZoneId::DrainageGallery), Vec3::new(D, 0.0, -56.0), D + 2.2),
             ];
             &SPOTS
         }
@@ -59,7 +71,7 @@ const SWITCH_HEIGHT: f32 = 1.3;
 #[cfg(test)]
 pub(crate) fn switch_spots(map: MapId) -> impl Iterator<Item = Vec3> {
     traps(map).iter().flat_map(|&(_, doorway, switch_x)| {
-        [Vec3::Z, Vec3::NEG_Z].map(|facing| Vec3::new(switch_x, SWITCH_HEIGHT, doorway.y) + facing * (WALL_FACE + 0.03))
+        [Vec3::Z, Vec3::NEG_Z].map(|facing| Vec3::new(switch_x, doorway.y + SWITCH_HEIGHT, doorway.z) + facing * (WALL_FACE + 0.03))
     })
 }
 
@@ -314,13 +326,13 @@ fn spawn_traps(
                 },
                 Mesh3d(field.clone()),
                 MeshMaterial3d(field_mat.clone()),
-                Transform::from_xyz(doorway.x, TRAP_SIZE.y / 2.0, doorway.y),
+                Transform::from_xyz(doorway.x, doorway.y + TRAP_SIZE.y / 2.0, doorway.z),
                 Visibility::Hidden,
             ))
             .id();
         // A switch on each face of the wall, facing out into its room.
         for facing in [Vec3::Z, Vec3::NEG_Z] {
-            let at = Vec3::new(switch_x, SWITCH_HEIGHT, doorway.y) + facing * (WALL_FACE + 0.03);
+            let at = Vec3::new(switch_x, doorway.y + SWITCH_HEIGHT, doorway.z) + facing * (WALL_FACE + 0.03);
             commands.spawn((
                 InRun,
                 Name::new("Trap Switch"),
@@ -687,7 +699,7 @@ mod tests {
         for &((a, b), doorway, switch_x) in MapId::ALL.iter().flat_map(|&map| traps(map)) {
             let sides: Vec<_> = [WALL_FACE + 0.1, -WALL_FACE - 0.1]
                 .into_iter()
-                .map(|out| zone_at(Vec3::new(switch_x, SWITCH_HEIGHT, doorway.y + out)))
+                .map(|out| zone_at(Vec3::new(switch_x, doorway.y + SWITCH_HEIGHT, doorway.z + out)))
                 .collect();
             assert!(sides.contains(&Some(a)) && sides.contains(&Some(b)), "{} - {}", a.name(), b.name());
             // Clear of the field, so throwing it doesn't touch it.

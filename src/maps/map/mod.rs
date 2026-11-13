@@ -16,6 +16,7 @@ use crate::weapons::wall_weapon::{WallWeapon, priced_for, wall_price};
 use crate::maps::zone::ZoneId;
 
 mod build;
+mod dam;
 mod greybox;
 mod quarry;
 mod village;
@@ -27,6 +28,7 @@ pub use greybox::CONTROL_PLATFORM;
 pub use greybox::PLAYER_START;
 pub use quarry::QUARRY_X;
 pub use village::VILLAGE_X;
+pub use dam::DAM_X;
 
 use crate::maps::jump_pad::JumpPad;
 
@@ -50,16 +52,20 @@ pub enum MapId {
     /// A village strung along its High Street and the lanes behind it, the Power at one end and
     /// Pack-a-Punch at the other.
     Village,
+    /// A dam in the dark: a road along its crest, galleries inside it and a turbine hall at its
+    /// foot, Pack-a-Punch in the Control Room in its middle.
+    Dam,
 }
 
 impl MapId {
-    pub const ALL: [MapId; 3] = [MapId::Greybox, MapId::Quarry, MapId::Village];
+    pub const ALL: [MapId; 4] = [MapId::Greybox, MapId::Quarry, MapId::Village, MapId::Dam];
 
     pub fn name(self) -> &'static str {
         match self {
             MapId::Greybox => "Greybox",
             MapId::Quarry => "Quarry",
             MapId::Village => "Village",
+            MapId::Dam => "Dam",
         }
     }
 
@@ -69,6 +75,7 @@ impl MapId {
             MapId::Greybox => "A house round a courtyard, and a wing across the field.",
             MapId::Quarry => "A pit and its works, climbed terrace by terrace.",
             MapId::Village => "A long village of streets and lanes, walked end to end.",
+            MapId::Dam => "A dam's crest, its galleries and the turbine hall at its foot.",
         }
     }
 
@@ -78,6 +85,7 @@ impl MapId {
             MapId::Greybox => &greybox::GREYBOX,
             MapId::Quarry => &quarry::QUARRY,
             MapId::Village => &village::VILLAGE,
+            MapId::Dam => &dam::DAM,
         }
     }
 }
@@ -180,13 +188,15 @@ const fn concat<T: Copy, const A: usize, const B: usize, const N: usize>(a: [T; 
 /// Every Map's windows, each Map's in a run of its own in `MapId::ALL` order, so a `BarrierId`
 /// names one window in one Map: the Zone it lets into, its centre on the wall line at the height
 /// of the floor it lets onto, and the way out. Each is planked up by its Barrier.
-pub const WINDOWS: [(ZoneId, Vec3, Vec2); GREYBOX_AND_QUARRY_WINDOWS.len() + village::WINDOWS.len()] = concat(GREYBOX_AND_QUARRY_WINDOWS, village::WINDOWS);
+pub const WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_DAM_WINDOWS.len() + dam::WINDOWS.len()] = concat(BEFORE_THE_DAM_WINDOWS, dam::WINDOWS);
+const BEFORE_THE_DAM_WINDOWS: [(ZoneId, Vec3, Vec2); GREYBOX_AND_QUARRY_WINDOWS.len() + village::WINDOWS.len()] = concat(GREYBOX_AND_QUARRY_WINDOWS, village::WINDOWS);
 const GREYBOX_AND_QUARRY_WINDOWS: [(ZoneId, Vec3, Vec2); greybox::WINDOWS.len() + quarry::WINDOWS.len()] = concat(greybox::WINDOWS, quarry::WINDOWS);
 
 /// Every Map's Box Locations, each Map's in a run of its own, in order: the Zone, where the Box's
 /// centre sits on the floor, and which way its front faces (where the Player stands). Every Run
 /// starts the Box at its Map's first.
-pub const BOX_LOCATIONS: [(ZoneId, Vec3, Vec2); GREYBOX_AND_QUARRY_BOXES.len() + village::BOX_LOCATIONS.len()] =
+pub const BOX_LOCATIONS: [(ZoneId, Vec3, Vec2); BEFORE_THE_DAM_BOXES.len() + dam::BOX_LOCATIONS.len()] = concat(BEFORE_THE_DAM_BOXES, dam::BOX_LOCATIONS);
+const BEFORE_THE_DAM_BOXES: [(ZoneId, Vec3, Vec2); GREYBOX_AND_QUARRY_BOXES.len() + village::BOX_LOCATIONS.len()] =
     concat(GREYBOX_AND_QUARRY_BOXES, village::BOX_LOCATIONS);
 const GREYBOX_AND_QUARRY_BOXES: [(ZoneId, Vec3, Vec2); greybox::BOX_LOCATIONS.len() + quarry::BOX_LOCATIONS.len()] =
     concat(greybox::BOX_LOCATIONS, quarry::BOX_LOCATIONS);
@@ -318,13 +328,37 @@ pub fn palette(zone: Option<ZoneId>) -> Palette {
         Some(Orchard) => paints((0.16, 0.22, 0.1), (0.5, 0.47, 0.4), (0.3, 0.22, 0.14), (0.7, 0.8, 1.0)),
         // Dark churchyard grass inside lichened grey walls, under a cold moon.
         Some(Graveyard) => paints((0.12, 0.17, 0.11), (0.52, 0.5, 0.56), (0.2, 0.2, 0.24), (0.6, 0.75, 1.0)),
+        // Asphalt between pale concrete parapets with hazard-yellow kerbs, under the moon.
+        Some(CrestRoad) => paints((0.08, 0.08, 0.1), (0.66, 0.64, 0.58), (0.85, 0.75, 0.1), (0.75, 0.82, 1.0)),
+        // Chequer plate and steel-blue panelling, white trim.
+        Some(TowerHead) => paints((0.35, 0.33, 0.3), (0.45, 0.52, 0.6), (0.9, 0.9, 0.88), (1.0, 0.85, 0.6)),
+        // Grimy concrete steps between green-grey walls, black handrail paint.
+        Some(GateShaft) => paints((0.25, 0.25, 0.22), (0.55, 0.62, 0.45), (0.2, 0.2, 0.2), (0.9, 1.0, 0.8)),
+        // Wet concrete and teal-blue walls, a pale stripe at waist height.
+        Some(IntakeGallery) => paints((0.2, 0.24, 0.26), (0.3, 0.42, 0.48), (0.75, 0.7, 0.6), (0.7, 0.9, 1.0)),
+        // Worn boards and terracotta render, dark timber.
+        Some(SpillwayGatehouse) => paints((0.38, 0.3, 0.24), (0.68, 0.45, 0.37), (0.2, 0.15, 0.1), (1.0, 0.8, 0.55)),
+        // Stained concrete and faded mauve walls, cream trim.
+        Some(SpillwayGallery) => paints((0.26, 0.22, 0.2), (0.5, 0.38, 0.5), (0.85, 0.85, 0.8), (1.0, 0.85, 0.75)),
+        // Ochre safety paint over bare concrete, black edging.
+        Some(SpillwayStair) => paints((0.4, 0.38, 0.34), (0.7, 0.68, 0.45), (0.15, 0.15, 0.18), (1.0, 0.95, 0.8)),
+        // Green linoleum and off-white walls, a dark green dado.
+        Some(ControlRoom) => paints((0.15, 0.25, 0.2), (0.8, 0.82, 0.78), (0.1, 0.3, 0.25), (0.9, 0.95, 1.0)),
+        // Black mud on the floor and walls stained a rusty maroon.
+        Some(PenstockTunnel) => paints((0.18, 0.15, 0.13), (0.38, 0.21, 0.3), (0.7, 0.55, 0.3), (1.0, 0.6, 0.3)),
+        // Grey floor paint, machine-blue walls, safety orange.
+        Some(TurbineHall) => paints((0.3, 0.32, 0.36), (0.3, 0.36, 0.5), (0.9, 0.45, 0.1), (0.85, 0.9, 1.0)),
+        // Rubber matting and switchgear green, yellow warning trim.
+        Some(SwitchgearRoom) => paints((0.12, 0.12, 0.14), (0.25, 0.42, 0.28), (0.9, 0.8, 0.2), (0.8, 1.0, 0.85)),
+        // Silt on the floor and damp, pale blue-grey walls, a teal tide line.
+        Some(DrainageGallery) => paints((0.22, 0.2, 0.16), (0.6, 0.72, 0.72), (0.15, 0.4, 0.45), (0.75, 1.0, 0.9)),
         // Bare ground round weathered brick.
         None => paints((0.15, 0.17, 0.12), (0.3, 0.21, 0.17), (0.42, 0.4, 0.36), (1.0, 0.75, 0.45)),
     }
 }
 
 /// A Raised Floor standing on its Zone's floor: a stage, a dais, a dock. It covers `min`..`max`
-/// (x, z), its top `height` up. Its edges are Ledges the Player can hop down from; Slopes lead up
+/// (x, z), its top at `height`, solid down to its Zone's floor. Its edges are Ledges the Player can hop down from; Slopes lead up
 /// onto it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RaisedFloor {
@@ -838,7 +872,9 @@ pub(crate) mod tests {
         for (i, pad) in layout.jump_pads.iter().enumerate() {
             fixtures.push((format!("Jump Pad {i}"), pad.at, JUMP_PAD_RADIUS));
         }
-        fixtures.push(("Power Switch".into(), crate::maps::power::switch_spot(map).0, 0.5));
+        if let Some((at, _)) = crate::maps::power::switch_spot(map) {
+            fixtures.push(("Power Switch".into(), at, 0.5));
+        }
         fixtures.push(("Pack-a-Punch".into(), crate::weapons::pack_a_punch::machine_at(map), 0.8));
         fixtures
     }
@@ -951,7 +987,7 @@ pub(crate) mod tests {
         for raised in layout.raised_floors {
             let top = raised.height;
             let name = format!("the Raised Floor in {}", raised.zone.name());
-            all.push((name, raised.zone, (raised.min, raised.max), (0.0, top), Box::new(move |at: Vec3| at.y >= top - 0.05)));
+            all.push((name, raised.zone, (raised.min, raised.max), (raised.zone.floor(), top), Box::new(move |at: Vec3| at.y >= top - 0.05)));
         }
         for slope in layout.slopes {
             let end = Vec2::new(slope.foot.x, slope.foot.z) + slope.up * slope.run;

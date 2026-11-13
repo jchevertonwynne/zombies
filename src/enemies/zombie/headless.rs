@@ -779,6 +779,18 @@ fn a_zombie_follows_the_player_round_every_way_of_the_village() {
     }
 }
 
+/// With every Door on `map` open, a Zombie set down at `start` after a Player standing at
+/// `player`: whether it reaches them within 60 s, and the last place it was seen.
+pub(crate) fn follows(map: MapId, start: Vec3, player: Vec3) -> (bool, Vec3) {
+    let mut sim = Sim::on(map, 60.0, |_| {});
+    open_every_door(&mut sim);
+    put_player(&mut sim, player);
+    let zombie = sim.spawn(start, None);
+    arrives(&mut sim, zombie, 60.0, |feet| {
+        (feet.y - standing(player.y)).abs() < 0.3 && Vec2::new(feet.x - player.x, feet.z - player.z).length() < 1.5
+    })
+}
+
 /// Every Door on the Map open, for following a Zombie from Zone to Zone.
 fn open_every_door(sim: &mut Sim) {
     use crate::maps::door::{Door, open};

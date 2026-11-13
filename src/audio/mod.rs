@@ -731,6 +731,7 @@ fn perk_jingles(
     mut purchases: MessageReader<Purchased>,
     power: Res<Power>,
     run: Res<crate::state::RunType>,
+    map: Res<crate::maps::map::MapId>,
     time: Res<Time>,
 ) {
     let bought: Vec<Entity> = purchases.read().map(|purchase| purchase.buyable).collect();
@@ -741,7 +742,7 @@ fn perk_jingles(
             });
             continue;
         };
-        let powered = (!machine.perk.needs_power(*run) || power.is_on()) && !sabotaged;
+        let powered = (!machine.perk.needs_power(*run, *map) || power.is_on()) && !sabotaged;
         if powered {
             jingle.next -= time.delta_secs();
         }

@@ -22,7 +22,7 @@ use crate::state::{GameState, InRun, input_runs, world_runs};
 use crate::tuning::*;
 use crate::weapons::weapon::Knife;
 use crate::enemies::zombie::{Dying, Lured, Zombie};
-use crate::maps::map::{MapId, QUARRY_X, STOREY, VILLAGE_X};
+use crate::maps::map::{DAM_X, MapId, QUARRY_X, STOREY, VILLAGE_X};
 use crate::maps::zone::ZoneId;
 
 /// The Equipment the Player carries. It never counts toward the Weapon limit.
@@ -328,6 +328,18 @@ pub(crate) fn equipment_walls(map: MapId) -> &'static [(EquipmentWall, ZoneId, V
                 (EquipmentWall::Claymore, ZoneId::Mill, Vec3::new(V - 67.0, 1.5, 6.2), Vec3::Z),
                 // On the back of the mausoleum.
                 (EquipmentWall::BowieKnife, ZoneId::Graveyard, Vec3::new(V + 56.0, 1.5, 45.7), Vec3::Z),
+            ];
+            &SPOTS
+        }
+        MapId::Dam => {
+            const D: f32 = DAM_X;
+            const SPOTS: [(EquipmentWall, ZoneId, Vec3, Vec3); 3] = [
+                // On the Tower Head's west wall, beside its window.
+                (EquipmentWall::Frags, ZoneId::TowerHead, Vec3::new(D - 45.8, 2.0 * STOREY + 1.5, 30.0), Vec3::X),
+                // In the Spillway Gallery, on its south wall.
+                (EquipmentWall::Claymore, ZoneId::SpillwayGallery, Vec3::new(D + 30.0, STOREY + 1.5, -3.8), Vec3::Z),
+                // On the Control Room's north wall, beside the mimic panel.
+                (EquipmentWall::BowieKnife, ZoneId::ControlRoom, Vec3::new(D - 7.5, STOREY + 1.5, 7.8), Vec3::NEG_Z),
             ];
             &SPOTS
         }

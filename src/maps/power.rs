@@ -35,15 +35,17 @@ impl Power {
 pub(crate) const SWITCH_AT: Vec3 = Vec3::new(25.6, crate::maps::map::CONTROL_PLATFORM.height + 1.3, -20.0);
 const SWITCH_FACING: Vec3 = Vec3::NEG_X;
 
-/// Where the Power Switch is on `map`, and the way it faces.
-pub(crate) fn switch_spot(map: MapId) -> (Vec3, Vec3) {
-    match map {
+/// Where the Power Switch is on `map`, and the way it faces. The Dam has none: its Power comes
+/// from its Generators.
+pub(crate) fn switch_spot(map: MapId) -> Option<(Vec3, Vec3)> {
+    Some(match map {
         MapId::Greybox => (SWITCH_AT, SWITCH_FACING),
         // On the Offices' south wall, at hand height: the top of the climb but the Headframe.
         MapId::Quarry => (Vec3::new(QUARRY_X - 10.0, 2.0 * STOREY + 1.3, 16.4), Vec3::Z),
         // On the Mill's west wall, at the far end of the village from Pack-a-Punch.
         MapId::Village => (Vec3::new(VILLAGE_X - 71.6, 1.3, 19.0), Vec3::X),
-    }
+        MapId::Dam => return None,
+    })
 }
 
 /// The lever that turns the Power on. Used, not bought: it has a Prompt but no price.
@@ -113,7 +115,7 @@ fn spawn_switch(
     mut materials: ResMut<Assets<StandardMaterial>>,
     map: Res<MapId>,
 ) {
-    let (at, facing) = switch_spot(*map);
+    let Some((at, facing)) = switch_spot(*map) else { return };
     let panel = Cuboid::new(0.8, 1.2, 0.3);
     commands
         .spawn((

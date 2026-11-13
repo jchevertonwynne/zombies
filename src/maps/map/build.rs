@@ -157,10 +157,10 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
 
     /// A Raised Floor, with a lip of its Zone's trim round its top.
     pub fn raised_floor(&mut self, raised: &RaisedFloor) {
-        let (min, max, height) = (raised.min, raised.max, raised.height);
-        let size = Vec3::new(max.x - min.x, height, max.y - min.y);
+        let (min, max, height, floor) = (raised.min, raised.max, raised.height, raised.zone.floor());
+        let size = Vec3::new(max.x - min.x, height - floor, max.y - min.y);
         let middle = (min + max) / 2.0;
-        self.block(size, Vec3::new(middle.x, height / 2.0, middle.y), raised.colour);
+        self.block(size, Vec3::new(middle.x, (floor + height) / 2.0, middle.y), raised.colour);
         self.edging(min, max, height, palette(Some(raised.zone)).trim);
     }
 
