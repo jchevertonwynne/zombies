@@ -124,17 +124,47 @@ pub enum SabotageKind {
     Trap,
     Teleporter,
     PackAPunch,
-    /// A Generator, which it takes rather than Sabotages: `powered` while it's Held.
-    Generator,
+}
+
+/// What the Sapper means to do at its target: take a Generator, which is then Lost, or Sabotage a
+/// system.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Job {
+    Take,
+    Sabotage(SabotageKind),
+}
+
+impl From<SabotageKind> for Job {
+    fn from(kind: SabotageKind) -> Self {
+        Self::Sabotage(kind)
+    }
+}
+
+impl Job {
+    /// Whether the Sapper will do it: a Generator only while it's Held (`powered`), Players on its
+    /// plate or not; a system as `can_sabotage` says.
+    pub fn wanted(self, powered: bool, in_use: bool) -> bool {
+        match self {
+            Job::Take => powered,
+            Job::Sabotage(kind) => can_sabotage(kind, powered, in_use),
+        }
+    }
+
+    /// How long it works at it.
+    pub fn secs(self) -> f32 {
+        match self {
+            Job::Take => SAPPER_TAKE_GENERATOR_SECS,
+            Job::Sabotage(_) => SAPPER_SABOTAGE_SECS,
+        }
+    }
 }
 
 /// Whether the Sapper will go for a system: never Quick Revive, only a powered one (the Box needs
-/// no Power), and never one that's mid-use, though a running Trap is fair game. A Generator only
-/// while it's Held, Players on its plate or not.
+/// no Power), and never one that's mid-use, though a running Trap is fair game.
 pub fn can_sabotage(kind: SabotageKind, powered: bool, in_use: bool) -> bool {
     match kind {
         SabotageKind::Perk(Perk::QuickRevive) => false,
-        SabotageKind::Trap | SabotageKind::Generator => powered,
+        SabotageKind::Trap => powered,
         SabotageKind::MysteryBox => !in_use,
         SabotageKind::Perk(_) | SabotageKind::Teleporter | SabotageKind::PackAPunch => {
             powered && !in_use
@@ -146,7 +176,7 @@ pub fn can_sabotage(kind: SabotageKind, powered: bool, in_use: bool) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Candidate<T> {
     pub target: T,
-    pub kind: SabotageKind,
+    pub job: Job,
     /// Where it stands to work, on the floor.
     pub spot: Vec3,
     /// Where the restore is used from once it's Sabotaged.
@@ -163,9 +193,9 @@ pub fn pick_target<T>(
 ) -> Option<Candidate<T>> {
     candidates
         .into_iter()
-        .filter(|c| can_sabotage(c.kind, c.powered, c.in_use))
+        .filter(|c| c.job.wanted(c.powered, c.in_use))
         .min_by(|a, b| {
-            let sabotage = |c: &Candidate<T>| c.kind != SabotageKind::Generator;
+            let sabotage = |c: &Candidate<T>| c.job != Job::Take;
             sabotage(a).cmp(&sabotage(b)).then(a.spot.distance(player).total_cmp(&b.spot.distance(player)))
         })
 }
@@ -624,9 +654,8 @@ fn stun_restarts(
     mut cues: MessageWriter<SpecialCue>,
 ) {
     for (mut sapper, transform) in &mut sappers {
-        let taking = sapper.goal.is_some_and(|goal| goal.kind == SabotageKind::Generator);
-        if sapper.working.is_some() && !taking {
-            sapper.working = Some(SAPPER_SABOTAGE_SECS);
+        if let (Some(_), Some(Candidate { job: job @ Job::Sabotage(_), .. })) = (sapper.working, sapper.goal) {
+            sapper.working = Some(job.secs());
         }
         cues.write(SpecialCue {
             cue: Cue::SapperStun,
@@ -651,9 +680,9 @@ fn candidates(
     graph: &NavGraph,
 ) -> Vec<Candidate<Target>> {
     // It stands on the floor under where the system is used from, on whichever storey that is.
-    let candidate = |target, kind, use_point: Vec3, powered, in_use| Candidate {
+    let candidate = |target, kind: SabotageKind, use_point: Vec3, powered, in_use| Candidate {
         target,
-        kind,
+        job: kind.into(),
         spot: use_point.with_y(graph.nodes[graph.nearest(use_point)].at.y),
         use_point,
         powered,
@@ -724,7 +753,7 @@ fn candidates(
         if state == GeneratorState::Held {
             all.push(Candidate {
                 target: Target::Generator(index),
-                kind: SabotageKind::Generator,
+                job: Job::Take,
                 spot: generator.at,
                 use_point: generator.at + Vec3::Y,
                 powered: true,
@@ -845,8 +874,7 @@ fn sabotage(
                     && (goal.spot - feet).with_y(0.0).length() <= SAPPER_SABOTAGE_REACH
                     && (goal.spot.y - feet.y).abs() < 1.5
                 {
-                    let secs = if goal.kind == SabotageKind::Generator { SAPPER_TAKE_GENERATOR_SECS } else { SAPPER_SABOTAGE_SECS };
-                    sapper.working = Some(secs);
+                    sapper.working = Some(goal.job.secs());
                     commands.entity(entity).insert(Sabotaging);
                 }
             }
@@ -1098,11 +1126,11 @@ mod tests {
         assert!(window_candidates([(Yard, 3)], StartRoom, active).is_empty());
     }
 
-    fn at(target: u32, kind: SabotageKind, x: f32, powered: bool, in_use: bool) -> Candidate<u32> {
+    fn at(target: u32, job: impl Into<Job>, x: f32, powered: bool, in_use: bool) -> Candidate<u32> {
         let spot = Vec3::new(x, 0.0, 0.0);
         Candidate {
             target,
-            kind,
+            job: job.into(),
             spot,
             use_point: spot,
             powered,
@@ -1183,10 +1211,10 @@ mod tests {
     fn the_sapper_goes_for_the_held_generator_nearest_the_player_before_any_sabotage() {
         let player = Vec3::ZERO;
         let box_near = at(1, SabotageKind::MysteryBox, 1.0, true, false);
-        let far_held = at(2, SabotageKind::Generator, 30.0, true, true);
-        let near_held = at(3, SabotageKind::Generator, 20.0, true, false);
+        let far_held = at(2, Job::Take, 30.0, true, true);
+        let near_held = at(3, Job::Take, 20.0, true, false);
         // Unclaimed, Charging or Lost: not Held, so not a target.
-        let not_held = at(4, SabotageKind::Generator, 2.0, false, false);
+        let not_held = at(4, Job::Take, 2.0, false, false);
         let picked = |candidates: &[Candidate<u32>]| pick_target(candidates.iter().copied(), player).map(|c| c.target);
         assert_eq!(picked(&[box_near, far_held, near_held, not_held]), Some(3));
         assert_eq!(picked(&[box_near, far_held, not_held]), Some(2), "a Player on its plate doesn't stop it");
