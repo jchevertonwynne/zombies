@@ -86,12 +86,7 @@ fn surge(
             continue;
         }
         let generator = &generators.layout()[index];
-        let section = map
-            .layout()
-            .sections
-            .iter()
-            .find(|(section, _)| *section == generator.section)
-            .map_or(&[][..], |(_, zones)| zones);
+        let section = map.layout().zones_of(generator.section);
         let windows = spawn_points
             .iter()
             .filter(|(_, point)| matches!(point.kind, SpawnKind::Window(_)))

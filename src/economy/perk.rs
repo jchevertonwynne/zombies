@@ -58,7 +58,7 @@ impl Perk {
     pub fn needs_power(self, run: RunType, map: MapId) -> bool {
         match self {
             Perk::Juggernog | Perk::SpeedCola | Perk::DoubleTap => true,
-            Perk::QuickRevive => run.is_coop() && crate::maps::power::switch_spot(map).is_some(),
+            Perk::QuickRevive => run.is_coop() && map.layout().has_power_switch(),
         }
     }
 

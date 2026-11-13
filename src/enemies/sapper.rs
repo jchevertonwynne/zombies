@@ -29,7 +29,7 @@ use crate::economy::perk::{Drinking, Perk, PerkMachine};
 use crate::players::player::Player;
 use crate::economy::points::BonusPoints;
 use crate::maps::generator::{GeneratorState, Generators};
-use crate::maps::power::{Power, pack_a_punch_powered, powered};
+use crate::maps::power::{Power, Powering};
 use crate::maps::trap::trap_zone;
 use crate::economy::power_up::DropPowerUp;
 use crate::run::round::{CarriesOver, Round, RoundPhase, zombie_health};
@@ -674,7 +674,8 @@ fn candidates(
     machines: &Query<(Entity, &PackAPunch, &Transform), Without<Sabotaged>>,
     doors: &Query<&Door>,
     teleporter: Option<&Teleporter>,
-    (power_on, generators): (bool, Option<&Generators>),
+    supply: Powering,
+    generators: Option<&Generators>,
     drinking: Option<Perk>,
     active: ZoneSet,
     graph: &NavGraph,
@@ -688,7 +689,6 @@ fn candidates(
         powered,
         in_use,
     };
-    let powers = |zone| powered(power_on, generators, zone);
     let mut all = Vec::new();
     for (entity, mystery_box, transform) in boxes {
         let in_use = mystery_box.state != BoxState::Idle;
@@ -706,7 +706,7 @@ fn candidates(
             Target::Entity(entity),
             kind,
             machine.use_point(),
-            powers(machine.zone()),
+            supply.powers(machine.zone()),
             drinking == Some(machine.perk),
         ));
     }
@@ -719,7 +719,7 @@ fn candidates(
             Target::Entity(entity),
             SabotageKind::Trap,
             use_point,
-            powers(Some(trap_zone(trap.joins()))) && door_open,
+            supply.powers(Some(trap_zone(trap.joins()))) && door_open,
             false,
         ));
     }
@@ -730,7 +730,7 @@ fn candidates(
             Target::Entity(entity),
             SabotageKind::PackAPunch,
             use_point,
-            pack_a_punch_powered(power_on, generators),
+            supply.powers_pack_a_punch(),
             in_use,
         ));
     }
@@ -744,7 +744,7 @@ fn candidates(
                 Target::Teleporter,
                 SabotageKind::Teleporter,
                 use_point,
-                powers(None),
+                supply.powers(None),
                 teleporter.in_use(),
             ));
         }
@@ -807,7 +807,8 @@ fn sabotage(
         &machines,
         &doors,
         crate::maps::teleporter::stands_on(*map).then_some(&*teleporter),
-        (power.is_on(), generators.as_deref()),
+        Powering::new(power.is_on(), generators.as_deref()),
+        generators.as_deref(),
         drinking.iter().next().map(|drinking| drinking.perk),
         active.0,
         &graph,
