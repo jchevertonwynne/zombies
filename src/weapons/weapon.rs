@@ -11,7 +11,7 @@ use crate::maps::barrier::{Rebuild, not_repairing, rebuild_planks};
 use crate::weapons::wall_weapon::AmmoBuy;
 use crate::players::controls::{Action, Controls};
 use crate::weapons::ammo_mod::{AmmoModHit, AmmoMods, glint_colour, pick_ammo_mod};
-use crate::weapons::arsenal::{Burn, FireMode, Splash, WeaponClass, WeaponId, WeaponStats};
+use crate::weapons::arsenal::{Burn, FireMode, Splash, WeaponId, WeaponStats};
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
 use crate::weapons::attachment::{
@@ -1110,7 +1110,8 @@ fn hip_depth(length: f32) -> f32 {
 
 /// How far ahead of the camera a `class` Weapon's muzzle reaches at the hip: a Weapon Light must
 /// sit further out, or it lights the Weapon it's on.
-pub fn view_muzzle_depth(class: WeaponClass) -> f32 {
+#[cfg(test)]
+pub fn view_muzzle_depth(class: crate::weapons::arsenal::WeaponClass) -> f32 {
     let length = model_length(class);
     hip_depth(length) + 0.15 * length
 }

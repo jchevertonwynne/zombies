@@ -4,6 +4,7 @@ use bevy::ecs::system::RunSystemOnce;
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
 
+use super::weapon_light::WeaponLight;
 use super::*;
 use crate::maps::generator::Generators;
 use crate::maps::map::MapId;
@@ -214,7 +215,7 @@ fn chalk_glows_faintly_only_in_dark_zones() {
 /// The Weapon Lights in `app`, each with the entity it hangs from.
 fn weapon_lights(app: &mut App) -> Vec<(Entity, SpotLight)> {
     let mut query = app.world_mut().query_filtered::<(&ChildOf, &SpotLight), With<WeaponLight>>();
-    query.iter(app.world()).map(|(parent, light)| (parent.parent(), light.clone())).collect()
+    query.iter(app.world()).map(|(parent, light)| (parent.parent(), *light)).collect()
 }
 
 /// A teammate on `app`'s Map, in Seat 1, as a Co-op Run spawns one.

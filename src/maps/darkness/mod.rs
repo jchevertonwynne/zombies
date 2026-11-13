@@ -175,7 +175,5 @@ fn flicker(level: f32) -> f32 {
 
 pub mod weapon_light;
 
-pub use weapon_light::WeaponLight;
-
 #[cfg(test)]
 mod tests;
