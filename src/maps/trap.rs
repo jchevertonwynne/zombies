@@ -388,9 +388,8 @@ fn run_traps(
 ) {
     let cooldown = resolve(Stat::TrapCooldown, TRAP_COOLDOWN_SECS, player.iter().flat_map(|modifiers| &modifiers.0));
     for (mut trap, sabotaged) in &mut traps {
-        // A Trap whose Section loses its Generator stops at once. (A Power Switch's Power never
-        // goes back off.)
-        let unpowered = supply.on_generators() && !supply.powers(Some(trap_zone(trap.joins)));
+        // A Trap whose Section loses its Generator stops at once.
+        let unpowered = supply.cut_off(Some(trap_zone(trap.joins)));
         if sabotaged || unpowered {
             trap.phase = TrapPhase::Idle;
         } else if trap.phase != TrapPhase::Idle {

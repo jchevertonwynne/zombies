@@ -35,66 +35,56 @@ impl Power {
     }
 }
 
-/// Whether something in `zone` that waits for Power works now. On a Map with Generators, that's
-/// its Section being Powered, or always outside every Section; otherwise it's the Power being on.
-pub fn powered(power_on: bool, generators: Option<&Generators>, zone: Option<ZoneId>) -> bool {
-    match generators {
-        Some(generators) if generators.on_map() => generators.powers(zone),
-        _ => power_on,
-    }
+/// What Powers the Map's machines right now, from the Power Switch's `Power` and the Generators,
+/// as `Supply` reads them. On a Map with Generators they decide everything and `Power` counts for
+/// nothing; otherwise it's the Power being on.
+#[derive(Clone, Copy)]
+pub struct Powering<'a> {
+    power_on: bool,
+    generators: Option<&'a Generators>,
 }
 
-/// Whether Pack-a-Punch works now: with every Generator Held, on a Map with them; otherwise with
-/// the Power on.
-pub fn pack_a_punch_powered(power_on: bool, generators: Option<&Generators>) -> bool {
-    match generators {
-        Some(generators) if generators.on_map() => generators.all_held(),
-        _ => power_on,
-    }
-}
-
-/// Whether the Power has been on this Run, as Gauntlet's "Power on" reads it: the Power Switch
-/// thrown, or any Generator ever Held, even if it's since been Lost.
-pub fn power_has_been_on(power_on: bool, generators: Option<&Generators>) -> bool {
-    power_on || generators.is_some_and(Generators::ever_held)
-}
-
-/// What Powers the Map's machines, whichever way the Map is Powered: the Power Switch's `Power`,
-/// or its Generators. Every machine that waits for Power asks this.
-#[derive(SystemParam)]
-pub struct Supply<'w> {
-    power: Option<Res<'w, Power>>,
-    generators: Option<Res<'w, Generators>>,
-}
-
-impl Supply<'_> {
-    fn power_on(&self) -> bool {
-        self.power.as_ref().is_some_and(|power| power.is_on())
+impl<'a> Powering<'a> {
+    pub fn new(power_on: bool, generators: Option<&'a Generators>) -> Self {
+        Self { power_on, generators }
     }
 
-    /// Whether a Perk Machine or Trap in `zone` that waits for Power works now.
-    pub fn powers(&self, zone: Option<ZoneId>) -> bool {
-        powered(self.power_on(), self.generators.as_deref(), zone)
-    }
-
-    /// Whether Pack-a-Punch works now.
-    pub fn powers_pack_a_punch(&self) -> bool {
-        pack_a_punch_powered(self.power_on(), self.generators.as_deref())
-    }
-
-    /// Whether the Power has been on this Run (see `power_has_been_on`).
-    pub fn has_been_on(&self) -> bool {
-        power_has_been_on(self.power_on(), self.generators.as_deref())
+    /// The Generators, on a Map Powered by them.
+    fn on_map(self) -> Option<&'a Generators> {
+        self.generators.filter(|generators| generators.on_map())
     }
 
     /// Whether the Map is Powered by Generators, not a Power Switch.
-    pub fn on_generators(&self) -> bool {
-        self.generators.as_ref().is_some_and(|generators| generators.on_map())
+    pub fn on_generators(self) -> bool {
+        self.on_map().is_some()
+    }
+
+    /// Whether something in `zone` that waits for Power works now: its Section being Powered, or
+    /// always outside every Section.
+    pub fn powers(self, zone: Option<ZoneId>) -> bool {
+        self.on_map().map_or(self.power_on, |generators| generators.powers(zone))
+    }
+
+    /// Whether Pack-a-Punch works now: with every Generator Held.
+    pub fn powers_pack_a_punch(self) -> bool {
+        self.on_map().map_or(self.power_on, Generators::all_held)
+    }
+
+    /// Whether something running in `zone` loses its Power now: only when its Section's Generator
+    /// is lost, since a Power Switch's Power never goes back off.
+    pub fn cut_off(self, zone: Option<ZoneId>) -> bool {
+        self.on_generators() && !self.powers(zone)
+    }
+
+    /// Whether the Power has been on this Run, as Gauntlet's "Power on" reads it: the Power Switch
+    /// thrown, or any Generator ever Held, even if it's since been Lost.
+    pub fn has_been_on(self) -> bool {
+        self.power_on || self.generators.is_some_and(Generators::ever_held)
     }
 
     /// The refusal a machine in `zone` waiting for Power shows.
-    pub fn refusal(&self, zone: Option<ZoneId>) -> String {
-        let section = self.generators.as_ref().and_then(|generators| zone.and_then(|zone| generators.section_of(zone)));
+    pub fn refusal(self, zone: Option<ZoneId>) -> String {
+        let section = self.generators.and_then(|generators| zone.and_then(|zone| generators.section_of(zone)));
         match section {
             Some(section) => format!("You must Claim the {} Generator first", section.name()),
             None if self.on_generators() => "You must Claim every Generator first".into(),
@@ -103,20 +93,63 @@ impl Supply<'_> {
     }
 }
 
+/// What Powers the Map's machines, whichever way the Map is Powered: the Power Switch's `Power`,
+/// or its Generators. Every machine that waits for Power asks this (see `Powering`).
+#[derive(SystemParam)]
+pub struct Supply<'w> {
+    power: Option<Res<'w, Power>>,
+    generators: Option<Res<'w, Generators>>,
+}
+
+impl Supply<'_> {
+    /// What Powers the Map's machines right now.
+    pub fn now(&self) -> Powering<'_> {
+        Powering::new(self.power.as_ref().is_some_and(|power| power.is_on()), self.generators.as_deref())
+    }
+
+    /// Whether a Perk Machine or Trap in `zone` that waits for Power works now.
+    pub fn powers(&self, zone: Option<ZoneId>) -> bool {
+        self.now().powers(zone)
+    }
+
+    /// Whether Pack-a-Punch works now.
+    pub fn powers_pack_a_punch(&self) -> bool {
+        self.now().powers_pack_a_punch()
+    }
+
+    /// Whether something running in `zone` loses its Power now (see `Powering::cut_off`).
+    pub fn cut_off(&self, zone: Option<ZoneId>) -> bool {
+        self.now().cut_off(zone)
+    }
+
+    /// Whether the Power has been on this Run (see `Powering::has_been_on`).
+    pub fn has_been_on(&self) -> bool {
+        self.now().has_been_on()
+    }
+
+    /// The refusal a machine in `zone` waiting for Power shows.
+    pub fn refusal(&self, zone: Option<ZoneId>) -> String {
+        self.now().refusal(zone)
+    }
+}
+
 /// The Greybox's Power Switch: on the Power Room's east wall, at hand height over the control
 /// platform it's thrown from.
 pub(crate) const SWITCH_AT: Vec3 = Vec3::new(25.6, crate::maps::map::CONTROL_PLATFORM.height + 1.3, -20.0);
 const SWITCH_FACING: Vec3 = Vec3::NEG_X;
 
-/// Where the Power Switch is on `map`, and the way it faces. The Dam has none: its Power comes
-/// from its Generators.
+/// Where the Power Switch is on `map`, and the way it faces. A Map with Generators has none.
 pub(crate) fn switch_spot(map: MapId) -> Option<(Vec3, Vec3)> {
+    if !map.layout().has_power_switch() {
+        return None;
+    }
     Some(match map {
         MapId::Greybox => (SWITCH_AT, SWITCH_FACING),
         // On the Offices' south wall, at hand height: the top of the climb but the Headframe.
         MapId::Quarry => (Vec3::new(QUARRY_X - 10.0, 2.0 * STOREY + 1.3, 16.4), Vec3::Z),
         // On the Mill's west wall, at the far end of the village from Pack-a-Punch.
         MapId::Village => (Vec3::new(VILLAGE_X - 71.6, 1.3, 19.0), Vec3::X),
+        // It has Generators, so it never gets here.
         MapId::Dam => return None,
     })
 }
@@ -289,15 +322,17 @@ mod tests {
     #[test]
     fn with_a_power_switch_everything_waits_for_the_power() {
         let generators = Generators::for_map(MapId::Greybox);
+        let (off, on) = (Powering::new(false, Some(&generators)), Powering::new(true, Some(&generators)));
         for zone in [Some(crate::maps::zone::ZoneId::PowerRoom), None] {
-            assert!(!powered(false, Some(&generators), zone));
-            assert!(powered(true, Some(&generators), zone));
+            assert!(!off.powers(zone));
+            assert!(on.powers(zone));
+            assert!(!off.cut_off(zone), "a Power Switch's Power never goes back off");
         }
-        assert!(!powered(false, None, None), "an app without Generators has a Power Switch");
-        assert!(!pack_a_punch_powered(false, Some(&generators)));
-        assert!(pack_a_punch_powered(true, Some(&generators)));
-        assert!(!power_has_been_on(false, Some(&generators)));
-        assert!(power_has_been_on(true, None));
+        assert!(!Powering::new(false, None).powers(None), "an app without Generators has a Power Switch");
+        assert!(!off.powers_pack_a_punch());
+        assert!(on.powers_pack_a_punch());
+        assert!(!off.has_been_on());
+        assert!(Powering::new(true, None).has_been_on());
     }
 
     /// On a Map with Generators, a machine waits for its Section's, Pack-a-Punch for all of them,
@@ -308,16 +343,18 @@ mod tests {
         use crate::maps::zone::ZoneId;
         let mut generators = Generators::for_map(MapId::Dam);
         let index = |section| MapId::Dam.layout().generators.iter().position(|generator| generator.section == section).unwrap();
-        assert!(!powered(true, Some(&generators), Some(ZoneId::SwitchgearRoom)), "the Power counts for nothing");
-        assert!(powered(false, Some(&generators), Some(ZoneId::CrestRoad)));
+        let powered = |power_on, generators: &Generators, zone| Powering::new(power_on, Some(generators)).powers(Some(zone));
+        assert!(!powered(true, &generators, ZoneId::SwitchgearRoom), "the Power counts for nothing");
+        assert!(Powering::new(true, Some(&generators)).cut_off(Some(ZoneId::SwitchgearRoom)));
+        assert!(powered(false, &generators, ZoneId::CrestRoad));
         generators.hold(index(SectionId::TurbineHall));
-        assert!(powered(false, Some(&generators), Some(ZoneId::SwitchgearRoom)));
-        assert!(!powered(false, Some(&generators), Some(ZoneId::TowerHead)));
-        assert!(!pack_a_punch_powered(true, Some(&generators)));
-        assert!(power_has_been_on(false, Some(&generators)), "once any Generator is Held");
+        assert!(powered(false, &generators, ZoneId::SwitchgearRoom));
+        assert!(!powered(false, &generators, ZoneId::TowerHead));
+        assert!(!Powering::new(true, Some(&generators)).powers_pack_a_punch());
+        assert!(Powering::new(false, Some(&generators)).has_been_on(), "once any Generator is Held");
         generators.hold(index(SectionId::IntakeTower));
         generators.hold(index(SectionId::SpillwayGallery));
-        assert!(pack_a_punch_powered(false, Some(&generators)));
+        assert!(Powering::new(false, Some(&generators)).powers_pack_a_punch());
     }
 
     #[test]

@@ -69,6 +69,17 @@ impl Layout {
     pub fn section_of(&self, zone: ZoneId) -> Option<SectionId> {
         self.sections.iter().find(|(_, zones)| zones.contains(&zone)).map(|&(section, _)| section)
     }
+
+    /// Whether the Map has a Power Switch: one with Generators has none, and never turns its
+    /// `Power` on.
+    pub fn has_power_switch(&self) -> bool {
+        self.generators.is_empty()
+    }
+
+    /// The Zones in `section`: none if it isn't on this Map.
+    pub fn zones_of(&self, section: SectionId) -> &'static [ZoneId] {
+        self.sections.iter().find(|(id, _)| *id == section).map_or(&[], |(_, zones)| zones)
+    }
 }
 
 /// Where a Generator is in being Claimed.
