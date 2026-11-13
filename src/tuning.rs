@@ -2,6 +2,7 @@
 
 use std::f32::consts::FRAC_PI_4;
 
+use bevy::color::Color;
 use bevy::math::Vec3;
 
 use crate::weapons::arsenal::{
@@ -1564,6 +1565,18 @@ pub const LAMP_FADE_DOWN_SECS: f32 = 0.3;
 /// (invented).
 pub const LAMP_FLICKER_DIP: f32 = 0.15;
 pub const LAMP_FLICKER_RATE: f32 = 47.0;
+/// Every Player's Weapon Light: a narrow spot, always on, casting shadows (#283; the intensity,
+/// in lumens, and colour from the prototype).
+pub const WEAPON_LIGHT_INTENSITY: f32 = 900_000.0;
+pub const WEAPON_LIGHT_COLOR: Color = Color::srgb(1.0, 0.95, 0.85);
+pub const WEAPON_LIGHT_RANGE: f32 = 30.0;
+pub const WEAPON_LIGHT_INNER_ANGLE: f32 = 0.12;
+pub const WEAPON_LIGHT_OUTER_ANGLE: f32 = 0.30;
+/// How far ahead of the eye a Weapon Light sits: past the longest view model's muzzle, so it never
+/// lights the Weapon it's on.
+pub const WEAPON_LIGHT_AHEAD: f32 = 1.3;
+/// How far short of a wall within that reach it comes in, so it never lights the far side.
+pub const WEAPON_LIGHT_WALL_GAP: f32 = 0.1;
 
 // Points
 pub const STARTING_POINTS: u64 = 500;
