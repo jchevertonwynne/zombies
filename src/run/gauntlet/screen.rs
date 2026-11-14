@@ -15,6 +15,8 @@ use crate::tuning::SET_BONUS_TIERS;
 use super::arc::is_boss_round;
 use super::{Choices, Offer};
 use crate::players::player::LocalPlayer;
+use crate::maps::map::MapId;
+use crate::ui::hud::generators::{CORNER_PX, corner_below_generators};
 use crate::ui::hud::{BOTTOM_LEFT_HEIGHT_PX, full_screen, text};
 use crate::run::round::Round;
 use crate::state::{InRun, Pause};
@@ -334,14 +336,15 @@ pub fn update_proc_bars(
     }
 }
 
-pub fn spawn_held_column(mut commands: Commands) {
+pub fn spawn_held_column(mut commands: Commands, map: Res<MapId>) {
     commands.spawn((
         InRun,
         HeldColumn,
         Node {
             position_type: PositionType::Absolute,
-            left: px(16.0),
-            top: px(16.0),
+            left: px(CORNER_PX),
+            // Under the Generator row, on a Map with Generators.
+            top: px(corner_below_generators(*map)),
             // It wraps into a second column above the HUD's bottom-left corner, where the Perk icons
             // sit over the Round counter.
             bottom: px(BOTTOM_LEFT_HEIGHT_PX),

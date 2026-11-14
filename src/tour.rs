@@ -1,8 +1,9 @@
-//! The screenshot tour, for approving a Map's look: `ZOMBIES_TOUR=<map>` (only `greybox` has views
-//! yet) skips the menu, stands the Player at each of the Map's views in turn with no Zombies about,
+//! The screenshot tour, for approving a Map's look: `ZOMBIES_TOUR=<map>` (`greybox` or `dam`; the
+//! Dam has only a few views, for its Generators and Weapon Light) skips the menu, stands the Player at each of the Map's views in turn with no Zombies about,
 //! saves a 1920×1080 shot of the game window for each into `ZOMBIES_TOUR_OUT` (default `tour/`),
 //! and quits. The route views look from Zone to Zone through the Doors, which are hidden for them.
-//! Build with `--release`, and run with a scratch `HOME` so no Run Record is kept.
+//! `ZOMBIES_TOUR_MODE=gauntlet` plays the tour as a Gauntlet Run, the Player holding a dozen Boons
+//! so the HUD has something in its corner. Build with `--release`, and run with a scratch `HOME` so no Run Record is kept.
 
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
@@ -11,6 +12,8 @@ use bevy::window::PrimaryWindow;
 use crate::enemies::zombie::Zombie;
 use crate::maps::door::Door;
 use crate::maps::map::MapId;
+use crate::run::gauntlet::boon::{BOONS, HeldBoons};
+use crate::maps::map::DAM_X;
 use crate::players::player::{Health, LocalPlayer, Player, PlayerCamera, Teleport};
 use crate::run::mode::Mode;
 use crate::state::GameState;
@@ -44,6 +47,15 @@ const GREYBOX: &[View] = &[
     view("route-6-yard-to-dining", (-7.0, 0.0, 8.0), (-7.0, -24.0), 0.0, true),
 ];
 
+/// The Dam: a Generator's plate from off it and from on it, the Weapon Light down a gallery, and
+/// the Spillway Gallery's plate from behind it.
+const DAM: &[View] = &[
+    view("intake-plate-off", (DAM_X - 35.0, 4.0, -22.0), (DAM_X - 40.5, -22.0), -0.35, false),
+    view("intake-plate-on", (DAM_X - 40.5, 4.0, -22.0), (DAM_X - 30.0, -22.0), -0.1, false),
+    view("gallery-light", (DAM_X - 39.0, 4.0, -10.0), (DAM_X - 39.0, -30.0), -0.05, false),
+    view("spillway-plate-off", (DAM_X + 35.0, 4.0, -26.0), (DAM_X + 40.5, -26.0), -0.35, false),
+];
+
 /// Frames before the first shot, for every file to load.
 const WARM_UP: u32 = 240;
 /// Frames each view settles for before its shot.
@@ -65,7 +77,8 @@ impl Tour {
         let name = std::env::var("ZOMBIES_TOUR").ok()?;
         let (map, views) = match name.to_ascii_lowercase().as_str() {
             "greybox" => (MapId::Greybox, GREYBOX),
-            other => panic!("ZOMBIES_TOUR={other}: only greybox has views"),
+            "dam" => (MapId::Dam, DAM),
+            other => panic!("ZOMBIES_TOUR={other}: only greybox and dam have views"),
         };
         let dir = std::env::var("ZOMBIES_TOUR_OUT").unwrap_or_else(|_| "tour".into());
         std::fs::create_dir_all(&dir).expect("ZOMBIES_TOUR_OUT is writable");
@@ -81,7 +94,7 @@ impl Plugin for TourPlugin {
         app.insert_resource(tour)
             .add_systems(Startup, set_window)
             .add_systems(OnEnter(GameState::MainMenu), start_run)
-            .add_systems(Update, (clear, shoot).run_if(in_state(GameState::Playing)));
+            .add_systems(Update, (clear, shoot, give_boons).run_if(in_state(GameState::Playing)));
     }
 }
 
@@ -92,8 +105,25 @@ fn set_window(mut window: Single<&mut Window, With<PrimaryWindow>>) {
 
 fn start_run(tour: Res<Tour>, mut map: ResMut<MapId>, mut mode: ResMut<Mode>, mut next: ResMut<NextState<GameState>>) {
     *map = tour.map;
-    *mode = Mode::Classic;
+    *mode = if std::env::var("ZOMBIES_TOUR_MODE").is_ok_and(|mode| mode.eq_ignore_ascii_case("gauntlet")) {
+        Mode::Gauntlet
+    } else {
+        Mode::Classic
+    };
     next.set(GameState::Playing);
+}
+
+/// In a Gauntlet tour, a dozen Boons for the Player once, so the HUD's corner has something in it.
+fn give_boons(mode: Res<Mode>, mut done: Local<bool>, mut players: Query<&mut HeldBoons, With<LocalPlayer>>) {
+    if *done || *mode != Mode::Gauntlet {
+        return;
+    }
+    for mut held in &mut players {
+        for boon in BOONS.iter().take(12) {
+            held.add(boon);
+        }
+        *done = true;
+    }
 }
 
 /// No Zombies in the shots, and no harm to the Player.

@@ -9,7 +9,7 @@
 
 mod arc;
 mod armory;
-mod boon;
+pub mod boon;
 mod duos;
 mod pact;
 mod procs;

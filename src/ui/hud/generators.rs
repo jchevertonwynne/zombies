@@ -27,6 +27,18 @@ pub fn mark(state: GeneratorState) -> Mark {
     }
 }
 
+/// Where the top-left corner of the HUD starts, in pixels in from the edges.
+pub const CORNER_PX: f32 = 16.0;
+/// How tall the Generator row is, fixed so what sits under it can start below it.
+const ROW_HEIGHT_PX: f32 = 62.0;
+const ROW_GAP_PX: f32 = 8.0;
+
+/// How far down the top-left column the Gauntlet's HUD starts on `map`: under the Generator row if
+/// the Map has one, at the corner if not.
+pub fn corner_below_generators(map: MapId) -> f32 {
+    if map.layout().generators.is_empty() { CORNER_PX } else { CORNER_PX + ROW_HEIGHT_PX + ROW_GAP_PX }
+}
+
 const LAMP_PX: f32 = 22.0;
 const METER_PX: f32 = 64.0;
 const UNCLAIMED_GREY: Color = Color::srgba(0.35, 0.35, 0.35, 0.8);
@@ -77,8 +89,9 @@ fn spawn_row(mut commands: Commands, map: Res<MapId>) {
             InRun,
             Node {
                 position_type: PositionType::Absolute,
-                left: px(24.0),
-                top: px(24.0),
+                left: px(CORNER_PX),
+                top: px(CORNER_PX),
+                height: px(ROW_HEIGHT_PX),
                 column_gap: px(14.0),
                 ..default()
             },
@@ -159,6 +172,16 @@ fn show_marks(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_gauntlet_column_starts_below_the_generator_row_and_the_row_fits_its_height() {
+        assert_eq!(corner_below_generators(MapId::Greybox), CORNER_PX);
+        let below = corner_below_generators(MapId::Dam);
+        assert!(below >= CORNER_PX + ROW_HEIGHT_PX + ROW_GAP_PX);
+        // Lamp, its name at 11 px (about 14 px a line), its meter, and the gaps between them.
+        let content = LAMP_PX + 4.0 + 14.0 + 4.0 + 5.0 + 2.0;
+        assert!(content <= ROW_HEIGHT_PX, "the row's contents are {content} px tall");
+    }
 
     #[test]
     fn each_state_has_its_mark_and_a_charge_shows_how_far_it_has_come() {
