@@ -549,6 +549,12 @@ impl Loadout {
     /// entries say so. A Reload of a Magazine that fills has nothing left to do, so it ends.
     pub fn refill_on_kill(&mut self, player: &[Modifier]) {
         let bullets = resolve_count(Stat::MagazinePerKill, 0, player.iter().chain(&self.held().modifiers));
+        self.add_to_magazine(bullets, player);
+    }
+
+    /// Puts `bullets` back in the held Weapon's Magazine from nowhere, capped at full; a full
+    /// Magazine ends any Reload.
+    pub fn add_to_magazine(&mut self, bullets: u32, player: &[Modifier]) {
         if bullets == 0 {
             return;
         }
@@ -992,6 +998,13 @@ pub struct ResetKnifeCooldown {
     pub player: Entity,
 }
 
+/// Request to put bullets back in a Player's held Weapon's Magazine, capped at full (ADR 0007).
+#[derive(Message, Debug, Clone, Copy)]
+pub struct RefillMagazine {
+    pub player: Entity,
+    pub bullets: u32,
+}
+
 /// Ammo Mods a Player's hits roll as well as the held Weapon's own, sharing each Ammo Mod's
 /// cooldown. Classic never adds one; anything layered on it may (ADR 0007).
 #[derive(Component, Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -1076,7 +1089,8 @@ impl Plugin for WeaponPlugin {
             .add_message::<MagazineEmptied>()
             .add_message::<KnifeSwung>()
             .add_message::<ResetKnifeCooldown>()
-            .add_systems(Update, reset_knives.before(knife).run_if(world_runs))
+            .add_message::<RefillMagazine>()
+            .add_systems(Update, (reset_knives.before(knife), refill_magazines.before(fire)).run_if(world_runs))
             .init_resource::<GunModels>()
             .add_systems(Update, spawn_view_model)
             .add_systems(
@@ -1250,6 +1264,15 @@ fn reset_knives(mut resets: MessageReader<ResetKnifeCooldown>, mut knives: Query
     for reset in resets.read() {
         if let Ok(mut knife) = knives.get_mut(reset.player) {
             knife.reset();
+        }
+    }
+}
+
+/// Magazine refills asked for land.
+fn refill_magazines(mut refills: MessageReader<RefillMagazine>, mut players: Query<(&mut Loadout, &Modifiers)>) {
+    for refill in refills.read() {
+        if let Ok((mut loadout, modifiers)) = players.get_mut(refill.player) {
+            loadout.add_to_magazine(refill.bullets, &modifiers.0);
         }
     }
 }
@@ -1997,6 +2020,17 @@ mod tests {
         assert_eq!(loadout.held().magazine, 8);
         // The Reserve is untouched: the bullet comes from nowhere.
         assert_eq!(loadout.held().reserve, WeaponId::M1911.stats().starting_reserve());
+    }
+
+    #[test]
+    fn a_magazine_refill_puts_bullets_back_in_the_held_weapon_and_never_past_full() {
+        let mut loadout = Loadout::new(WeaponId::M1911);
+        loadout.held_mut().magazine = 2;
+        loadout.add_to_magazine(3, NONE);
+        assert_eq!(loadout.held().magazine, 5);
+        loadout.add_to_magazine(3, NONE);
+        assert_eq!(loadout.held().magazine, 8, "capped at a full Magazine");
+        assert_eq!(loadout.held().reserve, WeaponId::M1911.stats().starting_reserve(), "from nowhere");
     }
 
     #[test]
