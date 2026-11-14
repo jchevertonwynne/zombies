@@ -128,8 +128,6 @@ fn recipe(cue: Cue) -> Recipe {
         Cue::TeleporterArrive => Recipe::Synth(reversed(boom(1.5, 55.0, 0x6a00_0019))),
         Cue::MainframeLink => Recipe::Synth(mainframe_link()),
         Cue::AmmoModBlastFurnace => Recipe::Synth(ignite()),
-        Cue::ProcFrost => Recipe::Synth(frost()),
-        Cue::ProcBlast => Recipe::Synth(scaled(boom(0.6, 90.0, 0xb1a5_7001), 0.9)),
         Cue::AmmoModDeadWire => Recipe::Synth(zap_chain()),
         Cue::AmmoModFireworks => Recipe::Synth(pops()),
         Cue::AmmoModThunderWall => Recipe::Synth(gust()),
@@ -1178,15 +1176,6 @@ fn ignite() -> Vec<f32> {
         .map(|(i, s)| s * (1.0 - i as f32 / SAMPLE_RATE as f32))
         .collect();
     layer(&mut out, 0.3, &flames);
-    clamped(out)
-}
-
-/// A glassy shimmer as Frost takes hold: a high chime over a short hiss.
-fn frost() -> Vec<f32> {
-    let mut out = chime(&[1760.0, 2217.5, 2637.0], 0.6, 6.0);
-    let mut seed = 0xf205_7001;
-    let hiss: Vec<f32> = samples(0.3).map(|t| noise(&mut seed) * 0.15 * (1.0 - t / 0.3)).collect();
-    layer(&mut out, 0.0, &hiss);
     clamped(out)
 }
 
