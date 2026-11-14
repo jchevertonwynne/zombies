@@ -35,6 +35,7 @@ pub(super) fn gauntlet_players_with(extra: impl FnOnce(&mut App)) -> (Sim, Entit
             .init_resource::<HeldPacts>()
             .init_resource::<Gifts>()
             .init_resource::<OfferWait>()
+            .init_resource::<super::RunArc>()
             .init_resource::<UnlockAll>()
             .init_resource::<IntermissionHold>()
             .init_resource::<Freeze>()

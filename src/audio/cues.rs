@@ -146,6 +146,9 @@ cues! {
     SetBonusTier4 => "set_bonus_tier_four", Root, Flat, 0.75;
     SetBonusTier6 => "set_bonus_tier_six", Root, Flat, 0.8;
     DuoTaken => "duo_taken", Root, Flat, 0.85;
+    // The Run arc: a Boss Round's warning, and the Win.
+    BossWarning => "boss_warning", Root, Flat, 0.9;
+    GauntletWin => "gauntlet_win", Root, Flat, 0.85;
     PowerDown => "power_down", Root, Spatial, 0.9;
     PowerRestore => "power_restore", Root, Flat, 0.8;
     // Heard Map-wide, wherever the Generator is.
@@ -285,6 +288,7 @@ mod tests {
             // Gauntlet v2's Proc cues (spec #182, Appendix C6).
             "proc_frost", "proc_blast",
             "set_bonus_tier_two", "set_bonus_tier_four", "set_bonus_tier_six", "duo_taken",
+            "boss_warning", "gauntlet_win",
         ];
         let declared: Vec<_> = Cue::ALL.iter().map(|cue| cue.spec().name).collect();
         for slot in APPENDIX_C {

@@ -135,6 +135,8 @@ fn recipe(cue: Cue) -> Recipe {
         Cue::SetBonusTier4 => Recipe::Synth(chime(&[784.0, 1046.5, 1318.5], 1.1, 3.8)),
         Cue::SetBonusTier6 => Recipe::Synth(chime(&[784.0, 1046.5, 1318.5, 1568.0, 2093.0], 1.6, 3.0)),
         Cue::DuoTaken => Recipe::Synth(duo_taken()),
+        Cue::BossWarning => Recipe::Synth(boss_warning()),
+        Cue::GauntletWin => Recipe::Synth(gauntlet_win()),
         Cue::AmmoModDeadWire => Recipe::Synth(zap_chain()),
         Cue::AmmoModFireworks => Recipe::Synth(pops()),
         Cue::AmmoModThunderWall => Recipe::Synth(gust()),
@@ -1178,6 +1180,33 @@ fn mainframe_link() -> Vec<f32> {
 fn duo_taken() -> Vec<f32> {
     let mut out = scaled(thud(0.7, 65.0), 0.9);
     layer(&mut out, 0.0, &chime(&[392.0, 523.25, 784.0, 1046.5, 1568.0], 2.0, 2.2));
+    clamped(out)
+}
+
+/// A Boss on its way: a low bellow under three slow, falling horn blasts, over five seconds.
+fn boss_warning() -> Vec<f32> {
+    let mut out = scaled(bellow(), 1.2);
+    for (at, freq) in [(0.0, 110.0), (1.6, 98.0), (3.2, 82.4)] {
+        let blast: Vec<f32> = samples(1.3)
+            .map(|t| {
+                let swell = (t / 0.15).min(1.0) * (1.0 - (t / 1.3).powi(4));
+                let horn = (TAU * freq * t).sin() + 0.6 * (TAU * freq * 2.0 * t).sin() + 0.3 * (TAU * freq * 3.0 * t).sin();
+                horn * swell * 0.22
+            })
+            .collect();
+        layer(&mut out, at, &blast);
+    }
+    clamped(out)
+}
+
+/// The Win: a rising major arpeggio landing on a long, bright chord.
+fn gauntlet_win() -> Vec<f32> {
+    let mut out = Vec::new();
+    for (i, freq) in [523.25, 659.25, 783.99, 1046.5].into_iter().enumerate() {
+        layer(&mut out, i as f32 * 0.14, &scaled(chime(&[freq], 0.5, 5.0), 0.7));
+    }
+    layer(&mut out, 0.56, &chime(&[523.25, 659.25, 783.99, 1046.5, 1318.5], 2.4, 1.6));
+    layer(&mut out, 0.56, &scaled(thud(0.6, 65.0), 0.6));
     clamped(out)
 }
 

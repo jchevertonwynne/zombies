@@ -2353,9 +2353,40 @@ pub const GAUNTLET_PROC_FLASH_CAP: usize = 8;
 /// Thinning: past this many accent rings alive, a Proc gets none.
 pub const GAUNTLET_ACCENT_RING_CAP: usize = 4;
 
+// The Gauntlet Run arc (spec #182: The Run arc; Threats: Bosses; Appendix B1)
+/// A Run is this many Acts of `GAUNTLET_ACT_ROUNDS` Rounds; the last Round of each is a Boss Round,
+/// and clearing the last Act's is the Win.
+pub const GAUNTLET_ACTS: u32 = 3;
+pub const GAUNTLET_ACT_ROUNDS: u32 = 10;
+/// A Pact Offer replaces the Boon Offer after these Rounds; in Endless, after each Act's midpoint
+/// (35, 45…) while unheld Pacts remain.
+pub const GAUNTLET_PACT_ROUNDS: [u32; 3] = [5, 15, 25];
+/// Scrip a cleared Boss Round adds to the Run's total, by Act; Endless pays the last.
+pub const GAUNTLET_ACT_SCRIP_BONUS: [u64; 3] = [50, 100, 200];
+/// A Boss's death pays every Player this × its Act in Points; Endless pays as Act 3.
+pub const GAUNTLET_BOSS_POINTS_PER_ACT: u64 = 1000;
+/// The warning cue and banner run this long before a Boss Round's Boss comes.
+pub const GAUNTLET_BOSS_WARNING_SECS: f32 = 5.0;
+/// A Boss's health: the Round's base Zombie health × this, by Act; Endless uses the last.
+pub const GAUNTLET_BOSS_HEALTH_MULTIPLIER: [f32; 3] = [30.0, 40.0, 50.0];
+/// A Boss Round's Horde is this much of the usual (`HordeSize` ×).
+pub const GAUNTLET_BOSS_ROUND_HORDE_FACTOR: f32 = 0.5;
+/// The share of a Boss's max health a Knife kill roll (Cold Steel) takes instead of killing it.
+pub const GAUNTLET_BOSS_KNIFE_KILL_SHARE: f32 = 0.02;
+/// The Bloater: a Napalm that never detonates, at this scale. It drops a fire pool (Classic's
+/// Napalm pool, `NAPALM_POOL_RADIUS` wide) lasting `_POOL_SECS` every `_POOL_EVERY_SECS`. At each
+/// `_BURST_AT` share of its health it bursts a ring of fire that grows to `_BURST_RADIUS_M` over
+/// `_BURST_SECS`, setting alight every Zombie it passes and hurting each Player it passes for
+/// `_BURST_DAMAGE`.
+pub const GAUNTLET_BLOATER_SCALE: f32 = 2.0;
+pub const GAUNTLET_BLOATER_POOL_SECS: f32 = 6.0;
+pub const GAUNTLET_BLOATER_POOL_EVERY_SECS: f32 = 1.5;
+pub const GAUNTLET_BLOATER_BURST_AT: [f32; 2] = [0.66, 0.33];
+pub const GAUNTLET_BLOATER_BURST_RADIUS_M: f32 = 6.0;
+pub const GAUNTLET_BLOATER_BURST_SECS: f32 = 1.0;
+pub const GAUNTLET_BLOATER_BURST_DAMAGE: f32 = 50.0;
+
 // Pacts (Appendix B): fixed, held once, never scaled by Round
-/// Every this many Rounds, a Pact Offer replaces the Boon Offer.
-pub const PACT_OFFER_EVERY_ROUNDS: u32 = 5;
 /// Distinct Pacts on one Pact Offer, or fewer if fewer are left.
 pub const PACT_OFFER_SIZE: usize = 3;
 pub const PACT_GLASS_JAW_DAMAGE_FACTOR: f32 = 2.0;

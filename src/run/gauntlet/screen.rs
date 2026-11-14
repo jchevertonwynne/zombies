@@ -12,6 +12,7 @@ use super::pact::{CRIMSON, HeldPact, HeldPacts, PactDef};
 use super::procs::ProcCooldowns;
 use super::sets::{Jackpot, SetBonuses, tier_tag};
 use crate::tuning::SET_BONUS_TIERS;
+use super::arc::is_boss_round;
 use super::{Choices, Offer};
 use crate::players::player::LocalPlayer;
 use crate::ui::hud::{BOTTOM_LEFT_HEIGHT_PX, full_screen, text};
@@ -119,6 +120,7 @@ pub fn show_coop_offer(
 /// The Offer's cards, in a full-screen layer carrying `marker`.
 fn spawn_cards(commands: &mut Commands, offer: &Offer, held: &HeldBoons, z: i32, marker: impl Bundle) {
     let (title, footer) = match offer.choices {
+        Choices::Boons(_) if is_boss_round(offer.round) => ("BOSS OFFER", "Click a Legendary to take it"),
         Choices::Boons(_) => ("CHOOSE A BOON", "Click a Boon to take it"),
         Choices::Pacts(_) => ("A PACT IS OFFERED", "Click a Pact to take it, or Skip"),
     };
