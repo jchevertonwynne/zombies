@@ -1833,9 +1833,6 @@ pub const TURNED_FLING_LIFT: f32 = 2.0;
 pub const TURNED_LIFETIME_SECS: f32 = 20.0;
 pub const TURNED_MAX_KILLS: u32 = 12;
 pub const TURNED_LAST_SWING_SECS: f32 = 0.5;
-/// A `CastEffect`'s accent ring on its target: its radius and how long it shows.
-pub const CAST_ACCENT_RADIUS: f32 = 0.8;
-pub const CAST_ACCENT_SECS: f32 = 0.25;
 
 // Power and Perks
 /// How long the Power Switch's lever takes to throw.
