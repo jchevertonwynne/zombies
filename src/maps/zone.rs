@@ -286,7 +286,8 @@ impl ZoneId {
 
     /// The height of the Zone's floor: the ground, a storey up for the Balcony, and a terrace's
     /// height in the Quarry. The Village is all on the ground. The Dam has three levels: the foot,
-    /// the gallery a storey up and the crest two up.
+    /// the gallery a storey up and the crest two up. The Cove has four: the Shore, the Lower Town,
+    /// the Upper Town and the Headland, a storey apart.
     pub fn floor(self) -> f32 {
         use ZoneId::*;
         match self {
@@ -310,7 +311,9 @@ impl ZoneId {
     /// sunken floor (the Yard's garden, the Tunnel's dip) reaches down into it. The Quarry's Zones
     /// stand at its own patch of the world, `QUARRY_X` along x, and a Zone a ramp or stairs climb
     /// out of is tall enough to hold a Player on them. The Village's stand `VILLAGE_X` along x,
-    /// and the Dam's `DAM_X`, where a Zone with stairs up a storey is two storeys tall.
+    /// and the Dam's `DAM_X`, where a Zone with stairs up a storey is two storeys tall. The Cove's
+    /// stand `COVE_X`, and a Zone that owns the stairs up to it has a stairwell in its floor a storey
+    /// deep, which reaches its volume down to the floor below.
     pub fn volume(self) -> (Vec3, Vec3) {
         const LOW: f32 = -0.25;
         const UPPER: f32 = 3.75;

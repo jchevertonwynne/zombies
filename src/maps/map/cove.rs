@@ -456,12 +456,14 @@ fn build(b: &mut Builder) {
     xwall(b, (-30.0, -20.0), 24.0, UPPER, H, vec![]);
     xwall(b, (-16.0, -4.0), 24.0, UPPER, H, vec![]);
     xwall(b, (-4.0, 18.0), 24.0, UPPER, H, vec![(9.0, Gap::Window), (15.0, Gap::Window)]);
-    xwall(b, (18.0, 34.0), 24.0, UPPER, H, vec![]);
-    zwall(b, -56.0, (24.0, 44.0), UPPER, H, vec![(28.0, Gap::Window), (33.0, Gap::Window)]);
+    // The Pensione's roof garden is as high as its walls, so they stand over it.
+    xwall(b, (18.0, 34.0), 24.0, UPPER, H + 4.0, vec![]);
+    // The bell tower's landings are as high as the walls, so the Chapel's west wall stands over them.
+    zwall(b, -56.0, (24.0, 44.0), UPPER, 2.0 * STOREY + 2.0, vec![(28.0, Gap::Window), (33.0, Gap::Window)]);
     zwall(b, -30.0, (24.0, 44.0), UPPER, H, vec![(32.0, door(Chapel, Piazza, DOOR_PRICE_CHAPEL_PIAZZA))]);
     zwall(b, -4.0, (24.0, 44.0), UPPER, H, vec![(32.0, door(Piazza, UpperLane, DOOR_PRICE_PIAZZA_UPPER_LANE))]);
     zwall(b, 18.0, (24.0, 44.0), UPPER, H, vec![(32.0, door(UpperLane, Pensione, DOOR_PRICE_UPPER_LANE_PENSIONE))]);
-    zwall(b, 34.0, (24.0, 40.0), UPPER, H, vec![]);
+    zwall(b, 34.0, (24.0, 40.0), UPPER, H + 4.0, vec![]);
     xwall(b, (-30.0, -4.0), 40.0, UPPER, H, vec![(-27.0, Gap::Window), (-22.0, Gap::Window), (-8.0, Gap::Window)]);
     xwall(b, (18.0, 34.0), 40.0, UPPER, H, vec![(24.0, Gap::Window), (30.0, Gap::Window)]);
     // The wall up to the Headland, with the foot of two flights of stairs in it.

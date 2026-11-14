@@ -1,4 +1,4 @@
-//! The screenshot tour, for approving a Map's look: `ZOMBIES_TOUR=<map>` (`greybox` or `dam`; the
+//! The screenshot tour, for approving a Map's look: `ZOMBIES_TOUR=<map>` (`greybox`, `cove`, or `dam`; the
 //! Dam has only a few views, for its Generators and Weapon Light) skips the menu, stands the Player at each of the Map's views in turn with no Zombies about,
 //! saves a 1920×1080 shot of the game window for each into `ZOMBIES_TOUR_OUT` (default `tour/`),
 //! and quits. The route views look from Zone to Zone through the Doors, which are hidden for them.
@@ -11,7 +11,7 @@ use bevy::window::PrimaryWindow;
 
 use crate::enemies::zombie::Zombie;
 use crate::maps::door::Door;
-use crate::maps::map::MapId;
+use crate::maps::map::{COVE_X, MapId};
 use crate::run::gauntlet::boon::{BOONS, HeldBoons};
 use crate::maps::map::DAM_X;
 use crate::players::player::{Health, LocalPlayer, Player, PlayerCamera, Teleport};
@@ -56,6 +56,23 @@ const DAM: &[View] = &[
     view("spillway-plate-off", (DAM_X + 35.0, 4.0, -26.0), (DAM_X + 40.5, -26.0), -0.35, false),
 ];
 
+const C: f32 = COVE_X;
+
+const COVE: &[View] = &[
+    view("strand-start", (C - 1.0, 0.0, -8.0), (C - 1.0, 6.0), 0.3, false),
+    view("strand-east", (C + 14.0, 0.0, -9.0), (C - 15.0, 0.0), 0.0, false),
+    view("shingle", (C - 28.0, 0.0, -9.0), (C - 40.0, 4.0), 0.1, false),
+    view("sea-cave", (C - 47.0, 0.0, 3.0), (C - 50.0, -10.0), -0.1, false),
+    view("up-the-cliff", (C - 10.0, 0.0, -12.0), (C - 10.0, 40.0), 0.5, false),
+    view("fish-market", (C - 14.0, 4.0, 10.0), (C + 4.0, 22.0), -0.05, false),
+    view("piazza", (C - 8.0, 8.0, 28.0), (C - 24.0, 36.0), -0.05, false),
+    view("chapel", (C - 33.0, 8.0, 28.0), (C - 50.0, 40.0), -0.05, false),
+    view("lighthouse-yard", (C - 14.0, 12.0, 48.0), (C - 35.0, 58.0), 0.0, false),
+    view("lighthouse", (C - 42.0, 12.0, 52.0), (C - 52.0, 60.0), 0.3, false),
+    view("battery", (C + 10.0, 12.0, 50.0), (C + 27.0, 58.0), 0.0, false),
+    view("lantern-gallery", (C - 42.2, 20.0, 60.0), (C - 50.0, 50.0), -0.3, false),
+];
+
 /// Frames before the first shot, for every file to load.
 const WARM_UP: u32 = 240;
 /// Frames each view settles for before its shot.
@@ -78,7 +95,8 @@ impl Tour {
         let (map, views) = match name.to_ascii_lowercase().as_str() {
             "greybox" => (MapId::Greybox, GREYBOX),
             "dam" => (MapId::Dam, DAM),
-            other => panic!("ZOMBIES_TOUR={other}: only greybox and dam have views"),
+            "cove" => (MapId::Cove, COVE),
+            other => panic!("ZOMBIES_TOUR={other}: only greybox, dam and cove have views"),
         };
         let dir = std::env::var("ZOMBIES_TOUR_OUT").unwrap_or_else(|_| "tour".into());
         std::fs::create_dir_all(&dir).expect("ZOMBIES_TOUR_OUT is writable");
