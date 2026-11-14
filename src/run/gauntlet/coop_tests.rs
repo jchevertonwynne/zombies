@@ -147,7 +147,7 @@ pub(super) fn killed(by: Entity, pay: Pay, attack: Attack) -> ZombieKilled {
 }
 
 pub(super) fn give_stacks(sim: &mut Sim, player: Entity, id: &str, stacks: u32) {
-    let boon = BOONS.iter().find(|boon| boon.id == id).unwrap();
+    let boon = super::boon::find(id).unwrap();
     let mut held = sim.world_mut().get_mut::<HeldBoons>(player).unwrap();
     for _ in 0..stacks {
         held.add(boon);

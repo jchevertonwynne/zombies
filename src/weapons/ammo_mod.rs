@@ -484,6 +484,12 @@ impl TurnedAlly {
     pub fn player(&self) -> Option<Entity> {
         self.player
     }
+
+    /// An ally of `player`'s with the usual lifetime and kill limit, for a test to stand up.
+    #[cfg(test)]
+    pub fn of(player: Entity) -> Self {
+        Self { player: Some(player), ..default() }
+    }
 }
 
 /// A fire pool a `CastEffect` left: it sets alight every Zombie that stands in it.

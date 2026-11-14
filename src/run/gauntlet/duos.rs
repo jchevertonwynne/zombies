@@ -5,9 +5,24 @@
 
 use bevy::prelude::*;
 
-use super::boon::{BoonDef, Family, HeldBoons, Rarity, RunFacts, find};
-use crate::modifier::{Effect, Stat};
+use super::boon::{BUTCHERS_BILL, BoonDef, Family, HeldBoons, Rarity, RunFacts, WAR_BONDS, find};
+use super::procs::{Frosted, ProcFlashes, feet};
+use crate::audio::PlayCue;
+use crate::audio::cues::Cue;
+use crate::economy::points::BonusPoints;
+use crate::economy::power_up::PowerUpTaken;
+use crate::enemies::zombie::{Attack, DamageZombie, Dying, HitZone, Pay, TurnedAllyHit, Zombie, ZombieKilled};
+use crate::modifier::{Effect, Modifiers, Stat};
+use crate::players::last_stand::Down;
+use crate::players::player::Player;
+use crate::run::round::Round;
+use crate::state::InRun;
 use crate::tuning::*;
+use crate::weapons::ammo_mod::{AmmoMod, AmmoMods, CastEffect, CastTarget, Element, TurnedAlly, TurnedAllyExpired};
+use crate::weapons::burn::{Burning, Ignite};
+use crate::weapons::equipment::{GiveLethals, equipment_splash};
+use crate::weapons::explosive::{Explosion, Explosive, makes_crawlers};
+use crate::weapons::weapon::{RefillMagazine, ResetKnifeCooldown};
 
 /// A Duo's recipe: the two Boons it needs, by stable ID, and their Families in the same order.
 #[derive(Debug, PartialEq)]
@@ -236,6 +251,348 @@ pub fn densest_point(from: Vec3, zombies: &[Vec3]) -> Option<Vec3> {
 /// Life Insurance: War Bonds' Round-end Points, paid at once on a Down.
 pub fn life_insurance_points(round: u32, war_bonds_stacks: u32) -> u64 {
     super::boon::war_bonds_points(round, war_bonds_stacks)
+}
+
+/// Whether `player` holds the Boon or Duo `id`.
+fn holds(players: &Query<&HeldBoons, With<Player>>, player: Option<Entity>, id: &str) -> bool {
+    player.and_then(|player| players.get(player).ok()).is_some_and(|held| held.stacks(id) > 0)
+}
+
+/// A Duo's cast: Paid, shown, with its first Family's accent ring.
+fn duo_cast(player: Entity, element: Element, target: CastTarget, size: f32, duo: &str) -> CastEffect {
+    CastEffect {
+        player,
+        element,
+        target,
+        size,
+        reach: None,
+        lasts: 0.0,
+        pay: Pay::Paid,
+        accent: find(duo).map(|duo| duo.family.colour()),
+        show: true,
+        unbounded: false,
+        tint: None,
+        ignites: false,
+    }
+}
+
+/// A Duo's Blast: kills every Zombie within `radius` of `at` (Paid, no Crawlers), with the Proc
+/// Blast's look and cue.
+fn blast(
+    at: Vec3,
+    radius: f32,
+    player: Option<Entity>,
+    zombies: &Query<(Entity, &GlobalTransform), (With<Zombie>, Without<Dying>)>,
+    damage: &mut MessageWriter<DamageZombie>,
+    flashes: &mut ProcFlashes,
+    cues: &mut MessageWriter<PlayCue>,
+) {
+    for (zombie, transform) in zombies {
+        if transform.translation().distance(at) <= radius {
+            damage.write(DamageZombie {
+                player,
+                zombie,
+                damage: f32::INFINITY,
+                zone: HitZone::Torso,
+                attack: Attack::AmmoMod(Pay::Paid),
+            });
+        }
+    }
+    flashes.blast(at, radius);
+    cues.write(PlayCue::new(Cue::ProcBlast, Some(at)));
+}
+
+/// Gun and Blade: a Headshot kill readies the Knife, and a Knife kill puts bullets back in the
+/// held Weapon's Magazine.
+pub fn gun_and_blade(
+    mut kills: MessageReader<ZombieKilled>,
+    players: Query<&HeldBoons, With<Player>>,
+    mut resets: MessageWriter<ResetKnifeCooldown>,
+    mut refills: MessageWriter<RefillMagazine>,
+) {
+    for kill in kills.read() {
+        let Some(player) = kill.player.filter(|_| holds(&players, kill.player, GUN_AND_BLADE)) else {
+            continue;
+        };
+        if kill.headshot {
+            resets.write(ResetKnifeCooldown { player });
+        }
+        if kill.attack == Attack::Knife {
+            refills.write(RefillMagazine { player, bullets: DUO_GUN_AND_BLADE_BULLETS });
+        }
+    }
+}
+
+/// Cut of the Take: how many Power-ups each Butcher's Bill drop makes for this holder.
+pub fn butchers_bill_drops_for(held: &HeldBoons) -> u32 {
+    if held.stacks(CUT_OF_THE_TAKE) > 0 && held.stacks(BUTCHERS_BILL) > 0 { DUO_CUT_OF_THE_TAKE_DROPS } else { 1 }
+}
+
+/// Life Insurance: going Down pays War Bonds' Round-end Points at once.
+pub fn life_insurance(
+    mut downs: MessageReader<Down>,
+    players: Query<&HeldBoons, With<Player>>,
+    round: Res<Round>,
+    mut bonus: MessageWriter<BonusPoints>,
+) {
+    for down in downs.read() {
+        let Ok(held) = players.get(down.player) else {
+            continue;
+        };
+        if held.stacks(LIFE_INSURANCE) == 0 {
+            continue;
+        }
+        let amount = life_insurance_points(round.number, held.stacks(WAR_BONDS));
+        if amount > 0 {
+            bonus.write(BonusPoints { player: down.player, amount });
+        }
+    }
+}
+
+/// Martyrs: a holder's Turned ally Blasts around it as it falls.
+pub fn martyrs(
+    mut expired: MessageReader<TurnedAllyExpired>,
+    players: Query<&HeldBoons, With<Player>>,
+    zombies: Query<(Entity, &GlobalTransform), (With<Zombie>, Without<Dying>)>,
+    mut damage: MessageWriter<DamageZombie>,
+    mut flashes: ResMut<ProcFlashes>,
+    mut cues: MessageWriter<PlayCue>,
+) {
+    for fallen in expired.read() {
+        if holds(&players, fallen.player, MARTYRS) {
+            blast(fallen.at, DUO_MARTYRS_RADIUS_M, fallen.player, &zombies, &mut damage, &mut flashes, &mut cues);
+        }
+    }
+}
+
+/// Thermal Shock: a Frosted Zombie a holder sets alight shatters in a Blast.
+pub fn thermal_shock(
+    mut ignites: MessageReader<Ignite>,
+    players: Query<&HeldBoons, With<Player>>,
+    frosted: Query<&GlobalTransform, (With<Frosted>, Without<Burning>, Without<Dying>)>,
+    zombies: Query<(Entity, &GlobalTransform), (With<Zombie>, Without<Dying>)>,
+    mut damage: MessageWriter<DamageZombie>,
+    mut flashes: ResMut<ProcFlashes>,
+    mut cues: MessageWriter<PlayCue>,
+) {
+    let mut shattered: Vec<Entity> = Vec::new();
+    for ignite in ignites.read() {
+        if shattered.contains(&ignite.zombie) || !holds(&players, Some(ignite.player), THERMAL_SHOCK) {
+            continue;
+        }
+        if let Ok(at) = frosted.get(ignite.zombie) {
+            shattered.push(ignite.zombie);
+            let at = at.translation();
+            blast(at, DUO_THERMAL_SHOCK_RADIUS_M, Some(ignite.player), &zombies, &mut damage, &mut flashes, &mut cues);
+        }
+    }
+}
+
+/// When Galvanised Dead last answered for a Turned ally, in seconds of game time.
+#[derive(Component, Debug)]
+pub struct Galvanised(f32);
+
+/// Galvanised Dead: a Zombie that hits a holder's Turned ally takes a Shock that chains on, at
+/// most once per ally every `DUO_GALVANISED_DEAD_COOLDOWN_SECS`.
+pub fn galvanised_dead(
+    mut commands: Commands,
+    mut hits: MessageReader<TurnedAllyHit>,
+    mut allies: Query<(&TurnedAlly, Option<&mut Galvanised>)>,
+    players: Query<&HeldBoons, With<Player>>,
+    mut casts: MessageWriter<CastEffect>,
+    mut cues: MessageWriter<PlayCue>,
+    time: Res<Time>,
+) {
+    let now = time.elapsed_secs();
+    for hit in hits.read() {
+        let Ok((ally, last)) = allies.get_mut(hit.ally) else {
+            continue;
+        };
+        let Some(player) = ally.player().filter(|&player| holds(&players, Some(player), GALVANISED_DEAD)) else {
+            continue;
+        };
+        if !galvanised_ready(last.as_ref().map(|last| last.0), now) {
+            continue;
+        }
+        match last {
+            Some(mut last) => last.0 = now,
+            None => {
+                commands.entity(hit.ally).insert(Galvanised(now));
+            }
+        }
+        let chain = DUO_GALVANISED_DEAD_CHAIN_ZOMBIES as f32;
+        casts.write(duo_cast(player, Element::Shock, CastTarget::Zombie(hit.by), chain, GALVANISED_DEAD));
+        cues.write(PlayCue {
+            cue: AmmoMod::DeadWire.cue(),
+            at: None,
+            pitch: GAUNTLET_PROC_CUE_PITCH,
+            gain: GAUNTLET_PROC_CUE_GAIN,
+        });
+    }
+}
+
+/// Seconds to a Turned ally's next Conscripts volley.
+#[derive(Component, Debug)]
+pub struct Conscript(f32);
+
+/// Conscripts: each of a holder's Turned allies raises a phantom gun every
+/// `DUO_CONSCRIPTS_INTERVAL_SECS` (Unpaid), igniting under Incendiary Volley.
+pub fn conscripts(
+    mut commands: Commands,
+    mut allies: Query<(Entity, &TurnedAlly, &GlobalTransform, Option<&mut Conscript>)>,
+    players: Query<&HeldBoons, With<Player>>,
+    mut casts: MessageWriter<CastEffect>,
+    time: Res<Time>,
+) {
+    for (entity, ally, at, clock) in &mut allies {
+        let Some(player) = ally.player().filter(|&player| holds(&players, Some(player), CONSCRIPTS)) else {
+            continue;
+        };
+        let Some(mut clock) = clock else {
+            commands.entity(entity).insert(Conscript(DUO_CONSCRIPTS_INTERVAL_SECS));
+            continue;
+        };
+        clock.0 -= time.delta_secs();
+        if clock.0 > 0.0 {
+            continue;
+        }
+        clock.0 = DUO_CONSCRIPTS_INTERVAL_SECS;
+        let feet = at.translation() - Vec3::Y * (ZOMBIE_RADIUS + ZOMBIE_CAPSULE_LENGTH / 2.0);
+        let shots = DUO_CONSCRIPTS_SHOTS as f32;
+        casts.write(CastEffect {
+            pay: Pay::Unpaid,
+            ignites: holds(&players, Some(player), INCENDIARY_VOLLEY),
+            ..duo_cast(player, Element::PhantomGun, CastTarget::Point(feet), shots, CONSCRIPTS)
+        });
+    }
+}
+
+/// A Firebrand pool under Live Fuse: whose, where, how wide, how long it has left, and the time to
+/// its next Shock.
+#[derive(Component, Debug)]
+pub struct LiveFuse {
+    pub player: Entity,
+    pub at: Vec3,
+    pub radius: f32,
+    pub left: f32,
+    pub next: f32,
+}
+
+/// Live Fuse: each pool Shocks one Zombie standing in it every `DUO_LIVE_FUSE_TICK_SECS` (Paid).
+pub fn live_fuse(
+    mut commands: Commands,
+    mut fuses: Query<(Entity, &mut LiveFuse)>,
+    zombies: Query<(Entity, &GlobalTransform), (With<Zombie>, Without<Dying>)>,
+    mut casts: MessageWriter<CastEffect>,
+    time: Res<Time>,
+) {
+    let dt = time.delta_secs();
+    let mut struck: Vec<Entity> = Vec::new();
+    for (entity, mut fuse) in &mut fuses {
+        fuse.left -= dt;
+        if fuse.left <= 0.0 {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        fuse.next -= dt;
+        if fuse.next > 0.0 {
+            continue;
+        }
+        fuse.next = DUO_LIVE_FUSE_TICK_SECS;
+        let target = zombies
+            .iter()
+            .filter(|(zombie, _)| !struck.contains(zombie))
+            .find(|(_, at)| at.translation().with_y(0.0).distance(fuse.at.with_y(0.0)) <= fuse.radius);
+        if let Some((zombie, _)) = target {
+            struck.push(zombie);
+            casts.write(duo_cast(fuse.player, Element::Shock, CastTarget::Zombie(zombie), 0.0, LIVE_FUSE));
+        }
+    }
+}
+
+/// A free frag in flight: whose, from where to where, and how long it has flown.
+#[derive(Component, Debug)]
+pub struct SupplyShell {
+    player: Entity,
+    from: Vec3,
+    to: Vec3,
+    elapsed: f32,
+}
+
+/// Where a free frag is `t` (0 to 1) of the way along its drawn arc.
+pub fn shell_arc(from: Vec3, to: Vec3, t: f32) -> Vec3 {
+    from.lerp(to, t) + Vec3::Y * DUO_SUPPLY_DROP_ARC_HEIGHT_M * 4.0 * t * (1.0 - t)
+}
+
+/// Supply Drop: a holder's Power-up pickup gives Lethals, and throws a free frag on the thickest
+/// crowd in range.
+pub fn supply_drop(
+    mut commands: Commands,
+    mut taken: MessageReader<PowerUpTaken>,
+    players: Query<&HeldBoons, With<Player>>,
+    transforms: Query<&GlobalTransform, With<Player>>,
+    zombies: Query<&GlobalTransform, (With<Zombie>, Without<Dying>)>,
+    mut lethals: MessageWriter<GiveLethals>,
+) {
+    for &PowerUpTaken(_, taker) in taken.read() {
+        let Some(player) = taker.filter(|_| holds(&players, taker, SUPPLY_DROP)) else {
+            continue;
+        };
+        lethals.write(GiveLethals { player, count: DUO_SUPPLY_DROP_LETHALS });
+        let Ok(transform) = transforms.get(player) else {
+            continue;
+        };
+        let crowd: Vec<Vec3> = zombies.iter().map(GlobalTransform::translation).collect();
+        if let Some(to) = densest_point(feet(transform), &crowd) {
+            let from = transform.translation();
+            commands.spawn((InRun, Name::new("Supply Drop frag"), SupplyShell { player, from, to, elapsed: 0.0 }));
+        }
+    }
+}
+
+/// A free frag flies its drawn arc and goes off where it lands, never hurting a Player.
+pub fn fly_supply_shells(
+    mut commands: Commands,
+    mut shells: Query<(Entity, &mut SupplyShell)>,
+    players: Query<&Modifiers, With<Player>>,
+    mut explosions: MessageWriter<Explosion>,
+    mut gizmos: Gizmos,
+    time: Res<Time>,
+) {
+    let colour = Family::Ember.colour();
+    for (entity, mut shell) in &mut shells {
+        shell.elapsed += time.delta_secs();
+        let t = (shell.elapsed / DUO_SUPPLY_DROP_FLIGHT_SECS).min(1.0);
+        gizmos.linestrip((0..=16).map(|i| shell_arc(shell.from, shell.to, t * i as f32 / 16.0)), colour);
+        gizmos.sphere(Isometry3d::from_translation(shell_arc(shell.from, shell.to, t)), 0.12, colour);
+        if t < 1.0 {
+            continue;
+        }
+        let entries = players.get(shell.player).map_or(&[][..], |modifiers| &modifiers.0[..]);
+        explosions.write(Explosion {
+            at: shell.to,
+            thrower: Some(shell.player),
+            splash: equipment_splash(FRAG_SPLASH, entries),
+            hurts_player: false,
+            ammo_mods: AmmoMods::NONE,
+            crawlers: makes_crawlers(Explosive::Frag),
+        });
+        commands.entity(entity).despawn();
+    }
+}
+
+/// Ball Lightning: where each Zombie a holder's Parting Shot Blast killed this frame fell, with
+/// whose Blast it was.
+#[derive(Resource, Default)]
+pub struct BallLightning(pub Vec<(Entity, Vec3)>);
+
+/// Ball Lightning: once the Blast's kills have landed, a Shock chains on from where each fell, so
+/// no chain picks a Zombie the Blast already killed.
+pub fn ball_lightning(mut chains: ResMut<BallLightning>, mut casts: MessageWriter<CastEffect>) {
+    let size = DUO_BALL_LIGHTNING_CHAIN_ZOMBIES as f32;
+    for (player, at) in chains.0.drain(..) {
+        casts.write(duo_cast(player, Element::Shock, CastTarget::Point(at), size, BALL_LIGHTNING));
+    }
 }
 
 #[cfg(test)]
