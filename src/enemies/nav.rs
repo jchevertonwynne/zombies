@@ -26,12 +26,16 @@ pub enum Gate {
     Barrier(BarrierId),
     /// From the first node to the second only: the drop off the Balcony and the Vents.
     OneWay,
+    /// A drop from the first node to the second, open once the Door between two Zones is bought:
+    /// the drop runs beside that Door and doesn't join its Zones on its own, so a Zombie never
+    /// drops into a Zone no Player can reach yet.
+    DoorDrop(ZoneId, ZoneId),
 }
 
 impl Gate {
     /// Whether the edge can only be walked from its first node to its second.
     fn one_way(self) -> bool {
-        matches!(self, Gate::Barrier(_) | Gate::OneWay)
+        matches!(self, Gate::Barrier(_) | Gate::OneWay | Gate::DoorDrop(..))
     }
 }
 
@@ -41,7 +45,7 @@ impl Gate {
 pub fn passable(gate: Gate, open_doors: &[(ZoneId, ZoneId)], barrier_open: impl Fn(BarrierId) -> bool) -> bool {
     match gate {
         Gate::Open | Gate::OneWay => true,
-        Gate::Door(a, b) => open_doors.iter().any(|&join| join == (a, b) || join == (b, a)),
+        Gate::Door(a, b) | Gate::DoorDrop(a, b) => open_doors.iter().any(|&join| join == (a, b) || join == (b, a)),
         Gate::Barrier(barrier) => barrier_open(barrier),
     }
 }
@@ -342,10 +346,10 @@ fn draw_graph(
         let (a, b) = (graph.nodes[edge.from].at + lift, graph.nodes[edge.to].at + lift);
         let colour = match edge.gate {
             Gate::Open => Color::srgb(0.7, 0.7, 0.7),
-            Gate::Door(..) | Gate::Barrier(_) if passable(edge.gate, &open_doors, |b| barriers.is_open(b)) => {
+            Gate::Door(..) | Gate::DoorDrop(..) | Gate::Barrier(_) if passable(edge.gate, &open_doors, |b| barriers.is_open(b)) => {
                 Color::srgb(0.2, 1.0, 0.3)
             }
-            Gate::Door(..) => Color::srgb(1.0, 0.2, 0.2),
+            Gate::Door(..) | Gate::DoorDrop(..) => Color::srgb(1.0, 0.2, 0.2),
             Gate::Barrier(_) => Color::srgb(1.0, 0.9, 0.2),
             Gate::OneWay => Color::srgb(0.3, 0.6, 1.0),
         };
@@ -421,7 +425,7 @@ mod tests {
                     graph
                         .edges
                         .iter()
-                        .filter(|edge| !matches!(edge.gate, Gate::OneWay | Gate::Barrier(_)))
+                        .filter(|edge| !matches!(edge.gate, Gate::OneWay | Gate::DoorDrop(..) | Gate::Barrier(_)))
                         .filter_map(|edge| {
                             let (from, to) = (graph.nodes[edge.from].at + Vec3::Y, graph.nodes[edge.to].at + Vec3::Y);
                             let dir = Dir3::new(to - from).ok()?;
@@ -493,7 +497,7 @@ mod tests {
         for map in MapId::ALL {
             let graph = NavGraph::new(map);
             assert_eq!(graph.edges.len(), map.layout().nav_edges.len());
-            assert!((40..=200).contains(&graph.nodes.len()), "the {} has {} nodes", map.name(), graph.nodes.len());
+            assert!((40..=240).contains(&graph.nodes.len()), "the {} has {} nodes", map.name(), graph.nodes.len());
             for (i, n) in graph.nodes.iter().enumerate() {
                 assert_eq!(graph.node(n.name), Some(i), "{} is listed twice", n.name);
                 assert!(n.zone.is_none_or(|zone| zone.map() == map), "{} is in another Map's Zone", n.name);

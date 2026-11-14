@@ -859,9 +859,17 @@ fn a_zombie_out_of_bounds_goes_back_into_the_horde_at_once() {
 }
 
 /// Follows a Walker from `start` after a Player standing at `player` below a drop, for up to
-/// `secs`: whether it got down below `under`, and where it was last seen.
+/// `secs`: whether it got down below `under`, and where it was last seen. A drop gated on a Door
+/// is followed with every Door open, as the drop only opens with the Door beside it.
 fn drops_after(map: MapId, start: Vec3, player: Vec3, under: f32, secs: f32) -> (bool, Vec3) {
+    drops_after_with(map, start, player, under, secs, false)
+}
+
+fn drops_after_with(map: MapId, start: Vec3, player: Vec3, under: f32, secs: f32, doors_open: bool) -> (bool, Vec3) {
     let mut sim = Sim::on(map, 60.0, |_| {});
+    if doors_open {
+        open_every_door(&mut sim);
+    }
     put_player(&mut sim, player);
     let zombie = sim.spawn(start, None);
     arrives(&mut sim, zombie, secs, |at| at.y < under)
@@ -908,7 +916,8 @@ fn a_zombie_takes_every_drop_to_a_player_below() {
             Vec3::new(x, y, z)
         };
         for &(top, bottom, gate) in layout.nav_edges {
-            if gate != crate::enemies::nav::Gate::OneWay || top.starts_with("vent_") {
+            let door_drop = matches!(gate, crate::enemies::nav::Gate::DoorDrop(..));
+            if !(gate == crate::enemies::nav::Gate::OneWay || door_drop) || top.starts_with("vent_") {
                 continue;
             }
             let (from, to) = (node(top), node(bottom));
@@ -916,12 +925,12 @@ fn a_zombie_takes_every_drop_to_a_player_below() {
                 continue;
             }
             checked += 1;
-            let (arrived, last) = drops_after(map, from, to, to.y + 1.0, ZOMBIE_CLEANUP_SECS - 3.0);
+            let (arrived, last) = drops_after_with(map, from, to, to.y + 1.0, ZOMBIE_CLEANUP_SECS - 3.0, door_drop);
             if !arrived {
                 failures.push(format!("{} {top} -> {bottom}: last seen at {last}", map.name()));
             }
         }
     }
-    assert!(checked >= 3, "only {checked} drops checked");
+    assert!(checked >= 8, "only {checked} drops checked");
     assert!(failures.is_empty(), "stalled at a drop: {failures:#?}");
 }

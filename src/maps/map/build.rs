@@ -217,11 +217,13 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
     /// its sides faced in the Zone's trim, and a coping round its rim if it has one.
     pub fn sunken(&mut self, sunken: &Sunken) {
         let (min, max, depth) = (sunken.min, sunken.max, sunken.depth);
+        // Its Zone's floor is the top: the ground, or a storey up where a Zone owns its stairs' foot.
+        let top = sunken.zone.floor();
         let colours = palette(Some(sunken.zone));
         let middle = (min + max) / 2.0;
         let size = Vec3::new(max.x - min.x, 0.2, max.y - min.y);
         let material = materials(Some(sunken.zone)).map(|set| set.floor);
-        self.block_in(size, Vec3::new(middle.x, -depth - 0.1, middle.y), darker(colours.floor), material);
+        self.block_in(size, Vec3::new(middle.x, top - depth - 0.1, middle.y), darker(colours.floor), material);
         // Thin facings on its four sides, just inside the hole.
         let facing = 0.02;
         for (centre, size) in [
@@ -230,10 +232,10 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
             (Vec2::new(min.x + facing / 2.0, middle.y), Vec2::new(facing, max.y - min.y)),
             (Vec2::new(max.x - facing / 2.0, middle.y), Vec2::new(facing, max.y - min.y)),
         ] {
-            self.shape(Vec3::new(size.x, depth, size.y), Vec3::new(centre.x, -depth / 2.0, centre.y), Quat::IDENTITY, colours.trim);
+            self.shape(Vec3::new(size.x, depth, size.y), Vec3::new(centre.x, top - depth / 2.0, centre.y), Quat::IDENTITY, colours.trim);
         }
         if sunken.rim {
-            self.edging(min, max, 0.0, colours.trim);
+            self.edging(min, max, top, colours.trim);
         }
     }
 
