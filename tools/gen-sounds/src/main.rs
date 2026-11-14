@@ -130,6 +130,10 @@ fn recipe(cue: Cue) -> Recipe {
         Cue::AmmoModBlastFurnace => Recipe::Synth(ignite()),
         Cue::ProcFrost => Recipe::Synth(frost()),
         Cue::ProcBlast => Recipe::Synth(scaled(boom(0.6, 90.0, 0xb1a5_7001), 0.9)),
+        // Rising stingers: each tier climbs higher and rings longer.
+        Cue::SetBonusTier2 => Recipe::Synth(chime(&[784.0, 1046.5], 0.9, 4.5)),
+        Cue::SetBonusTier4 => Recipe::Synth(chime(&[784.0, 1046.5, 1318.5], 1.1, 3.8)),
+        Cue::SetBonusTier6 => Recipe::Synth(chime(&[784.0, 1046.5, 1318.5, 1568.0, 2093.0], 1.6, 3.0)),
         Cue::AmmoModDeadWire => Recipe::Synth(zap_chain()),
         Cue::AmmoModFireworks => Recipe::Synth(pops()),
         Cue::AmmoModThunderWall => Recipe::Synth(gust()),
