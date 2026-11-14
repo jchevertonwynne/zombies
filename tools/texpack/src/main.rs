@@ -32,25 +32,34 @@ enum Job {
     Decal { color: PathBuf, opacity: PathBuf, gain: f32 },
     /// A procedural oil stain, made here, from a seed.
     Stain { seed: u32 },
+    /// A sky: an equirectangular HDR image as a cubemap, turned `yaw` degrees about the up axis.
+    Sky { hdr: PathBuf, size: u32, yaw: f32 },
 }
 
 const USAGE: &str = "usage: texpack --color <png> --normal <png> --orm <png> --out <dir>
        texpack --color <png> --opacity <png> [--gain <x>] --out <dir>   (a decal)
-       texpack --stain <seed> --out <dir>                  (a procedural oil stain)";
+       texpack --stain <seed> --out <dir>                  (a procedural oil stain)
+       texpack --sky <hdr> [--size <face px>] [--yaw <degrees>] --out <dir>   (an HDRI as a cubemap)";
 
 fn parse() -> Result<(Job, PathBuf)> {
     let mut args = std::env::args().skip(1);
     let mut flags = std::collections::HashMap::new();
     while let Some(flag) = args.next() {
         let value = args.next().with_context(|| format!("{flag} needs a value\n{USAGE}"))?;
-        if !["--color", "--normal", "--orm", "--opacity", "--gain", "--stain", "--out"].contains(&flag.as_str()) {
+        if !["--color", "--normal", "--orm", "--opacity", "--gain", "--stain", "--sky", "--size", "--yaw", "--out"].contains(&flag.as_str()) {
             bail!("unknown flag {flag}\n{USAGE}");
         }
         flags.insert(flag, value);
     }
     let mut take = |flag: &str| flags.remove(flag).map(PathBuf::from);
     let out = take("--out").context(USAGE)?;
-    let job = if let Some(seed) = take("--stain") {
+    let job = if let Some(hdr) = take("--sky") {
+        let number = |value: Option<PathBuf>, default: f32| match value {
+            Some(value) => value.to_string_lossy().parse().context("--size and --yaw take numbers"),
+            None => Ok(default),
+        };
+        Job::Sky { hdr, size: number(take("--size"), 512.0)? as u32, yaw: number(take("--yaw"), 0.0)? }
+    } else if let Some(seed) = take("--stain") {
         Job::Stain { seed: seed.to_string_lossy().parse().context("--stain takes a number")? }
     } else if let Some(opacity) = take("--opacity") {
         let gain = match take("--gain") {
@@ -161,6 +170,75 @@ fn image_of(rgba: image::RgbaImage, color_space: ColorSpace, alpha: AlphaMode) -
     }
 }
 
+/// A sky as `sky.ktx2`: six BC6H faces (+X, -X, +Y, -Y, +Z, -Z) with a full mip chain, zstd
+/// supercompressed. Bevy's `Skybox` shows it and `GeneratedEnvironmentMapLight` filters it, so one
+/// file is both the backdrop and the outdoor reflections. Prints the sun's bearing, to pick a yaw.
+fn write_sky(out: &Path, hdr: &Path, size: u32, yaw: f32) -> Result<()> {
+    let source = image::open(hdr).with_context(|| format!("reading {}", hdr.display()))?.to_rgb32f();
+    let (sw, sh) = source.dimensions();
+    let yaw = yaw.to_radians();
+    // Bilinear lookup of a direction, wrapping around in longitude. The image's middle is -Z.
+    let sample = |d: [f32; 3]| -> [f32; 3] {
+        let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        let (x, y, z) = (d[0] / len, d[1] / len, d[2] / len);
+        let lon = x.atan2(-z) - yaw;
+        let u = (lon / std::f32::consts::TAU + 0.5).rem_euclid(1.0) * sw as f32 - 0.5;
+        let v = ((0.5 - y.clamp(-1.0, 1.0).asin() / std::f32::consts::PI) * sh as f32 - 0.5).clamp(0.0, sh as f32 - 1.0);
+        let (x0, y0) = (u.floor(), v.floor());
+        let (fx, fy) = (u - x0, v - y0);
+        let at = |px: f32, py: f32| source.get_pixel((px as i32).rem_euclid(sw as i32) as u32, (py as u32).min(sh - 1)).0;
+        let (a, b, c, e) = (at(x0, y0), at(x0 + 1.0, y0), at(x0, y0 + 1.0), at(x0 + 1.0, y0 + 1.0));
+        std::array::from_fn(|i| (a[i] * (1.0 - fx) + b[i] * fx) * (1.0 - fy) + (c[i] * (1.0 - fx) + e[i] * fx) * fy)
+    };
+    // The sun is the brightest pixel; say which way it lies, as a bearing in the game's world.
+    let (mut best, mut at) = (0.0_f32, (0, 0));
+    for (x, y, pixel) in source.enumerate_pixels() {
+        let luma = pixel.0[0] + pixel.0[1] + pixel.0[2];
+        if luma > best {
+            (best, at) = (luma, (x, y));
+        }
+    }
+    let lon = (at.0 as f32 + 0.5) / sw as f32 * std::f32::consts::TAU - std::f32::consts::PI + yaw;
+    let lat = (0.5 - (at.1 as f32 + 0.5) / sh as f32) * std::f32::consts::PI;
+    println!("brightest pixel {best:.0} at direction ({:.2}, {:.2}, {:.2})", lat.cos() * lon.sin(), lat.sin(), -lat.cos() * lon.cos());
+
+    let faces = (0..6)
+        .map(|face| {
+            let mut data = Vec::with_capacity((size * size * 16) as usize);
+            for py in 0..size {
+                for px in 0..size {
+                    let (sc, tc) = ((px as f32 + 0.5) / size as f32 * 2.0 - 1.0, (py as f32 + 0.5) / size as f32 * 2.0 - 1.0);
+                    let direction = match face {
+                        0 => [1.0, -tc, -sc],
+                        1 => [-1.0, -tc, sc],
+                        2 => [sc, 1.0, tc],
+                        3 => [sc, -1.0, -tc],
+                        4 => [sc, -tc, 1.0],
+                        _ => [-sc, -tc, -1.0],
+                    };
+                    // BC6H holds up to half-float range; a sun disc far past that only blows out.
+                    for channel in sample(direction) {
+                        data.extend_from_slice(&channel.clamp(0.0, 2000.0).to_le_bytes());
+                    }
+                    data.extend_from_slice(&1.0_f32.to_le_bytes());
+                }
+            }
+            vec![Surface {
+                data,
+                width: size,
+                height: size,
+                depth: 1,
+                stride: size * 16,
+                slice_stride: 0,
+                format: Format::R32G32B32A32_SFLOAT,
+                color_space: ColorSpace::Linear,
+                alpha: AlphaMode::Opaque,
+            }]
+        })
+        .collect();
+    write(out, "sky", Image { surfaces: faces, kind: TextureKind::Cubemap }, Format::BC6H_UFLOAT_BLOCK)
+}
+
 fn encode(image: Image, format: Format) -> Result<Vec<u8>> {
     let output = ctt::convert(
         image,
@@ -198,6 +276,7 @@ fn main() -> Result<()> {
             write(&out, "orm", load(&orm, ColorSpace::Linear)?, Format::BC7_UNORM_BLOCK)?;
         }
         Job::Decal { color, opacity, gain } => write(&out, "color", load_with_alpha(&color, &opacity, gain)?, Format::BC7_UNORM_BLOCK)?,
+        Job::Sky { hdr, size, yaw } => write_sky(&out, &hdr, size, yaw)?,
         Job::Stain { seed } => write(&out, "color", image_of(stain(seed), ColorSpace::Srgb, AlphaMode::Straight), Format::BC7_UNORM_BLOCK)?,
     }
     Ok(())

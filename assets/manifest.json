@@ -143,6 +143,14 @@
       "licence": "CC0",
       "fetched": "2026-11-14",
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1.8 m"
+    },
+    {
+      "path": "skies/belfast_sunset_puresky",
+      "name": "Poly Haven Belfast Sunset (Pure Sky)",
+      "source": "https://polyhaven.com/a/belfast_sunset_puresky",
+      "licence": "CC0",
+      "fetched": "2026-11-14",
+      "notes": "2K HDR as a 512px BC6H cubemap, turned 115.7 degrees, via texpack --sky"
     }
   ]
 }

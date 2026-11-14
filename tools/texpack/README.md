@@ -44,6 +44,20 @@ cargo run --release -p texpack -- --stain 1 --out assets/decals/oil_stain_1
 take 3.5). `--stain <seed>` makes a procedural oil stain here, so it's CC0 with
 `tools/texpack --stain <seed>` as its source. Add each decal to the manifest by hand.
 
+## A sky
+
+A sky is one file, `assets/skies/<id>/sky.ktx2`: an equirectangular HDRI as a cubemap of six BC6H
+faces with a full mip chain and zstd supercompression (512 px faces come to about 1.7 MB). The
+camera shows it as its `Skybox` and filters a copy into reflections and ambient light.
+
+```
+cargo run --release -p texpack -- --sky belfast_sunset_puresky_2k.hdr --yaw 115.7 --out assets/skies/belfast_sunset_puresky
+```
+
+Use a 2K `.hdr` from Poly Haven. `--yaw` turns the sky about the up axis, and the tool prints the
+direction of its brightest pixel (the sun), so the sun can be lined up with the Layout's `sun`.
+`--size` sets the face size (default 512). Add the entry to the manifest by hand.
+
 ## Any other set
 
 ```

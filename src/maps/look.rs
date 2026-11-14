@@ -3,18 +3,21 @@
 //! the Look; the Player camera gets HDR, SMAA (MSAA off), SSAO, a faint Bloom, TonyMcMapface and
 //! the Look's grade. A Map with Darkness keeps its own close black fog and stronger Bloom.
 //!
-//! A Look may later name a CC0 HDRI sky; until one is approved, its sky colour is the clear colour.
+//! A Look may name a CC0 HDRI sky (a KTX2 cubemap from `texpack --sky`), which is the Player
+//! camera's skybox and, filtered on the GPU, its outdoor reflections and ambient. If the Look names
+//! none, or the file isn't on disk, the sky colour is the clear colour.
 
 use bevy::anti_alias::smaa::Smaa;
 use bevy::camera::Hdr;
 use bevy::core_pipeline::tonemapping::Tonemapping;
-use bevy::light::{CascadeShadowConfig, CascadeShadowConfigBuilder};
+use bevy::light::{CascadeShadowConfig, CascadeShadowConfigBuilder, GeneratedEnvironmentMapLight, Skybox};
 use bevy::pbr::{DistanceFog, ScreenSpaceAmbientOcclusion};
 use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
 use bevy::render::view::ColorGrading;
 
 use crate::maps::map::MapId;
+use crate::maps::map::textures::on_disk;
 use crate::players::player::PlayerCamera;
 use crate::state::GameState;
 use crate::tuning::AMBIENT_BRIGHTNESS;
@@ -33,6 +36,8 @@ pub struct Look {
     pub ambient_brightness: f32,
     /// The sky's colour, which the fog fades to.
     pub sky: Color,
+    /// An HDRI cubemap for the sky (a path under `assets/`) and how bright it shows, in cd/m2.
+    pub sky_map: Option<(&'static str, f32)>,
     /// How strong the lamps are, as a fraction of `LAMP_INTENSITY`.
     pub lamps: f32,
     /// The grade's white balance: warmer above 0, and greener above 0.
@@ -49,6 +54,7 @@ pub const NIGHT: Look = Look {
     ambient_colour: Color::srgb(0.6, 0.65, 0.8),
     ambient_brightness: AMBIENT_BRIGHTNESS,
     sky: Color::srgb(0.02, 0.02, 0.04),
+    sky_map: None,
     lamps: 1.0,
     temperature: 0.0,
     tint: 0.0,
@@ -64,10 +70,15 @@ pub const DUSK: Look = Look {
     ambient_colour: Color::srgb(0.55, 0.6, 0.75),
     ambient_brightness: 450.0,
     sky: Color::srgb(0.28, 0.25, 0.28),
+    // Poly Haven's Belfast Sunset (Pure Sky), turned to put its sun where the Layout's is.
+    sky_map: Some(("skies/belfast_sunset_puresky/sky.ktx2", 1200.0)),
     lamps: 0.15,
     temperature: 0.05,
     tint: 0.02,
 };
+
+/// How strongly the sky lights the Map, as a fraction of how bright it shows.
+const SKY_LIGHT: f32 = 0.6;
 
 /// The shared Bloom: just enough for bulbs and signs to glow.
 const BLOOM: f32 = 0.05;
@@ -102,7 +113,7 @@ pub struct LookPlugin;
 
 impl Plugin for LookPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(post_stack).add_systems(OnEnter(GameState::Playing), set_world);
+        app.add_observer(post_stack).add_systems(OnEnter(GameState::Playing), set_world).add_systems(Update, light_from_sky);
     }
 }
 
@@ -116,8 +127,28 @@ fn set_world(map: Res<MapId>, mut ambient: ResMut<GlobalAmbientLight>, clear: Op
     }
 }
 
+/// A camera whose sky is still to light the Map, at this intensity.
+#[derive(Component)]
+struct SkyLight(f32);
+
+/// Once the sky has loaded, filter a copy of it into reflections and ambient light. (Sharing the
+/// skybox's own image with the filter blanks the view.)
+fn light_from_sky(mut commands: Commands, mut images: ResMut<Assets<Image>>, cameras: Query<(Entity, &Skybox, &SkyLight)>) {
+    for (entity, skybox, light) in &cameras {
+        let Some(sky) = skybox.image.as_ref().and_then(|handle| images.get(handle)).cloned() else { continue };
+        let copy = images.add(sky);
+        commands.entity(entity).remove::<SkyLight>().insert(GeneratedEnvironmentMapLight { environment_map: copy, intensity: light.0, ..default() });
+    }
+}
+
 /// The post stack, from the camera's first frame so its shaders compile while the Map loads.
-fn post_stack(add: On<Add<PlayerCamera>>, map: Res<MapId>, mut commands: Commands, mut cameras: Query<(&mut ColorGrading, &mut DistanceFog)>) {
+fn post_stack(
+    add: On<Add<PlayerCamera>>,
+    map: Res<MapId>,
+    asset_server: Option<Res<AssetServer>>,
+    mut commands: Commands,
+    mut cameras: Query<(&mut ColorGrading, &mut DistanceFog)>,
+) {
     let layout = map.layout();
     let look = layout.look;
     let mut camera = commands.entity(add.entity);
@@ -127,6 +158,12 @@ fn post_stack(add: On<Add<PlayerCamera>>, map: Res<MapId>, mut commands: Command
         return;
     }
     camera.insert(Bloom { intensity: BLOOM, ..Bloom::NATURAL });
+    if let (Some((file, brightness)), Some(asset_server)) = (look.sky_map, asset_server)
+        && on_disk(file)
+    {
+        let image: Handle<Image> = asset_server.load(file);
+        camera.insert((Skybox { image: Some(image), brightness, ..default() }, SkyLight(brightness * SKY_LIGHT)));
+    }
     if let Ok((mut grading, mut fog)) = cameras.get_mut(add.entity) {
         grading.global.temperature = look.temperature;
         grading.global.tint = look.tint;

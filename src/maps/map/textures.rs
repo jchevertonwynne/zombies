@@ -252,7 +252,7 @@ fn request(
 }
 
 /// Whether the asset at `path` (under `assets/`) is on disk.
-pub(super) fn on_disk(path: &str) -> bool {
+pub(crate) fn on_disk(path: &str) -> bool {
     FileAssetReader::get_base_path().join("assets").join(path).is_file()
 }
 
