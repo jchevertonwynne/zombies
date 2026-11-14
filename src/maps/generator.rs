@@ -400,7 +400,7 @@ fn announce(generators: Res<Generators>, mut was: Local<Vec<GeneratorState>>, mu
                 _ => continue,
             };
             if before != now {
-                cues.write(PlayCue::new(cue, None));
+                cues.write(PlayCue { cue, at: None });
             }
         }
     }
