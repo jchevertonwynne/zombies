@@ -78,6 +78,8 @@ impl Look {
 /// volumetric cone.
 #[derive(Component, Clone, Copy, PartialEq, Debug)]
 struct LampKind {
+    /// PROTOTYPE (#302): false for a lamp that's off.
+    on: bool,
     spot: bool,
     shadow: bool,
     volumetric: bool,
@@ -89,7 +91,7 @@ struct Bulb;
 
 /// The fog volume the volumetric looks light up.
 #[derive(Component)]
-struct Haze;
+pub(crate) struct Haze;
 
 /// How many lamps nearest the eye may cast shadows: the research's budget of about 4 per view.
 const SHADOWED_LAMPS: usize = 4;
@@ -206,7 +208,7 @@ fn apply_camera(
 }
 
 /// The moon, the ambient, the sky's colour and the haze.
-fn apply_world(
+pub(crate) fn apply_world(
     mut commands: Commands,
     look: Res<Look>,
     map: Res<MapId>,
@@ -288,6 +290,7 @@ fn apply_world(
 fn apply_lamps(
     mut commands: Commands,
     look: Res<Look>,
+    roof: Res<crate::ceiling_prototype::Roof>,
     eye: Query<&GlobalTransform, With<PlayerCamera>>,
     lamps: Query<(Entity, &Lamp, &Transform, Option<&LampKind>)>,
     mut bulbs: Query<(&ChildOf, &mut Visibility), With<Bulb>>,
@@ -297,42 +300,39 @@ fn apply_lamps(
     by_distance.sort_by(|a, b| a.2.translation.distance_squared(eye).total_cmp(&b.2.translation.distance_squared(eye)));
     for (rank, &(entity, lamp, transform, kind)) in by_distance.iter().enumerate() {
         let near = rank < SHADOWED_LAMPS;
-        let want = match *look {
-            Look::Today | Look::Dusk => LampKind {
-                spot: false,
-                shadow: false,
-                volumetric: false,
-            },
-            Look::Moonlit => LampKind {
-                spot: near,
-                shadow: near,
-                volumetric: false,
-            },
-            Look::Lamplit => LampKind {
-                spot: true,
-                shadow: near,
-                volumetric: near,
-            },
+        use crate::ceiling_prototype::Roof;
+        let roofed = *look == Look::Dusk && *roof != Roof::Open;
+        let want = match (*look, *roof) {
+            (Look::Dusk, Roof::Dark) => LampKind { on: false, spot: false, shadow: false, volumetric: false },
+            (Look::Dusk, Roof::Lamps) => LampKind { on: true, spot: true, shadow: near, volumetric: false },
+            (Look::Today | Look::Dusk, _) => LampKind { on: true, spot: false, shadow: false, volumetric: false },
+            (Look::Moonlit, _) => LampKind { on: true, spot: near, shadow: near, volumetric: false },
+            (Look::Lamplit, _) => LampKind { on: true, spot: true, shadow: near, volumetric: near },
         };
-        if kind == Some(&want) && !look.is_changed() {
+        if kind == Some(&want) && !look.is_changed() && !roof.is_changed() {
             continue;
         }
         let colour = palette(Some(lamp.0)).light;
         let intensity = match *look {
             Look::Today => 400_000.0,
             Look::Moonlit => 250_000.0,
+            Look::Dusk if roofed => crate::ceiling_prototype::LAMP_INTENSITY,
             Look::Dusk => 60_000.0,
             Look::Lamplit => 900_000.0,
         };
         let mut lamp = commands.entity(entity);
         lamp.remove::<(PointLight, SpotLight, VolumetricLight)>();
+        if !want.on {
+            lamp.insert(want);
+            continue;
+        }
         if want.spot {
             lamp.insert((
                 SpotLight {
                     color: colour,
                     intensity,
                     range: 25.0,
-                    outer_angle: 1.25,
+                    outer_angle: if roofed { crate::ceiling_prototype::LAMP_CONE } else { 1.25 },
                     inner_angle: 0.5,
                     shadow_maps_enabled: want.shadow,
                     ..default()
@@ -356,8 +356,8 @@ fn apply_lamps(
         }
         lamp.insert(want);
     }
-    if look.is_changed() {
-        let shown = matches!(*look, Look::Moonlit | Look::Lamplit);
+    if look.is_changed() || roof.is_changed() {
+        let shown = matches!(*look, Look::Moonlit | Look::Lamplit) || (*look == Look::Dusk && *roof == crate::ceiling_prototype::Roof::Lamps);
         for (_, mut visibility) in &mut bulbs {
             *visibility = if shown { Visibility::Inherited } else { Visibility::Hidden };
         }
@@ -367,6 +367,7 @@ fn apply_lamps(
 fn add_bulbs(
     mut commands: Commands,
     look: Res<Look>,
+    roof: Res<crate::ceiling_prototype::Roof>,
     lamps: Query<(Entity, &Lamp), Added<Lamp>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -375,7 +376,7 @@ fn add_bulbs(
         return;
     }
     let mesh = meshes.add(Sphere::new(0.12));
-    let shown = matches!(*look, Look::Moonlit | Look::Lamplit);
+    let shown = matches!(*look, Look::Moonlit | Look::Lamplit) || (*look == Look::Dusk && *roof == crate::ceiling_prototype::Roof::Lamps);
     for (entity, lamp) in &lamps {
         let material = materials.add(StandardMaterial {
             base_color: Color::BLACK,
@@ -395,7 +396,7 @@ fn add_bulbs(
 // --- The screenshot tour ---------------------------------------------------------------------
 
 #[derive(Resource, Default)]
-struct Tour {
+pub(crate) struct Tour {
     dir: String,
     frames: u32,
     view: usize,
@@ -417,7 +418,7 @@ const VIEWS: [(&str, Vec3, Vec3, f32); 5] = [
 /// Frames to wait before the tour starts, for the Map to finish building and pipelines to compile.
 const TOUR_WARM_UP: u32 = 240;
 
-fn start_run(mut map: ResMut<MapId>, mut mode: ResMut<Mode>, mut next: ResMut<NextState<GameState>>) {
+pub(crate) fn start_run(mut map: ResMut<MapId>, mut mode: ResMut<Mode>, mut next: ResMut<NextState<GameState>>) {
     if std::env::var("ZOMBIES_BENCH").is_ok() {
         return;
     }
@@ -426,7 +427,7 @@ fn start_run(mut map: ResMut<MapId>, mut mode: ResMut<Mode>, mut next: ResMut<Ne
     next.set(GameState::Playing);
 }
 
-fn keep_unhurt(mut players: Query<&mut Health, With<Player>>) {
+pub(crate) fn keep_unhurt(mut players: Query<&mut Health, With<Player>>) {
     for mut health in &mut players {
         health.current = health.max;
     }

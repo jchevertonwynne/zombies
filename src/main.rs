@@ -4,6 +4,7 @@
 mod audio;
 mod authority;
 mod bench;
+mod ceiling_prototype;
 mod debug;
 mod economy;
 mod enemies;
@@ -103,7 +104,8 @@ fn main() {
         .add_plugins(run::gauntlet::GauntletPlugin)
         .add_plugins(players::teammate::TeammatePlugin)
         .add_plugins(look_prototype::LookPrototypePlugin)
-        .add_plugins(tex_prototype::TexPrototypePlugin);
+        .add_plugins(tex_prototype::TexPrototypePlugin)
+        .add_plugins(ceiling_prototype::CeilingPrototypePlugin);
     if let Some(bench) = bench::Bench::from_env() {
         app.add_plugins(bench::BenchPlugin(bench));
     }
