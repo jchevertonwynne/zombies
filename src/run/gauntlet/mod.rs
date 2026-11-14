@@ -12,6 +12,7 @@ mod pact;
 mod procs;
 pub mod progress;
 mod screen;
+mod sets;
 #[cfg(test)]
 mod coop_tests;
 
