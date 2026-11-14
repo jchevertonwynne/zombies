@@ -27,7 +27,7 @@ use crate::enemies::nav::Route;
 use crate::players::player::{LocalPlayer, Player, PlayerCamera, PlayerHit};
 use crate::enemies::target::Players;
 use crate::economy::points::BonusPoints;
-use crate::run::round::{CarriesOver, Round, RoundPhase, zombie_health};
+use crate::run::round::{CarriesOver, ReservedRounds, Round, RoundPhase, zombie_health};
 use crate::storage::settings::{Settings, SpecialType, SpecialZombies};
 use crate::players::shellshock::Shellshock;
 use crate::state::{GameState, InRun, world_runs};
@@ -114,6 +114,22 @@ impl SpecialSlot {
         } else {
             None
         }
+    }
+
+    /// `due`, but never on a `reserved` Round: each counter only moves on a death, so a due special
+    /// slides to the next Round that isn't reserved.
+    pub fn due_unreserved(
+        &self,
+        round: u32,
+        hellhound_round: bool,
+        one_alive: bool,
+        on: &SpecialZombies,
+        reserved: &ReservedRounds,
+    ) -> Option<SpecialKind> {
+        if reserved.contains(round) {
+            return None;
+        }
+        self.due(round, hellhound_round, one_alive, on)
     }
 
     /// A special of `kind` died in Round `round`: its next is due `gap` Rounds later. The Sapper
@@ -396,6 +412,7 @@ fn plan_special(
     mut plan: ResMut<SpecialPlan>,
     alive: Query<&Zombie, Without<Dying>>,
     settings: Res<Settings>,
+    reserved: Res<ReservedRounds>,
 ) {
     let Some(round) = round else {
         return;
@@ -406,7 +423,13 @@ fn plan_special(
     let one_alive = alive.iter().any(|zombie| zombie.special_kind().is_some_and(SpecialKind::in_slot));
     *plan = SpecialPlan {
         round: round.number,
-        kind: slot.due(round.number, round.hellhound.is_some(), one_alive, &settings.special_zombies),
+        kind: slot.due_unreserved(
+            round.number,
+            round.hellhound.is_some(),
+            one_alive,
+            &settings.special_zombies,
+            &reserved,
+        ),
         at: special_spawn_at(round.horde(), rand::random_range(SPECIAL_SPAWN_HORDE_FRACTION)),
     };
 }
@@ -1064,6 +1087,18 @@ mod tests {
         assert_eq!(SpecialKind::Napalm.switch(), SpecialType::Napalm);
         assert_eq!(SpecialKind::Shrieker.switch(), SpecialType::Shrieker);
         assert_eq!(SpecialKind::Sapper.switch(), SpecialType::Sapper);
+    }
+
+    #[test]
+    fn a_special_due_on_a_reserved_round_slides_past_it() {
+        let on = SpecialZombies::default();
+        let slot = SpecialSlot::new(10, 30);
+        let reserved = ReservedRounds([10, 11].into_iter().collect());
+        assert_eq!(slot.due_unreserved(10, false, false, &on, &reserved), None);
+        assert_eq!(slot.due_unreserved(11, false, false, &on, &reserved), None, "back to back");
+        assert_eq!(slot.due_unreserved(12, false, false, &on, &reserved), Some(SpecialKind::Napalm));
+        let none = ReservedRounds::default();
+        assert!((1..=40).all(|r| slot.due_unreserved(r, false, false, &on, &none) == slot.due(r, false, false, &on)));
     }
 
     #[test]
