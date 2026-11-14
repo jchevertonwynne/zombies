@@ -26,6 +26,13 @@ use crate::enemies::zombie::{Dying, Lured, Zombie};
 use crate::maps::map::{DAM_X, MapId, QUARRY_X, STOREY, VILLAGE_X};
 use crate::maps::zone::ZoneId;
 
+/// Request to give a Player Lethals (frags), capped at their Lethal capacity (ADR 0007).
+#[derive(Message, Debug, Clone, Copy)]
+pub struct GiveLethals {
+    pub player: Entity,
+    pub count: u32,
+}
+
 /// The Equipment the Player carries. It never counts toward the Weapon limit.
 #[derive(Component, Debug, Clone, PartialEq)]
 pub struct Equipment {
@@ -137,6 +144,12 @@ impl Equipment {
         if self.monkey_bombs_owned {
             self.monkey_bombs = self.monkey_bombs.max(MONKEY_BOMB_CARRY);
         }
+    }
+
+    /// `count` more frags, up to the most carried.
+    pub fn give_frags(&mut self, count: u32) {
+        self.host_dirty = true;
+        self.frags = self.frags.saturating_add(count).min(self.frag_limits.max).max(self.frags);
     }
 
     /// Taking the Monkey Bomb from the Mystery Box fills the Tactical slot to 3.
@@ -452,6 +465,7 @@ pub struct EquipmentPlugin;
 impl Plugin for EquipmentPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<LethalThrown>()
+            .add_message::<GiveLethals>()
             .add_systems(Startup, load_assets)
             .add_systems(OnEnter(GameState::Playing), spawn_walls)
             .add_systems(
@@ -459,6 +473,7 @@ impl Plugin for EquipmentPlugin {
                 (
                     resolve_frag_limits,
                     restock,
+                    give_lethals.in_set(HostSimulation),
                     (buy_walls.in_set(HostSimulation), price_walls).chain(),
                     (
                         // A paused Player's cook waits in the hand. Starting a throw or a plant
@@ -475,6 +490,15 @@ impl Plugin for EquipmentPlugin {
                     .chain()
                     .run_if(world_runs),
             );
+    }
+}
+
+/// Lethals asked for land.
+fn give_lethals(mut gifts: MessageReader<GiveLethals>, mut players: Query<&mut Equipment>) {
+    for gift in gifts.read() {
+        if let Ok(mut equipment) = players.get_mut(gift.player) {
+            equipment.give_frags(gift.count);
+        }
     }
 }
 
@@ -981,6 +1005,16 @@ mod tests {
         }
         assert_eq!(lets_go, 1);
         assert!((THROW_SECS..THROW_SECS + 0.02).contains(&elapsed));
+    }
+
+    #[test]
+    fn given_lethals_add_frags_up_to_the_lethal_capacity() {
+        let mut equipment = Equipment { frags: 1, ..default() };
+        equipment.give_frags(2);
+        assert_eq!(equipment.frags, 3);
+        equipment.give_frags(5);
+        assert_eq!(equipment.frags, FRAG_MAX, "capped at the most carried");
+        assert!(equipment.host_dirty, "the Player's game is told");
     }
 
     #[test]
