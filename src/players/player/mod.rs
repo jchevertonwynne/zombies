@@ -512,7 +512,7 @@ pub(crate) fn stance_feedback(
     let (locomotion, ref mut felt, last_stand) = *player;
     let now = locomotion.feel(last_stand);
     if let Some(cue) = stance_cue(felt.0, now) {
-        cues.write(PlayCue::new(cue, None));
+        cues.write(PlayCue { cue, at: None });
     }
     felt.0 = now;
 }

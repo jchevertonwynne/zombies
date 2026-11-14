@@ -440,7 +440,10 @@ fn float_away(
         let waited = leaving.elapsed;
         leaving.elapsed += time.delta_secs();
         if waited < QUICK_REVIVE_LEAVE_DELAY_SECS && leaving.elapsed >= QUICK_REVIVE_LEAVE_DELAY_SECS {
-            cues.write(PlayCue::new(Cue::PerkMachineLeave, Some(leaving.from)));
+            cues.write(PlayCue {
+                cue: Cue::PerkMachineLeave,
+                at: Some(leaving.from),
+            });
         }
         match leaving_rise(leaving.elapsed) {
             Some(rise) => transform.translation = leaving.from + Vec3::Y * rise,
