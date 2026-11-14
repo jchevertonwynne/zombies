@@ -102,10 +102,10 @@ _Avoid_: grenade (when meaning the slot)
 
 **Points**: Currency the Player earns by damaging and killing Zombies and spends on Doors and other buys. Each Player has their own and can't give them to anyone else. Not the same as score.
 
-**Buyable**: Anything in the Map the Player spends Points on with the Use key: a Door, Wall Weapon, Mystery Box, Perk Machine, Pack-a-Punch, Trap, Teleporter Pad or Generator. The Power Switch is used but not bought, so it is not a Buyable.
+**Buyable**: Anything in the Map the Player spends Points on with the Use key: a Door, Wall Weapon, Mystery Box, Perk Machine, Pack-a-Punch, Trap, Teleporter Pad or Generator. The Power Switch and a Zipline are used but not bought, so neither is a Buyable.
 _Avoid_: purchasable, trigger
 
-**Use key**: The single key the Player presses to buy a Buyable or flip the Power Switch, or holds to put Planks back on a Barrier.
+**Use key**: The single key the Player presses to buy a Buyable, flip the Power Switch or ride a Zipline, or holds to put Planks back on a Barrier.
 
 **Prompt**: The on-screen line saying what the Use key will do here and what it costs.
 
@@ -130,7 +130,7 @@ _Avoid_: drop, pickup, perk
 
 **Fire Sale**: A timed Power-up during which a cheap Mystery Box appears at every Box location.
 
-**Spawn Point**: A fixed place in the Map where Zombies enter play. Most sit just outside one Barrier, and a Zombie that spawns there has to get in through that Barrier. The rest are Risers.
+**Spawn Point**: A fixed place in the Map where Zombies enter play. Most sit just outside one Barrier, and a Zombie that spawns there has to get in through that Barrier. The rest are Risers and Wading Points.
 
 **Barrier**: A planked-up window in a Zone's outer wall. Zombies tear the Planks off to climb in, and can swipe the Player through the window while they do it. The Player can never pass through a Barrier, whether it is planked or not.
 
@@ -140,6 +140,9 @@ _Avoid_: drop, pickup, perk
 _Avoid_: board, plank of wood
 
 **Riser**: A Spawn Point in open ground, where a Zombie climbs up out of the dirt with no Barrier in its way.
+
+**Wading Point**: A Spawn Point under Shallow Water, where a Zombie stands up out of the water with no Barrier in its way and wades ashore, such as in the Cove's surf.
+_Avoid_: surf spawn, water Riser
 
 **Map**: The playable space, made of Zones joined by Doors. There are four: the Greybox, a house round a courtyard with a wing across the field; the Quarry, a pit and its works climbed terrace by terrace; the Village, a long village of streets and lanes with the Power at one end and Pack-a-Punch at the other; and the Dam, a road along a dam's crest with galleries inside it and a turbine hall at its foot. The Player picks one beside the Mode before a Run, or the Host does in the Room. The first prototype used a single open Arena.
 
@@ -164,8 +167,14 @@ _Avoid_: stage, dais (for the general term)
 
 **Ledge**: An edge where one floor stops above another, too high to step up: the side of a Raised Floor or a sunken floor, the Balcony's drop, or the edge of a Terrace, one of the Incline's landings or the Headframe's deck. Zombies only ever drop off a Ledge; the Player can also scramble back up a low one.
 
-**Out of Bounds**: Anywhere outside the Map's playable space: past the edge of its plan, or fallen well below its lowest floor. A Player Out of Bounds goes Down and is put back where a teammate can reach them. A Zombie Out of Bounds goes back into the Horde, and a special is moved to a fresh spawn point.
+**Out of Bounds**: Anywhere outside the Map's playable space: past the edge of its plan, in Deep Water, or fallen well below its lowest floor. A Player Out of Bounds goes Down and is put back where a teammate can reach them. A Zombie Out of Bounds goes back into the Horde, and a special is moved to a fresh spawn point.
 _Avoid_: OOB, the void, kill plane
+
+**Shallow Water**: Still water less than about waist deep, such as the Cove's surf. Players and Zombies wade through it more slowly, and a Player can't go Prone in it.
+_Avoid_: puddle, wading water
+
+**Deep Water**: Still water at least waist deep, such as the sea off the Cove's beach. It stops Players and Zombies like a wall, and anything that ends up in it anyway is Out of Bounds. Nobody swims and nobody drowns.
+_Avoid_: the sea (for the general term), swimming water
 
 **Run**: One game, from Round 1 until Game Over or quitting.
 _Avoid_: game, match
@@ -247,6 +256,9 @@ _Avoid_: electric fence, zapper
 
 **Jump Pad**: A plate in the floor that, once the Power is on, throws a Player who steps onto it up to a fixed spot on a higher floor, over anything in the way. It costs nothing, nothing steers the throw, and Zombies never use one. Only the Quarry has them.
 _Avoid_: launch pad, bounce pad, trampoline
+
+**Zipline**: A cable from a lookout down to a lower Zone that a Player rides by pressing the Use key at its top. It costs nothing, needs no Power, and can only be ridden once the Zone it lands in is open. The ride can't be steered or left early, the Player can't fire while on it, and Zombies never use one. Made for the Cove.
+_Avoid_: zip line, flying fox, cable car
 
 **Teleporter**: A Map's set of Teleporter Pads and the Mainframe they send the Player to. Only the Greybox has one. It needs Power and only carries the Player one way, to the Mainframe; Zombies have to walk.
 
