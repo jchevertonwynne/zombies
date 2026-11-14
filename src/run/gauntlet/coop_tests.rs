@@ -182,18 +182,43 @@ fn each_offer_is_drawn_from_that_players_own_unlocks_and_boons() {
     assert!(!bought.is_empty());
     sim.world_mut().get_mut::<PlayerUnlocks>(teammate).unwrap().0 =
         bought.iter().map(|boon| boon.id.to_string()).collect();
-    let mut teammate_saw_bought = false;
+    // A Duo is offered once its two Boons are held, and is never bought itself: it's as Unlocked
+    // as its recipe is.
+    let unlocked_for = |unlocked: &[&BoonDef], id: &str| {
+        let open = |boon: &BoonDef| boon.starts_unlocked || unlocked.iter().any(|b| b.id == boon.id);
+        let boon = super::boon::find(id).unwrap();
+        boon.duo.map_or(open(boon), |duo| duo.recipe.iter().all(|&part| open(super::boon::find(part).unwrap())))
+    };
     for round in 1..=30 {
         sim.world_mut().insert_resource(Round::in_progress(round * 5 + 1));
         end_round(&mut sim);
         for boon in offered(&mut sim, local) {
-            assert!(BOONS.iter().find(|b| b.id == boon).unwrap().starts_unlocked, "{boon} was never bought");
+            assert!(unlocked_for(&[], boon), "{boon} was never bought");
         }
-        teammate_saw_bought |= offered(&mut sim, teammate).iter().any(|id| bought.iter().any(|b| b.id == *id));
+        for boon in offered(&mut sim, teammate) {
+            assert!(unlocked_for(&bought, boon), "{boon} isn't theirs");
+        }
         pick(&mut sim, local, Some(0));
         pick(&mut sim, teammate, Some(0));
     }
-    assert!(teammate_saw_bought, "the teammate's bought Boons never came up");
+    // Which bought Boons come up is a weighted draw, and they're Legendary or Proc Boons, so rare:
+    // no count of Rounds guarantees one. What the draw is built from is checked instead: the
+    // teammate's Unlocks make them eligible, and without those they aren't.
+    let facts = |unlocked: Vec<String>| RunFacts {
+        power_on: true,
+        held_pacts: Vec::new(),
+        used_box: true,
+        bought_quick_revive: true,
+        holds_upgraded: true,
+        holds_ammo_mod: true,
+        holds_proc_boon: true,
+        unlocked,
+        unlock_all: false,
+        kit: None,
+    };
+    let own = sim.world_mut().get::<PlayerUnlocks>(teammate).unwrap().0.clone();
+    assert!(bought.iter().all(|boon| super::boon::eligible(boon, &facts(own.clone()))));
+    assert!(bought.iter().all(|boon| !super::boon::eligible(boon, &facts(Vec::new()))));
     // Picks went to their own pickers only.
     let local_total: u32 = sim.world_mut().get::<HeldBoons>(local).unwrap().0.iter().map(|(_, n)| n).sum();
     let teammate_total: u32 = sim.world_mut().get::<HeldBoons>(teammate).unwrap().0.iter().map(|(_, n)| n).sum();
@@ -213,7 +238,7 @@ fn a_boon_offer_checks_the_requirements_of_its_own_player() {
         sim.world_mut().insert_resource(Round::in_progress(round * 5 + 1));
         end_round(&mut sim);
         for id in offered(&mut sim, local) {
-            let boon = BOONS.iter().find(|b| b.id == id).unwrap();
+            let boon = super::boon::find(id).unwrap();
             assert!(!boon.requirements.iter().any(|r| matches!(r, super::boon::Requirement::UsedBox)));
         }
         pick(&mut sim, local, Some(0));
