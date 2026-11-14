@@ -8,6 +8,7 @@ use bevy::ui_widgets::Button;
 
 use super::boon::{BoonDef, HeldBoons, effect_line, requirement_line, stack_line};
 use super::pact::{CRIMSON, HeldPact, HeldPacts, PactDef};
+use super::procs::ProcCooldowns;
 use super::{Choices, Offer};
 use crate::players::player::LocalPlayer;
 use crate::ui::hud::{BOTTOM_LEFT_HEIGHT_PX, full_screen, text};
@@ -33,6 +34,22 @@ pub struct SkipButton;
 /// The Held column on the HUD's left edge.
 #[derive(Component)]
 pub struct HeldColumn;
+
+/// A held Proc Boon's name in the Held column, which brightens when its cooldown is up.
+#[derive(Component)]
+pub struct ProcRow {
+    id: &'static str,
+    colour: Color,
+}
+
+/// The fill of a held Proc Boon's cooldown bar, which refills over its cooldown.
+#[derive(Component)]
+pub struct ProcBarFill(&'static str);
+
+/// A cooling Proc Boon's name is this much of its Rarity colour.
+const COOLING_DIM: f32 = 0.45;
+const BAR_WIDTH_PX: f32 = 120.0;
+const BAR_TRACK: Color = Color::srgba(1.0, 1.0, 1.0, 0.12);
 
 /// The Offer's cards over a running Co-op world, for the Offer of this Round.
 #[derive(Component)]
@@ -233,6 +250,31 @@ pub fn highlight_cards(
     }
 }
 
+/// Each held Proc Boon's bar fills as its cooldown runs, and its name brightens once it's ready.
+pub fn update_proc_bars(
+    player: Query<&ProcCooldowns, With<LocalPlayer>>,
+    mut fills: Query<(&ProcBarFill, &mut Node)>,
+    mut rows: Query<(&ProcRow, &mut TextColor)>,
+) {
+    let Ok(cooldowns) = player.single() else {
+        return;
+    };
+    for (&ProcBarFill(id), mut node) in &mut fills {
+        let width = percent(cooldowns.filled(id) * 100.0);
+        if node.width != width {
+            node.width = width;
+        }
+    }
+    for (row, mut colour) in &mut rows {
+        let lit = if cooldowns.ready(row.id) {
+            row.colour
+        } else {
+            row.colour.with_luminance(row.colour.luminance() * COOLING_DIM)
+        };
+        colour.set_if_neq(TextColor(lit));
+    }
+}
+
 pub fn spawn_held_column(mut commands: Commands) {
     commands.spawn((
         InRun,
@@ -272,11 +314,40 @@ pub fn refresh_held_column(
             .despawn_children()
             .with_children(|column| {
                 for &(boon, stacks) in &held.0 {
-                    column.spawn(text(
-                        format!("{} {stacks}", boon.name),
-                        18.0,
-                        boon.rarity.colour(),
-                    ));
+                    let colour = boon.rarity.colour();
+                    let name = text(format!("{} {stacks}", boon.name), 18.0, colour);
+                    if boon.proc.is_none() {
+                        column.spawn(name);
+                        continue;
+                    }
+                    // A Proc Boon gets a thin bar under its name that refills over its cooldown.
+                    column
+                        .spawn(Node {
+                            flex_direction: FlexDirection::Column,
+                            row_gap: px(1.0),
+                            ..default()
+                        })
+                        .with_children(|entry| {
+                            entry.spawn((name, ProcRow { id: boon.id, colour }));
+                            entry
+                                .spawn((
+                                    Node {
+                                        width: px(BAR_WIDTH_PX),
+                                        height: px(3.0),
+                                        ..default()
+                                    },
+                                    BackgroundColor(BAR_TRACK),
+                                ))
+                                .with_child((
+                                    ProcBarFill(boon.id),
+                                    Node {
+                                        width: percent(100.0),
+                                        height: percent(100.0),
+                                        ..default()
+                                    },
+                                    BackgroundColor(colour),
+                                ));
+                        });
                 }
                 let round = round.as_ref().map_or(1, |round| round.number);
                 for &HeldPact { pact, .. } in &pacts.0 {

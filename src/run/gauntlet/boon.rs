@@ -5,6 +5,7 @@
 use bevy::prelude::*;
 
 use super::pact::{COLD_STEEL, ENDLESS_BELT, LIGHTNING_ROD, OPEN_BAR, OVERCLOCKED, PactRef};
+use super::procs::{self, ProcDef, proc_size};
 use crate::modifier::{Effect, Modifier, Source, Stat};
 use crate::economy::power_up::PowerUp;
 use crate::tuning::*;
@@ -42,6 +43,25 @@ impl Rarity {
     }
 }
 
+/// The six Families every Boon will belong to. For now only Proc Boons name theirs, for the colour
+/// of their accent ring.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Family {
+    Lead,
+    Blade,
+    Spark,
+    Ember,
+    Gold,
+    Grit,
+}
+
+impl Family {
+    pub fn colour(self) -> Color {
+        let [r, g, b] = GAUNTLET_FAMILY_COLOURS[self as usize];
+        Color::srgb_u8(r, g, b)
+    }
+}
+
 /// What must hold, when an Offer is drawn, for a Boon to be on it. A held Boon whose Requirement
 /// lapses stays held.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +77,8 @@ pub enum Requirement {
     HoldsUpgraded,
     /// A Weapon the Player carries has an Ammo Mod.
     HoldsAmmoMod,
+    /// A Weapon the Player carries has an Ammo Mod, or the Player holds a Proc Boon.
+    HoldsAmmoModOrProc,
 }
 
 impl Requirement {
@@ -68,6 +90,7 @@ impl Requirement {
             Requirement::BoughtQuickRevive => "bought Quick Revive once".into(),
             Requirement::HoldsUpgraded => "holds an Upgraded Weapon".into(),
             Requirement::HoldsAmmoMod => "holds an Ammo Mod".into(),
+            Requirement::HoldsAmmoModOrProc => "holds an Ammo Mod or a Proc Boon".into(),
         }
     }
 
@@ -79,6 +102,7 @@ impl Requirement {
             Requirement::BoughtQuickRevive => run.bought_quick_revive,
             Requirement::HoldsUpgraded => run.holds_upgraded,
             Requirement::HoldsAmmoMod => run.holds_ammo_mod,
+            Requirement::HoldsAmmoModOrProc => run.holds_ammo_mod || run.holds_proc_boon,
         }
     }
 }
@@ -106,6 +130,8 @@ pub struct RunFacts {
     pub holds_upgraded: bool,
     /// A Weapon carried has an Ammo Mod.
     pub holds_ammo_mod: bool,
+    /// A Proc Boon is held.
+    pub holds_proc_boon: bool,
     /// The stable IDs of the Boons and Pacts bought in the Armory.
     pub unlocked: Vec<String>,
     /// Every Boon and Pact counts as Unlocked (the F9 debug key).
@@ -126,6 +152,8 @@ pub struct BoonDef {
     pub per_stack: &'static [(Stat, Effect)],
     /// The whole effect at `n` Stacks, as the Offer cards show it.
     pub effect: fn(u32) -> String,
+    /// A Proc Boon's Trigger and Effect.
+    pub proc: Option<&'static ProcDef>,
 }
 
 pub const BLOOD_MONEY: &str = "blood_money";
@@ -134,6 +162,7 @@ pub const WAR_BONDS: &str = "war_bonds";
 pub const BOUNTY: &str = "bounty";
 pub const BUTCHERS_BILL: &str = "butchers_bill";
 pub const LUCKY_STRIKE: &str = "lucky_strike";
+pub const LIVE_WIRE: &str = "live_wire";
 
 /// A per-Stack fraction `x` at `n` Stacks, as a whole percentage.
 fn percent(x: f32, n: u32) -> String {
@@ -171,6 +200,7 @@ const fn common(
         requirements,
         per_stack,
         effect,
+        proc: None,
     }
 }
 
@@ -191,6 +221,7 @@ const fn rare(
         requirements,
         per_stack,
         effect,
+        proc: None,
     }
 }
 
@@ -210,7 +241,42 @@ const fn legendary(
         requirements,
         per_stack,
         effect,
+        proc: None,
     }
+}
+
+/// A Proc Boon, bought in the Armory, with no Requirement.
+const fn proc_boon(
+    id: &'static str,
+    name: &'static str,
+    rarity: Rarity,
+    proc: &'static ProcDef,
+    effect: fn(u32) -> String,
+) -> BoonDef {
+    BoonDef {
+        id,
+        name,
+        rarity,
+        starts_unlocked: false,
+        requirements: &[],
+        per_stack: &[],
+        effect,
+        proc: Some(proc),
+    }
+}
+
+/// A Proc Boon's card line: what it does, then its cooldown if it has one.
+fn proc_line(what: String, def: &ProcDef) -> String {
+    if def.cooldown_secs > 0.0 {
+        format!("{what} ({:.0} s cooldown)", def.cooldown_secs)
+    } else {
+        what
+    }
+}
+
+/// A Proc's chance as a whole percentage.
+fn proc_chance(def: &ProcDef) -> String {
+    format!("{:.0}%", def.chance * 100.0)
 }
 
 /// Every Boon.
@@ -428,10 +494,9 @@ pub const BOONS: &[BoonDef] = &[
         let points = BOON_WAR_BONDS_POINTS_PER_ROUND.saturating_mul(n.into());
         format!("at Round end, +{points} x Round number Points")
     }),
-    rare(
+    common(
         "loaded_dice",
         "Loaded Dice",
-        false,
         &[Requirement::UsedBox],
         &[(
             Stat::BoxFreeSpinChance,
@@ -444,10 +509,9 @@ pub const BOONS: &[BoonDef] = &[
             )
         },
     ),
-    rare(
+    common(
         "field_engineer",
         "Field Engineer",
-        false,
         &[Requirement::PowerOn],
         &[(
             Stat::PackAPunchPrice,
@@ -461,25 +525,25 @@ pub const BOONS: &[BoonDef] = &[
         },
     ),
     rare(
-        "live_wire",
+        LIVE_WIRE,
         "Live Wire",
         false,
-        &[Requirement::HoldsAmmoMod, Requirement::NotPact(OVERCLOCKED)],
+        &[Requirement::HoldsAmmoModOrProc, Requirement::NotPact(OVERCLOCKED)],
+        // Proc cooldowns read its Stacks themselves (`procs::proc_cooldown`).
         &[(
             Stat::AmmoModCooldown,
             Effect::Reduction(BOON_LIVE_WIRE_COOLDOWN_FACTOR, 1),
         )],
         |n| {
             format!(
-                "Ammo Mod cooldowns x{}",
+                "Ammo Mod and Proc cooldowns x{}",
                 factor(BOON_LIVE_WIRE_COOLDOWN_FACTOR, n)
             )
         },
     ),
-    rare(
+    common(
         "iron_stomach",
         "Iron Stomach",
-        false,
         &[Requirement::NotPact(OPEN_BAR)],
         &[(
             Stat::PerksKeptOnDown,
@@ -493,10 +557,9 @@ pub const BOONS: &[BoonDef] = &[
             )
         },
     ),
-    rare(
+    common(
         "last_rites",
         "Last Rites",
-        false,
         &[Requirement::BoughtQuickRevive],
         &[(
             Stat::QuickReviveBuys,
@@ -510,7 +573,7 @@ pub const BOONS: &[BoonDef] = &[
             )
         },
     ),
-    rare(BOUNTY, "Bounty", false, &[Requirement::PowerOn], &[], |n| {
+    common(BOUNTY, "Bounty", &[Requirement::PowerOn], &[], |n| {
         format!("Trap kills pay {} Points", bounty_points(Attack::Trap, n))
     }),
     rare(
@@ -529,7 +592,7 @@ pub const BOONS: &[BoonDef] = &[
             )
         },
     ),
-    rare(BUTCHERS_BILL, "Butcher's Bill", false, &[], &[], |n| {
+    common(BUTCHERS_BILL, "Butcher's Bill", &[], &[], |n| {
         format!(
             "{}% chance a Knife kill drops a Power-up, outside the per-Round max",
             chance_percent(BOON_BUTCHERS_BILL_DROP_CHANCE, n)
@@ -623,6 +686,91 @@ pub const BOONS: &[BoonDef] = &[
         format!(
             "{}% chance that picking up a Power-up also gives a random different one",
             chance_percent(BOON_LUCKY_STRIKE_CHANCE, n)
+        )
+    }),
+    // The Proc Boons (spec #182, Appendix A3).
+    proc_boon("arc_light", "Arc Light", Rarity::Rare, &procs::ARC_LIGHT, |n| {
+        let def = &procs::ARC_LIGHT;
+        proc_line(format!("Headshot kill: Shock chains to {:.0} Zombies", proc_size(def, n)), def)
+    }),
+    proc_boon("hot_brass", "Hot Brass", Rarity::Rare, &procs::HOT_BRASS, |n| {
+        let def = &procs::HOT_BRASS;
+        proc_line(format!("Reload finished: a fire ring sets alight Zombies within {:.1} m", proc_size(def, n)), def)
+    }),
+    proc_boon("elbow_room", "Elbow Room", Rarity::Rare, &procs::ELBOW_ROOM, |n| {
+        let def = &procs::ELBOW_ROOM;
+        proc_line(
+            format!(
+                "Taking a hit: knockback kills and flings the {:.0} closest Zombies within {BOON_ELBOW_ROOM_RADIUS_M:.0} m",
+                proc_size(def, n)
+            ),
+            def,
+        )
+    }),
+    proc_boon("parting_shot", "Parting Shot", Rarity::Rare, &procs::PARTING_SHOT, |n| {
+        let def = &procs::PARTING_SHOT;
+        proc_line(format!("Magazine emptied: that shot's hit Blasts, killing within {:.1} m", proc_size(def, n)), def)
+    }),
+    proc_boon("frostbite", "Frostbite", Rarity::Rare, &procs::FROSTBITE, |n| {
+        let def = &procs::FROSTBITE;
+        proc_line(
+            format!(
+                "Knife kill: Frost slows every Zombie within {BOON_FROSTBITE_RADIUS_M:.0} m for {:.0} s",
+                proc_size(def, n)
+            ),
+            def,
+        )
+    }),
+    proc_boon("spoils_of_war", "Spoils of War", Rarity::Rare, &procs::SPOILS_OF_WAR, |n| {
+        let def = &procs::SPOILS_OF_WAR;
+        proc_line(format!("Power-up picked up: a phantom gun fires {:.0} shots", proc_size(def, n)), def)
+    }),
+    proc_boon("turncoat", "Turncoat", Rarity::Rare, &procs::TURNCOAT, |n| {
+        let def = &procs::TURNCOAT;
+        proc_line(
+            format!("{} chance a kill Turns the nearest Zombie for {:.0} s", proc_chance(def), proc_size(def, n)),
+            def,
+        )
+    }),
+    proc_boon("firebrand", "Firebrand", Rarity::Rare, &procs::FIREBRAND, |n| {
+        let def = &procs::FIREBRAND;
+        proc_line(
+            format!(
+                "Lethal thrown: a {:.1} m fire pool where it lands, for {BOON_FIREBRAND_POOL_SECS:.0} s",
+                proc_size(def, n)
+            ),
+            def,
+        )
+    }),
+    proc_boon("static_discharge", "Static Discharge", Rarity::Legendary, &procs::STATIC_DISCHARGE, |n| {
+        let def = &procs::STATIC_DISCHARGE;
+        proc_line(format!("Taking a hit: Shock kills every Zombie within {:.0} m", proc_size(def, n)), def)
+    }),
+    proc_boon("wildfire", "Wildfire", Rarity::Legendary, &procs::WILDFIRE, |n| {
+        let def = &procs::WILDFIRE;
+        proc_line(
+            format!(
+                "{} chance a kill's corpse bursts, setting alight Zombies within {:.0} m",
+                proc_chance(def),
+                proc_size(def, n)
+            ),
+            def,
+        )
+    }),
+    proc_boon("firing_squad", "Firing Squad", Rarity::Legendary, &procs::FIRING_SQUAD, |n| {
+        let def = &procs::FIRING_SQUAD;
+        proc_line(format!("Reload finished: a phantom gun fires {:.0} shots", proc_size(def, n)), def)
+    }),
+    proc_boon("raise_the_dead", "Raise the Dead", Rarity::Legendary, &procs::RAISE_THE_DEAD, |n| {
+        let def = &procs::RAISE_THE_DEAD;
+        let zombies = proc_size(def, n);
+        proc_line(
+            format!(
+                "{} chance a Headshot kill raises {zombies:.0} Turned {} (at most {GAUNTLET_TURNED_ALLY_CAP} allies)",
+                proc_chance(def),
+                if zombies == 1.0 { "Zombie" } else { "Zombies" },
+            ),
+            def,
         )
     }),
 ];
@@ -831,6 +979,7 @@ mod tests {
             requirements,
             per_stack: &[],
             effect: |n| format!("x{n}"),
+            proc: None,
         }
     }
 
@@ -1218,6 +1367,13 @@ mod tests {
             "union_rates",
             "trench_raider",
             "bandolier",
+            // v1 Rares moved to Common by spec #182, effects unchanged.
+            "loaded_dice",
+            "field_engineer",
+            "iron_stomach",
+            "last_rites",
+            BOUNTY,
+            BUTCHERS_BILL,
         ];
         for id in ids {
             let boon = named(id);
@@ -1229,7 +1385,7 @@ mod tests {
             .iter()
             .filter(|boon| boon.rarity == Rarity::Common)
             .count();
-        assert_eq!(commons, 15);
+        assert_eq!(commons, 21);
     }
 
     #[test]
@@ -1259,12 +1415,13 @@ mod tests {
                 .map(|boon| boon.id)
                 .collect::<Vec<_>>()
         };
-        // The 15 Commons, plus the three Rares Unlocked from the start.
-        assert_eq!(offered(vec![]).len(), 18);
+        // The 21 Commons but Loaded Dice and Last Rites (their Requirements don't hold), plus the
+        // three Rares Unlocked from the start.
+        assert_eq!(offered(vec![]).len(), 22);
         let without = offered(vec![ENDLESS_BELT.id]);
         assert!(!without.contains(&"full_belt"));
         assert!(!without.contains(&"stripper_clips"));
-        assert_eq!(without.len(), 16);
+        assert_eq!(without.len(), 20);
         assert!(!offered(vec![OPEN_BAR.id]).contains(&"bottomless_cup"));
         assert!(!offered(vec![COLD_STEEL.id]).contains(&"trench_raider"));
     }
@@ -1332,6 +1489,7 @@ mod tests {
             bought_quick_revive: true,
             holds_upgraded: true,
             holds_ammo_mod: true,
+            holds_proc_boon: true,
             unlocked: Vec::new(),
             unlock_all: true,
         }
@@ -1341,15 +1499,17 @@ mod tests {
     fn every_rare_and_legendary_from_appendix_b_is_in_the_table() {
         let rares = [
             (WAR_BONDS, true),
-            ("loaded_dice", false),
-            ("field_engineer", false),
-            ("live_wire", false),
-            ("iron_stomach", false),
-            ("last_rites", false),
-            (BOUNTY, false),
+            (LIVE_WIRE, false),
             ("barbed_wire", true),
-            (BUTCHERS_BILL, false),
             ("shrapnel", true),
+            ("arc_light", false),
+            ("hot_brass", false),
+            ("elbow_room", false),
+            ("parting_shot", false),
+            ("frostbite", false),
+            ("spoils_of_war", false),
+            ("turncoat", false),
+            ("firebrand", false),
         ];
         for (id, starts_unlocked) in rares {
             let boon = named(id);
@@ -1363,6 +1523,10 @@ mod tests {
             "black_market",
             "double_punched",
             LUCKY_STRIKE,
+            "static_discharge",
+            "wildfire",
+            "firing_squad",
+            "raise_the_dead",
         ];
         for id in legendaries {
             let boon = named(id);
@@ -1370,7 +1534,35 @@ mod tests {
             assert!(!boon.starts_unlocked, "{id} is bought in the Armory");
         }
         let count = |rarity| BOONS.iter().filter(|boon| boon.rarity == rarity).count();
-        assert_eq!((count(Rarity::Rare), count(Rarity::Legendary)), (10, 5));
+        assert_eq!((count(Rarity::Rare), count(Rarity::Legendary)), (12, 9));
+    }
+
+    #[test]
+    fn the_twelve_proc_boons_are_eight_rares_and_four_legendaries_with_no_requirement() {
+        let procs: Vec<_> = BOONS.iter().filter(|boon| boon.proc.is_some()).collect();
+        let count = |rarity| procs.iter().filter(|boon| boon.rarity == rarity).count();
+        assert_eq!((count(Rarity::Rare), count(Rarity::Legendary)), (8, 4));
+        for boon in procs {
+            assert!(boon.requirements.is_empty(), "{}", boon.id);
+            assert!(boon.per_stack.is_empty(), "{} is a Trigger and an Effect, not a stat", boon.id);
+            assert!(!boon.starts_unlocked, "{} is bought in the Armory", boon.id);
+        }
+    }
+
+    #[test]
+    fn live_wire_needs_an_ammo_mod_or_a_proc_boon_and_no_overclocked() {
+        let run = |holds_ammo_mod, holds_proc_boon, held_pacts: Vec<&'static str>| RunFacts {
+            holds_ammo_mod,
+            holds_proc_boon,
+            held_pacts,
+            unlock_all: true,
+            ..default()
+        };
+        let live_wire = named(LIVE_WIRE);
+        assert!(!eligible(live_wire, &run(false, false, vec![])));
+        assert!(eligible(live_wire, &run(true, false, vec![])));
+        assert!(eligible(live_wire, &run(false, true, vec![])));
+        assert!(!eligible(live_wire, &run(false, true, vec![OVERCLOCKED.id])));
     }
 
     #[test]
@@ -1393,7 +1585,7 @@ mod tests {
                 .iter()
                 .filter(|boon| eligible(boon, &everything()))
                 .count(),
-            30
+            42
         );
     }
 
@@ -1406,7 +1598,10 @@ mod tests {
         };
         assert!(!without("loaded_dice", |run| run.used_box = false));
         assert!(!without("field_engineer", |run| run.power_on = false));
-        assert!(!without("live_wire", |run| run.holds_ammo_mod = false));
+        assert!(!without("live_wire", |run| {
+            run.holds_ammo_mod = false;
+            run.holds_proc_boon = false;
+        }));
         assert!(!without("live_wire", |run| run.held_pacts = vec![OVERCLOCKED.id]));
         assert!(!without("iron_stomach", |run| run.held_pacts = vec![OPEN_BAR.id]));
         assert!(!without("last_rites", |run| run.bought_quick_revive = false));
@@ -1430,7 +1625,7 @@ mod tests {
         assert_eq!(line("double_punched"), "Requires holds an Upgraded Weapon");
         assert_eq!(
             line("live_wire"),
-            "Requires holds an Ammo Mod; not Overclocked"
+            "Requires holds an Ammo Mod or a Proc Boon; not Overclocked"
         );
     }
 
@@ -1688,6 +1883,24 @@ mod tests {
         assert_eq!(
             line(LUCKY_STRIKE, 1),
             "20% chance that picking up a Power-up also gives a random different one"
+        );
+        assert_eq!(line(LIVE_WIRE, 2), "Ammo Mod and Proc cooldowns x0.72");
+    }
+
+    #[test]
+    fn proc_boon_cards_read_their_effect_at_each_stack() {
+        let line = |id, n| (named(id).effect)(n);
+        assert_eq!(line("arc_light", 1), "Headshot kill: Shock chains to 3 Zombies (2 s cooldown)");
+        assert_eq!(line("arc_light", 2), "Headshot kill: Shock chains to 5 Zombies (2 s cooldown)");
+        assert_eq!(
+            line("hot_brass", 2),
+            "Reload finished: a fire ring sets alight Zombies within 3.0 m (8 s cooldown)"
+        );
+        assert_eq!(line("parting_shot", 1), "Magazine emptied: that shot's hit Blasts, killing within 2.0 m");
+        assert_eq!(line("turncoat", 2), "5% chance a kill Turns the nearest Zombie for 25 s (20 s cooldown)");
+        assert_eq!(
+            line("raise_the_dead", 1),
+            "10% chance a Headshot kill raises 1 Turned Zombie (at most 3 allies) (5 s cooldown)"
         );
     }
 }
