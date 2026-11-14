@@ -17,7 +17,7 @@ use crate::enemies::zombie::{
 use crate::modifier::Source;
 use crate::players::player::{Player, PlayerHit, Seat};
 use crate::tuning::*;
-use crate::weapons::ammo_mod::{AmmoMod, CastEffect, CastTarget, Element, TurnedAlly, TurnedAllyCap};
+use crate::weapons::ammo_mod::{AmmoMod, CastEffect, CastTarget, Element, OutsideAllyCap, TurnedAlly, TurnedAllyCap};
 use crate::weapons::equipment::LethalThrown;
 use crate::weapons::weapon::{MagazineEmptied, Reloaded};
 
@@ -427,7 +427,7 @@ pub fn fire_procs(
     mut taken: MessageReader<PowerUpTaken>,
     mut players: Query<(&Seat, &HeldBoons, &mut ProcCooldowns, &GlobalTransform), With<Player>>,
     pacts: Res<HeldPacts>,
-    (cap, allies): (Res<TurnedAllyCap>, Query<(), With<TurnedAlly>>),
+    (cap, allies): (Res<TurnedAllyCap>, Query<(), (With<TurnedAlly>, Without<OutsideAllyCap>)>),
     mut fired: MessageWriter<ProcFired>,
     time: Res<Time>,
 ) {
@@ -529,6 +529,8 @@ pub fn cast_procs(
             pay: def.effect.pay(),
             accent,
             show,
+            unbounded: false,
+            tint: None,
         };
         let point = CastTarget::Point(proc.at);
         match def.effect {

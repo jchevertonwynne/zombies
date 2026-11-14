@@ -941,6 +941,11 @@ pub struct Knife {
 }
 
 impl Knife {
+    /// The Knife is ready to swing again at once.
+    pub fn reset(&mut self) {
+        self.cooldown = 0.0;
+    }
+
     /// How far (0 to 1) through its swing the Knife is, while it's swinging.
     pub fn swing(&self) -> Option<f32> {
         (self.cooldown > 0.0).then(|| 1.0 - self.cooldown / KNIFE_COOLDOWN_SECS)
@@ -967,6 +972,34 @@ pub struct ShotFired {
     pub weapon: WeaponId,
     pub upgraded: bool,
     pub underbarrel: Option<Underbarrel>,
+}
+
+/// A Knife swing started: whose, from where and which way, how far it reaches, the damage it does
+/// on a hit, and the Zombie it struck, if any.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct KnifeSwung {
+    pub player: Entity,
+    pub origin: Vec3,
+    pub forward: Vec3,
+    pub range: f32,
+    pub damage: f32,
+    pub struck: Option<Entity>,
+}
+
+/// Request to make a Player's Knife ready at once.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct ResetKnifeCooldown {
+    pub player: Entity,
+}
+
+/// Ammo Mods a Player's hits roll as well as the held Weapon's own, sharing each Ammo Mod's
+/// cooldown. Classic never adds one; anything layered on it may (ADR 0007).
+#[derive(Component, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct LentAmmoMods(pub AmmoMods);
+
+/// The Ammo Mods a hit from the held Weapon rolls: its own and any lent.
+pub fn rolled_ammo_mods(held: AmmoMods, lent: Option<&LentAmmoMods>) -> AmmoMods {
+    lent.map_or(held, |lent| held.union(lent.0))
 }
 
 /// A Reload finished, the automatic one after the last bullet included.
@@ -1041,6 +1074,9 @@ impl Plugin for WeaponPlugin {
             .add_message::<HitReport>()
             .add_message::<Reloaded>()
             .add_message::<MagazineEmptied>()
+            .add_message::<KnifeSwung>()
+            .add_message::<ResetKnifeCooldown>()
+            .add_systems(Update, reset_knives.before(knife).run_if(world_runs))
             .init_resource::<GunModels>()
             .add_systems(Update, spawn_view_model)
             .add_systems(
@@ -1209,8 +1245,17 @@ fn aim(
     loadout.update_handling(time.delta_secs(), locomotion, down, controls.pressed(Action::Aim));
 }
 
+/// Knife cooldown resets asked for land.
+fn reset_knives(mut resets: MessageReader<ResetKnifeCooldown>, mut knives: Query<&mut Knife>) {
+    for reset in resets.read() {
+        if let Ok(mut knife) = knives.get_mut(reset.player) {
+            knife.reset();
+        }
+    }
+}
+
 fn fire(
-    player: Single<(Entity, &mut Loadout, &Modifiers), With<LocalPlayer>>,
+    player: Single<(Entity, &mut Loadout, &Modifiers, Option<&LentAmmoMods>), With<LocalPlayer>>,
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
     mut view_model: Single<&mut ViewModel>,
     controls: Controls,
@@ -1226,7 +1271,7 @@ fn fire(
     mut cues: MessageWriter<PlayCue>,
     (mut impacts, mut emptied): (MessageWriter<BulletImpact>, MessageWriter<MagazineEmptied>),
 ) {
-    let (entity, mut loadout, modifiers) = player.into_inner();
+    let (entity, mut loadout, modifiers, lent) = player.into_inner();
     let entries = &modifiers.0;
     let (pressed, just_pressed) = (controls.pressed(Action::Fire), controls.just_pressed(Action::Fire));
     // Spread is read before the shot blooms it.
@@ -1265,7 +1310,7 @@ fn fire(
     });
 
     // Every damage event from this Weapon rolls its Ammo Mods.
-    let ammo_mods = loadout.held().ammo_mods;
+    let ammo_mods = rolled_ammo_mods(loadout.held().ammo_mods, lent);
     let mut roll = |zombie, damage| {
         if !ammo_mods.is_empty() {
             ammo_mod_hits.write(AmmoModHit { player: entity, zombie, damage, ammo_mods });
@@ -1432,6 +1477,7 @@ fn knife(
     hit_areas: Query<(&HitArea, &ChildOf)>,
     mut reports: MessageWriter<HitReport>,
     mut cues: MessageWriter<PlayCue>,
+    mut swung: MessageWriter<KnifeSwung>,
     time: Res<Time>,
 ) {
     let (entity, mut knife, loadout, modifiers) = player.into_inner();
@@ -1442,16 +1488,27 @@ fn knife(
     knife.cooldown = KNIFE_COOLDOWN_SECS;
     cues.write(PlayCue::new(Cue::KnifeSwing, None));
 
-    if let Some(hit) = spatial.cast_shape(
-        &Collider::sphere(KNIFE_RADIUS),
-        camera.translation(),
-        Quat::IDENTITY,
-        camera.forward(),
-        &ShapeCastConfig::from_max_distance(knife_range(&modifiers.0)),
-        &attack_filter(entity),
-    ) && let Some((zombie, zone)) = zombie_for(hit.entity, &hit_areas)
-    {
-        let base = knife_damage(knife.bowie, ballistic_in_hand(loadout));
+    let range = knife_range(&modifiers.0);
+    let base = knife_damage(knife.bowie, ballistic_in_hand(loadout));
+    let struck = spatial
+        .cast_shape(
+            &Collider::sphere(KNIFE_RADIUS),
+            camera.translation(),
+            Quat::IDENTITY,
+            camera.forward(),
+            &ShapeCastConfig::from_max_distance(range),
+            &attack_filter(entity),
+        )
+        .and_then(|hit| zombie_for(hit.entity, &hit_areas));
+    swung.write(KnifeSwung {
+        player: entity,
+        origin: camera.translation(),
+        forward: *camera.forward(),
+        range,
+        damage: resolve(Stat::KnifeDamage, base, &modifiers.0),
+        struck: struck.map(|(zombie, _)| zombie),
+    });
+    if let Some((zombie, zone)) = struck {
         reports.write(HitReport {
             player: entity,
             zombie,
@@ -1730,6 +1787,18 @@ mod tests {
             since_stance_change: since,
             ..Locomotion::default()
         }
+    }
+
+    #[test]
+    fn lent_ammo_mods_roll_beside_the_held_weapons_own() {
+        use crate::weapons::ammo_mod::AmmoMod;
+        let held = AmmoMods::NONE.with(AmmoMod::DeadWire);
+        assert_eq!(rolled_ammo_mods(held, None), held);
+        assert_eq!(rolled_ammo_mods(held, Some(&LentAmmoMods::default())), held, "empty is neutral");
+        let lent = LentAmmoMods(AmmoMods::NONE.with(AmmoMod::Turned));
+        let both = rolled_ammo_mods(held, Some(&lent));
+        assert!(both.contains(AmmoMod::DeadWire) && both.contains(AmmoMod::Turned));
+        assert_eq!(both.len(), 2);
     }
 
     #[test]
@@ -3139,6 +3208,44 @@ mod two_player_tests {
         let reports = messages::<HitReport>(&mut sim);
         assert_eq!(reports.len(), 1, "the prone Knife never reached the Zombie");
         assert_eq!((reports[0].player, reports[0].attack), (local, Attack::Knife));
+    }
+
+    #[test]
+    fn a_knife_swing_says_where_it_went_and_what_it_struck() {
+        let (mut sim, local, _) = fighting();
+        let knife = key(&mut sim, Action::Knife);
+        let feet = sim.world_mut().get::<Transform>(local).unwrap().translation.with_y(0.0);
+        let zombie = sim.spawn(feet + Vec3::NEG_Z * 1.2, None);
+        sim.run(2);
+        messages::<KnifeSwung>(&mut sim);
+        tap_key(&mut sim, knife);
+        let swung = messages::<KnifeSwung>(&mut sim);
+        assert_eq!(swung.len(), 1);
+        assert_eq!((swung[0].player, swung[0].struck), (local, Some(zombie)));
+        assert_eq!(swung[0].range, KNIFE_RANGE);
+        assert_eq!(swung[0].damage, KNIFE_DAMAGE);
+        assert!(swung[0].forward.dot(Vec3::NEG_Z) > 0.9, "facing {:?}", swung[0].forward);
+        // A swing at nothing still says so.
+        sim.run(sim.frames(KNIFE_COOLDOWN_SECS + 0.1));
+        sim.world_mut().entity_mut(zombie).despawn();
+        tap_key(&mut sim, knife);
+        let swung = messages::<KnifeSwung>(&mut sim);
+        assert_eq!(swung.len(), 1);
+        assert_eq!(swung[0].struck, None);
+    }
+
+    #[test]
+    fn resetting_the_knife_cooldown_makes_it_ready_at_once() {
+        let (mut sim, local, _) = fighting();
+        let knife = key(&mut sim, Action::Knife);
+        tap_key(&mut sim, knife);
+        assert!(sim.world_mut().get::<Knife>(local).unwrap().swing().is_some(), "cooling after a swing");
+        sim.send(ResetKnifeCooldown { player: local });
+        sim.run(1);
+        assert!(sim.world_mut().get::<Knife>(local).unwrap().swing().is_none());
+        messages::<KnifeSwung>(&mut sim);
+        tap_key(&mut sim, knife);
+        assert_eq!(messages::<KnifeSwung>(&mut sim).len(), 1, "it swings again straight away");
     }
 
     #[test]
