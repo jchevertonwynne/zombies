@@ -2268,6 +2268,42 @@ pub const GAUNTLET_FAMILY_COLOURS: [[u8; 3]; 6] = [
 /// matching Kit), up to `GAUNTLET_FAMILY_BIAS_CAP`.
 pub const GAUNTLET_FAMILY_BIAS_FACTOR: f64 = 1.5;
 pub const GAUNTLET_FAMILY_BIAS_CAP: f64 = 3.0;
+/// A Family's Set Bonus tiers come at these counts of distinct held Boons of it.
+pub const SET_BONUS_TIERS: [u32; 3] = [2, 4, 6];
+
+// Set Bonuses (spec #182, Appendix A4)
+pub const SET_LEAD_2_HEADSHOT_MULTIPLIER: f32 = 0.5;
+/// Lead 4's damage holds while the held Weapon's Magazine is at or below this share of full.
+pub const SET_LEAD_4_MAGAZINE_FRACTION: f64 = 1.0 / 3.0;
+pub const SET_LEAD_4_DAMAGE_INCREASE: f32 = 0.5;
+/// Ricochet: a Headshot kill's bullet goes on to the nearest other Zombie's head this close.
+pub const SET_LEAD_6_RICOCHET_RANGE_M: f32 = 8.0;
+pub const SET_BLADE_2_KNIFE_DAMAGE_INCREASE: f32 = 0.25;
+/// Health a Knife kill gives back at Blade 4.
+pub const SET_BLADE_4_HEAL: f32 = 10.0;
+/// Cleave strikes every other Zombie in Knife range within this arc, centred on the swing.
+pub const SET_BLADE_6_ARC_DEGREES: f32 = 120.0;
+pub const SET_BLADE_6_TRAIL_RADIUS_M: f32 = 1.0;
+pub const SET_BLADE_6_TRAIL_SECS: f32 = 2.0;
+/// Seconds of Frost a Cleave trail patch gives a Zombie in it.
+pub const SET_BLADE_6_TRAIL_FROST_SECS: f32 = 1.0;
+pub const SET_SPARK_2_COOLDOWN_FACTOR: f32 = 0.9;
+pub const SET_SPARK_6_AURA_TICK_SECS: f32 = 1.0;
+pub const SET_SPARK_6_AURA_RADIUS_M: f32 = 3.0;
+pub const SET_EMBER_2_DAMAGE_INCREASE: f32 = 0.2;
+pub const SET_EMBER_2_BURN_SPEED_FACTOR: f32 = 1.2;
+/// A burning Zombie takes this much damage, body and head, at Ember 4.
+pub const SET_EMBER_4_DAMAGE_TAKEN_FACTOR: f32 = 1.25;
+pub const SET_EMBER_6_PATCH_RADIUS_M: f32 = 1.5;
+pub const SET_EMBER_6_PATCH_SECS: f32 = 2.0;
+pub const SET_GOLD_2_POINTS_RATE: f32 = 0.1;
+/// Jackpot: every this many Points earned drops a Power-up at the Player's feet.
+pub const SET_GOLD_6_POINTS_PER_DROP: u64 = 4000;
+pub const SET_GRIT_2_REGEN_FACTOR: f32 = 1.5;
+/// Down guards Grit 4 gives at each Round's start.
+pub const SET_GRIT_4_GUARDS_PER_ROUND: u32 = 1;
+/// A Set Bonus tier's banner stays up this long.
+pub const GAUNTLET_SET_BANNER_SECS: f32 = 2.5;
 /// A Proc's Family-coloured accent ring lasts this long; so does a Blast's sphere.
 pub const GAUNTLET_PROC_ACCENT_SECS: f32 = 0.25;
 /// A Proc borrowing an Ammo Mod's cue plays it at this pitch and share of its volume.
