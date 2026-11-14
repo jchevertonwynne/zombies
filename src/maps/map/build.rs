@@ -13,7 +13,8 @@ use crate::state::InRun;
 use crate::tuning::*;
 use crate::maps::zone::ZoneId;
 
-use super::{DOOR_HEIGHT, DOOR_WIDTH, Palette, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, WALL_THICKNESS, WINDOW_WIDTH, palette};
+use super::textures::{Material, Shape, Textured};
+use super::{DOOR_HEIGHT, DOOR_WIDTH, Palette, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, WALL_THICKNESS, WINDOW_WIDTH, materials, palette};
 use crate::maps::generator::Generator;
 use crate::maps::jump_pad::JumpPad;
 
@@ -112,15 +113,22 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
 
     /// A box drawn in `colour`, `size` across before `rotation`, centred on `at`. Not solid.
     fn shape(&mut self, size: Vec3, at: Vec3, rotation: Quat, colour: Color) -> Entity {
+        self.shape_in(size, at, rotation, colour, None)
+    }
+
+    /// A box drawn in `colour` until `material` (if any) has loaded, then in that.
+    fn shape_in(&mut self, size: Vec3, at: Vec3, rotation: Quat, colour: Color, material: Option<Material>) -> Entity {
         let paint = self.paint(colour);
-        self.commands
-            .spawn((
-                InRun,
-                Mesh3d(self.cube.clone()),
-                MeshMaterial3d(paint),
-                Transform { translation: at, rotation, scale: size },
-            ))
-            .id()
+        let mut shape = self.commands.spawn((
+            InRun,
+            Mesh3d(self.cube.clone()),
+            MeshMaterial3d(paint),
+            Transform { translation: at, rotation, scale: size },
+        ));
+        if let Some(material) = material {
+            shape.insert(Textured { material, shape: Shape::Cuboid });
+        }
+        shape.id()
     }
 
     /// Something solid with nothing drawn: what's seen of it is drawn on its own.
@@ -150,7 +158,12 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
 
     /// A solid box drawn in `colour`.
     pub fn block(&mut self, size: Vec3, at: Vec3, colour: Color) -> Entity {
-        self.shape(size, at, Quat::IDENTITY, colour);
+        self.block_in(size, at, colour, None)
+    }
+
+    /// A solid box drawn in `colour` until `material` (if any) has loaded, then in that.
+    pub fn block_in(&mut self, size: Vec3, at: Vec3, colour: Color, material: Option<Material>) -> Entity {
+        self.shape_in(size, at, Quat::IDENTITY, colour, material);
         self.bare(Collider::cuboid(size.x, size.y, size.z), at, Quat::IDENTITY)
     }
 
@@ -162,11 +175,12 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let deepest = holes.iter().map(|hole| hole.depth).fold(0.0, f32::max);
         let thick = 0.2 + deepest;
         let colour = palette(Some(zone)).floor;
+        let material = materials(Some(zone)).map(|set| set.floor);
         let cut: Vec<_> = holes.iter().map(|hole| (hole.min, hole.max)).collect();
         for (min, max) in rects_around((Vec2::new(lo.x, lo.z), Vec2::new(hi.x, hi.z)), &cut) {
             let size = Vec3::new(max.x - min.x, thick, max.y - min.y);
             let centre = Vec3::new((min.x + max.x) / 2.0, height - thick / 2.0, (min.y + max.y) / 2.0);
-            self.block(size, centre, colour);
+            self.block_in(size, centre, colour, material);
         }
     }
 
@@ -179,14 +193,15 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         self.edging(min, max, height, palette(Some(raised.zone)).trim);
     }
 
-    /// A sunken floor: its floor a shade darker than its Zone's, its sides faced in the Zone's
-    /// trim, and a coping round its rim if it has one.
+    /// A sunken floor: its floor a shade darker than its Zone's (or in the Zone's floor material),
+    /// its sides faced in the Zone's trim, and a coping round its rim if it has one.
     pub fn sunken(&mut self, sunken: &Sunken) {
         let (min, max, depth) = (sunken.min, sunken.max, sunken.depth);
         let colours = palette(Some(sunken.zone));
         let middle = (min + max) / 2.0;
         let size = Vec3::new(max.x - min.x, 0.2, max.y - min.y);
-        self.block(size, Vec3::new(middle.x, -depth - 0.1, middle.y), darker(colours.floor));
+        let material = materials(Some(sunken.zone)).map(|set| set.floor);
+        self.block_in(size, Vec3::new(middle.x, -depth - 0.1, middle.y), darker(colours.floor), material);
         // Thin facings on its four sides, just inside the hole.
         let facing = 0.02;
         for (centre, size) in [
@@ -572,13 +587,15 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
     }
 
     /// Draws one face of a wall piece whose middle is on `line`: its half of the wall in the
-    /// face's wall colour, with trim in front of it: skirting where it stands on a floor at
-    /// `foot`, and a band along the top of each storey.
+    /// face's wall colour (or its Zone's wall material), with trim in front of it, always in
+    /// paint: skirting where it stands on a floor at `foot`, and a band along the top of each
+    /// storey.
     fn skin(&mut self, face: &Face, along_x: bool, line: f32, foot: Option<f32>) {
         let colours = self.repaint.unwrap_or_else(|| palette(face.zone));
+        let wall = if self.repaint.is_some() { None } else { materials(face.zone).map(|set| set.wall) };
         let out = if along_x { face.normal.y } else { face.normal.x };
         let (from, to) = face.along;
-        let slab = |this: &mut Self, off: f32, depth: f32, bottom: f32, top: f32, colour: Color| {
+        let slab = |this: &mut Self, off: f32, depth: f32, bottom: f32, top: f32, colour: Color, material: Option<Material>| {
             let across = line + out * (off + depth / 2.0);
             let (mid, y) = ((from + to) / 2.0, (bottom + top) / 2.0);
             let (centre, size) = if along_x {
@@ -586,17 +603,17 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
             } else {
                 (Vec3::new(across, y, mid), Vec3::new(depth, top - bottom, to - from))
             };
-            this.shape(size, centre, Quat::IDENTITY, colour);
+            this.shape_in(size, centre, Quat::IDENTITY, colour, material);
         };
         let half = WALL_THICKNESS / 2.0;
         let (bottom, top) = face.y;
-        slab(self, 0.0, half, bottom, top, colours.wall);
+        slab(self, 0.0, half, bottom, top, colours.wall, wall);
         if foot == Some(bottom) && top - bottom > SKIRTING.x {
-            slab(self, half, SKIRTING.y, bottom, bottom + SKIRTING.x, colours.trim);
+            slab(self, half, SKIRTING.y, bottom, bottom + SKIRTING.x, colours.trim, None);
         }
         let storey_top = top > 0.0 && ((top / STOREY).round() * STOREY - top).abs() < 1e-3;
         if storey_top && top - bottom >= 0.6 {
-            slab(self, half, CORNICE.y, top - CORNICE.x, top, colours.trim);
+            slab(self, half, CORNICE.y, top - CORNICE.x, top, colours.trim, None);
         }
     }
 }

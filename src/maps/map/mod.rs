@@ -19,6 +19,7 @@ mod build;
 mod dam;
 mod greybox;
 mod quarry;
+pub mod textures;
 mod village;
 
 use build::{Builder, Gap};
@@ -266,6 +267,20 @@ const fn paints(floor: (f32, f32, f32), wall: (f32, f32, f32), trim: (f32, f32, 
         trim: Color::srgb(trim.0, trim.1, trim.2),
         light: Color::srgb(light.0, light.1, light.2),
     }
+}
+
+/// What a Zone's floor and walls wear in place of their palette colours, once the files have
+/// loaded. Trim stays in paint.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MaterialSet {
+    pub floor: textures::Material,
+    pub wall: textures::Material,
+}
+
+/// The material set of a Zone, or of the outside for `None`. No Zone has one yet: each Map's
+/// rollout step gives its Zones theirs.
+pub fn materials(_zone: Option<ZoneId>) -> Option<MaterialSet> {
+    None
 }
 
 /// The palette of a Zone, or of the outside for `None`.
