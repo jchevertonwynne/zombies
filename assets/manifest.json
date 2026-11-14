@@ -1,0 +1,12 @@
+{
+  "assets": [
+    {
+      "path": "audio",
+      "name": "Synthesised placeholder sounds",
+      "source": "tools/gen-sounds",
+      "licence": "CC0 (made in this repo)",
+      "fetched": "2026-11-14",
+      "notes": "Placeholders until the Audio lane replaces them; a more specific entry covers each real recording"
+    }
+  ]
+}

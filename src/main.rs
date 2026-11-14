@@ -12,6 +12,8 @@ mod maps;
 mod modifier;
 mod net;
 mod players;
+#[cfg(test)]
+mod provenance;
 mod run;
 mod state;
 mod storage;

@@ -1,0 +1,11 @@
+[package]
+name = "texpack"
+version = "0.1.0"
+edition = "2024"
+description = "Turns CC0 source texture maps into the KTX2 files the game loads"
+publish = false
+
+[dependencies]
+anyhow = "1"
+ctt = "0.5"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
