@@ -19,7 +19,8 @@ use crate::layers::GameLayer;
 use std::ops::Range;
 
 use crate::maps::map::{BOX_LOCATIONS, MapId};
-use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_points};
+use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_count, resolve_points};
+use crate::weapons::ammo_mod::{AmmoMods, ammo_mod_slots, pick_ammo_mod};
 use crate::weapons::pack_a_punch::PackAPunch;
 use crate::players::player::Player;
 use crate::economy::points::Points;
@@ -83,6 +84,20 @@ pub fn teddy_chance_for(chance: f64, player: &[Modifier]) -> f64 {
 /// the Player's stat entries give (none in Classic).
 pub fn comes_out_upgraded(prize: Prize, player: &[Modifier], roll: f64) -> bool {
     matches!(prize, Prize::Weapon(_)) && roll < f64::from(resolve(Stat::BoxUpgradeChance, 0.0, player))
+}
+
+/// The Ammo Mods an Upgraded Box Weapon comes out with: one for each `Stat::BoxAmmoModRolls`
+/// (none in Classic), each picked by `roll` in [0, 1) from those it lacks, up to the Ammo Mods it
+/// holds.
+pub fn box_ammo_mods(player: &[Modifier], mut roll: impl FnMut() -> f32) -> AmmoMods {
+    let count = (resolve_count(Stat::BoxAmmoModRolls, 0, player) as usize).min(ammo_mod_slots(player));
+    let mut held = AmmoMods::NONE;
+    for _ in 0..count {
+        if let Some(ammo_mod) = pick_ammo_mod(held, roll()) {
+            held = held.with(ammo_mod);
+        }
+    }
+    held
 }
 
 /// How a spin ends.
@@ -496,7 +511,11 @@ fn buy_boxes(
                     Prize::Weapon(id) => match loadout.slot_of(id) {
                         Some(slot) => loadout.refill(slot, &modifiers.0),
                         // Into the empty slot, or in place of the Weapon in hand.
-                        None if upgraded => loadout.give_copy(WeaponCopy::new(id).upgrade()),
+                        None if upgraded => {
+                            let mut copy = WeaponCopy::new(id).upgrade();
+                            copy.ammo_mods = box_ammo_mods(&modifiers.0, rand::random::<f32>);
+                            loadout.give_copy(copy);
+                        }
                         None => loadout.give(id),
                     },
                     Prize::MonkeyBomb => equipment.take_monkey_bombs(),
@@ -815,6 +834,17 @@ mod tests {
         assert_eq!(ray_gun.shown_name(true), "Porter's X2 Ray Gun");
         assert_eq!(ray_gun.shown_name(false), "Ray Gun");
         assert_eq!(Prize::MonkeyBomb.shown_name(true), "Monkey Bomb");
+    }
+
+    #[test]
+    fn an_ammo_mod_roll_entry_gives_an_upgraded_box_weapon_that_many_distinct_ammo_mods_up_to_its_slots() {
+        let rolls = |n: f32| {
+            [Modifier { stat: Stat::BoxAmmoModRolls, source: crate::modifier::Source("test"), effect: crate::modifier::Effect::Flat(n) }]
+        };
+        assert_eq!(box_ammo_mods(&rolls(1.0), || 0.0).len(), 1);
+        assert_eq!(box_ammo_mods(&rolls(2.0), || 0.0).len(), 2, "never the same one twice");
+        let slots = crate::weapons::ammo_mod::ammo_mod_slots(&[]);
+        assert_eq!(box_ammo_mods(&rolls(9.0), || 0.5).len(), slots, "no more than it holds");
     }
 
     #[test]

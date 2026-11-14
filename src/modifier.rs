@@ -123,6 +123,8 @@ pub enum Stat {
     FireRadius,
     /// How many times faster a burn's ticks come (base 1).
     BurnSpeed,
+    /// How many Ammo Mods an Upgraded Weapon from the Mystery Box comes out with (base 0).
+    BoxAmmoModRolls,
 }
 
 /// Where an entry comes from. Each Perk, Pack-a-Punch, Attachment and so on is its own source:
@@ -234,6 +236,8 @@ mod tests {
         assert_eq!(crate::weapons::weapon::knife_range(&[]), KNIFE_RANGE);
         assert_eq!(crate::weapons::ammo_mod::fire_radius(2.5, &[]), 2.5);
         assert_eq!(crate::weapons::burn::burn_speed(&[]), 1.0);
+        assert_eq!(resolve(Stat::BoxAmmoModRolls, 0.0, &[]), 0.0);
+        assert!(crate::weapons::mystery_box::box_ammo_mods(&[], || 0.0).is_empty());
     }
 
     #[test]
