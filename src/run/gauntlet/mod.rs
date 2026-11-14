@@ -15,6 +15,8 @@ mod screen;
 mod sets;
 #[cfg(test)]
 mod coop_tests;
+#[cfg(test)]
+mod sets_tests;
 
 use bevy::input::common_conditions::input_just_pressed;
 use bevy::prelude::*;
@@ -201,6 +203,8 @@ impl Plugin for GauntletPlugin {
             .init_resource::<OfferWait>()
             .add_message::<PickOffer>()
             .add_message::<procs::ProcFired>()
+            .add_message::<sets::SetTierReached>()
+            .init_resource::<sets::SetFlashes>()
             .init_resource::<procs::Thinning>()
             .init_resource::<procs::ProcFlashes>()
             .init_resource::<procs::Landing>()
@@ -241,7 +245,7 @@ impl Plugin for GauntletPlugin {
             .add_observer(armory::armory_click)
             .add_systems(
                 OnEnter(GameState::Playing),
-                (reset, screen::spawn_held_column).chain().run_if(gauntlet),
+                (reset, screen::spawn_held_column, sets::spawn_set_banner).chain().run_if(gauntlet),
             )
             .add_systems(
                 Update,
@@ -261,11 +265,19 @@ impl Plugin for GauntletPlugin {
                         (war_bonds, bounty, butchers_bill, lucky_strike),
                         (scorched_earth, overkill),
                         (procs::fire_procs, procs::land_lethals, procs::cast_procs, procs::thaw).chain(),
+                        (
+                            (sets::blade_4, sets::ember_4, sets::gold_4, sets::grit_4, sets::ricochet),
+                            (sets::cleave, sets::chill_patches).chain(),
+                            (sets::storm_aura, sets::scorched, sets::jackpot, sets::bodyguard),
+                        )
+                            .after(sets::reach_set_bonuses),
                     )
                         .in_set(HostSimulation),
-                    apply_entries,
-                    (record_picks, screen::refresh_held_column).run_if(picks_changed),
-                    (procs::draw_procs, screen::update_proc_bars),
+                    sets::reach_set_bonuses,
+                    (apply_entries, sets::lend_ammo_mods),
+                    (record_picks, screen::refresh_held_column).run_if(picks_changed).after(sets::reach_set_bonuses),
+                    (procs::draw_procs, screen::update_proc_bars, screen::update_jackpot_bar),
+                    (sets::show_set_banner, sets::draw_set_flashes, sets::draw_frost_patches),
                 )
                     .run_if(in_state(GameState::Playing))
                     .run_if(gauntlet),
@@ -329,6 +341,9 @@ fn give_gauntlet_state(
         PlayerUnlocks(unlocked),
         Bought::default(),
         procs::ProcCooldowns::default(),
+        sets::SetBonuses::default(),
+        sets::Jackpot::default(),
+        sets::Capstones::default(),
     ));
 }
 
@@ -339,6 +354,7 @@ fn reset(mut commands: Commands) {
     commands.insert_resource(procs::Thinning::default());
     commands.insert_resource(procs::ProcFlashes::default());
     commands.insert_resource(procs::Landing::default());
+    commands.insert_resource(sets::SetFlashes::default());
 }
 
 /// The Round ended: every Player's Offer is due after its delay, and the Intermission waits for
@@ -582,16 +598,19 @@ fn hold_intermission(
     }
 }
 
-/// Keeps the Player's Boon and Pact entries in step with the Boons and Pacts held. A Down takes
-/// only Perk entries, so these survive it, and a Pact's Drawback lasts the Run.
+/// Keeps the Player's Boon, Pact and Set Bonus entries in step with the Boons and Pacts held and
+/// the tiers reached. A Down takes only Perk entries, so these survive it, and a Pact's Drawback
+/// lasts the Run.
 fn apply_entries(
     pacts: Res<HeldPacts>,
-    mut players: Query<(&Seat, &HeldBoons, &mut Modifiers), With<Player>>,
+    mut players: Query<(&Seat, &HeldBoons, &sets::SetBonuses, &Loadout, &mut Modifiers), With<Player>>,
 ) {
-    let ours = |source| is_boon_source(source) || is_pact_source(source);
-    for (&seat, held, mut modifiers) in &mut players {
+    let ours = |source| is_boon_source(source) || is_pact_source(source) || sets::is_set_source(source);
+    for (&seat, held, set_bonuses, loadout, mut modifiers) in &mut players {
+        let low = sets::magazine_low(loadout.gun_ammo().0, loadout.magazine_size(&modifiers.0));
         let mut wanted = held.modifiers();
         wanted.extend(pacts.modifiers(seat));
+        wanted.extend(sets::set_entries(set_bonuses, low));
         let current: Vec<_> = modifiers
             .0
             .iter()

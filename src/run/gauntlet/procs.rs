@@ -396,7 +396,7 @@ pub struct Frosted {
 /// The source Frost's factor goes on a Zombie's `ZombieMoveFactor` under.
 const FROST: Source = Source("Frost");
 /// Frost's pale blue-white.
-const FROST_COLOUR: Color = Color::srgb(0.7, 0.9, 1.0);
+pub const FROST_COLOUR: Color = Color::srgb(0.7, 0.9, 1.0);
 /// A Blast's orange-white.
 const BLAST_COLOUR: Color = Color::srgb(1.0, 0.8, 0.55);
 
@@ -409,8 +409,33 @@ pub struct ProcFlashes(Vec<(Vec3, f32, Color, f32, bool)>);
 #[derive(Resource, Default)]
 pub struct Landing(Vec<(Entity, Vec3, ProcFired)>);
 
+/// Frost on one Zombie for at least `secs`: its move factor under Frost's source, and how long
+/// it lasts.
+pub fn frost(
+    commands: &mut Commands,
+    zombie: Entity,
+    factor: Option<Mut<ZombieMoveFactor>>,
+    frosted: Option<Mut<Frosted>>,
+    secs: f32,
+) {
+    match factor {
+        Some(mut factor) => factor.set(FROST, GAUNTLET_FROST_SPEED_FACTOR),
+        None => {
+            let mut factor = ZombieMoveFactor::default();
+            factor.set(FROST, GAUNTLET_FROST_SPEED_FACTOR);
+            commands.entity(zombie).insert(factor);
+        }
+    }
+    match frosted {
+        Some(mut frosted) => frosted.left = frosted.left.max(secs),
+        None => {
+            commands.entity(zombie).insert(Frosted { left: secs });
+        }
+    }
+}
+
 /// Where a Player's feet are.
-fn feet(player: &GlobalTransform) -> Vec3 {
+pub fn feet(player: &GlobalTransform) -> Vec3 {
     player.translation() - Vec3::Y * (PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0)
 }
 
@@ -591,20 +616,7 @@ pub fn cast_procs(
                     if at.translation().with_y(0.0).distance(proc.at.with_y(0.0)) > BOON_FROSTBITE_RADIUS_M {
                         continue;
                     }
-                    match factor {
-                        Some(mut factor) => factor.set(FROST, GAUNTLET_FROST_SPEED_FACTOR),
-                        None => {
-                            let mut factor = ZombieMoveFactor::default();
-                            factor.set(FROST, GAUNTLET_FROST_SPEED_FACTOR);
-                            commands.entity(zombie).insert(factor);
-                        }
-                    }
-                    match frosted {
-                        Some(mut frosted) => frosted.left = frosted.left.max(proc.size),
-                        None => {
-                            commands.entity(zombie).insert(Frosted { left: proc.size });
-                        }
-                    }
+                    frost(&mut commands, zombie, factor, frosted, proc.size);
                 }
                 if show {
                     flashes.0.push((proc.at, BOON_FROSTBITE_RADIUS_M, FROST_COLOUR, GAUNTLET_PROC_ACCENT_SECS * 2.0, false));

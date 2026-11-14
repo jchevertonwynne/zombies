@@ -24,6 +24,11 @@ use bevy::ecs::system::RunSystemOnce;
 
 /// Two Players in a Co-op Gauntlet Run in Round 3, with the Offer, Boon and Pact systems running.
 fn gauntlet_players() -> (Sim, Entity, Entity) {
+    gauntlet_players_with(|_| {})
+}
+
+/// `gauntlet_players`, with `extra` set up on the App as well.
+pub(super) fn gauntlet_players_with(extra: impl FnOnce(&mut App)) -> (Sim, Entity, Entity) {
     let (mut sim, local, teammate) = two_players_with(|app| {
         app.insert_resource(RunType::Coop)
             .insert_resource(Round::in_progress(3))
@@ -68,6 +73,7 @@ fn gauntlet_players() -> (Sim, Entity, Entity) {
                 )
                     .in_set(HostSimulation),
             );
+        extra(app);
     });
     let world = sim.world_mut();
     for player in [local, teammate] {
@@ -128,7 +134,7 @@ fn has_entry_from(sim: &mut Sim, player: Entity, pact: &'static PactDef, stat: S
         .any(|entry| entry.source == source && entry.stat == stat)
 }
 
-fn killed(by: Entity, pay: Pay, attack: Attack) -> ZombieKilled {
+pub(super) fn killed(by: Entity, pay: Pay, attack: Attack) -> ZombieKilled {
     ZombieKilled {
         player: Some(by),
         pay,
@@ -140,7 +146,7 @@ fn killed(by: Entity, pay: Pay, attack: Attack) -> ZombieKilled {
     }
 }
 
-fn give_stacks(sim: &mut Sim, player: Entity, id: &str, stacks: u32) {
+pub(super) fn give_stacks(sim: &mut Sim, player: Entity, id: &str, stacks: u32) {
     let boon = BOONS.iter().find(|boon| boon.id == id).unwrap();
     let mut held = sim.world_mut().get_mut::<HeldBoons>(player).unwrap();
     for _ in 0..stacks {

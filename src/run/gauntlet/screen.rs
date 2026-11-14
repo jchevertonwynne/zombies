@@ -6,9 +6,11 @@ use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
 use bevy::ui_widgets::Button;
 
-use super::boon::{BoonDef, HeldBoons, effect_line, requirement_line, stack_line};
+use super::boon::{BoonDef, Family, HeldBoons, effect_line, requirement_line, stack_line};
 use super::pact::{CRIMSON, HeldPact, HeldPacts, PactDef};
 use super::procs::ProcCooldowns;
+use super::sets::{Jackpot, SetBonuses, tier_tag};
+use crate::tuning::SET_BONUS_TIERS;
 use super::{Choices, Offer};
 use crate::players::player::LocalPlayer;
 use crate::ui::hud::{BOTTOM_LEFT_HEIGHT_PX, full_screen, text};
@@ -45,6 +47,10 @@ pub struct ProcRow {
 /// The fill of a held Proc Boon's cooldown bar, which refills over its cooldown.
 #[derive(Component)]
 pub struct ProcBarFill(&'static str);
+
+/// The fill of the Gold group's Jackpot bar, toward the next drop.
+#[derive(Component)]
+pub struct JackpotFill;
 
 /// A cooling Proc Boon's name is this much of its Rarity colour.
 const COOLING_DIM: f32 = 0.45;
@@ -142,7 +148,7 @@ fn spawn_cards(commands: &mut Commands, offer: &Offer, held: &HeldBoons, z: i32,
             .with_children(|row| match &offer.choices {
                 Choices::Boons(boons) => {
                     for (index, boon) in boons.iter().enumerate() {
-                        boon_card(row, index, boon, held.stacks(boon.id));
+                        boon_card(row, index, boon, held);
                     }
                 }
                 Choices::Pacts(pacts) => {
@@ -212,13 +218,31 @@ fn card(
     });
 }
 
-/// A Boon's card in its Rarity colour: NEW or its Stacks, and its effect now and after.
-fn boon_card(row: &mut ChildSpawnerCommands, index: usize, boon: &BoonDef, stacks: u32) {
+/// A Boon's card in its Rarity colour, with its Family's stripe and badge: NEW or its Stacks, the
+/// tier a pick would reach, and its effect now and after.
+fn boon_card(row: &mut ChildSpawnerCommands, index: usize, boon: &BoonDef, held: &HeldBoons) {
+    let stacks = held.stacks(boon.id);
     let accent = boon.rarity.colour();
+    let family = boon.family.colour();
     card(row, index, accent, boon.rarity.label(), |body| {
         let stack_colour = if stacks == 0 { NEW_GREEN } else { Color::WHITE };
+        // The Family stripe across the card, with its badge.
+        body.spawn((
+            Node {
+                padding: UiRect::axes(px(8.0), px(2.0)),
+                margin: UiRect::top(px(-4.0)),
+                border: UiRect::left(px(6.0)),
+                ..default()
+            },
+            BorderColor::all(family),
+            BackgroundColor(family.with_alpha(0.18)),
+        ))
+        .with_child(text(boon.family.name().to_uppercase(), 14.0, family));
         body.spawn(text(boon.name, 30.0, accent));
         body.spawn(text(stack_line(stacks), 16.0, stack_colour));
+        if let Some(tag) = tier_tag(held, boon) {
+            body.spawn(text(tag, 16.0, family));
+        }
         body.spawn(text("EFFECT", 14.0, GREY));
         body.spawn(text(effect_line(boon, stacks), 22.0, Color::WHITE));
         if let Some(requirement) = requirement_line(boon.requirements) {
@@ -296,16 +320,40 @@ pub fn spawn_held_column(mut commands: Commands) {
     ));
 }
 
-/// "Name Stacks" for each held Boon, in its Rarity colour and in pick order; then each held Pact
-/// in crimson, with its Drawback beneath.
+/// The Jackpot bar fills toward the next drop.
+pub fn update_jackpot_bar(player: Query<&Jackpot, With<LocalPlayer>>, mut fills: Query<&mut Node, With<JackpotFill>>) {
+    let Ok(jackpot) = player.single() else {
+        return;
+    };
+    for mut node in &mut fills {
+        let width = percent(jackpot.filled() * 100.0);
+        if node.width != width {
+            node.width = width;
+        }
+    }
+}
+
+/// A Family heading's pips toward its next tier: one filled per distinct held Boon, out of the
+/// next tier's count (or all filled once the last is reached).
+pub fn pips(distinct: u32) -> String {
+    let last = SET_BONUS_TIERS[SET_BONUS_TIERS.len() - 1];
+    let next = SET_BONUS_TIERS.iter().copied().find(|&tier| tier > distinct).unwrap_or(last.max(distinct));
+    let filled = distinct.min(next) as usize;
+    format!("{}{}", "●".repeat(filled), "○".repeat(next as usize - filled))
+}
+
+/// The held Boons grouped by Family, each group headed by its name and pips in its colour, then
+/// "Name Stacks" for each of its Boons in their Rarity colours, in pick order; the Gold group gets
+/// the Jackpot bar once Gold 6 is reached. Then each held Pact in crimson, with its Drawback
+/// beneath.
 pub fn refresh_held_column(
     mut commands: Commands,
-    held: Query<&HeldBoons, With<LocalPlayer>>,
+    held: Query<(&HeldBoons, Option<&SetBonuses>), With<LocalPlayer>>,
     pacts: Res<HeldPacts>,
     round: Option<Res<Round>>,
     column: Query<Entity, With<HeldColumn>>,
 ) {
-    let Ok(held) = held.single() else {
+    let Ok((held, sets)) = held.single() else {
         return;
     };
     for column in &column {
@@ -313,41 +361,29 @@ pub fn refresh_held_column(
             .entity(column)
             .despawn_children()
             .with_children(|column| {
-                for &(boon, stacks) in &held.0 {
-                    let colour = boon.rarity.colour();
-                    let name = text(format!("{} {stacks}", boon.name), 18.0, colour);
-                    if boon.proc.is_none() {
-                        column.spawn(name);
+                for family in Family::ALL {
+                    let count = held.in_family(family);
+                    if count == 0 {
                         continue;
                     }
-                    // A Proc Boon gets a thin bar under its name that refills over its cooldown.
-                    column
-                        .spawn(Node {
-                            flex_direction: FlexDirection::Column,
-                            row_gap: px(1.0),
-                            ..default()
-                        })
-                        .with_children(|entry| {
-                            entry.spawn((name, ProcRow { id: boon.id, colour }));
-                            entry
-                                .spawn((
-                                    Node {
-                                        width: px(BAR_WIDTH_PX),
-                                        height: px(3.0),
-                                        ..default()
-                                    },
-                                    BackgroundColor(BAR_TRACK),
-                                ))
-                                .with_child((
-                                    ProcBarFill(boon.id),
-                                    Node {
-                                        width: percent(100.0),
-                                        height: percent(100.0),
-                                        ..default()
-                                    },
-                                    BackgroundColor(colour),
-                                ));
-                        });
+                    let colour = family.colour();
+                    column.spawn((
+                        text(format!("{} {}", family.name(), pips(count)), 16.0, colour),
+                        Node { margin: UiRect::top(px(4.0)), ..default() },
+                    ));
+                    if family == Family::Gold && sets.is_some_and(|sets| sets.has(Family::Gold, 6)) {
+                        column
+                            .spawn((
+                                Node { width: px(BAR_WIDTH_PX), height: px(3.0), ..default() },
+                                BackgroundColor(BAR_TRACK),
+                            ))
+                            .with_child((
+                                JackpotFill,
+                                Node { width: percent(0.0), height: percent(100.0), ..default() },
+                                BackgroundColor(colour),
+                            ));
+                    }
+                    held_rows(column, held, family);
                 }
                 let round = round.as_ref().map_or(1, |round| round.number);
                 for &HeldPact { pact, .. } in &pacts.0 {
@@ -364,5 +400,59 @@ pub fn refresh_held_column(
                         });
                 }
             });
+    }
+}
+
+/// One Family's held Boons in the Held column, in pick order; a Proc Boon gets its cooldown bar.
+fn held_rows(column: &mut ChildSpawnerCommands, held: &HeldBoons, family: Family) {
+    for &(boon, stacks) in held.0.iter().filter(|(boon, _)| boon.family == family) {
+        let colour = boon.rarity.colour();
+        let name = text(format!("{} {stacks}", boon.name), 18.0, colour);
+        if boon.proc.is_none() {
+            column.spawn(name);
+            continue;
+        }
+        // A Proc Boon gets a thin bar under its name that refills over its cooldown.
+        column
+            .spawn(Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: px(1.0),
+                ..default()
+            })
+            .with_children(|entry| {
+                entry.spawn((name, ProcRow { id: boon.id, colour }));
+                entry
+                    .spawn((
+                        Node {
+                            width: px(BAR_WIDTH_PX),
+                            height: px(3.0),
+                            ..default()
+                        },
+                        BackgroundColor(BAR_TRACK),
+                    ))
+                    .with_child((
+                        ProcBarFill(boon.id),
+                        Node {
+                            width: percent(100.0),
+                            height: percent(100.0),
+                            ..default()
+                        },
+                        BackgroundColor(colour),
+                    ));
+            });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_familys_pips_count_toward_its_next_tier() {
+        assert_eq!(pips(1), "●○");
+        assert_eq!(pips(3), "●●●○");
+        assert_eq!(pips(4), "●●●●○○");
+        assert_eq!(pips(6), "●●●●●●");
+        assert_eq!(pips(8), "●●●●●●●●", "past the last tier, every one shows");
     }
 }
