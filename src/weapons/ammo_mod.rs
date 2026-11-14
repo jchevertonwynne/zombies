@@ -223,7 +223,6 @@ pub struct Struck {
 /// The held Ammo Mods that trigger on one damage event. Each ready one rolls on its own, taking
 /// one number in [0, 1) from `roll`, so two can trigger on the same hit. Every trigger but
 /// Turned's kills the shot Zombie, so Turned rolls last and never on a hit another one kills.
-#[allow(dead_code, reason = "the Ammo Mod rules without a Turned ally cap, as tests state them")]
 pub fn triggers(held: AmmoMods, cooldowns: &Cooldowns, struck: Struck, roll: impl FnMut() -> f32) -> Vec<AmmoMod> {
     triggers_within(held, cooldowns, struck, true, roll)
 }
@@ -387,7 +386,6 @@ pub enum Element {
 /// Where a `CastEffect` lands.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CastTarget {
-    #[allow(dead_code, reason = "for Effects aimed at a Zombie, such as later Set Bonuses and Duos")]
     Zombie(Entity),
     Point(Vec3),
 }
