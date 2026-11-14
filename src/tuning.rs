@@ -1481,6 +1481,8 @@ pub const SAPPER_KILL_BONUS: u64 = 500;
 pub const SAPPER_THUNDERGUN_STUN_SECS: f32 = 1.5;
 /// An Ammo Mod proc that would kill it deals this share of its max health instead.
 pub const SAPPER_AMMO_MOD_HEALTH_FRACTION: f32 = 0.05;
+/// A Knife kill roll (none in Classic) deals this share of its max health instead of killing it.
+pub const SAPPER_KNIFE_KILL_HEALTH_FRACTION: f32 = 0.02;
 /// Dead Wire stuns it for this long as well.
 pub const SAPPER_DEAD_WIRE_STUN_SECS: f32 = 1.0;
 /// Stuck this long without progress toward its goal, it's moved to the path node nearest its

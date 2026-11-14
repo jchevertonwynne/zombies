@@ -19,7 +19,7 @@ use crate::weapons::ammo_mod::fire_radius;
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
 use crate::economy::power_up::PowerUpTaken;
-use crate::enemies::zombie::{
+use crate::enemies::zombie::{Heavyweight, 
     Attack, DamageZombie, Dying, HitZone, Pay, Zombie, ZombieKilled, ZombieMoveFactor,
 };
 use crate::modifier::Source;
@@ -556,7 +556,7 @@ pub fn cast_procs(
     mut commands: Commands,
     mut fired: MessageReader<ProcFired>,
     mut zombies: Query<
-        (Entity, &GlobalTransform, &Zombie, Option<&mut ZombieMoveFactor>, Option<&mut Frosted>),
+        (Entity, &GlobalTransform, &Zombie, Option<&mut ZombieMoveFactor>, Option<&mut Frosted>, Has<Heavyweight>),
         Without<Dying>,
     >,
     players: Query<(&GlobalTransform, &HeldBoons, &Modifiers), With<Player>>,
@@ -630,11 +630,11 @@ pub fn cast_procs(
                 }
             }
             // Repel Boarders: the Zombies Elbow Room would fling are thrown back outside instead,
-            // hurt but alive. Never the Sapper.
+            // hurt but alive. Never a Heavyweight.
             ProcEffect::Knockback if holds(REPEL_BOARDERS) => {
                 let mut near: Vec<_> = zombies
                     .iter()
-                    .filter(|(_, _, body, ..)| !body.is_sapper())
+                    .filter(|(.., heavyweight)| !heavyweight)
                     .map(|(zombie, at, body, ..)| (zombie, at.translation().distance(centre), body.max_health()))
                     .filter(|&(_, distance, _)| distance <= BOON_ELBOW_ROOM_RADIUS_M)
                     .collect();
@@ -703,7 +703,7 @@ pub fn cast_procs(
                 }
             }
             ProcEffect::Frost => {
-                for (zombie, at, _, factor, frosted) in &mut zombies {
+                for (zombie, at, _, factor, frosted, _) in &mut zombies {
                     if at.translation().with_y(0.0).distance(proc.at.with_y(0.0)) > BOON_FROSTBITE_RADIUS_M {
                         continue;
                     }

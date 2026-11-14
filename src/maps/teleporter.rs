@@ -26,7 +26,7 @@ use crate::run::round::Round;
 use crate::storage::settings::Settings;
 use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
-use crate::enemies::zombie::{Attack, DamageZombie, Dying, HitZone, Zombie};
+use crate::enemies::zombie::{Attack, DamageZombie, Dying, Heavyweight, HitZone, Zombie};
 use crate::maps::map::MapId;
 use crate::maps::zone::{PlayerZone, ZoneId};
 
@@ -470,10 +470,6 @@ pub(crate) fn begin_aftereffect(
     aftermath.aftereffect = Some((effect, TELEPORTER_AFTEREFFECT_SECS));
 }
 
-/// A Zombie the Teleporter's kills spare: the Sapper.
-#[derive(Component)]
-pub struct ResistsTeleporter;
-
 /// A Pad, the Buyable that activates it and then starts trips. `shown` is the Prompt it has now.
 #[derive(Component)]
 pub(crate) struct Pad {
@@ -714,7 +710,7 @@ fn run_trips(
         (
             With<Zombie>,
             Without<Dying>,
-            Without<ResistsTeleporter>,
+            Without<Heavyweight>,
             Without<Player>,
         ),
     >,

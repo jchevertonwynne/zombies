@@ -27,7 +27,8 @@ use crate::players::player::{Player, PlayerCamera};
 use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 use crate::enemies::zombie::{
-    Attack, DamageZombie, Dying, HitArea, HitZone, Lured, Pay, Rising, StunZombie, Zombie, ZombieKilled, apply_damage,
+    Attack, DamageZombie, Dying, Heavyweight, HitArea, HitZone, Lured, Pay, Rising, StunZombie, Zombie, ZombieKilled,
+    apply_damage,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -631,7 +632,7 @@ fn roll_ammo_mods(
     mut delayed: ResMut<DelayedHits>,
     mut flashes: ResMut<Flashes>,
     // A hound still in its lightning strike can't be hurt, so no Ammo Mod touches it.
-    zombies: Query<(Entity, &Zombie, &Transform, &Children, Has<Dying>, Has<Rising>), Without<Telegraph>>,
+    zombies: Query<(Entity, &Zombie, &Transform, &Children, Has<Dying>, Has<Rising>, Has<Heavyweight>), Without<Telegraph>>,
     hit_areas: Query<(), With<HitArea>>,
     mut players: Query<(&Modifiers, &mut Cooldowns), With<Player>>,
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
@@ -654,7 +655,7 @@ fn roll_ammo_mods(
         let Ok((modifiers, mut cooldowns)) = players.get_mut(hit.player) else {
             continue;
         };
-        let Ok((shot, zombie, transform, children, dying, rising)) = zombies.get(hit.zombie) else {
+        let Ok((shot, zombie, transform, children, dying, rising, heavyweight)) = zombies.get(hit.zombie) else {
             continue;
         };
         if spent.contains(&shot) {
@@ -672,13 +673,13 @@ fn roll_ammo_mods(
         // Every other living Zombie, with where it stands.
         let (others, positions): (Vec<Entity>, Vec<Vec3>) = zombies
             .iter()
-            .filter(|(entity, _, _, _, dying, _)| *entity != shot && !dying && !spent.contains(entity))
+            .filter(|(entity, _, _, _, dying, ..)| *entity != shot && !dying && !spent.contains(entity))
             .map(|(entity, _, transform, ..)| (entity, transform.translation))
             .unzip();
         for ammo_mod in fired {
-            // Turned does nothing to a Napalm, a Shrieker or the Sapper. Every other proc only
-            // hurts the Sapper (see `sapper_damage`).
-            if ammo_mod == AmmoMod::Turned && zombie.special_kind().is_some() {
+            // Turned does nothing to a Napalm, a Shrieker, the Sapper or any Heavyweight. Every
+            // other proc only hurts a Heavyweight (see `heavyweight_damage`).
+            if ammo_mod == AmmoMod::Turned && (zombie.special_kind().is_some() || heavyweight) {
                 continue;
             }
             cooldowns.start(ammo_mod, resolve(Stat::AmmoModCooldown, ammo_mod.cooldown_secs(), &modifiers.0));
@@ -703,7 +704,7 @@ fn roll_ammo_mods(
                 }
                 AmmoMod::DeadWire => {
                     kill(&mut damage, Some(hit.player), shot, Pay::Paid);
-                    if zombie.is_sapper() {
+                    if heavyweight {
                         stuns.write(StunZombie {
                             zombie: shot,
                             secs: SAPPER_DEAD_WIRE_STUN_SECS,
@@ -750,13 +751,13 @@ fn roll_ammo_mods(
                     kill(&mut damage, Some(hit.player), shot, Pay::Paid);
                     let forward = camera.forward().with_y(0.0).normalize_or_zero();
                     let targets = thunder_wall_targets(at, forward, &positions);
-                    // The Sapper survives it, so it stays on its feet.
-                    if !zombie.is_sapper() {
+                    // A Heavyweight survives it, so it stays on its feet.
+                    if !heavyweight {
                         commands.entity(shot).insert(Flung::away(at - forward, at, THUNDER_WALL_FLING_SPEED, THUNDER_WALL_FLING_LIFT));
                     }
                     for i in targets {
                         kill(&mut damage, Some(hit.player), others[i], Pay::Paid);
-                        if !zombies.get(others[i]).is_ok_and(|(_, other, ..)| other.is_sapper()) {
+                        if !zombies.get(others[i]).is_ok_and(|(.., heavyweight)| heavyweight) {
                             commands.entity(others[i]).insert(Flung::away(at, positions[i], THUNDER_WALL_FLING_SPEED, THUNDER_WALL_FLING_LIFT));
                         }
                         spent.push(others[i]);
@@ -765,7 +766,7 @@ fn roll_ammo_mods(
                 }
                 AmmoMod::Turned => {
                     allies += 1;
-                    let special = |zombie| zombies.get(zombie).is_ok_and(|(_, other, ..)| other.special_kind().is_some());
+                    let special = |zombie| zombies.get(zombie).is_ok_and(|(_, other, .., heavyweight)| other.special_kind().is_some() || heavyweight);
                     let turn = Turn {
                         player: hit.player,
                         zombie: shot,
@@ -866,7 +867,7 @@ fn cast_effects(
     mut casts: MessageReader<CastEffect>,
     mut delayed: ResMut<DelayedHits>,
     mut flashes: ResMut<Flashes>,
-    zombies: Query<(Entity, &Zombie, &Transform, &Children, Has<Dying>, Has<Rising>), Without<Telegraph>>,
+    zombies: Query<(Entity, &Zombie, &Transform, &Children, Has<Dying>, Has<Rising>, Has<Heavyweight>), Without<Telegraph>>,
     hit_areas: Query<(), With<HitArea>>,
     spatial: SpatialQuery,
     assets: Res<AmmoModAssets>,
@@ -885,7 +886,7 @@ fn cast_effects(
             CastTarget::Zombie(zombie) => zombies
                 .get(zombie)
                 .ok()
-                .filter(|(_, _, _, _, dying, _)| !dying && !spent.contains(&zombie))
+                .filter(|(_, _, _, _, dying, ..)| !dying && !spent.contains(&zombie))
                 .map(|(entity, _, transform, ..)| (Some(entity), transform.translation)),
             CastTarget::Point(at) => Some((None, at)),
         };
@@ -895,7 +896,7 @@ fn cast_effects(
         // Every other living Zombie, with where it stands.
         let (others, positions): (Vec<Entity>, Vec<Vec3>) = zombies
             .iter()
-            .filter(|(entity, _, _, _, dying, _)| Some(*entity) != struck && !dying && !spent.contains(entity))
+            .filter(|(entity, _, _, _, dying, ..)| Some(*entity) != struck && !dying && !spent.contains(entity))
             .map(|(entity, _, transform, ..)| (entity, transform.translation))
             .unzip();
         let player = cast.player;
@@ -973,7 +974,7 @@ fn cast_effects(
                 for i in closest_within(at, &positions, reach, count, |_| true) {
                     kill(&mut damage, Some(player), others[i], cast.pay);
                     // The Sapper survives it, so it stays on its feet.
-                    if !zombies.get(others[i]).is_ok_and(|(_, other, ..)| other.is_sapper()) {
+                    if !zombies.get(others[i]).is_ok_and(|(.., heavyweight)| heavyweight) {
                         commands
                             .entity(others[i])
                             .insert(Flung::away(at, positions[i], THUNDER_WALL_FLING_SPEED, THUNDER_WALL_FLING_LIFT));
@@ -1019,16 +1020,16 @@ fn cast_effects(
                     Some(zombie) => zombies.get(zombie).ok(),
                     None => zombies
                         .iter()
-                        .filter(|(entity, _, _, _, dying, rising)| !dying && !rising && !spent.contains(entity))
-                        .filter(|(_, zombie, ..)| zombie.special_kind().is_none())
+                        .filter(|(entity, _, _, _, dying, rising, _)| !dying && !rising && !spent.contains(entity))
+                        .filter(|(_, zombie, .., heavyweight)| zombie.special_kind().is_none() && !heavyweight)
                         .min_by(|a, b| a.2.translation.distance(at).total_cmp(&b.2.translation.distance(at))),
                 };
-                let Some((zombie, body, transform, children, _, rising)) = turned else {
+                let Some((zombie, body, transform, children, _, rising, heavyweight)) = turned else {
                     continue;
                 };
-                // Turned does nothing to a Napalm, a Shrieker or the Sapper, nor to a Zombie still
-                // climbing out.
-                if body.special_kind().is_some() || rising {
+                // Turned does nothing to a Napalm, a Shrieker, the Sapper or any Heavyweight, nor
+                // to a Zombie still climbing out.
+                if body.special_kind().is_some() || heavyweight || rising {
                     continue;
                 }
                 if !cast.unbounded {
@@ -1037,10 +1038,10 @@ fn cast_effects(
                 let at = transform.translation;
                 let (others, positions): (Vec<Entity>, Vec<Vec3>) = zombies
                     .iter()
-                    .filter(|(entity, _, _, _, dying, _)| *entity != zombie && !dying && !spent.contains(entity))
+                    .filter(|(entity, _, _, _, dying, ..)| *entity != zombie && !dying && !spent.contains(entity))
                     .map(|(entity, _, transform, ..)| (entity, transform.translation))
                     .unzip();
-                let special = |zombie| zombies.get(zombie).is_ok_and(|(_, other, ..)| other.special_kind().is_some());
+                let special = |zombie| zombies.get(zombie).is_ok_and(|(_, other, .., heavyweight)| other.special_kind().is_some() || heavyweight);
                 let turn = Turn {
                     player,
                     zombie,
@@ -1104,7 +1105,7 @@ fn draw_pools(pools: Query<&FirePool>, mut gizmos: Gizmos) {
 /// The Sapper is stunned instead of killed.
 fn run_delayed_hits(
     mut delayed: ResMut<DelayedHits>,
-    zombies: Query<&Zombie, Without<Dying>>,
+    zombies: Query<(&Zombie, Has<Heavyweight>), Without<Dying>>,
     mut damage: MessageWriter<DamageZombie>,
     mut stuns: MessageWriter<StunZombie>,
     time: Res<Time>,
@@ -1115,8 +1116,8 @@ fn run_delayed_hits(
         if *left > 0.0 {
             return true;
         }
-        if let Ok(target) = zombies.get(*zombie) {
-            if target.is_sapper() {
+        if let Ok((target, heavyweight)) = zombies.get(*zombie) {
+            if heavyweight {
                 stuns.write(StunZombie {
                     zombie: *zombie,
                     secs: SAPPER_DEAD_WIRE_STUN_SECS,

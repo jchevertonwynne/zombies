@@ -22,7 +22,7 @@ use crate::enemies::nav::zone_at;
 use crate::players::player::{LocalPlayer, Player, SpawnPlayers};
 use crate::economy::points::{Points, PointsAwarded};
 use crate::run::round::RoundStarted;
-use crate::enemies::sapper::Sapper;
+use crate::enemies::zombie::Heavyweight;
 use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 use crate::weapons::weapon::Loadout;
@@ -544,8 +544,8 @@ pub(crate) fn pick_up(
     drops: Query<(Entity, &Dropped)>,
     mut given: MessageReader<GivePowerUp>,
     mut players: Query<(Entity, &Transform, &mut Loadout, &mut Equipment, &mut Points, &Modifiers, Has<LastStand>), With<Player>>,
-    // The Sapper survives the Nuke.
-    zombies: Query<Entity, (With<Zombie>, Without<Dying>, Without<Nuked>, Without<Sapper>)>,
+    // A Heavyweight (the Sapper) survives the Nuke.
+    zombies: Query<Entity, (With<Zombie>, Without<Dying>, Without<Nuked>, Without<Heavyweight>)>,
     mut active: ResMut<ActivePowerUps>,
     mut barriers: ResMut<Barriers>,
     mut awarded: MessageWriter<PointsAwarded>,

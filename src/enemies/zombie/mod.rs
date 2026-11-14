@@ -119,15 +119,47 @@ pub fn doubled_damage(damage: f32, insta_kill: bool) -> f32 {
     if insta_kill { damage * 2.0 } else { damage }
 }
 
-/// The damage a hit really does to the Sapper, with `max_health`. Insta-Kill only doubles it. An
-/// Ammo Mod proc, which would kill anything else, deals `SAPPER_AMMO_MOD_HEALTH_FRACTION` of its
-/// max health instead, and so does another Special's one-blow kill (a Napalm's blast, a death
-/// scream, a Nova Crawler's burst).
-pub fn sapper_damage(damage: f32, attack: Attack, max_health: f32, insta_kill: bool) -> f32 {
-    let instant = matches!(attack, Attack::AmmoMod(_))
-        || (matches!(attack, Attack::Napalm | Attack::Scream | Attack::NovaBlast) && !damage.is_finite());
-    let damage = if instant { max_health * SAPPER_AMMO_MOD_HEALTH_FRACTION } else { damage };
+/// A Zombie too big for the one-blow kills and crowd effects that end any other: the Sapper,
+/// and anything layered on Classic that asks for one (ADR 0007). A Trap takes `trap_share` of its
+/// max health once per entry instead of killing it; an Ammo Mod proc, or any other always-kill,
+/// takes `ammo_mod_share`; a Knife kill roll takes `knife_kill_share`. The Nuke, Monkey Bombs and
+/// the Teleporter pass it by, and it keeps its feet where another would be knocked down or flung.
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct Heavyweight {
+    pub trap_share: f32,
+    pub ammo_mod_share: f32,
+    pub knife_kill_share: f32,
+}
+
+impl Heavyweight {
+    /// The Sapper's shares.
+    pub const SAPPER: Self = Self {
+        trap_share: TRAP_SAPPER_HEALTH_FRACTION,
+        ammo_mod_share: SAPPER_AMMO_MOD_HEALTH_FRACTION,
+        knife_kill_share: SAPPER_KNIFE_KILL_HEALTH_FRACTION,
+    };
+}
+
+/// The damage a hit really does to a `Heavyweight` with `max_health`. Insta-Kill only doubles it.
+/// An Ammo Mod proc, which would kill anything else, deals its `ammo_mod_share` of max health
+/// instead, and so does any other one-blow kill (a Napalm's blast, a death scream, a Nova
+/// Crawler's burst, a Blast); a Knife kill roll deals its `knife_kill_share`.
+pub fn heavyweight_damage(damage: f32, attack: Attack, max_health: f32, insta_kill: bool, shares: &Heavyweight) -> f32 {
+    let damage = if attack == Attack::Knife && !damage.is_finite() {
+        max_health * shares.knife_kill_share
+    } else if matches!(attack, Attack::AmmoMod(_)) || !damage.is_finite() {
+        max_health * shares.ammo_mod_share
+    } else {
+        damage
+    };
     doubled_damage(damage, insta_kill)
+}
+
+/// The damage a hit really does to the Sapper, with `max_health`: `heavyweight_damage` at its
+/// shares.
+#[cfg(test)]
+pub fn sapper_damage(damage: f32, attack: Attack, max_health: f32, insta_kill: bool) -> f32 {
+    heavyweight_damage(damage, attack, max_health, insta_kill, &Heavyweight::SAPPER)
 }
 
 /// Request to damage a Zombie, written by the Player's attacks.
@@ -1348,21 +1380,21 @@ fn swing_cue(zombie: &Zombie) -> Cue {
 }
 
 /// A knock-down drops any swing in progress. A Riser still climbing out, or a hound still in its
-/// lightning, can't be knocked down. The Sapper keeps its feet: the Thundergun stuns it instead.
+/// lightning, can't be knocked down. A Heavyweight keeps its feet: the Thundergun stuns it instead.
 fn knock_down(
     mut commands: Commands,
     mut requests: MessageReader<KnockDown>,
     mut zombies: Query<
-        (&mut Zombie, &Transform),
+        (&mut Zombie, &Transform, Has<Heavyweight>),
         (Without<Dying>, Without<Rising>, Without<KnockedDown>, Without<Telegraph>),
     >,
     mut stuns: MessageWriter<StunZombie>,
 ) {
     for request in requests.read() {
-        let Ok((mut zombie, transform)) = zombies.get_mut(request.zombie) else {
+        let Ok((mut zombie, transform, heavyweight)) = zombies.get_mut(request.zombie) else {
             continue;
         };
-        if zombie.is_sapper() {
+        if heavyweight {
             stuns.write(StunZombie {
                 zombie: request.zombie,
                 secs: SAPPER_THUNDERGUN_STUN_SECS,
@@ -1513,14 +1545,14 @@ pub fn make_puppet_crawler(commands: &mut Commands, assets: &ZombieAssetsParam, 
     give_crawler_body(commands, &assets.0, entity);
 }
 
-/// A hound in its lightning strike can't be hurt. Insta-Kill only doubles a Napalm's or the
-/// Sapper's damage, and the Sapper shrugs off one-blow kills (see `sapper_damage`). A Nova
+/// A hound in its lightning strike can't be hurt. Insta-Kill only doubles a Napalm's or a
+/// `Heavyweight`'s damage, and a `Heavyweight` shrugs off one-blow kills (see `heavyweight_damage`). A Nova
 /// Crawler's death is also told to the Nova module, which decides whether it bursts.
 pub fn apply_damage(
     mut commands: Commands,
     mut requests: MessageReader<DamageZombie>,
     mut zombies: Query<
-        (&mut Zombie, &Children, &Transform, Option<&Rising>, Has<Surge>, Option<&DamageTakenFactor>),
+        (&mut Zombie, &Children, &Transform, Option<&Rising>, Has<Surge>, Option<&DamageTakenFactor>, Option<&Heavyweight>),
         (Without<Dying>, Without<Telegraph>),
     >,
     hit_areas: Query<(), With<HitArea>>,
@@ -1532,7 +1564,7 @@ pub fn apply_damage(
 ) {
     let insta_kill = power_ups.active(PowerUp::InstaKill);
     for request in requests.read() {
-        let Ok((mut zombie, children, transform, rising, surge, factor)) = zombies.get_mut(request.zombie) else {
+        let Ok((mut zombie, children, transform, rising, surge, factor, heavyweight)) = zombies.get_mut(request.zombie) else {
             continue;
         };
         // Several hits can land in one frame; only the first lethal one counts.
@@ -1541,8 +1573,8 @@ pub fn apply_damage(
         }
         let damage = taken_damage(request.damage, request.zone, factor);
         let overflow = overflow_damage(zombie.health, damage);
-        zombie.health -= if zombie.is_sapper() {
-            sapper_damage(damage, request.attack, zombie.max_health, insta_kill)
+        zombie.health -= if let Some(shares) = heavyweight {
+            heavyweight_damage(damage, request.attack, zombie.max_health, insta_kill, shares)
         } else if zombie.special == Some(SpecialKind::Napalm) {
             doubled_damage(damage, insta_kill)
         } else {
@@ -1892,6 +1924,22 @@ mod tests {
         assert_eq!(sapper_damage(f32::INFINITY, Attack::AmmoMod(Pay::Paid), 8000.0, false), 400.0);
         assert_eq!(sapper_damage(f32::INFINITY, Attack::Napalm, 8000.0, false), 400.0);
         assert_eq!(sapper_damage(40.0, Attack::Napalm, 8000.0, false), 40.0, "fire ticks hurt as usual");
+    }
+
+    /// Any Heavyweight takes its own shares: an always-kill (a Blast, a Nuke-like kill) its Ammo
+    /// Mod share, a Knife kill roll its Knife share, and plain damage as dealt, however big.
+    #[test]
+    fn a_heavyweight_takes_its_share_from_each_always_kill() {
+        let boss = Heavyweight { trap_share: 0.2, ammo_mod_share: 0.05, knife_kill_share: 0.02 };
+        let max = 10_000.0;
+        assert_eq!(heavyweight_damage(f32::INFINITY, Attack::AmmoMod(Pay::Unpaid), max, false, &boss), 500.0);
+        assert_eq!(heavyweight_damage(f32::INFINITY, Attack::Bullet, max, false, &boss), 500.0, "an always-kill Bullet");
+        assert_eq!(heavyweight_damage(f32::INFINITY, Attack::Knife, max, false, &boss), 200.0, "a Knife kill roll");
+        assert_eq!(heavyweight_damage(f32::INFINITY, Attack::Knife, max, true, &boss), 400.0, "Insta-Kill doubles it");
+        assert_eq!(heavyweight_damage(3_000.0, Attack::Bullet, max, false, &boss), 3_000.0, "plain damage stays uncapped");
+        assert_eq!(heavyweight_damage(75.0, Attack::Knife, max, false, &boss), 75.0, "a plain Knife hit");
+        assert_eq!(Heavyweight::SAPPER.trap_share, TRAP_SAPPER_HEALTH_FRACTION);
+        assert_eq!(Heavyweight::SAPPER.ammo_mod_share, SAPPER_AMMO_MOD_HEALTH_FRACTION);
     }
 
     #[test]
