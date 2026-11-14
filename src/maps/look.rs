@@ -244,7 +244,7 @@ mod tests {
         assert_eq!(NIGHT.ambient(true), 0.0);
         assert_eq!(DUSK.ambient(false), DUSK.ambient_brightness);
         assert_eq!(MapId::Greybox.layout().look, DUSK);
-        for map in [MapId::Quarry, MapId::Village, MapId::Dam] {
+        for map in [MapId::Quarry, MapId::Village, MapId::Dam, MapId::Cove] {
             assert_eq!(map.layout().look, NIGHT, "{map:?} keeps the night until its own rollout step");
         }
     }

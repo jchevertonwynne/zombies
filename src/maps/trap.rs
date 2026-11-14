@@ -17,7 +17,7 @@ use crate::enemies::target::half_height_above_feet;
 use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 use crate::enemies::zombie::{Attack, DamageZombie, Dying, Heavyweight, HitZone, Rising, Zombie};
-use crate::maps::map::{DAM_X, MapId, QUARRY_X, STOREY, VILLAGE_X};
+use crate::maps::map::{COVE_X, DAM_X, MapId, QUARRY_X, STOREY, VILLAGE_X};
 use crate::maps::zone::ZoneId;
 
 /// A Map's Traps: the Door whose doorway each spans, the doorway's centre on its floor (x, y, z),
@@ -57,6 +57,17 @@ pub(crate) fn traps(map: MapId) -> &'static [((ZoneId, ZoneId), Vec3, f32)] {
                 ((ZoneId::GateShaft, ZoneId::IntakeGallery), Vec3::new(D - 41.0, STOREY, 2.0), D - 38.8),
                 ((ZoneId::SpillwayGallery, ZoneId::SpillwayStair), Vec3::new(D + 41.0, STOREY, -32.0), D + 38.8),
                 ((ZoneId::TurbineHall, ZoneId::DrainageGallery), Vec3::new(D, 0.0, -56.0), D + 2.2),
+            ];
+            &SPOTS
+        }
+        // The foot of the Chapel Stair, the Long Stair and the Cliff Stair: each Door has a landing
+        // before its stairs begin, where the switches are.
+        MapId::Cove => {
+            const C: f32 = COVE_X;
+            const SPOTS: [((ZoneId, ZoneId), Vec3, f32); 3] = [
+                ((ZoneId::Washhouse, ZoneId::Chapel), Vec3::new(C - 50.0, STOREY, 24.0), C - 47.8),
+                ((ZoneId::FishMarket, ZoneId::Piazza), Vec3::new(C - 12.0, STOREY, 24.0), C - 9.8),
+                ((ZoneId::UpperLane, ZoneId::Battery), Vec3::new(C + 12.0, 2.0 * STOREY, 44.0), C + 14.2),
             ];
             &SPOTS
         }

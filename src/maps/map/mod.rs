@@ -17,6 +17,7 @@ use crate::weapons::wall_weapon::{WallWeapon, priced_for, wall_price};
 use crate::maps::zone::ZoneId;
 
 mod build;
+mod cove;
 pub mod decals;
 mod dam;
 mod greybox;
@@ -32,6 +33,7 @@ pub use greybox::PLAYER_START;
 pub use quarry::QUARRY_X;
 pub use village::VILLAGE_X;
 pub use dam::DAM_X;
+pub use cove::COVE_X;
 
 use crate::maps::darkness::{Chalk, Lamp};
 use crate::maps::generator::{Generator, SectionId};
@@ -61,10 +63,13 @@ pub enum MapId {
     /// A dam in the dark: a road along its crest, galleries inside it and a turbine hall at its
     /// foot, Pack-a-Punch in the Control Room in its middle.
     Dam,
+    /// A cliffside town on four levels, climbed by stairs from the beach to a clifftop
+    /// lighthouse, the Power at the lighthouse's foot and Pack-a-Punch in a cave on the shore.
+    Cove,
 }
 
 impl MapId {
-    pub const ALL: [MapId; 4] = [MapId::Greybox, MapId::Quarry, MapId::Village, MapId::Dam];
+    pub const ALL: [MapId; 5] = [MapId::Greybox, MapId::Quarry, MapId::Village, MapId::Dam, MapId::Cove];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -72,6 +77,7 @@ impl MapId {
             MapId::Quarry => "Quarry",
             MapId::Village => "Village",
             MapId::Dam => "Dam",
+            MapId::Cove => "Cove",
         }
     }
 
@@ -82,6 +88,7 @@ impl MapId {
             MapId::Quarry => "A pit and its works, climbed terrace by terrace.",
             MapId::Village => "A long village of streets and lanes, walked end to end.",
             MapId::Dam => "A dam's crest, its galleries and the turbine hall at its foot.",
+            MapId::Cove => "A cliffside town, climbed by stairs from the beach to its lighthouse.",
         }
     }
 
@@ -92,6 +99,7 @@ impl MapId {
             MapId::Quarry => &quarry::QUARRY,
             MapId::Village => &village::VILLAGE,
             MapId::Dam => &dam::DAM,
+            MapId::Cove => &cove::COVE,
         }
     }
 }
@@ -218,14 +226,16 @@ const fn concat<T: Copy, const A: usize, const B: usize, const N: usize>(a: [T; 
 /// Every Map's windows, each Map's in a run of its own in `MapId::ALL` order, so a `BarrierId`
 /// names one window in one Map: the Zone it lets into, its centre on the wall line at the height
 /// of the floor it lets onto, and the way out. Each is planked up by its Barrier.
-pub const WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_DAM_WINDOWS.len() + dam::WINDOWS.len()] = concat(BEFORE_THE_DAM_WINDOWS, dam::WINDOWS);
+pub const WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_COVE_WINDOWS.len() + cove::WINDOWS.len()] = concat(BEFORE_THE_COVE_WINDOWS, cove::WINDOWS);
+const BEFORE_THE_COVE_WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_DAM_WINDOWS.len() + dam::WINDOWS.len()] = concat(BEFORE_THE_DAM_WINDOWS, dam::WINDOWS);
 const BEFORE_THE_DAM_WINDOWS: [(ZoneId, Vec3, Vec2); GREYBOX_AND_QUARRY_WINDOWS.len() + village::WINDOWS.len()] = concat(GREYBOX_AND_QUARRY_WINDOWS, village::WINDOWS);
 const GREYBOX_AND_QUARRY_WINDOWS: [(ZoneId, Vec3, Vec2); greybox::WINDOWS.len() + quarry::WINDOWS.len()] = concat(greybox::WINDOWS, quarry::WINDOWS);
 
 /// Every Map's Box Locations, each Map's in a run of its own, in order: the Zone, where the Box's
 /// centre sits on the floor, and which way its front faces (where the Player stands). Every Run
 /// starts the Box at its Map's first.
-pub const BOX_LOCATIONS: [(ZoneId, Vec3, Vec2); BEFORE_THE_DAM_BOXES.len() + dam::BOX_LOCATIONS.len()] = concat(BEFORE_THE_DAM_BOXES, dam::BOX_LOCATIONS);
+pub const BOX_LOCATIONS: [(ZoneId, Vec3, Vec2); BEFORE_THE_COVE_BOXES.len() + cove::BOX_LOCATIONS.len()] = concat(BEFORE_THE_COVE_BOXES, cove::BOX_LOCATIONS);
+const BEFORE_THE_COVE_BOXES: [(ZoneId, Vec3, Vec2); BEFORE_THE_DAM_BOXES.len() + dam::BOX_LOCATIONS.len()] = concat(BEFORE_THE_DAM_BOXES, dam::BOX_LOCATIONS);
 const BEFORE_THE_DAM_BOXES: [(ZoneId, Vec3, Vec2); GREYBOX_AND_QUARRY_BOXES.len() + village::BOX_LOCATIONS.len()] =
     concat(GREYBOX_AND_QUARRY_BOXES, village::BOX_LOCATIONS);
 const GREYBOX_AND_QUARRY_BOXES: [(ZoneId, Vec3, Vec2); greybox::BOX_LOCATIONS.len() + quarry::BOX_LOCATIONS.len()] =
@@ -416,6 +426,38 @@ pub fn palette(zone: Option<ZoneId>) -> Palette {
         Some(SwitchgearRoom) => paints((0.12, 0.12, 0.14), (0.25, 0.42, 0.28), (0.9, 0.8, 0.2), (0.8, 1.0, 0.85)),
         // Silt on the floor and damp, pale blue-grey walls, a teal tide line.
         Some(DrainageGallery) => paints((0.22, 0.2, 0.16), (0.6, 0.72, 0.72), (0.15, 0.4, 0.45), (0.75, 1.0, 0.9)),
+        // Sun-bleached sand and shell under the cave's wet grey rock, a green tide line.
+        Some(SeaCave) => paints((0.52, 0.47, 0.38), (0.24, 0.27, 0.3), (0.15, 0.42, 0.4), (0.55, 0.85, 0.95)),
+        // Grey pebbles against the tarred planks of the fishermen's huts.
+        Some(Shingle) => paints((0.4, 0.4, 0.4), (0.3, 0.22, 0.16), (0.8, 0.78, 0.7), (0.7, 0.82, 1.0)),
+        // Pale sand under a whitewashed sea wall, with a blue band.
+        Some(Strand) => paints((0.75, 0.67, 0.5), (0.9, 0.88, 0.82), (0.16, 0.38, 0.62), (0.8, 0.88, 1.0)),
+        // Weathered boards, red-ochre planking, rope-pale trim.
+        Some(Boathouse) => paints((0.28, 0.33, 0.4), (0.74, 0.8, 0.82), (0.78, 0.45, 0.2), (1.0, 0.82, 0.55)),
+        // Wet flags, sea-green plaster and white limewash.
+        Some(Washhouse) => paints((0.34, 0.4, 0.4), (0.5, 0.66, 0.55), (0.88, 0.9, 0.86), (0.9, 1.0, 0.9)),
+        // Worn cobbles between rose-pink house fronts.
+        Some(LowerLane) => paints((0.43, 0.38, 0.34), (0.82, 0.55, 0.5), (0.35, 0.2, 0.18), (1.0, 0.78, 0.55)),
+        // Marble slabs and ice-wet stone under a slate-blue loggia.
+        Some(FishMarket) => paints((0.6, 0.62, 0.64), (0.4, 0.5, 0.64), (0.85, 0.85, 0.8), (0.85, 0.92, 1.0)),
+        // Terracotta tiles, mustard walls, dark vine-green trim.
+        Some(Taverna) => paints((0.6, 0.35, 0.22), (0.86, 0.68, 0.28), (0.2, 0.3, 0.16), (1.0, 0.72, 0.4)),
+        // Cold stone flags, honey limestone, oxblood trim, candles.
+        Some(Chapel) => paints((0.4, 0.4, 0.42), (0.62, 0.6, 0.7), (0.4, 0.1, 0.12), (1.0, 0.75, 0.45)),
+        // Pale paving round the fountain, sun-baked ochre frontages.
+        Some(Piazza) => paints((0.7, 0.66, 0.58), (0.84, 0.64, 0.38), (0.5, 0.25, 0.15), (1.0, 0.82, 0.55)),
+        // Packed earth between lilac-grey house fronts.
+        Some(UpperLane) => paints((0.5, 0.42, 0.34), (0.62, 0.58, 0.7), (0.9, 0.88, 0.8), (1.0, 0.8, 0.55)),
+        // Polished boards, apricot plaster, teal shutters.
+        Some(Pensione) => paints((0.46, 0.32, 0.2), (0.92, 0.72, 0.55), (0.14, 0.46, 0.46), (1.0, 0.85, 0.6)),
+        // White-painted concrete tower with a red band, a cold lamp.
+        Some(Lighthouse) => paints((0.38, 0.38, 0.4), (0.94, 0.94, 0.92), (0.8, 0.12, 0.1), (0.9, 0.95, 1.0)),
+        // Short wind-flattened grass and grey flags between pale stone walls.
+        Some(LighthouseYard) => paints((0.26, 0.32, 0.2), (0.7, 0.72, 0.7), (0.35, 0.35, 0.38), (0.75, 0.85, 1.0)),
+        // Scrubbed boards and slate-green walls, brass trim.
+        Some(KeepersCottage) => paints((0.4, 0.3, 0.2), (0.34, 0.5, 0.48), (0.7, 0.55, 0.2), (1.0, 0.78, 0.5)),
+        // Dark flags, pale sandstone ramparts and black iron.
+        Some(Battery) => paints((0.3, 0.3, 0.33), (0.28, 0.26, 0.42), (0.86, 0.82, 0.7), (0.8, 0.88, 1.0)),
         // Bare ground round weathered brick.
         None => paints((0.15, 0.17, 0.12), (0.3, 0.21, 0.17), (0.42, 0.4, 0.36), (1.0, 0.75, 0.45)),
     }

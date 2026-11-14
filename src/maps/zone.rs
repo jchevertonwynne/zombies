@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use crate::debug::DebugView;
 use crate::maps::door::Door;
-use crate::maps::map::{DAM_X, MapId, QUARRY_X, STOREY, VILLAGE_X};
+use crate::maps::map::{COVE_X, DAM_X, MapId, QUARRY_X, STOREY, VILLAGE_X};
 use crate::players::player::{LocalPlayer, Player};
 use crate::players::respawn::AwaitingRespawn;
 use crate::state::GameState;
@@ -101,10 +101,42 @@ pub enum ZoneId {
     /// The gallery along the dam's toe, from under the Intake Gallery to the foot of the Spillway
     /// Stair.
     DrainageGallery,
+    /// The Cove's Pack-a-Punch: a rock cave at the west end of the shore, behind the Power Door.
+    SeaCave,
+    /// The pebble beach west of the Strand, under the Fishermen's Steps.
+    Shingle,
+    /// The Cove's start: the sand along the foot of the town, with Quick Revive in its sea wall.
+    Strand,
+    /// The roofed boathouse at the east end of the shore.
+    Boathouse,
+    /// The roofed washhouse at the west end of the Lower Town, under the Chapel Stair.
+    Washhouse,
+    /// The lane along the Lower Town's contour, up the Fishermen's Steps from the Shingle.
+    LowerLane,
+    /// The open-sided loggia of the Lower Town, up the Sea Wall Steps from the Strand.
+    FishMarket,
+    /// The roofed taverna with its pergola deck, up the Boathouse Stair.
+    Taverna,
+    /// The chapel of the Upper Town, up the Chapel Stair, with its bell tower.
+    Chapel,
+    /// The square of the Upper Town round its fountain, up the Long Stair.
+    Piazza,
+    /// The lane along the Upper Town's contour.
+    UpperLane,
+    /// The guesthouse at the east end of the Upper Town, with a roof garden.
+    Pensione,
+    /// The lighthouse on the Headland, with the Power Switch at its foot and its lantern gallery above.
+    Lighthouse,
+    /// The yard at the foot of the lighthouse, up the Pilgrims' Stair.
+    LighthouseYard,
+    /// The lighthouse keeper's cottage.
+    KeepersCottage,
+    /// The old gun battery at the east end of the Headland, up the Cliff Stair.
+    Battery,
 }
 
 impl ZoneId {
-    pub const ALL: [ZoneId; 47] = [
+    pub const ALL: [ZoneId; 63] = [
         ZoneId::StartRoom,
         ZoneId::WestHall,
         ZoneId::Balcony,
@@ -152,6 +184,22 @@ impl ZoneId {
         ZoneId::TurbineHall,
         ZoneId::SwitchgearRoom,
         ZoneId::DrainageGallery,
+        ZoneId::SeaCave,
+        ZoneId::Shingle,
+        ZoneId::Strand,
+        ZoneId::Boathouse,
+        ZoneId::Washhouse,
+        ZoneId::LowerLane,
+        ZoneId::FishMarket,
+        ZoneId::Taverna,
+        ZoneId::Chapel,
+        ZoneId::Piazza,
+        ZoneId::UpperLane,
+        ZoneId::Pensione,
+        ZoneId::Lighthouse,
+        ZoneId::LighthouseYard,
+        ZoneId::KeepersCottage,
+        ZoneId::Battery,
     ];
 
     pub fn name(self) -> &'static str {
@@ -203,6 +251,22 @@ impl ZoneId {
             ZoneId::TurbineHall => "Turbine Hall",
             ZoneId::SwitchgearRoom => "Switchgear Room",
             ZoneId::DrainageGallery => "Drainage Gallery",
+            ZoneId::SeaCave => "Sea Cave",
+            ZoneId::Shingle => "Shingle",
+            ZoneId::Strand => "Strand",
+            ZoneId::Boathouse => "Boathouse",
+            ZoneId::Washhouse => "Washhouse",
+            ZoneId::LowerLane => "Lower Lane",
+            ZoneId::FishMarket => "Fish Market",
+            ZoneId::Taverna => "Taverna",
+            ZoneId::Chapel => "Chapel",
+            ZoneId::Piazza => "Piazza",
+            ZoneId::UpperLane => "Upper Lane",
+            ZoneId::Pensione => "Pensione",
+            ZoneId::Lighthouse => "Lighthouse",
+            ZoneId::LighthouseYard => "Lighthouse Yard",
+            ZoneId::KeepersCottage => "Keeper's Cottage",
+            ZoneId::Battery => "Battery",
         }
     }
 
@@ -215,6 +279,8 @@ impl ZoneId {
             Inn | Market | WestEnd | EastEnd | BackLane | MillLane | ChurchLane | Mill | Smithy | Bakery | Schoolhouse | Church | Orchard | Graveyard => MapId::Village,
             CrestRoad | TowerHead | GateShaft | IntakeGallery | SpillwayGatehouse | SpillwayGallery | SpillwayStair | ControlRoom | PenstockTunnel | TurbineHall
             | SwitchgearRoom | DrainageGallery => MapId::Dam,
+            SeaCave | Shingle | Strand | Boathouse | Washhouse | LowerLane | FishMarket | Taverna | Chapel | Piazza | UpperLane | Pensione | Lighthouse | LighthouseYard
+            | KeepersCottage | Battery => MapId::Cove,
         }
     }
 
@@ -232,6 +298,10 @@ impl ZoneId {
             GateShaft | IntakeGallery | SpillwayGallery | ControlRoom => STOREY,
             WindingHouse | Offices | Headframe => 2.0 * STOREY,
             CrestRoad | TowerHead | SpillwayGatehouse => 2.0 * STOREY,
+            SeaCave | Shingle | Strand | Boathouse => 0.0,
+            Washhouse | LowerLane | FishMarket | Taverna => STOREY,
+            Chapel | Piazza | UpperLane | Pensione => 2.0 * STOREY,
+            Lighthouse | LighthouseYard | KeepersCottage | Battery => 3.0 * STOREY,
         }
     }
 
@@ -248,6 +318,7 @@ impl ZoneId {
         const Q: f32 = QUARRY_X;
         const V: f32 = VILLAGE_X;
         const D: f32 = DAM_X;
+        const C: f32 = COVE_X;
         const GALLERY: f32 = STOREY - 0.25;
         const CREST: f32 = 2.0 * STOREY - 0.25;
         let (x0, x1, y0, y1, z0, z1) = match self {
@@ -298,6 +369,22 @@ impl ZoneId {
             ZoneId::SwitchgearRoom => (D + 10.0, D + 26.0, LOW, UPPER, -52.0, -40.0),
             ZoneId::SpillwayStair => (D + 38.0, D + 44.0, LOW, CREST, -56.0, -32.0),
             ZoneId::DrainageGallery => (D - 44.0, D + 44.0, LOW, CREST, -62.0, -56.0),
+            ZoneId::SeaCave => (C - 56.0, C - 44.0, LOW, UPPER, -14.0, 6.0),
+            ZoneId::Shingle => (C - 44.0, C - 22.0, LOW, UPPER, -14.0, 6.0),
+            ZoneId::Strand => (C - 22.0, C + 20.0, LOW, UPPER, -14.0, 6.0),
+            ZoneId::Boathouse => (C + 20.0, C + 34.0, LOW, UPPER, -14.0, 6.0),
+            ZoneId::Washhouse => (C - 56.0, C - 44.0, STOREY - 0.25, 2.0 * STOREY - 0.25, 6.0, 24.0),
+            ZoneId::LowerLane => (C - 44.0, C - 20.0, STOREY - 0.25, 2.0 * STOREY - 0.25, 6.0, 20.0),
+            ZoneId::FishMarket => (C - 20.0, C + 6.0, STOREY - 0.25, 2.0 * STOREY - 0.25, 6.0, 24.0),
+            ZoneId::Taverna => (C + 6.0, C + 34.0, STOREY - 0.25, 2.0 * STOREY - 0.25, 6.0, 20.0),
+            ZoneId::Chapel => (C - 56.0, C - 30.0, 2.0 * STOREY - 0.25, 5.0 * STOREY - 0.25, 24.0, 44.0),
+            ZoneId::Piazza => (C - 30.0, C - 4.0, 2.0 * STOREY - 0.25, 3.0 * STOREY - 0.25, 24.0, 40.0),
+            ZoneId::UpperLane => (C - 4.0, C + 18.0, 2.0 * STOREY - 0.25, 3.0 * STOREY - 0.25, 24.0, 44.0),
+            ZoneId::Pensione => (C + 18.0, C + 34.0, 2.0 * STOREY - 0.25, 4.0 * STOREY - 0.25, 24.0, 40.0),
+            ZoneId::Lighthouse => (C - 56.0, C - 40.0, 3.0 * STOREY - 0.25, 6.0 * STOREY - 0.25, 44.0, 64.0),
+            ZoneId::LighthouseYard => (C - 40.0, C - 12.0, 3.0 * STOREY - 0.25, 4.0 * STOREY - 0.25, 44.0, 64.0),
+            ZoneId::KeepersCottage => (C - 12.0, C + 6.0, 3.0 * STOREY - 0.25, 4.0 * STOREY - 0.25, 44.0, 64.0),
+            ZoneId::Battery => (C + 6.0, C + 34.0, 3.0 * STOREY - 0.25, 4.0 * STOREY - 0.25, 44.0, 64.0),
         };
         let sunk = self.map().layout().sunken.iter().filter(|sunken| sunken.zone == self).map(|sunken| sunken.depth).fold(0.0, f32::max);
         (Vec3::new(x0, y0 - sunk, z0), Vec3::new(x1, y1, z1))

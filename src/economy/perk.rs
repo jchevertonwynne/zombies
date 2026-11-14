@@ -4,7 +4,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
-use crate::maps::map::{DAM_X, MapId, QUARRY_X, STOREY, VILLAGE_X};
+use crate::maps::map::{COVE_X, DAM_X, MapId, QUARRY_X, STOREY, VILLAGE_X};
 
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
@@ -112,6 +112,7 @@ impl Perk {
         const Q: f32 = QUARRY_X;
         const V: f32 = VILLAGE_X;
         const D: f32 = DAM_X;
+        const C: f32 = COVE_X;
         match (map, self) {
             // West Hall's outer wall.
             (MapId::Greybox, Perk::Juggernog) => (Vec3::new(-25.2, 0.0, 10.0), Vec3::X),
@@ -145,6 +146,14 @@ impl Perk {
             (MapId::Dam, Perk::DoubleTap) => (Vec3::new(D - 38.0, 2.0 * STOREY, 31.2), Vec3::NEG_Z),
             // The Crest Road's reservoir parapet, between the two cheap guns.
             (MapId::Dam, Perk::QuickRevive) => (Vec3::new(D, 2.0 * STOREY, 29.2), Vec3::NEG_Z),
+            // The Piazza's north wall, the town hall's front.
+            (MapId::Cove, Perk::Juggernog) => (Vec3::new(C - 17.0, 2.0 * STOREY, 39.2), Vec3::NEG_Z),
+            // The Taverna's north wall.
+            (MapId::Cove, Perk::SpeedCola) => (Vec3::new(C + 14.0, STOREY, 19.2), Vec3::NEG_Z),
+            // The Keeper's Cottage's west wall.
+            (MapId::Cove, Perk::DoubleTap) => (Vec3::new(C - 11.2, 3.0 * STOREY, 58.5), Vec3::X),
+            // The Strand's sea wall, between the two cheap guns.
+            (MapId::Cove, Perk::QuickRevive) => (Vec3::new(C - 1.0, 0.0, -13.2), Vec3::Z),
         }
     }
 

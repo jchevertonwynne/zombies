@@ -1682,6 +1682,27 @@ pub const DOOR_PRICE_TURBINE_HALL_SWITCHGEAR: u64 = 1000;
 pub const DOOR_PRICE_TURBINE_HALL_DRAINAGE: u64 = 1000;
 pub const DOOR_PRICE_DRAINAGE_INTAKE: u64 = 1250;
 pub const DOOR_PRICE_SPILLWAY_STAIR_DRAINAGE: u64 = 1000;
+/// The Cove's Doors, by the Zones they join: the shore's three, the stairs up through the town
+/// and the Headland's. The Power Door into the Sea Cave has no price. The cheapest way to the Power
+/// is Strand, Fish Market, Piazza, Chapel, Lighthouse Yard, Lighthouse: 5500.
+pub const DOOR_PRICE_STRAND_BOATHOUSE: u64 = 750;
+pub const DOOR_PRICE_STRAND_FISH_MARKET: u64 = 750;
+pub const DOOR_PRICE_STRAND_SHINGLE: u64 = 1000;
+pub const DOOR_PRICE_BOATHOUSE_TAVERNA: u64 = 1000;
+pub const DOOR_PRICE_FISH_MARKET_TAVERNA: u64 = 1000;
+pub const DOOR_PRICE_FISH_MARKET_LOWER_LANE: u64 = 750;
+pub const DOOR_PRICE_SHINGLE_LOWER_LANE: u64 = 1000;
+pub const DOOR_PRICE_LOWER_LANE_WASHHOUSE: u64 = 1000;
+pub const DOOR_PRICE_WASHHOUSE_CHAPEL: u64 = 1250;
+pub const DOOR_PRICE_FISH_MARKET_PIAZZA: u64 = 1250;
+pub const DOOR_PRICE_CHAPEL_PIAZZA: u64 = 1000;
+pub const DOOR_PRICE_PIAZZA_UPPER_LANE: u64 = 1000;
+pub const DOOR_PRICE_UPPER_LANE_PENSIONE: u64 = 1000;
+pub const DOOR_PRICE_UPPER_LANE_BATTERY: u64 = 1250;
+pub const DOOR_PRICE_CHAPEL_LIGHTHOUSE_YARD: u64 = 1250;
+pub const DOOR_PRICE_YARD_KEEPERS_COTTAGE: u64 = 1000;
+pub const DOOR_PRICE_KEEPERS_COTTAGE_BATTERY: u64 = 1000;
+pub const DOOR_PRICE_YARD_LIGHTHOUSE: u64 = 1250;
 
 // Buying
 /// How far from a Buyable's use point the Player can buy it, height included.

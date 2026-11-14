@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use crate::maps::generator::Generators;
 use crate::maps::zone::ZoneId;
 
-use crate::maps::map::{MapId, QUARRY_X, STOREY, VILLAGE_X};
+use crate::maps::map::{COVE_X, MapId, QUARRY_X, STOREY, VILLAGE_X};
 
 use crate::authority::HostSimulation;
 use crate::economy::buy::{Buyable, Purchased};
@@ -151,6 +151,8 @@ pub(crate) fn switch_spot(map: MapId) -> Option<(Vec3, Vec3)> {
         MapId::Village => (Vec3::new(VILLAGE_X - 71.6, 1.3, 19.0), Vec3::X),
         // It has Generators, so it never gets here.
         MapId::Dam => return None,
+        // On the Lighthouse's south wall, at hand height, at the foot of its stairs.
+        MapId::Cove => (Vec3::new(COVE_X - 48.0, 3.0 * STOREY + 1.3, 44.4), Vec3::Z),
     })
 }
 

@@ -492,7 +492,7 @@ const POCKET_WALL: f32 = 2.6;
 
 /// The pocket of floor outside the window at `centre` looking `out`: solid down to the ground, with
 /// a wall round its three open sides.
-fn pocket(b: &mut Builder, centre: Vec3, out: Vec2) {
+pub(super) fn pocket(b: &mut Builder, centre: Vec3, out: Vec2) {
     let outside = palette(None);
     let out3 = Vec3::new(out.x, 0.0, out.y);
     let across = Vec3::new(out.y.abs(), 0.0, out.x.abs());

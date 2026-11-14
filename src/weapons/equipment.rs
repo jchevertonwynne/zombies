@@ -23,7 +23,7 @@ use crate::state::{GameState, InRun, input_runs, world_runs};
 use crate::tuning::*;
 use crate::weapons::weapon::Knife;
 use crate::enemies::zombie::{Dying, Lured, Zombie};
-use crate::maps::map::{DAM_X, MapId, QUARRY_X, STOREY, VILLAGE_X};
+use crate::maps::map::{COVE_X, DAM_X, MapId, QUARRY_X, STOREY, VILLAGE_X};
 use crate::maps::zone::ZoneId;
 
 /// Request to give a Player Lethals (frags), capped at their Lethal capacity (ADR 0007).
@@ -354,6 +354,18 @@ pub(crate) fn equipment_walls(map: MapId) -> &'static [(EquipmentWall, ZoneId, V
                 (EquipmentWall::Claymore, ZoneId::SpillwayGallery, Vec3::new(D + 30.0, STOREY + 1.5, -3.8), Vec3::Z),
                 // On the Control Room's north wall, beside the mimic panel.
                 (EquipmentWall::BowieKnife, ZoneId::ControlRoom, Vec3::new(D - 7.5, STOREY + 1.5, 7.8), Vec3::NEG_Z),
+            ];
+            &SPOTS
+        }
+        MapId::Cove => {
+            const C: f32 = COVE_X;
+            const SPOTS: [(EquipmentWall, ZoneId, Vec3, Vec3); 3] = [
+                // On the Fish Market's east wall, beside the Door to the Taverna.
+                (EquipmentWall::Frags, ZoneId::FishMarket, Vec3::new(C + 5.8, STOREY + 1.5, 19.0), Vec3::NEG_X),
+                // On the Battery's east wall, behind the guns.
+                (EquipmentWall::Claymore, ZoneId::Battery, Vec3::new(C + 33.8, 3.0 * STOREY + 1.5, 58.0), Vec3::NEG_X),
+                // On the Chapel's east wall.
+                (EquipmentWall::BowieKnife, ZoneId::Chapel, Vec3::new(C - 30.2, 2.0 * STOREY + 1.5, 27.0), Vec3::NEG_X),
             ];
             &SPOTS
         }

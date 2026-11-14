@@ -173,6 +173,7 @@ per_map! {
     void_sweep_quarry: Quarry,
     void_sweep_village: Village,
     void_sweep_dam: Dam,
+    void_sweep_cove: Cove,
 }
 
 /// Dense running jumps off every slope's sides and top.
@@ -234,6 +235,7 @@ per_map_slopes! {
     void_slopes_quarry: Quarry,
     void_slopes_village: Village,
     void_slopes_dam: Dam,
+    void_slopes_cove: Cove,
 }
 
 /// A Player who somehow reaches the Rail Yard's window ledge can't jump, bunny-hop or run over its
