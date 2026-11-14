@@ -5,6 +5,7 @@
 use bevy::prelude::*;
 
 use super::pact::{COLD_STEEL, ENDLESS_BELT, LIGHTNING_ROD, OPEN_BAR, OVERCLOCKED, PactRef};
+use super::duos::{DUOS, DuoDef, duo_pool};
 use super::procs::{self, ProcDef, proc_size};
 use crate::modifier::{Effect, Modifier, Source, Stat};
 use crate::economy::power_up::PowerUp;
@@ -170,6 +171,8 @@ pub struct BoonDef {
     pub effect: fn(u32) -> String,
     /// A Proc Boon's Trigger and Effect.
     pub proc: Option<&'static ProcDef>,
+    /// A Duo Boon's recipe and its two Families. A Duo counts toward neither Family.
+    pub duo: Option<&'static DuoDef>,
 }
 
 pub const BLOOD_MONEY: &str = "blood_money";
@@ -219,6 +222,7 @@ const fn common(
         per_stack,
         effect,
         proc: None,
+        duo: None,
     }
 }
 
@@ -242,6 +246,7 @@ const fn rare(
         per_stack,
         effect,
         proc: None,
+        duo: None,
     }
 }
 
@@ -264,6 +269,7 @@ const fn legendary(
         per_stack,
         effect,
         proc: None,
+        duo: None,
     }
 }
 
@@ -285,6 +291,7 @@ const fn proc_boon(
         per_stack: &[],
         effect,
         proc: Some(proc),
+        duo: None,
     }
 }
 
@@ -889,9 +896,14 @@ impl HeldBoons {
     }
 }
 
-/// Whether a stat-modifier entry comes from a Boon.
+/// Whether a stat-modifier entry comes from a Boon, Duos included.
 pub fn is_boon_source(source: Source) -> bool {
-    BOONS.iter().any(|boon| Source(boon.name) == source)
+    BOONS.iter().chain(DUOS).any(|boon| Source(boon.name) == source)
+}
+
+/// The Boon or Duo with stable ID `id`.
+pub fn find(id: &str) -> Option<&'static BoonDef> {
+    BOONS.iter().chain(DUOS).find(|boon| boon.id == id)
 }
 
 /// A Boon's Offer weight: its Rarity's, ×0.98 for each Stack held.
@@ -909,9 +921,10 @@ pub fn family_bias(held_in_family: u32, kit_matches: bool) -> f64 {
 }
 
 impl HeldBoons {
-    /// Distinct Boons held of `family`: Stacks of one Boon count once.
+    /// Distinct Boons held of `family`: Stacks of one Boon count once, and Duos count toward
+    /// neither of theirs.
     pub fn in_family(&self, family: Family) -> u32 {
-        self.0.iter().filter(|(boon, _)| boon.family == family).count() as u32
+        self.0.iter().filter(|(boon, _)| boon.duo.is_none() && boon.family == family).count() as u32
     }
 }
 
@@ -947,7 +960,8 @@ pub fn draw<T>(mut pool: Vec<(T, f64)>, size: usize, mut roll: impl FnMut(f64) -
 }
 
 /// A Boon Offer: up to `BOON_OFFER_SIZE` distinct eligible Boons from `table`, weighted by Rarity,
-/// Stacks held and the Family bias. Empty means no Offer.
+/// Stacks held and the Family bias, among them every Duo the Player is eligible for, weighted as
+/// a Legendary with no bias. Empty means no Offer.
 pub fn draw_offer(
     table: &'static [BoonDef],
     held: &HeldBoons,
@@ -961,6 +975,7 @@ pub fn draw_offer(
             let bias = family_bias(held.in_family(boon.family), run.kit == Some(boon.family));
             (boon, offer_weight(boon.rarity, held.stacks(boon.id)) * bias)
         })
+        .chain(duo_pool(DUOS, held, run).into_iter().map(|duo| (duo, offer_weight(duo.rarity, 0))))
         .collect();
     draw(pool, BOON_OFFER_SIZE, roll)
 }
@@ -1066,6 +1081,7 @@ mod tests {
             per_stack: &[],
             effect: |n| format!("x{n}"),
             proc: None,
+            duo: None,
         }
     }
 

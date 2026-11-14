@@ -2304,6 +2304,37 @@ pub const SET_GRIT_2_REGEN_FACTOR: f32 = 1.5;
 pub const SET_GRIT_4_GUARDS_PER_ROUND: u32 = 1;
 /// A Set Bonus tier's banner stays up this long.
 pub const GAUNTLET_SET_BANNER_SECS: f32 = 2.5;
+
+// Duo Boons (spec #182, Appendix A5)
+/// Bullets a Knife kill puts back in the held Weapon's Magazine.
+pub const DUO_GUN_AND_BLADE_BULLETS: u32 = 3;
+/// Zombies each Zombie a Parting Shot Blast kills chains Shock to.
+pub const DUO_BALL_LIGHTNING_CHAIN_ZOMBIES: u32 = 2;
+/// A Headshot kill pays Blood Money this many times in all.
+pub const DUO_GOLD_STANDARD_FACTOR: u64 = 2;
+pub const DUO_CONSCRIPTS_SHOTS: u32 = 5;
+pub const DUO_CONSCRIPTS_INTERVAL_SECS: f32 = 6.0;
+/// Static Discharge also fires with this many Zombies or more within `DUO_STORM_SHELL_RADIUS_M`.
+pub const DUO_STORM_SHELL_CROWD: usize = 5;
+pub const DUO_STORM_SHELL_RADIUS_M: f32 = 3.0;
+pub const DUO_STORM_SHELL_COOLDOWN_FACTOR: f32 = 0.5;
+pub const DUO_THERMAL_SHOCK_RADIUS_M: f32 = 1.5;
+/// Power-ups each Butcher's Bill drop makes in all.
+pub const DUO_CUT_OF_THE_TAKE_DROPS: u32 = 2;
+/// The share of its max health a Zombie Elbow Room flings outside loses.
+pub const DUO_REPEL_BOARDERS_HEALTH_FRACTION: f32 = 0.10;
+pub const DUO_LIVE_FUSE_TICK_SECS: f32 = 1.0;
+pub const DUO_HOUSE_EDGE_AMMO_MODS: f32 = 1.0;
+pub const DUO_GALVANISED_DEAD_CHAIN_ZOMBIES: u32 = 2;
+/// One ally's hits set off Galvanised Dead at most this often.
+pub const DUO_GALVANISED_DEAD_COOLDOWN_SECS: f32 = 2.0;
+pub const DUO_SUPPLY_DROP_LETHALS: u32 = 1;
+/// The free frag lands on the densest Zombie point this close to the Player.
+pub const DUO_SUPPLY_DROP_RANGE_M: f32 = 10.0;
+pub const DUO_SUPPLY_DROP_FLIGHT_SECS: f32 = 1.0;
+/// How high the free frag's drawn arc rises above the straight line.
+pub const DUO_SUPPLY_DROP_ARC_HEIGHT_M: f32 = 3.0;
+pub const DUO_MARTYRS_RADIUS_M: f32 = 2.5;
 /// A Proc's Family-coloured accent ring lasts this long; so does a Blast's sphere.
 pub const GAUNTLET_PROC_ACCENT_SECS: f32 = 0.25;
 /// A Proc borrowing an Ammo Mod's cue plays it at this pitch and share of its volume.

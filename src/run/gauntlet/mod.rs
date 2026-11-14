@@ -8,6 +8,7 @@
 
 mod armory;
 mod boon;
+mod duos;
 mod pact;
 mod procs;
 pub mod progress;
@@ -160,7 +161,7 @@ impl Offer {
         let choices = if *pacts {
             Choices::Pacts(ids.iter().map(|id| PACTS.iter().find(|pact| pact.id() == id)).collect::<Option<_>>()?)
         } else {
-            Choices::Boons(ids.iter().map(|id| BOONS.iter().find(|boon| boon.id == id)).collect::<Option<_>>()?)
+            Choices::Boons(ids.iter().map(|id| boon::find(id)).collect::<Option<_>>()?)
         };
         Some(Self { choices, round: *round, shown_at: 0.0 })
     }
@@ -175,7 +176,7 @@ pub fn boons_wire(held: &HeldBoons) -> Vec<(String, u32)> {
 pub fn show_boons(held: &mut HeldBoons, told: &[(String, u32)]) {
     held.0 = told
         .iter()
-        .filter_map(|(id, stacks)| Some((BOONS.iter().find(|boon| boon.id == id)?, *stacks)))
+        .filter_map(|(id, stacks)| Some((boon::find(id)?, *stacks)))
         .collect();
 }
 

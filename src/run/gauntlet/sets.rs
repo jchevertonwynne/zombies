@@ -141,7 +141,7 @@ pub fn banner_line(family: Family, tier: u32) -> String {
 
 /// The tier a pick of `boon` would reach, as its card's tag ("→ Lead 4"), if it reaches one.
 pub fn tier_tag(held: &HeldBoons, boon: &BoonDef) -> Option<String> {
-    if held.stacks(boon.id) > 0 {
+    if held.stacks(boon.id) > 0 || boon.duo.is_some() {
         return None;
     }
     let count = held.in_family(boon.family) + 1;
@@ -993,6 +993,8 @@ mod tests {
         assert_eq!(tier_tag(&held, named("hollow_points")), None, "a held Boon adds no distinct one");
         assert_eq!(tier_tag(&held, named("long_arm")), None, "Blade has none held");
         assert_eq!(tier_tag(&holding(&["trench_raider"]), named("long_arm")), Some("→ Blade 2".to_string()));
+        let duo = crate::run::gauntlet::boon::find("gold_standard").unwrap();
+        assert_eq!(tier_tag(&holding(&["hollow_points", "blood_money"]), duo), None, "a Duo counts toward no Family");
     }
 
     #[test]
