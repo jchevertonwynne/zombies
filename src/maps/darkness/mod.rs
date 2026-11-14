@@ -78,7 +78,6 @@ impl Plugin for DarknessPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ChalkMaterials>()
             .add_observer(light_camera)
-            .add_systems(OnEnter(GameState::Playing), set_ambient)
             .add_systems(Update, (light_lamps, light_chalk).run_if(in_state(GameState::Playing)))
             .add_systems(
                 PostUpdate,
@@ -96,14 +95,10 @@ impl Plugin for DarknessPlugin {
     }
 }
 
-/// No ambient light on a dark Map, and the usual on every other.
-fn set_ambient(map: Res<MapId>, mut ambient: ResMut<GlobalAmbientLight>) {
-    ambient.brightness = if map.layout().darkness { 0.0 } else { AMBIENT_BRIGHTNESS };
-}
-
-/// On a dark Map, the Player camera has HDR and bloom, so what glows halos in the dark, close
-/// black fog, and the local Player's Weapon Light. Both are there from the camera's first frame, while the Map loads: the shaders bloom
-/// needs compile then, and never stall a Round by being switched on later.
+/// On a dark Map, the Player camera has HDR and a strong bloom, so what glows halos in the dark,
+/// close black fog, and the local Player's Weapon Light. Both are there from the camera's first
+/// frame, while the Map loads: the shaders bloom needs compile then, and never stall a Round by
+/// being switched on later. (The ambient light is the Look's, which is none with Darkness.)
 fn light_camera(add: On<Add<PlayerCamera>>, map: Res<MapId>, mut commands: Commands) {
     if !map.layout().darkness {
         return;
@@ -148,7 +143,8 @@ fn light_lamps(
         let target = if lit { 1.0 } else { 0.0 };
         let level = lamp.level.map_or(target, |level| fade(level, lit, time.delta_secs()));
         lamp.level = Some(level);
-        let intensity = LAMP_INTENSITY * level * if lit { flicker(level) } else { 1.0 };
+        let full = LAMP_INTENSITY * map.layout().look.lamps;
+        let intensity = full * level * if lit { flicker(level) } else { 1.0 };
         if light.intensity != intensity {
             light.intensity = intensity;
         }

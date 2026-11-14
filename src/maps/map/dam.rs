@@ -140,6 +140,7 @@ pub(super) const DAM: Layout = Layout {
     generators: &GENERATORS,
     darkness: true,
     sun: Vec3::new(1.0, -3.0, -1.0),
+    look: crate::maps::look::NIGHT,
     plan: (Vec2::new(D - 52.0, -68.0), Vec2::new(D + 52.0, 36.0)),
     build,
 };

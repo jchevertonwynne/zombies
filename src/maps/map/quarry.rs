@@ -98,6 +98,7 @@ pub(super) const QUARRY: Layout = Layout {
     generators: &[],
     darkness: false,
     sun: Vec3::new(1.0, -3.0, -1.5),
+    look: crate::maps::look::NIGHT,
     plan: (Vec2::new(Q - 36.0, -38.0), Vec2::new(Q + 38.0, 44.0)),
     build,
 };

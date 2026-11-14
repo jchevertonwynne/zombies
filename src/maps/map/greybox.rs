@@ -53,6 +53,7 @@ pub(super) const GREYBOX: Layout = Layout {
     generators: &[],
     darkness: false,
     sun: Vec3::new(-1.0, -3.0, -2.0),
+    look: crate::maps::look::DUSK,
     plan: (Vec2::new(-40.0, -56.0), Vec2::new(40.0, 32.0)),
     build,
 };

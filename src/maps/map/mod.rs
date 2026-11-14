@@ -150,6 +150,8 @@ pub struct Layout {
     pub darkness: bool,
     /// The way the moonlight falls.
     pub sun: Vec3,
+    /// How the Map is lit and graded.
+    pub look: crate::maps::look::Look,
     /// The corners (x, z) of the patch of the world the Map takes up: everything playable is
     /// inside it, and past its edge is Out of Bounds.
     pub plan: (Vec2, Vec2),
@@ -677,16 +679,18 @@ pub fn spawn_map(
         ));
     }
 
-    // Lighting: a dim moon, and a warm lamp in each room.
+    // Lighting: the Look's sun, and a lamp in each room.
+    let look = layout.look;
     commands.spawn((
         InRun,
         DirectionalLight {
-            illuminance: 800.0,
+            illuminance: look.sun_lux,
             shadow_maps_enabled: true,
-            color: Color::srgb(0.7, 0.75, 1.0),
+            color: look.sun_colour,
             ..default()
         },
-        Transform::default().looking_at(layout.sun, Vec3::Y),
+        look.cascade_config(),
+        Transform::default().looking_at(look.sun_direction(layout.sun), Vec3::Y),
     ));
     for &(zone, at) in layout.lamps {
         commands.spawn((
@@ -694,7 +698,7 @@ pub fn spawn_map(
             Lamp::in_zone(zone),
             PointLight {
                 color: palette(Some(zone)).light,
-                intensity: LAMP_INTENSITY,
+                intensity: LAMP_INTENSITY * look.lamps,
                 range: 25.0,
                 ..default()
             },

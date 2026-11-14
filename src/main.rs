@@ -108,7 +108,8 @@ fn main() {
         .add_plugins(maps::generator::GeneratorPlugin)
         .add_plugins(maps::surge::SurgePlugin)
         .add_plugins(maps::darkness::DarknessPlugin)
-        .add_plugins(maps::map::textures::TexturesPlugin);
+        .add_plugins(maps::map::textures::TexturesPlugin)
+        .add_plugins(maps::look::LookPlugin);
     if let Some(bench) = bench::Bench::from_env() {
         app.add_plugins(bench::BenchPlugin(bench));
     }

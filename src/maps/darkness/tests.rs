@@ -47,13 +47,14 @@ fn run(app: &mut App, secs: f32) {
     }
 }
 
-/// How bright `zone`'s lamps are, from 0 off to 1 full. Panics if they differ.
+/// How bright `zone`'s lamps are, from 0 off to 1 full (as strong as the Map's Look has them). Panics if they differ.
 fn lamps(app: &mut App, zone: ZoneId) -> f32 {
+    let full = LAMP_INTENSITY * app.world().resource::<MapId>().layout().look.lamps;
     let mut query = app.world_mut().query::<(&Lamp, &PointLight)>();
     let levels: Vec<f32> = query
         .iter(app.world())
         .filter(|(lamp, _)| lamp.zone == zone)
-        .map(|(_, light)| light.intensity / LAMP_INTENSITY)
+        .map(|(_, light)| light.intensity / full)
         .collect();
     assert!(!levels.is_empty(), "{zone:?} has no lamps");
     assert!(levels.windows(2).all(|pair| (pair[0] - pair[1]).abs() < 1e-4), "{zone:?}'s lamps differ: {levels:?}");
@@ -132,14 +133,6 @@ fn the_control_room_lights_once_every_generator_is_held() {
     show(&mut app, 2, HELD);
     run(&mut app, 1.5);
     assert_eq!(lamps(&mut app, ZoneId::ControlRoom), 1.0);
-}
-
-#[test]
-fn a_dark_map_has_no_ambient_light_and_the_others_keep_theirs() {
-    let app = playing(MapId::Dam);
-    assert_eq!(app.world().resource::<GlobalAmbientLight>().brightness, 0.0);
-    let app = playing(MapId::Greybox);
-    assert_eq!(app.world().resource::<GlobalAmbientLight>().brightness, AMBIENT_BRIGHTNESS);
 }
 
 /// A Player camera spawned on `app`'s Map, as `spawn_player` gives one.
