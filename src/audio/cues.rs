@@ -138,6 +138,9 @@ cues! {
     AmmoModFireworks => "ammo_mod_fireworks", Root, Spatial, 0.9;
     AmmoModThunderWall => "ammo_mod_thunder_wall", Root, Spatial, 0.9;
     AmmoModTurned => "ammo_mod_turned", Root, Spatial, 0.9;
+    // Gauntlet's own Proc Effects (spec #182, Appendix C6).
+    ProcFrost => "proc_frost", Root, Spatial, 0.8;
+    ProcBlast => "proc_blast", Root, Spatial, 0.9;
     PowerDown => "power_down", Root, Spatial, 0.9;
     PowerRestore => "power_restore", Root, Flat, 0.8;
     // Heard Map-wide, wherever the Generator is.
@@ -274,6 +277,8 @@ mod tests {
             "helmet_off", "sapper_stun", "sapper_death",
             // Not in the appendix: a teammate's footstep and Crawl drag, for Co-op, and the stance cues.
             "footstep", "stance_rustle", "dive_land", "crawl_drag",
+            // Gauntlet v2's Proc cues (spec #182, Appendix C6).
+            "proc_frost", "proc_blast",
         ];
         let declared: Vec<_> = Cue::ALL.iter().map(|cue| cue.spec().name).collect();
         for slot in APPENDIX_C {
