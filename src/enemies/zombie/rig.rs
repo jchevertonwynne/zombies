@@ -79,8 +79,9 @@ pub enum Activity {
     Swinging { progress: f32, arm: Swing },
     /// At a Barrier, `cycle` of the way (0 to 1) to its next tear or swipe.
     Tearing { cycle: f32 },
-    /// Climbing in through a window.
-    Vaulting,
+    /// Climbing in through a window, in pose `variant` (0 to 2). The Host picks it and tells it in
+    /// the activity byte, so every machine shows the same one.
+    Vaulting { variant: u8 },
     /// Clawing its way out of the ground.
     Rising,
     /// A Shrieker screaming.
@@ -246,12 +247,31 @@ pub fn pose(activity: Activity, phase: f32, stride: f32, run: f32, clock: f32) -
                 ..reaching
             }
         }
-        Activity::Vaulting => Pose {
-            lean: 0.45,
-            nod: 0.2,
-            arms: [Limb::pitch(1.9); 2],
-            legs: [1.3, 0.8],
-            ..default()
+        Activity::Vaulting { variant } => match variant {
+            // Both hands planted on the Sill.
+            0 => Pose {
+                lean: 0.45,
+                nod: 0.2,
+                arms: [Limb::pitch(1.9); 2],
+                legs: [1.3, 0.8],
+                ..default()
+            },
+            // One hand and a knee, the other leg trailing.
+            1 => Pose {
+                lean: 0.3,
+                nod: 0.1,
+                arms: [Limb::pitch(2.1), Limb::pitch(1.2)],
+                legs: [0.7, 1.4],
+                ..default()
+            },
+            // A lunge over, leaning right out.
+            _ => Pose {
+                lean: 0.7,
+                nod: 0.3,
+                arms: [Limb::pitch(2.5), Limb::pitch(2.3)],
+                legs: [1.0, 1.5],
+                ..default()
+            },
         },
         Activity::Rising => {
             let claw = |side: usize| {
@@ -510,7 +530,7 @@ pub fn describe(
         match entering.at_window() {
             AtWindow::Approaching => {}
             AtWindow::Working { cycle } => return Activity::Tearing { cycle },
-            AtWindow::Vaulting => return Activity::Vaulting,
+            AtWindow::Vaulting { variant } => return Activity::Vaulting { variant },
         }
     }
     if let Some((zombie, left)) = wind_up {

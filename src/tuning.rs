@@ -1251,6 +1251,12 @@ pub const ZOMBIE_PROGRESS_DIST: f32 = 1.0;
 /// Seconds a Zombie takes to climb in through a Barrier with no Planks left. It can be shot
 /// meanwhile, and a vault that has started always completes.
 pub const ZOMBIE_VAULT_SECS: f32 = 1.0;
+/// The longest a Zombie waits, still in its window pose, between the window clearing and its
+/// vault starting. Each Zombie rolls its own from 0 up to this, so those freed together don't
+/// climb in lockstep.
+pub const ZOMBIE_VAULT_DELAY_SECS: f32 = 0.15;
+/// How many ways a walking Zombie can vault; each holds one for its whole vault.
+pub const ZOMBIE_VAULT_VARIATIONS: u8 = 3;
 
 // Barriers
 /// A window's Sill: solid wall from the floor up to this height, which a Zombie climbs over. BO1's

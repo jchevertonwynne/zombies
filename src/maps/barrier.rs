@@ -396,8 +396,11 @@ enum Stage {
     Waiting(Vec3),
     /// Holding an attack spot: walking to it, then acting each time `next` runs out.
     AtSpot { spot: usize, next: f32 },
-    /// Climbing in. A vault that has started always completes.
-    Vaulting { elapsed: f32, from: Vec3, to: Vec3 },
+    /// The window is clear: holding its spot, still in its window pose, for `left` more seconds
+    /// (its own roll of `vault_pause`) before the vault starts.
+    Poised { spot: usize, left: f32 },
+    /// Climbing in, in pose `variant`. A vault that has started always completes.
+    Vaulting { elapsed: f32, from: Vec3, to: Vec3, variant: u8 },
 }
 
 impl Entering {
@@ -427,7 +430,9 @@ impl Entering {
             Stage::AtSpot { next, .. } => AtWindow::Working {
                 cycle: 1.0 - next / ZOMBIE_PLANK_TEAR_SECS,
             },
-            Stage::Vaulting { .. } => AtWindow::Vaulting,
+            // Still in the reaching pose of a tear, until its pause is up.
+            Stage::Poised { .. } => AtWindow::Working { cycle: 0.5 },
+            Stage::Vaulting { variant, .. } => AtWindow::Vaulting { variant },
         }
     }
 }
@@ -439,8 +444,19 @@ pub enum AtWindow {
     Approaching,
     /// At its spot, `cycle` of the way (0 to 1) to its next tear or swipe.
     Working { cycle: f32 },
-    /// Climbing in.
-    Vaulting,
+    /// Climbing in, in pose `variant` (below `ZOMBIE_VAULT_VARIATIONS`), which the Host picked.
+    Vaulting { variant: u8 },
+}
+
+/// How long a Zombie freed by a clear window waits before vaulting: its own roll, from 0 up to
+/// `ZOMBIE_VAULT_DELAY_SECS`.
+fn vault_pause() -> f32 {
+    rand::random_range(0.0..=ZOMBIE_VAULT_DELAY_SECS)
+}
+
+/// Which vault pose a Zombie climbs in with, picked once per vault.
+fn vault_variant() -> u8 {
+    rand::random_range(0..ZOMBIE_VAULT_VARIATIONS)
 }
 
 /// The window's way out, and the way along the wall.
@@ -729,12 +745,8 @@ pub(crate) fn enter_through_windows(
                     }
                     SpotAction::Wait => {}
                     SpotAction::Vault => {
-                        taken.retain(|&claim| claim != (barrier, spot));
-                        entering.stage = Stage::Vaulting {
-                            elapsed: 0.0,
-                            from: transform.translation,
-                            to: landing_at(barrier, spot).with_y(height),
-                        };
+                        // Its own pause first, so Zombies freed together don't go as one.
+                        entering.stage = Stage::Poised { spot, left: vault_pause() };
                         continue;
                     }
                 }
@@ -743,7 +755,21 @@ pub(crate) fn enter_through_windows(
                     next: ZOMBIE_PLANK_TEAR_SECS,
                 };
             }
-            Stage::Vaulting { elapsed, from, to } => {
+            Stage::Poised { spot, left } => {
+                let left = left - dt;
+                if left > 0.0 {
+                    entering.stage = Stage::Poised { spot, left };
+                    continue;
+                }
+                taken.retain(|&claim| claim != (barrier, spot));
+                entering.stage = Stage::Vaulting {
+                    elapsed: 0.0,
+                    from: transform.translation,
+                    to: landing_at(barrier, spot).with_y(height),
+                    variant: vault_variant(),
+                };
+            }
+            Stage::Vaulting { elapsed, from, to, variant } => {
                 let elapsed = elapsed + dt;
                 let t = (elapsed / vault_secs(zombie.is_crawler())).min(1.0);
                 transform.translation = vault_at(barrier, from, to, t);
@@ -755,7 +781,7 @@ pub(crate) fn enter_through_windows(
                         .remove::<Entering>()
                         .insert(Route::default());
                 } else {
-                    entering.stage = Stage::Vaulting { elapsed, from, to };
+                    entering.stage = Stage::Vaulting { elapsed, from, to, variant };
                 }
             }
         }
@@ -1235,6 +1261,23 @@ mod tests {
             assert_eq!(spot_action(in_reach, 6, true), SpotAction::Wait);
             assert_eq!(spot_action(in_reach, 1, true), SpotAction::Wait);
             assert_eq!(spot_action(in_reach, 0, true), SpotAction::Vault);
+        }
+    }
+
+    #[test]
+    fn a_vault_pause_is_within_range_and_differs_per_zombie() {
+        let pauses: Vec<f32> = (0..200).map(|_| vault_pause()).collect();
+        assert!(pauses.iter().all(|p| (0.0..=ZOMBIE_VAULT_DELAY_SECS).contains(p)));
+        let alike = pauses.windows(2).filter(|pair| pair[0] == pair[1]).count();
+        assert!(alike < 5, "{alike} of 199 neighbouring pauses were equal");
+    }
+
+    #[test]
+    fn vault_variants_stay_in_range_and_all_get_used() {
+        let variants: Vec<u8> = (0..200).map(|_| vault_variant()).collect();
+        assert!(variants.iter().all(|&v| v < ZOMBIE_VAULT_VARIATIONS));
+        for v in 0..ZOMBIE_VAULT_VARIATIONS {
+            assert!(variants.contains(&v), "variant {v} never picked");
         }
     }
 
