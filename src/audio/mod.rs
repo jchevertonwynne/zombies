@@ -72,6 +72,7 @@ impl PlayCue {
     }
 }
 
+/// A cue's loaded variants. A slot with none is a bad one, and its cue plays nothing.
 struct Slot {
     variants: Vec<Handle<AudioSource>>,
     last: Option<usize>,
@@ -85,9 +86,9 @@ struct Sounds {
     muffled: bool,
 }
 
-/// Each slot's files, found by the startup check, waiting to be loaded.
+/// Each slot's files, found by the startup check, waiting to be loaded. A bad slot has none.
 #[derive(Resource)]
-struct SlotFiles(Vec<Vec<String>>);
+struct SlotFiles(Vec<Option<Vec<String>>>);
 
 /// A looping cue, a child of the entity it belongs to, so it stops when that goes.
 #[derive(Component)]
@@ -143,19 +144,15 @@ impl Plugin for AudioPlugin {
             .join(AUDIO_DIR);
         let stems: Vec<String> = Cue::ALL.iter().map(|cue| cue.stem()).collect();
         let files = slots::list_files(&dir);
-        match slots::check_slots(stems.iter().map(String::as_str), &files) {
-            Ok(found) => {
-                app.insert_resource(SlotFiles(found));
-            }
-            Err(errors) => {
-                eprintln!("error: bad audio slots in {}:", dir.display());
-                for error in &errors {
-                    eprintln!("  {error}");
-                }
-                eprintln!("Run `cargo gen-sounds` to write placeholders for missing slots.");
-                std::process::exit(1);
-            }
+        let check = slots::check_slots(stems.iter().map(String::as_str), &files);
+        if !check.errors.is_empty() {
+            error!(
+                "bad audio slots in {}, so their cues will be silent:\n  {}\nRun `cargo gen-sounds` to write placeholders for missing slots.",
+                dir.display(),
+                check.errors.iter().map(ToString::to_string).collect::<Vec<_>>().join("\n  ")
+            );
         }
+        app.insert_resource(SlotFiles(check.found));
 
         app.add_message::<PlayCue>()
             .add_systems(Startup, load_sounds)
@@ -192,6 +189,7 @@ fn load_sounds(mut commands: Commands, files: Res<SlotFiles>, assets: Res<AssetS
         .map(|variants| Slot {
             variants: variants
                 .iter()
+                .flatten()
                 .map(|file| assets.load(format!("{AUDIO_DIR}/{file}")))
                 .collect(),
             last: None,
@@ -210,12 +208,15 @@ fn add_listener(mut commands: Commands, cameras: Query<Entity, Added<PlayerCamer
 }
 
 impl Sounds {
-    /// The variant of `cue` to play next.
-    fn next(&mut self, cue: Cue) -> Handle<AudioSource> {
+    /// The variant of `cue` to play next, or `None` if its slot is bad.
+    fn next(&mut self, cue: Cue) -> Option<Handle<AudioSource>> {
         let slot = &mut self.slots[cue.index()];
+        if slot.variants.is_empty() {
+            return None;
+        }
         let pick = slots::pick_variant(slot.variants.len(), slot.last, rand::random());
         slot.last = Some(pick);
-        slot.variants[pick].clone()
+        Some(slot.variants[pick].clone())
     }
 
     /// A cue's volume: its gain, turned down under a Shellshock's muffle (bar the rings in the
@@ -237,7 +238,8 @@ impl Sounds {
 
     /// `play_at_speed`, at `scale` of the cue's volume.
     fn play_scaled(&mut self, commands: &mut Commands, cue: Cue, at: Option<Vec3>, speed: f32, scale: f32) {
-        let player = AudioPlayer::new(self.next(cue));
+        let Some(sound) = self.next(cue) else { return };
+        let player = AudioPlayer::new(sound);
         let settings = PlaybackSettings::DESPAWN
             .with_volume(Volume::Linear(self.gain(cue) * scale))
             .with_speed(speed);
@@ -259,27 +261,32 @@ impl Sounds {
 
     /// `play_from`, at `scale` of the cue's volume.
     fn play_from_scaled(&mut self, commands: &mut Commands, cue: Cue, at: Vec3, speed: f32, scale: f32) {
+        let Some(sound) = self.next(cue) else { return };
         let settings = PlaybackSettings::DESPAWN
             .with_volume(Volume::Linear(self.gain(cue) * scale))
             .with_speed(speed)
             .with_spatial(true);
-        commands.spawn((AudioPlayer::new(self.next(cue)), settings, Transform::from_translation(at)));
+        commands.spawn((AudioPlayer::new(sound), settings, Transform::from_translation(at)));
     }
 
-    /// `cue` played once as a child of an entity, heard from wherever it goes.
-    fn voice(&mut self, cue: Cue) -> impl Bundle + use<> {
+    /// `cue` played once as a child of an entity, heard from wherever it goes. `None` if its slot
+    /// is bad.
+    fn voice(&mut self, cue: Cue) -> Option<impl Bundle + use<>> {
+        let sound = self.next(cue)?;
         let settings = PlaybackSettings::DESPAWN
             .with_volume(Volume::Linear(self.gain(cue)))
             .with_spatial(cue.spec().mix == Mix::Spatial);
-        (AudioPlayer::new(self.next(cue)), settings, Transform::default())
+        Some((AudioPlayer::new(sound), settings, Transform::default()))
     }
 
     /// `cue` looping at `scale` of its volume. A spatial one, as a child, is heard from its parent.
-    fn looping(&mut self, cue: Cue, scale: f32) -> impl Bundle + use<> {
+    /// `None` if its slot is bad.
+    fn looping(&mut self, cue: Cue, scale: f32) -> Option<impl Bundle + use<>> {
+        let sound = self.next(cue)?;
         let settings = PlaybackSettings::LOOP
             .with_volume(Volume::Linear(self.gain(cue) * scale))
             .with_spatial(cue.spec().mix == Mix::Spatial);
-        (AudioPlayer::new(self.next(cue)), settings, Transform::default())
+        Some((AudioPlayer::new(sound), settings, Transform::default()))
     }
 }
 
@@ -307,8 +314,8 @@ fn sync_loops(
     let (start, stop) = mix::loop_changes(&owners, &playing);
     for owner in start {
         let scale = wanted.iter().find(|w| w.0 == owner).map_or(1.0, |w| w.1);
-        let bundle = (LoopOf(cue), sounds.looping(cue, scale));
-        spawn_child(commands, owner, bundle);
+        let Some(sound) = sounds.looping(cue, scale) else { break };
+        spawn_child(commands, owner, (LoopOf(cue), sound));
     }
     for sound in stop {
         commands.entity(sound).try_despawn();
@@ -320,7 +327,9 @@ fn hold_flat_loop(commands: &mut Commands, sounds: &mut Sounds, loops: &mut Quer
     match loops.iter_mut().find(|sound| sound.cue == cue) {
         Some(mut sound) => sound.left = Some(sound.left.map_or(secs, |left| left.max(secs))),
         None => {
-            commands.spawn((InRun, FlatLoop { cue, left: Some(secs) }, sounds.looping(cue, 1.0)));
+            if let Some(sound) = sounds.looping(cue, 1.0) {
+                commands.spawn((InRun, FlatLoop { cue, left: Some(secs) }, sound));
+            }
         }
     }
 }
@@ -730,8 +739,9 @@ fn idle_vocals(
         let Some((cue, every)) = mix::idle_vocal(zombie) else { continue };
         if voices.start.contains(&entity) {
             voice.next = mix::within(&every, rand::random());
-            let bundle = (IdleVocal, sounds.voice(cue));
-            spawn_child(&mut commands, entity, bundle);
+            if let Some(sound) = sounds.voice(cue) {
+                spawn_child(&mut commands, entity, (IdleVocal, sound));
+            }
         } else {
             voice.next = IDLE_VOCAL_RETRY_SECS;
         }
@@ -876,7 +886,9 @@ fn flat_loops(
     }
     for (cue, start) in on {
         if start {
-            commands.spawn((InRun, FlatLoop { cue, left: None }, sounds.looping(cue, 1.0)));
+            if let Some(sound) = sounds.looping(cue, 1.0) {
+                commands.spawn((InRun, FlatLoop { cue, left: None }, sound));
+            }
         }
     }
 }

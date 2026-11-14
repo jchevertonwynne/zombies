@@ -103,21 +103,30 @@ pub fn variants(stem: &str, files: &[String]) -> Result<Vec<String>, SlotError> 
     }
 }
 
-/// Every slot's files in variant order, or every slot that's unusable.
+/// The result of checking every slot: the files of each good slot, and why each bad one is bad.
+#[derive(Debug, PartialEq, Eq)]
+pub struct SlotCheck {
+    /// One entry per slot, in the order given: its files in variant order, or `None` if it's
+    /// unusable. A cue with `None` plays nothing.
+    pub found: Vec<Option<Vec<String>>>,
+    /// Every unusable slot, in the order given.
+    pub errors: Vec<SlotError>,
+}
+
+/// Checks every slot, keeping the good ones whatever the bad ones do.
 /// `files` are paths relative to the audio assets folder, with `/` separators.
-pub fn check_slots<'a>(
-    stems: impl IntoIterator<Item = &'a str>,
-    files: &[String],
-) -> Result<Vec<Vec<String>>, Vec<SlotError>> {
-    let (found, errors): (Vec<_>, Vec<_>) = stems
-        .into_iter()
-        .map(|stem| variants(stem, files))
-        .partition(Result::is_ok);
-    if errors.is_empty() {
-        Ok(found.into_iter().map(Result::unwrap).collect())
-    } else {
-        Err(errors.into_iter().map(|e| e.unwrap_err()).collect())
+pub fn check_slots<'a>(stems: impl IntoIterator<Item = &'a str>, files: &[String]) -> SlotCheck {
+    let mut check = SlotCheck { found: Vec::new(), errors: Vec::new() };
+    for stem in stems {
+        match variants(stem, files) {
+            Ok(found) => check.found.push(Some(found)),
+            Err(error) => {
+                check.found.push(None);
+                check.errors.push(error);
+            }
+        }
     }
+    check
 }
 
 /// Picks which of `count` variants plays next, never `last` again unless it's the only one.
@@ -214,9 +223,9 @@ mod tests {
     #[test]
     fn the_startup_check_lists_every_bad_slot() {
         let all = files(&["hit.ogg", "kill_2.ogg", "round_start_1.ogg"]);
-        let errors = check_slots(["hit", "kill", "headshot", "round_start"], &all).unwrap_err();
+        let check = check_slots(["hit", "kill", "headshot", "round_start"], &all);
         assert_eq!(
-            errors,
+            check.errors,
             vec![
                 SlotError::Gap {
                     slot: "kill".into(),
@@ -230,12 +239,30 @@ mod tests {
     }
 
     #[test]
+    fn bad_slots_have_no_sound_and_the_rest_keep_theirs() {
+        let all = files(&["hit.ogg", "kill_2.ogg", "round_start_1.ogg", "dup.ogg", "dup_1.ogg"]);
+        let check = check_slots(["hit", "kill", "headshot", "round_start", "dup"], &all);
+        assert_eq!(
+            check.found,
+            vec![
+                Some(files(&["hit.ogg"])),
+                None,
+                None,
+                Some(files(&["round_start_1.ogg"])),
+                None,
+            ]
+        );
+        assert_eq!(check.errors.len(), 3);
+    }
+
+    #[test]
     fn the_startup_check_passes_when_every_slot_is_good() {
         let all = files(&["hit.ogg", "kill_1.ogg", "kill_2.ogg"]);
-        let found = check_slots(["hit", "kill"], &all).unwrap();
+        let check = check_slots(["hit", "kill"], &all);
+        assert!(check.errors.is_empty());
         assert_eq!(
-            found,
-            vec![files(&["hit.ogg"]), files(&["kill_1.ogg", "kill_2.ogg"])]
+            check.found,
+            vec![Some(files(&["hit.ogg"])), Some(files(&["kill_1.ogg", "kill_2.ogg"]))]
         );
     }
 
