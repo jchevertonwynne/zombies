@@ -973,7 +973,6 @@ pub struct ShotFired {
 #[derive(Message, Debug, Clone, Copy)]
 pub struct Reloaded {
     pub player: Entity,
-    #[allow(dead_code, reason = "no listener asks which Weapon yet")]
     pub weapon: WeaponId,
 }
 
@@ -982,7 +981,6 @@ pub struct Reloaded {
 #[derive(Message, Debug, Clone, Copy)]
 pub struct MagazineEmptied {
     pub player: Entity,
-    #[allow(dead_code, reason = "no listener asks which Weapon yet")]
     pub weapon: WeaponId,
     pub at: Option<Vec3>,
 }
