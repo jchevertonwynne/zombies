@@ -383,7 +383,7 @@ mod tests {
             .iter()
             .filter(|boon| file.is_unlocked(Card::Boon(boon)))
             .collect();
-        assert_eq!(unlocked.len(), 21 + 3);
+        assert_eq!(unlocked.len(), 15 + 3);
         for id in ["war_bonds", "barbed_wire", "shrapnel"] {
             assert!(unlocked.iter().any(|boon| boon.id == id), "{id}");
         }
@@ -397,12 +397,11 @@ mod tests {
     #[test]
     fn unlock_prices_go_by_rarity() {
         let price = |id| Card::find(id).unwrap().unlock_price();
-        assert_eq!(price("arc_light"), Some(UNLOCK_PRICE_RARE));
+        assert_eq!(price("loaded_dice"), Some(UNLOCK_PRICE_RARE));
         assert_eq!(price("third_hand"), Some(UNLOCK_PRICE_LEGENDARY));
         assert_eq!(price("glass_jaw"), Some(UNLOCK_PRICE_PACT));
         assert_eq!(price("war_bonds"), None);
         assert_eq!(price("blood_money"), None);
-        assert_eq!(price("loaded_dice"), None, "a v1 Rare now Common is free");
         assert_eq!(
             (UNLOCK_PRICE_RARE, UNLOCK_PRICE_LEGENDARY, UNLOCK_PRICE_PACT),
             (100, 250, 200)
@@ -427,11 +426,11 @@ mod tests {
             scrip: 99,
             ..default()
         };
-        assert_eq!(file.unlock("arc_light"), Err(Refusal::TooPoor));
+        assert_eq!(file.unlock("loaded_dice"), Err(Refusal::TooPoor));
         assert_eq!(file.scrip, 99);
         assert!(file.unlocked.is_empty());
         file.scrip = 100;
-        assert_eq!(file.unlock("arc_light"), Ok(()));
+        assert_eq!(file.unlock("loaded_dice"), Ok(()));
         assert_eq!(file.scrip, 0);
     }
 

@@ -9,7 +9,6 @@
 mod armory;
 mod boon;
 mod pact;
-mod procs;
 pub mod progress;
 mod screen;
 #[cfg(test)]
@@ -41,7 +40,6 @@ use crate::storage::save;
 use crate::storage::settings::SaveDir;
 use crate::state::{Choosing, Freeze, GameState, MainMenuScreen, Pause, RunType, world_runs};
 use crate::tuning::*;
-use crate::weapons::ammo_mod::TurnedAllyCap;
 use crate::weapons::weapon::Loadout;
 use crate::enemies::zombie::{DamageZombie, Dying, HitZone, KillDamage, Zombie, ZombieKilled};
 use boon::{
@@ -199,14 +197,9 @@ impl Plugin for GauntletPlugin {
             .init_resource::<Gifts>()
             .init_resource::<OfferWait>()
             .add_message::<PickOffer>()
-            .add_message::<procs::ProcFired>()
-            .init_resource::<procs::Thinning>()
-            .init_resource::<procs::ProcFlashes>()
-            .init_resource::<procs::Landing>()
             .init_resource::<UnlockAll>()
             .init_resource::<ActiveRanks>()
             .init_resource::<RunModifiers>()
-            .init_resource::<TurnedAllyCap>()
             .init_resource::<armory::ArmoryTab>()
             .init_resource::<armory::ArmoryNote>()
             .add_systems(Startup, load_progress)
@@ -259,12 +252,10 @@ impl Plugin for GauntletPlugin {
                         teddys_tithe,
                         (war_bonds, bounty, butchers_bill, lucky_strike),
                         (scorched_earth, overkill),
-                        (procs::fire_procs, procs::land_lethals, procs::cast_procs, procs::thaw).chain(),
                     )
                         .in_set(HostSimulation),
                     apply_entries,
                     (record_picks, screen::refresh_held_column).run_if(picks_changed),
-                    (procs::draw_procs, screen::update_proc_bars),
                 )
                     .run_if(in_state(GameState::Playing))
                     .run_if(gauntlet),
@@ -327,7 +318,6 @@ fn give_gauntlet_state(
         PendingOffer::default(),
         PlayerUnlocks(unlocked),
         Bought::default(),
-        procs::ProcCooldowns::default(),
     ));
 }
 
@@ -335,9 +325,6 @@ fn reset(mut commands: Commands) {
     commands.insert_resource(HeldPacts::default());
     commands.insert_resource(Gifts::default());
     commands.insert_resource(OfferWait::default());
-    commands.insert_resource(procs::Thinning::default());
-    commands.insert_resource(procs::ProcFlashes::default());
-    commands.insert_resource(procs::Landing::default());
 }
 
 /// The Round ended: every Player's Offer is due after its delay, and the Intermission waits for
@@ -415,7 +402,6 @@ fn open_offer(
             bought_quick_revive: bought.quick_revive,
             holds_upgraded: loadout.weapons().any(|weapon| weapon.upgraded),
             holds_ammo_mod: loadout.weapons().any(|weapon| !weapon.ammo_mods.is_empty()),
-            holds_proc_boon: held.0.iter().any(|(boon, _)| boon.proc.is_some()),
             unlocked: unlocks.0.clone(),
             unlock_all: unlock_all.0,
         };
@@ -871,23 +857,19 @@ fn reset_progress(mut file: ResMut<GauntletFile>) {
 }
 
 /// The Upgrade Tracks switched on give a Gauntlet Run's Player its entries, starting Points
-/// included, through Classic's `RunModifiers`, and the Run caps Turned allies at
-/// `GAUNTLET_TURNED_ALLY_CAP`. A Classic Run gets no entries and no cap.
+/// included, through Classic's `RunModifiers`. A Classic Run gets none.
 fn set_run_modifiers(
     mode: Res<Mode>,
     file: Res<GauntletFile>,
     mut run: ResMut<RunModifiers>,
     mut ranks: ResMut<ActiveRanks>,
-    mut cap: ResMut<TurnedAllyCap>,
 ) {
     if *mode == Mode::Gauntlet {
         run.0 = file.track_entries();
         ranks.0 = file.active_ranks();
-        *cap = TurnedAllyCap(Some(GAUNTLET_TURNED_ALLY_CAP));
     } else {
         run.0.clear();
         ranks.0 = 0;
-        *cap = TurnedAllyCap(None);
     }
 }
 
