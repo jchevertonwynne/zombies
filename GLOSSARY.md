@@ -48,7 +48,7 @@ _Avoid_: invulnerability, i-frames
 **Sapper**: A mini-boss on a counter of its own, not part of the Horde, that comes through a Barrier after a warning and walks to a system near the Player to Sabotage it, slamming any Player in its way.
 _Avoid_: saboteur, bruiser
 
-**Sabotage**: A Sapper putting a system out of action: the Mystery Box, a working Perk Machine other than Quick Revive, a Trap, the Teleporter or Pack-a-Punch. A Sabotaged system stays dead until a Player restores it for Points or the Sapper dies, which brings back everything it Sabotaged.
+**Sabotage**: A Sapper putting a system out of action: the Mystery Box, a working Perk Machine other than Quick Revive, a Trap, the Teleporter, a Swing Bridge's Levers or Pack-a-Punch. A Sabotaged system stays dead until a Player restores it for Points or the Sapper dies, which brings back everything it Sabotaged.
 
 **Intermission**: The short pause after a Round ends and before the next one begins spawning.
 
@@ -209,7 +209,8 @@ _Avoid_: perk-a-cola, buff
 
 **Power**: A state of the whole Map that starts off and, once turned on, stays on for the rest of the Run. Most Perk Machines, every Power Door, every Trap and every Jump Pad wait for it. A Map with Generators has no Power and no Power Switch.
 
-**Power Switch**: The lever that turns Power on. It is free to use.
+**Power Switch**: The switch on the wall that turns Power on. It is free to use.
+_Avoid_: Lever
 
 **Generator**: A Buyable machine that Powers its Section while it is Held. It starts Unclaimed, is Held once a Player Claims it, and is Lost if a Sapper takes it. Only the Dam has them.
 _Avoid_: power node, objective, capture point
@@ -257,6 +258,23 @@ _Avoid_: teleporter (for one pad), portal
 _Avoid_: core, hub
 
 **Link**: Joining a Teleporter Pad to the Mainframe, by activating the pad and then reaching the Mainframe in time. A Link lasts for the rest of the Run. Linking both pads opens the Door shutting the Gazebo, and Pack-a-Punch inside it, off from the rest of the Yard; that Door cannot be bought, and the Power alone doesn't open it.
+
+**Shifting**: Map geometry that moves between fixed Rests during a Run, changing which ways through are open: the Polder's Swing Bridges and Lock Gates. It joins nothing while it moves, and it never carries a Player.
+_Avoid_: moving platform, dynamic geometry
+
+**Rest**: One of the fixed places a piece of Shifting stands still in. Each Rest joins its own Zones, or none.
+_Avoid_: setting, position, state
+
+**Swing Bridge**: A bridge over a canal that turns about one end, between its Rests, when one of its Levers is pulled. Each Rest spans a different crossing, or lies along the bank and spans none. Only the Polder has them.
+_Avoid_: drawbridge, rotating bridge
+
+**Lever**: A Buyable at the end of a Swing Bridge that Swings it to its next Rest. It needs no Power. After a warning it waits while any Player is on the bridge or in its way, and once the Swing is done it needs a cooldown, shared by all of that bridge's Levers.
+_Avoid_: switch, crank, Power Switch
+
+**Swing**: One turn of a Swing Bridge from one Rest to the next. Every Zombie on the bridge or in its way as it starts is Tipped.
+
+**Tipped**: Thrown off a Swing Bridge into the canal as it starts to Swing. A Tipped Zombie or Hellhound dies as an Unpaid Kill, with no death effect of its own; a Tipped Sapper is hurt, and comes back at a fresh spawn point.
+_Avoid_: drowned, dunked, swept
 
 **Mode**: The ruleset a Run is played under: Classic or Gauntlet. Every Run has exactly one Mode, chosen before it starts and fixed for the whole Run.
 _Avoid_: game type, difficulty
