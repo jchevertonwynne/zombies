@@ -16,7 +16,7 @@ use crate::enemies::sapper::Sabotaged;
 use crate::enemies::target::half_height_above_feet;
 use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
-use crate::enemies::zombie::{Attack, DamageZombie, Dying, HitZone, Rising, Zombie};
+use crate::enemies::zombie::{Attack, DamageZombie, Dying, Heavyweight, HitZone, Rising, Zombie};
 use crate::maps::map::{DAM_X, MapId, QUARRY_X, STOREY, VILLAGE_X};
 use crate::maps::zone::ZoneId;
 
@@ -182,9 +182,16 @@ pub fn kill_delay(roll: f32) -> f32 {
     roll * TRAP_KILL_DELAY_MAX_SECS
 }
 
+/// A `Heavyweight`'s hit from one entry into a running Trap: its `share` of its max Health, and
+/// the stun.
+pub fn heavyweight_trap_hit(max_health: f32, share: f32) -> (f32, f32) {
+    (max_health * share, TRAP_SAPPER_STUN_SECS)
+}
+
 /// The Sapper's hit from one entry into a running Trap: damage from its max Health, and the stun.
+#[cfg(test)]
 pub fn sapper_trap_hit(max_health: f32) -> (f32, f32) {
-    (max_health * TRAP_SAPPER_HEALTH_FRACTION, TRAP_SAPPER_STUN_SECS)
+    heavyweight_trap_hit(max_health, crate::enemies::zombie::Heavyweight::SAPPER.trap_share)
 }
 
 /// Whether an upright capsule centred at `at`, `radius` round and `half_height` from its centre to
@@ -257,16 +264,11 @@ pub struct Shocked {
     left: f32,
 }
 
-/// A Zombie a Trap doesn't kill: the Sapper, which takes `sapper_trap_hit` once per entry instead.
-#[derive(Component)]
-pub struct ResistsTraps;
-
-/// A `ResistsTraps` Zombie inside a running Trap, so it's struck once per entry.
+/// A `Heavyweight` Zombie inside a running Trap, so it's struck once per entry.
 #[derive(Component)]
 struct InTrap;
 
-/// A running Trap struck a `ResistsTraps` Zombie as it entered. The Sapper slice applies
-/// `sapper_trap_hit`.
+/// A running Trap struck a `Heavyweight` Zombie as it entered, which takes `heavyweight_trap_hit`.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct TrapStruck {
     /// The Player whose Trap it was.
@@ -474,12 +476,12 @@ fn running_volumes<'a>(traps: impl IntoIterator<Item = (&'a Trap, &'a Transform)
         .collect()
 }
 
-/// A Zombie that touches a running Trap is electrocuted and dies a moment later. A Zombie that
-/// resists Traps is struck once each time it enters one instead.
+/// A Zombie that touches a running Trap is electrocuted and dies a moment later. A `Heavyweight`
+/// is struck once each time it enters one instead.
 fn shock_zombies(
     mut commands: Commands,
     zombies: Query<
-        (Entity, &Transform, Has<ResistsTraps>, Has<InTrap>),
+        (Entity, &Transform, Has<Heavyweight>, Has<InTrap>),
         (With<Zombie>, Without<Dying>, Without<Rising>, Without<Electrocuted>),
     >,
     traps: Query<(&Trap, &Transform)>,

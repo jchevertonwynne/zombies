@@ -15,7 +15,7 @@ use crate::players::player::LocalPlayer;
 use crate::state::{InRun, world_runs};
 use crate::tuning::*;
 use crate::weapons::weapon::Loadout;
-use crate::enemies::zombie::{Attack, DamageZombie, Dying, HitArea, HitZone, KnockDown, Zombie};
+use crate::enemies::zombie::{Attack, DamageZombie, Dying, Heavyweight, HitArea, HitZone, KnockDown, Zombie};
 
 /// The held Weapon fired a Thundergun blast, a Crossbow bolt or a Ballistic Knife blade, sent in
 /// a `Launch`.
@@ -136,7 +136,7 @@ fn fire_wonders(
     mut launches: MessageReader<Launch>,
     spatial: SpatialQuery,
     hit_areas: Query<(&HitArea, &ChildOf)>,
-    zombies: Query<(Entity, &GlobalTransform, &Zombie), Without<Dying>>,
+    zombies: Query<(Entity, &GlobalTransform, Has<Heavyweight>), (With<Zombie>, Without<Dying>)>,
     mut damage: MessageWriter<DamageZombie>,
     mut knock_downs: MessageWriter<KnockDown>,
     assets: Res<WonderAssets>,
@@ -149,13 +149,13 @@ fn fire_wonders(
         let filter = SpatialQueryFilter::from_mask([GameLayer::World, GameLayer::ZombieHitArea])
             .with_excluded_entities([player]);
         if shot.stats.class == WeaponClass::Thundergun {
-            for (zombie, transform, body) in &zombies {
+            for (zombie, transform, heavyweight) in &zombies {
                 let centre = transform.translation();
                 let Some(mut blast) = thundergun_reach(shot.origin, shot.direction, centre).and_then(thundergun_blast)
                 else {
                     continue;
                 };
-                if body.is_sapper() {
+                if heavyweight {
                     blast = Blast::KnockDown;
                 }
                 if !in_sight(&spatial, shot.origin, centre) {

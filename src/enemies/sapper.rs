@@ -36,11 +36,11 @@ use crate::run::round::{CarriesOver, Round, RoundPhase, zombie_health};
 use crate::storage::settings::Settings;
 use crate::enemies::special::{SpecialCue, SpecialKind, special_spawn_at};
 use crate::state::{GameState, InRun, world_runs};
-use crate::maps::teleporter::{PadId, ResistsTeleporter, Teleporter, mainframe_use_point};
-use crate::maps::trap::{ResistsTraps, Trap, TrapStruck, sapper_trap_hit};
+use crate::maps::teleporter::{PadId, Teleporter, mainframe_use_point};
+use crate::maps::trap::{Trap, TrapStruck, heavyweight_trap_hit};
 use crate::tuning::*;
 use crate::enemies::zombie::{
-    Attack, DamageZombie, Dying, HitArea, HitZone, Pay, Rising, Seeking, SpeedTier, StunZombie,
+    Attack, DamageZombie, Dying, Heavyweight, HitArea, HitZone, Pay, Rising, Seeking, SpeedTier, StunZombie,
     Stunned, Zombie, ZombieAssetsParam, apply_damage, spawn_zombie,
 };
 use crate::maps::zone::{ActiveZones, ZoneId, ZoneSet};
@@ -544,8 +544,7 @@ fn spawn_sapper(
         Sapper::new(point),
         Entering::new(barrier),
         CarriesOver,
-        ResistsTraps,
-        ResistsTeleporter,
+        Heavyweight::SAPPER,
         MeshMaterial3d(assets.armour.clone()),
     ));
     // Every Plank off in one blow.
@@ -597,18 +596,18 @@ fn dress_sappers(
     }
 }
 
-/// A running Trap takes a share of the Sapper's max health once per entry, and stuns it.
+/// A running Trap takes a `Heavyweight`'s trap share of its max health once per entry, and stuns it.
 fn trap_hits(
     mut struck: MessageReader<TrapStruck>,
-    sappers: Query<&Zombie, (With<Sapper>, Without<Dying>)>,
+    heavyweights: Query<(&Zombie, &Heavyweight), Without<Dying>>,
     mut damage: MessageWriter<DamageZombie>,
     mut stuns: MessageWriter<StunZombie>,
 ) {
     for &TrapStruck { player, zombie } in struck.read() {
-        let Ok(body) = sappers.get(zombie) else {
+        let Ok((body, shares)) = heavyweights.get(zombie) else {
             continue;
         };
-        let (amount, secs) = sapper_trap_hit(body.max_health());
+        let (amount, secs) = heavyweight_trap_hit(body.max_health(), shares.trap_share);
         damage.write(DamageZombie {
             player,
             zombie,
