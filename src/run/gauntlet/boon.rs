@@ -148,6 +148,8 @@ pub struct RunFacts {
     pub unlocked: Vec<String>,
     /// Every Boon and Pact counts as Unlocked (the F9 debug key).
     pub unlock_all: bool,
+    /// The Family of the Kit the Run started with, which Offers lean toward. No Kits yet.
+    pub kit: Option<Family>,
 }
 
 pub struct BoonDef {
@@ -897,6 +899,22 @@ pub fn offer_weight(rarity: Rarity, stacks: u32) -> f64 {
     rarity.weight() * BOON_STACK_WEIGHT_FACTOR.powf(f64::from(stacks))
 }
 
+/// A Family's Offer bias: ×`GAUNTLET_FAMILY_BIAS_FACTOR` per distinct held Boon of that Family,
+/// plus one more for a matching Kit, capped at `GAUNTLET_FAMILY_BIAS_CAP`.
+pub fn family_bias(held_in_family: u32, kit_matches: bool) -> f64 {
+    let k = held_in_family.saturating_add(u32::from(kit_matches));
+    GAUNTLET_FAMILY_BIAS_FACTOR
+        .powf(f64::from(k))
+        .min(GAUNTLET_FAMILY_BIAS_CAP)
+}
+
+impl HeldBoons {
+    /// Distinct Boons held of `family`: Stacks of one Boon count once.
+    pub fn in_family(&self, family: Family) -> u32 {
+        self.0.iter().filter(|(boon, _)| boon.family == family).count() as u32
+    }
+}
+
 /// Whether a Boon can be on an Offer: Unlocked, with its Requirement holding now.
 pub fn eligible(boon: &BoonDef, run: &RunFacts) -> bool {
     (boon.starts_unlocked || run.unlock_all || run.unlocked.iter().any(|id| id == boon.id))
@@ -928,8 +946,8 @@ pub fn draw<T>(mut pool: Vec<(T, f64)>, size: usize, mut roll: impl FnMut(f64) -
     drawn
 }
 
-/// A Boon Offer: up to `BOON_OFFER_SIZE` distinct eligible Boons from `table`, weighted by Rarity
-/// and Stacks held. Empty means no Offer.
+/// A Boon Offer: up to `BOON_OFFER_SIZE` distinct eligible Boons from `table`, weighted by Rarity,
+/// Stacks held and the Family bias. Empty means no Offer.
 pub fn draw_offer(
     table: &'static [BoonDef],
     held: &HeldBoons,
@@ -939,7 +957,10 @@ pub fn draw_offer(
     let pool = table
         .iter()
         .filter(|boon| eligible(boon, run))
-        .map(|boon| (boon, offer_weight(boon.rarity, held.stacks(boon.id))))
+        .map(|boon| {
+            let bias = family_bias(held.in_family(boon.family), run.kit == Some(boon.family));
+            (boon, offer_weight(boon.rarity, held.stacks(boon.id)) * bias)
+        })
         .collect();
     draw(pool, BOON_OFFER_SIZE, roll)
 }
@@ -1131,7 +1152,58 @@ mod tests {
             first_total.get_or_insert(total);
             0.0
         });
-        assert!(close(first_total.unwrap(), 60.0 * 0.98 * 0.98 + 30.0));
+        // Both test Boons are Lead, so the one held Lead Boon leans both ×1.5 as well.
+        assert!(close(first_total.unwrap(), (60.0 * 0.98 * 0.98 + 30.0) * 1.5));
+    }
+
+    #[test]
+    fn the_family_bias_grows_half_again_per_distinct_held_boon_capped_at_three() {
+        assert!(close(family_bias(0, false), 1.0));
+        assert!(close(family_bias(1, false), 1.5));
+        assert!(close(family_bias(2, false), 2.25));
+        assert!(close(family_bias(3, false), 3.0), "1.5³ is past the cap");
+        assert!(close(family_bias(40, false), 3.0));
+    }
+
+    #[test]
+    fn a_matching_kit_counts_as_one_more_held_boon_in_the_bias() {
+        assert!(close(family_bias(0, true), 1.5));
+        assert!(close(family_bias(1, true), 2.25));
+        assert!(close(family_bias(2, true), 3.0));
+    }
+
+    const fn in_family(id: &'static str, family: Family) -> BoonDef {
+        BoonDef { family, ..test_boon(id, Rarity::Common, true, &[]) }
+    }
+
+    const FAMILIES: &[BoonDef] = &[
+        in_family("lead_a", Family::Lead),
+        in_family("lead_b", Family::Lead),
+        in_family("blade", Family::Blade),
+        in_family("gold", Family::Gold),
+    ];
+
+    #[test]
+    fn offers_lean_toward_families_already_held_counting_each_boon_once() {
+        let mut held = HeldBoons::default();
+        // Two Stacks of one Lead Boon count as one distinct Lead Boon.
+        held.add(&FAMILIES[0]);
+        held.add(&FAMILIES[0]);
+        let first_total = |held: &HeldBoons, kit| {
+            let run = RunFacts { kit, ..default() };
+            let mut first = None;
+            draw_offer(FAMILIES, held, &run, |total| {
+                first.get_or_insert(total);
+                0.0
+            });
+            first.unwrap()
+        };
+        let lead = 1.5;
+        let expected = 60.0 * 0.98 * 0.98 * lead + 60.0 * lead + 60.0 + 60.0;
+        assert!(close(first_total(&held, None), expected));
+        // A Blade Kit leans the Blade Boon too.
+        let with_kit = expected - 60.0 + 60.0 * 1.5;
+        assert!(close(first_total(&held, Some(Family::Blade)), with_kit));
     }
 
     #[test]
@@ -1561,6 +1633,7 @@ mod tests {
             holds_proc_boon: true,
             unlocked: Vec::new(),
             unlock_all: true,
+            kit: None,
         }
     }
 

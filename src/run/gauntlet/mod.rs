@@ -418,6 +418,7 @@ fn open_offer(
             holds_proc_boon: held.0.iter().any(|(boon, _)| boon.proc.is_some()),
             unlocked: unlocks.0.clone(),
             unlock_all: unlock_all.0,
+            kit: None,
         };
         let roll = |total| rand::random_range(0.0..total);
         let pact_choices = if is_pact_round(round) {

@@ -2264,6 +2264,10 @@ pub const GAUNTLET_FAMILY_COLOURS: [[u8; 3]; 6] = [
     [0xD4, 0xAF, 0x37],
     [0xA3, 0x20, 0x1E],
 ];
+/// Offer bias: a Boon's weight is ×this per distinct held Boon of its Family (and once more for a
+/// matching Kit), up to `GAUNTLET_FAMILY_BIAS_CAP`.
+pub const GAUNTLET_FAMILY_BIAS_FACTOR: f64 = 1.5;
+pub const GAUNTLET_FAMILY_BIAS_CAP: f64 = 3.0;
 /// A Proc's Family-coloured accent ring lasts this long; so does a Blast's sphere.
 pub const GAUNTLET_PROC_ACCENT_SECS: f32 = 0.25;
 /// A Proc borrowing an Ammo Mod's cue plays it at this pitch and share of its volume.
