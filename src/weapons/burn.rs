@@ -8,6 +8,7 @@ use crate::weapons::arsenal::Burn;
 use crate::authority::HostSimulation;
 use crate::state::world_runs;
 use crate::enemies::zombie::{Attack, DamageZombie, Dying, HitZone, Zombie};
+use crate::modifier::{Modifier, Modifiers, Stat, resolve};
 
 /// Set a Zombie alight. `burn.damage` is already resolved through the stat-modifier seam.
 #[derive(Message)]
@@ -71,6 +72,11 @@ impl Burning {
     }
 }
 
+/// How many times faster the burns a Player sets come, after their `Stat::BurnSpeed` entries.
+pub fn burn_speed(player: &[Modifier]) -> f32 {
+    resolve(Stat::BurnSpeed, 1.0, player)
+}
+
 pub struct BurnPlugin;
 
 impl Plugin for BurnPlugin {
@@ -99,11 +105,17 @@ fn ignite(
 fn burn(
     mut commands: Commands,
     mut burning: Query<(Entity, &mut Burning, Has<Dying>)>,
+    players: Query<&Modifiers>,
     mut damage: MessageWriter<DamageZombie>,
     time: Res<Time>,
 ) {
     for (zombie, mut burning, dying) in &mut burning {
-        let due = if dying { 0.0 } else { burning.advance(time.delta_secs()) };
+        // The Player who set it alight decides how fast it ticks.
+        let speed = burning
+            .player
+            .and_then(|player| players.get(player).ok())
+            .map_or(1.0, |modifiers| burn_speed(&modifiers.0));
+        let due = if dying { 0.0 } else { burning.advance(time.delta_secs() * speed) };
         if due > 0.0 {
             damage.write(DamageZombie {
                 player: burning.player,

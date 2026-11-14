@@ -43,8 +43,7 @@ impl Rarity {
     }
 }
 
-/// The six Families every Boon will belong to. For now only Proc Boons name theirs, for the colour
-/// of their accent ring.
+/// The six Families: every Boon belongs to exactly one. Pacts are in none.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Family {
     Lead,
@@ -56,6 +55,19 @@ pub enum Family {
 }
 
 impl Family {
+    pub const ALL: [Family; 6] = [Family::Lead, Family::Blade, Family::Spark, Family::Ember, Family::Gold, Family::Grit];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Family::Lead => "Lead",
+            Family::Blade => "Blade",
+            Family::Spark => "Spark",
+            Family::Ember => "Ember",
+            Family::Gold => "Gold",
+            Family::Grit => "Grit",
+        }
+    }
+
     pub fn colour(self) -> Color {
         let [r, g, b] = GAUNTLET_FAMILY_COLOURS[self as usize];
         Color::srgb_u8(r, g, b)
@@ -142,6 +154,8 @@ pub struct BoonDef {
     /// The stable ID used in save files and Run Records. The display name can change.
     pub id: &'static str,
     pub name: &'static str,
+    /// The one Family it belongs to.
+    pub family: Family,
     pub rarity: Rarity,
     /// Unlocked from the first launch rather than bought in the Armory.
     pub starts_unlocked: bool,
@@ -188,6 +202,7 @@ fn plural(n: u64, one: &str, many: &str) -> String {
 const fn common(
     id: &'static str,
     name: &'static str,
+    family: Family,
     requirements: &'static [Requirement],
     per_stack: &'static [(Stat, Effect)],
     effect: fn(u32) -> String,
@@ -195,6 +210,7 @@ const fn common(
     BoonDef {
         id,
         name,
+        family,
         rarity: Rarity::Common,
         starts_unlocked: true,
         requirements,
@@ -208,6 +224,7 @@ const fn common(
 const fn rare(
     id: &'static str,
     name: &'static str,
+    family: Family,
     starts_unlocked: bool,
     requirements: &'static [Requirement],
     per_stack: &'static [(Stat, Effect)],
@@ -216,6 +233,7 @@ const fn rare(
     BoonDef {
         id,
         name,
+        family,
         rarity: Rarity::Rare,
         starts_unlocked,
         requirements,
@@ -229,6 +247,7 @@ const fn rare(
 const fn legendary(
     id: &'static str,
     name: &'static str,
+    family: Family,
     requirements: &'static [Requirement],
     per_stack: &'static [(Stat, Effect)],
     effect: fn(u32) -> String,
@@ -236,6 +255,7 @@ const fn legendary(
     BoonDef {
         id,
         name,
+        family,
         rarity: Rarity::Legendary,
         starts_unlocked: false,
         requirements,
@@ -256,6 +276,7 @@ const fn proc_boon(
     BoonDef {
         id,
         name,
+        family: proc.family,
         rarity,
         starts_unlocked: false,
         requirements: &[],
@@ -281,13 +302,13 @@ fn proc_chance(def: &ProcDef) -> String {
 
 /// Every Boon.
 pub const BOONS: &[BoonDef] = &[
-    common(BLOOD_MONEY, "Blood Money", &[], &[], |n| {
+    common(BLOOD_MONEY, "Blood Money", Family::Gold, &[], &[], |n| {
         let points = BOON_BLOOD_MONEY_POINTS_PER_KILL.saturating_mul(n.into());
         format!("+{points} Points per kill")
     }),
     common(
         "hollow_points",
-        "Hollow Points",
+        "Hollow Points", Family::Lead,
         &[],
         &[(
             Stat::Damage,
@@ -302,7 +323,7 @@ pub const BOONS: &[BoonDef] = &[
     ),
     common(
         "marksmans_eye",
-        "Marksman's Eye",
+        "Marksman's Eye", Family::Lead,
         &[],
         &[(
             Stat::HeadshotMultiplier,
@@ -315,7 +336,7 @@ pub const BOONS: &[BoonDef] = &[
     ),
     common(
         "full_belt",
-        "Full Belt",
+        "Full Belt", Family::Lead,
         &[Requirement::NotPact(ENDLESS_BELT)],
         &[(
             Stat::MagazineSize,
@@ -330,7 +351,7 @@ pub const BOONS: &[BoonDef] = &[
     ),
     common(
         "stripper_clips",
-        "Stripper Clips",
+        "Stripper Clips", Family::Lead,
         &[Requirement::NotPact(ENDLESS_BELT)],
         &[(
             Stat::MagazinePerKill,
@@ -346,7 +367,7 @@ pub const BOONS: &[BoonDef] = &[
     ),
     common(
         "light_feet",
-        "Light Feet",
+        "Light Feet", Family::Blade,
         &[],
         &[(
             Stat::MoveSpeed,
@@ -361,7 +382,7 @@ pub const BOONS: &[BoonDef] = &[
     ),
     common(
         "second_wind",
-        "Second Wind",
+        "Second Wind", Family::Grit,
         &[],
         &[(
             Stat::HealthRegenDelay,
@@ -374,12 +395,12 @@ pub const BOONS: &[BoonDef] = &[
             )
         },
     ),
-    common(TEDDYS_TITHE, "Teddy's Tithe", &[], &[], |n| {
+    common(TEDDYS_TITHE, "Teddy's Tithe", Family::Gold, &[], &[], |n| {
         format!("a Teddy Bear also pays +{} Points", teddys_tithe_points(n))
     }),
     common(
         "bottomless_cup",
-        "Bottomless Cup",
+        "Bottomless Cup", Family::Gold,
         &[Requirement::NotPact(OPEN_BAR)],
         &[(
             Stat::PerkPrice,
@@ -394,7 +415,7 @@ pub const BOONS: &[BoonDef] = &[
     ),
     common(
         "long_fuse",
-        "Long Fuse",
+        "Long Fuse", Family::Gold,
         &[],
         &[(
             Stat::PowerUpDuration,
@@ -407,7 +428,7 @@ pub const BOONS: &[BoonDef] = &[
     ),
     common(
         "scrounger",
-        "Scrounger",
+        "Scrounger", Family::Gold,
         &[],
         &[(
             Stat::PowerUpsPerRound,
@@ -420,7 +441,7 @@ pub const BOONS: &[BoonDef] = &[
     ),
     common(
         "short_circuit",
-        "Short Circuit",
+        "Short Circuit", Family::Spark,
         &[Requirement::PowerOn, Requirement::NotPact(LIGHTNING_ROD)],
         &[(
             Stat::TrapCooldown,
@@ -435,7 +456,7 @@ pub const BOONS: &[BoonDef] = &[
     ),
     common(
         "union_rates",
-        "Union Rates",
+        "Union Rates", Family::Grit,
         &[],
         &[
             (
@@ -455,7 +476,7 @@ pub const BOONS: &[BoonDef] = &[
     ),
     common(
         "trench_raider",
-        "Trench Raider",
+        "Trench Raider", Family::Blade,
         &[Requirement::NotPact(COLD_STEEL)],
         &[(
             Stat::KnifeDamage,
@@ -470,7 +491,7 @@ pub const BOONS: &[BoonDef] = &[
     ),
     common(
         "bandolier",
-        "Bandolier",
+        "Bandolier", Family::Ember,
         &[],
         &[
             (
@@ -490,13 +511,56 @@ pub const BOONS: &[BoonDef] = &[
             )
         },
     ),
-    rare(WAR_BONDS, "War Bonds", true, &[], &[], |n| {
+    common(
+        "long_arm",
+        "Long Arm",
+        Family::Blade,
+        &[],
+        &[(Stat::KnifeRange, Effect::Flat(BOON_LONG_ARM_KNIFE_RANGE_M))],
+        |n| {
+            let metres = f64::from(BOON_LONG_ARM_KNIFE_RANGE_M) * f64::from(n);
+            format!("+{metres:.2} m Knife range")
+        },
+    ),
+    common(
+        "kindling",
+        "Kindling",
+        Family::Ember,
+        &[],
+        &[(
+            Stat::FireRadius,
+            Effect::Mult(1.0 + BOON_KINDLING_FIRE_RADIUS_INCREASE),
+        )],
+        |n| {
+            format!(
+                "+{}% radius of every fire Effect",
+                percent(BOON_KINDLING_FIRE_RADIUS_INCREASE, n)
+            )
+        },
+    ),
+    common(
+        "black_powder",
+        "Black Powder",
+        Family::Ember,
+        &[],
+        &[(
+            Stat::EquipmentRadius,
+            Effect::Mult(1.0 + BOON_BLACK_POWDER_RADIUS_INCREASE),
+        )],
+        |n| {
+            format!(
+                "+{}% explosive Equipment blast radius",
+                percent(BOON_BLACK_POWDER_RADIUS_INCREASE, n)
+            )
+        },
+    ),
+    rare(WAR_BONDS, "War Bonds", Family::Gold, true, &[], &[], |n| {
         let points = BOON_WAR_BONDS_POINTS_PER_ROUND.saturating_mul(n.into());
         format!("at Round end, +{points} x Round number Points")
     }),
     common(
         "loaded_dice",
-        "Loaded Dice",
+        "Loaded Dice", Family::Gold,
         &[Requirement::UsedBox],
         &[(
             Stat::BoxFreeSpinChance,
@@ -511,7 +575,7 @@ pub const BOONS: &[BoonDef] = &[
     ),
     common(
         "field_engineer",
-        "Field Engineer",
+        "Field Engineer", Family::Spark,
         &[Requirement::PowerOn],
         &[(
             Stat::PackAPunchPrice,
@@ -526,7 +590,7 @@ pub const BOONS: &[BoonDef] = &[
     ),
     rare(
         LIVE_WIRE,
-        "Live Wire",
+        "Live Wire", Family::Spark,
         false,
         &[Requirement::HoldsAmmoModOrProc, Requirement::NotPact(OVERCLOCKED)],
         // Proc cooldowns read its Stacks themselves (`procs::proc_cooldown`).
@@ -543,7 +607,7 @@ pub const BOONS: &[BoonDef] = &[
     ),
     common(
         "iron_stomach",
-        "Iron Stomach",
+        "Iron Stomach", Family::Grit,
         &[Requirement::NotPact(OPEN_BAR)],
         &[(
             Stat::PerksKeptOnDown,
@@ -559,7 +623,7 @@ pub const BOONS: &[BoonDef] = &[
     ),
     common(
         "last_rites",
-        "Last Rites",
+        "Last Rites", Family::Grit,
         &[Requirement::BoughtQuickRevive],
         &[(
             Stat::QuickReviveBuys,
@@ -573,12 +637,12 @@ pub const BOONS: &[BoonDef] = &[
             )
         },
     ),
-    common(BOUNTY, "Bounty", &[Requirement::PowerOn], &[], |n| {
+    common(BOUNTY, "Bounty", Family::Spark, &[Requirement::PowerOn], &[], |n| {
         format!("Trap kills pay {} Points", bounty_points(Attack::Trap, n))
     }),
     rare(
         "barbed_wire",
-        "Barbed Wire",
+        "Barbed Wire", Family::Grit,
         true,
         &[],
         &[(
@@ -592,7 +656,7 @@ pub const BOONS: &[BoonDef] = &[
             )
         },
     ),
-    common(BUTCHERS_BILL, "Butcher's Bill", &[], &[], |n| {
+    common(BUTCHERS_BILL, "Butcher's Bill", Family::Blade, &[], &[], |n| {
         format!(
             "{}% chance a Knife kill drops a Power-up, outside the per-Round max",
             chance_percent(BOON_BUTCHERS_BILL_DROP_CHANCE, n)
@@ -600,7 +664,7 @@ pub const BOONS: &[BoonDef] = &[
     }),
     rare(
         "shrapnel",
-        "Shrapnel",
+        "Shrapnel", Family::Ember,
         true,
         &[],
         &[
@@ -623,7 +687,7 @@ pub const BOONS: &[BoonDef] = &[
     ),
     legendary(
         "third_hand",
-        "Third Hand",
+        "Third Hand", Family::Lead,
         &[],
         &[(
             Stat::WeaponSlots,
@@ -639,7 +703,7 @@ pub const BOONS: &[BoonDef] = &[
     ),
     legendary(
         "through_and_through",
-        "Through and Through",
+        "Through and Through", Family::Lead,
         &[],
         &[(
             Stat::Penetration,
@@ -653,7 +717,7 @@ pub const BOONS: &[BoonDef] = &[
     ),
     legendary(
         "black_market",
-        "Black Market",
+        "Black Market", Family::Spark,
         &[Requirement::PowerOn],
         &[(
             Stat::BoxUpgradeChance,
@@ -668,7 +732,7 @@ pub const BOONS: &[BoonDef] = &[
     ),
     legendary(
         "double_punched",
-        "Double-Punched",
+        "Double-Punched", Family::Spark,
         &[Requirement::HoldsUpgraded],
         &[(
             Stat::AmmoModSlots,
@@ -682,7 +746,7 @@ pub const BOONS: &[BoonDef] = &[
             )
         },
     ),
-    legendary(LUCKY_STRIKE, "Lucky Strike", &[], &[], |n| {
+    legendary(LUCKY_STRIKE, "Lucky Strike", Family::Gold, &[], &[], |n| {
         format!(
             "{}% chance that picking up a Power-up also gives a random different one",
             chance_percent(BOON_LUCKY_STRIKE_CHANCE, n)
@@ -974,6 +1038,7 @@ mod tests {
         BoonDef {
             id,
             name: id,
+            family: Family::Lead,
             rarity,
             starts_unlocked,
             requirements,
@@ -1374,6 +1439,10 @@ mod tests {
             "last_rites",
             BOUNTY,
             BUTCHERS_BILL,
+            // New in spec #182.
+            "long_arm",
+            "kindling",
+            "black_powder",
         ];
         for id in ids {
             let boon = named(id);
@@ -1385,7 +1454,7 @@ mod tests {
             .iter()
             .filter(|boon| boon.rarity == Rarity::Common)
             .count();
-        assert_eq!(commons, 21);
+        assert_eq!(commons, 24);
     }
 
     #[test]
@@ -1415,13 +1484,13 @@ mod tests {
                 .map(|boon| boon.id)
                 .collect::<Vec<_>>()
         };
-        // The 21 Commons but Loaded Dice and Last Rites (their Requirements don't hold), plus the
+        // The 24 Commons but Loaded Dice and Last Rites (their Requirements don't hold), plus the
         // three Rares Unlocked from the start.
-        assert_eq!(offered(vec![]).len(), 22);
+        assert_eq!(offered(vec![]).len(), 25);
         let without = offered(vec![ENDLESS_BELT.id]);
         assert!(!without.contains(&"full_belt"));
         assert!(!without.contains(&"stripper_clips"));
-        assert_eq!(without.len(), 20);
+        assert_eq!(without.len(), 23);
         assert!(!offered(vec![OPEN_BAR.id]).contains(&"bottomless_cup"));
         assert!(!offered(vec![COLD_STEEL.id]).contains(&"trench_raider"));
     }
@@ -1585,7 +1654,7 @@ mod tests {
                 .iter()
                 .filter(|boon| eligible(boon, &everything()))
                 .count(),
-            42
+            45
         );
     }
 
@@ -1902,5 +1971,59 @@ mod tests {
             line("raise_the_dead", 1),
             "10% chance a Headshot kill raises 1 Turned Zombie (at most 3 allies) (5 s cooldown)"
         );
+    }
+
+    #[test]
+    fn every_boon_is_in_its_family_from_appendix_a() {
+        use Family::*;
+        let families = [
+            (Lead, &["hollow_points", "marksmans_eye", "full_belt", "stripper_clips", "parting_shot", "through_and_through", "third_hand", "firing_squad"][..]),
+            (Blade, &["trench_raider", BUTCHERS_BILL, "light_feet", "long_arm", "frostbite", "elbow_room", "static_discharge"]),
+            (Spark, &["short_circuit", "field_engineer", BOUNTY, LIVE_WIRE, "arc_light", "double_punched", "black_market"]),
+            (Ember, &["bandolier", "kindling", "black_powder", "shrapnel", "hot_brass", "firebrand", "wildfire"]),
+            (Gold, &[BLOOD_MONEY, TEDDYS_TITHE, "bottomless_cup", "loaded_dice", "long_fuse", "scrounger", WAR_BONDS, "spoils_of_war", LUCKY_STRIKE]),
+            (Grit, &["second_wind", "iron_stomach", "last_rites", "union_rates", "barbed_wire", "turncoat", "raise_the_dead"]),
+        ];
+        let mut listed = 0;
+        for (family, ids) in families {
+            for id in ids {
+                assert_eq!(named(id).family, family, "{id}");
+            }
+            assert!(ids.len() >= 7, "{family:?} has at least 7");
+            listed += ids.len();
+        }
+        assert_eq!(listed, 45);
+        assert_eq!(BOONS.len(), 45, "every Boon has a Family");
+    }
+
+    #[test]
+    fn a_proc_boons_accent_is_its_own_family() {
+        for boon in BOONS {
+            if let Some(proc) = boon.proc {
+                assert_eq!(proc.family, boon.family, "{}", boon.id);
+            }
+        }
+    }
+
+    #[test]
+    fn long_arm_adds_a_quarter_metre_of_knife_range_per_stack() {
+        use crate::weapons::weapon::knife_range;
+        assert!(close32(knife_range(&entries("long_arm", 1)), 1.85));
+        assert!(close32(knife_range(&entries("long_arm", 3)), 2.35));
+    }
+
+    #[test]
+    fn kindling_adds_a_tenth_to_every_fire_radius_per_stack() {
+        use crate::weapons::ammo_mod::fire_radius;
+        assert!(close32(fire_radius(2.5, &entries("kindling", 1)), 2.75));
+        assert!(close32(fire_radius(2.5, &entries("kindling", 3)), 3.25));
+    }
+
+    #[test]
+    fn black_powder_adds_fifteen_percent_blast_radius_per_stack() {
+        use crate::weapons::equipment::equipment_splash;
+        let two = equipment_splash(FRAG_SPLASH, &entries("black_powder", 2));
+        assert!(close32(two.radius, FRAG_SPLASH.radius * 1.3));
+        assert!(close32(two.max, FRAG_SPLASH.max), "radius only");
     }
 }
