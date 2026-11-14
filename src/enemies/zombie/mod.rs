@@ -11,6 +11,7 @@ use crate::modifier::{Source, Stat, resolve};
 use crate::maps::barrier::{Barriers, Entering};
 use crate::maps::map::{BarrierId, MapId};
 use crate::maps::zone::ZoneId;
+use crate::weapons::ammo_mod::TurnedAlly;
 use crate::weapons::explosive::in_sight;
 use crate::enemies::hellhound::Telegraph;
 use crate::enemies::nav::{NavGraph, Route, floor_ledge, repath_interval};
@@ -234,6 +235,14 @@ pub struct ZombieHit {
     /// Whether the hit pays hit Points: a Napalm's or the Sapper's never do, a Shrieker's every 2nd.
     pub pays: bool,
     pub headshot: bool,
+}
+
+/// A Zombie's swing landed on a Turned ally. The ally takes no harm from it.
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TurnedAllyHit {
+    pub ally: Entity,
+    /// The Zombie that swung.
+    pub by: Entity,
 }
 
 /// An explosion blew a Zombie's legs off: it becomes a Crawler.
@@ -632,6 +641,7 @@ impl Plugin for ZombiePlugin {
             .add_message::<ZombieCleanedUp>()
             .add_message::<KnockDown>()
             .add_message::<Gibbed>()
+            .add_message::<TurnedAllyHit>()
             .add_systems(Startup, load_assets)
             .configure_sets(
                 RunFixedMainLoop,
@@ -1229,10 +1239,11 @@ impl ZombieMelee<'_, '_> {
 /// Zombies inside swipe the Player in reach, Hellhounds bite, and the Sapper slams the Player in
 /// the arc in front of it, all only with a clear line to the Player: a wall or a closed Door
 /// stops a swipe and its wind-up. Those outside a window reach through it instead (see the
-/// Barriers).
+/// Barriers). With no Player in reach, a Zombie swings the same way at a Turned ally in reach
+/// (ADR 0008): the swing lands as `TurnedAllyHit` and hurts nothing.
 fn attack(
     mut zombies: Query<
-        (&mut Zombie, &Transform, Option<&Route>),
+        (Entity, &mut Zombie, &Transform, Option<&Route>),
         (
             Without<Dying>,
             Without<Rising>,
@@ -1243,13 +1254,15 @@ fn attack(
         ),
     >,
     players: Players,
+    allies: Query<(Entity, &Transform), (With<TurnedAlly>, Without<Zombie>)>,
     spatial: SpatialQuery,
     mut melee: ZombieMelee,
+    mut ally_hits: MessageWriter<TurnedAllyHit>,
     mut cues: MessageWriter<SpecialCue>,
     time: Res<Time>,
 ) {
     let dt = time.delta_secs();
-    for (mut zombie, transform, route) in &mut zombies {
+    for (entity, mut zombie, transform, route) in &mut zombies {
         let Some(player) = players.target_of(route.and_then(|route| route.target), transform.translation) else {
             continue;
         };
@@ -1264,10 +1277,25 @@ fn attack(
         // the sight ray aims at the Player's feet + `SWIPE_CHEST_HEIGHT` — standing chest height —
         // whatever their Stance, so knee-high cover never shields a Player from a swipe, but a
         // wall does.
-        let in_reach = horizontal(player.centre - transform.translation).length() <= reach
-            && (player.centre.y - transform.translation.y).abs() < 1.5
-            && (!zombie.is_sapper() || slam_reaches(transform.translation, *transform.forward(), player.centre))
-            && in_sight(&spatial, transform.translation, player.feet + Vec3::Y * SWIPE_CHEST_HEIGHT);
+        let reaches = |centre: Vec3, aim: Vec3| {
+            horizontal(centre - transform.translation).length() <= reach
+                && (centre.y - transform.translation.y).abs() < 1.5
+                && (!zombie.is_sapper() || slam_reaches(transform.translation, *transform.forward(), centre))
+                && in_sight(&spatial, transform.translation, aim)
+        };
+        let in_reach = reaches(player.centre, player.feet + Vec3::Y * SWIPE_CHEST_HEIGHT);
+        // The Player comes first; otherwise the nearest Turned ally in reach takes the swing.
+        let ally = (!in_reach)
+            .then(|| {
+                allies
+                    .iter()
+                    .filter(|(_, ally)| reaches(ally.translation, ally.translation))
+                    .min_by(|(_, a), (_, b)| {
+                        a.translation.distance(transform.translation).total_cmp(&b.translation.distance(transform.translation))
+                    })
+                    .map(|(ally, _)| ally)
+            })
+            .flatten();
         let at = Some(transform.translation);
         zombie.attack_cooldown = (zombie.attack_cooldown - dt).max(0.0);
 
@@ -1285,20 +1313,19 @@ fn attack(
                     melee.strike(player.entity, damage, transform.translation);
                     // The Sapper's slam has its own sound, above.
                     if !zombie.is_sapper() {
-                        let cue = if zombie.hellhound {
-                            Cue::HoundBite
-                        } else if zombie.nova {
-                            Cue::NovaAttack
-                        } else {
-                            Cue::ZombieAttack
-                        };
-                        cues.write(SpecialCue { cue, at });
+                        cues.write(SpecialCue { cue: swing_cue(&zombie), at });
+                    }
+                    zombie.attack_cooldown = cooldown;
+                } else if let Some(ally) = ally {
+                    ally_hits.write(TurnedAllyHit { ally, by: entity });
+                    if !zombie.is_sapper() {
+                        cues.write(SpecialCue { cue: swing_cue(&zombie), at });
                     }
                     zombie.attack_cooldown = cooldown;
                 }
             }
             Some(left) => zombie.wind_up = Some(left - dt),
-            None if in_reach && zombie.attack_cooldown <= 0.0 => {
+            None if (in_reach || ally.is_some()) && zombie.attack_cooldown <= 0.0 => {
                 zombie.wind_up = Some(wind_up);
                 if zombie.is_sapper() {
                     cues.write(SpecialCue { cue: Cue::SapperWindup, at });
@@ -1306,6 +1333,17 @@ fn attack(
             }
             None => {}
         }
+    }
+}
+
+/// The sound of a landed swipe or bite.
+fn swing_cue(zombie: &Zombie) -> Cue {
+    if zombie.hellhound {
+        Cue::HoundBite
+    } else if zombie.nova {
+        Cue::NovaAttack
+    } else {
+        Cue::ZombieAttack
     }
 }
 
@@ -2008,6 +2046,41 @@ mod tests {
         cover_between(&mut sim, 2.5);
         let hits = swipes_at(sim, 3.0);
         assert!(hits.is_empty(), "a swipe crossed a full-height wall");
+    }
+
+    /// A Zombie far from the stand-in Player, with a Turned ally standing in its reach.
+    fn zombie_beside_an_ally() -> (headless::Sim, Entity, Entity) {
+        use crate::weapons::ammo_mod::TurnedAlly;
+        let mut sim = headless::Sim::new(60.0, |_| {});
+        let feet = crate::maps::map::PLAYER_START + Vec3::new(-6.0, 0.0, 0.0);
+        let zombie = sim.spawn(feet, None);
+        let ally = sim
+            .world_mut()
+            .spawn((TurnedAlly::default(), Transform::from_translation(feet + Vec3::new(0.8, body_half_height(), 0.0))))
+            .id();
+        (sim, zombie, ally)
+    }
+
+    #[test]
+    fn a_zombie_swings_at_a_turned_ally_in_its_reach() {
+        let (mut sim, zombie, ally) = zombie_beside_an_ally();
+        let mut hits = Vec::new();
+        for _ in 0..sim.frames(2.0) {
+            sim.run(1);
+            hits.extend(sim.world_mut().resource_mut::<Messages<TurnedAllyHit>>().drain());
+        }
+        assert!(!hits.is_empty(), "the Zombie never swung at the ally beside it");
+        assert!(hits.iter().all(|hit| hit.ally == ally && hit.by == zombie));
+        // Swinging plants its feet, and a landed swing waits out its cooldown like any other.
+        let secs = ZOMBIE_WIND_UP_SECS + ZOMBIE_HIT_COOLDOWN_SECS;
+        assert!(hits.len() as f32 <= 2.0 / secs + 1.0, "{} swings in 2 s", hits.len());
+    }
+
+    #[test]
+    fn a_swing_at_a_turned_ally_never_hits_a_player() {
+        let (mut sim, ..) = zombie_beside_an_ally();
+        sim.run(sim.frames(2.0));
+        assert!(sim.world_mut().resource_mut::<Messages<PlayerHit>>().drain().next().is_none());
     }
 
     #[test]
