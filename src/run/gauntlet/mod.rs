@@ -18,6 +18,8 @@ mod sets;
 mod coop_tests;
 #[cfg(test)]
 mod sets_tests;
+#[cfg(test)]
+mod duos_tests;
 
 use bevy::input::common_conditions::input_just_pressed;
 use bevy::prelude::*;
@@ -209,6 +211,7 @@ impl Plugin for GauntletPlugin {
             .init_resource::<procs::Thinning>()
             .init_resource::<procs::ProcFlashes>()
             .init_resource::<procs::Landing>()
+            .init_resource::<duos::BallLightning>()
             .init_resource::<UnlockAll>()
             .init_resource::<ActiveRanks>()
             .init_resource::<RunModifiers>()
@@ -266,6 +269,19 @@ impl Plugin for GauntletPlugin {
                         (war_bonds, bounty, butchers_bill, lucky_strike),
                         (scorched_earth, overkill),
                         (procs::fire_procs, procs::land_lethals, procs::cast_procs, procs::thaw).chain(),
+                        (
+                            duos::gun_and_blade,
+                            duos::life_insurance,
+                            duos::martyrs,
+                            duos::thermal_shock,
+                            duos::galvanised_dead,
+                            duos::conscripts,
+                            duos::live_fuse,
+                            duos::supply_drop,
+                            duos::fly_supply_shells,
+                            // After the Blast's kills land, so its chains skip the Zombies it killed.
+                            duos::ball_lightning.after(crate::enemies::zombie::apply_damage),
+                        ),
                         (
                             (sets::blade_4, sets::ember_4, sets::gold_4, sets::grit_4, sets::ricochet),
                             (sets::cleave, sets::chill_patches).chain(),
@@ -355,6 +371,7 @@ fn reset(mut commands: Commands) {
     commands.insert_resource(procs::Thinning::default());
     commands.insert_resource(procs::ProcFlashes::default());
     commands.insert_resource(procs::Landing::default());
+    commands.insert_resource(duos::BallLightning::default());
     commands.insert_resource(sets::SetFlashes::default());
 }
 
@@ -689,6 +706,7 @@ fn blood_money(
             continue;
         };
         let points = blood_money_points(kill.pay, held.stacks(BLOOD_MONEY));
+        let points = duos::gold_standard_points(points, kill.headshot, held.stacks(duos::GOLD_STANDARD) > 0);
         if points > 0 {
             bonus.write(BonusPoints {
                 player,
@@ -793,15 +811,18 @@ fn butchers_bill(
     mut drops: MessageWriter<DropPowerUp>,
 ) {
     for kill in kills.read() {
-        let stacks = kill
-            .player
-            .and_then(|player| players.get(player).ok())
-            .map_or(0, |held| held.stacks(BUTCHERS_BILL));
+        let Some(held) = kill.player.and_then(|player| players.get(player).ok()) else {
+            continue;
+        };
+        let stacks = held.stacks(BUTCHERS_BILL);
         if stacks > 0 && butchers_bill_drops(kill.attack, stacks, rand::random()) {
-            drops.write(DropPowerUp {
-                at: kill.at,
-                power_up: None,
-            });
+            // Cut of the Take makes each drop more than one.
+            for _ in 0..duos::butchers_bill_drops_for(held) {
+                drops.write(DropPowerUp {
+                    at: kill.at,
+                    power_up: None,
+                });
+            }
         }
     }
 }

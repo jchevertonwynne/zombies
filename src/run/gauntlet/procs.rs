@@ -7,7 +7,15 @@
 use bevy::prelude::*;
 
 use super::boon::{BoonDef, Family, HeldBoons};
+use super::duos::{
+    BALL_LIGHTNING, BallLightning, INCENDIARY_VOLLEY, LIVE_FUSE, LiveFuse, REPEL_BOARDERS, STORM_SHELL,
+    repel_boarders_damage, storm_shell_cooldown, storm_shell_crowded,
+};
 use super::pact::{HeldPacts, OVERCLOCKED};
+use crate::maps::barrier::FlingOutside;
+use crate::modifier::Modifiers;
+use crate::state::InRun;
+use crate::weapons::ammo_mod::fire_radius;
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
 use crate::economy::power_up::PowerUpTaken;
@@ -40,6 +48,8 @@ pub enum Trigger {
     LethalThrown,
     /// The Player picks up a Power-up.
     PowerUp,
+    /// A crowd of Zombies around the Player, under Storm Shell: it fires Static Discharge alone.
+    Crowded,
 }
 
 /// What a Proc does, sized by its Stacks.
@@ -115,6 +125,10 @@ pub struct ProcDef {
 
 /// Always fires when ready.
 const ALWAYS: f64 = 1.0;
+
+/// The Proc Boons a Duo changes, by stable ID.
+pub const STATIC_DISCHARGE_ID: &str = "static_discharge";
+pub const PARTING_SHOT_ID: &str = "parting_shot";
 
 pub const ARC_LIGHT: ProcDef = ProcDef {
     trigger: Trigger::HeadshotKill,
@@ -405,6 +419,13 @@ const BLAST_COLOUR: Color = Color::srgb(1.0, 0.8, 0.55);
 #[derive(Resource, Default)]
 pub struct ProcFlashes(Vec<(Vec3, f32, Color, f32, bool)>);
 
+impl ProcFlashes {
+    /// A Blast's sphere of `radius` at `at`.
+    pub fn blast(&mut self, at: Vec3, radius: f32) {
+        self.0.push((at, radius, BLAST_COLOUR, GAUNTLET_PROC_ACCENT_SECS, true));
+    }
+}
+
 /// Firebrand pools waiting on their Lethal to land: (frag, where it was last seen, the Proc).
 #[derive(Resource, Default)]
 pub struct Landing(Vec<(Entity, Vec3, ProcFired)>);
@@ -450,7 +471,8 @@ pub fn fire_procs(
     mut emptied: MessageReader<MagazineEmptied>,
     mut lethals: MessageReader<LethalThrown>,
     mut taken: MessageReader<PowerUpTaken>,
-    mut players: Query<(&Seat, &HeldBoons, &mut ProcCooldowns, &GlobalTransform), With<Player>>,
+    mut players: Query<(Entity, &Seat, &HeldBoons, &mut ProcCooldowns, &GlobalTransform), With<Player>>,
+    zombies: Query<&GlobalTransform, (With<Zombie>, Without<Dying>)>,
     pacts: Res<HeldPacts>,
     (cap, allies): (Res<TurnedAllyCap>, Query<(), (With<TurnedAlly>, Without<OutsideAllyCap>)>),
     mut fired: MessageWriter<ProcFired>,
@@ -481,22 +503,37 @@ pub fn fire_procs(
             .map(|lethal| (lethal.player, Trigger::LethalThrown, Some(lethal.at), Some(lethal.projectile))),
     );
     triggered.extend(taken.read().filter_map(|taken| Some((taken.1?, Trigger::PowerUp, None, None))));
+    // Storm Shell: a crowd close around a holder of Static Discharge sets it off too.
+    for (player, _, held, cooldowns, transform) in &players {
+        if held.stacks(STORM_SHELL) == 0 || held.stacks(STATIC_DISCHARGE_ID) == 0 || !cooldowns.ready(STATIC_DISCHARGE_ID) {
+            continue;
+        }
+        let at = transform.translation();
+        let near = zombies.iter().filter(|zombie| zombie.translation().distance(at) <= DUO_STORM_SHELL_RADIUS_M).count();
+        if storm_shell_crowded(near) {
+            triggered.push((player, Trigger::Crowded, None, None));
+        }
+    }
 
     let mut allies = allies.iter().count();
     for (player, trigger, at, projectile) in triggered {
-        let Ok((&seat, held, mut cooldowns, transform)) = players.get_mut(player) else {
+        let Ok((_, &seat, held, mut cooldowns, transform)) = players.get_mut(player) else {
             continue;
         };
         let live_wire = held.stacks(super::boon::LIVE_WIRE);
         let overclocked = pacts.holder(OVERCLOCKED.id) == Some(seat);
+        let storm_shell = held.stacks(STORM_SHELL) > 0;
         for &(boon, stacks) in &held.0 {
-            let Some(def) = boon.proc.filter(|def| def.trigger == trigger) else {
+            let crowded = trigger == Trigger::Crowded && boon.id == STATIC_DISCHARGE_ID;
+            let Some(def) = boon.proc.filter(|def| def.trigger == trigger || crowded) else {
                 continue;
             };
             if !proc_may_fire(def, cooldowns.ready(boon.id), cap.has_room(allies), rand::random()) {
                 continue;
             }
-            cooldowns.start(boon.id, proc_cooldown(def.cooldown_secs, live_wire, overclocked));
+            let cooldown = proc_cooldown(def.cooldown_secs, live_wire, overclocked);
+            let cooldown = storm_shell_cooldown(cooldown, storm_shell && boon.id == STATIC_DISCHARGE_ID);
+            cooldowns.start(boon.id, cooldown);
             if def.effect.turns() {
                 allies += 1;
             }
@@ -519,15 +556,16 @@ pub fn cast_procs(
     mut commands: Commands,
     mut fired: MessageReader<ProcFired>,
     mut zombies: Query<
-        (Entity, &GlobalTransform, Option<&mut ZombieMoveFactor>, Option<&mut Frosted>),
-        (With<Zombie>, Without<Dying>),
+        (Entity, &GlobalTransform, &Zombie, Option<&mut ZombieMoveFactor>, Option<&mut Frosted>),
+        Without<Dying>,
     >,
-    players: Query<&GlobalTransform, With<Player>>,
+    players: Query<(&GlobalTransform, &HeldBoons, &Modifiers), With<Player>>,
     mut thinning: ResMut<Thinning>,
     mut flashes: ResMut<ProcFlashes>,
     mut landing: ResMut<Landing>,
+    mut chains: ResMut<BallLightning>,
     mut casts: MessageWriter<CastEffect>,
-    mut damage: MessageWriter<DamageZombie>,
+    (mut damage, mut flings): (MessageWriter<DamageZombie>, MessageWriter<FlingOutside>),
     mut cues: MessageWriter<PlayCue>,
     time: Res<Time<Real>>,
 ) {
@@ -536,6 +574,11 @@ pub fn cast_procs(
         let Some(def) = proc.boon.proc else {
             continue;
         };
+        let (holder, entries) = match players.get(proc.player) {
+            Ok((_, held, modifiers)) => (Some(held), &modifiers.0[..]),
+            Err(_) => (None, &[][..]),
+        };
+        let holds = |id: &str| holder.is_some_and(|held| held.stacks(id) > 0);
         // A Firebrand pool waits for its Lethal to land.
         if let Some(projectile) = proc.projectile {
             landing.0.push((projectile, proc.at, ProcFired { projectile: None, ..proc }));
@@ -543,7 +586,7 @@ pub fn cast_procs(
         }
         let (show, accent) = thinning.visuals.allow(now);
         let accent = accent.then(|| def.family.colour());
-        let centre = players.get(proc.player).map_or(proc.at, GlobalTransform::translation);
+        let centre = players.get(proc.player).map_or(proc.at, |(at, ..)| at.translation());
         let cast = |element, target, size, reach, lasts| CastEffect {
             player: proc.player,
             element,
@@ -571,6 +614,44 @@ pub fn cast_procs(
             }
             ProcEffect::FirePool => {
                 casts.write(cast(Element::Fire, point, proc.size, None, BOON_FIREBRAND_POOL_SECS));
+                // Live Fuse: the pool Shocks a Zombie in it every so often.
+                if holds(LIVE_FUSE) {
+                    commands.spawn((
+                        InRun,
+                        Name::new("Live Fuse"),
+                        LiveFuse {
+                            player: proc.player,
+                            at: proc.at,
+                            radius: fire_radius(proc.size, entries),
+                            left: BOON_FIREBRAND_POOL_SECS,
+                            next: DUO_LIVE_FUSE_TICK_SECS,
+                        },
+                    ));
+                }
+            }
+            // Repel Boarders: the Zombies Elbow Room would fling are thrown back outside instead,
+            // hurt but alive. Never the Sapper.
+            ProcEffect::Knockback if holds(REPEL_BOARDERS) => {
+                let mut near: Vec<_> = zombies
+                    .iter()
+                    .filter(|(_, _, body, ..)| !body.is_sapper())
+                    .map(|(zombie, at, body, ..)| (zombie, at.translation().distance(centre), body.max_health()))
+                    .filter(|&(_, distance, _)| distance <= BOON_ELBOW_ROOM_RADIUS_M)
+                    .collect();
+                near.sort_by(|a, b| a.1.total_cmp(&b.1));
+                for &(zombie, _, max_health) in near.iter().take(proc.size.max(0.0) as usize) {
+                    damage.write(DamageZombie {
+                        player: Some(proc.player),
+                        zombie,
+                        damage: repel_boarders_damage(max_health),
+                        zone: HitZone::Torso,
+                        attack: Attack::AmmoMod(Pay::Paid),
+                    });
+                    flings.write(FlingOutside { zombie });
+                }
+                if let Some(colour) = accent {
+                    flashes.0.push((centre, BOON_ELBOW_ROOM_RADIUS_M, colour, GAUNTLET_PROC_ACCENT_SECS, false));
+                }
             }
             ProcEffect::Knockback => {
                 casts.write(cast(
@@ -582,7 +663,11 @@ pub fn cast_procs(
                 ));
             }
             ProcEffect::PhantomGun => {
-                casts.write(cast(Element::PhantomGun, point, proc.size, None, 0.0));
+                // Incendiary Volley: its shots set Zombies alight.
+                casts.write(CastEffect {
+                    ignites: holds(INCENDIARY_VOLLEY),
+                    ..cast(Element::PhantomGun, point, proc.size, None, 0.0)
+                });
             }
             ProcEffect::TurnNearest => {
                 casts.write(cast(Element::Turned, CastTarget::Point(centre), proc.size, None, 0.0));
@@ -594,6 +679,8 @@ pub fn cast_procs(
                 }
             }
             ProcEffect::Blast => {
+                // Ball Lightning: each Zombie a Parting Shot Blast kills chains Shock on.
+                let ball_lightning = proc.boon.id == PARTING_SHOT_ID && holds(BALL_LIGHTNING);
                 for (zombie, at, ..) in &zombies {
                     if at.translation().distance(proc.at) <= proc.size {
                         damage.write(DamageZombie {
@@ -603,6 +690,9 @@ pub fn cast_procs(
                             zone: HitZone::Torso,
                             attack: Attack::AmmoMod(Pay::Paid),
                         });
+                        if ball_lightning {
+                            chains.0.push((proc.player, at.translation()));
+                        }
                     }
                 }
                 if show {
@@ -613,7 +703,7 @@ pub fn cast_procs(
                 }
             }
             ProcEffect::Frost => {
-                for (zombie, at, factor, frosted) in &mut zombies {
+                for (zombie, at, _, factor, frosted) in &mut zombies {
                     if at.translation().with_y(0.0).distance(proc.at.with_y(0.0)) > BOON_FROSTBITE_RADIUS_M {
                         continue;
                     }
@@ -810,13 +900,15 @@ mod tests {
                     .init_resource::<Thinning>()
                     .init_resource::<ProcFlashes>()
                     .init_resource::<Landing>()
+                    .init_resource::<BallLightning>()
+                    .add_message::<FlingOutside>()
                     .add_systems(Update, (fire_procs, land_lethals, cast_procs, thaw).chain());
             });
             let world = sim.world_mut();
             let player = world.query_filtered::<Entity, With<Player>>().single(world).unwrap();
             let mut held = HeldBoons::default();
             for &(id, stacks) in boons {
-                let boon = BOONS.iter().find(|boon| boon.id == id).unwrap();
+                let boon = crate::run::gauntlet::boon::find(id).unwrap();
                 for _ in 0..stacks {
                     held.add(boon);
                 }
@@ -847,6 +939,91 @@ mod tests {
             sim.run(2);
             assert!(casts(&mut sim).is_empty());
             assert!(!sim.world_mut().get::<ProcCooldowns>(player).unwrap().ready("arc_light"));
+        }
+
+        /// Where the Player stands, with their `GlobalTransform` put there too (`holding` leaves
+        /// it at the origin).
+        fn player_at(sim: &mut Sim, player: Entity) -> Vec3 {
+            let transform = *sim.world_mut().get::<Transform>(player).unwrap();
+            sim.world_mut().entity_mut(player).insert(GlobalTransform::from(transform));
+            transform.translation
+        }
+
+        /// `count` Zombies in a ring `radius` around `at`, on the floor.
+        fn ring(sim: &mut Sim, at: Vec3, count: usize, radius: f32) -> Vec<Entity> {
+            (0..count)
+                .map(|i| {
+                    let angle = i as f32 / count as f32 * std::f32::consts::TAU;
+                    let feet = at.with_y(0.0) + Vec3::new(angle.cos(), 0.0, angle.sin()) * radius;
+                    sim.spawn(feet, None)
+                })
+                .collect()
+        }
+
+        #[test]
+        fn storm_shell_fires_static_discharge_on_a_crowd_and_not_without_one() {
+            for (crowd, fires) in [(DUO_STORM_SHELL_CROWD, true), (DUO_STORM_SHELL_CROWD - 1, false)] {
+                let (mut sim, player) = holding(&[("static_discharge", 1), ("live_wire", 1), ("storm_shell", 1)]);
+                let at = player_at(&mut sim, player);
+                ring(&mut sim, at, crowd, DUO_STORM_SHELL_RADIUS_M - 1.0);
+                sim.run(2);
+                let discharges = casts(&mut sim).iter().filter(|cast| cast.element == Element::Shock).count();
+                assert_eq!(discharges > 0, fires, "a crowd of {crowd}");
+                let ready = sim.world_mut().get::<ProcCooldowns>(player).unwrap().ready(STATIC_DISCHARGE_ID);
+                assert_eq!(ready, !fires, "a discharge starts its cooldown");
+            }
+            let (mut sim, player) = holding(&[("static_discharge", 1)]);
+            let at = player_at(&mut sim, player);
+            ring(&mut sim, at, DUO_STORM_SHELL_CROWD + 2, 1.5);
+            sim.run(2);
+            assert!(casts(&mut sim).is_empty(), "without Storm Shell a crowd sets nothing off");
+        }
+
+        #[test]
+        fn incendiary_volley_makes_a_proc_phantom_gun_ignite() {
+            for (duo, ignites) in [(true, true), (false, false)] {
+                let boons: &[(&str, u32)] = if duo {
+                    &[("spoils_of_war", 1), ("incendiary_volley", 1)]
+                } else {
+                    &[("spoils_of_war", 1)]
+                };
+                let (mut sim, player) = holding(boons);
+                sim.send(PowerUpTaken(crate::economy::power_up::PowerUp::MaxAmmo, Some(player)));
+                sim.run(2);
+                let cast = casts(&mut sim);
+                assert_eq!(cast.len(), 1);
+                assert_eq!((cast[0].element, cast[0].ignites), (Element::PhantomGun, ignites));
+            }
+        }
+
+        #[test]
+        fn ball_lightning_chains_on_from_each_zombie_a_parting_shot_blast_kills() {
+            let (mut sim, player) = holding(&[("parting_shot", 1), ("ball_lightning", 1)]);
+            let at = Vec3::new(4.0, 0.0, 12.0);
+            sim.spawn(at, None);
+            sim.spawn(at + Vec3::X * 0.8, None);
+            sim.run(5);
+            sim.send(MagazineEmptied { player, weapon: crate::weapons::arsenal::WeaponId::M1911, at: Some(at + Vec3::Y) });
+            sim.run(2);
+            let chains = &sim.world_mut().resource::<BallLightning>().0;
+            assert_eq!(chains.len(), 2, "one chain per Zombie the Blast killed");
+            assert!(chains.iter().all(|&(by, _)| by == player));
+        }
+
+        #[test]
+        fn repel_boarders_flings_elbow_rooms_zombies_outside_a_tenth_down_instead_of_killing_them() {
+            let (mut sim, player) = holding(&[("elbow_room", 1), ("repel_boarders", 1)]);
+            let at = player_at(&mut sim, player);
+            let near = ring(&mut sim, at, 3, 2.0);
+            sim.run(3);
+            sim.send(PlayerHit { player, damage: 10.0, from: None });
+            sim.run(2);
+            assert!(casts(&mut sim).iter().all(|cast| cast.element != Element::Knockback), "no Knockback kills");
+            let mut flung: Vec<_> = sim.world_mut().resource_mut::<Messages<FlingOutside>>().drain().map(|fling| fling.zombie).collect();
+            flung.sort();
+            let mut expected = near.clone();
+            expected.sort();
+            assert_eq!(flung, expected);
         }
 
         #[test]
