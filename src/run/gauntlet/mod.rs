@@ -425,7 +425,7 @@ fn open_offer(
                 Choices::Boons(_) => Cue::BoonOffer,
                 Choices::Pacts(_) => Cue::PactOffer,
             };
-            cues.write(PlayCue::new(cue, None));
+            cues.write(PlayCue { cue, at: None });
         }
         let mut entity = commands.entity(player);
         entity.insert(Offer {
@@ -532,7 +532,10 @@ pub(crate) fn apply_pick(
             (None, Choices::Pacts(_)) => {}
         }
         if local {
-            cues.write(PlayCue::new(Cue::OfferPick, None));
+            cues.write(PlayCue {
+                cue: Cue::OfferPick,
+                at: None,
+            });
         }
         commands.entity(player).remove::<(Offer, Choosing)>();
     }
