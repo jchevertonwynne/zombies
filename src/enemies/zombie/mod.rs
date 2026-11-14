@@ -501,7 +501,7 @@ impl Zombie {
     }
 
     /// From its centre down to its feet.
-    fn half_height(&self) -> f32 {
+    pub(crate) fn half_height(&self) -> f32 {
         if self.hellhound {
             HELLHOUND_RADIUS
         } else if self.nova {

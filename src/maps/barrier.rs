@@ -12,7 +12,8 @@ use crate::players::controls::{Action, Controls};
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
 use crate::economy::buy::{Buyable, Focus, Held, Nearby, UseRequest};
-use crate::maps::map::{BarrierId, MapId, WALL_THICKNESS, WINDOWS, window_centre};
+use crate::maps::map::{BarrierId, MapId, WALL_THICKNESS, WINDOWS, window_centre, window_spawn};
+use bevy_transform_interpolation::TranslationEasingState;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_points};
 use crate::enemies::nav::Route;
 use crate::players::player::{LocalPlayer, Player};
@@ -338,6 +339,49 @@ pub struct PlankRebuilt {
     pub at: Vec3,
 }
 
+/// Request to put a Zombie back outside the window nearest it, where it starts getting in again
+/// (ADR 0007).
+#[derive(Message, Debug, Clone, Copy)]
+pub struct FlingOutside {
+    pub zombie: Entity,
+}
+
+/// The window whose centre is nearest `at`.
+pub fn nearest_window(at: Vec3) -> BarrierId {
+    (0..WINDOWS.len())
+        .map(|i| BarrierId(i as u8))
+        .min_by(|&a, &b| window_centre(a).distance(at).total_cmp(&window_centre(b).distance(at)))
+        .expect("every Map has windows")
+}
+
+/// Zombies asked to be flung outside land just outside the window nearest them, as one spawned
+/// there would, and set about getting in again. A Hellhound or a Nova Crawler never uses a
+/// window, so it stays put. In the physics step, as a clean cut: the easing starts from the new
+/// spot too.
+pub fn fling_outside(
+    mut commands: Commands,
+    mut requests: MessageReader<FlingOutside>,
+    mut zombies: Query<(&Zombie, &mut Transform, Option<&mut TranslationEasingState>, Option<&mut Route>), (Without<Dying>, Without<Entering>)>,
+) {
+    for &FlingOutside { zombie: entity } in requests.read() {
+        let Ok((zombie, mut transform, easing, route)) = zombies.get_mut(entity) else {
+            continue;
+        };
+        if zombie.is_hellhound() || zombie.is_nova_crawler() {
+            continue;
+        }
+        let barrier = nearest_window(transform.translation);
+        transform.translation = window_spawn(barrier) + Vec3::Y * (zombie.half_height() + 0.02);
+        if let Some(mut easing) = easing {
+            easing.start = Some(transform.translation);
+        }
+        if let Some(mut route) = route {
+            *route = Route::default();
+        }
+        commands.entity(entity).insert(Entering::new(barrier));
+    }
+}
+
 /// A Zombie outside a window, getting in. While it has this, the Barrier steers it instead of the
 /// chase, and the stuck rule leaves it alone.
 #[derive(Component, Debug, Clone, Copy)]
@@ -450,6 +494,7 @@ impl Plugin for BarrierPlugin {
             .init_resource::<Rebuild>()
             .add_message::<PlankTorn>()
             .add_message::<PlankRebuilt>()
+            .add_message::<FlingOutside>()
             .add_systems(
                 OnEnter(GameState::Playing),
                 (
@@ -462,7 +507,7 @@ impl Plugin for BarrierPlugin {
             )
             .add_systems(
                 FixedUpdate,
-                enter_through_windows.in_set(HostSimulation).run_if(world_runs),
+                (fling_outside, enter_through_windows).chain().in_set(HostSimulation).run_if(world_runs),
             )
             .add_systems(
                 Update,
@@ -1241,6 +1286,35 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_zombie_is_flung_out_past_the_window_nearest_it() {
+        for i in 0..WINDOWS.len() {
+            let barrier = BarrierId(i as u8);
+            let (out, _) = window_axes(barrier);
+            assert_eq!(nearest_window(window_centre(barrier) - out * 1.5), barrier, "window {i}");
+        }
+    }
+
+    #[test]
+    fn a_zombie_flung_outside_lands_outside_its_window_and_starts_getting_in_again() {
+        use crate::enemies::zombie::headless::Sim;
+        let mut sim = Sim::new(60.0, |app| {
+            app.add_message::<FlingOutside>().add_systems(FixedUpdate, fling_outside);
+        });
+        let barrier = BarrierId(0);
+        let (out, _) = window_axes(barrier);
+        let inside = window_centre(barrier).with_y(0.0) - out * 3.0;
+        let zombie = sim.spawn(inside, None);
+        sim.run(2);
+        sim.send(FlingOutside { zombie });
+        sim.run(2);
+        let world = sim.world_mut();
+        assert_eq!(world.get::<Entering>(zombie).map(|entering| entering.barrier), Some(barrier));
+        let at = world.get::<Transform>(zombie).unwrap().translation;
+        assert!(crate::enemies::nav::zone_at(at.with_y(0.1)).is_none(), "{at} is still inside");
+        assert!(at.with_y(0.0).distance(window_spawn(barrier).with_y(0.0)) < 1.0, "{at} is far from its window");
     }
 
     #[test]
