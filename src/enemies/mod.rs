@@ -3,6 +3,7 @@
 pub mod hellhound;
 pub mod nav;
 pub mod nova;
+pub mod request;
 pub mod sapper;
 pub mod special;
 pub mod target;

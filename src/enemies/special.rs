@@ -28,13 +28,15 @@ use crate::players::player::{LocalPlayer, Player, PlayerCamera, PlayerHit};
 use crate::enemies::target::Players;
 use crate::economy::points::BonusPoints;
 use crate::run::round::{CarriesOver, ReservedRounds, Round, RoundPhase, zombie_health};
+use crate::enemies::request::{Entry, Requested, RequestedKind, SpawnZombie, Trail, requested_health};
+use crate::maps::barrier::Entering;
 use crate::storage::settings::{Settings, SpecialType, SpecialZombies};
 use crate::players::shellshock::Shellshock;
 use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 use crate::enemies::zombie::{
     Attack, DamageZombie, Dying, HitZone, KnockedDown, Pay, Rising, SpeedTier, StuckWatch, Zombie, ZombieAssetsParam,
-    spawn_zombie,
+    scale_body, spawn_zombie,
 };
 use crate::maps::zone::{ActiveZones, ZoneId, ZoneSet};
 
@@ -272,6 +274,17 @@ struct SpecialPlan {
 pub struct Napalm {
     age: f32,
     wind_up: Option<f32>,
+    /// Whether it blows itself up near a Player and bursts when it dies. Only a requested one
+    /// may not.
+    detonates: bool,
+    /// The fire pools it leaves behind it, and seconds until the next.
+    trail: Option<(Trail, f32)>,
+}
+
+impl Napalm {
+    fn new() -> Self {
+        Self { age: 0.0, wind_up: None, detonates: true, trail: None }
+    }
 }
 
 /// A Shrieker: its scream's cooldown and wind-up, and when it next gasps.
@@ -360,7 +373,7 @@ impl Plugin for SpecialPlugin {
             .add_systems(
                 Update,
                 (
-                    (plan_special, spawn_special).chain().in_set(HostSimulation),
+                    (plan_special, spawn_special, spawn_requested_napalms, napalm_trails).chain().in_set(HostSimulation),
                     (detonate, shriek, special_deaths, death_screams, fire_pools, pool_burns).in_set(HostSimulation),
                     heat_tint,
                     shake_view,
@@ -410,7 +423,7 @@ fn plan_special(
     round: Option<Res<Round>>,
     slot: Res<SpecialSlot>,
     mut plan: ResMut<SpecialPlan>,
-    alive: Query<&Zombie, Without<Dying>>,
+    alive: Query<(&Zombie, Has<Requested>), Without<Dying>>,
     settings: Res<Settings>,
     reserved: Res<ReservedRounds>,
 ) {
@@ -420,7 +433,9 @@ fn plan_special(
     if plan.round == round.number {
         return;
     }
-    let one_alive = alive.iter().any(|zombie| zombie.special_kind().is_some_and(SpecialKind::in_slot));
+    let one_alive = alive
+        .iter()
+        .any(|(zombie, requested)| !requested && zombie.special_kind().is_some_and(SpecialKind::in_slot));
     *plan = SpecialPlan {
         round: round.number,
         kind: slot.due_unreserved(
@@ -494,14 +509,7 @@ fn spawn_special(
         SpecialKind::Napalm => {
             commands
                 .entity(zombie)
-                .insert((
-                    Name::new("Napalm"),
-                    Napalm {
-                        age: 0.0,
-                        wind_up: None,
-                    },
-                    MeshMaterial3d(assets.napalm.clone()),
-                ))
+                .insert((Name::new("Napalm"), Napalm::new(), MeshMaterial3d(assets.napalm.clone())))
                 .with_child(napalm_glow());
             spawn_pool(&mut commands, &assets, at, None, NAPALM_SPAWN_POOL_DAMAGE, NAPALM_SPAWN_POOL_SECS);
             cues.write(SpecialCue {
@@ -552,7 +560,7 @@ pub fn dress_puppet(commands: &mut Commands, assets: &SpecialAssetsParam, entity
     match kind {
         SpecialKind::Napalm => {
             zombie
-                .insert((Name::new("Napalm"), Napalm { age: 0.0, wind_up: None }, MeshMaterial3d(assets.napalm.clone())))
+                .insert((Name::new("Napalm"), Napalm::new(), MeshMaterial3d(assets.napalm.clone())))
                 .with_child(napalm_glow());
         }
         SpecialKind::Shrieker => {
@@ -563,6 +571,82 @@ pub fn dress_puppet(commands: &mut Commands, assets: &SpecialAssetsParam, entity
             ));
         }
         SpecialKind::Sapper => {}
+    }
+}
+
+/// Each `SpawnZombie` for a Napalm spawns one outside the Horde: rising from its point with the
+/// pool it rises from, or smashing in through a window. It's never part of the special slot.
+fn spawn_requested_napalms(
+    mut commands: Commands,
+    mut requests: MessageReader<SpawnZombie>,
+    round: Option<Res<Round>>,
+    mut entry: Entry,
+    zombie_assets: ZombieAssetsParam,
+    assets: Res<SpecialAssets>,
+    mut cues: MessageWriter<SpecialCue>,
+) {
+    let number = round.map_or(1, |round| round.number);
+    for request in requests.read().filter(|request| request.kind == RequestedKind::Napalm) {
+        let Some((at, barrier)) = entry.resolve(request.at) else {
+            continue;
+        };
+        let health = requested_health(number, request.health_factor);
+        // A bigger body walks in rather than rising.
+        let rise = (barrier.is_none() && request.scale == 1.0).then_some(NAPALM_RISE_SECS);
+        let zombie = spawn_zombie(&mut commands, &zombie_assets, at, health, SpeedTier::Walker, rise);
+        let profile = request.profile;
+        let mut entity = commands.entity(zombie);
+        entity
+            .insert((
+                Name::new("Napalm"),
+                Zombie::special(SpecialKind::Napalm, health, at).scaled(request.scale),
+                Napalm {
+                    detonates: profile.detonates,
+                    trail: profile.trail.map(|trail| (trail, trail.every_secs)),
+                    ..Napalm::new()
+                },
+                Requested,
+                SpecialWatch(StuckWatch::new(at)),
+                MeshMaterial3d(assets.napalm.clone()),
+            ))
+            .with_child(napalm_glow());
+        scale_body(&mut entity, at, request.scale);
+        if !request.holds_round {
+            entity.insert(CarriesOver);
+        }
+        if let Some(heavyweight) = request.heavyweight {
+            entity.insert(heavyweight);
+        }
+        match barrier {
+            Some(barrier) => {
+                entity.insert(Entering::new(barrier));
+            }
+            None => {
+                spawn_pool(&mut commands, &assets, at, None, NAPALM_SPAWN_POOL_DAMAGE, NAPALM_SPAWN_POOL_SECS);
+                cues.write(SpecialCue { cue: Cue::NapalmRise, at: Some(at) });
+            }
+        }
+    }
+}
+
+/// A Napalm with a trail drops a fire pool at its feet every so often, once it's out of the ground.
+fn napalm_trails(
+    mut commands: Commands,
+    mut napalms: Query<(&mut Napalm, &Zombie, &Transform), (Without<Dying>, Without<Rising>)>,
+    assets: Res<SpecialAssets>,
+    time: Res<Time>,
+) {
+    for (mut napalm, zombie, transform) in &mut napalms {
+        let Some((trail, left)) = napalm.trail.as_mut() else {
+            continue;
+        };
+        *left -= time.delta_secs();
+        if *left > 0.0 {
+            continue;
+        }
+        *left = trail.every_secs;
+        let feet = transform.translation - Vec3::Y * zombie.half_height();
+        spawn_pool(&mut commands, &assets, feet, None, NAPALM_SPAWN_POOL_DAMAGE, trail.pool_secs);
     }
 }
 
@@ -597,6 +681,9 @@ fn detonate(
     let dt = time.delta_secs();
     for (entity, mut napalm, transform, route, rising, down) in &mut napalms {
         napalm.age += dt;
+        if !napalm.detonates {
+            continue;
+        }
         let Some(player) = players.target_of(route.and_then(|route| route.target), transform.translation) else {
             continue;
         };
@@ -698,7 +785,7 @@ fn shriek(
 /// scream. Either way its counter books its next Round.
 fn special_deaths(
     mut commands: Commands,
-    deaths: Query<(&Zombie, &Transform, &Dying), Added<Dying>>,
+    deaths: Query<(&Zombie, &Transform, &Dying, Option<&Napalm>, Has<Requested>), Added<Dying>>,
     zombies: Query<(Entity, &Transform), (With<Zombie>, Without<Dying>)>,
     players: Players,
     spatial: SpatialQuery,
@@ -712,14 +799,31 @@ fn special_deaths(
     assets: Res<SpecialAssets>,
 ) {
     let round_number = round.map_or(1, |round| round.number);
-    for (zombie, transform, dying) in &deaths {
+    for (zombie, transform, dying, napalm, requested) in &deaths {
         let Some(kind) = zombie.special_kind().filter(|kind| kind.in_slot()) else {
             continue;
         };
-        slot.died(kind, round_number, SpecialSlot::draw_gap(kind));
+        // A requested special was never the slot's, so its death doesn't move the slot on.
+        if !requested {
+            slot.died(kind, round_number, SpecialSlot::draw_gap(kind));
+        }
         let at = transform.translation;
-        let feet = at - Vec3::Y * (ZOMBIE_RADIUS + ZOMBIE_CAPSULE_LENGTH / 2.0);
+        let feet = at - Vec3::Y * zombie.half_height();
         match kind {
+            // One that doesn't detonate goes down in a puff of flame and nothing more.
+            SpecialKind::Napalm if napalm.is_some_and(|napalm| !napalm.detonates) => {
+                cues.write(SpecialCue {
+                    cue: Cue::NapalmExplode,
+                    at: Some(at),
+                });
+                commands.spawn((
+                    InRun,
+                    Fireball { age: 0.0 },
+                    Mesh3d(assets.ball.clone()),
+                    MeshMaterial3d(assets.fire.clone()),
+                    Transform::from_translation(at).with_scale(Vec3::splat(0.01)),
+                ));
+            }
             SpecialKind::Napalm => {
                 let pay = dying.killed_by().map_or(Pay::Unpaid, Attack::pay);
                 let paid = napalm_kill_bonus(pay);
