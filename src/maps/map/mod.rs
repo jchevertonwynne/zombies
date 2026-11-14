@@ -16,6 +16,7 @@ use crate::weapons::wall_weapon::{WallWeapon, priced_for, wall_price};
 use crate::maps::zone::ZoneId;
 
 mod build;
+pub mod decals;
 mod dam;
 mod greybox;
 mod quarry;
@@ -277,29 +278,32 @@ const fn paints(floor: (f32, f32, f32), wall: (f32, f32, f32), trim: (f32, f32, 
 pub struct MaterialSet {
     pub floor: textures::Material,
     pub wall: textures::Material,
+    /// The decals its walls or floor wear, if any.
+    pub decals: Option<decals::DecalFamily>,
 }
 
 /// The material set of a Zone, or of the outside for `None`. Neighbouring Zones differ by family
 /// (plaster, tile, brick, tin, stone) more than by colour. Zones without one stay in their palette.
 pub fn materials(zone: Option<ZoneId>) -> Option<MaterialSet> {
+    use decals::DecalFamily::*;
     use textures::Material::*;
     use ZoneId::*;
-    let (floor, wall) = match zone? {
-        // Ruined: bare dark boards and plaster coming off the lath.
-        StartRoom => (DarkWoodenPlanks, DamagedPlaster),
+    let (floor, wall, decals) = match zone? {
+        // Ruined: bare dark boards and plaster coming off the lath, streaked with damp.
+        StartRoom => (DarkWoodenPlanks, DamagedPlaster, Some(Leaks)),
         // Tiled: chequered tiles under damp, mossy plaster.
-        WestHall => (FloorTiles06, WornMossyPlasterwall),
+        WestHall => (FloorTiles06, WornMossyPlasterwall, Some(Leaks)),
         // Peeling: diagonal parquet, cracked red paint.
-        DiningRoom => (DiagonalParquet, PeelingPaintedWall),
+        DiningRoom => (DiagonalParquet, PeelingPaintedWall, Some(Leaks)),
         // Brick underfoot and either side.
-        Passage => (WornBrickFloor, BrickWall001),
-        // Rusty tin: concrete and corrugated iron.
-        Workshop => (ConcreteFloor02, RustyCorrugatedIron),
+        Passage => (WornBrickFloor, BrickWall001, None),
+        // Rusty tin: concrete with oil on it, and corrugated iron.
+        Workshop => (ConcreteFloor02, RustyCorrugatedIron, Some(OilStains)),
         // Cobbled: mossy cobbles (the sunken garden too), and the house's plastered stone outer faces.
-        Yard => (MossyCobblestone, PlasteredStoneWall),
+        Yard => (MossyCobblestone, PlasteredStoneWall, None),
         _ => return None,
     };
-    Some(MaterialSet { floor, wall })
+    Some(MaterialSet { floor, wall, decals })
 }
 
 /// The palette of a Zone, or of the outside for `None`.

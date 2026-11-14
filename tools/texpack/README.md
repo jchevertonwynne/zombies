@@ -31,6 +31,19 @@ runs `texpack`, writes `assets/materials/<id>/`, and adds or replaces the set's 
 `assets/manifest.json`. It prints each set's real-world size, which is the tile size its
 `Material` takes in `src/maps/map/textures.rs`. Use `--res 2k` for a hero floor.
 
+## A decal
+
+A decal is one file, `assets/decals/<id>/color.ktx2`: BC7 sRGB with the opacity as alpha.
+
+```
+cargo run --release -p texpack -- --color Color.png --opacity Opacity.png --gain 3.5 --out assets/decals/<id>
+cargo run --release -p texpack -- --stain 1 --out assets/decals/oil_stain_1
+```
+
+`--gain` scales the opacity, for decals that are too faint to read in game (the ambientCG leaks
+take 3.5). `--stain <seed>` makes a procedural oil stain here, so it's CC0 with
+`tools/texpack --stain <seed>` as its source. Add each decal to the manifest by hand.
+
 ## Any other set
 
 ```

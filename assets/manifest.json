@@ -9,6 +9,46 @@
       "notes": "Placeholders until the Audio lane replaces them; a more specific entry covers each real recording"
     },
     {
+      "path": "decals/leaking003",
+      "name": "ambientCG Leaking003",
+      "source": "https://ambientcg.com/a/Leaking003",
+      "licence": "CC0",
+      "fetched": "2026-11-14",
+      "notes": "1K PNG Color with Opacity as alpha, via texpack"
+    },
+    {
+      "path": "decals/leaking004",
+      "name": "ambientCG Leaking004",
+      "source": "https://ambientcg.com/a/Leaking004",
+      "licence": "CC0",
+      "fetched": "2026-11-14",
+      "notes": "1K PNG Color with Opacity as alpha, via texpack"
+    },
+    {
+      "path": "decals/leaking005",
+      "name": "ambientCG Leaking005",
+      "source": "https://ambientcg.com/a/Leaking005",
+      "licence": "CC0",
+      "fetched": "2026-11-14",
+      "notes": "1K PNG Color with Opacity as alpha, via texpack"
+    },
+    {
+      "path": "decals/oil_stain_1",
+      "name": "Oil stain 1",
+      "source": "tools/texpack --stain 1",
+      "licence": "CC0 (made in this repo)",
+      "fetched": "2026-11-14",
+      "notes": "Procedural"
+    },
+    {
+      "path": "decals/oil_stain_2",
+      "name": "Oil stain 2",
+      "source": "tools/texpack --stain 2",
+      "licence": "CC0 (made in this repo)",
+      "fetched": "2026-11-14",
+      "notes": "Procedural"
+    },
+    {
       "path": "materials/brick_wall_001",
       "name": "Brick Wall 001",
       "source": "https://polyhaven.com/a/brick_wall_001",

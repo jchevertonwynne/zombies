@@ -13,6 +13,7 @@ use crate::state::InRun;
 use crate::tuning::*;
 use crate::maps::zone::ZoneId;
 
+use super::decals::{DecalFamily, DecalPiece, leak_transform, leaks, stain_transform, stains};
 use super::textures::{Material, Shape, Textured};
 use super::{DOOR_HEIGHT, DOOR_WIDTH, Palette, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, WALL_THICKNESS, WINDOW_WIDTH, materials, palette};
 use crate::maps::generator::Generator;
@@ -175,12 +176,18 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let deepest = holes.iter().map(|hole| hole.depth).fold(0.0, f32::max);
         let thick = 0.2 + deepest;
         let colour = palette(Some(zone)).floor;
-        let material = materials(Some(zone)).map(|set| set.floor);
+        let set = materials(Some(zone));
+        let material = set.map(|set| set.floor);
         let cut: Vec<_> = holes.iter().map(|hole| (hole.min, hole.max)).collect();
         for (min, max) in rects_around((Vec2::new(lo.x, lo.z), Vec2::new(hi.x, hi.z)), &cut) {
             let size = Vec3::new(max.x - min.x, thick, max.y - min.y);
             let centre = Vec3::new((min.x + max.x) / 2.0, height - thick / 2.0, (min.y + max.y) / 2.0);
             self.block_in(size, centre, colour, material);
+            if set.is_some_and(|set| set.decals == Some(DecalFamily::OilStains)) {
+                for stain in stains(min, max) {
+                    self.commands.spawn((InRun, DecalPiece(stain.decal), stain_transform(&stain, height)));
+                }
+            }
         }
     }
 
@@ -614,6 +621,16 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let storey_top = top > 0.0 && ((top / STOREY).round() * STOREY - top).abs() < 1e-3;
         if storey_top && top - bottom >= 0.6 {
             slab(self, half, CORNICE.y, top - CORNICE.x, top, colours.trim, None);
+            // Damp streaking down from under the cornice.
+            let family = if self.repaint.is_some() { None } else { materials(face.zone).and_then(|set| set.decals) };
+            if family == Some(DecalFamily::Leaks) {
+                let normal = if along_x { Vec3::Z * out } else { Vec3::X * out };
+                let surface = line + out * half;
+                for leak in leaks(from, to, bottom, top - CORNICE.x, line) {
+                    let face = if along_x { Vec3::new(leak.along, leak.top, surface) } else { Vec3::new(surface, leak.top, leak.along) };
+                    self.commands.spawn((InRun, DecalPiece(leak.decal), leak_transform(&leak, face, normal)));
+                }
+            }
         }
     }
 }

@@ -10,7 +10,6 @@
 //! or broken file leaves every piece wearing it in the palette.
 
 use std::collections::HashMap;
-use std::path::Path;
 
 use bevy::asset::LoadState;
 use bevy::asset::io::file::FileAssetReader;
@@ -216,7 +215,9 @@ pub struct TexturesPlugin;
 
 impl Plugin for TexturesPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Library>().add_systems(Update, (request, put_on).chain());
+        app.init_resource::<Library>()
+            .init_resource::<super::decals::DecalLibrary>()
+            .add_systems(Update, ((request, put_on).chain(), (super::decals::request_decals, super::decals::place_decals).chain()));
     }
 }
 
@@ -230,8 +231,7 @@ fn request(
     for textured in &pieces {
         library.0.entry(textured.material).or_insert_with(|| {
             let files = textured.material.files();
-            let root = FileAssetReader::get_base_path().join("assets");
-            if !files.iter().all(|file| on_disk(&root.join(file))) {
+            if !files.iter().all(|file| on_disk(file)) {
                 debug!("{:?}: files missing, staying in the palette", textured.material);
                 return Entry::Missing;
             }
@@ -251,8 +251,9 @@ fn request(
     }
 }
 
-fn on_disk(path: &Path) -> bool {
-    path.is_file()
+/// Whether the asset at `path` (under `assets/`) is on disk.
+pub(super) fn on_disk(path: &str) -> bool {
+    FileAssetReader::get_base_path().join("assets").join(path).is_file()
 }
 
 /// An image that repeats across the piece, sharp at a glancing angle.
@@ -270,7 +271,7 @@ fn load_tiling(asset_server: &AssetServer, path: String) -> Handle<Image> {
         .load(path)
 }
 
-fn load_of(asset_server: &AssetServer, image: &Handle<Image>) -> Load {
+pub(super) fn load_of(asset_server: &AssetServer, image: &Handle<Image>) -> Load {
     match asset_server.load_state(image) {
         LoadState::Failed(_) => Load::Failed,
         LoadState::Loaded if asset_server.is_loaded_with_dependencies(image) => Load::Loaded,

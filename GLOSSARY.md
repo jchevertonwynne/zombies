@@ -150,6 +150,12 @@ _Avoid_: surf spawn, water Riser
 
 **Zone**: A named area of a Map, such as a room or a yard. Each Zone is either open or closed to the Player. Opening a Zone (usually by buying a Door) activates its Barriers and Spawn Points. Zones decide where Zombies come from, not how they move.
 
+**Material Set**: What a Zone's floor and walls are made of (planks and damaged plaster, say), and the decals they wear, such as leak streaks or oil stains. Neighbouring Zones differ by family of material more than by colour. Trim stays in the Zone's paint, and a Zone without a Material Set, or whose files are missing, is drawn in its flat palette.
+_Avoid_: theme, skin
+
+**Look**: How a Map is lit and graded: its sun, ambient, sky and fog colour, and how strong its lamps are. The Greybox is at dusk.
+_Avoid_: time of day, lighting preset
+
 **Active Zone**: A Zone any Player is in, or an open Zone next to one, counting Players in a Last Stand but not those waiting to Respawn. Only Spawn Points in Active Zones send in Zombies, and of those only ones near enough a Player for the Zombie to get there, whenever any is.
 
 **Door**: A barrier between two Zones, or shutting off part of one, that the Player buys with Points to open for the rest of the Run. Zombies never open Doors.
