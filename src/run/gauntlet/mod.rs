@@ -207,6 +207,7 @@ impl Plugin for GauntletPlugin {
             .add_message::<PickOffer>()
             .add_message::<procs::ProcFired>()
             .add_message::<sets::SetTierReached>()
+            .add_message::<duos::DuoTaken>()
             .init_resource::<sets::SetFlashes>()
             .init_resource::<procs::Thinning>()
             .init_resource::<procs::ProcFlashes>()
@@ -249,7 +250,7 @@ impl Plugin for GauntletPlugin {
             .add_observer(armory::armory_click)
             .add_systems(
                 OnEnter(GameState::Playing),
-                (reset, screen::spawn_held_column, sets::spawn_set_banner).chain().run_if(gauntlet),
+                (reset, screen::spawn_held_column, sets::spawn_set_banner, duos::spawn_duo_banner).chain().run_if(gauntlet),
             )
             .add_systems(
                 Update,
@@ -295,6 +296,7 @@ impl Plugin for GauntletPlugin {
                     (record_picks, screen::refresh_held_column).run_if(picks_changed).after(sets::reach_set_bonuses),
                     (procs::draw_procs, screen::update_proc_bars, screen::update_jackpot_bar),
                     (sets::show_set_banner, sets::draw_set_flashes, sets::draw_frost_patches),
+                    (duos::announce_duos, duos::show_duo_banner).chain(),
                 )
                     .run_if(in_state(GameState::Playing))
                     .run_if(gauntlet),

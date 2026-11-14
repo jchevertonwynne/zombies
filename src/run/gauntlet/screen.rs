@@ -6,7 +6,8 @@ use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
 use bevy::ui_widgets::Button;
 
-use super::boon::{BoonDef, Family, HeldBoons, effect_line, requirement_line, stack_line};
+use super::boon::{BoonDef, Family, HeldBoons, Rarity, effect_line, find, requirement_line, stack_line};
+use super::duos::{duo_ready, partners_wanted};
 use super::pact::{CRIMSON, HeldPact, HeldPacts, PactDef};
 use super::procs::ProcCooldowns;
 use super::sets::{Jackpot, SetBonuses, tier_tag};
@@ -191,7 +192,7 @@ fn card(
         Hovered::default(),
         Node {
             width: px(280.0),
-            height: px(340.0),
+            height: px(380.0),
             flex_direction: FlexDirection::Column,
             border: UiRect::all(px(4.0)),
             ..default()
@@ -224,24 +225,39 @@ fn boon_card(row: &mut ChildSpawnerCommands, index: usize, boon: &BoonDef, held:
     let stacks = held.stacks(boon.id);
     let accent = boon.rarity.colour();
     let family = boon.family.colour();
-    card(row, index, accent, boon.rarity.label(), |body| {
+    let label = if boon.duo.is_some() { "LEGENDARY DUO" } else { boon.rarity.label() };
+    card(row, index, accent, label, |body| {
         let stack_colour = if stacks == 0 { NEW_GREEN } else { Color::WHITE };
-        // The Family stripe across the card, with its badge.
-        body.spawn((
-            Node {
-                padding: UiRect::axes(px(8.0), px(2.0)),
-                margin: UiRect::top(px(-4.0)),
-                border: UiRect::left(px(6.0)),
-                ..default()
-            },
-            BorderColor::all(family),
-            BackgroundColor(family.with_alpha(0.18)),
-        ))
-        .with_child(text(boon.family.name().to_uppercase(), 14.0, family));
+        match boon.duo {
+            // A Duo's stripe is split between its two Families, each with its badge.
+            Some(duo) => {
+                body.spawn(Node { margin: UiRect::top(px(-4.0)), column_gap: px(4.0), ..default() })
+                    .with_children(|stripe| {
+                        for family in duo.families {
+                            family_badge(stripe, family);
+                        }
+                    });
+            }
+            // The Family stripe across the card, with its badge.
+            None => {
+                body.spawn(Node { margin: UiRect::top(px(-4.0)), ..default() })
+                    .with_children(|stripe| family_badge(stripe, boon.family));
+            }
+        }
         body.spawn(text(boon.name, 30.0, accent));
         body.spawn(text(stack_line(stacks), 16.0, stack_colour));
+        if let Some(duo) = boon.duo {
+            let names: Vec<_> = duo.recipe.iter().map(|&id| find(id).map_or(id, |part| part.name)).collect();
+            body.spawn(text(format!("{} + {}", names[0], names[1]), 16.0, GREY));
+        }
         if let Some(tag) = tier_tag(held, boon) {
             body.spawn(text(tag, 16.0, family));
+        }
+        for duo in duo_ready(boon, held) {
+            body.spawn(text(format!("Duo ready: {}", duo.name), 16.0, Rarity::Legendary.colour()));
+        }
+        for (partner, duo) in partners_wanted(boon, held) {
+            body.spawn(text(format!("Pairs with {partner} for {duo}"), 14.0, GREY));
         }
         body.spawn(text("EFFECT", 14.0, GREY));
         body.spawn(text(effect_line(boon, stacks), 22.0, Color::WHITE));
@@ -249,6 +265,23 @@ fn boon_card(row: &mut ChildSpawnerCommands, index: usize, boon: &BoonDef, held:
             body.spawn(text(requirement, 14.0, GREY));
         }
     });
+}
+
+/// A Family's badge: its name in its colour, on a stripe of it.
+fn family_badge(stripe: &mut ChildSpawnerCommands, family: Family) {
+    let colour = family.colour();
+    stripe
+        .spawn((
+            Node {
+                padding: UiRect::axes(px(8.0), px(2.0)),
+                border: UiRect::left(px(6.0)),
+                flex_grow: 1.0,
+                ..default()
+            },
+            BorderColor::all(colour),
+            BackgroundColor(colour.with_alpha(0.18)),
+        ))
+        .with_child(text(family.name().to_uppercase(), 14.0, colour));
 }
 
 /// A Pact's crimson card: its Upside and its Drawback.
@@ -385,6 +418,17 @@ pub fn refresh_held_column(
                     }
                     held_rows(column, held, family);
                 }
+                // Duos under their own heading, in the Legendary colour.
+                let duos: Vec<_> = held.0.iter().filter(|(boon, _)| boon.duo.is_some()).collect();
+                if !duos.is_empty() {
+                    column.spawn((
+                        text("Duos", 16.0, Rarity::Legendary.colour()),
+                        Node { margin: UiRect::top(px(4.0)), ..default() },
+                    ));
+                    for &&(duo, _) in &duos {
+                        column.spawn(text(duo.name, 18.0, Rarity::Legendary.colour()));
+                    }
+                }
                 let round = round.as_ref().map_or(1, |round| round.number);
                 for &HeldPact { pact, .. } in &pacts.0 {
                     // Name and Drawback together, so a wrap never parts them.
@@ -403,44 +447,53 @@ pub fn refresh_held_column(
     }
 }
 
-/// One Family's held Boons in the Held column, in pick order; a Proc Boon gets its cooldown bar.
+/// One Family's held Boons in the Held column, in pick order; a Proc Boon gets its cooldown bar,
+/// and a recipe Boon names the partner its Duo still waits for.
 fn held_rows(column: &mut ChildSpawnerCommands, held: &HeldBoons, family: Family) {
-    for &(boon, stacks) in held.0.iter().filter(|(boon, _)| boon.family == family) {
+    for &(boon, stacks) in held.0.iter().filter(|(boon, _)| boon.duo.is_none() && boon.family == family) {
         let colour = boon.rarity.colour();
         let name = text(format!("{} {stacks}", boon.name), 18.0, colour);
-        if boon.proc.is_none() {
-            column.spawn(name);
-            continue;
+        held_row(column, boon, name, colour);
+        for (partner, duo) in partners_wanted(boon, held) {
+            column.spawn(text(format!("  + {partner} for {duo}"), 13.0, GREY));
         }
-        // A Proc Boon gets a thin bar under its name that refills over its cooldown.
-        column
-            .spawn(Node {
-                flex_direction: FlexDirection::Column,
-                row_gap: px(1.0),
-                ..default()
-            })
-            .with_children(|entry| {
-                entry.spawn((name, ProcRow { id: boon.id, colour }));
-                entry
-                    .spawn((
-                        Node {
-                            width: px(BAR_WIDTH_PX),
-                            height: px(3.0),
-                            ..default()
-                        },
-                        BackgroundColor(BAR_TRACK),
-                    ))
-                    .with_child((
-                        ProcBarFill(boon.id),
-                        Node {
-                            width: percent(100.0),
-                            height: percent(100.0),
-                            ..default()
-                        },
-                        BackgroundColor(colour),
-                    ));
-            });
     }
+}
+
+/// One held Boon's row: its name, and a Proc Boon's cooldown bar beneath.
+fn held_row(column: &mut ChildSpawnerCommands, boon: &BoonDef, name: impl Bundle, colour: Color) {
+    if boon.proc.is_none() {
+        column.spawn(name);
+        return;
+    }
+    // A Proc Boon gets a thin bar under its name that refills over its cooldown.
+    column
+        .spawn(Node {
+            flex_direction: FlexDirection::Column,
+            row_gap: px(1.0),
+            ..default()
+        })
+        .with_children(|entry| {
+            entry.spawn((name, ProcRow { id: boon.id, colour }));
+            entry
+                .spawn((
+                    Node {
+                        width: px(BAR_WIDTH_PX),
+                        height: px(3.0),
+                        ..default()
+                    },
+                    BackgroundColor(BAR_TRACK),
+                ))
+                .with_child((
+                    ProcBarFill(boon.id),
+                    Node {
+                        width: percent(100.0),
+                        height: percent(100.0),
+                        ..default()
+                    },
+                    BackgroundColor(colour),
+                ));
+        });
 }
 
 #[cfg(test)]
