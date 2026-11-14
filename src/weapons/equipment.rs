@@ -615,6 +615,7 @@ pub enum Lethal {
 #[derive(Message, Debug, Clone, Copy)]
 pub struct LethalThrown {
     pub player: Entity,
+    #[allow(dead_code, reason = "no listener tells Lethals apart yet")]
     pub kind: Lethal,
     pub at: Vec3,
     pub projectile: Entity,
