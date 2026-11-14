@@ -232,7 +232,7 @@ pub const PACTS: &[PactDef] = &[
                 Effect::Mult(PACT_OVERCLOCKED_PRICE_FACTOR),
             ),
         ],
-        upside: || "Ammo Mods have no cooldown".into(),
+        upside: || "Ammo Mods and Procs have no cooldown".into(),
         drawback: |_| format!("Pack-a-Punch and Repack prices x{PACT_OVERCLOCKED_PRICE_FACTOR:.0}"),
     },
     PactDef {

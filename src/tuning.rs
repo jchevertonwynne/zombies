@@ -2202,6 +2202,80 @@ pub const BOON_BLACK_MARKET_UPGRADE_CHANCE: f32 = 0.20;
 pub const BOON_DOUBLE_PUNCHED_AMMO_MOD_SLOTS: u32 = 1;
 pub const BOON_LUCKY_STRIKE_CHANCE: f64 = 0.20;
 
+// Proc Boons (spec #182, Appendix A3): each one's Effect at 1 Stack, what each extra Stack adds,
+// its Trigger chance and its cooldown. Stacks grow only the Effect.
+pub const BOON_ARC_LIGHT_CHAIN_ZOMBIES: u32 = 3;
+pub const BOON_ARC_LIGHT_CHAIN_ZOMBIES_PER_STACK: u32 = 2;
+pub const BOON_ARC_LIGHT_COOLDOWN_SECS: f32 = 2.0;
+pub const BOON_HOT_BRASS_RADIUS_M: f32 = 2.5;
+pub const BOON_HOT_BRASS_RADIUS_M_PER_STACK: f32 = 0.5;
+pub const BOON_HOT_BRASS_COOLDOWN_SECS: f32 = 8.0;
+pub const BOON_ELBOW_ROOM_ZOMBIES: u32 = 6;
+pub const BOON_ELBOW_ROOM_ZOMBIES_PER_STACK: u32 = 3;
+/// How close a Zombie must be to be flung.
+pub const BOON_ELBOW_ROOM_RADIUS_M: f32 = 4.0;
+pub const BOON_ELBOW_ROOM_COOLDOWN_SECS: f32 = 15.0;
+pub const BOON_PARTING_SHOT_RADIUS_M: f32 = 2.0;
+pub const BOON_PARTING_SHOT_RADIUS_M_PER_STACK: f32 = 0.5;
+pub const BOON_FROSTBITE_SECS: f32 = 3.0;
+pub const BOON_FROSTBITE_SECS_PER_STACK: f32 = 1.0;
+/// Every Zombie this close to the Knife kill is Frosted.
+pub const BOON_FROSTBITE_RADIUS_M: f32 = 4.0;
+pub const BOON_SPOILS_OF_WAR_SHOTS: u32 = 10;
+pub const BOON_SPOILS_OF_WAR_SHOTS_PER_STACK: u32 = 5;
+pub const BOON_TURNCOAT_CHANCE: f64 = 0.05;
+pub const BOON_TURNCOAT_SECS: f32 = 20.0;
+pub const BOON_TURNCOAT_SECS_PER_STACK: f32 = 5.0;
+pub const BOON_TURNCOAT_COOLDOWN_SECS: f32 = 20.0;
+pub const BOON_FIREBRAND_RADIUS_M: f32 = 2.0;
+pub const BOON_FIREBRAND_RADIUS_M_PER_STACK: f32 = 0.5;
+pub const BOON_FIREBRAND_POOL_SECS: f32 = 5.0;
+pub const BOON_STATIC_DISCHARGE_RADIUS_M: f32 = 5.0;
+pub const BOON_STATIC_DISCHARGE_RADIUS_M_PER_STACK: f32 = 1.0;
+pub const BOON_STATIC_DISCHARGE_COOLDOWN_SECS: f32 = 30.0;
+pub const BOON_WILDFIRE_CHANCE: f64 = 0.15;
+pub const BOON_WILDFIRE_RADIUS_M: f32 = 3.0;
+pub const BOON_WILDFIRE_RADIUS_M_PER_STACK: f32 = 1.0;
+pub const BOON_WILDFIRE_COOLDOWN_SECS: f32 = 1.0;
+pub const BOON_FIRING_SQUAD_SHOTS: u32 = 10;
+pub const BOON_FIRING_SQUAD_SHOTS_PER_STACK: u32 = 5;
+pub const BOON_FIRING_SQUAD_COOLDOWN_SECS: f32 = 10.0;
+pub const BOON_RAISE_THE_DEAD_CHANCE: f64 = 0.10;
+/// Zombies turned: the killed one, and one more nearest per extra Stack.
+pub const BOON_RAISE_THE_DEAD_ZOMBIES: u32 = 1;
+pub const BOON_RAISE_THE_DEAD_ZOMBIES_PER_STACK: u32 = 1;
+pub const BOON_RAISE_THE_DEAD_COOLDOWN_SECS: f32 = 5.0;
+
+// Gauntlet v2 (spec #182)
+/// Frost slows a Zombie to this share of its speed.
+pub const GAUNTLET_FROST_SPEED_FACTOR: f32 = 0.5;
+/// The most Turned allies alive at once in a Gauntlet Run, from Ammo Mods and Procs together.
+pub const GAUNTLET_TURNED_ALLY_CAP: u32 = 3;
+/// Each Family's colour (sRGB): Lead, Blade, Spark, Ember, Gold, Grit.
+pub const GAUNTLET_FAMILY_COLOURS: [[u8; 3]; 6] = [
+    [0x8A, 0x96, 0xA3],
+    [0x9F, 0xD8, 0xF0],
+    [0xF2, 0xD9, 0x3B],
+    [0xF2, 0x8C, 0x28],
+    [0xD4, 0xAF, 0x37],
+    [0xA3, 0x20, 0x1E],
+];
+/// A Proc's Family-coloured accent ring lasts this long; so does a Blast's sphere.
+pub const GAUNTLET_PROC_ACCENT_SECS: f32 = 0.25;
+/// A Proc borrowing an Ammo Mod's cue plays it at this pitch and share of its volume.
+pub const GAUNTLET_PROC_CUE_PITCH: f32 = 1.2;
+pub const GAUNTLET_PROC_CUE_GAIN: f32 = 0.7;
+/// Thinning: one Proc cue plays at most once per gap, and at most this many of it at once.
+pub const GAUNTLET_CUE_MIN_GAP_SECS: f32 = 0.08;
+pub const GAUNTLET_CUE_MAX_VOICES: usize = 4;
+/// How long a Proc cue counts as playing, for the voice cap (the spec gives no length; the
+/// placeholder cues are about this long).
+pub const GAUNTLET_CUE_VOICE_SECS: f32 = 0.5;
+/// Thinning: past this many Proc visuals alive, a Proc casts without showing.
+pub const GAUNTLET_PROC_FLASH_CAP: usize = 8;
+/// Thinning: past this many accent rings alive, a Proc gets none.
+pub const GAUNTLET_ACCENT_RING_CAP: usize = 4;
+
 // Pacts (Appendix B): fixed, held once, never scaled by Round
 /// Every this many Rounds, a Pact Offer replaces the Boon Offer.
 pub const PACT_OFFER_EVERY_ROUNDS: u32 = 5;
