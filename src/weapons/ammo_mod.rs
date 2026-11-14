@@ -429,6 +429,9 @@ pub struct CastEffect {
     pub unbounded: bool,
     /// Turned: the ally glows this colour rather than Turned green.
     pub tint: Option<Color>,
+    /// PhantomGun: each shot sets its Zombie alight (a Blast Furnace burn, which kills it on its
+    /// last tick) rather than killing it outright.
+    pub ignites: bool,
 }
 
 /// A Turned ally that doesn't count toward the `TurnedAllyCap`.
@@ -468,6 +471,21 @@ impl Default for TurnedAlly {
     }
 }
 
+/// A Turned ally's time or kills ran out, and it fell where it stood.
+#[derive(Message, Debug, Clone, Copy, PartialEq)]
+pub struct TurnedAllyExpired {
+    pub at: Vec3,
+    /// The Player whose Weapon or cast turned it.
+    pub player: Option<Entity>,
+}
+
+impl TurnedAlly {
+    /// The Player whose Weapon or cast turned it, who its kills credit.
+    pub fn player(&self) -> Option<Entity> {
+        self.player
+    }
+}
+
 /// A fire pool a `CastEffect` left: it sets alight every Zombie that stands in it.
 #[derive(Component, Debug)]
 struct FirePool {
@@ -499,6 +517,10 @@ struct Phantom {
     total: u32,
     pay: Pay,
     show: bool,
+    /// Its shots set Zombies alight rather than killing them outright.
+    ignites: bool,
+    /// The Zombies an igniting phantom has set alight, which its later shots leave be.
+    lit: Vec<Entity>,
 }
 
 /// Dead Wire hits waiting out their delay: (seconds left, Zombie, Player whose Weapon it was, its
@@ -538,6 +560,7 @@ impl Plugin for AmmoModPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<AmmoModHit>()
             .add_message::<CastEffect>()
+            .add_message::<TurnedAllyExpired>()
             .init_resource::<TurnedAllyCap>()
             .init_resource::<DelayedHits>()
             .init_resource::<Flashes>()
@@ -708,6 +731,8 @@ fn roll_ammo_mods(
                             total: FIREWORKS_SHOTS,
                             pay: Pay::Unpaid,
                             show: true,
+                            ignites: false,
+                            lit: Vec::new(),
                         },
                         Mesh3d(assets.gun.clone()),
                         MeshMaterial3d(assets.phantom.clone()),
@@ -969,6 +994,8 @@ fn cast_effects(
                         total: cast.size.max(0.0) as u32,
                         pay: cast.pay,
                         show,
+                        ignites: cast.ignites,
+                        lit: Vec::new(),
                     },
                     Transform::from_translation(feet),
                 ));
@@ -1105,10 +1132,11 @@ fn run_delayed_hits(
 fn fire_phantoms(
     mut commands: Commands,
     mut phantoms: Query<(Entity, &mut Phantom, &mut Transform)>,
-    zombies: Query<(Entity, &GlobalTransform), (With<Zombie>, Without<Dying>)>,
+    zombies: Query<(Entity, &GlobalTransform, &Zombie, Has<Burning>), Without<Dying>>,
     mut flashes: ResMut<Flashes>,
     spatial: SpatialQuery,
     mut damage: MessageWriter<DamageZombie>,
+    mut ignite: MessageWriter<Ignite>,
     time: Res<Time>,
 ) {
     let mut doomed: Vec<Entity> = Vec::new();
@@ -1134,10 +1162,13 @@ fn fire_phantoms(
             && t >= FIREWORKS_RISE_SECS + phantom.shots as f32 * FIREWORKS_SHOT_SECS
         {
             phantom.shots += 1;
+            // An igniting phantom leaves Zombies already alight for its other shots.
             let mut candidates: Vec<_> = zombies
                 .iter()
-                .filter(|(zombie, _)| !doomed.contains(zombie))
-                .map(|(zombie, at)| (zombie, at.translation()))
+                .filter(|(zombie, _, _, burning)| {
+                    !doomed.contains(zombie) && !(phantom.ignites && (*burning || phantom.lit.contains(zombie)))
+                })
+                .map(|(zombie, at, ..)| (zombie, at.translation()))
                 .collect();
             candidates.sort_by_cached_key(|_| rand::random::<u32>());
             let ranked: Vec<_> = candidates.iter().enumerate().map(|(i, (_, at))| (i, muzzle.distance(*at))).collect();
@@ -1145,7 +1176,17 @@ fn fire_phantoms(
             let aim = match target {
                 Some(i) => {
                     let (zombie, at) = candidates[i];
-                    kill(&mut damage, Some(phantom.player), zombie, phantom.pay);
+                    match zombies.get(zombie) {
+                        Ok((_, _, body, _)) if phantom.ignites => {
+                            phantom.lit.push(zombie);
+                            ignite.write(Ignite {
+                                player: phantom.player,
+                                zombie,
+                                burn: blast_furnace_burn(body.health()),
+                            });
+                        }
+                        _ => kill(&mut damage, Some(phantom.player), zombie, phantom.pay),
+                    }
                     doomed.push(zombie);
                     at
                 }
@@ -1176,6 +1217,7 @@ fn run_allies(
     doors: Query<&Door>,
     move_and_slide: MoveAndSlide,
     mut damage: MessageWriter<DamageZombie>,
+    mut expired: MessageWriter<TurnedAllyExpired>,
     time: Res<Time>,
 ) {
     let dt = time.delta_secs();
@@ -1191,6 +1233,10 @@ fn run_allies(
         if let Some(left) = &mut ally.ending {
             *left -= dt;
             if *left <= 0.0 {
+                expired.write(TurnedAllyExpired {
+                    at: transform.translation,
+                    player: ally.player,
+                });
                 commands
                     .entity(entity)
                     .remove::<(TurnedAlly, Collider, CollisionLayers)>()
@@ -1613,7 +1659,7 @@ mod tests {
         const FRAME_RATES: [f64; 3] = [144.0, 60.0, 90.0];
 
         fn movement(app: &mut App) {
-            app.add_systems(FixedUpdate, (run_allies, fling));
+            app.add_message::<TurnedAllyExpired>().add_systems(FixedUpdate, (run_allies, fling));
         }
 
         /// Every kill the Sim has seen.
@@ -1627,6 +1673,7 @@ mod tests {
                     .add_message::<CastEffect>()
                     .add_message::<Ignite>()
                     .add_message::<PlayCue>()
+                    .add_message::<TurnedAllyExpired>()
                     .init_resource::<DelayedHits>()
                     .init_resource::<Flashes>()
                     .init_resource::<Kills>()
@@ -1646,7 +1693,7 @@ mod tests {
         }
 
         fn cast(player: Entity, element: Element, target: CastTarget, size: f32, pay: Pay) -> CastEffect {
-            CastEffect { player, element, target, size, reach: None, lasts: 0.0, pay, accent: None, show: true, unbounded: false, tint: None }
+            CastEffect { player, element, target, size, reach: None, lasts: 0.0, pay, accent: None, show: true, unbounded: false, tint: None, ignites: false }
         }
 
         #[test]
@@ -1666,6 +1713,44 @@ mod tests {
                 assert!(kills.iter().all(|kill| kill.player == Some(player)));
                 assert!(sim.world_mut().resource::<Messages<AmmoModHit>>().is_empty(), "no Ammo Mod roll");
             }
+        }
+
+        #[test]
+        fn a_turned_ally_whose_time_runs_out_says_where_it_fell_and_whose_it_was() {
+            let mut sim = Sim::new(60.0, casting(None));
+            let feet = Vec3::new(4.0, 0.0, 12.0);
+            let zombie = sim.spawn(feet, None);
+            sim.run(5);
+            let player = player(&mut sim);
+            sim.send(cast(player, Element::Turned, CastTarget::Zombie(zombie), 0.5, Pay::Unpaid));
+            let mut expired = Vec::new();
+            for _ in 0..sim.frames(0.5 + TURNED_LAST_SWING_SECS + 0.5) {
+                sim.run(1);
+                expired.extend(sim.world_mut().resource_mut::<Messages<TurnedAllyExpired>>().drain());
+            }
+            assert_eq!(expired.len(), 1, "it expires once");
+            assert_eq!(expired[0].player, Some(player));
+            assert!(expired[0].at.with_y(0.0).distance(feet.with_y(0.0)) < 2.0, "{} is far from {feet}", expired[0].at);
+        }
+
+        #[test]
+        fn an_igniting_phantom_gun_sets_its_zombies_alight_rather_than_killing_them() {
+            let mut sim = Sim::new(60.0, casting(None));
+            let feet = Vec3::new(4.0, 0.0, 12.0);
+            let zombies = [sim.spawn(feet + Vec3::X * 2.0, None), sim.spawn(feet - Vec3::X * 2.0, None)];
+            sim.run(5);
+            let player = player(&mut sim);
+            sim.send(CastEffect { ignites: true, ..cast(player, Element::PhantomGun, CastTarget::Point(feet), 2.0, Pay::Unpaid) });
+            let mut ignited = Vec::new();
+            for _ in 0..sim.frames(FIREWORKS_RISE_SECS + 3.0 * FIREWORKS_SHOT_SECS) {
+                sim.run(1);
+                ignited.extend(sim.world_mut().resource_mut::<Messages<Ignite>>().drain().map(|ignite| (ignite.player, ignite.zombie)));
+            }
+            ignited.sort();
+            let mut expected = zombies.map(|zombie| (player, zombie)).to_vec();
+            expected.sort();
+            assert_eq!(ignited, expected, "each shot sets one Zombie alight, credited to the cast's Player");
+            assert!(sim.world_mut().resource::<Kills>().0.is_empty(), "no shot kills outright");
         }
 
         #[test]
