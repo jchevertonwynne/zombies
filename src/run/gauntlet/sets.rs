@@ -575,6 +575,7 @@ pub fn storm_aura(
             show: true,
             unbounded: false,
             tint: None,
+            ignites: false,
         });
     }
 }
@@ -609,6 +610,7 @@ pub fn scorched(
             show: false,
             unbounded: false,
             tint: None,
+            ignites: false,
         });
         flashes.0.push(SetFlash {
             shape: FlashShape::Disc(kill.at, SET_EMBER_6_PATCH_RADIUS_M),
@@ -703,6 +705,7 @@ pub fn bodyguard(
                     show: true,
                     unbounded: true,
                     tint: Some(Family::Grit.colour()),
+                    ignites: false,
                 });
                 capstones.guard = Some(candidate);
                 capstones.owed = false;

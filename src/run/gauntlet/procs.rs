@@ -556,6 +556,7 @@ pub fn cast_procs(
             show,
             unbounded: false,
             tint: None,
+            ignites: false,
         };
         let point = CastTarget::Point(proc.at);
         match def.effect {
