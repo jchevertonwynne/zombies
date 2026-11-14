@@ -446,6 +446,8 @@ fn a_pacts_procs_fire_only_for_its_holder() {
         max_health: 100.0,
         overflow: 10.0,
         attack: Attack::Bullet,
+        damage: 110.0,
+        headshot: false,
     };
     sim.send(kill(teammate));
     sim.run(1);

@@ -149,6 +149,30 @@ pub struct StunZombie {
     pub secs: f32,
 }
 
+/// Factors on the damage one Zombie takes: `head` on a hit to the head, `body` on any other.
+/// Absent, it takes a hit's damage as dealt. Classic never adds one; anything layered on it may
+/// (ADR 0007).
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct DamageTakenFactor {
+    pub body: f32,
+    pub head: f32,
+}
+
+impl Default for DamageTakenFactor {
+    fn default() -> Self {
+        Self { body: 1.0, head: 1.0 }
+    }
+}
+
+/// A hit's damage to a Zombie after its `DamageTakenFactor`, if it has one, and before Insta-Kill.
+pub fn taken_damage(damage: f32, zone: HitZone, factor: Option<&DamageTakenFactor>) -> f32 {
+    match (factor, zone) {
+        (None, _) => damage,
+        (Some(factor), HitZone::Head) => damage * factor.head,
+        (Some(factor), _) => damage * factor.body,
+    }
+}
+
 /// Factors on one Zombie's move speed, one per source, multiplied together. Absent, or empty, it
 /// moves at its usual speed. Classic never adds one; anything layered on it may (ADR 0007).
 #[derive(Component, Debug, Default, Clone, PartialEq)]
@@ -261,6 +285,10 @@ pub struct KillDamage {
     /// The hit's damage past the Health the Zombie had left. Infinite for a hit that always kills.
     pub overflow: f32,
     pub attack: Attack,
+    /// The killing hit's damage, as it was sent.
+    pub damage: f32,
+    /// Whether the killing hit was a Headshot.
+    pub headshot: bool,
 }
 
 /// The damage a hit does past the Health its Zombie had left, before Insta-Kill.
@@ -1453,7 +1481,10 @@ pub fn make_puppet_crawler(commands: &mut Commands, assets: &ZombieAssetsParam, 
 pub fn apply_damage(
     mut commands: Commands,
     mut requests: MessageReader<DamageZombie>,
-    mut zombies: Query<(&mut Zombie, &Children, &Transform, Option<&Rising>, Has<Surge>), (Without<Dying>, Without<Telegraph>)>,
+    mut zombies: Query<
+        (&mut Zombie, &Children, &Transform, Option<&Rising>, Has<Surge>, Option<&DamageTakenFactor>),
+        (Without<Dying>, Without<Telegraph>),
+    >,
     hit_areas: Query<(), With<HitArea>>,
     power_ups: Res<ActivePowerUps>,
     mut hits: MessageWriter<ZombieHit>,
@@ -1463,20 +1494,21 @@ pub fn apply_damage(
 ) {
     let insta_kill = power_ups.active(PowerUp::InstaKill);
     for request in requests.read() {
-        let Ok((mut zombie, children, transform, rising, surge)) = zombies.get_mut(request.zombie) else {
+        let Ok((mut zombie, children, transform, rising, surge, factor)) = zombies.get_mut(request.zombie) else {
             continue;
         };
         // Several hits can land in one frame; only the first lethal one counts.
         if zombie.health <= 0.0 {
             continue;
         }
-        let overflow = overflow_damage(zombie.health, request.damage);
+        let damage = taken_damage(request.damage, request.zone, factor);
+        let overflow = overflow_damage(zombie.health, damage);
         zombie.health -= if zombie.is_sapper() {
-            sapper_damage(request.damage, request.attack, zombie.max_health, insta_kill)
+            sapper_damage(damage, request.attack, zombie.max_health, insta_kill)
         } else if zombie.special == Some(SpecialKind::Napalm) {
-            doubled_damage(request.damage, insta_kill)
+            doubled_damage(damage, insta_kill)
         } else {
-            dealt_damage(request.damage, insta_kill)
+            dealt_damage(damage, insta_kill)
         };
         if zombie.health > 0.0 {
             // A Burn's ticks pay no hit Points, nor does a torn Plank.
@@ -1514,6 +1546,8 @@ pub fn apply_damage(
             max_health: zombie.max_health,
             overflow,
             attack: request.attack,
+            damage: request.damage,
+            headshot: is_headshot(request.zone, request.attack),
         });
         if zombie.nova {
             nova_kills.write(NovaCrawlerKilled {
@@ -1778,6 +1812,19 @@ mod tests {
     fn napalm_and_death_scream_kills_are_unpaid() {
         assert_eq!(Attack::Napalm.pay(), Pay::Unpaid);
         assert_eq!(Attack::Scream.pay(), Pay::Unpaid);
+    }
+
+    #[test]
+    fn a_damage_taken_factor_scales_body_and_head_hits_and_is_neutral_when_absent() {
+        assert_eq!(taken_damage(100.0, HitZone::Torso, None), 100.0);
+        assert_eq!(DamageTakenFactor::default(), DamageTakenFactor { body: 1.0, head: 1.0 });
+        let factor = DamageTakenFactor { body: 1.25, head: 2.0 };
+        assert_eq!(taken_damage(100.0, HitZone::Torso, Some(&factor)), 125.0);
+        assert_eq!(taken_damage(100.0, HitZone::Limb, Some(&factor)), 125.0);
+        assert_eq!(taken_damage(100.0, HitZone::Neck, Some(&factor)), 125.0);
+        assert_eq!(taken_damage(100.0, HitZone::Head, Some(&factor)), 200.0);
+        // Before Insta-Kill: a factored hit still kills outright under it.
+        assert!(dealt_damage(taken_damage(1.0, HitZone::Torso, Some(&factor)), true).is_infinite());
     }
 
     #[test]

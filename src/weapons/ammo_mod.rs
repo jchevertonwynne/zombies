@@ -152,6 +152,11 @@ impl AmmoMods {
     }
 
     /// Whether a tap Repack can add another, on a Weapon that holds `slots`.
+    /// Every Ammo Mod in either.
+    pub fn union(self, other: AmmoMods) -> AmmoMods {
+        AmmoMods(self.0 | other.0)
+    }
+
     pub fn has_room(self, slots: usize) -> bool {
         self.len() < slots
     }
@@ -419,7 +424,16 @@ pub struct CastEffect {
     pub accent: Option<Color>,
     /// False skips every visual, but not the effect.
     pub show: bool,
+    /// Turned: an ally with no lifetime or kill limit that sits outside the `TurnedAllyCap`
+    /// (`size` is ignored).
+    pub unbounded: bool,
+    /// Turned: the ally glows this colour rather than Turned green.
+    pub tint: Option<Color>,
 }
+
+/// A Turned ally that doesn't count toward the `TurnedAllyCap`.
+#[derive(Component, Debug, Default)]
+pub struct OutsideAllyCap;
 
 /// A Zombie on the Player's side after a Turned trigger. It's no longer a `Zombie`, so nothing
 /// can hurt it and the Round doesn't wait for it.
@@ -429,6 +443,8 @@ pub struct TurnedAlly {
     player: Option<Entity>,
     /// Seconds it lives.
     pub(crate) lifetime: f32,
+    /// The most Zombies it kills before it falls; `None` for no limit.
+    pub(crate) kill_limit: Option<u32>,
     elapsed: f32,
     kills: u32,
     wind_up: Option<f32>,
@@ -442,6 +458,7 @@ impl Default for TurnedAlly {
         Self {
             player: None,
             lifetime: TURNED_LIFETIME_SECS,
+            kill_limit: Some(TURNED_MAX_KILLS),
             elapsed: 0.0,
             kills: 0,
             wind_up: None,
@@ -543,12 +560,16 @@ impl Plugin for AmmoModPlugin {
     }
 }
 
-fn load_assets(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
-    let glow = |colour: Color| StandardMaterial {
+/// A glowing ally's or phantom's material in `colour`.
+fn glow(colour: Color) -> StandardMaterial {
+    StandardMaterial {
         base_color: colour,
         emissive: LinearRgba::from(colour) * 4.0,
         ..default()
-    };
+    }
+}
+
+fn load_assets(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
     commands.insert_resource(AmmoModAssets {
         ally: materials.add(glow(AmmoMod::Turned.glint())),
         phantom: materials.add(glow(AmmoMod::Fireworks.glint())),
@@ -591,7 +612,7 @@ fn roll_ammo_mods(
     mut ignite: MessageWriter<Ignite>,
     mut kills: MessageWriter<ZombieKilled>,
     (mut stuns, mut cues): (MessageWriter<StunZombie>, MessageWriter<PlayCue>),
-    (cap, allies): (Res<TurnedAllyCap>, Query<(), With<TurnedAlly>>),
+    (cap, allies): (Res<TurnedAllyCap>, Query<(), (With<TurnedAlly>, Without<OutsideAllyCap>)>),
     time: Res<Time>,
 ) {
     let mut allies = allies.iter().count();
@@ -720,10 +741,11 @@ fn roll_ammo_mods(
                         at,
                         lifetime: TURNED_LIFETIME_SECS,
                         show: true,
+                        unbounded: false,
+                        material: assets.ally.clone(),
                     };
                     spent.extend(turn.apply(
                         &mut commands,
-                        &assets,
                         children,
                         &hit_areas,
                         (&others, &positions, special),
@@ -745,6 +767,9 @@ struct Turn {
     at: Vec3,
     lifetime: f32,
     show: bool,
+    /// No lifetime or kill limit, and outside the `TurnedAllyCap`.
+    unbounded: bool,
+    material: Handle<StandardMaterial>,
 }
 
 impl Turn {
@@ -753,13 +778,12 @@ impl Turn {
     fn apply(
         self,
         commands: &mut Commands,
-        assets: &AmmoModAssets,
         children: &Children,
         hit_areas: &Query<(), With<HitArea>>,
         (others, positions, special): (&[Entity], &[Vec3], impl Fn(Entity) -> bool),
         (kills, damage, flashes): (&mut MessageWriter<ZombieKilled>, &mut MessageWriter<DamageZombie>, &mut Flashes),
     ) -> Vec<Entity> {
-        let Turn { player, zombie, at, lifetime, show } = self;
+        let Turn { player, zombie, at, lifetime, show, unbounded, material } = self;
         kills.write(ZombieKilled {
             player: Some(player),
             pay: Pay::Unpaid,
@@ -769,14 +793,19 @@ impl Turn {
             at,
             surge: false,
         });
-        commands.entity(zombie).remove::<(Zombie, Lured, Burning)>().insert((
+        let mut ally = commands.entity(zombie);
+        ally.remove::<(Zombie, Lured, Burning)>().insert((
             TurnedAlly {
                 player: Some(player),
-                lifetime,
+                lifetime: if unbounded { f32::INFINITY } else { lifetime },
+                kill_limit: if unbounded { None } else { Some(TURNED_MAX_KILLS) },
                 ..default()
             },
-            MeshMaterial3d(assets.ally.clone()),
+            MeshMaterial3d(material),
         ));
+        if unbounded {
+            ally.insert(OutsideAllyCap);
+        }
         // Bullets pass through it.
         for child in children.iter() {
             if hit_areas.contains(child) {
@@ -810,8 +839,9 @@ fn cast_effects(
     hit_areas: Query<(), With<HitArea>>,
     spatial: SpatialQuery,
     assets: Res<AmmoModAssets>,
-    (cap, allies): (Res<TurnedAllyCap>, Query<(), With<TurnedAlly>>),
+    (cap, allies): (Res<TurnedAllyCap>, Query<(), (With<TurnedAlly>, Without<OutsideAllyCap>)>),
     players: Query<&Modifiers, With<Player>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     mut damage: MessageWriter<DamageZombie>,
     mut ignite: MessageWriter<Ignite>,
     mut kills: MessageWriter<ZombieKilled>,
@@ -948,7 +978,7 @@ fn cast_effects(
                 }
             }
             Element::Turned => {
-                if !cap.has_room(allies) {
+                if !cast.unbounded && !cap.has_room(allies) {
                     continue;
                 }
                 // The Zombie asked for, or the nearest one to the point that's out of the ground.
@@ -968,7 +998,9 @@ fn cast_effects(
                 if body.special_kind().is_some() || rising {
                     continue;
                 }
-                allies += 1;
+                if !cast.unbounded {
+                    allies += 1;
+                }
                 let at = transform.translation;
                 let (others, positions): (Vec<Entity>, Vec<Vec3>) = zombies
                     .iter()
@@ -982,11 +1014,12 @@ fn cast_effects(
                     at,
                     lifetime: cast.size,
                     show,
+                    unbounded: cast.unbounded,
+                    material: cast.tint.map_or_else(|| assets.ally.clone(), |tint| materials.add(glow(tint))),
                 };
                 spent.push(zombie);
                 spent.extend(turn.apply(
                     &mut commands,
-                    &assets,
                     children,
                     &hit_areas,
                     (&others, &positions, special),
@@ -1151,7 +1184,8 @@ fn run_allies(
     let filter_mask = [GameLayer::World, GameLayer::Zombie, GameLayer::Player];
     for (entity, mut ally, mut route, mut transform, collider) in &mut allies {
         ally.elapsed += dt;
-        if ally.ending.is_none() && (ally.elapsed >= ally.lifetime || ally.kills >= TURNED_MAX_KILLS) {
+        let killed_enough = ally.kill_limit.is_some_and(|limit| ally.kills >= limit);
+        if ally.ending.is_none() && (ally.elapsed >= ally.lifetime || killed_enough) {
             ally.ending = Some(TURNED_LAST_SWING_SECS);
         }
         if let Some(left) = &mut ally.ending {
@@ -1183,7 +1217,7 @@ fn run_allies(
             match ally.wind_up {
                 Some(left) if left - dt <= 0.0 => {
                     ally.wind_up = None;
-                    if in_reach && ally.kills < TURNED_MAX_KILLS {
+                    if in_reach && ally.kill_limit.is_none_or(|limit| ally.kills < limit) {
                         kill(&mut damage, ally.player, zombie, Pay::Unpaid);
                         ally.kills += 1;
                     }
@@ -1612,7 +1646,7 @@ mod tests {
         }
 
         fn cast(player: Entity, element: Element, target: CastTarget, size: f32, pay: Pay) -> CastEffect {
-            CastEffect { player, element, target, size, reach: None, lasts: 0.0, pay, accent: None, show: true }
+            CastEffect { player, element, target, size, reach: None, lasts: 0.0, pay, accent: None, show: true, unbounded: false, tint: None }
         }
 
         #[test]
@@ -1650,6 +1684,26 @@ mod tests {
                     assert_eq!(world.get::<TurnedAlly>(zombie).unwrap().lifetime, 7.0, "lives as long as asked");
                 }
             }
+        }
+
+        #[test]
+        fn an_unbounded_cast_turn_ignores_the_cap_and_never_fills_it() {
+            let mut sim = Sim::new(60.0, casting(Some(1)));
+            let guard = sim.spawn(Vec3::new(4.0, 0.0, 12.0), None);
+            let other = sim.spawn(Vec3::new(-4.0, 0.0, 12.0), None);
+            sim.run(5);
+            let player = player(&mut sim);
+            let tint = Color::srgb(1.0, 0.0, 0.0);
+            sim.send(CastEffect { unbounded: true, tint: Some(tint), ..cast(player, Element::Turned, CastTarget::Zombie(guard), 0.0, Pay::Unpaid) });
+            sim.run(3);
+            let world = sim.world_mut();
+            let ally = world.get::<TurnedAlly>(guard).expect("turned past the cap");
+            assert!(ally.lifetime.is_infinite() && ally.kill_limit.is_none(), "no lifetime or kill limit");
+            assert!(world.get::<OutsideAllyCap>(guard).is_some());
+            // It doesn't count toward the cap of 1, so an ordinary turn still has room.
+            sim.send(cast(player, Element::Turned, CastTarget::Zombie(other), 7.0, Pay::Unpaid));
+            sim.run(3);
+            assert!(sim.world_mut().get::<TurnedAlly>(other).is_some());
         }
 
         #[test]

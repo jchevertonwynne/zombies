@@ -617,6 +617,7 @@ impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         configure_look(app);
         app.add_message::<PlayerHit>()
+            .add_message::<HealPlayer>()
             .init_resource::<FovWarp>()
             .init_resource::<RunModifiers>()
             .add_systems(
@@ -637,7 +638,7 @@ impl Plugin for PlayerPlugin {
             .add_systems(RunFixedMainLoop, look.run_if(input_runs).in_set(LookSystems))
             .add_systems(
                 Update,
-                (take_hits, regenerate).in_set(HostSimulation).run_if(world_runs),
+                (take_hits, heal_players, regenerate).chain().in_set(HostSimulation).run_if(world_runs),
             )
             // The camera rides the stance glide, the Down's collapse and rise included; the sway
             // reads what it left.
@@ -1212,17 +1213,59 @@ fn probes_for_ground(was_grounded: bool, jumped: bool, vertical_speed: f32) -> b
 /// Last Stand module handles.
 pub fn take_hits(
     mut hits: MessageReader<PlayerHit>,
-    mut players: Query<(&mut Health, Has<LastStand>, Has<AwaitingRespawn>), With<Player>>,
+    mut players: Query<(&mut Health, Option<&mut DownGuard>, Has<LastStand>, Has<AwaitingRespawn>), With<Player>>,
 ) {
     for hit in hits.read() {
-        let Ok((mut health, last_stand, awaiting)) = players.get_mut(hit.player) else {
+        let Ok((mut health, guard, last_stand, awaiting)) = players.get_mut(hit.player) else {
             continue;
         };
         if last_stand || awaiting {
             continue;
         }
-        health.current -= hit.damage;
+        let charges = guard.as_ref().map_or(0, |guard| guard.charges);
+        let (left, guarded) = guarded_hit(health.current, hit.damage, charges);
+        if guarded && let Some(mut guard) = guard {
+            guard.charges -= 1;
+        }
+        health.current = left;
         health.since_hit = 0.0;
+    }
+}
+
+/// Charges that each turn a hit that would Down the Player into one that leaves them on 1 Health.
+/// Classic never adds one; anything layered on it may (ADR 0007).
+#[derive(Component, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct DownGuard {
+    pub charges: u32,
+}
+
+/// Health left after a hit of `damage` on `current`, and whether a Down guard charge was spent on
+/// it: with a charge, a hit that would Down leaves 1 Health instead.
+pub fn guarded_hit(current: f32, damage: f32, charges: u32) -> (f32, bool) {
+    let left = current - damage;
+    if left <= 0.0 && charges > 0 {
+        (1.0, true)
+    } else {
+        (left, false)
+    }
+}
+
+/// Request to restore a Player's Health by `amount`, up to their max.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct HealPlayer {
+    pub player: Entity,
+    pub amount: f32,
+}
+
+/// Heals asked for land, capped at max Health. A Player in Last Stand isn't healed.
+pub fn heal_players(
+    mut heals: MessageReader<HealPlayer>,
+    mut players: Query<&mut Health, (With<Player>, Without<LastStand>)>,
+) {
+    for heal in heals.read() {
+        if let Ok(mut health) = players.get_mut(heal.player) {
+            health.current = (health.current + heal.amount.max(0.0)).min(health.max);
+        }
     }
 }
 
@@ -1280,6 +1323,42 @@ mod tests {
             max,
             since_hit: 0.0,
         }
+    }
+
+    #[test]
+    fn a_down_guard_leaves_one_health_and_spends_a_charge() {
+        assert_eq!(guarded_hit(30.0, 50.0, 1), (1.0, true));
+        assert_eq!(guarded_hit(30.0, 50.0, 0), (-20.0, false), "no charge, so it Downs");
+        assert_eq!(guarded_hit(80.0, 50.0, 1), (30.0, false), "a hit that doesn't Down spends none");
+        assert_eq!(guarded_hit(1.0, 50.0, 2), (1.0, true));
+    }
+
+    #[test]
+    fn a_heal_restores_health_up_to_the_max() {
+        let mut app = App::new();
+        app.add_message::<HealPlayer>().add_systems(Update, heal_players);
+        let player = app.world_mut().spawn((Player, health(50.0, 100.0))).id();
+        app.world_mut().write_message(HealPlayer { player, amount: 10.0 });
+        app.update();
+        assert_eq!(app.world().get::<Health>(player).unwrap().current, 60.0);
+        app.world_mut().write_message(HealPlayer { player, amount: 500.0 });
+        app.update();
+        assert_eq!(app.world().get::<Health>(player).unwrap().current, 100.0);
+    }
+
+    #[test]
+    fn a_down_guard_turns_a_downing_hit_into_one_health() {
+        let mut app = App::new();
+        app.add_message::<PlayerHit>().add_systems(Update, take_hits);
+        let player = app.world_mut().spawn((Player, health(30.0, 100.0), DownGuard { charges: 1 })).id();
+        let hit = || PlayerHit { player, damage: 50.0, from: None };
+        app.world_mut().write_message(hit());
+        app.update();
+        assert_eq!(app.world().get::<Health>(player).unwrap().current, 1.0);
+        assert_eq!(app.world().get::<DownGuard>(player).unwrap().charges, 0);
+        app.world_mut().write_message(hit());
+        app.update();
+        assert!(app.world().get::<Health>(player).unwrap().current <= 0.0, "the next one Downs");
     }
 
     #[test]
