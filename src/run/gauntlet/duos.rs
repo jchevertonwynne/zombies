@@ -14,7 +14,8 @@ use crate::economy::power_up::PowerUpTaken;
 use crate::enemies::zombie::{Attack, DamageZombie, Dying, HitZone, Pay, TurnedAllyHit, Zombie, ZombieKilled};
 use crate::modifier::{Effect, Modifiers, Stat};
 use crate::players::last_stand::Down;
-use crate::players::player::Player;
+use crate::players::player::{LocalPlayer, Player};
+use crate::ui::hud::text;
 use crate::run::round::Round;
 use crate::state::InRun;
 use crate::tuning::*;
@@ -595,6 +596,129 @@ pub fn ball_lightning(mut chains: ResMut<BallLightning>, mut casts: MessageWrite
     }
 }
 
+/// A Player took a Duo.
+#[derive(Message, Clone, Copy)]
+pub struct DuoTaken {
+    pub player: Entity,
+    pub duo: &'static BoonDef,
+}
+
+/// The Duos a Player has already been told they took.
+#[derive(Component, Debug, Default)]
+pub struct DuosTold(Vec<&'static str>);
+
+/// The Duos newly held since `told`, noting them as told.
+pub fn newly_taken(held: &HeldBoons, told: &mut DuosTold) -> Vec<&'static BoonDef> {
+    let new: Vec<_> = held
+        .0
+        .iter()
+        .map(|&(boon, _)| boon)
+        .filter(|boon| boon.duo.is_some() && !told.0.contains(&boon.id))
+        .collect();
+    told.0.extend(new.iter().map(|duo| duo.id));
+    new
+}
+
+/// Each Duo a Player takes is told once, and the `LocalPlayer` hears its stinger. Reading the held
+/// Boons rather than the pick means a Co-op client's Player, whose Boons the Host tells, is told
+/// too.
+pub fn announce_duos(
+    mut commands: Commands,
+    mut players: Query<(Entity, &HeldBoons, Option<&mut DuosTold>, Has<LocalPlayer>), Changed<HeldBoons>>,
+    mut taken: MessageWriter<DuoTaken>,
+    mut cues: MessageWriter<PlayCue>,
+) {
+    for (player, held, told, local) in &mut players {
+        let Some(mut told) = told else {
+            let mut told = DuosTold::default();
+            newly_taken(held, &mut told);
+            commands.entity(player).insert(told);
+            continue;
+        };
+        for duo in newly_taken(held, &mut told) {
+            taken.write(DuoTaken { player, duo });
+            if local {
+                cues.write(PlayCue::new(Cue::DuoTaken, None));
+            }
+        }
+    }
+}
+
+/// The Duo-taken banner: its two Family halves and its name, and the seconds it has left.
+#[derive(Component)]
+pub struct DuoBanner(f32);
+
+#[derive(Component)]
+pub struct DuoBannerHalf(usize);
+
+#[derive(Component)]
+pub struct DuoBannerText;
+
+pub fn spawn_duo_banner(mut commands: Commands) {
+    commands
+        .spawn((
+            InRun,
+            Node {
+                position_type: PositionType::Absolute,
+                width: percent(100.0),
+                top: percent(22.0),
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+        ))
+        .with_children(|root| {
+            root.spawn((
+                DuoBanner(0.0),
+                Node {
+                    padding: UiRect::axes(px(28.0), px(8.0)),
+                    ..default()
+                },
+                Visibility::Hidden,
+            ))
+            .with_children(|banner| {
+                for half in 0..2 {
+                    banner.spawn((
+                        DuoBannerHalf(half),
+                        Node {
+                            position_type: PositionType::Absolute,
+                            left: percent(50.0 * half as f32),
+                            width: percent(50.0),
+                            height: percent(100.0),
+                            ..default()
+                        },
+                        BackgroundColor(Color::NONE),
+                    ));
+                }
+                banner.spawn((DuoBannerText, text("", 34.0, Color::WHITE)));
+            });
+        });
+}
+
+/// A Duo the `LocalPlayer` takes shows its banner, split between its Families' colours, for
+/// `GAUNTLET_SET_BANNER_SECS`.
+pub fn show_duo_banner(
+    mut taken: MessageReader<DuoTaken>,
+    local: Query<(), With<LocalPlayer>>,
+    banner: Single<(&mut DuoBanner, &mut Visibility)>,
+    mut halves: Query<(&DuoBannerHalf, &mut BackgroundColor)>,
+    mut words: Single<&mut Text, With<DuoBannerText>>,
+    time: Res<Time<Real>>,
+) {
+    let (mut banner, mut visibility) = banner.into_inner();
+    for taken in taken.read().filter(|taken| local.contains(taken.player)) {
+        let Some(def) = taken.duo.duo else {
+            continue;
+        };
+        words.0 = format!("DUO: {}", taken.duo.name.to_uppercase());
+        for (half, mut colour) in &mut halves {
+            colour.0 = def.families[half.0].colour().with_alpha(0.85);
+        }
+        banner.0 = GAUNTLET_SET_BANNER_SECS;
+    }
+    banner.0 -= time.delta_secs();
+    visibility.set_if_neq(if banner.0 > 0.0 { Visibility::Inherited } else { Visibility::Hidden });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -793,6 +917,18 @@ mod tests {
         let landed = densest_point(from, &zombies).unwrap();
         assert!(landed.distance(crowd) < 1.0, "{landed}");
         assert_eq!(densest_point(from, &[Vec3::new(30.0, 0.0, 0.0)]), None, "nothing in range");
+    }
+
+    #[test]
+    fn a_duo_taken_is_told_once() {
+        let mut told = DuosTold::default();
+        let mut held = holding(&["hollow_points", "blood_money"]);
+        assert!(newly_taken(&held, &mut told).is_empty(), "no Duo yet");
+        held.add(boon(GOLD_STANDARD));
+        let new: Vec<_> = newly_taken(&held, &mut told).iter().map(|duo| duo.id).collect();
+        assert_eq!(new, [GOLD_STANDARD]);
+        held.add(boon("hollow_points"));
+        assert!(newly_taken(&held, &mut told).is_empty(), "a later pick never tells it again");
     }
 
     #[test]

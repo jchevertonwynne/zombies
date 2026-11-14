@@ -134,6 +134,7 @@ fn recipe(cue: Cue) -> Recipe {
         Cue::SetBonusTier2 => Recipe::Synth(chime(&[784.0, 1046.5], 0.9, 4.5)),
         Cue::SetBonusTier4 => Recipe::Synth(chime(&[784.0, 1046.5, 1318.5], 1.1, 3.8)),
         Cue::SetBonusTier6 => Recipe::Synth(chime(&[784.0, 1046.5, 1318.5, 1568.0, 2093.0], 1.6, 3.0)),
+        Cue::DuoTaken => Recipe::Synth(duo_taken()),
         Cue::AmmoModDeadWire => Recipe::Synth(zap_chain()),
         Cue::AmmoModFireworks => Recipe::Synth(pops()),
         Cue::AmmoModThunderWall => Recipe::Synth(gust()),
@@ -1170,6 +1171,13 @@ fn zap(secs: f32, mut seed: u32) -> Vec<f32> {
 fn mainframe_link() -> Vec<f32> {
     let mut out = chime(&[880.0, 1318.5], 0.8, 6.0);
     layer(&mut out, 0.0, &scaled(electric_crackle(0.6, 0x3a1f_0001), 0.6));
+    clamped(out)
+}
+
+/// A Duo taken: a low thud under a wide, slow chord, heavier than the Set Bonus stingers.
+fn duo_taken() -> Vec<f32> {
+    let mut out = scaled(thud(0.7, 65.0), 0.9);
+    layer(&mut out, 0.0, &chime(&[392.0, 523.25, 784.0, 1046.5, 1568.0], 2.0, 2.2));
     clamped(out)
 }
 

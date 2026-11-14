@@ -145,6 +145,7 @@ cues! {
     SetBonusTier2 => "set_bonus_tier_two", Root, Flat, 0.7;
     SetBonusTier4 => "set_bonus_tier_four", Root, Flat, 0.75;
     SetBonusTier6 => "set_bonus_tier_six", Root, Flat, 0.8;
+    DuoTaken => "duo_taken", Root, Flat, 0.85;
     PowerDown => "power_down", Root, Spatial, 0.9;
     PowerRestore => "power_restore", Root, Flat, 0.8;
     // Heard Map-wide, wherever the Generator is.
@@ -283,7 +284,7 @@ mod tests {
             "footstep", "stance_rustle", "dive_land", "crawl_drag",
             // Gauntlet v2's Proc cues (spec #182, Appendix C6).
             "proc_frost", "proc_blast",
-            "set_bonus_tier_two", "set_bonus_tier_four", "set_bonus_tier_six",
+            "set_bonus_tier_two", "set_bonus_tier_four", "set_bonus_tier_six", "duo_taken",
         ];
         let declared: Vec<_> = Cue::ALL.iter().map(|cue| cue.spec().name).collect();
         for slot in APPENDIX_C {
