@@ -355,6 +355,23 @@ fn on_off(on: bool) -> String {
     if on { "On" } else { "Off" }.to_string()
 }
 
+/// Whether the game is silent whatever the Master Volume, for testing: `ZOMBIES_MUTE=1`, and
+/// always under `ZOMBIES_BENCH` and `ZOMBIES_TOUR`.
+#[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Muted(pub bool);
+
+impl Muted {
+    pub fn from_env() -> Self {
+        let set = |name: &str| std::env::var(name).is_ok_and(|value| !value.is_empty() && value != "0");
+        Muted(set("ZOMBIES_MUTE") || set("ZOMBIES_BENCH") || set("ZOMBIES_TOUR"))
+    }
+
+    /// What everything plays at: the Master Volume, or nothing while muted.
+    pub fn volume(self, settings: &Settings) -> Volume {
+        if self.0 { Volume::SILENT } else { settings.volume() }
+    }
+}
+
 /// Where save files go, or `None` to run without saving.
 #[derive(Resource)]
 pub struct SaveDir(pub Option<PathBuf>);
@@ -371,8 +388,13 @@ impl Plugin for SettingsPlugin {
                 Settings::default()
             }
         };
+        let muted = Muted::from_env();
+        if muted.0 {
+            info!("Muted (ZOMBIES_MUTE, ZOMBIES_BENCH or ZOMBIES_TOUR is set).");
+        }
         app.insert_resource(SaveDir(dir))
-            .insert_resource(GlobalVolume::new(settings.volume()))
+            .insert_resource(muted)
+            .insert_resource(GlobalVolume::new(muted.volume(&settings)))
             .insert_resource(settings)
             .add_systems(
                 Update,
@@ -381,8 +403,8 @@ impl Plugin for SettingsPlugin {
     }
 }
 
-fn apply_volume(settings: Res<Settings>, mut global: ResMut<GlobalVolume>) {
-    global.volume = settings.volume();
+fn apply_volume(settings: Res<Settings>, muted: Res<Muted>, mut global: ResMut<GlobalVolume>) {
+    global.volume = muted.volume(&settings);
 }
 
 fn save_settings(settings: Res<Settings>, dir: Res<SaveDir>) {
@@ -619,6 +641,13 @@ mod tests {
         }
         .clamped();
         assert_eq!(long.name.chars().count(), PLAYER_NAME_MAX_CHARS);
+    }
+
+    #[test]
+    fn muted_plays_nothing_whatever_the_master_volume() {
+        let settings = Settings { master_volume: 80, ..Settings::default() };
+        assert_eq!(Muted(true).volume(&settings), Volume::SILENT);
+        assert_eq!(Muted(false).volume(&settings), settings.volume());
     }
 
     #[test]
