@@ -586,7 +586,7 @@ fn spawn_sapper_body(
 /// Each `SpawnZombie` for a Sapper spawns one outside the Horde and its cadence, with its own
 /// health: walking in from its point, or smashing in through a window. It's a `Heavyweight` with
 /// the Sapper's shares unless the request gives others.
-fn spawn_requested_sappers(
+pub(crate) fn spawn_requested_sappers(
     mut commands: Commands,
     mut requests: MessageReader<SpawnZombie>,
     round: Option<Res<Round>>,

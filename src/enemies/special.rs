@@ -346,7 +346,7 @@ struct ScreamShake {
 }
 
 #[derive(Resource)]
-struct SpecialAssets {
+pub(crate) struct SpecialAssets {
     napalm: Handle<StandardMaterial>,
     shrieker: Handle<StandardMaterial>,
     pool: Handle<Mesh>,
@@ -576,14 +576,13 @@ pub fn dress_puppet(commands: &mut Commands, assets: &SpecialAssetsParam, entity
 
 /// Each `SpawnZombie` for a Napalm spawns one outside the Horde: rising from its point with the
 /// pool it rises from, or smashing in through a window. It's never part of the special slot.
-fn spawn_requested_napalms(
+pub(crate) fn spawn_requested_napalms(
     mut commands: Commands,
     mut requests: MessageReader<SpawnZombie>,
     round: Option<Res<Round>>,
     mut entry: Entry,
     zombie_assets: ZombieAssetsParam,
     assets: Res<SpecialAssets>,
-    mut cues: MessageWriter<SpecialCue>,
 ) {
     let number = round.map_or(1, |round| round.number);
     for request in requests.read().filter(|request| request.kind == RequestedKind::Napalm) {
@@ -623,14 +622,14 @@ fn spawn_requested_napalms(
             }
             None => {
                 spawn_pool(&mut commands, &assets, at, None, NAPALM_SPAWN_POOL_DAMAGE, NAPALM_SPAWN_POOL_SECS);
-                cues.write(SpecialCue { cue: Cue::NapalmRise, at: Some(at) });
+                entry.cue(Cue::NapalmRise, at);
             }
         }
     }
 }
 
 /// A Napalm with a trail drops a fire pool at its feet every so often, once it's out of the ground.
-fn napalm_trails(
+pub(crate) fn napalm_trails(
     mut commands: Commands,
     mut napalms: Query<(&mut Napalm, &Zombie, &Transform), (Without<Dying>, Without<Rising>)>,
     assets: Res<SpecialAssets>,

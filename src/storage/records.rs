@@ -104,6 +104,11 @@ pub struct RecordExtra {
     pub count: u32,
 }
 
+/// Whether the current Run has reached a Win. Classic never sets it; a Mode with a Win sets it
+/// once reached, and it's copied onto the Run Record as it ends.
+#[derive(Resource, Default)]
+pub struct RunWon(pub bool);
+
 /// The current Run's extra Record lines. Classic never writes here; a Mode layered on top keeps it
 /// up to date during the Run, and it's copied onto the Run Record as-is when the Run ends.
 #[derive(Resource, Default)]
@@ -142,11 +147,14 @@ pub fn extra_line(extra: &RecordExtra) -> String {
     }
 }
 
-/// Whether `a` ranks above (`Less`) or below (`Greater`) `b`: the higher Round first, then the
-/// shorter time.
+/// Whether `a` ranks above (`Less`) or below (`Greater`) `b`: a Won Run first, then the higher
+/// Heat, then the higher Round, then the shorter time. Classic Runs are never Won and have no
+/// Heat, so they rank by Round and time alone.
 pub fn rank_order(a: &RunRecord, b: &RunRecord) -> Ordering {
-    b.round
-        .cmp(&a.round)
+    b.won
+        .cmp(&a.won)
+        .then(b.heat.unwrap_or(0).cmp(&a.heat.unwrap_or(0)))
+        .then(b.round.cmp(&a.round))
         .then(a.survived_secs.total_cmp(&b.survived_secs))
 }
 
@@ -370,6 +378,7 @@ pub struct RecordsPlugin;
 impl Plugin for RecordsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<RecordExtras>()
+            .init_resource::<RunWon>()
             .init_resource::<RunSpecialZombies>()
             .init_resource::<RunPlayers>()
             .init_resource::<RunRecorded>()
@@ -388,8 +397,12 @@ impl Plugin for RecordsPlugin {
             .add_systems(Startup, load_records)
             .add_systems(
                 OnEnter(GameState::Playing),
-                |mut extras: ResMut<RecordExtras>, mut run: ResMut<RunSpecialZombies>, settings: Res<Settings>| {
+                |mut extras: ResMut<RecordExtras>,
+                 mut run: ResMut<RunSpecialZombies>,
+                 mut won: ResMut<RunWon>,
+                 settings: Res<Settings>| {
                     extras.0.clear();
+                    won.0 = false;
                     run.0 = settings.special_zombies;
                 },
             )
@@ -452,7 +465,7 @@ pub fn record_run(
         Res<RunType>,
     ),
     others: Query<(&Seat, &PlayerName, &RunStats, &Points), (With<Player>, Without<LocalPlayer>)>,
-    extras: Res<RecordExtras>,
+    (extras, won): (Res<RecordExtras>, Res<RunWon>),
     switches: Res<RunSpecialZombies>,
     mut file: ResMut<RecordsFile>,
     dir: Res<SaveDir>,
@@ -483,7 +496,7 @@ pub fn record_run(
         players: players.0,
         revives: stats.revives,
         teammates,
-        won: false,
+        won: won.0,
         heat: None,
         extras: extras.0.iter().cloned().chain(off_extras(&switches.0)).collect(),
     };
@@ -590,6 +603,20 @@ mod tests {
             rounds(&records, Mode::Classic),
             vec![(12, 900.0), (8, 400.0), (5, 100.0)]
         );
+    }
+
+    /// A Won Run ranks above any Run that wasn't, whatever Round either reached, then Heat
+    /// ranks the Won ones, then the Round.
+    #[test]
+    fn won_runs_rank_first_then_by_heat_then_round() {
+        let gauntlet = |round, won, heat| RunRecord { mode: Mode::Gauntlet, won, heat, ..run(round, 100.0) };
+        let mut records = Records::default();
+        records.add(gauntlet(45, false, None));
+        records.add(gauntlet(30, true, None));
+        records.add(gauntlet(31, true, Some(2)));
+        records.add(gauntlet(38, true, None));
+        let order: Vec<_> = records.board(MapId::Greybox, Mode::Gauntlet, 1).map(|run| (run.round, run.won)).collect();
+        assert_eq!(order, [(31, true), (38, true), (30, true), (45, false)]);
     }
 
     #[test]
@@ -824,6 +851,7 @@ mod tests {
             .insert_resource(MapId::Greybox)
             .insert_resource(Mode::Classic)
             .init_resource::<RecordExtras>()
+            .init_resource::<RunWon>()
             .init_resource::<RunSpecialZombies>()
             .init_resource::<RunPlayers>()
             .init_resource::<RunRecorded>()

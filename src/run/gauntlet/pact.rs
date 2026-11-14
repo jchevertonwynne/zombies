@@ -381,10 +381,6 @@ pub fn is_pact_source(source: Source) -> bool {
     PACTS.iter().any(|pact| Source(pact.name()) == source)
 }
 
-/// Whether the Offer after Round `round` is a Pact Offer: every fifth Round.
-pub fn is_pact_round(round: u32) -> bool {
-    round > 0 && round.is_multiple_of(PACT_OFFER_EVERY_ROUNDS)
-}
 
 /// Whether a Pact can be on a Pact Offer: Unlocked, not held, with its Requirement holding now.
 pub fn pact_eligible(pact: &PactDef, held: &HeldPacts, run: &RunFacts) -> bool {
@@ -479,15 +475,6 @@ mod tests {
             unlock_all: true,
             ..default()
         }
-    }
-
-    #[test]
-    fn a_pact_offer_comes_every_fifth_round() {
-        let pact_rounds: Vec<u32> = (0..=21).filter(|&round| is_pact_round(round)).collect();
-        assert_eq!(pact_rounds, [5, 10, 15, 20]);
-        assert!(!is_pact_round(1));
-        assert!(is_pact_round(1_000_000_000));
-        assert!(!is_pact_round(u32::MAX - 1));
     }
 
     #[test]

@@ -27,6 +27,7 @@ pub enum RequestedKind {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SpawnAt {
     /// Rising out of the ground here, as its kind does.
+    #[allow(dead_code, reason = "for the Pack Alpha's pack and Splitter Walkers, in later slices")]
     Point(Vec3),
     /// Through a window in an Active Zone, the Player's own Zone's first, every Plank ripped off
     /// at once: the Sapper's entry.
@@ -92,6 +93,11 @@ pub struct Entry<'w, 's> {
 }
 
 impl Entry<'_, '_> {
+    /// Plays a special's cue, for the kinds that announce their entry.
+    pub fn cue(&mut self, cue: Cue, at: Vec3) {
+        self.cues.write(SpecialCue { cue, at: Some(at) });
+    }
+
     /// Where `at` puts a Zombie: the point and, through a window, which Barrier it climbs in by.
     /// `None` while there's no window to come through.
     pub fn resolve(&mut self, at: SpawnAt) -> Option<(Vec3, Option<BarrierId>)> {
@@ -137,6 +143,19 @@ mod tests {
         assert_eq!(requested_health(1, 1.0), 150.0);
         assert_eq!(requested_health(10, 30.0), 1045.0 * 30.0);
         assert_eq!(requested_health(30, 50.0), 7000.0 * 50.0);
+    }
+
+    /// Bevy checks a system's parameters for clashing access as it's set up, which would
+    /// otherwise only show as a panic when the game starts.
+    #[test]
+    fn the_request_handlers_have_no_clashing_parameters() {
+        fn set_up<M>(system: impl IntoSystem<(), (), M>) {
+            let mut world = World::new();
+            IntoSystem::into_system(system).initialize(&mut world);
+        }
+        set_up(crate::enemies::special::spawn_requested_napalms);
+        set_up(crate::enemies::special::napalm_trails);
+        set_up(crate::enemies::sapper::spawn_requested_sappers);
     }
 
     #[test]

@@ -1,11 +1,13 @@
-//! Gauntlet: Classic with a Boon Offer after every Round, and a Pact Offer in its place every
-//! fifth Round. Between Runs, the Scrip each Run pays buys Unlocks and Upgrade Track Ranks in the
+//! Gauntlet: Classic with a Boon Offer after every Round, a Pact Offer in its place after Rounds 5,
+//! 15 and 25, and a Run of three Acts each ending in a Boss Round, the last one's clearing a Win
+//! (see `arc`). Between Runs, the Scrip each Run pays buys Unlocks and Upgrade Track Ranks in the
 //! Armory, kept in `gauntlet.ron`. It's layered on top of Classic and
 //! reaches it only through seams (ADR 0002): stat-modifier entries on the Player, messages Classic
 //! already sends, Classic state it reads, and the `Freeze` and `IntermissionHold` it holds. Every
 //! system here that touches a Run runs only when `Mode == Gauntlet`; the Armory and the save file
 //! live in the menus.
 
+mod arc;
 mod armory;
 mod boon;
 mod duos;
@@ -42,7 +44,7 @@ use crate::economy::points::BonusPoints;
 use crate::maps::power::Supply;
 use crate::economy::power_up::{DropPowerUp, GivePowerUp, PowerUp, PowerUpTaken};
 use crate::storage::records::{RecordExtra, RecordExtras};
-use crate::run::round::{IntermissionHold, Round, RoundEnded, RoundPhase};
+use crate::run::round::{IntermissionHold, ReservedRounds, Round, RoundEnded, RoundPhase};
 use crate::storage::save;
 use crate::storage::settings::SaveDir;
 use crate::state::{Choosing, Freeze, GameState, MainMenuScreen, Pause, RunType, world_runs};
@@ -55,8 +57,9 @@ use boon::{
     TEDDYS_TITHE, WAR_BONDS, blood_money_points, bounty_points, butchers_bill_drops, draw_offer,
     is_boon_source, lucky_strike_gift, teddys_tithe_points, war_bonds_points,
 };
+use arc::{RunArc, is_arc_source, is_boss_round, is_pact_round};
 use pact::{
-    OVERKILL, PACTS, PactDef, SCORCHED_EARTH, draw_pact_offer, is_pact_round,
+    OVERKILL, PACTS, PactDef, SCORCHED_EARTH, draw_pact_offer,
     is_pact_source, overkill_target, scorched_earth_blast,
 };
 use progress::{GauntletFile, rounds_completed, scrip_for_rounds};
@@ -217,6 +220,8 @@ impl Plugin for GauntletPlugin {
             .init_resource::<ActiveRanks>()
             .init_resource::<RunModifiers>()
             .init_resource::<TurnedAllyCap>()
+            .init_resource::<RunArc>()
+            .init_resource::<arc::BossPlan>()
             .init_resource::<armory::ArmoryTab>()
             .init_resource::<armory::ArmoryNote>()
             .add_systems(Startup, load_progress)
@@ -250,7 +255,9 @@ impl Plugin for GauntletPlugin {
             .add_observer(armory::armory_click)
             .add_systems(
                 OnEnter(GameState::Playing),
-                (reset, screen::spawn_held_column, sets::spawn_set_banner, duos::spawn_duo_banner).chain().run_if(gauntlet),
+                (reset, screen::spawn_held_column, sets::spawn_set_banner, duos::spawn_duo_banner, arc::spawn_boss_hud)
+                    .chain()
+                    .run_if(gauntlet),
             )
             .add_systems(
                 Update,
@@ -301,6 +308,29 @@ impl Plugin for GauntletPlugin {
                     .run_if(in_state(GameState::Playing))
                     .run_if(gauntlet),
             )
+            .add_systems(
+                Update,
+                (
+                    (
+                        arc::extend_reserved,
+                        arc::plan_boss,
+                        arc::spawn_boss.run_if(world_runs),
+                        arc::tag_boss,
+                        arc::bloater_bursts,
+                        arc::grow_bursts,
+                        arc::boss_deaths,
+                        // Before the Offer is due, so a Win holds it back.
+                        arc::clear_boss_rounds.before(schedule_offer),
+                    )
+                        .chain()
+                        .in_set(HostSimulation),
+                    arc::update_boss_hud,
+                )
+                    .run_if(in_state(GameState::Playing))
+                    .run_if(gauntlet),
+            )
+            .add_systems(OnEnter(Pause::Frozen), arc::spawn_win_screen.run_if(gauntlet))
+            .add_observer(arc::click_win)
             .add_systems(
                 Update,
                 toggle_unlock_all
@@ -375,6 +405,8 @@ fn reset(mut commands: Commands) {
     commands.insert_resource(procs::Landing::default());
     commands.insert_resource(duos::BallLightning::default());
     commands.insert_resource(sets::SetFlashes::default());
+    commands.insert_resource(RunArc::default());
+    commands.insert_resource(arc::BossPlan::default());
 }
 
 /// The Round ended: every Player's Offer is due after its delay, and the Intermission waits for
@@ -400,9 +432,10 @@ fn schedule_offer(
 
 /// Opens each Player's Offer once its delay is up. Solo that freezes the world, and a Round that
 /// ended in Last Stand waits for the Self-Revive; in Co-op it opens whatever the Player is doing,
-/// from their own Unlocks and Boons. Every fifth Round it's a Pact Offer, unless no Pact is left
-/// to offer, and never one a teammate holds or has on their Offer. With no eligible Boon there's no
-/// Offer. An Offer still open from an earlier Round holds the next one back.
+/// from their own Unlocks and Boons. After a Pact Round it's a Pact Offer, unless no Pact is left
+/// to offer, and never one a teammate holds or has on their Offer; after a Boss Round it's a Boss
+/// Offer, unless there's no Legendary to offer. With no eligible Boon there's no Offer. An Offer
+/// still open from an earlier Round holds the next one back, and so does the Win screen.
 fn open_offer(
     mut commands: Commands,
     mut players: Query<(
@@ -421,8 +454,12 @@ fn open_offer(
     supply: Supply,
     run_type: Res<RunType>,
     time: Res<Time>,
+    arc: Res<RunArc>,
     mut cues: MessageWriter<PlayCue>,
 ) {
+    if arc.choosing {
+        return;
+    }
     // Pacts on a Player's open Offer are spoken for, so two Offers drawn together never share one.
     let mut claimed: Vec<&'static str> = players
         .iter()
@@ -463,7 +500,14 @@ fn open_offer(
         } else {
             Vec::new()
         };
-        let choices = if pact_choices.is_empty() {
+        let boss_choices = if is_boss_round(round) {
+            arc::draw_boss_offer(BOONS, duos::DUOS, held, &run, roll)
+        } else {
+            Vec::new()
+        };
+        let choices = if !boss_choices.is_empty() {
+            Choices::Boons(boss_choices)
+        } else if pact_choices.is_empty() {
             Choices::Boons(draw_offer(BOONS, held, &run, roll))
         } else {
             claimed.extend(pact_choices.iter().map(|pact| pact.id()));
@@ -596,6 +640,7 @@ pub(crate) fn apply_pick(
 fn hold_intermission(
     players: Query<(&PendingOffer, Has<Offer>), With<Player>>,
     run_type: Res<RunType>,
+    arc: Res<RunArc>,
     time: Res<Time>,
     mut wait: ResMut<OfferWait>,
     mut hold: ResMut<IntermissionHold>,
@@ -608,7 +653,8 @@ fn hold_intermission(
         wait.0 = (wait.0 - time.delta_secs()).max(0.0);
         (busy && wait.0 > 0.0, false)
     } else {
-        (busy, players.iter().any(|(_, open)| open))
+        // The Win screen holds the world frozen too, until the Player chooses.
+        (busy || arc.choosing, arc.choosing || players.iter().any(|(_, open)| open))
     };
     if hold.0 != held {
         hold.0 = held;
@@ -623,14 +669,19 @@ fn hold_intermission(
 /// lasts the Run.
 fn apply_entries(
     pacts: Res<HeldPacts>,
+    round: Option<Res<Round>>,
     mut players: Query<(&Seat, &HeldBoons, &sets::SetBonuses, &Loadout, &mut Modifiers), With<Player>>,
 ) {
-    let ours = |source| is_boon_source(source) || is_pact_source(source) || sets::is_set_source(source);
+    let ours = |source| {
+        is_boon_source(source) || is_pact_source(source) || sets::is_set_source(source) || is_arc_source(source)
+    };
+    let arc_entries = round.map_or_else(Vec::new, |round| arc::arc_entries(round.number, &round.phase));
     for (&seat, held, set_bonuses, loadout, mut modifiers) in &mut players {
         let low = sets::magazine_low(loadout.gun_ammo().0, loadout.magazine_size(&modifiers.0));
         let mut wanted = held.modifiers();
         wanted.extend(pacts.modifiers(seat));
         wanted.extend(sets::set_entries(set_bonuses, low));
+        wanted.extend(arc_entries.iter().copied());
         let current: Vec<_> = modifiers
             .0
             .iter()
@@ -916,38 +967,47 @@ fn reset_progress(mut file: ResMut<GauntletFile>) {
 }
 
 /// The Upgrade Tracks switched on give a Gauntlet Run's Player its entries, starting Points
-/// included, through Classic's `RunModifiers`, and the Run caps Turned allies at
-/// `GAUNTLET_TURNED_ALLY_CAP`. A Classic Run gets no entries and no cap.
+/// included, through Classic's `RunModifiers`, the Run caps Turned allies at
+/// `GAUNTLET_TURNED_ALLY_CAP`, and its Boss Rounds are kept clear of Classic's own schedules. A
+/// Classic Run gets no entries, no cap and no reserved Rounds.
 fn set_run_modifiers(
     mode: Res<Mode>,
     file: Res<GauntletFile>,
     mut run: ResMut<RunModifiers>,
     mut ranks: ResMut<ActiveRanks>,
     mut cap: ResMut<TurnedAllyCap>,
+    mut reserved: ResMut<ReservedRounds>,
 ) {
     if *mode == Mode::Gauntlet {
         run.0 = file.track_entries();
         ranks.0 = file.active_ranks();
         *cap = TurnedAllyCap(Some(GAUNTLET_TURNED_ALLY_CAP));
+        reserved.0 = arc::boss_rounds_through(arc::win_round()).collect();
     } else {
         run.0.clear();
         ranks.0 = 0;
         *cap = TurnedAllyCap(None);
+        reserved.0.clear();
     }
 }
 
-/// The Run ended, at Game Over or on quit: each completed Round pays its number in Scrip, saved
-/// straight away (the app may be exiting) and shown on the Game Over screen.
+/// The Run ended, at Game Over or on quit: each completed Round pays its number in Scrip, and each
+/// cleared Boss Round its Act's bonus, saved straight away (the app may be exiting) and shown on
+/// the Game Over screen, under the Win if the Run reached it.
 fn pay_scrip(
     round: Res<Round>,
+    arc: Res<RunArc>,
     mut file: ResMut<GauntletFile>,
     dir: Res<SaveDir>,
     mut lines: ResMut<GameOverLines>,
 ) {
     let in_intermission = matches!(round.phase, RoundPhase::Intermission(_));
-    let scrip = scrip_for_rounds(rounds_completed(round.number, in_intermission));
+    let scrip = scrip_for_rounds(rounds_completed(round.number, in_intermission)).saturating_add(arc.act_scrip);
     file.pay(scrip);
     store_progress(&file, &dir);
+    if arc.won {
+        lines.0.push("RUN WON".to_string());
+    }
     lines
         .0
         .push(format!("Scrip earned {}", crate::ui::hud::with_commas(scrip)));
