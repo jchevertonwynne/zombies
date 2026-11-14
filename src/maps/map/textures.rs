@@ -38,6 +38,7 @@ pub enum Material {
 }
 
 impl Material {
+    #[cfg(test)]
     pub const ALL: [Material; 12] = [
         Material::DarkWoodenPlanks,
         Material::DamagedPlaster,

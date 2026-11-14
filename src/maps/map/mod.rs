@@ -277,10 +277,27 @@ pub struct MaterialSet {
     pub wall: textures::Material,
 }
 
-/// The material set of a Zone, or of the outside for `None`. No Zone has one yet: each Map's
-/// rollout step gives its Zones theirs.
-pub fn materials(_zone: Option<ZoneId>) -> Option<MaterialSet> {
-    None
+/// The material set of a Zone, or of the outside for `None`. Neighbouring Zones differ by family
+/// (plaster, tile, brick, tin, stone) more than by colour. Zones without one stay in their palette.
+pub fn materials(zone: Option<ZoneId>) -> Option<MaterialSet> {
+    use textures::Material::*;
+    use ZoneId::*;
+    let (floor, wall) = match zone? {
+        // Ruined: bare dark boards and plaster coming off the lath.
+        StartRoom => (DarkWoodenPlanks, DamagedPlaster),
+        // Tiled: chequered tiles under damp, mossy plaster.
+        WestHall => (FloorTiles06, WornMossyPlasterwall),
+        // Peeling: diagonal parquet, cracked red paint.
+        DiningRoom => (DiagonalParquet, PeelingPaintedWall),
+        // Brick underfoot and either side.
+        Passage => (WornBrickFloor, BrickWall001),
+        // Rusty tin: concrete and corrugated iron.
+        Workshop => (ConcreteFloor02, RustyCorrugatedIron),
+        // Cobbled: mossy cobbles (the sunken garden too), and the house's plastered stone outer faces.
+        Yard => (MossyCobblestone, PlasteredStoneWall),
+        _ => return None,
+    };
+    Some(MaterialSet { floor, wall })
 }
 
 /// The palette of a Zone, or of the outside for `None`.

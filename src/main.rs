@@ -17,6 +17,7 @@ mod provenance;
 mod run;
 mod state;
 mod storage;
+mod tour;
 mod tuning;
 mod ui;
 mod weapons;
@@ -110,6 +111,9 @@ fn main() {
         .add_plugins(maps::map::textures::TexturesPlugin);
     if let Some(bench) = bench::Bench::from_env() {
         app.add_plugins(bench::BenchPlugin(bench));
+    }
+    if let Some(tour) = tour::Tour::from_env() {
+        app.add_plugins(tour::TourPlugin(tour));
     }
     app.run();
 }

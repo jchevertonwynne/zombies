@@ -7,6 +7,102 @@
       "licence": "CC0 (made in this repo)",
       "fetched": "2026-11-14",
       "notes": "Placeholders until the Audio lane replaces them; a more specific entry covers each real recording"
+    },
+    {
+      "path": "materials/brick_wall_001",
+      "name": "Brick Wall 001",
+      "source": "https://polyhaven.com/a/brick_wall_001",
+      "licence": "CC0",
+      "fetched": "2026-11-14",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 3 m"
+    },
+    {
+      "path": "materials/concrete_floor_02",
+      "name": "Concrete Floor 02",
+      "source": "https://polyhaven.com/a/concrete_floor_02",
+      "licence": "CC0",
+      "fetched": "2026-11-14",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
+      "path": "materials/damaged_plaster",
+      "name": "Damaged Plaster",
+      "source": "https://polyhaven.com/a/damaged_plaster",
+      "licence": "CC0",
+      "fetched": "2026-11-14",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1.85 m"
+    },
+    {
+      "path": "materials/dark_wooden_planks",
+      "name": "Dark Wooden Planks",
+      "source": "https://polyhaven.com/a/dark_wooden_planks",
+      "licence": "CC0",
+      "fetched": "2026-11-14",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
+      "path": "materials/diagonal_parquet",
+      "name": "Diagonal Parquet",
+      "source": "https://polyhaven.com/a/diagonal_parquet",
+      "licence": "CC0",
+      "fetched": "2026-11-14",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.36 m"
+    },
+    {
+      "path": "materials/floor_tiles_06",
+      "name": "Floor Tiles 06",
+      "source": "https://polyhaven.com/a/floor_tiles_06",
+      "licence": "CC0",
+      "fetched": "2026-11-14",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 3 m"
+    },
+    {
+      "path": "materials/mossy_cobblestone",
+      "name": "Mossy Cobblestone",
+      "source": "https://polyhaven.com/a/mossy_cobblestone",
+      "licence": "CC0",
+      "fetched": "2026-11-14",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
+      "path": "materials/peeling_painted_wall",
+      "name": "Peeling Painted Wall",
+      "source": "https://polyhaven.com/a/peeling_painted_wall",
+      "licence": "CC0",
+      "fetched": "2026-11-14",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1.8 m"
+    },
+    {
+      "path": "materials/plastered_stone_wall",
+      "name": "Plastered Stone Wall",
+      "source": "https://polyhaven.com/a/plastered_stone_wall",
+      "licence": "CC0",
+      "fetched": "2026-11-14",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.5 m"
+    },
+    {
+      "path": "materials/rusty_corrugated_iron",
+      "name": "Rusty Corrugated Iron",
+      "source": "https://polyhaven.com/a/rusty_corrugated_iron",
+      "licence": "CC0",
+      "fetched": "2026-11-14",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
+      "path": "materials/worn_brick_floor",
+      "name": "Worn Brick Floor",
+      "source": "https://polyhaven.com/a/worn_brick_floor",
+      "licence": "CC0",
+      "fetched": "2026-11-14",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
+      "path": "materials/worn_mossy_plasterwall",
+      "name": "Worn Mossy Plasterwall",
+      "source": "https://polyhaven.com/a/worn_mossy_plasterwall",
+      "licence": "CC0",
+      "fetched": "2026-11-14",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1.8 m"
     }
   ]
 }
