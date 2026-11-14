@@ -33,6 +33,7 @@ use crate::maps::power::{Power, Powering};
 use crate::maps::trap::trap_zone;
 use crate::economy::power_up::DropPowerUp;
 use crate::run::round::{CarriesOver, ReservedRounds, Round, RoundPhase, zombie_health};
+use crate::enemies::request::{Entry, Requested, RequestedKind, SpawnZombie, requested_health};
 use crate::storage::settings::Settings;
 use crate::enemies::special::{SpecialCue, SpecialKind, special_spawn_at};
 use crate::state::{GameState, InRun, world_runs};
@@ -41,7 +42,7 @@ use crate::maps::trap::{Trap, TrapStruck, heavyweight_trap_hit};
 use crate::tuning::*;
 use crate::enemies::zombie::{
     Attack, DamageZombie, Dying, Heavyweight, HitArea, HitZone, Pay, Rising, Seeking, SpeedTier, StunZombie,
-    Stunned, Zombie, ZombieAssetsParam, apply_damage, spawn_zombie,
+    Stunned, Zombie, ZombieAssetsParam, apply_damage, scale_body, spawn_zombie,
 };
 use crate::maps::zone::{ActiveZones, ZoneId, ZoneSet};
 
@@ -384,7 +385,7 @@ impl Plugin for SapperPlugin {
             .add_systems(
                 Update,
                 (
-                    (plan_sapper, spawn_sapper).chain().in_set(HostSimulation),
+                    (plan_sapper, spawn_sapper, spawn_requested_sappers).chain().in_set(HostSimulation),
                     dress_sappers,
                     (trap_hits, helmets.after(apply_damage)).in_set(HostSimulation),
                     (
@@ -545,23 +546,8 @@ fn spawn_sapper(
     }
     let (point, barrier) = windows[rand::random_range(0..windows.len())];
     let health = SpecialKind::Sapper.health(zombie_health(round.number) as f32);
-    let zombie = spawn_zombie(
-        &mut commands,
-        &zombie_assets,
-        point,
-        health,
-        SpeedTier::Walker,
-        None,
-    );
-    commands.entity(zombie).insert((
-        Name::new("Sapper"),
-        Zombie::special(SpecialKind::Sapper, health, point),
-        Sapper::new(point),
-        Entering::new(barrier),
-        CarriesOver,
-        Heavyweight::SAPPER,
-        MeshMaterial3d(assets.armour.clone()),
-    ));
+    let zombie = spawn_sapper_body(&mut commands, &zombie_assets, &assets, point, health, 1.0);
+    commands.entity(zombie).insert((Entering::new(barrier), CarriesOver, Heavyweight::SAPPER));
     // Every Plank off in one blow.
     barriers.smash(barrier);
     cues.write(SpecialCue {
@@ -574,6 +560,56 @@ fn spawn_sapper(
         round: round.number,
         ..default()
     };
+}
+
+/// The Sapper's body, standing at `at` with `health`, `scale` times the usual size.
+fn spawn_sapper_body(
+    commands: &mut Commands,
+    zombie_assets: &ZombieAssetsParam,
+    assets: &SapperAssets,
+    at: Vec3,
+    health: f32,
+    scale: f32,
+) -> Entity {
+    let zombie = spawn_zombie(commands, zombie_assets, at, health, SpeedTier::Walker, None);
+    let mut entity = commands.entity(zombie);
+    entity.insert((
+        Name::new("Sapper"),
+        Zombie::special(SpecialKind::Sapper, health, at).scaled(scale),
+        Sapper::new(at),
+        MeshMaterial3d(assets.armour.clone()),
+    ));
+    scale_body(&mut entity, at, scale);
+    zombie
+}
+
+/// Each `SpawnZombie` for a Sapper spawns one outside the Horde and its cadence, with its own
+/// health: walking in from its point, or smashing in through a window. It's a `Heavyweight` with
+/// the Sapper's shares unless the request gives others.
+fn spawn_requested_sappers(
+    mut commands: Commands,
+    mut requests: MessageReader<SpawnZombie>,
+    round: Option<Res<Round>>,
+    mut entry: Entry,
+    zombie_assets: ZombieAssetsParam,
+    assets: Res<SapperAssets>,
+) {
+    let number = round.map_or(1, |round| round.number);
+    for request in requests.read().filter(|request| request.kind == RequestedKind::Sapper) {
+        let Some((at, barrier)) = entry.resolve(request.at) else {
+            continue;
+        };
+        let health = requested_health(number, request.health_factor);
+        let zombie = spawn_sapper_body(&mut commands, &zombie_assets, &assets, at, health, request.scale);
+        let mut entity = commands.entity(zombie);
+        entity.insert((Requested, request.heavyweight.unwrap_or(Heavyweight::SAPPER)));
+        if !request.holds_round {
+            entity.insert(CarriesOver);
+        }
+        if let Some(barrier) = barrier {
+            entity.insert(Entering::new(barrier));
+        }
+    }
 }
 
 /// A new Sapper gets its helmet and chest plate, and its head's hit area counts as the body.

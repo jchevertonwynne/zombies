@@ -21,6 +21,7 @@ use crate::players::player::{HitGrace, PlayerHit};
 use crate::economy::power_up::{ActivePowerUps, PowerUp};
 use crate::run::round::CarriesOver;
 use crate::maps::surge::Surge;
+use crate::enemies::request::Requested;
 use crate::enemies::special::{SpecialCue, SpecialKind, hit_pays};
 use crate::audio::cues::Cue;
 use crate::state::{InRun, world_runs};
@@ -405,6 +406,8 @@ pub struct Zombie {
     special: Option<SpecialKind>,
     /// Hits it has survived, for a Shrieker's every-2nd-hit Points.
     hits: u32,
+    /// How many times the usual size its body is: 1 but for a requested Zombie asked to be bigger.
+    scale: f32,
 }
 
 impl Zombie {
@@ -423,7 +426,13 @@ impl Zombie {
             nova: false,
             special: None,
             hits: 0,
+            scale: 1.0,
         }
+    }
+
+    /// The same Zombie with a body `scale` times the usual size, which reaches that much farther.
+    pub fn scaled(self, scale: f32) -> Self {
+        Self { scale, ..self }
     }
 
     /// A Hellhound with `health`, its centre at `at`.
@@ -534,20 +543,27 @@ impl Zombie {
 
     /// From its centre down to its feet.
     pub(crate) fn half_height(&self) -> f32 {
-        if self.hellhound {
-            HELLHOUND_RADIUS
-        } else if self.nova {
-            NOVA_CRAWLER_RADIUS
-        } else if self.crawler {
-            CRAWLER_RADIUS
-        } else {
-            body_half_height()
-        }
+        self.scale
+            * if self.hellhound {
+                HELLHOUND_RADIUS
+            } else if self.nova {
+                NOVA_CRAWLER_RADIUS
+            } else if self.crawler {
+                CRAWLER_RADIUS
+            } else {
+                body_half_height()
+            }
     }
 
     /// Its attack: reach, wind-up, damage, and the cooldown after one lands. A hound's bites land
     /// `HELLHOUND_BITE_SECS` apart; a Nova Crawler's swipes hit for `NOVA_CRAWLER_SWIPE_DAMAGE`.
     fn attack_stats(&self) -> (f32, f32, f32, f32) {
+        let (reach, wind_up, damage, cooldown) = self.unscaled_attack_stats();
+        // A bigger body reaches past its own wider sides.
+        (reach + ZOMBIE_RADIUS * (self.scale - 1.0), wind_up, damage, cooldown)
+    }
+
+    fn unscaled_attack_stats(&self) -> (f32, f32, f32, f32) {
         if self.hellhound {
             (
                 HELLHOUND_REACH,
@@ -744,6 +760,16 @@ fn load_assets(
 
 fn body_half_height() -> f32 {
     ZOMBIE_RADIUS + ZOMBIE_CAPSULE_LENGTH / 2.0
+}
+
+/// Makes a Zombie just spawned standing at `at` (not rising) `scale` times the usual size, its
+/// feet still on the floor there. Its colliders and hit areas grow with it.
+pub fn scale_body(zombie: &mut EntityCommands, at: Vec3, scale: f32) {
+    if scale == 1.0 {
+        return;
+    }
+    let centre = Vec3::new(at.x, at.y + body_half_height() * scale + 0.02, at.z);
+    zombie.insert(Transform::from_translation(centre).with_scale(Vec3::splat(scale)));
 }
 
 /// Spawns a Zombie standing on the floor at `at`, or, for a Riser, buried under it and about to
@@ -1196,13 +1222,13 @@ fn rise(mut commands: Commands, mut risers: Query<(Entity, &mut Rising, &mut Tra
 /// stuck, so its clock only starts once it's in. A Crawler can't tear them, though, so for it
 /// waiting at a planked Barrier too long is stuck. A Zombie Out of Bounds goes the same way at
 /// once. A Zombie that carries over between Rounds is never cleaned up here, and nor is a
-/// Hellhound Out of Bounds: their own modules move them instead. A Surge Zombie, which also
+/// Hellhound Out of Bounds, nor a requested Zombie: their own modules move them instead. A Surge Zombie, which also
 /// carries over, is cleaned up here but goes back into no Horde.
 fn clean_up_stuck(
     mut commands: Commands,
     mut zombies: Query<
         (Entity, &mut Zombie, &Transform, Option<&Entering>, Has<Surge>),
-        (Without<Dying>, Without<Rising>, Without<Telegraph>, Or<(Without<CarriesOver>, With<Surge>)>),
+        (Without<Dying>, Without<Rising>, Without<Telegraph>, Or<(Without<CarriesOver>, With<Surge>)>, Without<Requested>),
     >,
     players: Players,
     barriers: Res<Barriers>,

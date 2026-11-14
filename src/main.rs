@@ -69,6 +69,7 @@ fn main() {
                 enemies::nova::NovaPlugin,
                 enemies::special::SpecialPlugin,
                 enemies::sapper::SapperPlugin,
+                enemies::request::RequestPlugin,
                 players::shellshock::ShellshockPlugin,
             ),
             run::round::RoundPlugin,
