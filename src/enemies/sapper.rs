@@ -32,7 +32,7 @@ use crate::maps::generator::{GeneratorState, Generators};
 use crate::maps::power::{Power, Powering};
 use crate::maps::trap::trap_zone;
 use crate::economy::power_up::DropPowerUp;
-use crate::run::round::{CarriesOver, Round, RoundPhase, zombie_health};
+use crate::run::round::{CarriesOver, ReservedRounds, Round, RoundPhase, zombie_health};
 use crate::storage::settings::Settings;
 use crate::enemies::special::{SpecialCue, SpecialKind, special_spawn_at};
 use crate::state::{GameState, InRun, world_runs};
@@ -87,6 +87,19 @@ impl SapperCadence {
     /// it stays where it is.
     pub fn due(&self, round: u32, hellhound_round: bool, one_alive: bool, on: bool) -> bool {
         on && !hellhound_round && !one_alive && round >= self.next
+    }
+
+    /// `due`, but never on a `reserved` Round: the cadence only advances on appearance, so a due
+    /// Sapper slides to the next Round that isn't reserved.
+    pub fn due_unreserved(
+        &self,
+        round: u32,
+        hellhound_round: bool,
+        one_alive: bool,
+        on: bool,
+        reserved: &ReservedRounds,
+    ) -> bool {
+        !reserved.contains(round) && self.due(round, hellhound_round, one_alive, on)
     }
 
     /// A Sapper appeared in Round `round`: the next is due `gap` Rounds later.
@@ -437,6 +450,7 @@ fn plan_sapper(
     mut summons: MessageReader<SummonSapper>,
     sappers: Query<(), (With<Sapper>, Without<Dying>)>,
     settings: Res<Settings>,
+    reserved: Res<ReservedRounds>,
 ) {
     let Some(round) = round else {
         return;
@@ -449,11 +463,12 @@ fn plan_sapper(
     if plan.round == round.number {
         return;
     }
-    let due = cadence.due(
+    let due = cadence.due_unreserved(
         round.number,
         round.hellhound.is_some(),
         !sappers.is_empty(),
         settings.special_zombies.sapper,
+        &reserved,
     );
     *plan = SapperPlan {
         round: round.number,
@@ -1098,6 +1113,17 @@ mod tests {
         assert_eq!(firsts, (6..=8).collect());
         let gaps: std::collections::BTreeSet<u32> = (0..200).map(|_| dam.gap()).collect();
         assert_eq!(gaps, (3..=5).collect());
+    }
+
+    #[test]
+    fn a_sapper_due_on_a_reserved_round_slides_past_it() {
+        let cadence = SapperCadence::new(10);
+        let reserved = ReservedRounds([10, 11].into_iter().collect());
+        assert!(!cadence.due_unreserved(10, false, false, true, &reserved));
+        assert!(!cadence.due_unreserved(11, false, false, true, &reserved), "back to back");
+        assert!(cadence.due_unreserved(12, false, false, true, &reserved));
+        let none = ReservedRounds::default();
+        assert!((1..=30).all(|r| cadence.due_unreserved(r, false, false, true, &none) == cadence.due(r, false, false, true)));
     }
 
     #[test]

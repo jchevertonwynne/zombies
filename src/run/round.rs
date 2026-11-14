@@ -125,6 +125,34 @@ pub fn near_enough<T>(points: Vec<(Vec3, T)>, players: &[Vec3]) -> Vec<T> {
     points.into_iter().filter(|(at, _)| !any_near || near(at)).map(|(_, point)| point).collect()
 }
 
+/// Round numbers kept clear of Classic's own schedulers: a Hellhound Round, a Sapper or a special
+/// slot's Napalm or Shrieker that would land on one slides to the next Round that isn't reserved.
+/// Empty in Classic; anything layered on it may reserve Rounds for its own use (ADR 0007).
+#[derive(Resource, Debug, Default, Clone, PartialEq, Eq)]
+pub struct ReservedRounds(pub std::collections::BTreeSet<u32>);
+
+impl ReservedRounds {
+    pub fn contains(&self, round: u32) -> bool {
+        self.0.contains(&round)
+    }
+}
+
+/// Whether Round `round` is a Hellhound Round by the Run's `schedule`, and which (1 for the
+/// first): never a reserved one, which leaves the schedule as it was so the Hellhound Round slides
+/// to the next Round that isn't reserved.
+pub fn hellhound_round(
+    schedule: &mut HellhoundSchedule,
+    round: u32,
+    gap: u32,
+    hounds_on: bool,
+    reserved: &ReservedRounds,
+) -> Option<u32> {
+    if reserved.contains(round) {
+        return None;
+    }
+    schedule.begin(round, gap, hounds_on)
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum RoundPhase {
     Active,
@@ -154,8 +182,22 @@ impl Round {
     /// Round `number` begins, Hellhound Round or not by the Run's `schedule` (never with
     /// Hellhounds switched off). Its Horde follows the Player's stat entries.
     /// `players` is N, the Players connected now.
-    fn begin(number: u32, mut schedule: HellhoundSchedule, player: &[Modifier], hounds_on: bool, players: u32) -> Self {
-        let hellhound = schedule.begin(number, rand::random_range(HELLHOUND_ROUND_GAPS), hounds_on);
+    #[cfg(test)]
+    fn begin(number: u32, schedule: HellhoundSchedule, player: &[Modifier], hounds_on: bool, players: u32) -> Self {
+        Self::begin_in(number, schedule, player, hounds_on, players, &ReservedRounds::default())
+    }
+
+    /// `begin`, with `reserved` Rounds kept clear of Hellhound Rounds.
+    fn begin_in(
+        number: u32,
+        mut schedule: HellhoundSchedule,
+        player: &[Modifier],
+        hounds_on: bool,
+        players: u32,
+        reserved: &ReservedRounds,
+    ) -> Self {
+        let gap = rand::random_range(HELLHOUND_ROUND_GAPS);
+        let hellhound = hellhound_round(&mut schedule, number, gap, hounds_on, reserved);
         let (horde, spawn_timer) = match hellhound {
             Some(count) => (hellhound_horde(count, players), HELLHOUND_FIRST_SPAWN_SECS),
             None => (horde_size_for(number, players), 0.0),
@@ -252,6 +294,7 @@ impl Plugin for RoundPlugin {
         app.add_message::<RoundStarted>()
             .add_message::<RoundEnded>()
             .init_resource::<IntermissionHold>()
+            .init_resource::<ReservedRounds>()
             .add_systems(
                 OnEnter(GameState::Playing),
                 start_first_round.in_set(HostSimulation).after(SpawnPlayers),
@@ -270,11 +313,13 @@ fn start_first_round(
     mut commands: Commands,
     settings: Res<Settings>,
     players: Query<(), With<Player>>,
+    reserved: Res<ReservedRounds>,
     mut started: MessageWriter<RoundStarted>,
 ) {
     let schedule = HellhoundSchedule::new(rand::random_range(HELLHOUND_FIRST_ROUNDS));
     let hounds_on = settings.special_zombies.hellhounds;
-    commands.insert_resource(Round::begin(1, schedule, &[], hounds_on, players.iter().count() as u32));
+    let players = players.iter().count() as u32;
+    commands.insert_resource(Round::begin_in(1, schedule, &[], hounds_on, players, &reserved));
     commands.insert_resource(IntermissionHold::default());
     started.write(RoundStarted);
 }
@@ -466,6 +511,7 @@ fn run_intermission(
     hold: Res<IntermissionHold>,
     player: Query<&Modifiers, With<Player>>,
     settings: Res<Settings>,
+    reserved: Res<ReservedRounds>,
     mut started: MessageWriter<RoundStarted>,
     time: Res<Time>,
 ) {
@@ -479,12 +525,13 @@ fn run_intermission(
     let left = left - time.delta_secs();
     if left <= 0.0 {
         let entries: Vec<Modifier> = player.iter().flat_map(|modifiers| modifiers.0.iter().copied()).collect();
-        *round = Round::begin(
+        *round = Round::begin_in(
             round.number.saturating_add(1),
             round.schedule,
             &entries,
             settings.special_zombies.hellhounds,
             player.iter().count() as u32,
+            &reserved,
         );
         started.write(RoundStarted);
     } else {
@@ -504,7 +551,7 @@ impl Round {
     /// Round `number`, under way with `players` Players and no Hellhounds, for the benchmark to
     /// jump straight to a late Round.
     pub fn for_bench(number: u32, players: u32) -> Self {
-        Self::begin(number, HellhoundSchedule::new(u32::MAX), &[], false, players)
+        Self::begin_in(number, HellhoundSchedule::new(u32::MAX), &[], false, players, &ReservedRounds::default())
     }
 }
 
@@ -660,6 +707,39 @@ mod tests {
         assert_eq!((round.players(), round.horde()), (3, 60));
         let hounds = Round::begin(5, HellhoundSchedule::new(5), &[], true, 3);
         assert_eq!((hounds.hellhound, hounds.horde()), (Some(1), 18));
+    }
+
+    fn reserved(rounds: &[u32]) -> ReservedRounds {
+        ReservedRounds(rounds.iter().copied().collect())
+    }
+
+    #[test]
+    fn a_hellhound_round_on_a_reserved_round_slides_one_round_later() {
+        let mut schedule = HellhoundSchedule::new(10);
+        let reserved = reserved(&[10]);
+        assert_eq!(hellhound_round(&mut schedule, 9, 4, true, &reserved), None);
+        assert_eq!(hellhound_round(&mut schedule, 10, 4, true, &reserved), None, "Round 10 is reserved");
+        assert_eq!(hellhound_round(&mut schedule, 11, 4, true, &reserved), Some(1));
+        assert_eq!(hellhound_round(&mut schedule, 15, 4, true, &reserved), Some(2), "the next counts on from 11");
+    }
+
+    #[test]
+    fn a_hellhound_round_slides_past_reserved_rounds_back_to_back() {
+        let mut schedule = HellhoundSchedule::new(10);
+        let reserved = reserved(&[10, 11]);
+        let hound_rounds: Vec<u32> =
+            (1..=12).filter(|&r| hellhound_round(&mut schedule, r, 4, true, &reserved).is_some()).collect();
+        assert_eq!(hound_rounds, [12]);
+    }
+
+    #[test]
+    fn with_nothing_reserved_hellhound_rounds_keep_their_schedule() {
+        let mut plain = HellhoundSchedule::new(6);
+        let mut seamed = HellhoundSchedule::new(6);
+        for r in 1..=40 {
+            let none = ReservedRounds::default();
+            assert_eq!(hellhound_round(&mut seamed, r, 4, true, &none), plain.begin(r, 4, true), "round {r}");
+        }
     }
 
     #[test]
