@@ -383,7 +383,7 @@ mod tests {
             .iter()
             .filter(|boon| file.is_unlocked(Card::Boon(boon)))
             .collect();
-        assert_eq!(unlocked.len(), 21 + 3);
+        assert_eq!(unlocked.len(), 24 + 3);
         for id in ["war_bonds", "barbed_wire", "shrapnel"] {
             assert!(unlocked.iter().any(|boon| boon.id == id), "{id}");
         }

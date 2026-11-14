@@ -1447,7 +1447,7 @@ fn knife(
         camera.translation(),
         Quat::IDENTITY,
         camera.forward(),
-        &ShapeCastConfig::from_max_distance(KNIFE_RANGE),
+        &ShapeCastConfig::from_max_distance(knife_range(&modifiers.0)),
         &attack_filter(entity),
     ) && let Some((zombie, zone)) = zombie_for(hit.entity, &hit_areas)
     {
@@ -1463,6 +1463,11 @@ fn knife(
         });
         cues.write(PlayCue::new(Cue::KnifeHit, None));
     }
+}
+
+/// How far the Player's Knife reaches, after their `Stat::KnifeRange` entries.
+pub fn knife_range(player: &[Modifier]) -> f32 {
+    resolve(Stat::KnifeRange, KNIFE_RANGE, player)
 }
 
 /// A Knife hit's damage after the Player's entries: their Knife damage, or a kill outright on a

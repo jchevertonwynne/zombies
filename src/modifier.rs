@@ -116,6 +116,13 @@ pub enum Stat {
     PowerUpDropChance,
     /// The Points a Run starts with.
     StartingPoints,
+    /// How far the Knife reaches, in metres.
+    KnifeRange,
+    /// A factor on the radius of every fire Effect: Blast Furnace's and every fire `CastEffect`'s
+    /// (base 1).
+    FireRadius,
+    /// How many times faster a burn's ticks come (base 1).
+    BurnSpeed,
 }
 
 /// Where an entry comes from. Each Perk, Pack-a-Punch, Attachment and so on is its own source:
@@ -216,6 +223,17 @@ mod tests {
 
     fn close(a: f32, b: f32) -> bool {
         (a - b).abs() < 1e-5
+    }
+
+    #[test]
+    fn the_new_v2_stats_resolve_to_their_classic_base_with_no_entries() {
+        use crate::tuning::KNIFE_RANGE;
+        assert_eq!(resolve(Stat::KnifeRange, KNIFE_RANGE, &[]), KNIFE_RANGE);
+        assert_eq!(resolve(Stat::FireRadius, 1.0, &[]), 1.0);
+        assert_eq!(resolve(Stat::BurnSpeed, 1.0, &[]), 1.0);
+        assert_eq!(crate::weapons::weapon::knife_range(&[]), KNIFE_RANGE);
+        assert_eq!(crate::weapons::ammo_mod::fire_radius(2.5, &[]), 2.5);
+        assert_eq!(crate::weapons::burn::burn_speed(&[]), 1.0);
     }
 
     #[test]

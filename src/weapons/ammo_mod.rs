@@ -336,6 +336,11 @@ pub fn fireworks_target(candidates: &[(usize, f32)], mut clear: impl FnMut(usize
     None
 }
 
+/// A fire Effect's `radius` after its Player's `Stat::FireRadius` entries.
+pub fn fire_radius(radius: f32, player: &[Modifier]) -> f32 {
+    resolve(Stat::FireRadius, 1.0, player) * radius
+}
+
 /// The per-tick damage of a Blast Furnace burn on a Zombie with `health`: it dies on the last tick.
 pub fn blast_furnace_burn(health: f32) -> Burn {
     let ticks = BLAST_FURNACE_BURN_TICKS as f32;
@@ -632,8 +637,9 @@ fn roll_ammo_mods(
             match ammo_mod {
                 AmmoMod::BlastFurnace => {
                     kill(&mut damage, Some(hit.player), shot, Pay::Paid);
+                    let radius = fire_radius(BLAST_FURNACE_RADIUS, &modifiers.0);
                     for (i, &other) in positions.iter().enumerate() {
-                        if at.distance(other) <= BLAST_FURNACE_RADIUS
+                        if at.distance(other) <= radius
                             && let Ok((_, target, ..)) = zombies.get(others[i])
                         {
                             ignite.write(Ignite {
@@ -643,7 +649,7 @@ fn roll_ammo_mods(
                             });
                         }
                     }
-                    flashes.burst(at, BLAST_FURNACE_RADIUS, colour);
+                    flashes.burst(at, radius, colour);
                 }
                 AmmoMod::DeadWire => {
                     kill(&mut damage, Some(hit.player), shot, Pay::Paid);
@@ -805,6 +811,7 @@ fn cast_effects(
     spatial: SpatialQuery,
     assets: Res<AmmoModAssets>,
     (cap, allies): (Res<TurnedAllyCap>, Query<(), With<TurnedAlly>>),
+    players: Query<&Modifiers, With<Player>>,
     mut damage: MessageWriter<DamageZombie>,
     mut ignite: MessageWriter<Ignite>,
     mut kills: MessageWriter<ZombieKilled>,
@@ -865,7 +872,8 @@ fn cast_effects(
                 }
             }
             Element::Fire => {
-                let radius = cast.size.max(0.0);
+                let entries = players.get(player).map_or(&[][..], |modifiers| &modifiers.0[..]);
+                let radius = fire_radius(cast.size.max(0.0), entries);
                 for (i, &other) in positions.iter().enumerate() {
                     if at.with_y(0.0).distance(other.with_y(0.0)) <= radius
                         && let Ok((_, target, ..)) = zombies.get(others[i])

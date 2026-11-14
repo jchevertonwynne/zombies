@@ -2201,6 +2201,10 @@ pub const BOON_THROUGH_AND_THROUGH_ZOMBIES: u32 = 1;
 pub const BOON_BLACK_MARKET_UPGRADE_CHANCE: f32 = 0.20;
 pub const BOON_DOUBLE_PUNCHED_AMMO_MOD_SLOTS: u32 = 1;
 pub const BOON_LUCKY_STRIKE_CHANCE: f64 = 0.20;
+// The three Commons new in spec #182 (Appendix A2), per Stack.
+pub const BOON_LONG_ARM_KNIFE_RANGE_M: f32 = 0.25;
+pub const BOON_KINDLING_FIRE_RADIUS_INCREASE: f32 = 0.10;
+pub const BOON_BLACK_POWDER_RADIUS_INCREASE: f32 = 0.15;
 
 // Proc Boons (spec #182, Appendix A3): each one's Effect at 1 Stack, what each extra Stack adds,
 // its Trigger chance and its cooldown. Stacks grow only the Effect.
