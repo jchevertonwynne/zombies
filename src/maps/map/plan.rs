@@ -111,6 +111,7 @@ fn draw_map(map: MapId) {
         let colour = match kind {
             SpawnKind::Window(_) => "#40c0ff",
             SpawnKind::Riser => "#c08040",
+            SpawnKind::Wading => "#40a0c0",
             SpawnKind::Hellhound => "#ff3030",
             SpawnKind::Special => "#ff40ff",
             SpawnKind::Vent => "#40ffff",

@@ -1237,6 +1237,9 @@ pub const ZOMBIE_SEPARATION_DIST: f32 = 1.0;
 pub const ZOMBIE_SEPARATION_WEIGHT: f32 = 0.6;
 /// Seconds a Riser takes to climb out of the ground; it can be shot but can't attack meanwhile.
 pub const ZOMBIE_RISE_SECS: f32 = 1.5;
+/// Seconds a Zombie takes to stand up out of Shallow Water at a Wading Point: a little slower than
+/// a Riser, which has dirt to push through but no water to stand up in.
+pub const ZOMBIE_WADE_RISE_SECS: f32 = 2.0;
 /// Stuck cleanup: a Zombie that makes no progress, or stays beyond `ZOMBIE_CLEANUP_DIST` of the
 /// Player, for `ZOMBIE_CLEANUP_SECS` despawns and goes back into the Horde.
 pub const ZOMBIE_CLEANUP_DIST: f32 = 40.0;
@@ -2613,3 +2616,17 @@ pub const WATER_BED_SLACK: f32 = 0.5;
 pub const WATER_EDGE_HEIGHT: f32 = 2.5;
 /// How wide the foam strip is where Shallow Water meets Deep.
 pub const WATER_FOAM_WIDTH: f32 = 0.6;
+
+// Wading Points
+/// How far a Wading Point is, at least, from Deep Water and from dry ground, so the spawn jitter
+/// always lands in the surf.
+pub const WADING_DEEP_CLEARANCE: f32 = 1.5;
+/// How far, at most, a Wading Point is from the path node a risen Zombie sets off from.
+pub const WADING_NAV_REACH: f32 = 3.5;
+/// How wide (across) the ring of foam is when it has spread, and how long it takes.
+pub const WADE_FOAM_RING_SIZE: f32 = 1.5;
+pub const WADE_FOAM_RING_SECS: f32 = 1.0;
+/// The drops of spray thrown up as a Zombie surfaces: how many, how high and how long they fly.
+pub const WADE_SPRAY_DROPS: usize = 7;
+pub const WADE_SPRAY_HEIGHT: f32 = 1.1;
+pub const WADE_SPRAY_SECS: f32 = 0.6;

@@ -608,7 +608,6 @@ fn play_zombie_sounds(
     mut commands: Commands,
     mut sounds: ResMut<Sounds>,
     strikes: Query<&GlobalTransform, Added<Telegraph>>,
-    risers: Query<(&Zombie, &GlobalTransform), Added<Rising>>,
     deaths: Query<(&Zombie, &GlobalTransform), Added<Dying>>,
     drops: Query<&GlobalTransform, Added<VentDrop>>,
     clouds: Query<&GlobalTransform, Added<GasCloud>>,
@@ -618,12 +617,7 @@ fn play_zombie_sounds(
     for at in &strikes {
         sounds.play(&mut commands, Cue::HoundSpawn, Some(at.translation()));
     }
-    for (zombie, at) in &risers {
-        // A Nova Crawler drops from its Vent, and a special rises with its own sound.
-        if !zombie.is_special() {
-            sounds.play(&mut commands, Cue::ZombieRiser, Some(at.translation()));
-        }
-    }
+    // A Zombie rising plays `ZombieRiser` or, in Shallow Water, `ZombieWade`: see `water::start_rising`.
     for (zombie, at) in &deaths {
         if zombie.is_hellhound() {
             sounds.play(&mut commands, Cue::HoundDeath, Some(at.translation()));

@@ -122,6 +122,9 @@ pub struct Layout {
     pub windows: &'static [(ZoneId, Vec3, Vec2)],
     /// The Risers, where Zombies climb out of the ground, and the Zone each serves.
     pub risers: &'static [(ZoneId, Vec3)],
+    /// The Wading Points, where Zombies stand up out of Shallow Water, and the Zone each serves:
+    /// a spot on the bed, as `risers` is a spot on the ground. Empty on a Map without water.
+    pub wading: &'static [(ZoneId, Vec3)],
     /// The Hellhound Spawn Points: the Zone each serves and where it stands on the floor.
     pub hellhound_spawns: &'static [(ZoneId, Vec3)],
     /// The Special Spawn Points, where a Napalm or a Shrieker rises.
@@ -658,6 +661,8 @@ pub enum SpawnKind {
     Window(BarrierId),
     /// In open ground: the Zombie climbs up out of the dirt.
     Riser,
+    /// On the bed under Shallow Water: the Zombie stands up out of the surf and wades ashore.
+    Wading,
     /// Inside a Zone, where a Hellhound arrives in a lightning strike. Only hounds use these.
     Hellhound,
     /// Inside a Zone, where a Napalm or a Shrieker rises. Only they use these.
@@ -804,6 +809,16 @@ pub fn spawn_map(
             SpawnPoint {
                 zone,
                 kind: SpawnKind::Riser,
+            },
+            Transform::from_translation(at),
+        ));
+    }
+    for &(zone, at) in layout.wading {
+        commands.spawn((
+            InRun,
+            SpawnPoint {
+                zone,
+                kind: SpawnKind::Wading,
             },
             Transform::from_translation(at),
         ));
@@ -1049,6 +1064,7 @@ pub(crate) mod tests {
             spots.extend(layout.nav_nodes.iter().map(|&(name, x, y, z)| (format!("path node {name}"), Vec3::new(x, y, z))));
             spots.extend(layout.seats.iter().map(|&at| ("a Seat".to_string(), at)));
             spots.extend(layout.risers.iter().map(|&(zone, at)| (format!("a Riser in {}", zone.name()), at)));
+            spots.extend(layout.wading.iter().map(|&(zone, at)| (format!("a Wading Point in {}", zone.name()), at)));
             spots.extend(layout.hellhound_spawns.iter().map(|&(zone, at)| (format!("a Hellhound Spawn Point in {}", zone.name()), at)));
             spots.extend(layout.special_spawns.iter().map(|&(zone, at)| (format!("a Special Spawn Point in {}", zone.name()), at)));
             spots.extend(layout.vents.iter().flat_map(|&(zone, at)| [(format!("a Vent in {}", zone.name()), at), (format!("a Vent's opening in {}", zone.name()), at + Vec3::Y * NOVA_VENT_HEIGHT)]));
@@ -1158,6 +1174,59 @@ pub(crate) mod tests {
             }
             for seat in layout.seats {
                 assert!(!deep(seat), "a Seat on the {} is in Deep Water", map.name());
+            }
+            for &(zone, at) in layout.wading.iter().chain(layout.risers).chain(layout.hellhound_spawns).chain(layout.special_spawns) {
+                assert!(!deep(at), "a Spawn Point in {} on the {} is in Deep Water", zone.name(), map.name());
+            }
+        }
+    }
+
+    /// Every Wading Point is on the bed of Shallow Water of its own Zone's pool, at least
+    /// `WADING_DEEP_CLEARANCE` from Deep Water and from dry ground, and has a path node within
+    /// reach on its own storey, joined by edges to every other node of its Zone. Only the Cove has
+    /// any.
+    #[test]
+    fn every_wading_point_is_well_inside_shallow_water_and_on_the_path_graph() {
+        for map in MapId::ALL {
+            let layout = map.layout();
+            let tide = TideLevel::Low;
+            if map != MapId::Cove {
+                assert!(layout.wading.is_empty(), "the {} has Wading Points", map.name());
+            }
+            let nodes: Vec<_> = layout.nav_nodes.iter().map(|&(name, x, y, z)| (name, Vec3::new(x, y, z))).collect();
+            for &(zone, at) in layout.wading {
+                let what = format!("the Wading Point at {at} in {}", zone.name());
+                assert_eq!(water_at(layout, tide, at), Some(Wading::Shallow), "{what} is not in Shallow Water");
+                assert_eq!(crate::maps::water::shallow_zone_at(layout, tide, at), Some(zone), "{what} is not over its own Zone's pool");
+                assert!(crate::maps::water::wading_point_active(layout, tide, at), "{what} is not active");
+                // A hair under the full clearance, as Deep Water and the shallows share an edge.
+                assert!(
+                    crate::maps::water::shallow_all_round(layout, tide, at, WADING_DEEP_CLEARANCE - 0.01),
+                    "{what} has Deep Water or dry ground within {WADING_DEEP_CLEARANCE} m"
+                );
+                let near = nodes
+                    .iter()
+                    .filter(|(_, node)| (node.y - at.y).abs() < 1.0)
+                    .map(|&(name, node)| (name, Vec2::new(node.x - at.x, node.z - at.z).length()))
+                    .min_by(|a, b| a.1.total_cmp(&b.1))
+                    .unwrap_or_else(|| panic!("{what} has no path node"));
+                assert!(near.1 <= WADING_NAV_REACH, "{what} is {:.1} m from its nearest path node {}", near.1, near.0);
+                // The Zone's own nodes, and those the nearest one reaches along edges between them.
+                let own: Vec<&str> = nodes.iter().filter(|(_, node)| zone_at(*node + Vec3::Y * 0.5) == Some(zone)).map(|(name, _)| *name).collect();
+                let mut reached = vec![near.0];
+                let mut frontier = vec![near.0];
+                while let Some(here) = frontier.pop() {
+                    for &(a, b, _) in layout.nav_edges {
+                        let there = if a == here { b } else if b == here { a } else { continue };
+                        if own.contains(&there) && !reached.contains(&there) {
+                            reached.push(there);
+                            frontier.push(there);
+                        }
+                    }
+                }
+                for node in &own {
+                    assert!(reached.contains(node), "{what}: path node {node} of {} is not joined to {}", zone.name(), near.0);
+                }
             }
         }
     }
@@ -1541,6 +1610,9 @@ pub(crate) mod tests {
         for &(zone, at) in layout.risers {
             keep.push((format!("the Riser at {at}"), Some(zone), at, 1.0));
         }
+        for &(zone, at) in layout.wading {
+            keep.push((format!("the Wading Point at {at}"), Some(zone), at, 1.0));
+        }
         for (zone, at) in layout.hellhound_spawns.iter().chain(layout.special_spawns) {
             keep.push((format!("the {} Spawn Point at {at}", zone.name()), Some(*zone), *at, 0.9));
         }
@@ -1750,7 +1822,7 @@ pub(crate) mod tests {
     fn every_zone_has_a_hellhound_spawn_point_standing_in_it() {
         for map in MapId::ALL {
             let layout = map.layout();
-            for &(zone, at) in layout.hellhound_spawns.iter().chain(layout.special_spawns).chain(layout.risers) {
+            for &(zone, at) in layout.hellhound_spawns.iter().chain(layout.special_spawns).chain(layout.risers).chain(layout.wading) {
                 // Just above the floor, which sits a little inside the Zone.
                 assert_eq!(zone_at(at + Vec3::Y * 0.5), Some(zone), "{at} is outside {}", zone.name());
             }

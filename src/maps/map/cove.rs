@@ -87,6 +87,7 @@ pub(super) const COVE: Layout = Layout {
     wall_weapons: &WALL_WEAPONS,
     windows: &WINDOWS,
     risers: &[],
+    wading: &WADING_POINTS,
     hellhound_spawns: &HELLHOUND_SPAWNS,
     special_spawns: &SPECIAL_SPAWNS,
     vents: &[],
@@ -324,6 +325,21 @@ const POOLS: [Pool; 22] = {
         sea(Boathouse, 29.0, -18.0, 34.0, -14.0),
     ]
 };
+
+/// The Wading Points, on the bed under the surf: Strand 4 spread along its band, Shingle 2, the
+/// Boathouse's slipway well 1 and the Sea Cave's tidal pool 1 (its back strip). Each is at least
+/// `WADING_DEEP_CLEARANCE` from the sea and from dry sand; on the Strand's 7 m band and the
+/// Shingle's 5 m one that leaves as much surf as there is between it and the beach.
+const WADING_POINTS: [(ZoneId, Vec3); 8] = [
+    (ZoneId::Strand, at(-17.0, SHORE, -12.4)),
+    (ZoneId::Strand, at(-6.0, SHORE, -12.4)),
+    (ZoneId::Strand, at(3.0, SHORE, -12.4)),
+    (ZoneId::Strand, at(13.0, SHORE, -12.4)),
+    (ZoneId::Shingle, at(-40.0, SHORE, -11.5)),
+    (ZoneId::Shingle, at(-27.0, SHORE, -11.5)),
+    (ZoneId::Boathouse, at(27.0, SHORE, -11.5)),
+    (ZoneId::SeaCave, at(-47.5, SHORE, -12.5)),
+];
 
 /// The stairwells: each flight's well in the floor of the Zone at its top, a storey deep.
 const WELLS: [Sunken; 7] = [

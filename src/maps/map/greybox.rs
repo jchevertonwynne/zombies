@@ -37,6 +37,7 @@ pub(super) const GREYBOX: Layout = Layout {
     wall_weapons: &WALL_WEAPONS,
     windows: &WINDOWS,
     risers: &RISERS,
+    wading: &[],
     hellhound_spawns: &HELLHOUND_SPAWNS,
     special_spawns: &SPECIAL_SPAWNS,
     vents: &VENTS,

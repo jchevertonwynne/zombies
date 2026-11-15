@@ -16,10 +16,15 @@ use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 
+use crate::audio::PlayCue;
+use crate::audio::cues::Cue;
 use crate::enemies::target::half_height_above_feet;
 use crate::layers::GameLayer;
 use crate::maps::map::Layout;
 use crate::players::player::{Locomotion, Player};
+use crate::enemies::zombie::rig::{Activity, Shown};
+use crate::enemies::zombie::{Rising, Zombie, rising_floor};
+use crate::net::play::Puppet;
 use crate::state::InRun;
 use crate::tuning::*;
 
@@ -141,6 +146,63 @@ fn water_in(water: &[Pool], canals: &[Canal], tide: TideLevel, feet: Vec3) -> Op
 /// Whether feet at `feet` are in Shallow Water, with the Tide at its usual `Low`.
 pub fn wading(layout: &Layout, feet: Vec3) -> bool {
     water_at(layout, TideLevel::default(), feet) == Some(Wading::Shallow)
+}
+
+/// How high the surface of the Shallow Water is that `feet` stand in, with the Tide at `tide`.
+pub fn surface_at(layout: &Layout, tide: TideLevel, feet: Vec3) -> Option<f32> {
+    let at = Vec2::new(feet.x, feet.z);
+    if water_at(layout, tide, feet) != Some(Wading::Shallow) {
+        return None;
+    }
+    layout
+        .water
+        .iter()
+        .filter(|pool| pool.covers(at) && pool.kind(layout.canals, tide) == Some(Wading::Shallow))
+        .map(|pool| pool.surface(layout.canals, tide))
+        .find(|&surface| feet.y < surface)
+}
+
+/// Whether a Wading Point at `at` (a spot on the bed) is in use: only where the water over it is
+/// Shallow at this Tide. On the Cove everything is Still, so every one always is; when the Tide
+/// raises the water to Deep, or drains it, its points go quiet.
+pub fn wading_point_active(layout: &Layout, tide: TideLevel, at: Vec3) -> bool {
+    water_at(layout, tide, at) == Some(Wading::Shallow)
+}
+
+/// Whether all the ground within `radius` of the spot `at` (the bed under it) is Shallow Water:
+/// no Deep Water and no dry ground that close.
+pub fn shallow_all_round(layout: &Layout, tide: TideLevel, at: Vec3, radius: f32) -> bool {
+    (0..4).all(|ring| {
+        let reach = radius * (ring + 1) as f32 / 4.0;
+        (0..48).all(|step| {
+            let angle = step as f32 / 48.0 * std::f32::consts::TAU;
+            let feet = at + Vec3::new(angle.cos(), 0.0, angle.sin()) * reach;
+            water_at(layout, tide, feet) == Some(Wading::Shallow)
+        })
+    })
+}
+
+/// The Zone of a pool that is Shallow over `feet`, if one is.
+pub fn shallow_zone_at(layout: &Layout, tide: TideLevel, feet: Vec3) -> Option<crate::maps::zone::ZoneId> {
+    let at = Vec2::new(feet.x, feet.z);
+    layout
+        .water
+        .iter()
+        .find(|pool| {
+            pool.covers(at) && feet.y < pool.surface(layout.canals, tide) && pool.kind(layout.canals, tide) == Some(Wading::Shallow)
+        })
+        .map(|pool| pool.zone)
+}
+
+/// The cue for a Zombie rising with its feet at `floor`: the surge of water in Shallow Water,
+/// otherwise the Riser's crunch of dirt. The water decides, not the Spawn Point's kind, so every
+/// machine, a Co-op client's puppets included, answers alike with no message.
+pub fn rise_cue(layout: &Layout, tide: TideLevel, floor: Vec3) -> Cue {
+    if water_at(layout, tide, floor) == Some(Wading::Shallow) {
+        Cue::ZombieWade
+    } else {
+        Cue::ZombieRiser
+    }
 }
 
 // ---- What it looks like, and the walls round Deep Water ----
@@ -299,6 +361,198 @@ pub fn spawn_water(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials
     }
 }
 
+// ---- Standing up out of the surf ----
+
+/// On a Zombie that has started rising, once its cue and look have been chosen: where its feet
+/// meet the surface if it is rising in Shallow Water (a Wading Point's Zombie, or any that rises
+/// there), and `None` on dry ground. Host and puppet alike, each by the water at its own feet.
+#[derive(Component, Debug)]
+pub struct Rise {
+    surface: Option<Vec3>,
+}
+
+/// The ring of foam spreading over the surface from where a Zombie surfaces.
+#[derive(Component)]
+struct FoamRing {
+    age: f32,
+    size: f32,
+    material: Handle<StandardMaterial>,
+}
+
+/// One drop of spray, thrown up on a fixed arc and back down: no physics.
+#[derive(Component)]
+struct Spray {
+    age: f32,
+    from: Vec3,
+    drift: Vec3,
+    up: f32,
+    gravity: f32,
+}
+
+/// The meshes and material of the splash, made when first needed.
+struct SplashLook {
+    ring: Handle<Mesh>,
+    drop: Handle<Mesh>,
+    spray: Handle<StandardMaterial>,
+}
+
+/// The splash's meshes and material, made the first time they're needed.
+fn splash_look<'a>(look: &'a mut Option<SplashLook>, meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>) -> &'a SplashLook {
+    look.get_or_insert_with(|| SplashLook {
+        ring: meshes.add(Annulus::new(0.38, 0.5)),
+        drop: meshes.add(Sphere::new(0.05)),
+        spray: materials.add(StandardMaterial {
+            base_color: Color::srgba(0.95, 0.98, 1.0, 0.8),
+            unlit: true,
+            alpha_mode: AlphaMode::Blend,
+            ..default()
+        }),
+    })
+}
+
+/// A ring of foam and a burst of spray at `surface`, `scale` times the full size.
+fn splash(
+    commands: &mut Commands,
+    look: &SplashLook,
+    materials: &mut Assets<StandardMaterial>,
+    surface: Vec3,
+    scale: f32,
+    drops: usize,
+) {
+    let material = materials.add(StandardMaterial {
+        base_color: Color::srgba(0.95, 0.98, 1.0, 0.7),
+        unlit: true,
+        alpha_mode: AlphaMode::Blend,
+        double_sided: true,
+        cull_mode: None,
+        ..default()
+    });
+    commands.spawn((
+        InRun,
+        FoamRing { age: 0.0, size: WADE_FOAM_RING_SIZE * scale, material: material.clone() },
+        Mesh3d(look.ring.clone()),
+        MeshMaterial3d(material),
+        Transform::from_translation(surface + Vec3::Y * 0.03).with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)).with_scale(Vec3::splat(0.01)),
+    ));
+    let height = WADE_SPRAY_HEIGHT * scale;
+    for _ in 0..drops {
+        let angle = rand::random_range(0.0..std::f32::consts::TAU);
+        let reach = rand::random_range(0.1..0.45) * scale;
+        commands.spawn((
+            InRun,
+            Spray {
+                age: 0.0,
+                from: surface,
+                drift: Vec3::new(angle.cos(), 0.0, angle.sin()) * reach / WADE_SPRAY_SECS,
+                up: 4.0 * height / WADE_SPRAY_SECS * rand::random_range(0.75..1.0),
+                gravity: 8.0 * height / (WADE_SPRAY_SECS * WADE_SPRAY_SECS),
+            },
+            Mesh3d(look.drop.clone()),
+            MeshMaterial3d(look.spray.clone()),
+            Transform::from_translation(surface),
+        ));
+    }
+}
+
+/// Gives each Zombie that has started rising its cue and, in Shallow Water, its look: a ring of
+/// foam spreading over the surface and a burst of spray, and the surge of water instead of the
+/// crunch of dirt. It is chosen by `water_at` at the Zombie's feet, so the Host's Zombies and a
+/// Co-op client's puppets (which the Host tells only that they are `Activity::Rising`) answer the
+/// same way, and no message is needed.
+fn start_rising(
+    mut commands: Commands,
+    hosts: Query<(Entity, &Transform, &Zombie, &Rising), (Added<Rising>, Without<Rise>)>,
+    puppets: Query<(Entity, &Transform, &Zombie, &Shown), (With<Puppet>, Changed<Shown>, Without<Rise>)>,
+    map: Option<Res<crate::maps::map::MapId>>,
+    mut cues: MessageWriter<PlayCue>,
+    mut look: Local<Option<SplashLook>>,
+    mut meshes: Option<ResMut<Assets<Mesh>>>,
+    mut materials: Option<ResMut<Assets<StandardMaterial>>>,
+) {
+    let Some(map) = map else { return };
+    let layout = map.layout();
+    let tide = TideLevel::default();
+    let rising = hosts
+        .iter()
+        .map(|(entity, transform, zombie, rising)| (entity, transform.translation, zombie, rising.buried()))
+        .chain(
+            puppets
+                .iter()
+                .filter(|(.., shown)| shown.0 == Activity::Rising)
+                .map(|(entity, transform, zombie, _)| (entity, transform.translation, zombie, transform.translation.y)),
+        );
+    for (entity, at, zombie, centre_y) in rising {
+        let floor = Vec3::new(at.x, rising_floor(centre_y), at.z);
+        let surface = surface_at(layout, tide, floor).map(|height| Vec3::new(at.x, height, at.z));
+        commands.entity(entity).insert(Rise { surface });
+        // A Nova Crawler drops from its Vent, and a special rises with its own sound.
+        if !zombie.is_special() && !zombie.is_hellhound() {
+            cues.write(PlayCue::new(rise_cue(layout, tide, floor), Some(surface.unwrap_or(at))));
+        }
+        let (Some(surface), Some(meshes), Some(materials)) = (surface, meshes.as_mut(), materials.as_mut()) else { continue };
+        let look = splash_look(&mut look, meshes, materials);
+        splash(&mut commands, look, materials, surface, 1.0, WADE_SPRAY_DROPS);
+    }
+}
+
+/// A smaller splash as a Zombie finishes standing up out of the water.
+fn finish_rising(
+    mut commands: Commands,
+    risen: Query<(Entity, &Rise, Has<Rising>, Option<&Shown>, Has<Puppet>)>,
+    mut cues: MessageWriter<PlayCue>,
+    mut look: Local<Option<SplashLook>>,
+    mut meshes: Option<ResMut<Assets<Mesh>>>,
+    mut materials: Option<ResMut<Assets<StandardMaterial>>>,
+) {
+    for (entity, rise, rising, shown, puppet) in &risen {
+        let still = if puppet { shown.is_some_and(|shown| shown.0 == Activity::Rising) } else { rising };
+        if still {
+            continue;
+        }
+        commands.entity(entity).remove::<Rise>();
+        let Some(surface) = rise.surface else { continue };
+        cues.write(PlayCue { cue: Cue::Splash, at: Some(surface), pitch: 1.0, gain: 0.6 });
+        let (Some(meshes), Some(materials)) = (meshes.as_mut(), materials.as_mut()) else { continue };
+        let look = splash_look(&mut look, meshes, materials);
+        splash(&mut commands, look, materials, surface, 0.5, WADE_SPRAY_DROPS / 2);
+    }
+}
+
+/// Spreads and fades the foam rings, and flies the spray.
+fn animate_splashes(
+    mut commands: Commands,
+    mut rings: Query<(Entity, &mut FoamRing, &mut Transform), Without<Spray>>,
+    mut drops: Query<(Entity, &mut Spray, &mut Transform), Without<FoamRing>>,
+    mut materials: Option<ResMut<Assets<StandardMaterial>>>,
+    time: Res<Time>,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut ring, mut transform) in &mut rings {
+        ring.age += dt;
+        let t = (ring.age / WADE_FOAM_RING_SECS).min(1.0);
+        transform.scale = Vec3::splat(ring.size * (0.2 + 0.8 * t.sqrt()));
+        if let Some(mut material) = materials.as_mut().and_then(|materials| materials.get_mut(&ring.material)) {
+            material.base_color = material.base_color.with_alpha(0.7 * (1.0 - t));
+        }
+        if t >= 1.0 {
+            if let Some(materials) = materials.as_mut() {
+                materials.remove(&ring.material);
+            }
+            commands.entity(entity).despawn();
+        }
+    }
+    for (entity, mut drop, mut transform) in &mut drops {
+        drop.age += dt;
+        let t = drop.age;
+        if t >= WADE_SPRAY_SECS {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        transform.translation = drop.from + drop.drift * t + Vec3::Y * (drop.up * t - 0.5 * drop.gravity * t * t);
+        transform.scale = Vec3::splat(1.0 - 0.6 * t / WADE_SPRAY_SECS);
+    }
+}
+
 // ---- Who is in the water ----
 
 /// On a Player or Zombie while its feet are in Shallow Water, so entering it can splash.
@@ -333,7 +587,7 @@ pub struct WaterPlugin;
 
 impl Plugin for WaterPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, mark_wet);
+        app.add_message::<PlayCue>().add_systems(Update, (mark_wet, start_rising, finish_rising, animate_splashes));
     }
 }
 
@@ -422,6 +676,141 @@ mod tests {
             }
             assert!(map.layout().water.is_empty() && map.layout().canals.is_empty(), "{}", map.name());
             assert_eq!(water_at(map.layout(), TideLevel::Low, Vec3::ZERO), None);
+        }
+    }
+
+    /// A Wading Point is in use only while the water over it is Shallow at the Tide, which is how
+    /// the Polder's Tide will switch its points off at High; the Cove is Still, so always on.
+    #[test]
+    fn a_wading_point_is_active_only_while_its_water_is_shallow() {
+        static CANALS: [Canal; 1] = [Canal { name: "Quay", low: 0.4, mid: 0.9, high: 1.4 }];
+        static POOLS: [Pool; 1] = [Pool { level: Level::Canal(CanalId(0)), ..BEACH }];
+        let layout = layout_of(&POOLS, &CANALS);
+        let on_the_bed = Vec3::new(5.0, 0.0, 5.0);
+        let active = |tide| layout.at(tide, on_the_bed) == Some(Wading::Shallow);
+        assert!(active(TideLevel::Low) && active(TideLevel::Mid));
+        assert!(!active(TideLevel::High), "Deep Water is no place to rise from");
+        assert!(!wading_point_active(crate::maps::map::MapId::Greybox.layout(), TideLevel::Low, on_the_bed), "no water at all");
+        let cove = crate::maps::map::MapId::Cove.layout();
+        for tide in [TideLevel::Low, TideLevel::Mid, TideLevel::High] {
+            assert!(cove.wading.iter().all(|&(_, at)| wading_point_active(cove, tide, at)), "the Cove is Still");
+        }
+    }
+
+    /// The cue follows the water at the feet and not the Spawn Point's kind: a Riser on dry ground,
+    /// on the Cove's sand or a Map with no water, still plays the dirt.
+    #[test]
+    fn the_cue_follows_the_water_at_the_feet_not_the_spawn_point() {
+        use crate::maps::map::MapId;
+        let cove = MapId::Cove.layout();
+        let surf = cove.wading[0].1;
+        assert_eq!(rise_cue(cove, TideLevel::Low, surf), Cue::ZombieWade);
+        let sand = Vec3::new(surf.x, 0.0, 3.0);
+        assert_eq!(rise_cue(cove, TideLevel::Low, sand), Cue::ZombieRiser);
+        for map in MapId::ALL.into_iter().filter(|&map| map != MapId::Cove) {
+            for &(_, at) in map.layout().risers {
+                assert_eq!(rise_cue(map.layout(), TideLevel::Low, at), Cue::ZombieRiser, "{}", map.name());
+            }
+        }
+        // The foam goes on the surface.
+        assert_eq!(surface_at(cove, TideLevel::Low, surf), Some(0.5));
+        assert_eq!(surface_at(cove, TideLevel::Low, sand), None);
+    }
+
+    use crate::enemies::zombie::headless::Sim;
+    use crate::maps::map::MapId;
+
+    /// The cues a test app has been asked to play.
+    #[derive(Resource, Default)]
+    struct Heard(Vec<PlayCue>);
+
+    fn hear(mut asked: MessageReader<PlayCue>, mut heard: ResMut<Heard>) {
+        heard.0.extend(asked.read().copied());
+    }
+
+    fn cove_sim() -> Sim {
+        Sim::on(MapId::Cove, 60.0, |app| {
+            app.add_plugins(WaterPlugin).init_resource::<Heard>().add_systems(Update, hear);
+        })
+    }
+
+    /// How many foam rings and spray drops there are in the world.
+    fn splashes(sim: &mut Sim) -> (usize, usize) {
+        let world = sim.world_mut();
+        (world.query::<&FoamRing>().iter(world).count(), world.query::<&Spray>().iter(world).count())
+    }
+
+    /// On the Host, a Zombie rising in the surf plays `ZombieWade` and throws up a ring of foam
+    /// and spray, then splashes again as it's up; one rising on dry sand plays `ZombieRiser`, with
+    /// no foam.
+    #[test]
+    fn the_host_chooses_the_wading_look_and_cue_by_the_water_at_the_feet() {
+        use crate::tuning::{ZOMBIE_RISE_SECS, ZOMBIE_WADE_RISE_SECS};
+        let mut sim = cove_sim();
+        let cove = MapId::Cove.layout();
+        let surf = cove.wading[2].1;
+        sim.spawn(surf, Some(ZOMBIE_WADE_RISE_SECS));
+        sim.run(3);
+        let heard: Vec<_> = sim.world_mut().resource::<Heard>().0.iter().map(|p| p.cue).collect();
+        assert_eq!(heard, vec![Cue::ZombieWade]);
+        let (rings, drops) = splashes(&mut sim);
+        assert_eq!((rings, drops), (1, WADE_SPRAY_DROPS));
+        // As it finishes there is a smaller splash, and the foam of the first dies away.
+        sim.run(sim.frames(ZOMBIE_WADE_RISE_SECS) + 5);
+        let heard: Vec<_> = sim.world_mut().resource::<Heard>().0.iter().map(|p| p.cue).collect();
+        assert_eq!(heard, vec![Cue::ZombieWade, Cue::Splash]);
+        sim.run(sim.frames(WADE_FOAM_RING_SECS + 0.2));
+        assert_eq!(splashes(&mut sim), (0, 0));
+
+        // A Riser on the sand above the surf: the dirt, and no foam.
+        let mut sim = cove_sim();
+        sim.spawn(Vec3::new(surf.x, 0.0, 3.0), Some(ZOMBIE_RISE_SECS));
+        sim.run(3);
+        let heard: Vec<_> = sim.world_mut().resource::<Heard>().0.iter().map(|p| p.cue).collect();
+        assert_eq!(heard, vec![Cue::ZombieRiser]);
+        assert_eq!(splashes(&mut sim), (0, 0));
+        sim.run(sim.frames(ZOMBIE_RISE_SECS) + 5);
+        assert_eq!(sim.world_mut().resource::<Heard>().0.len(), 1, "no second splash on dry land");
+    }
+
+    /// A Co-op client's puppet is told only that it is `Activity::Rising`, and chooses the look and
+    /// the cue from the water at its own feet, as the Host does: no new message.
+    #[test]
+    fn a_coop_clients_puppet_chooses_the_same_by_the_water_at_its_feet() {
+        use crate::enemies::zombie::rig::{Activity, Shown};
+        use crate::enemies::zombie::{rising_floor, spawn_puppet};
+        use bevy::ecs::system::RunSystemOnce;
+        use crate::net::play::Puppet;
+        let mut sim = cove_sim();
+        let surf = MapId::Cove.layout().wading[0].1;
+        // Where the Host's rising Zombie would be as the client first sees it: its buried centre.
+        let buried = |floor: Vec3| floor.with_y(floor.y - rising_floor(0.0));
+        for (floor, cue, rings) in [(surf, Cue::ZombieWade, 1), (Vec3::new(surf.x, 0.0, 3.0), Cue::ZombieRiser, 0)] {
+            sim.world_mut().resource_mut::<Heard>().0.clear();
+            let before = splashes(&mut sim).0;
+            let centre = buried(floor);
+            sim.world_mut()
+                .run_system_once(move |mut commands: Commands, assets: crate::enemies::zombie::ZombieAssetsParam| {
+                    let puppet = spawn_puppet(&mut commands, &assets, centre, 0.0, false);
+                    commands.entity(puppet).insert((Puppet, Shown(Activity::Rising)));
+                })
+                .unwrap();
+            sim.run(3);
+            let heard: Vec<_> = sim.world_mut().resource::<Heard>().0.iter().map(|p| p.cue).collect();
+            assert_eq!(heard, vec![cue], "a puppet rising at {floor}");
+            assert_eq!(splashes(&mut sim).0 - before, rings);
+            // Standing up ends it, with the second splash only where there is water.
+            let puppets: Vec<Entity> = sim.world_mut().query_filtered::<Entity, With<Puppet>>().iter(sim.app.world()).collect();
+            for puppet in puppets {
+                sim.world_mut().entity_mut(puppet).insert(Shown(Activity::Moving));
+            }
+            sim.run(3);
+            let heard = sim.world_mut().resource::<Heard>().0.len();
+            assert_eq!(heard, 1 + rings);
+            let puppets: Vec<Entity> = sim.world_mut().query_filtered::<Entity, With<Puppet>>().iter(sim.app.world()).collect();
+            for puppet in puppets {
+                sim.world_mut().entity_mut(puppet).despawn();
+            }
         }
     }
 }

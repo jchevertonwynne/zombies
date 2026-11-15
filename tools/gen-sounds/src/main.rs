@@ -153,6 +153,7 @@ fn recipe(cue: Cue) -> Recipe {
         Cue::ZombieAttack => Recipe::Synth(snarl(0.4, 0x6a00_0022)),
         Cue::ZombieDeath => Recipe::Synth(gurgle()),
         Cue::ZombieRiser => Recipe::Synth(dirt_crunch()),
+        Cue::ZombieWade => Recipe::Synth(wade_surge()),
         Cue::CrawlerGib => Recipe::Synth(splatter()),
         Cue::CrawlerVocal => Recipe::Synth(moan(1.6, 70.0, 0x6a00_0023)),
         Cue::CrawlerDrag => Recipe::Synth(drag()),
@@ -1424,6 +1425,23 @@ fn dirt_crunch() -> Vec<f32> {
             low += (noise(&mut seed) - low) * 0.25;
             let grains = (TAU * 17.0 * t).sin().max(0.0).powi(4);
             (low * grains * 1.5 * (1.0 - t / secs)).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
+/// A heavy surge of water as a body stands up out of it, with a low groan under the end.
+fn wade_surge() -> Vec<f32> {
+    let mut seed = 0x6a00_0033;
+    let mut low = 0.0;
+    let secs = 1.4;
+    samples(secs)
+        .map(|t| {
+            low += (noise(&mut seed) - low) * 0.15;
+            // The water swells and pours off as the body comes up.
+            let surge = low * 1.5 * (t * 5.0).min(1.0) * (-((t - 0.45) / 0.35).powi(2)).exp();
+            let pour = noise(&mut seed) * 0.18 * (t * 3.0).min(1.0) * (-t * 2.2).exp();
+            let groan = (TAU * (70.0 + 12.0 * (t * 4.0).sin()) * t).sin() * ((t - 0.5).max(0.0) * 6.0).min(1.0) * (-(t - 0.5).max(0.0) * 2.5).exp() * 0.35;
+            (surge + pour + groan).clamp(-1.0, 1.0)
         })
         .collect()
 }

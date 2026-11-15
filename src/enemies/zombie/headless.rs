@@ -234,6 +234,52 @@ fn a_riser_climbs_out_steadily_and_stays_up() {
     }
 }
 
+/// A Zombie stands up out of the Cove's surf at a Wading Point over `ZOMBIE_WADE_RISE_SECS`
+/// (2 s, against a Riser's 1.5), from under the bed. It can be shot, Headshots counting, but
+/// doesn't move or swing until it's up, with a Player right beside it; and once up it's slowed by
+/// the Shallow Water until it's ashore.
+#[test]
+fn a_wading_zombie_rises_in_two_seconds_shootable_but_harmless_then_wades() {
+    use crate::maps::water::wading;
+    let mut sim = Sim::on(MapId::Cove, 60.0, |_| {});
+    let layout = MapId::Cove.layout();
+    let bed = layout.wading[1].1;
+    assert!(wading(layout, bed), "over the bed is Shallow Water");
+    // A Player standing right beside the spot, in the surf.
+    put_player(&mut sim, bed + Vec3::new(1.0, 0.0, 1.0));
+    let zombie = sim.spawn(bed, Some(ZOMBIE_WADE_RISE_SECS));
+    let top = standing(bed.y);
+    let start = sim.frame(zombie).pos;
+    assert!(start.y < bed.y - 0.5, "starts under the bed, at {}", start.y);
+
+    // Shot while it rises: it takes the damage, and is still rising.
+    sim.run(sim.frames(0.5));
+    let health = sim.world_mut().get::<Zombie>(zombie).unwrap().health();
+    sim.send(DamageZombie { player: None, zombie, damage: 50.0, zone: HitZone::Head, attack: Attack::Bullet });
+    sim.run(2);
+    assert!(sim.world_mut().get::<Zombie>(zombie).unwrap().health() < health, "a Headshot counts");
+    assert!(sim.world_mut().get::<Rising>(zombie).is_some());
+
+    // Neither walking nor swinging until it is up, with a Player an arm's length away.
+    let samples = sim.track(zombie, sim.frames(ZOMBIE_WADE_RISE_SECS - 0.7));
+    for s in &samples {
+        assert!((s.pos.x - start.x).abs() < 0.01 && (s.pos.z - start.z).abs() < 0.01, "it moved to {} while rising", s.pos);
+        assert!(s.pos.y < top - 0.02, "up at {} with time to spare", s.pos.y);
+    }
+    assert!(sim.world_mut().get::<Zombie>(zombie).unwrap().wind_up.is_none());
+    assert!(sim.world_mut().get::<Rising>(zombie).is_some(), "still rising a little before 2 s");
+
+    // Up by 2 s, standing on the bed.
+    sim.run(sim.frames(0.4));
+    assert!(sim.world_mut().get::<Rising>(zombie).is_none(), "up after {ZOMBIE_WADE_RISE_SECS} s");
+    let up = sim.frame(zombie).pos;
+    assert!((up.y - top).abs() < 0.05, "stands at {} not {top}", up.y);
+    // Wading: slowed by the water at its feet.
+    sim.run(sim.frames(0.3));
+    let factor = sim.world_mut().get::<ZombieMoveFactor>(zombie).expect("slowed in Shallow Water");
+    assert!((factor.factor() - WADE_SPEED_MULT).abs() < 1e-4);
+}
+
 /// A dying Zombie used to sink from `Update`, so the step undid part of its fall and the body was
 /// left floating. It lies on the floor at the end, its fall never reversing.
 #[test]

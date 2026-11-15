@@ -166,6 +166,8 @@ cues! {
     ZombieAttack => "zombie_attack", Root, Spatial, 0.7;
     ZombieDeath => "zombie_death", Root, Spatial, 0.7;
     ZombieRiser => "zombie_riser", Root, Spatial, 0.8;
+    // A Zombie standing up out of Shallow Water at a Wading Point, in place of `ZombieRiser`.
+    ZombieWade => "zombie_wade", Root, Spatial, 0.8;
     CrawlerGib => "crawler_gib", Root, Spatial, 0.9;
     CrawlerVocal => "crawler_vocal", Root, Spatial, 0.6;
     CrawlerDrag => "crawler_drag", Root, Spatial, 0.4;
@@ -290,7 +292,7 @@ mod tests {
             // Not in the appendix: a teammate's footstep and Crawl drag, for Co-op, and the stance cues.
             "footstep", "stance_rustle", "dive_land", "crawl_drag",
             // The Cove's water: a wading footstep and the splash of entering.
-            "wade_step", "splash",
+            "wade_step", "splash", "zombie_wade",
             // Gauntlet v2's Proc cues (spec #182, Appendix C6).
             "proc_frost", "proc_blast",
             "set_bonus_tier_two", "set_bonus_tier_four", "set_bonus_tier_six", "duo_taken",

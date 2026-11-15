@@ -649,6 +649,11 @@ pub struct Rising {
 }
 
 impl Rising {
+    /// Its centre's height when it started, buried.
+    pub fn buried(&self) -> f32 {
+        self.buried
+    }
+
     /// Moving its centre from height `from` to `to` over `secs`.
     pub fn new(from: f32, to: f32, secs: f32) -> Self {
         Self {
@@ -807,6 +812,18 @@ pub fn scale_body(zombie: &mut EntityCommands, at: Vec3, scale: f32) {
     zombie.insert(Transform::from_translation(centre).with_scale(Vec3::splat(scale)));
 }
 
+/// How far a Riser's centre starts under its standing height, so the top of its head is below
+/// the floor.
+fn buried_depth() -> f32 {
+    body_half_height() + rig::head_rest().y + ZOMBIE_HEAD_RADIUS + 0.05
+}
+
+/// The floor under a rising Zombie whose centre is at height `centre_y`, as it starts: where its
+/// feet will be when it has stood up.
+pub fn rising_floor(centre_y: f32) -> f32 {
+    centre_y + buried_depth() - body_half_height() - 0.02
+}
+
 /// Spawns a Zombie standing on the floor at `at`, or, for a Riser, buried under it and about to
 /// climb out over `rise` seconds.
 pub fn spawn_zombie(
@@ -823,7 +840,7 @@ pub fn spawn_zombie(
     // Start just above the floor; gravity settles it.
     let standing = at.y + half + 0.02;
     // A Riser starts with the top of its head below the floor.
-    let buried = standing - (half + head_offset + ZOMBIE_HEAD_RADIUS + 0.05);
+    let buried = standing - buried_depth();
     let centre = Vec3::new(at.x, if rise.is_some() { buried } else { standing }, at.z);
 
     let mut zombie = commands.spawn_empty();

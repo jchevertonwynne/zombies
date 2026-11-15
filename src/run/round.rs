@@ -8,7 +8,8 @@ use crate::enemies::hellhound::{
     HellhoundAssetsParam, HellhoundSchedule, hellhound_alive_cap, hellhound_health, hellhound_horde, hellhound_spawn_candidates,
     hellhound_spawn_gap, mixed_hound_chance, spawn_hellhound,
 };
-use crate::maps::map::{SpawnKind, SpawnPoint};
+use crate::maps::map::{Layout, MapId, SpawnKind, SpawnPoint};
+use crate::maps::water::{TideLevel, wading_point_active};
 use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_count};
 use crate::enemies::nova::{NovaAssetsParam, nova_crawler_entry, nova_crawler_health, spawn_nova_crawler, spawns_nova_crawler};
 use crate::players::player::{LocalPlayer, Player, SpawnPlayers};
@@ -344,6 +345,7 @@ fn spawn_horde(
     modifiers: Single<&Modifiers, With<LocalPlayer>>,
     players: Players,
     active: Res<ActiveZones>,
+    map: Option<Res<MapId>>,
     assets: ZombieAssetsParam,
     hound_assets: HellhoundAssetsParam,
     nova_assets: NovaAssetsParam,
@@ -423,25 +425,79 @@ fn spawn_horde(
         }
     }
 
-    let points = spawn_candidates(
-        spawn_points
-            .iter()
-            .filter(|(_, point)| matches!(point.kind, SpawnKind::Window(_) | SpawnKind::Riser))
-            .map(|(t, point)| (point.zone, (t.translation, (t, point.kind)))),
+    // Windows and Risers, and the Wading Points whose water is Shallow at this Tide.
+    let points = horde_points(
+        spawn_points.iter().map(|(t, point)| (point.zone, t, point.kind)),
+        map.map(|map| map.layout()),
+        TideLevel::default(),
         active.0,
+        &anchors,
     );
-    let points = near_enough(points, &anchors);
     if points.is_empty() {
         return;
     }
     let (point, kind) = points[rand::random_range(0..points.len())];
-    spawn_normal_zombie(&mut commands, &assets, round.number, &modifiers.0, point.translation, kind);
+    let zombie = spawn_normal_zombie(&mut commands, &assets, round.number, &modifiers.0, point.translation, kind);
+    if kind == SpawnKind::Wading {
+        face_nearest(&mut commands, zombie, point.translation, &anchors);
+    }
     round.left_to_spawn -= 1;
     round.spawn_timer = spawn_delay(round.number);
 }
 
+/// Whether a Spawn Point of `kind` at `at` sends the Horde's Zombies: a Window or a Riser always,
+/// and a Wading Point only while the water over it is Shallow at `tide`. Hellhounds, specials and
+/// Vents have their own entries and are never the Horde's.
+pub fn horde_entry(kind: SpawnKind, layout: Option<&Layout>, tide: TideLevel, at: Vec3) -> bool {
+    match kind {
+        SpawnKind::Window(_) | SpawnKind::Riser => true,
+        SpawnKind::Wading => layout.is_some_and(|layout| wading_point_active(layout, tide, at)),
+        SpawnKind::Hellhound | SpawnKind::Special | SpawnKind::Vent => false,
+    }
+}
+
+/// Where the Horde's next Zombie can come in: of the Spawn Points `(zone, where, kind)`, the
+/// Horde's entries (see `horde_entry`) in Active Zones that are near enough a Player.
+pub fn horde_points<'a>(
+    points: impl IntoIterator<Item = (ZoneId, &'a Transform, SpawnKind)>,
+    layout: Option<&Layout>,
+    tide: TideLevel,
+    active: ZoneSet,
+    players: &[Vec3],
+) -> Vec<(&'a Transform, SpawnKind)> {
+    let points = spawn_candidates(
+        points
+            .into_iter()
+            .filter(|(_, t, kind)| horde_entry(*kind, layout, tide, t.translation))
+            .map(|(zone, t, kind)| (zone, (t.translation, (t, kind)))),
+        active,
+    );
+    near_enough(points, players)
+}
+
+/// Turns `zombie`, just spawned at `at`, to face the nearest of `players` (those who are up).
+pub fn face_nearest(commands: &mut Commands, zombie: Entity, at: Vec3, players: &[Vec3]) {
+    let Some(nearest) = players.iter().min_by(|a, b| a.distance_squared(at).total_cmp(&b.distance_squared(at))) else {
+        return;
+    };
+    let to = Vec3::new(nearest.x - at.x, 0.0, nearest.z - at.z);
+    if to.length_squared() > 1e-4 {
+        let yaw = Quat::from_rotation_y(f32::atan2(-to.x, -to.z));
+        commands.entity(zombie).entry::<Transform>().and_modify(move |mut transform| transform.rotation = yaw);
+    }
+}
+
+/// How long a Zombie from a `kind` of Spawn Point takes to rise, if it rises.
+pub fn rise_secs(kind: SpawnKind) -> Option<f32> {
+    match kind {
+        SpawnKind::Riser => Some(ZOMBIE_RISE_SECS),
+        SpawnKind::Wading => Some(ZOMBIE_WADE_RISE_SECS),
+        _ => None,
+    }
+}
+
 /// A normal Zombie at Round `number`'s health, rolling its Speed Tier, at the spawn point `at` of
-/// `kind`: a Riser rises, and one outside a window has to get in through its Barrier.
+/// `kind`: a Riser or Wading Point's Zombie rises, and one outside a window has to get in through its Barrier.
 pub fn spawn_normal_zombie(
     commands: &mut Commands,
     assets: &ZombieAssetsParam,
@@ -459,7 +515,7 @@ pub fn spawn_normal_zombie(
         at + jitter,
         zombie_health(number) as f32,
         tier,
-        (kind == SpawnKind::Riser).then_some(ZOMBIE_RISE_SECS),
+        rise_secs(kind),
     );
     if let SpawnKind::Window(barrier) = kind {
         commands.entity(zombie).insert(Entering::new(barrier));
@@ -578,6 +634,66 @@ mod tests {
         assert_eq!(near_enough(points.clone(), &[Vec3::ZERO, Vec3::new(90.0, 0.0, 0.0)]), vec!['a', 'b', 'c']);
         // With none near, any will do rather than none.
         assert_eq!(near_enough(points, &[Vec3::new(0.0, 0.0, 200.0)]), vec!['a', 'b', 'c']);
+    }
+
+    /// The Cove's Spawn Points as the pass sees them: its Windows, and its eight Wading Points.
+    fn cove_points() -> Vec<(ZoneId, Transform, SpawnKind)> {
+        use crate::maps::map::{WINDOWS, window_spawn};
+        let windows = MapId::Cove
+            .barriers()
+            .map(|barrier| (WINDOWS[barrier.0 as usize].0, Transform::from_translation(window_spawn(barrier)), SpawnKind::Window(barrier)));
+        let wading = MapId::Cove.layout().wading.iter().map(|&(zone, at)| (zone, Transform::from_translation(at), SpawnKind::Wading));
+        windows.chain(wading).collect()
+    }
+
+    /// Wading Points join Windows and Risers under the same Active Zones and near-enough rule: the
+    /// Strand's four come in while it's Active, and the Sea Cave's one only while the Sea Cave is.
+    #[test]
+    fn the_spawn_pass_picks_wading_points_only_in_active_zones() {
+        use ZoneId::*;
+        let points = cove_points();
+        let pick = |zones: &[ZoneId], players: &[Vec3]| {
+            let active = ZoneSet::from_iter(zones.iter().copied());
+            horde_points(points.iter().map(|(zone, t, kind)| (*zone, t, *kind)), Some(MapId::Cove.layout()), TideLevel::Low, active, players)
+        };
+        let wading = |picked: &[(&Transform, SpawnKind)]| picked.iter().filter(|(_, kind)| *kind == SpawnKind::Wading).count();
+        // Players spread along the shore, so every point is near enough one of them.
+        let middle: Vec<Vec3> = [-45.0, -20.0, 0.0, 27.0].iter().map(|x| Vec3::new(crate::maps::map::COVE_X + x, 0.0, -4.0)).collect();
+        assert_eq!(wading(&pick(&[Strand], &middle)), 4);
+        assert_eq!(wading(&pick(&[Strand, SeaCave], &middle)), 5);
+        assert_eq!(wading(&pick(&[Strand, Shingle, SeaCave, Boathouse], &middle)), 8);
+        // Not in a Zone with none, nor a Zone that isn't Active.
+        assert_eq!(wading(&pick(&[Taverna], &middle)), 0);
+        assert!(pick(&[], &middle).is_empty());
+        // Near enough: a Player at the far east end is out of reach of the western points.
+        let east = [Vec3::new(crate::maps::map::COVE_X + 30.0, 0.0, -8.0)];
+        let near = pick(&[Strand, Shingle, SeaCave, Boathouse], &east);
+        assert!(near.iter().all(|(t, _)| t.translation.distance(east[0]) <= ZOMBIE_SPAWN_MAX_DIST));
+        assert!(wading(&near) > 0 && wading(&near) < 8);
+    }
+
+    /// Only the Horde's own entries send Zombies, a Wading Point only over Shallow Water; Nova
+    /// Crawlers keep to Vents and Risers, so the Cove, with neither, has none.
+    #[test]
+    fn only_the_hordes_own_entries_send_zombies_and_the_cove_has_no_nova_crawlers() {
+        let cove = MapId::Cove.layout();
+        let at = cove.wading[0].1;
+        let barrier = crate::maps::map::BarrierId(0);
+        assert!(horde_entry(SpawnKind::Window(barrier), None, TideLevel::Low, Vec3::ZERO));
+        assert!(horde_entry(SpawnKind::Riser, None, TideLevel::Low, Vec3::ZERO));
+        assert!(horde_entry(SpawnKind::Wading, Some(cove), TideLevel::Low, at));
+        assert!(!horde_entry(SpawnKind::Wading, Some(MapId::Greybox.layout()), TideLevel::Low, at), "no water over it");
+        assert!(!horde_entry(SpawnKind::Wading, None, TideLevel::Low, at));
+        for kind in [SpawnKind::Hellhound, SpawnKind::Special, SpawnKind::Vent] {
+            assert!(!horde_entry(kind, Some(cove), TideLevel::Low, at));
+        }
+        assert!(!nova_crawler_entry(SpawnKind::Wading));
+        assert!(cove_points().iter().all(|(_, _, kind)| !nova_crawler_entry(*kind)));
+        assert!(cove.vents.is_empty() && cove.risers.is_empty());
+        assert_eq!(rise_secs(SpawnKind::Wading), Some(ZOMBIE_WADE_RISE_SECS));
+        assert_eq!(rise_secs(SpawnKind::Riser), Some(ZOMBIE_RISE_SECS));
+        assert_eq!(rise_secs(SpawnKind::Window(barrier)), None);
+        assert_eq!(ZOMBIE_WADE_RISE_SECS, 2.0);
     }
 
     #[test]
