@@ -58,6 +58,7 @@ pub(super) const GREYBOX: Layout = Layout {
     darkness: false,
     outdoor: &[ZoneId::Yard, ZoneId::Balcony],
     roofed: true,
+    outside: Some(super::Outside { floor: super::textures::Material::AsphaltFloor, wall: super::textures::Material::ConcreteWall006 }),
     sun: Vec3::new(-1.0, -3.0, -2.0),
     look: crate::maps::look::DUSK,
     plan: (Vec2::new(-40.0, -56.0), Vec2::new(40.0, 32.0)),
@@ -437,8 +438,6 @@ fn build(b: &mut Builder) {
 
     // The outside: asphalt underfoot, plain concrete on the outer walls' faces, a tar roof with
     // precast parapets.
-    let ground = Some(Material::AsphaltFloor);
-    b.outside_wall = Some(Material::ConcreteWall006);
 
     // Ground outside the outer walls, where Zombies gather at the windows: round the ring, across
     // the gap between the ring and the south wing (just under the Passage floor, and either side of
@@ -453,7 +452,7 @@ fn build(b: &mut Builder) {
         (Vec3::new(4.0, 0.2, 12.0), Vec3::new(-36.0, -0.1, -44.0)),
         (Vec3::new(4.0, 0.2, 12.0), Vec3::new(36.0, -0.1, -44.0)),
     ] {
-        b.block_in(size, centre, palette(None).floor, ground);
+        b.ground(size, centre);
     }
 
     // Outer walls, with the windows. West Hall's are two storeys tall, since its ramp climbs to
@@ -541,7 +540,7 @@ fn build(b: &mut Builder) {
     b.wall(v(2.0, -4.0), v(8.0, -4.0), 0.0, gazebo_height, &[(3.0, Gap::LinkedDoor(Some((Yard, Yard))))]);
     b.repaint = None;
     b.repaint_wall = None;
-    b.block(Vec3::new(6.8, 0.2, 6.8), Vec3::new(5.0, gazebo_height + 0.1, -7.0), GAZEBO.trim);
+    b.block_in(Vec3::new(6.8, 0.2, 6.8), Vec3::new(5.0, gazebo_height + 0.1, -7.0), GAZEBO.trim, Some(Material::RockWall08));
 }
 
 /// The path nodes: a name, then where a Zombie's feet stand there (x, y, z).

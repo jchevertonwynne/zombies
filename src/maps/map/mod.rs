@@ -177,6 +177,9 @@ pub struct Layout {
     /// Whether the Map has ceilings over its indoor Zones, and lights them with spot lamps, light
     /// probes and fog that follows the eye's Zone. The Greybox so far.
     pub roofed: bool,
+    /// What the outside wears: the ground round the buildings and the faces of walls that look
+    /// into no Zone. `None` leaves them in paint.
+    pub outside: Option<Outside>,
     /// The way the moonlight falls.
     pub sun: Vec3,
     /// How the Map is lit and graded.
@@ -310,6 +313,13 @@ const fn paints(floor: (f32, f32, f32), wall: (f32, f32, f32), trim: (f32, f32, 
         trim: Color::srgb(trim.0, trim.1, trim.2),
         light: Color::srgb(light.0, light.1, light.2),
     }
+}
+
+/// What a Map's outside wears (see `Layout::outside`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Outside {
+    pub floor: textures::Material,
+    pub wall: textures::Material,
 }
 
 /// What a Zone's floor and walls wear in place of their palette colours, once the files have
@@ -456,11 +466,11 @@ pub fn materials(zone: Option<ZoneId>) -> Option<MaterialSet> {
         LowerLane => (CobblestoneFloor02, WhiteStucco, None, &[]),
         FishMarket => (WornBrickFloor, PlasteredStoneWall, None, &[]),
         Taverna => (TerracottaFloorTiles, YellowStoneWall, None, &[]),
-        Chapel => (FloorTiles06, WhiteStucco, None, &[]),
+        Chapel => (FloorTiles06, RockWall08, Some(Leaks), &[]),
         Piazza => (MossyCobblestone, YellowStoneWall, None, &[]),
         UpperLane => (CobblestoneFloor02, PlasteredStoneWall, None, &[]),
         Pensione => (DiagonalParquet, YellowStoneWall, None, &[]),
-        Lighthouse => (OldMosaicFloor, WhiteStucco, None, &[]),
+        Lighthouse => (OldMosaicFloor, WhiteStucco, Some(Leaks), &[]),
         LighthouseYard => (SandyGravel02, RockWall08, None, &[]),
         KeepersCottage => (DarkWoodenPlanks, WhiteStucco, None, &[]),
         Battery => (CobblestoneFloor02, RockWall08, None, &[]),
@@ -507,7 +517,7 @@ pub fn palette(zone: Option<ZoneId>) -> Palette {
         // Steel plate, teal walls, red trim, sodium light.
         Some(GeneratorRoom) => paints((0.24, 0.26, 0.28), (0.17, 0.35, 0.33), (0.62, 0.13, 0.11), (1.0, 0.6, 0.26)),
         // Wet concrete, blue-grey walls, green pipework, a sickly light.
-        Some(Tunnel) => paints((0.17, 0.18, 0.19), (0.29, 0.33, 0.38), (0.25, 0.55, 0.3), (0.72, 1.0, 0.62)),
+        Some(Tunnel) => paints((0.17, 0.18, 0.19), (0.29, 0.33, 0.38), (0.25, 0.55, 0.3), (0.82, 0.92, 1.0)),
         // Red brick, slate flags, pale stone dressings.
         Some(PumpHouse) => paints((0.25, 0.27, 0.3), (0.55, 0.3, 0.24), (0.82, 0.78, 0.66), (1.0, 0.82, 0.55)),
         // Pale grit under raw grey rock faces.
@@ -531,13 +541,13 @@ pub fn palette(zone: Option<ZoneId>) -> Palette {
         // Cobbles between cream-rendered, black-beamed house fronts, under gas lamps.
         Some(Market) => paints((0.36, 0.34, 0.32), (0.82, 0.74, 0.56), (0.14, 0.11, 0.09), (1.0, 0.78, 0.5)),
         // A rutted road between ochre house fronts with brick dressings.
-        Some(WestEnd) => paints((0.27, 0.22, 0.16), (0.72, 0.58, 0.26), (0.5, 0.2, 0.14), (1.0, 0.8, 0.52)),
+        Some(WestEnd) => paints((0.27, 0.22, 0.16), (0.72, 0.58, 0.26), (0.5, 0.2, 0.14), (1.0, 0.9, 0.74)),
         // A rutted road between dusty pink house fronts with white dressings.
-        Some(EastEnd) => paints((0.3, 0.27, 0.22), (0.72, 0.5, 0.5), (0.92, 0.9, 0.84), (1.0, 0.8, 0.55)),
+        Some(EastEnd) => paints((0.3, 0.27, 0.22), (0.72, 0.5, 0.5), (0.92, 0.9, 0.84), (1.0, 0.9, 0.76)),
         // A grassy track between flint walls with pale copings, under the moon.
         Some(BackLane) => paints((0.24, 0.3, 0.14), (0.3, 0.31, 0.36), (0.62, 0.6, 0.52), (1.0, 0.78, 0.5)),
         // A cart track between old brick walls.
-        Some(MillLane) => paints((0.32, 0.26, 0.18), (0.42, 0.3, 0.22), (0.7, 0.68, 0.6), (1.0, 0.78, 0.5)),
+        Some(MillLane) => paints((0.32, 0.26, 0.18), (0.42, 0.3, 0.22), (0.7, 0.68, 0.6), (1.0, 0.88, 0.7)),
         // Gravel between clipped yew hedges.
         Some(ChurchLane) => paints((0.42, 0.4, 0.36), (0.14, 0.24, 0.15), (0.6, 0.58, 0.5), (1.0, 0.78, 0.5)),
         // Worn flags, limewashed boards, tarred timber, by lantern.
@@ -549,7 +559,7 @@ pub fn palette(zone: Option<ZoneId>) -> Palette {
         // Pine boards, pale green walls, a blackboard-dark dado.
         Some(Schoolhouse) => paints((0.52, 0.4, 0.26), (0.6, 0.7, 0.58), (0.12, 0.18, 0.14), (0.95, 0.95, 0.85)),
         // Stone flags, pale limestone, altar-cloth red, candlelight.
-        Some(Church) => paints((0.45, 0.45, 0.48), (0.78, 0.76, 0.7), (0.5, 0.08, 0.1), (1.0, 0.72, 0.45)),
+        Some(Church) => paints((0.45, 0.45, 0.48), (0.78, 0.76, 0.7), (0.5, 0.08, 0.1), (0.96, 0.88, 0.78)),
         // Long grass inside dry-stone walls, under the moon.
         Some(Orchard) => paints((0.16, 0.22, 0.1), (0.5, 0.47, 0.4), (0.3, 0.22, 0.14), (1.0, 0.78, 0.5)),
         // Dark churchyard grass inside lichened grey walls, under a cold moon.
@@ -571,7 +581,7 @@ pub fn palette(zone: Option<ZoneId>) -> Palette {
         // Green linoleum and off-white walls, a dark green dado.
         Some(ControlRoom) => paints((0.15, 0.25, 0.2), (0.8, 0.82, 0.78), (0.1, 0.3, 0.25), (0.9, 0.95, 1.0)),
         // Black mud on the floor and walls stained a rusty maroon.
-        Some(PenstockTunnel) => paints((0.18, 0.15, 0.13), (0.38, 0.21, 0.3), (0.7, 0.55, 0.3), (1.0, 0.6, 0.3)),
+        Some(PenstockTunnel) => paints((0.18, 0.15, 0.13), (0.38, 0.21, 0.3), (0.7, 0.55, 0.3), (0.92, 0.9, 0.85)),
         // Grey floor paint, machine-blue walls, safety orange.
         Some(TurbineHall) => paints((0.3, 0.32, 0.36), (0.3, 0.36, 0.5), (0.9, 0.45, 0.1), (0.85, 0.9, 1.0)),
         // Rubber matting and switchgear green, yellow warning trim.
@@ -762,6 +772,8 @@ pub fn spawn_map(
 ) {
     let layout = map.layout();
     let mut b = Builder::new(&mut commands, &mut meshes, &mut materials, layout.windows);
+    b.outside_floor = layout.outside.map(|outside| outside.floor);
+    b.outside_wall = layout.outside.map(|outside| outside.wall);
 
     // Floors: one per Zone, round any sunken floor in it.
     for &zone in layout.zones {

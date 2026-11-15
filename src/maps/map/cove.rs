@@ -109,6 +109,7 @@ pub(super) const COVE: Layout = Layout {
     outdoor: &[ZoneId::Strand, ZoneId::Shingle, ZoneId::LowerLane, ZoneId::FishMarket, ZoneId::Piazza, ZoneId::UpperLane, ZoneId::LighthouseYard, ZoneId::Battery],
     roofed: true,
     // The sun low over the sea to the south-west (the sky's lines up with it), lighting the town's faces.
+    outside: Some(super::Outside { floor: super::textures::Material::CobblestoneFloor02, wall: super::textures::Material::WhiteStucco }),
     sun: Vec3::new(0.6, -3.0, 0.8),
     look: crate::maps::look::GOLDEN_HOUR,
     plan: (Vec2::new(C - 70.0, -24.0), Vec2::new(C + 70.0, 72.0)),
@@ -597,7 +598,7 @@ fn build(b: &mut Builder) {
     // The bell tower is solid under its second flight, so nothing is lost beneath it. The Chapel
     // is open to the sky above the nave, which keeps the tower open and the drop clear.
     for (x0, x1, top) in [(-53.0, -50.0, 12.0), (-50.0, -48.0, 13.0), (-48.0, -46.0, 14.0), (-46.0, -45.0, 14.5)] {
-        b.block(Vec3::new(x1 - x0, top - UPPER, 3.6), Vec3::new(C + (x0 + x1) / 2.0, (UPPER + top) / 2.0, 42.0), FLAG);
+        b.block_in(Vec3::new(x1 - x0, top - UPPER, 3.6), Vec3::new(C + (x0 + x1) / 2.0, (UPPER + top) / 2.0, 42.0), FLAG, materials(Some(Chapel)).map(|set| set.floor));
     }
 
     // The Headland: the lighthouse is a tower, tall enough for its lantern gallery.
@@ -628,7 +629,7 @@ fn build(b: &mut Builder) {
         let (floor, length) = (well.zone.floor(), well.max.y - well.min.y);
         let paint = palette(Some(well.zone)).trim;
         for x in [well.min.x + 0.1, well.max.x - 0.1] {
-            b.block(Vec3::new(0.2, 1.1, length), Vec3::new(x, floor + 0.55, (well.min.y + well.max.y) / 2.0), paint);
+            b.block_in(Vec3::new(0.2, 1.1, length), Vec3::new(x, floor + 0.55, (well.min.y + well.max.y) / 2.0), paint, materials(Some(well.zone)).map(|set| set.wall));
         }
     }
 

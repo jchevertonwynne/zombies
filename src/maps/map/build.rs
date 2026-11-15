@@ -67,6 +67,9 @@ pub(super) enum Gap {
     Window,
 }
 
+/// A stair tread's nosing: how deep (along the climb) and how thick.
+const NOSING: Vec2 = Vec2::new(0.05, 0.03);
+
 /// Spawns the Map's pieces. Everything is drawn with one unit cube, scaled, and one material per
 /// colour.
 pub(super) struct Builder<'a, 'w, 's> {
@@ -85,6 +88,8 @@ pub(super) struct Builder<'a, 'w, 's> {
     pub repaint_wall: Option<Material>,
     /// The material the outer faces of walls (the ones looking out, into no Zone) wear, if any.
     pub outside_wall: Option<Material>,
+    /// The material the ground outside the walls wears, if any.
+    pub outside_floor: Option<Material>,
     /// The Map's windows, which its outer walls leave gaps for.
     windows: &'static [(ZoneId, Vec3, Vec2)],
     /// Every piece drawn since a Prop began: what its unit model replaces.
@@ -102,7 +107,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let cylinder = meshes.add(Cylinder::new(0.5, 1.0));
         let door = materials.add(Color::srgb(0.85, 0.45, 0.1));
         let power_door = materials.add(Color::srgb(0.5, 0.3, 0.8));
-        Self { commands, meshes, materials, cube, cylinder, paints: HashMap::new(), door, power_door, repaint: None, repaint_wall: None, outside_wall: None, windows, drawn: Vec::new() }
+        Self { commands, meshes, materials, cube, cylinder, paints: HashMap::new(), door, power_door, repaint: None, repaint_wall: None, outside_wall: None, outside_floor: None, windows, drawn: Vec::new() }
     }
 
     /// The material for a flat colour.
@@ -178,6 +183,16 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         self.bare(Collider::cuboid(size.x, size.y, size.z), at, Quat::IDENTITY)
     }
 
+    /// A solid slab of the ground outside the walls, in the Map's outside floor.
+    pub fn ground(&mut self, size: Vec3, at: Vec3) -> Entity {
+        self.block_in(size, at, palette(None).floor, self.outside_floor)
+    }
+
+    /// A solid mass of the outside's walls (a pocket's parapet, a ledge's rock), in the Map's outside wall.
+    pub fn outer(&mut self, size: Vec3, at: Vec3) -> Entity {
+        self.block_in(size, at, palette(None).wall, self.outside_wall)
+    }
+
     /// A Zone's floor at its height, round any sunken floors in it, and deep enough that their
     /// edges are solid all the way down.
     pub fn floor(&mut self, zone: ZoneId, holes: &[Sunken]) {
@@ -219,7 +234,8 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let (min, max, height, floor) = (raised.min, raised.max, raised.height, raised.zone.floor());
         let size = Vec3::new(max.x - min.x, height - floor, max.y - min.y);
         let middle = (min + max) / 2.0;
-        self.block(size, Vec3::new(middle.x, (floor + height) / 2.0, middle.y), raised.colour);
+        let material = materials(Some(raised.zone)).map(|set| set.floor);
+        self.block_in(size, Vec3::new(middle.x, (floor + height) / 2.0, middle.y), raised.colour, material);
         self.edging(min, max, height, palette(Some(raised.zone)).trim);
     }
 
@@ -335,10 +351,13 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let size = Vec3::new(slope.width, SLAB, length);
         let centre = slope.foot + along * slope.run / 2.0 + Vec3::Y * slope.rise / 2.0 - normal * SLAB / 2.0;
         self.bare(Collider::cuboid(size.x, size.y, size.z), centre, rotation);
+        // Treads and ramps wear their Zone's floor, with a nosing of its trim on each tread.
+        let material = materials(Some(slope.zone)).map(|set| set.floor);
         if !slope.steps {
-            self.shape(size, centre, rotation, slope.colour);
+            self.shape_in(size, centre, rotation, slope.colour, material);
             return;
         }
+        let trim = palette(Some(slope.zone)).trim;
         let count = (slope.rise / STEP_RISE).round().max(1.0) as usize;
         let tread = slope.run / count as f32;
         for i in 1..=count {
@@ -351,7 +370,11 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
             } else {
                 Vec3::new(slope.width, top, reach)
             };
-            self.shape(size, centre, Quat::IDENTITY, slope.colour);
+            self.shape_in(size, centre, Quat::IDENTITY, slope.colour, material);
+            // The nosing: a thin strip of trim along the tread's front edge.
+            let front = slope.foot + along * (from + NOSING.x / 2.0) + Vec3::Y * (top + NOSING.y / 2.0 - 0.01);
+            let strip = if slope.up.x != 0.0 { Vec3::new(NOSING.x, NOSING.y, slope.width) } else { Vec3::new(slope.width, NOSING.y, NOSING.x) };
+            self.shape(strip, front, Quat::IDENTITY, trim);
         }
     }
 

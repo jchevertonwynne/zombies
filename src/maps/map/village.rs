@@ -81,6 +81,7 @@ pub(super) const VILLAGE: Layout = Layout {
     darkness: false,
     outdoor: &[ZoneId::Market, ZoneId::WestEnd, ZoneId::EastEnd, ZoneId::BackLane, ZoneId::MillLane, ZoneId::ChurchLane, ZoneId::Orchard, ZoneId::Graveyard],
     roofed: true,
+    outside: Some(super::Outside { floor: super::textures::Material::LeafyGrass, wall: super::textures::Material::PlasteredStoneWall }),
     sun: Vec3::new(-1.0, -3.0, 1.5),
     look: crate::maps::look::VILLAGE_NIGHT,
     plan: (Vec2::new(V - 80.0, -30.0), Vec2::new(V + 80.0, 60.0)),
@@ -446,7 +447,6 @@ const MAUSOLEUM: (Vec2, Vec2, f32) = (v(53.0, 40.5), v(59.0, 45.5), 3.5);
 /// The walls, the Doors, the gates, the ground round the village and its landmarks.
 fn build(b: &mut Builder) {
     use ZoneId::*;
-    let outside = palette(None);
 
     // Ground outside the walls, where Zombies gather at the windows: the fields to the south,
     // the verges at either end, the gardens between the buildings and the river bank to the
@@ -465,7 +465,7 @@ fn build(b: &mut Builder) {
         (v(40.0, 54.0), v(72.0, 60.0)),
     ] {
         let (size, mid) = (max - min, (min + max) / 2.0);
-        b.block(Vec3::new(size.x, 0.2, size.y), Vec3::new(mid.x, -0.1, mid.y), outside.floor);
+        b.ground(Vec3::new(size.x, 0.2, size.y), Vec3::new(mid.x, -0.1, mid.y));
     }
 
     // The walls round the village: down each end, along the south of the High Street and the
@@ -557,7 +557,7 @@ fn build(b: &mut Builder) {
     let stone = palette(Some(Graveyard)).wall;
     let (min, max, tall) = MAUSOLEUM;
     let (size, mid) = (max - min, (min + max) / 2.0);
-    b.block(Vec3::new(size.x, tall, size.y), Vec3::new(mid.x, tall / 2.0, mid.y), stone);
+    b.block_in(Vec3::new(size.x, tall, size.y), Vec3::new(mid.x, tall / 2.0, mid.y), stone, super::materials(Some(Graveyard)).map(|set| set.wall));
     b.block(Vec3::new(size.x + 0.4, 0.4, size.y + 0.4), Vec3::new(mid.x, tall + 0.2, mid.y), palette(Some(Graveyard)).trim);
 
     // The market cross in the middle of the Market: its shaft on a broad base of sheer stone, with
@@ -572,7 +572,7 @@ fn build(b: &mut Builder) {
 
     // The church tower, in the garden by the Church, standing over the whole village.
     let tower = palette(Some(Church)).wall;
-    b.block(Vec3::new(4.0, 14.0, 4.0), at(46.0, 7.0, 19.5), tower);
+    b.block_in(Vec3::new(4.0, 14.0, 4.0), at(46.0, 7.0, 19.5), tower, super::materials(Some(Church)).map(|set| set.wall));
     b.block(Vec3::new(4.6, 0.6, 4.6), at(46.0, 14.3, 19.5), palette(Some(Church)).trim);
     // The Mill's wheel, on its west end, out over the verge.
     b.block(Vec3::new(0.6, 6.0, 6.0), at(-74.5, 2.0, 14.0), palette(Some(Mill)).trim);

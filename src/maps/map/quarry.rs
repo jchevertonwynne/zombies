@@ -102,6 +102,7 @@ pub(super) const QUARRY: Layout = Layout {
     darkness: false,
     outdoor: &[ZoneId::QuarryFloor, ZoneId::RailYard, ZoneId::Headframe, ZoneId::Incline],
     roofed: true,
+    outside: Some(super::Outside { floor: super::textures::Material::GravelGround01, wall: super::textures::Material::RustyCorrugatedIron }),
     sun: Vec3::new(1.0, -3.0, -1.5),
     look: crate::maps::look::OVERCAST,
     plan: (Vec2::new(Q - 36.0, -38.0), Vec2::new(Q + 38.0, 44.0)),
@@ -354,16 +355,15 @@ const PROPS: &[Prop] = {
 fn build(b: &mut Builder) {
     use ZoneId::*;
     let rock = palette(Some(QuarryFloor)).wall;
-    let outside = palette(None);
 
     // Ground and ledges of rock outside the windows, each as high as the floor its windows open
     // onto, with a parapet round any edge Zombies could fall from.
-    b.block(Vec3::new(24.0, 0.2, 4.0), at(0.0, -0.1, -32.0), outside.floor);
-    b.block(Vec3::new(4.0, 0.2, 10.0), at(-10.0, -0.1, -25.0), outside.floor);
-    b.block(Vec3::new(4.0, 0.2, 8.0), at(-22.0, -0.1, -16.0), outside.floor);
-    b.block(Vec3::new(4.0, 0.2, 8.0), at(-32.0, -0.1, -6.0), outside.floor);
-    b.block(Vec3::new(8.0, 0.2, 4.0), at(28.0, -0.1, 0.0), outside.floor);
-    b.block(Vec3::new(8.0, 0.2, 4.0), at(27.0, -0.1, -22.0), outside.floor);
+    b.ground(Vec3::new(24.0, 0.2, 4.0), at(0.0, -0.1, -32.0));
+    b.ground(Vec3::new(4.0, 0.2, 10.0), at(-10.0, -0.1, -25.0));
+    b.ground(Vec3::new(4.0, 0.2, 8.0), at(-22.0, -0.1, -16.0));
+    b.ground(Vec3::new(4.0, 0.2, 8.0), at(-32.0, -0.1, -6.0));
+    b.ground(Vec3::new(8.0, 0.2, 4.0), at(28.0, -0.1, 0.0));
+    b.ground(Vec3::new(8.0, 0.2, 4.0), at(27.0, -0.1, -22.0));
     shelf(b, v(20.0, 2.0), v(24.0, 9.0), TERRACE_1, rock);
     shelf(b, v(-34.0, 8.0), v(-30.0, 16.0), TERRACE_1, rock);
     shelf(b, v(20.0, 16.0), v(24.0, 26.0), TERRACE_2, rock);
@@ -462,7 +462,7 @@ fn build(b: &mut Builder) {
 fn shelf(b: &mut Builder, min: Vec2, max: Vec2, top: f32, rock: Color) {
     let size = max - min;
     let mid = (min + max) / 2.0;
-    b.block(Vec3::new(size.x, top, size.y), Vec3::new(mid.x, top / 2.0, mid.y), palette(None).floor);
+    b.ground(Vec3::new(size.x, top, size.y), Vec3::new(mid.x, top / 2.0, mid.y));
     let thick = PARAPET_THICKNESS;
     let rise = top + RAIL_HEIGHT / 2.0;
     // Which side the building is on: the one nearer the Quarry's middle.

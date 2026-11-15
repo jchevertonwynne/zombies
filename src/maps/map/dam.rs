@@ -145,6 +145,7 @@ pub(super) const DAM: Layout = Layout {
     darkness: true,
     outdoor: &[ZoneId::CrestRoad],
     roofed: true,
+    outside: Some(super::Outside { floor: super::textures::Material::AsphaltFloor, wall: super::textures::Material::ConcreteWall006 }),
     sun: Vec3::new(1.0, -3.0, -1.0),
     look: crate::maps::look::DAM_NIGHT,
     plan: (Vec2::new(D - 52.0, -68.0), Vec2::new(D + 52.0, 36.0)),
@@ -490,7 +491,7 @@ fn build(b: &mut Builder) {
         let tall = slope.rise / 2.0 - 0.4;
         let middle = slope.foot + along * slope.run * 0.75 + Vec3::Y * tall / 2.0;
         let size = across * slope.width + along.abs() * slope.run / 2.0 + Vec3::Y * tall;
-        b.block(size, middle, slope.colour);
+        b.block_in(size, middle, slope.colour, materials(Some(slope.zone)).map(|set| set.floor));
     }
 
     // The ceilings over every Zone but the Crest Road.
@@ -533,7 +534,6 @@ const POCKET_WALL: f32 = 2.6;
 /// The pocket of floor outside the window at `centre` looking `out`: solid down to the ground, with
 /// a wall round its three open sides.
 pub(super) fn pocket(b: &mut Builder, centre: Vec3, out: Vec2) {
-    let outside = palette(None);
     let out3 = Vec3::new(out.x, 0.0, out.y);
     let across = Vec3::new(out.y.abs(), 0.0, out.x.abs());
     let depth = out3.abs();
@@ -541,14 +541,14 @@ pub(super) fn pocket(b: &mut Builder, centre: Vec3, out: Vec2) {
     let middle = centre + out3 * POCKET / 2.0;
     let thick = 0.2_f32.max(floor);
     let size = across * POCKET + depth * POCKET + Vec3::Y * thick;
-    b.block(size, Vec3::new(middle.x, floor - thick / 2.0, middle.z), outside.floor);
+    b.ground(size, Vec3::new(middle.x, floor - thick / 2.0, middle.z));
     let wall = 0.3;
     let rise = Vec3::Y * (floor + POCKET_WALL / 2.0);
     let far = centre + out3 * (POCKET - wall / 2.0);
-    b.block(across * POCKET + depth * wall + Vec3::Y * POCKET_WALL, Vec3::new(far.x, 0.0, far.z) + rise, outside.wall);
+    b.outer(across * POCKET + depth * wall + Vec3::Y * POCKET_WALL, Vec3::new(far.x, 0.0, far.z) + rise);
     for side in [-1.0, 1.0] {
         let end = middle + across * side * (POCKET / 2.0 - wall / 2.0);
-        b.block(across * wall + depth * POCKET + Vec3::Y * POCKET_WALL, Vec3::new(end.x, 0.0, end.z) + rise, outside.wall);
+        b.outer(across * wall + depth * POCKET + Vec3::Y * POCKET_WALL, Vec3::new(end.x, 0.0, end.z) + rise);
     }
 }
 
