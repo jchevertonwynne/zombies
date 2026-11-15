@@ -103,6 +103,8 @@ pub(super) const COVE: Layout = Layout {
     sections: &[],
     generators: &[],
     darkness: false,
+    outdoor: &[ZoneId::Strand, ZoneId::Shingle, ZoneId::LowerLane, ZoneId::FishMarket, ZoneId::Piazza, ZoneId::UpperLane, ZoneId::LighthouseYard, ZoneId::Battery],
+    roofed: false,
     sun: Vec3::new(1.0, -3.0, -1.0),
     look: crate::maps::look::NIGHT,
     plan: (Vec2::new(C - 70.0, -24.0), Vec2::new(C + 70.0, 72.0)),
