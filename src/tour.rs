@@ -16,7 +16,7 @@ use crate::maps::door::Door;
 use crate::maps::generator::Generators;
 use crate::maps::power::Power;
 use crate::maps::map::{COVE_X, MapId, QUARRY_X, STOREY};
-use crate::maps::map::{COVE_X, MapId, POLDER_X};
+use crate::maps::map::POLDER_X;
 use crate::run::gauntlet::boon::{BOONS, HeldBoons};
 use crate::maps::map::{DAM_X, VILLAGE_X};
 use crate::players::player::{Health, LocalPlayer, Player, PlayerCamera, Teleport};

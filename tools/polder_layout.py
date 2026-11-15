@@ -492,6 +492,10 @@ for zone, sx, x0, x1, zlo, zhi, own_north in FORDS:
     both(ot, ol); both(ol, of)
     cc = manual(f"{t}_c", sx, -2.2, (b0 + b1) / 2)
     both(of, cc)
+    for dx_, nm_ in ((-4.0, 'w'), (4.0, 'e')):
+        n_ = manual(f"{t}_c{nm_}", sx + dx_, -2.2, (b0 + b1) / 2)
+        both(cc, n_)
+        LATT[zone].append((n_, sx + dx_, (b0 + b1) / 2, -2.2))
     far_dir_z = -own_dir
     ff = manual(f"{t}_ff", sx, -1.52, far_edge + far_dir_z * 0.2)
     fl = manual(f"{t}_fl", sx, -0.3, far_edge + far_dir_z * 2.84)
@@ -543,6 +547,9 @@ for nm, x_, z_ in (("sh_na_w", -3.8, 19.0), ("sh_na_e", 3.8, 19.0), ("sh_nb_w", 
     manual(nm, x_, 0.0, z_)
 both("w16_in", "sh_na_w"); both("w16_in", "sh_na_e"); both("sh_na_w", "sh_nb_w"); both("sh_na_e", "sh_nb_e")
 manual("cm_nook", 48.8, 0.0, -13.2); reg("cm_nook"); link("cm_nook", 0.0, radius=12.0, maxn=3, clear=0.6)
+# the Toll Quay's north-east corner, round the tollhouse window's strip
+manual("tq_na", 28.2, 0.0, 18.8); manual("tq_nb", 28.2, 0.0, 22.4); manual("tq_nc", 32.0, 0.0, 22.0)
+both("tq_na", "tq_nb"); both("tq_nb", "tq_nc"); reg("tq_na"); link("tq_na", 0.0, radius=10.0, maxn=3, clear=0.6)
 # pen inside nodes only join their own far and po (done)
 # raised-floor top nodes join their raised lattices
 for n in ("ws_top", "pap_top", "sc_top", "wd_top_w", "wd_top_e"):

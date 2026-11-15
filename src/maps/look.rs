@@ -148,6 +148,8 @@ pub const OVERCAST: Look = Look {
     lamps: 1.0,
     temperature: 0.0,
     tint: -0.025,
+};
+
 /// The Polder (#372): a northern dusk. A low, cool, weak sun behind thick cloud, a flat blue-grey
 /// ambient from the overcast sky, a grey-green fog the canals fade into, a little warm lamplight.
 pub const NORTHERN_DUSK: Look = Look {

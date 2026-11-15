@@ -513,7 +513,6 @@ pub fn materials(zone: Option<ZoneId>) -> Option<MaterialSet> {
         CustomsHouse => (DiagonalParquet, BrickWall001, None, &[]),
         DykeRoad => (WornConcreteFloor, ConcreteBlockWall02, None, &[]),
         PumpingStation => (HangarConcreteFloor, ConcreteTileFacade, Some(OilStains), &[]),
-        _ => return None,
     };
     Some(MaterialSet { floor, wall, decals, props })
 }
@@ -653,13 +652,13 @@ pub fn palette(zone: Option<ZoneId>) -> Palette {
         // Scrubbed boards, whitewash, black beams, lamp-yellow light.
         Some(WeighHouse) => paints((0.38, 0.3, 0.22), (0.78, 0.76, 0.68), (0.12, 0.1, 0.09), (1.0, 0.82, 0.55)),
         // Tarred floorboards, dark red brick, copper-green trim.
-        Some(Brewery) => paints((0.12, 0.09, 0.1), (0.34, 0.12, 0.2), (0.3, 0.5, 0.42), (1.0, 0.72, 0.4)),
+        Some(Brewery) => paints((0.1, 0.08, 0.14), (0.52, 0.14, 0.3), (0.3, 0.5, 0.42), (1.0, 0.72, 0.4)),
         // Flags under pale-blue shutters on cream render.
         Some(CheeseMarket) => paints((0.45, 0.43, 0.4), (0.78, 0.74, 0.58), (0.3, 0.45, 0.6), (1.0, 0.82, 0.55)),
         // Moss between the setts, almshouse brick the colour of weak tea.
-        Some(AlmshouseCourt) => paints((0.3, 0.34, 0.26), (0.46, 0.55, 0.5), (0.82, 0.8, 0.72), (1.0, 0.8, 0.5)),
+        Some(AlmshouseCourt) => paints((0.3, 0.34, 0.26), (0.5, 0.7, 0.34), (0.82, 0.8, 0.72), (1.0, 0.8, 0.5)),
         // Trodden clay round a limewashed mill, tarred timber sails.
-        Some(Windmill) => paints((0.36, 0.3, 0.24), (0.84, 0.82, 0.76), (0.16, 0.12, 0.09), (1.0, 0.78, 0.5)),
+        Some(Windmill) => paints((0.3, 0.2, 0.3), (0.72, 0.5, 0.78), (0.16, 0.12, 0.09), (1.0, 0.78, 0.5)),
         // Plank floor, sooty tiles and grey brick, hoist beams.
         Some(Warehouse) => paints((0.3, 0.24, 0.18), (0.4, 0.38, 0.38), (0.2, 0.15, 0.1), (1.0, 0.78, 0.5)),
         // Wet quay stone and the keeper's tarred hut.
@@ -667,19 +666,19 @@ pub fn palette(zone: Option<ZoneId>) -> Palette {
         // Black iron plate and green-painted sluice brick.
         Some(SluiceHouse) => paints((0.1, 0.13, 0.13), (0.16, 0.44, 0.4), (0.8, 0.7, 0.3), (0.8, 0.95, 1.0)),
         // Wet cobbles and tarred planking, a blue-grey tollhouse.
-        Some(TollQuay) => paints((0.32, 0.32, 0.34), (0.34, 0.42, 0.5), (0.85, 0.82, 0.7), (1.0, 0.82, 0.58)),
+        Some(TollQuay) => paints((0.42, 0.3, 0.22), (0.7, 0.3, 0.5), (0.85, 0.82, 0.7), (1.0, 0.82, 0.58)),
         // Tarred timber stocks, rough brick sheds, wood shavings.
         Some(Shipyard) => paints((0.2, 0.2, 0.17), (0.58, 0.32, 0.12), (0.12, 0.1, 0.09), (1.0, 0.75, 0.45)),
         // Black coal dust and soot-dark brick.
-        Some(CoalYard) => paints((0.12, 0.12, 0.13), (0.26, 0.22, 0.22), (0.62, 0.3, 0.14), (1.0, 0.68, 0.38)),
+        Some(CoalYard) => paints((0.17, 0.16, 0.12), (0.22, 0.42, 0.62), (0.62, 0.3, 0.14), (1.0, 0.68, 0.38)),
         // Fish-scaled quay stones against tarred smokehouse boards.
         Some(HerringQuay) => paints((0.28, 0.33, 0.4), (0.27, 0.2, 0.14), (0.75, 0.74, 0.7), (1.0, 0.8, 0.52)),
         // Polished boards, bonded-store brick, brass.
         Some(CustomsHouse) => paints((0.4, 0.3, 0.2), (0.6, 0.32, 0.26), (0.78, 0.6, 0.22), (1.0, 0.85, 0.6)),
         // Dyke-top gravel between sandbag-grey parapets.
-        Some(DykeRoad) => paints((0.36, 0.35, 0.32), (0.5, 0.5, 0.48), (0.2, 0.2, 0.2), (0.85, 0.9, 1.0)),
+        Some(DykeRoad) => paints((0.4, 0.36, 0.3), (0.72, 0.64, 0.76), (0.2, 0.2, 0.2), (0.85, 0.9, 1.0)),
         // Engine-room plate, white-glazed brick, brass and red.
-        Some(PumpingStation) => paints((0.22, 0.22, 0.24), (0.84, 0.86, 0.82), (0.62, 0.16, 0.12), (1.0, 0.88, 0.7)),
+        Some(PumpingStation) => paints((0.2, 0.2, 0.25), (0.62, 0.84, 0.9), (0.62, 0.16, 0.12), (1.0, 0.88, 0.7)),
         // Bare ground round weathered brick.
         None => paints((0.15, 0.17, 0.12), (0.3, 0.21, 0.17), (0.42, 0.4, 0.36), (1.0, 0.75, 0.45)),
     }
@@ -1351,7 +1350,7 @@ pub(crate) mod tests {
         for map in MapId::ALL {
             let layout = map.layout();
             let tide = TideLevel::Low;
-            if map != MapId::Cove {
+            if !matches!(map, MapId::Cove | MapId::Polder) {
                 assert!(layout.wading.is_empty(), "the {} has Wading Points", map.name());
             }
             let nodes: Vec<_> = layout.nav_nodes.iter().map(|&(name, x, y, z)| (name, Vec3::new(x, y, z))).collect();

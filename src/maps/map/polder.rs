@@ -94,6 +94,7 @@ pub(super) const POLDER: Layout = Layout {
     wall_weapons: &WALL_WEAPONS,
     windows: &WINDOWS,
     risers: &[],
+    wading: &WADING_POINTS,
     hellhound_spawns: &HELLHOUND_SPAWNS,
     special_spawns: &SPECIAL_SPAWNS,
     vents: &[],
@@ -251,6 +252,16 @@ const SPECIAL_SPAWNS: [(ZoneId, Vec3); 4] = [
     (ZoneId::DykeRoad, at(-6.0, CREST, 54.0)),
 ];
 
+/// The Wading Points, one in each Ford's channel, 4 m along from its stairs (active at Low, as all the
+/// water stands there for now). The Ford's berm points, active at Rising and Falling, wait for the
+/// Tide: the berms are dry at Low.
+const WADING_POINTS: [(ZoneId, Vec3); 4] = [
+    (ZoneId::WeighHouse, at(-47.0, -2.2, -6.0)),
+    (ZoneId::CheeseMarket, at(22.0, -2.2, -6.0)),
+    (ZoneId::HerringQuay, at(-52.0, -2.2, 30.0)),
+    (ZoneId::CustomsHouse, at(43.0, -2.2, 30.0)),
+];
+
 /// Quay stone, timber and iron, for the pieces that aren't a Zone's wall.
 const STONE: Color = Color::srgb(0.42, 0.42, 0.42);
 const SETT: Color = Color::srgb(0.36, 0.36, 0.38);
@@ -403,7 +414,7 @@ const PROPS: &[Prop] = {
         p(Crate, TollQuay, 20.0, GROUND, 8.0, (1.8, 2.2, 1.8)),
         p(Counter, TollQuay, 26.0, GROUND, 15.0, (1.0, 1.0, 2.2)),
         p(Shelf, TollQuay, 17.0, GROUND, 18.0, (0.3, 2.0, 1.0)),
-        p(Machine, TollQuay, 28.0, GROUND, 22.0, (0.5, 1.1, 0.5)),
+        p(Machine, TollQuay, 31.5, GROUND, 23.3, (0.5, 1.1, 0.5)),
         p(Machine, TollQuay, 20.5, GROUND, 22.5, (0.5, 1.1, 0.5)),
         // The Shipyard: a hull on the stocks (a wall to weave round), timber stacks.
         p(Counter, Shipyard, 44.0, GROUND, 12.0, (10.0, 2.4, 3.0)),
@@ -714,3 +725,122 @@ fn build(b: &mut Builder) {
 }
 
 pub(super) const OPEN: crate::enemies::nav::Gate = crate::enemies::nav::Gate::Open;
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+    use crate::enemies::nav::Gate;
+    use crate::maps::map::MapId;
+    use ZoneId::*;
+
+    fn polder() -> &'static Layout {
+        MapId::Polder.layout()
+    }
+
+    #[test]
+    fn sixteen_zones_starting_in_the_town_square_at_polder_x_clear_of_the_others() {
+        assert_eq!(polder().zones.len(), 16);
+        assert_eq!(polder().start_zone(), TownSquare);
+        assert_eq!(POLDER_X, 600.0);
+        assert_eq!(polder().plan, (Vec2::new(520.0, -56.0), Vec2::new(680.0, 66.0)));
+        assert_eq!((DykeRoad.floor(), PumpingStation.floor(), TownSquare.floor()), (CREST, CREST, GROUND));
+    }
+
+    /// 23 bought Doors and 3 Power Doors, and the cheapest way to the Power costs 5500.
+    #[test]
+    fn twenty_three_bought_doors_three_power_doors_and_5500_to_the_power() {
+        use bevy::ecs::system::RunSystemOnce;
+
+        use crate::enemies::zombie::headless::Sim;
+        use crate::maps::door::Door;
+
+        let mut sim = Sim::on(MapId::Polder, 60.0, |_| {});
+        let doors: Vec<(Option<(ZoneId, ZoneId)>, Option<u64>)> = sim
+            .world_mut()
+            .run_system_once(|doors: Query<&Door>| doors.iter().map(|door| (door.joins, door.price)).collect::<Vec<_>>())
+            .unwrap();
+        assert_eq!(doors.len(), 26);
+        assert_eq!(doors.iter().filter(|(_, price)| price.is_none()).count(), 3);
+        let mut cost: HashMap<ZoneId, u64> = HashMap::from([(TownSquare, 0)]);
+        for _ in 0..16 {
+            for &(joins, price) in &doors {
+                let (Some((a, b)), Some(price)) = (joins, price) else { continue };
+                for (from, to) in [(a, b), (b, a)] {
+                    let Some(&here) = cost.get(&from) else { continue };
+                    let best = cost.entry(to).or_insert(u64::MAX);
+                    *best = (*best).min(here + price);
+                }
+            }
+        }
+        assert_eq!(cost[&PumpingStation], 5500);
+    }
+
+    #[test]
+    fn thirty_barriers_no_risers_or_vents_and_a_hellhound_spawn_in_every_zone() {
+        assert_eq!(MapId::Polder.barriers().count(), 30);
+        assert!(polder().risers.is_empty() && polder().vents.is_empty());
+        assert!(polder().sections.is_empty() && polder().generators.is_empty() && !polder().darkness);
+        assert_eq!(polder().hellhound_spawns.len(), 19);
+        for &zone in polder().zones {
+            let want = if matches!(zone, TownSquare | HerringQuay | Shipyard) { 2 } else { 1 };
+            assert_eq!(polder().hellhound_spawns.iter().filter(|(z, _)| *z == zone).count(), want, "{}", zone.name());
+        }
+        let specials: Vec<ZoneId> = polder().special_spawns.iter().map(|&(zone, _)| zone).collect();
+        assert_eq!(specials, [TownSquare, HerringQuay, Shipyard, DykeRoad]);
+        let boxes: Vec<ZoneId> = MapId::Polder.box_locations().map(|i| crate::maps::map::BOX_LOCATIONS[i].0).collect();
+        assert_eq!(boxes, [Brewery, AlmshouseCourt, Warehouse, Shipyard, CustomsHouse, CoalYard]);
+    }
+
+    /// The three drops are one-way edges gated on the Door beside each, and none is a fixed join.
+    #[test]
+    fn three_drops_each_gated_on_the_door_beside_it() {
+        assert!(polder().fixed_joins.is_empty());
+        let drops: Vec<(ZoneId, ZoneId)> = data::EDGES
+            .iter()
+            .filter_map(|&(.., gate)| match gate {
+                Gate::DoorDrop(a, b) => Some((a, b)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(drops, [(Windmill, DykeRoad), (HerringQuay, DykeRoad), (CoalYard, PumpingStation)]);
+    }
+
+    /// Every Ford's channel is Shallow at Low, every Deep reach is Deep, and all the water is at -1.7.
+    #[test]
+    fn the_fords_can_be_waded_and_the_reaches_cannot() {
+        use crate::maps::map::{TideLevel, Wading, water_at};
+        let at = |x: f32, y: f32, z: f32| water_at(polder(), TideLevel::Low, Vec3::new(P + x, y, z));
+        for (x, z) in [(-47.0, -6.0), (22.0, -6.0), (-52.0, 30.0), (43.0, 30.0)] {
+            assert_eq!(at(x, -2.2, z), Some(Wading::Shallow), "the channel at {x}, {z}");
+        }
+        for (x, z) in [(-60.0, -6.0), (0.0, -6.0), (10.0, 30.0), (-9.0, 12.0), (0.0, 63.0)] {
+            assert_eq!(at(x, -4.5, z), Some(Wading::Deep), "the reach at {x}, {z}");
+        }
+        assert!(polder().water.iter().all(|pool| matches!(pool.level, crate::maps::map::Level::Still(h) if h == -1.7)));
+    }
+
+    /// Every dry point of an indoor Zone's floor, clear of walls, is within reach of a lamp.
+    #[test]
+    fn every_dry_point_of_an_indoor_zone_is_within_reach_of_a_lamp() {
+        for &zone in polder().zones.iter().filter(|&&zone| polder().indoor(zone)) {
+            let (lo, hi) = zone.volume();
+            let lamps: Vec<Vec2> = polder().lamps.iter().filter(|(lamp, _)| *lamp == zone).map(|(_, at)| Vec2::new(at.x, at.z)).collect();
+            assert!(!lamps.is_empty(), "{zone:?} has no lamps");
+            let mut x = lo.x + 1.0;
+            while x < hi.x - 1.0 {
+                let mut z = lo.z + 1.0;
+                while z < hi.z - 1.0 {
+                    let dry = !polder().sunken.iter().any(|s| s.depth >= 1.5 && x >= s.min.x && x <= s.max.x && z >= s.min.y && z <= s.max.y);
+                    if dry {
+                        let nearest = lamps.iter().map(|lamp| lamp.distance(Vec2::new(x, z))).fold(f32::MAX, f32::min);
+                        assert!(nearest <= LAMP_REACH, "({x}, {z}) in {zone:?} is {nearest} m from a lamp");
+                    }
+                    z += 0.5;
+                }
+                x += 0.5;
+            }
+        }
+    }
+}
