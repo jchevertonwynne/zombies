@@ -76,6 +76,8 @@ pub(super) const VILLAGE: Layout = Layout {
     sections: &[],
     generators: &[],
     darkness: false,
+    outdoor: &[ZoneId::Market, ZoneId::WestEnd, ZoneId::EastEnd, ZoneId::BackLane, ZoneId::MillLane, ZoneId::ChurchLane, ZoneId::Orchard, ZoneId::Graveyard],
+    roofed: false,
     sun: Vec3::new(-1.0, -3.0, 1.5),
     look: crate::maps::look::NIGHT,
     plan: (Vec2::new(V - 80.0, -30.0), Vec2::new(V + 80.0, 60.0)),

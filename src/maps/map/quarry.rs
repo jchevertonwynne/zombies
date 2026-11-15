@@ -97,6 +97,8 @@ pub(super) const QUARRY: Layout = Layout {
     sections: &[],
     generators: &[],
     darkness: false,
+    outdoor: &[ZoneId::QuarryFloor, ZoneId::RailYard, ZoneId::Headframe, ZoneId::Incline],
+    roofed: false,
     sun: Vec3::new(1.0, -3.0, -1.5),
     look: crate::maps::look::NIGHT,
     plan: (Vec2::new(Q - 36.0, -38.0), Vec2::new(Q + 38.0, 44.0)),

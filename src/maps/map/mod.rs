@@ -4,6 +4,7 @@
 //! floors, Props and path nodes. Each Map is built in its own part of the world, so no two Maps'
 //! Zones overlap and a point is in at most one Map's Zone (ADR 0005).
 
+use bevy::light::{EnvironmentMapLight, LightProbe, NotShadowCaster};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -149,6 +150,12 @@ pub struct Layout {
     /// Whether the Map has Darkness: no ambient light, close black fog, and a Zone's lamps on
     /// only while its Section is Powered (see `darkness`).
     pub darkness: bool,
+    /// The Zones out of doors: open to the sky, with no ceiling, light probe or dim fog. Every
+    /// other Zone is indoors.
+    pub outdoor: &'static [ZoneId],
+    /// Whether the Map has ceilings over its indoor Zones, and lights them with spot lamps, light
+    /// probes and fog that follows the eye's Zone. The Greybox so far.
+    pub roofed: bool,
     /// The way the moonlight falls.
     pub sun: Vec3,
     /// How the Map is lit and graded.
@@ -161,6 +168,11 @@ pub struct Layout {
 }
 
 impl Layout {
+    /// Whether `zone` is indoors: under a roof (once its Map builds ceilings), not open to the sky.
+    pub fn indoor(&self, zone: ZoneId) -> bool {
+        !self.outdoor.contains(&zone)
+    }
+
     /// The Zone every Run starts in.
     pub fn start_zone(&self) -> ZoneId {
         self.zones[0]
@@ -550,6 +562,7 @@ pub fn spawn_map(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     map: Res<MapId>,
+    images: Option<ResMut<Assets<Image>>>,
 ) {
     let layout = map.layout();
     let mut b = Builder::new(&mut commands, &mut meshes, &mut materials, layout.windows);
@@ -581,6 +594,13 @@ pub fn spawn_map(
     // The Props.
     for (nth, prop) in layout.props.iter().enumerate() {
         b.prop(prop, nth);
+    }
+
+    // Ceilings over the indoor Zones.
+    if layout.roofed {
+        for &zone in layout.zones.iter().filter(|&&zone| layout.indoor(zone)) {
+            b.ceiling(zone);
+        }
     }
 
     // Chalk outlines: a pale gun shape drawn on the wall, its Buyable just in front.
@@ -696,18 +716,62 @@ pub fn spawn_map(
         look.cascade_config(),
         Transform::default().looking_at(look.sun_direction(layout.sun), Vec3::Y),
     ));
-    for &(zone, at) in layout.lamps {
-        commands.spawn((
-            InRun,
-            Lamp::in_zone(zone),
-            PointLight {
-                color: palette(Some(zone)).light,
-                intensity: LAMP_INTENSITY * look.lamps,
-                range: 25.0,
+    if layout.roofed {
+        // Warm downward spots, each with a glowing bulb, that light every indoor floor.
+        let bulb = meshes.add(Sphere::new(0.12));
+        for &(zone, at) in layout.lamps {
+            let colour = palette(Some(zone)).light;
+            let glow = materials.add(StandardMaterial {
+                base_color: colour,
+                emissive: LinearRgba::from(colour) * 12.0,
                 ..default()
-            },
-            Transform::from_translation(at),
-        ));
+            });
+            commands
+                .spawn((
+                    InRun,
+                    Lamp::in_zone(zone),
+                    SpotLight {
+                        color: colour,
+                        intensity: SPOT_LAMP_INTENSITY * look.lamps,
+                        range: 25.0,
+                        outer_angle: SPOT_LAMP_CONE,
+                        inner_angle: SPOT_LAMP_CONE * 0.6,
+                        ..default()
+                    },
+                    Transform::from_translation(at).looking_to(Vec3::NEG_Y, Vec3::X),
+                ))
+                .with_child((Mesh3d(bulb.clone()), MeshMaterial3d(glow), NotShadowCaster));
+        }
+        // A light probe in each indoor Zone, so the room is lit by its own dim constant colour and
+        // not the sky's, however bright the Yard through its Door.
+        if let Some(mut images) = images {
+            let probe = EnvironmentMapLight::solid_color(&mut images, Color::srgb(0.75, 0.7, 0.65)).with_intensity(INDOOR_PROBE_BRIGHTNESS);
+            for &zone in layout.zones.iter().filter(|&&zone| layout.indoor(zone)) {
+                let (lo, hi) = zone.volume();
+                let top = (hi.y / STOREY).ceil() * STOREY;
+                let (lo, hi) = (Vec3::new(lo.x, zone.floor() - 0.25, lo.z), Vec3::new(hi.x, top, hi.z));
+                commands.spawn((
+                    InRun,
+                    LightProbe::default(),
+                    probe.clone(),
+                    Transform::from_translation((lo + hi) / 2.0).with_scale(hi - lo),
+                ));
+            }
+        }
+    } else {
+        for &(zone, at) in layout.lamps {
+            commands.spawn((
+                InRun,
+                Lamp::in_zone(zone),
+                PointLight {
+                    color: palette(Some(zone)).light,
+                    intensity: LAMP_INTENSITY * look.lamps,
+                    range: 25.0,
+                    ..default()
+                },
+                Transform::from_translation(at),
+            ));
+        }
     }
 }
 
@@ -730,6 +794,39 @@ pub(crate) mod tests {
     fn inside(zone: ZoneId, at: Vec3) -> bool {
         let (lo, hi) = zone.volume();
         at.cmpge(lo).all() && at.cmple(hi).all()
+    }
+
+    #[test]
+    fn every_map_marks_its_outdoor_zones_from_its_own_and_the_greybox_has_two() {
+        for map in MapId::ALL {
+            let layout = map.layout();
+            for zone in layout.outdoor {
+                assert!(layout.zones.contains(zone), "{map:?}'s outdoor {zone:?} isn't one of its Zones");
+            }
+            assert!(layout.outdoor.len() < layout.zones.len(), "{map:?} has an indoor Zone");
+        }
+        assert_eq!(MapId::Greybox.layout().outdoor, &[ZoneId::Yard, ZoneId::Balcony]);
+        assert!(MapId::Greybox.layout().roofed);
+    }
+
+    #[test]
+    fn every_point_of_an_indoor_greybox_floor_is_within_reach_of_a_lamp_in_its_zone() {
+        let layout = MapId::Greybox.layout();
+        for &zone in layout.zones.iter().filter(|&&zone| layout.indoor(zone)) {
+            let (lo, hi) = zone.volume();
+            // Clear of the walls, where a Player can't stand.
+            let (lo, hi) = (Vec2::new(lo.x + 1.0, lo.z + 1.0), Vec2::new(hi.x - 1.0, hi.z - 1.0));
+            let lamps: Vec<Vec2> = layout.lamps.iter().filter(|(lamp, _)| *lamp == zone).map(|(_, at)| Vec2::new(at.x, at.z)).collect();
+            assert!(!lamps.is_empty(), "{zone:?} has no lamps");
+            let (nx, nz) = (((hi.x - lo.x) / 0.25).ceil().max(1.0) as u32, ((hi.y - lo.y) / 0.25).ceil().max(1.0) as u32);
+            for i in 0..=nx {
+                for j in 0..=nz {
+                    let at = Vec2::new(lo.x + (hi.x - lo.x) * i as f32 / nx as f32, lo.y + (hi.y - lo.y) * j as f32 / nz as f32);
+                    let nearest = lamps.iter().map(|lamp| lamp.distance(at)).fold(f32::MAX, f32::min);
+                    assert!(nearest <= LAMP_REACH, "{at} in {zone:?} is {nearest} m from its nearest lamp");
+                }
+            }
+        }
     }
 
     #[test]

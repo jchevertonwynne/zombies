@@ -52,6 +52,8 @@ pub(super) const GREYBOX: Layout = Layout {
     sections: &[],
     generators: &[],
     darkness: false,
+    outdoor: &[ZoneId::Yard, ZoneId::Balcony],
+    roofed: true,
     sun: Vec3::new(-1.0, -3.0, -2.0),
     look: crate::maps::look::DUSK,
     plan: (Vec2::new(-40.0, -56.0), Vec2::new(40.0, 32.0)),
@@ -200,24 +202,46 @@ const FIXED_JOINS: [(ZoneId, ZoneId); 4] = [
 /// The Pack-a-Punch Gazebo's own look, inside and out.
 const GAZEBO: Palette = paints((0.2, 0.18, 0.22), (0.3, 0.22, 0.36), (0.66, 0.54, 0.24), (1.0, 0.8, 0.5));
 
-/// The lamps: the Zone whose tint each takes, and where it hangs.
-const LAMPS: [(ZoneId, Vec3); 14] = {
+/// The lamps: the Zone whose tint each takes, and where it hangs. Every point of an indoor
+/// floor, clear of the walls, is within `LAMP_REACH` of one in its Zone (a test checks).
+const LAMPS: [(ZoneId, Vec3); 34] = {
     use ZoneId::*;
     [
-        (StartRoom, Vec3::new(0.0, STOREY - 0.5, 20.0)),
-        (WestHall, Vec3::new(-20.0, STOREY - 0.5, 16.0)),
-        (WestHall, Vec3::new(-20.0, 2.0 * STOREY - 0.5, 0.0)),
-        (EastHall, Vec3::new(20.0, STOREY - 0.5, 16.0)),
-        (EastHall, Vec3::new(20.0, STOREY - 0.5, -2.0)),
+        (StartRoom, Vec3::new(-9.8, STOREY - 0.5, 20.0)),
+        (StartRoom, Vec3::new(-3.2, STOREY - 0.5, 20.0)),
+        (StartRoom, Vec3::new(3.2, STOREY - 0.5, 20.0)),
+        (StartRoom, Vec3::new(9.8, STOREY - 0.5, 20.0)),
+        (WestHall, Vec3::new(-20.0, STOREY - 0.5, -9.2)),
+        (WestHall, Vec3::new(-20.0, STOREY - 0.5, -1.6)),
+        (WestHall, Vec3::new(-20.0, STOREY - 0.5, 6.0)),
+        (WestHall, Vec3::new(-20.0, STOREY - 0.5, 13.6)),
+        (WestHall, Vec3::new(-20.0, STOREY - 0.5, 21.2)),
+        (EastHall, Vec3::new(20.0, STOREY - 0.5, -9.2)),
+        (EastHall, Vec3::new(20.0, STOREY - 0.5, -1.6)),
+        (EastHall, Vec3::new(20.0, STOREY - 0.5, 6.0)),
+        (EastHall, Vec3::new(20.0, STOREY - 0.5, 13.6)),
+        (EastHall, Vec3::new(20.0, STOREY - 0.5, 21.2)),
+        (DiningRoom, Vec3::new(-21.0, STOREY - 0.5, -20.0)),
         (DiningRoom, Vec3::new(-13.0, STOREY - 0.5, -20.0)),
+        (DiningRoom, Vec3::new(-5.0, STOREY - 0.5, -20.0)),
+        (PowerRoom, Vec3::new(5.0, STOREY - 0.5, -20.0)),
         (PowerRoom, Vec3::new(13.0, STOREY - 0.5, -20.0)),
+        (PowerRoom, Vec3::new(21.0, STOREY - 0.5, -20.0)),
+        (Passage, Vec3::new(-12.0, STOREY - 0.5, -32.0)),
+        (Workshop, Vec3::new(-29.5, STOREY - 0.5, -44.0)),
+        (Workshop, Vec3::new(-22.5, STOREY - 0.5, -44.0)),
+        (Workshop, Vec3::new(-15.5, STOREY - 0.5, -44.0)),
+        (Workshop, Vec3::new(-8.5, STOREY - 0.5, -44.0)),
+        (Storeroom, Vec3::new(0.0, STOREY - 0.5, -44.0)),
+        (GeneratorRoom, Vec3::new(8.5, STOREY - 0.5, -44.0)),
+        (GeneratorRoom, Vec3::new(15.5, STOREY - 0.5, -44.0)),
+        (GeneratorRoom, Vec3::new(22.5, STOREY - 0.5, -44.0)),
+        (GeneratorRoom, Vec3::new(29.5, STOREY - 0.5, -44.0)),
+        (Tunnel, Vec3::new(14.0, STOREY - 0.5, -32.0)),
+        // West Hall's landing, up the ramp.
+        (WestHall, Vec3::new(-20.0, 2.0 * STOREY - 0.5, 0.0)),
         (Balcony, Vec3::new(-12.0, 2.0 * STOREY - 0.5, -2.0)),
         (Yard, Vec3::new(0.0, STOREY + 2.0, 0.0)),
-        (Passage, Vec3::new(-12.0, STOREY - 0.5, -32.0)),
-        (Tunnel, Vec3::new(14.0, STOREY - 0.5, -32.0)),
-        (Workshop, Vec3::new(-19.0, STOREY - 0.5, -44.0)),
-        (Storeroom, Vec3::new(0.0, STOREY - 0.5, -44.0)),
-        (GeneratorRoom, Vec3::new(19.0, STOREY - 0.5, -44.0)),
     ]
 };
 

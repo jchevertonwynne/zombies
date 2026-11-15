@@ -49,12 +49,16 @@ fn run(app: &mut App, secs: f32) {
 
 /// How bright `zone`'s lamps are, from 0 off to 1 full (as strong as the Map's Look has them). Panics if they differ.
 fn lamps(app: &mut App, zone: ZoneId) -> f32 {
-    let full = LAMP_INTENSITY * app.world().resource::<MapId>().layout().look.lamps;
-    let mut query = app.world_mut().query::<(&Lamp, &PointLight)>();
+    let layout = app.world().resource::<MapId>().layout();
+    let mut query = app.world_mut().query::<(&Lamp, Option<&PointLight>, Option<&SpotLight>)>();
     let levels: Vec<f32> = query
         .iter(app.world())
-        .filter(|(lamp, _)| lamp.zone == zone)
-        .map(|(_, light)| light.intensity / full)
+        .filter(|(lamp, ..)| lamp.zone == zone)
+        .map(|(_, point, spot)| match (point, spot) {
+            (Some(light), _) => light.intensity / (LAMP_INTENSITY * layout.look.lamps),
+            (_, Some(light)) => light.intensity / (SPOT_LAMP_INTENSITY * layout.look.lamps),
+            _ => panic!("a lamp with no light"),
+        })
         .collect();
     assert!(!levels.is_empty(), "{zone:?} has no lamps");
     assert!(levels.windows(2).all(|pair| (pair[0] - pair[1]).abs() < 1e-4), "{zone:?}'s lamps differ: {levels:?}");

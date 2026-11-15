@@ -1558,6 +1558,9 @@ pub const HELLHOUND_FOG_START: f32 = 3.0;
 pub const HELLHOUND_FOG_END: f32 = 20.0;
 /// …moving at this many metres a second (approx).
 pub const FOG_PULL_SPEED: f32 = 8.0;
+/// On a roofed Map the fog's colour follows the Zone the eye is in, closing on its target at this
+/// rate a second (about 0.5 s to settle, #327).
+pub const FOG_COLOUR_RATE: f32 = 6.0;
 
 // Darkness
 /// The ambient light's brightness on a Map without Darkness.
@@ -1569,6 +1572,18 @@ pub const DARK_FOG_END: f32 = 40.0;
 pub const CHALK_GLOW: f32 = 0.25;
 /// A lamp's full intensity, in lumens.
 pub const LAMP_INTENSITY: f32 = 400_000.0;
+/// A roofed Map's lamp is a downward spot of this many lumens, as `LAMP_INTENSITY` is for a point
+/// lamp (#327).
+pub const SPOT_LAMP_INTENSITY: f32 = 1_500_000.0;
+/// A spot lamp's cone, in radians from straight down to its edge.
+pub const SPOT_LAMP_CONE: f32 = 1.45;
+/// How many spot lamps cast shadows: the ones nearest the eye (#327; cut to 2 if the bench needs).
+pub const SHADOWED_LAMPS: usize = 2;
+/// Every point of a roofed Zone's floor, clear of the walls, is within about this many metres
+/// across the plan of a lamp in its Zone (#327).
+pub const LAMP_REACH: f32 = 6.5;
+/// How much of its Zone's constant-colour light probe a roofed room gets, in cd/m2 (#327).
+pub const INDOOR_PROBE_BRIGHTNESS: f32 = 90.0;
 /// A Zone's lamps fade up over this long as it goes lit (#283)…
 pub const LAMP_FADE_UP_SECS: f32 = 1.2;
 /// …and drop over this long as it goes Dark (invented: "faster").

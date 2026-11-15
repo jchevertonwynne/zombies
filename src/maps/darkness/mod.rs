@@ -136,17 +136,25 @@ fn light_lamps(
     map: Res<MapId>,
     generators: Res<Generators>,
     time: Res<Time>,
-    mut lamps: Query<(&mut Lamp, &mut PointLight)>,
+    mut lamps: Query<(&mut Lamp, Option<&mut PointLight>, Option<&mut SpotLight>)>,
 ) {
-    for (mut lamp, mut light) in &mut lamps {
+    for (mut lamp, point, spot) in &mut lamps {
         let lit = lit(*map, &generators, lamp.zone);
         let target = if lit { 1.0 } else { 0.0 };
         let level = lamp.level.map_or(target, |level| fade(level, lit, time.delta_secs()));
         lamp.level = Some(level);
-        let full = LAMP_INTENSITY * map.layout().look.lamps;
-        let intensity = full * level * if lit { flicker(level) } else { 1.0 };
-        if light.intensity != intensity {
-            light.intensity = intensity;
+        let strength = map.layout().look.lamps * level * if lit { flicker(level) } else { 1.0 };
+        if let Some(mut light) = point {
+            let intensity = LAMP_INTENSITY * strength;
+            if light.intensity != intensity {
+                light.intensity = intensity;
+            }
+        }
+        if let Some(mut light) = spot {
+            let intensity = SPOT_LAMP_INTENSITY * strength;
+            if light.intensity != intensity {
+                light.intensity = intensity;
+            }
         }
     }
 }

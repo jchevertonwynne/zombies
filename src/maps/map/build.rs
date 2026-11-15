@@ -191,6 +191,19 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         }
     }
 
+    /// An indoor Zone's ceiling: a slab at the top of its walls, in its wall material. Only drawn,
+    /// so nothing in the Zone (a Jump Pad's arc, a Vent's drop) can bump it. It spans the Zone's
+    /// volume, so neighbours' slabs meet over the middle of the wall between them, never overlap.
+    pub fn ceiling(&mut self, zone: ZoneId) {
+        const THICKNESS: f32 = 0.2;
+        let (lo, hi) = zone.volume();
+        let top = (hi.y / STOREY).ceil() * STOREY;
+        let size = Vec3::new(hi.x - lo.x, THICKNESS, hi.z - lo.z);
+        let centre = Vec3::new((lo.x + hi.x) / 2.0, top + THICKNESS / 2.0, (lo.z + hi.z) / 2.0);
+        let material = materials(Some(zone)).map(|set| set.wall);
+        self.shape_in(size, centre, Quat::IDENTITY, palette(Some(zone)).wall, material);
+    }
+
     /// A Raised Floor, with a lip of its Zone's trim round its top.
     pub fn raised_floor(&mut self, raised: &RaisedFloor) {
         let (min, max, height, floor) = (raised.min, raised.max, raised.height, raised.zone.floor());

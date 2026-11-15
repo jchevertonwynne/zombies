@@ -16,11 +16,12 @@ use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
 use bevy::render::view::ColorGrading;
 
-use crate::maps::map::MapId;
+use crate::maps::map::{Layout, MapId};
+use crate::maps::zone::{PlayerZone, ZoneId};
 use crate::maps::map::textures::on_disk;
-use crate::players::player::PlayerCamera;
+use crate::players::player::{LocalPlayer, PlayerCamera};
 use crate::state::GameState;
-use crate::tuning::AMBIENT_BRIGHTNESS;
+use crate::tuning::{AMBIENT_BRIGHTNESS, FOG_COLOUR_RATE, SHADOWED_LAMPS};
 
 /// A Map's lighting and grade.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -34,8 +35,10 @@ pub struct Look {
     pub cascades: Option<(usize, f32)>,
     pub ambient_colour: Color,
     pub ambient_brightness: f32,
-    /// The sky's colour, which the fog fades to.
+    /// The sky's colour: what shows where there's no skybox.
     pub sky: Color,
+    /// The distance fog's colour out of doors, which the horizon meets.
+    pub fog: Color,
     /// An HDRI cubemap for the sky (a path under `assets/`) and how bright it shows, in cd/m2.
     pub sky_map: Option<(&'static str, f32)>,
     /// How strong the lamps are, as a fraction of `LAMP_INTENSITY`.
@@ -54,6 +57,7 @@ pub const NIGHT: Look = Look {
     ambient_colour: Color::srgb(0.6, 0.65, 0.8),
     ambient_brightness: AMBIENT_BRIGHTNESS,
     sky: Color::srgb(0.02, 0.02, 0.04),
+    fog: Color::srgb(0.02, 0.02, 0.04),
     sky_map: None,
     lamps: 1.0,
     temperature: 0.0,
@@ -68,17 +72,22 @@ pub const DUSK: Look = Look {
     sun_height: 0.2,
     cascades: Some((2, 45.0)),
     ambient_colour: Color::srgb(0.55, 0.6, 0.75),
-    ambient_brightness: 450.0,
+    ambient_brightness: 250.0,
     sky: Color::srgb(0.28, 0.25, 0.28),
+    fog: Color::srgb(0.42, 0.34, 0.34),
     // Poly Haven's Belfast Sunset (Pure Sky), turned to put its sun where the Layout's is.
     sky_map: Some(("skies/belfast_sunset_puresky/sky.ktx2", 1200.0)),
-    lamps: 0.15,
+    lamps: 1.0,
     temperature: 0.05,
     tint: 0.02,
 };
 
 /// How strongly the sky lights the Map, as a fraction of how bright it shows.
-const SKY_LIGHT: f32 = 0.6;
+const SKY_LIGHT: f32 = 0.25;
+
+/// The fog's colour while the eye is indoors on a roofed Map: near-black, so a room doesn't glow
+/// the sky's colour.
+const INDOOR_FOG: Color = Color::srgb(0.02, 0.018, 0.018);
 
 /// The shared Bloom: just enough for bulbs and signs to glow.
 const BLOOM: f32 = 0.05;
@@ -113,7 +122,10 @@ pub struct LookPlugin;
 
 impl Plugin for LookPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(post_stack).add_systems(OnEnter(GameState::Playing), set_world).add_systems(Update, light_from_sky);
+        app.add_observer(post_stack)
+            .add_systems(OnEnter(GameState::Playing), set_world)
+            .add_systems(Update, light_from_sky)
+            .add_systems(Update, (follow_zone_fog, shadow_nearest_lamps).run_if(in_state(GameState::Playing)));
     }
 }
 
@@ -124,6 +136,48 @@ fn set_world(map: Res<MapId>, mut ambient: ResMut<GlobalAmbientLight>, clear: Op
     ambient.brightness = layout.look.ambient(layout.darkness);
     if let Some(mut clear) = clear {
         clear.0 = layout.look.sky;
+    }
+}
+
+/// The fog colour the eye wants in `zone`: near-black indoors, the Look's out of doors. Maps
+/// without ceilings (and with Darkness's black fog) keep their Look's.
+pub fn fog_colour(layout: &Layout, zone: ZoneId) -> Color {
+    if layout.roofed && !layout.darkness && layout.indoor(zone) { INDOOR_FOG } else { layout.look.fog }
+}
+
+/// On a roofed Map the fog's colour closes on the eye's Zone's colour, settling in about half a
+/// second, so stepping through a Door fades it.
+fn follow_zone_fog(
+    map: Res<MapId>,
+    time: Res<Time>,
+    zones: Query<&PlayerZone, With<LocalPlayer>>,
+    mut fogs: Query<&mut DistanceFog, With<PlayerCamera>>,
+) {
+    let layout = map.layout();
+    if !layout.roofed || layout.darkness {
+        return;
+    }
+    let Some(zone) = zones.iter().next() else { return };
+    let target = LinearRgba::from(fog_colour(layout, zone.0));
+    let by = (time.delta_secs() * FOG_COLOUR_RATE).min(1.0);
+    for mut fog in &mut fogs {
+        let now = LinearRgba::from(fog.color);
+        if now != target {
+            fog.color = now.mix(&target, by).into();
+        }
+    }
+}
+
+/// Only the spot lamps nearest the eye cast shadows.
+fn shadow_nearest_lamps(eyes: Query<&GlobalTransform, With<PlayerCamera>>, mut lamps: Query<(&GlobalTransform, &mut SpotLight)>) {
+    let Some(eye) = eyes.iter().next().map(GlobalTransform::translation) else { return };
+    let mut by_distance: Vec<_> = lamps.iter_mut().map(|(at, light)| (at.translation().distance_squared(eye), light)).collect();
+    by_distance.sort_by(|a, b| a.0.total_cmp(&b.0));
+    for (rank, (_, mut light)) in by_distance.into_iter().enumerate() {
+        let shadowed = rank < SHADOWED_LAMPS;
+        if light.shadow_maps_enabled != shadowed {
+            light.shadow_maps_enabled = shadowed;
+        }
     }
 }
 
@@ -167,7 +221,7 @@ fn post_stack(
     if let Ok((mut grading, mut fog)) = cameras.get_mut(add.entity) {
         grading.global.temperature = look.temperature;
         grading.global.tint = look.tint;
-        fog.color = look.sky;
+        fog.color = fog_colour(layout, layout.start_zone());
     }
 }
 
