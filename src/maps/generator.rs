@@ -253,6 +253,49 @@ impl Generators {
 #[derive(Component, Debug, Clone, Copy)]
 pub struct GeneratorPlate(pub usize);
 
+/// The drawn disc of Generator `index`'s plate, with its own material, and whether it glows now.
+#[derive(Component, Debug, Clone)]
+pub struct PlateDisc {
+    pub index: usize,
+    pub material: Handle<StandardMaterial>,
+    pub lit: bool,
+}
+
+/// The emissive colour of a plate's disc, lit or not.
+pub fn plate_emissive(lit: bool) -> LinearRgba {
+    if lit { LinearRgba::from(GENERATOR_PLATE_GLOW) * GENERATOR_PLATE_GLOW_STRENGTH } else { LinearRgba::BLACK }
+}
+
+/// Which of `generators` have `feet` on their plate: all false for no feet.
+pub fn on_plates(generators: &[Generator], feet: &[Vec3]) -> Vec<bool> {
+    generators.iter().map(|generator| feet.iter().any(|&feet| generator.on_plate(feet))).collect()
+}
+
+/// Every plate glows while a Player who is up stands on it, and goes dark when they leave.
+fn glow_plates(
+    players: Query<(&Transform, Option<&Locomotion>, Has<LastStand>, Has<AwaitingRespawn>, Has<Disconnected>), With<Player>>,
+    generators: Res<Generators>,
+    mut discs: Query<&mut PlateDisc>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let feet: Vec<Vec3> = players
+        .iter()
+        .filter(|&(_, _, last_stand, awaiting, disconnected)| is_up(last_stand, awaiting, disconnected))
+        .map(|(transform, locomotion, ..)| transform.translation - Vec3::Y * half_height_above_feet(locomotion))
+        .collect();
+    let on = on_plates(generators.layout(), &feet);
+    for mut disc in &mut discs {
+        let lit = on.get(disc.index).copied().unwrap_or(false);
+        if disc.lit == lit {
+            continue;
+        }
+        disc.lit = lit;
+        if let Some(mut material) = materials.get_mut(&disc.material) {
+            material.emissive = plate_emissive(lit);
+        }
+    }
+}
+
 pub struct GeneratorPlugin;
 
 impl Plugin for GeneratorPlugin {
@@ -264,7 +307,7 @@ impl Plugin for GeneratorPlugin {
                 (
                     (claim, charge).chain().in_set(HostSimulation),
                     run_shown_charge.run_if(in_state(Authority::Client)),
-                    (prompt_plates, announce),
+                    (prompt_plates, announce, glow_plates),
                 )
                     .chain()
                     .run_if(world_runs),
@@ -430,6 +473,17 @@ mod tests {
         assert!(!generator.on_plate(at + Vec3::Z * (GENERATOR_PLATE_RADIUS + 0.1)), "off its edge");
         assert!(!generator.on_plate(at + Vec3::Y * STOREY), "a storey up");
         assert!(!generator.on_plate(at - Vec3::Y * STOREY), "a storey down");
+    }
+
+    #[test]
+    fn a_plate_is_on_only_for_feet_inside_it_and_glows_only_then() {
+        let generators = MapId::Dam.layout().generators;
+        let at = generators[0].at;
+        assert_eq!(on_plates(generators, &[]), [false, false, false]);
+        assert_eq!(on_plates(generators, &[at + Vec3::X * (GENERATOR_PLATE_RADIUS - 0.1)]), [true, false, false]);
+        assert_eq!(on_plates(generators, &[at + Vec3::X * (GENERATOR_PLATE_RADIUS + 0.1)]), [false, false, false]);
+        assert_eq!(plate_emissive(false), LinearRgba::BLACK);
+        assert!(plate_emissive(true).red > 1.0, "lit, it's brighter than white's worth of red");
     }
 
     #[test]

@@ -16,7 +16,7 @@ use crate::maps::zone::ZoneId;
 use super::decals::{DecalFamily, DecalPiece, leak_transform, leaks, stain_transform, stains};
 use super::textures::{Material, Shape, Textured};
 use super::{DOOR_HEIGHT, DOOR_WIDTH, Palette, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, WALL_THICKNESS, WINDOW_WIDTH, materials, palette};
-use crate::maps::generator::Generator;
+use crate::maps::generator::{Generator, PlateDisc};
 use crate::maps::jump_pad::JumpPad;
 
 /// How tall the skirting along the foot of a wall is, and how far it stands out from the face.
@@ -271,7 +271,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
 
     /// A Generator: its console, solid, at the back of its plate, and the plate drawn on the floor
     /// in front of it, flush enough to walk over.
-    pub fn generator(&mut self, generator: &Generator) {
+    pub fn generator(&mut self, index: usize, generator: &Generator) {
         let (foot, size) = generator.console();
         self.block(size, foot + Vec3::Y * size.y / 2.0, GENERATOR_CONSOLE_PAINT);
         let face = foot + generator.facing * (GENERATOR_CONSOLE.z / 2.0 + 0.01);
@@ -284,9 +284,15 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
             MeshMaterial3d(rim),
             Transform::from_translation(generator.at + Vec3::Y * 0.005).with_scale(plate + Vec3::new(0.2, 0.0, 0.2)),
         ));
-        let paint = self.paint(GENERATOR_PLATE_PAINT);
+        // Its own material, so it can glow without lighting the other plates.
+        let paint = self.materials.add(StandardMaterial {
+            base_color: GENERATOR_PLATE_PAINT,
+            perceptual_roughness: 0.9,
+            ..default()
+        });
         self.commands.spawn((
             InRun,
+            PlateDisc { index, material: paint.clone(), lit: false },
             Mesh3d(self.cylinder.clone()),
             MeshMaterial3d(paint),
             Transform::from_translation(generator.at + Vec3::Y * 0.01).with_scale(plate),

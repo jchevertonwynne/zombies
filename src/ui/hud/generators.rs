@@ -3,7 +3,9 @@
 
 use bevy::prelude::*;
 
-use crate::maps::generator::{GeneratorState, Generators};
+use crate::enemies::target::half_height_above_feet;
+use crate::maps::generator::{GeneratorState, Generators, on_plates};
+use crate::players::player::{Locomotion, LocalPlayer};
 use crate::maps::map::MapId;
 use crate::state::{GameState, InRun};
 
@@ -30,7 +32,7 @@ pub fn mark(state: GeneratorState) -> Mark {
 /// Where the top-left corner of the HUD starts, in pixels in from the edges.
 pub const CORNER_PX: f32 = 16.0;
 /// How tall the Generator row is, fixed so what sits under it can start below it.
-const ROW_HEIGHT_PX: f32 = 62.0;
+const ROW_HEIGHT_PX: f32 = 72.0;
 const ROW_GAP_PX: f32 = 8.0;
 
 /// How far down the top-left column the Gauntlet's HUD starts on `map`: under the Generator row if
@@ -70,11 +72,18 @@ struct Meter(usize);
 #[derive(Component)]
 struct Fill(usize);
 
+/// The "ON PLATE" line under a lamp, shown while the local Player stands on that plate.
+#[derive(Component)]
+struct OnPlate(usize);
+
+const ON_PLATE_AMBER: Color = Color::srgb(1.0, 0.8, 0.3);
+
 pub struct GeneratorHudPlugin;
 
 impl Plugin for GeneratorHudPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(OnEnter(GameState::Playing), spawn_row)
+            .add_systems(Update, show_on_plate.run_if(in_state(GameState::Playing)).run_if(resource_exists::<Generators>))
             .add_systems(Update, show_marks.run_if(in_state(GameState::Playing)).run_if(resource_exists::<Generators>));
     }
 }
@@ -118,6 +127,11 @@ fn spawn_row(mut commands: Commands, map: Res<MapId>) {
                     ));
                     mark.spawn(super::text(generator.section.name().to_uppercase(), 11.0, Color::srgba(0.9, 0.9, 0.9, 0.8)));
                     mark.spawn((
+                        OnPlate(index),
+                        Node { display: Display::None, ..default() },
+                        super::text("ON PLATE", 11.0, ON_PLATE_AMBER),
+                    ));
+                    mark.spawn((
                         Meter(index),
                         Node {
                             display: Display::None,
@@ -141,6 +155,24 @@ fn spawn_row(mut commands: Commands, map: Res<MapId>) {
                 });
             }
         });
+}
+
+/// Shows "ON PLATE" under the lamps of the plate the local Player stands on, and hides it when
+/// they step off.
+fn show_on_plate(
+    generators: Res<Generators>,
+    player: Query<(&Transform, Option<&Locomotion>), With<LocalPlayer>>,
+    mut lines: Query<(&OnPlate, &mut Node)>,
+) {
+    let feet: Vec<Vec3> =
+        player.iter().map(|(transform, locomotion)| transform.translation - Vec3::Y * half_height_above_feet(locomotion)).collect();
+    let on = on_plates(generators.layout(), &feet);
+    for (&OnPlate(index), mut node) in &mut lines {
+        let display = if on.get(index).copied().unwrap_or(false) { Display::Flex } else { Display::None };
+        if node.display != display {
+            node.display = display;
+        }
+    }
 }
 
 fn show_marks(
@@ -178,8 +210,8 @@ mod tests {
         assert_eq!(corner_below_generators(MapId::Greybox), CORNER_PX);
         let below = corner_below_generators(MapId::Dam);
         assert!(below >= CORNER_PX + ROW_HEIGHT_PX + ROW_GAP_PX);
-        // Lamp, its name at 11 px (about 14 px a line), its meter, and the gaps between them.
-        let content = LAMP_PX + 4.0 + 14.0 + 4.0 + 5.0 + 2.0;
+        // Lamp, its name and "ON PLATE" at 11 px (about 14 px a line), its meter, and the gaps between them.
+        let content = LAMP_PX + 4.0 + 14.0 + 4.0 + 14.0 + 4.0 + 5.0 + 2.0;
         assert!(content <= ROW_HEIGHT_PX, "the row's contents are {content} px tall");
     }
 

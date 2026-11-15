@@ -574,8 +574,8 @@ pub fn spawn_map(
     for jump_pad in layout.jump_pads {
         b.jump_pad(jump_pad);
     }
-    for generator in layout.generators {
-        b.generator(generator);
+    for (index, generator) in layout.generators.iter().enumerate() {
+        b.generator(index, generator);
     }
 
     // The Props.
@@ -935,6 +935,7 @@ pub(crate) mod tests {
         for generator in layout.generators {
             let (console, size) = generator.console();
             fixtures.push((format!("{} Generator's console", generator.section.name()), console, size.x.max(size.z) / 2.0));
+            fixtures.push((format!("{} Generator's plate", generator.section.name()), generator.at, GENERATOR_PLATE_RADIUS));
         }
         if let Some((at, _)) = crate::maps::power::switch_spot(map) {
             fixtures.push(("Power Switch".into(), at, 0.5));
@@ -998,6 +999,51 @@ pub(crate) mod tests {
         }
     }
 
+    /// Every Generator's whole plate is floor, with no wall or Prop inside it.
+    #[test]
+    fn every_generator_plate_fits_its_floor_clear_of_walls_and_props() {
+        use avian3d::prelude::*;
+        use bevy::ecs::system::RunSystemOnce;
+
+        use crate::layers::GameLayer;
+        for map in MapId::ALL {
+            let plates: Vec<(String, Vec3)> =
+                map.layout().generators.iter().map(|generator| (generator.section.name().to_string(), generator.at)).collect();
+            let mut sim = Sim::on(map, 60.0, |_| {});
+            let bad: Vec<String> = sim
+                .world_mut()
+                .run_system_once(move |spatial: SpatialQuery| {
+                    let filter = SpatialQueryFilter::from_mask(GameLayer::World);
+                    let mut bad = Vec::new();
+                    for (name, at) in &plates {
+                        for k in 0..32 {
+                            let angle = k as f32 / 32.0 * std::f32::consts::TAU;
+                            let out = Vec3::new(angle.cos(), 0.0, angle.sin());
+                            let dir = Dir3::new(out).unwrap();
+                            // Nothing between the middle and the rim, at knee and at waist.
+                            for height in [0.3, 1.0] {
+                                let from = *at + Vec3::Y * height;
+                                if let Some(hit) = spatial.cast_ray(from, dir, GENERATOR_PLATE_RADIUS - 0.02, true, &filter) {
+                                    bad.push(format!("{name}: blocked {:.2} m out at {angle:.2} rad, {height} m up", hit.distance));
+                                }
+                            }
+                            // Floor under the rim, level with the middle.
+                            let rim = *at + out * (GENERATOR_PLATE_RADIUS - 0.05) + Vec3::Y * 0.3;
+                            let level = spatial
+                                .cast_ray(rim, Dir3::NEG_Y, 0.6, true, &filter)
+                                .is_some_and(|hit| (hit.distance - 0.3).abs() < 0.1);
+                            if !level {
+                                bad.push(format!("{name}: no level floor under the rim at {angle:.2} rad"));
+                            }
+                        }
+                    }
+                    bad
+                })
+                .unwrap();
+            assert!(bad.is_empty(), "on the {}: {bad:?}", map.name());
+        }
+    }
+
     #[test]
     fn nothing_on_the_map_stands_in_anything_else() {
         for map in MapId::ALL {
@@ -1006,6 +1052,12 @@ pub(crate) mod tests {
                 for (b, at_b, clear_b) in &fixtures[i + 1..] {
                     // A storey apart is apart.
                     if (at_a.y - at_b.y).abs() > 2.5 {
+                        continue;
+                    }
+                    // A Generator's console stands at the back of its own plate.
+                    if let (Some(console), Some(plate)) = (a.strip_suffix("'s console"), b.strip_suffix("'s plate"))
+                        && console == plate
+                    {
                         continue;
                     }
                     let gap = Vec2::new(at_a.x - at_b.x, at_a.z - at_b.z).length();

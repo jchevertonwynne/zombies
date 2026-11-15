@@ -1869,9 +1869,13 @@ pub const GENERATOR_CLAIM_CHARGE_SECS: f32 = 20.0;
 /// Seconds of Charge a Reclaim of a Lost Generator takes. It's free.
 pub const GENERATOR_RECLAIM_CHARGE_SECS: f32 = 10.0;
 /// How far from the middle of a Generator's plate a Player's feet can be and still Charge it.
-pub const GENERATOR_PLATE_RADIUS: f32 = 1.2;
+pub const GENERATOR_PLATE_RADIUS: f32 = 2.0;
 /// How far a Player's feet can be above or below the plate and still be on it.
 pub const GENERATOR_PLATE_SLACK: f32 = 0.4;
+/// The plate's glow while a Player stands on it, as an emissive colour; it has none otherwise.
+pub const GENERATOR_PLATE_GLOW: Color = Color::srgb(1.0, 0.55, 0.08);
+/// How many times brighter than `GENERATOR_PLATE_GLOW` the plate's emissive is, while it glows.
+pub const GENERATOR_PLATE_GLOW_STRENGTH: f32 = 3.0;
 /// A Generator's console at the back of its plate: across, high, and deep from its face.
 pub const GENERATOR_CONSOLE: Vec3 = Vec3::new(1.4, 1.8, 0.5);
 /// How high up its console a Generator's dial and Prompt sit…
