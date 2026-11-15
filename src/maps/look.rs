@@ -74,16 +74,16 @@ pub const DUSK: Look = Look {
     ambient_colour: Color::srgb(0.55, 0.6, 0.75),
     ambient_brightness: 250.0,
     sky: Color::srgb(0.28, 0.25, 0.28),
-    fog: Color::srgb(0.42, 0.34, 0.34),
+    fog: Color::srgb(0.24, 0.18, 0.2),
     // Poly Haven's Belfast Sunset (Pure Sky), turned to put its sun where the Layout's is.
-    sky_map: Some(("skies/belfast_sunset_puresky/sky.ktx2", 1200.0)),
+    sky_map: Some(("skies/belfast_sunset_puresky/sky.ktx2", 260.0)),
     lamps: 1.0,
     temperature: 0.05,
     tint: 0.02,
 };
 
 /// How strongly the sky lights the Map, as a fraction of how bright it shows.
-const SKY_LIGHT: f32 = 0.25;
+const SKY_LIGHT: f32 = 0.7;
 
 /// The fog's colour while the eye is indoors on a roofed Map: near-black, so a room doesn't glow
 /// the sky's colour.
