@@ -170,6 +170,7 @@ impl Plugin for AudioPlugin {
                     play_player_sounds,
                     play_teammate_sounds,
                     play_zombie_sounds,
+                    play_splashes,
                     play_map_sounds,
                     idle_vocals,
                     perk_jingles,
@@ -532,6 +533,7 @@ fn play_teammate_sounds(
         (With<Player>, Without<LocalPlayer>),
     >,
     time: Res<Time>,
+    map: Option<Res<crate::maps::map::MapId>>,
 ) {
     let dt = time.delta_secs();
     for (teammate, transform, pose, shots, held, heard) in &mut teammates {
@@ -564,9 +566,15 @@ fn play_teammate_sounds(
                 Some((cue, interval)) if heard.step >= interval => {
                     heard.step = 0.0;
                     // Footsteps from the feet; a crawling body drags along the ground it lies on.
+                    let feet = at - Vec3::Y * (PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0);
                     let from = match cue {
-                        Cue::Footstep => at - Vec3::Y * (PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0),
+                        Cue::Footstep => feet,
                         _ => at,
+                    };
+                    // Through Shallow Water a footstep is a wade.
+                    let cue = match (cue, map.as_ref()) {
+                        (Cue::Footstep, Some(map)) if crate::maps::water::wading(map.layout(), feet) => Cue::WadeStep,
+                        _ => cue,
                     };
                     sounds.play_from(&mut commands, cue, from, 1.0);
                 }
@@ -580,6 +588,20 @@ fn play_teammate_sounds(
         heard.last = at;
     }
 }
+
+/// A Player or Zombie entering Shallow Water splashes, heard from their feet.
+fn play_splashes(
+    mut commands: Commands,
+    mut sounds: ResMut<Sounds>,
+    entered: Query<&GlobalTransform, Added<crate::maps::water::Wet>>,
+) {
+    for at in &entered {
+        sounds.play(&mut commands, Cue::Splash, Some(at.translation() - Vec3::Y * ZOMBIE_CENTRE_HEIGHT));
+    }
+}
+
+/// About how high a Player's or Zombie's centre is over their feet, for a sound from the feet.
+const ZOMBIE_CENTRE_HEIGHT: f32 = 0.9;
 
 /// Zombies, Hellhounds and Nova Crawlers arriving, losing their legs and dying.
 fn play_zombie_sounds(

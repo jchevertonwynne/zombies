@@ -104,6 +104,8 @@ fn recipe(cue: Cue) -> Recipe {
         Cue::StanceRustle => Recipe::Synth(rustle()),
         Cue::DiveLand => Recipe::Synth(dive_land()),
         Cue::CrawlDrag => Recipe::Synth(crawl_drag()),
+        Cue::WadeStep => Recipe::Synth(wade_step()),
+        Cue::Splash => Recipe::Synth(splash()),
         Cue::DoorOpen => Recipe::Synth(door_open()),
         Cue::PowerOn => Recipe::Synth(power_on()),
         Cue::PerkJingleJuggernog => Recipe::Synth(chiptune(&[48, 0, 48, 51, 55, 0, 53, 51, 50, 0, 50, 53, 51, 0, 48, 0], 0.3)),
@@ -655,6 +657,40 @@ fn footstep() -> Vec<f32> {
             (thud + scuff).clamp(-1.0, 1.0)
         })
         .collect()
+}
+
+/// A foot pushed through shallow water: a low slosh with a bright slap and a trickle after it.
+fn wade_step() -> Vec<f32> {
+    let mut seed = 0x6a00_0031;
+    let mut low = 0.0;
+    samples(0.3)
+        .map(|t| {
+            low += (noise(&mut seed) - low) * 0.12;
+            let slosh = low * 1.4 * (t * 60.0).min(1.0) * (-t * 9.0).exp();
+            let slap = noise(&mut seed) * (-t * 55.0).exp() * 0.3;
+            let drip = (TAU * 900.0 * t).sin() * (-((t - 0.16) * 60.0).powi(2)).exp() * 0.12;
+            (slosh + slap + drip).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
+/// Something dropping into water: a plunge of dark noise, a bright spray and a few drops.
+fn splash() -> Vec<f32> {
+    let mut seed = 0x6a00_0032;
+    let mut low = 0.0;
+    let mut out: Vec<f32> = samples(0.7)
+        .map(|t| {
+            low += (noise(&mut seed) - low) * 0.18;
+            let plunge = low * 1.6 * (t * 80.0).min(1.0) * (-t * 7.0).exp();
+            let spray = noise(&mut seed) * (-t * 20.0).exp() * 0.35;
+            (plunge + spray).clamp(-1.0, 1.0)
+        })
+        .collect();
+    for (i, at) in [0.18, 0.27, 0.4].into_iter().enumerate() {
+        let drop: Vec<f32> = samples(0.05).map(|t| (TAU * (700.0 + 250.0 * i as f32) * t).sin() * (-t * 70.0).exp() * 0.2).collect();
+        layer(&mut out, at, &drop);
+    }
+    clamped(out)
 }
 
 /// Cloth and gear shifting: a soft swell of band-limited noise with a little scuff in it.

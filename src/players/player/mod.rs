@@ -905,6 +905,8 @@ pub struct MoveContext<'a> {
     pub last_stand: bool,
     /// The Jump Pads that throw right now (see `jump_pad::working`).
     pub jump_pads: &'static [JumpPad],
+    /// The Map's pools, to wade through: `None` where there is no Map (a bare test world).
+    pub layout: Option<&'static crate::maps::map::Layout>,
 }
 
 /// Runs this tick's `MoveInput` for every Player but a client's puppets, which move as the Host
@@ -922,9 +924,10 @@ pub(crate) fn move_player(
     time: Res<Time>,
     (map, power): (Option<Res<MapId>>, Option<Res<Power>>),
 ) {
-    let jump_pads = map.map_or(&[][..], |map| crate::maps::jump_pad::working(*map, power.is_some_and(|power| power.is_on())));
+    let jump_pads = map.as_ref().map_or(&[][..], |map| crate::maps::jump_pad::working(**map, power.is_some_and(|power| power.is_on())));
+    let layout = map.map(|map| map.layout());
     for (entity, mut transform, mut locomotion, input, loadout, modifiers, drinking, last_stand) in &mut players {
-        let mut context = MoveContext { entity, loadout, modifiers, drinking, last_stand, jump_pads };
+        let mut context = MoveContext { entity, loadout, modifiers, drinking, last_stand, jump_pads, layout };
         if let Some(stance) = step_move(&mut transform.translation, &mut locomotion, input, &mut context, time.delta(), &move_and_slide) {
             commands.entity(entity).insert(stance.collider());
             if let Ok(mut easing) = easings.get_mut(entity) {
@@ -946,11 +949,16 @@ pub fn step_move(
     delta: Duration,
     move_and_slide: &MoveAndSlide,
 ) -> Option<Stance> {
-    let MoveContext { entity, loadout, modifiers, drinking, last_stand, jump_pads } = *context;
+    let MoveContext { entity, loadout, modifiers, drinking, last_stand, jump_pads, layout } = *context;
     let dt = delta.as_secs_f32();
     let rotation = Quat::from_rotation_y(input.yaw);
 
     let wish = input.axes.normalize_or_zero();
+
+    // Wading: feet in Shallow Water slow every step, and there's no lying down in it (the camera
+    // would be under the surface). It's worked out here from where the feet are, as the Jump Pads
+    // are, so a client replaying its inputs wades exactly where the Host does.
+    let wading = layout.is_some_and(|layout| crate::maps::water::wading(layout, *position - Vec3::Y * locomotion.shape().half_height()));
 
     let mut changed = None;
     // The Down pose: a Down from any Stance, on the ground or in the air, lays the body down at
@@ -966,6 +974,9 @@ pub fn step_move(
     // put; getting up passes the ceiling check first, then grows. Nothing changes in the air.
     let target = if last_stand {
         Stance::Standing
+    } else if input.prone && wading {
+        // No going Prone or Diving in Shallow Water, and a Prone Player crawling in rises to Crouched.
+        Stance::Crouched
     } else if input.prone {
         Stance::Prone
     } else if input.crouch {
@@ -1057,7 +1068,7 @@ pub fn step_move(
     } else {
         PLAYER_WALK_SPEED * moving_as.speed_mult()
     };
-    let speed = loadout.move_speed(base, &modifiers.0);
+    let speed = loadout.move_speed(base, &modifiers.0) * if wading { WADE_SPEED_MULT } else { 1.0 };
 
     let wish_world = rotation * Vec3::new(wish.x, 0.0, -wish.y) * speed;
     let horizontal = Vec3::new(locomotion.velocity.x, 0.0, locomotion.velocity.z);
@@ -1101,7 +1112,7 @@ pub fn step_move(
     let jumped = jumped || thrown.is_some();
 
     let config = MoveAndSlideConfig::default();
-    let filter = SpatialQueryFilter::from_mask([GameLayer::World, GameLayer::Zombie, GameLayer::Window])
+    let filter = SpatialQueryFilter::from_mask([GameLayer::World, GameLayer::Zombie, GameLayer::Window, GameLayer::WaterEdge])
         .with_excluded_entities([entity]);
     let mut grounded = false;
     let out = move_and_slide.move_and_slide(

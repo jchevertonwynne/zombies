@@ -13,4 +13,7 @@ pub enum GameLayer {
     Window,
     /// Thrown Equipment, which bounces off the world and passes through everyone.
     Thrown,
+    /// The invisible walls round Deep Water: solid to the Player only, so Zombies (kept out by the
+    /// path-node graph) and bullets pass.
+    WaterEdge,
 }

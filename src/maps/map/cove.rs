@@ -31,7 +31,7 @@ use crate::tuning::*;
 use crate::weapons::arsenal::WeaponId;
 
 use super::build::{Builder, Gap};
-use super::{Layout, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, door, palette, prop};
+use super::{Layout, Level, Pool, Prop, concat, PropKind, RaisedFloor, STOREY, Slope, Sunken, door, palette, prop};
 
 /// How far along x the Cove stands from the world's middle, west of the Village.
 pub const COVE_X: f32 = -400.0;
@@ -92,7 +92,9 @@ pub(super) const COVE: Layout = Layout {
     vents: &[],
     raised_floors: &RAISED_FLOORS,
     slopes: &SLOPES,
-    sunken: &WELLS,
+    sunken: &SUNKEN,
+    water: &POOLS,
+    canals: &[],
     props: PROPS,
     lamps: &LAMPS,
     fixed_joins: &[],
@@ -253,6 +255,76 @@ const GARDEN: RaisedFloor = RaisedFloor { zone: ZoneId::Pensione, min: v(28.0, 2
 
 const RAISED_FLOORS: [RaisedFloor; 8] = [SHELF, SEAWARD, GUNS, LIGHT_LANDING, GALLERY, BELL_LANDING, BELFRY, GARDEN];
 
+/// How high the sea wall's parapet is between its windows: too high to jump onto.
+const PARAPET: f32 = 1.6;
+
+/// The surface of the surf and the sea, over the beach at y 0.
+const SURF: f32 = SHORE + 0.5;
+/// The sea's bed, 2.5 m under the beach: 3 m of water.
+const SEA_BED: f32 = SHORE - 2.5;
+
+/// The sea bed, a rimless Sunken floor in each Shore Zone along the south edge, out past the sea
+/// wall to the plan's edge.
+const SEA_BEDS: [Sunken; 4] = [
+    Sunken { zone: ZoneId::SeaCave, min: v(-56.0, -24.0), max: v(-44.0, -14.0), depth: 2.5, rim: false },
+    Sunken { zone: ZoneId::Shingle, min: v(-44.0, -24.0), max: v(-22.0, -14.0), depth: 2.5, rim: false },
+    Sunken { zone: ZoneId::Strand, min: v(-22.0, -24.0), max: v(20.0, -14.0), depth: 2.5, rim: false },
+    Sunken { zone: ZoneId::Boathouse, min: v(20.0, -24.0), max: v(34.0, -14.0), depth: 2.5, rim: false },
+];
+
+/// Every sunken floor: the stairwells and the sea bed.
+const SUNKEN: [Sunken; 11] = concat(WELLS, SEA_BEDS);
+
+/// A pool of `zone` across `min`..`max`, its surface at `level` over a bed at `bed`.
+const fn pool(zone: ZoneId, min: Vec2, max: Vec2, level: f32, bed: f32) -> Pool {
+    Pool { zone, min, max, level: Level::Still(level), bed }
+}
+
+/// The sea: 3 m deep over the sea bed, beyond the sea wall. Its pools stop short of the pockets
+/// outside the windows (each 4 m wide, a dry floor in the sea), so the far band runs the whole
+/// way along and the gaps between the pockets are filled in.
+const fn sea(zone: ZoneId, x0: f32, z0: f32, x1: f32, z1: f32) -> Pool {
+    pool(zone, v(x0, z0), v(x1, z1), SURF, SEA_BED)
+}
+
+/// A pool of shallow water over the beach: 0.5 m deep.
+const fn shallow(zone: ZoneId, x0: f32, z0: f32, x1: f32, z1: f32) -> Pool {
+    pool(zone, v(x0, z0), v(x1, z1), SURF, SHORE)
+}
+
+/// The pools. Shallow: the Strand's surf, the Shingle's surf and two rock pools, the Sea Cave's
+/// tidal pool round its shelf, the Boathouse's slipway and the Washhouse's basin. Deep: the sea,
+/// at the same level as the surf it meets, so the surface never steps.
+const POOLS: [Pool; 22] = {
+    use ZoneId::*;
+    [
+        shallow(Strand, -22.0, -14.0, 20.0, -7.0),
+        shallow(Shingle, -44.0, -14.0, -22.0, -9.0),
+        shallow(Shingle, -39.0, -6.0, -34.0, -2.0),
+        shallow(Shingle, -31.0, -3.0, -26.0, 1.0),
+        // The tidal pool: a strip each side of the shelf, and one at the foot of its steps.
+        shallow(SeaCave, -56.0, -14.0, -44.0, -11.0),
+        shallow(SeaCave, -56.0, -11.0, -53.5, -1.0),
+        shallow(SeaCave, -47.0, -11.0, -44.0, -1.0),
+        shallow(SeaCave, -53.5, -1.8, -47.0, 0.0),
+        pool(Boathouse, v(22.5, -14.0), v(33.5, -8.0), SHORE + 0.4, SHORE),
+        pool(Washhouse, v(-53.5, 11.0), v(-46.5, 19.0), LOWER + 0.6, LOWER),
+        // The sea: the far band, then the gaps between the window pockets.
+        sea(SeaCave, -56.0, -24.0, -44.0, -18.0),
+        sea(Shingle, -44.0, -24.0, -22.0, -18.0),
+        sea(Strand, -22.0, -24.0, 20.0, -18.0),
+        sea(Boathouse, 20.0, -24.0, 34.0, -18.0),
+        sea(SeaCave, -56.0, -18.0, -44.0, -14.0),
+        sea(Shingle, -44.0, -18.0, -36.0, -14.0),
+        sea(Shingle, -32.0, -18.0, -22.0, -14.0),
+        sea(Strand, -22.0, -18.0, -16.0, -14.0),
+        sea(Strand, -12.0, -18.0, 8.0, -14.0),
+        sea(Strand, 12.0, -18.0, 20.0, -14.0),
+        sea(Boathouse, 20.0, -18.0, 25.0, -14.0),
+        sea(Boathouse, 29.0, -18.0, 34.0, -14.0),
+    ]
+};
+
 /// The stairwells: each flight's well in the floor of the Zone at its top, a storey deep.
 const WELLS: [Sunken; 7] = [
     // Sea Wall Steps, Strand to Fish Market.
@@ -389,15 +461,16 @@ fn pocket(b: &mut Builder, centre: Vec3, out: Vec2) {
 fn build(b: &mut Builder) {
     use ZoneId::*;
     const H: f32 = STOREY;
-    // The Shore: the sea wall with its windows, the cliffs either end, and the walls between.
-    xwall(
-        b,
-        (-56.0, 34.0),
-        -14.0,
-        SHORE,
-        H,
-        vec![(-34.0, Gap::Window), (-14.0, Gap::Window), (10.0, Gap::Window), (27.0, Gap::Window)],
-    );
+    // The Shore: the sea wall with its windows, the cliffs either end, and the walls between. The
+    // wall stands full height where there are windows, chalk outlines and Quick Revive, and is a
+    // low parapet between, so the sea shows over it.
+    xwall(b, (-56.0, -37.0), -14.0, SHORE, PARAPET, vec![]);
+    xwall(b, (-37.0, -31.0), -14.0, SHORE, H, vec![(-34.0, Gap::Window)]);
+    xwall(b, (-31.0, -17.0), -14.0, SHORE, PARAPET, vec![]);
+    xwall(b, (-17.0, 13.0), -14.0, SHORE, H, vec![(-14.0, Gap::Window), (10.0, Gap::Window)]);
+    xwall(b, (13.0, 24.0), -14.0, SHORE, PARAPET, vec![]);
+    xwall(b, (24.0, 30.0), -14.0, SHORE, H, vec![(27.0, Gap::Window)]);
+    xwall(b, (30.0, 34.0), -14.0, SHORE, PARAPET, vec![]);
     zwall(b, -56.0, (-14.0, 6.0), SHORE, H, vec![]);
     zwall(b, 34.0, (-14.0, 6.0), SHORE, H, vec![]);
     zwall(b, -44.0, (-14.0, 6.0), SHORE, H, vec![(-4.0, Gap::Door(Some((SeaCave, Shingle)), None))]);

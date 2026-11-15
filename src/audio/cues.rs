@@ -104,6 +104,10 @@ cues! {
     DiveLand => "dive_land", Root, Flat, 0.6;
     // Only teammates drag along a Crawl; the Player's own, like their footsteps, is silent.
     CrawlDrag => "crawl_drag", Root, Spatial, 0.4;
+    // A teammate's footstep in Shallow Water, in place of `Footstep`; and anyone, Player or Zombie,
+    // entering water.
+    WadeStep => "wade_step", Root, Spatial, 0.45;
+    Splash => "splash", Root, Spatial, 0.6;
 
     // Buying and the Map
     Buy => "buy", Root, Flat, 0.7;
@@ -285,6 +289,8 @@ mod tests {
             "helmet_off", "sapper_stun", "sapper_death",
             // Not in the appendix: a teammate's footstep and Crawl drag, for Co-op, and the stance cues.
             "footstep", "stance_rustle", "dive_land", "crawl_drag",
+            // The Cove's water: a wading footstep and the splash of entering.
+            "wade_step", "splash",
             // Gauntlet v2's Proc cues (spec #182, Appendix C6).
             "proc_frost", "proc_blast",
             "set_bonus_tier_two", "set_bonus_tier_four", "set_bonus_tier_six", "duo_taken",

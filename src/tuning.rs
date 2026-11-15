@@ -2601,3 +2601,15 @@ pub const REVIVE_HOLD_GRACE_SECS: f32 = 0.2;
 /// How much a client's Health may regenerate before the Host tells it again, so the regen is not
 /// a message every frame. A hit, a Down and a full bar are always told.
 pub const HEALTH_TELL_STEP: f32 = 5.0;
+
+// Water
+/// How deep still water has to be, over its bed, to be Deep Water rather than Shallow.
+pub const DEEP_WATER_DEPTH: f32 = 1.0;
+/// The factor on a Player's or a Zombie's speed while their feet are in Shallow Water.
+pub const WADE_SPEED_MULT: f32 = 0.7;
+/// How far below its bed a pool still counts feet as in it (a body sinks a little into the floor).
+pub const WATER_BED_SLACK: f32 = 0.5;
+/// How high over a Deep Water pool's surface the invisible walls round it reach.
+pub const WATER_EDGE_HEIGHT: f32 = 2.5;
+/// How wide the foam strip is where Shallow Water meets Deep.
+pub const WATER_FOAM_WIDTH: f32 = 0.6;

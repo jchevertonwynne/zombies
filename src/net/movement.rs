@@ -35,6 +35,11 @@ use crate::tuning::*;
 
 /// One machine of the Run: the Map and all `seats` Players, the one in `local` the `LocalPlayer`.
 pub(super) fn machine(local: u8, seats: u8, install: impl FnOnce(&mut App)) -> App {
+    machine_on(crate::maps::map::MapId::Greybox, local, seats, install)
+}
+
+/// The same on `map`.
+pub(super) fn machine_on(map: crate::maps::map::MapId, local: u8, seats: u8, install: impl FnOnce(&mut App)) -> App {
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, AssetPlugin::default(), TransformPlugin, PhysicsPlugins::default(), StatesPlugin))
         .init_asset::<Mesh>()
@@ -47,8 +52,8 @@ pub(super) fn machine(local: u8, seats: u8, install: impl FnOnce(&mut App)) -> A
         .add_message::<SpecialCue>()
         .add_message::<NovaCrawlerKilled>()
         .init_resource::<ActivePowerUps>()
-        .insert_resource(crate::maps::map::MapId::Greybox)
-        .insert_resource(NavGraph::new(crate::maps::map::MapId::Greybox))
+        .insert_resource(map)
+        .insert_resource(NavGraph::new(map))
         .insert_resource(Barriers::default())
         .add_plugins((ZombiePlugin, HellhoundPlugin))
         .add_systems(Startup, (special::load_assets, sapper::load_assets, crate::enemies::nova::load_assets))
@@ -59,7 +64,7 @@ pub(super) fn machine(local: u8, seats: u8, install: impl FnOnce(&mut App)) -> A
     app.cleanup();
     app.world_mut().run_system_once(crate::maps::map::spawn_map).unwrap();
     for seat in 0..seats {
-        let mut player = app.world_mut().spawn(player_body(Seat(seat), "Player", &[], crate::maps::map::MapId::Greybox));
+        let mut player = app.world_mut().spawn(player_body(Seat(seat), "Player", &[], map));
         if seat == local {
             player.insert(LocalPlayer);
         }
@@ -82,19 +87,24 @@ impl Run {
 
     /// The same, with `extra` added to every machine.
     pub(super) fn with(clients: u8, delay: u32, loss: f32, jitter: u32, extra: &dyn Fn(&mut App)) -> Self {
+        Self::on(crate::maps::map::MapId::Greybox, clients, delay, loss, jitter, extra)
+    }
+
+    /// The same on `map`.
+    pub(super) fn on(map: crate::maps::map::MapId, clients: u8, delay: u32, loss: f32, jitter: u32, extra: &dyn Fn(&mut App)) -> Self {
         let mut hub = Hub::new(delay, loss);
         hub.jitter = jitter;
         let seats = clients + 1;
         let host_link = hub.host();
         let links: Vec<_> = (0..clients).map(|_| hub.join()).collect();
         let remotes: Vec<(Peer, u8)> = links.iter().map(|link| (link.peer(), link.peer() as u8)).collect();
-        let mut apps = vec![machine(0, seats, |app| {
+        let mut apps = vec![machine_on(map, 0, seats, |app| {
             extra(app);
             install_host(app, host_link, remotes);
         })];
         for link in links {
             let seat = link.peer() as u8;
-            apps.push(machine(seat, seats, |app| {
+            apps.push(machine_on(map, seat, seats, |app| {
                 extra(app);
                 install_client(app, link);
             }));
@@ -641,4 +651,32 @@ fn corrections_grinding_along_zombies_are_eased_out() {
     assert!(worst > 0.15, "the Host only put the Player right by {worst} m");
     assert!(raw > stride + 0.1, "unsmoothed, a frame moved only {raw} m");
     assert!(drawn < stride + 0.01, "a frame moved the Player {drawn} m against a stride of {stride} m");
+}
+
+/// A walk through the Cove's surf slows the client exactly where it slows the Host: wading is
+/// worked out inside the step from the feet, so the client's replay lands on the Host's place and
+/// is never put right.
+#[test]
+fn a_walk_through_shallow_water_replays_to_the_same_place() {
+    use crate::maps::map::MapId;
+    let mut run = Run::on(MapId::Cove, 1, 3, 0.0, 0, &|_| {});
+    let start = run.at(0, 1);
+    assert!(
+        crate::maps::water::wading(MapId::Cove.layout(), start - Vec3::Y * Stance::Standing.half_height()),
+        "the Seat isn't in the surf"
+    );
+    let east = -std::f32::consts::FRAC_PI_2;
+    let mut worst = 0.0f32;
+    for _ in 0..200 {
+        run.step(&|_, _| MoveInput { axes: Vec2::Y, yaw: east, ..default() }, 1);
+        worst = worst.max(run.corrected(1));
+    }
+    run.step(&|_, _| MoveInput { yaw: east, ..default() }, 60);
+    let (host, own) = (run.at(0, 1), run.at(1, 1));
+    let went = (host - start).xz().length();
+    let dry = PLAYER_WALK_SPEED * 200.0 / FIXED_HZ as f32;
+    assert!(went > 3.0, "the Player only went {went} m");
+    assert!(went < dry * 0.8, "the Player went {went} m of a dry {dry} m: not slowed");
+    assert!(own.distance(host) < 0.05, "the client has {own} for the Host's {host}");
+    assert!(worst < 0.05, "the Host put the client right by {worst} m");
 }

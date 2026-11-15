@@ -77,6 +77,8 @@ const C: f32 = COVE_X;
 
 const COVE: &[View] = &[
     view("strand-start", (C - 1.0, 0.0, -8.0), (C - 1.0, 6.0), 0.3, false),
+    view("sea-over-the-parapet", (C - 26.0, 0.0, -9.0), (C - 26.0, -40.0), 0.12, false),
+    view("surf-edge", (C - 9.0, 0.0, -2.0), (C - 4.0, -13.0), -0.25, false),
     view("strand-east", (C + 14.0, 0.0, -9.0), (C - 15.0, 0.0), 0.0, false),
     view("shingle", (C - 28.0, 0.0, -9.0), (C - 40.0, 4.0), 0.1, false),
     view("sea-cave", (C - 47.0, 0.0, 3.0), (C - 50.0, -10.0), -0.1, false),

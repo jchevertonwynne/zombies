@@ -614,6 +614,7 @@ fn reconcile(
     (map, power): (Res<crate::maps::map::MapId>, Option<Res<crate::maps::power::Power>>),
 ) {
     let jump_pads = crate::maps::jump_pad::working(*map, power.is_some_and(|power| power.is_on()));
+    let layout = Some(map.layout());
     let mut heard = std::mem::take(&mut inbox.snapshots);
     heard.retain(|snapshot| prediction.latest.is_none_or(|latest| snapshot.tick > latest));
     heard.sort_by_key(|snapshot| snapshot.tick);
@@ -662,7 +663,7 @@ fn reconcile(
         *locomotion = after_used.clone();
     }
     snapshot.own.put(&mut position, &mut locomotion);
-    let mut context = MoveContext { entity, loadout, modifiers, drinking, last_stand, jump_pads };
+    let mut context = MoveContext { entity, loadout, modifiers, drinking, last_stand, jump_pads, layout };
     for (_, step, _) in &prediction.sent {
         step_move(&mut position, &mut locomotion, &step.input(), &mut context, time.delta(), &move_and_slide);
     }

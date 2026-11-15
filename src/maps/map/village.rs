@@ -66,6 +66,8 @@ pub(super) const VILLAGE: Layout = Layout {
     raised_floors: &[CHANCEL],
     slopes: &SLOPES,
     sunken: &[],
+    water: &[],
+    canals: &[],
     props: PROPS,
     lamps: &LAMPS,
     fixed_joins: &FIXED_JOINS,

@@ -40,6 +40,7 @@ pub use cove::COVE_X;
 use crate::maps::darkness::{Chalk, Lamp};
 use crate::maps::generator::{Generator, SectionId};
 use crate::maps::jump_pad::JumpPad;
+pub use crate::maps::water::{Canal, Level, Pool, TideLevel, Wading, water_at};
 use crate::enemies::sapper::SapperTiming;
 
 /// One storey.
@@ -132,6 +133,10 @@ pub struct Layout {
     /// The steps and ramps.
     pub slopes: &'static [Slope],
     pub sunken: &'static [Sunken],
+    /// The pools of still water, empty on a Map without any (see `water`).
+    pub water: &'static [Pool],
+    /// The Canals that pools can follow the Tide with, empty on every Map until the Tide exists.
+    pub canals: &'static [Canal],
     /// The Props. Low ones (up to about 0.8 m) can be jumped onto and anything up to about 1.2 m
     /// clambered onto with a running jump; nothing a Player gets on top of lifts them out of a
     /// Zombie's reach. Tall ones are walls to weave round.
@@ -201,11 +206,16 @@ impl Layout {
         zones.chain(sunken).fold(f32::INFINITY, f32::min)
     }
 
-    /// Whether `at` is Out of Bounds: outside the Map's plan, or more than `OUT_OF_BOUNDS_DROP`
-    /// below its lowest floor.
+    /// Whether `at` is Out of Bounds: outside the Map's plan, in Deep Water, or more than
+    /// `OUT_OF_BOUNDS_DROP` below its lowest floor.
     pub fn out_of_bounds(&self, at: Vec3) -> bool {
         let (min, max) = self.plan;
-        at.x < min.x || at.x > max.x || at.z < min.y || at.z > max.y || at.y < self.lowest_floor() - OUT_OF_BOUNDS_DROP
+        at.x < min.x
+            || at.x > max.x
+            || at.z < min.y
+            || at.z > max.y
+            || at.y < self.lowest_floor() - OUT_OF_BOUNDS_DROP
+            || water_at(self, TideLevel::default(), at) == Some(Wading::Deep)
     }
 }
 
@@ -722,6 +732,9 @@ pub fn spawn_map(
         }
     }
 
+    // Water: the surfaces, and the walls round Deep Water.
+    crate::maps::water::spawn_water(&mut commands, &mut meshes, &mut materials, layout);
+
     // Chalk outlines: a pale gun shape drawn on the wall, its Buyable just in front.
     let chalk_mat = materials.add(StandardMaterial {
         base_color: Color::srgb(0.9, 0.9, 0.85),
@@ -1034,6 +1047,118 @@ pub(crate) mod tests {
                 assert!(!layout.out_of_bounds(at), "{what} on the {} at {at} is Out of Bounds", map.name());
             }
         }
+    }
+
+    /// The height of the floor built under (x, z) in `zone`: its sunken floor's, a Raised Floor's,
+    /// or the Zone's own.
+    fn built_floor(layout: &Layout, zone: ZoneId, at: Vec2) -> f32 {
+        if let Some(sunken) = layout.sunken.iter().find(|sunken| sunken.zone == zone && at.cmpgt(sunken.min).all() && at.cmplt(sunken.max).all()) {
+            return zone.floor() - sunken.depth;
+        }
+        if let Some(raised) = layout.raised_floors.iter().find(|raised| raised.zone == zone && at.cmpgt(raised.min).all() && at.cmplt(raised.max).all()) {
+            return raised.height;
+        }
+        zone.floor()
+    }
+
+    /// Each pool lies on the floor that's built there, over its whole extent, and no stairs or
+    /// ramps cross it.
+    #[test]
+    fn every_pools_bed_matches_the_floor_built_under_it() {
+        for map in MapId::ALL {
+            let layout = map.layout();
+            for pool in layout.water {
+                assert_eq!(pool.zone.map(), map, "a pool of {} on the {}", pool.zone.name(), map.name());
+                for fx in [0.02, 0.25, 0.5, 0.75, 0.98] {
+                    for fz in [0.02, 0.25, 0.5, 0.75, 0.98] {
+                        let at = pool.min + (pool.max - pool.min) * Vec2::new(fx, fz);
+                        let floor = built_floor(layout, pool.zone, at);
+                        assert!((floor - pool.bed).abs() < 1e-4, "{}'s pool at {at} has its bed at {} over a floor at {floor}", pool.zone.name(), pool.bed);
+                    }
+                }
+                for slope in layout.slopes.iter().filter(|slope| slope.zone == pool.zone) {
+                    let side = Vec2::new(-slope.up.y, slope.up.x) * slope.width / 2.0;
+                    let foot = Vec2::new(slope.foot.x, slope.foot.z);
+                    let (a, b) = (foot - side, foot + slope.up * slope.run + side);
+                    let (lo, hi) = (a.min(b), a.max(b));
+                    let apart = lo.x >= pool.max.x || hi.x <= pool.min.x || lo.y >= pool.max.y || hi.y <= pool.min.y;
+                    assert!(apart, "a flight in {} runs through a pool", pool.zone.name());
+                }
+            }
+        }
+    }
+
+    /// Pools that touch share a level (so the surface never steps), and the Cove's are all
+    /// 0.4-0.6 m deep but for the sea, 3 m.
+    #[test]
+    fn pools_that_touch_share_a_level_and_the_coves_depths_are_as_authored() {
+        let canals = &[];
+        for map in MapId::ALL {
+            let layout = map.layout();
+            for (i, a) in layout.water.iter().enumerate() {
+                for b in &layout.water[i + 1..] {
+                    let touch = a.min.x <= b.max.x && b.min.x <= a.max.x && a.min.y <= b.max.y && b.min.y <= a.max.y;
+                    if touch && a.bed == b.bed {
+                        assert_eq!(a.surface(canals, TideLevel::Low), b.surface(canals, TideLevel::Low), "{} and {} touch", a.zone.name(), b.zone.name());
+                    }
+                }
+            }
+        }
+        let cove = MapId::Cove.layout();
+        let (mut sea, mut shallow) = (0, 0);
+        for pool in cove.water {
+            let depth = pool.depth(cove.canals, TideLevel::Low);
+            match pool.kind(cove.canals, TideLevel::Low) {
+                Some(Wading::Shallow) => {
+                    shallow += 1;
+                    assert!((0.4 - 1e-4..=0.6 + 1e-4).contains(&depth), "a pool in {} is {depth} m deep", pool.zone.name());
+                }
+                Some(Wading::Deep) => {
+                    sea += 1;
+                    assert!((depth - 3.0).abs() < 1e-4, "the sea in {} is {depth} m deep", pool.zone.name());
+                }
+                None => panic!("a pool in {} has no depth", pool.zone.name()),
+            }
+        }
+        assert!(sea > 0 && shallow > 0);
+    }
+
+    /// Deep Water has no path nodes and no path-node edge crosses it, and nothing the Map places
+    /// (a Seat, a Spawn Point, a Buyable, a Box Location) is in it.
+    #[test]
+    fn nothing_a_zombie_walks_or_a_map_places_is_in_deep_water() {
+        for map in MapId::ALL {
+            let layout = map.layout();
+            let deep = |at: Vec3| water_at(layout, TideLevel::Low, at) == Some(Wading::Deep);
+            let nodes: std::collections::HashMap<_, _> = layout.nav_nodes.iter().map(|&(name, x, y, z)| (name, Vec3::new(x, y, z))).collect();
+            for (&name, &at) in &nodes {
+                assert!(!deep(at), "path node {name} on the {} is in Deep Water", map.name());
+            }
+            for &(a, b, _) in layout.nav_edges {
+                let (from, to) = (nodes[a], nodes[b]);
+                for k in 0..=40 {
+                    let at = from.lerp(to, k as f32 / 40.0);
+                    assert!(!deep(at), "the edge {a} - {b} on the {} crosses Deep Water at {at}", map.name());
+                }
+            }
+            for (name, at, _) in fixtures(map) {
+                assert!(!deep(at), "{name} on the {} is in Deep Water", map.name());
+            }
+            for seat in layout.seats {
+                assert!(!deep(seat), "a Seat on the {} is in Deep Water", map.name());
+            }
+        }
+    }
+
+    /// Feet in Deep Water are Out of Bounds, and feet in Shallow Water or a pool's air aren't.
+    #[test]
+    fn feet_in_deep_water_are_out_of_bounds() {
+        let cove = MapId::Cove.layout();
+        let sea = Vec3::new(COVE_X - 30.0, 0.0, -20.0);
+        assert!(cove.out_of_bounds(sea));
+        assert!(cove.out_of_bounds(sea - Vec3::Y * 1.5));
+        assert!(!cove.out_of_bounds(Vec3::new(COVE_X, 0.0, -10.0)), "the surf");
+        assert!(!cove.out_of_bounds(sea + Vec3::Y * 1.0), "over the sea, on a parapet say");
     }
 
     /// Each Map stands in its own part of the world, so nothing of one is inside another's Zones.
@@ -1350,6 +1475,10 @@ pub(crate) mod tests {
             all.push((name, slope.zone, (a.min(b) - across, a.max(b) + across), (slope.foot.y, slope.foot.y + slope.rise), Box::new(|_| false)));
         }
         for sunken in layout.sunken {
+            // A sea bed lies beyond its Zone, under the sea, not in the way of anything in it.
+            if sunken.max.y <= sunken.zone.volume().0.z {
+                continue;
+            }
             let floor = -sunken.depth;
             let name = format!("the sunken floor in {}", sunken.zone.name());
             all.push((name, sunken.zone, (sunken.min, sunken.max), (floor, 0.0), Box::new(move |at: Vec3| (at.y - floor).abs() < 0.05)));

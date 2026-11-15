@@ -90,6 +90,7 @@ fn main() {
         ))
         .add_plugins((
             maps::power::PowerPlugin,
+            maps::water::WaterPlugin,
             economy::perk::PerkPlugin,
             players::last_stand::LastStandPlugin,
             players::out_of_bounds::OutOfBoundsPlugin,

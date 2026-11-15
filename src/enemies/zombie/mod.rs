@@ -236,6 +236,41 @@ impl ZombieMoveFactor {
     }
 }
 
+/// The source a Zombie's wading slow goes on its `ZombieMoveFactor` under.
+pub const WADING: Source = Source("Wading");
+
+/// Zombies of every kind, the Sapper included, wade through Shallow Water at `WADE_SPEED_MULT`:
+/// set from their feet every tick, and cleared as they step out. It's the ground, not a crowd
+/// effect, so `Heavyweight` doesn't skip it. Nav costs don't change.
+fn wade(
+    mut commands: Commands,
+    mut zombies: Query<(Entity, &Zombie, &Transform, Option<&mut ZombieMoveFactor>), Without<Dying>>,
+    map: Option<Res<MapId>>,
+) {
+    let Some(layout) = map.map(|map| map.layout()).filter(|layout| !layout.water.is_empty()) else {
+        return;
+    };
+    for (entity, zombie, transform, factor) in &mut zombies {
+        let feet = transform.translation - Vec3::Y * zombie.half_height();
+        let in_water = crate::maps::water::wading(layout, feet);
+        match (factor, in_water) {
+            (Some(mut factor), true) => factor.set(WADING, WADE_SPEED_MULT),
+            (None, true) => {
+                let mut factor = ZombieMoveFactor::default();
+                factor.set(WADING, WADE_SPEED_MULT);
+                commands.entity(entity).insert(factor);
+            }
+            (Some(mut factor), false) if !factor.is_empty() => {
+                factor.clear(WADING);
+                if factor.is_empty() {
+                    commands.entity(entity).remove::<ZombieMoveFactor>();
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// A Zombie's move speed of `speed`, after its move factors if it has any.
 pub fn moved_speed(speed: f32, factor: Option<&ZombieMoveFactor>) -> f32 {
     speed * factor.map_or(1.0, ZombieMoveFactor::factor)
@@ -700,7 +735,7 @@ impl Plugin for ZombiePlugin {
             )
             .add_systems(
                 FixedUpdate,
-                (rise, chase, tumble, sink).in_set(HostSimulation).run_if(world_runs),
+                (rise, wade.before(chase), chase, tumble, sink).in_set(HostSimulation).run_if(world_runs),
             )
             .add_systems(
                 RunFixedMainLoop,
@@ -1726,6 +1761,47 @@ mod tests {
     use super::*;
 
     const STEP: f32 = 0.1;
+
+    /// Zombies of every kind wade through Shallow Water at ×0.7, the Sapper included, and are
+    /// freed the moment they step out.
+    #[test]
+    fn a_zombie_in_shallow_water_is_slowed_and_freed_as_it_steps_out() {
+        use crate::maps::map::COVE_X;
+        let mut sim = headless::Sim::on(MapId::Cove, 60.0, |_| {});
+        // The stand-in Player waits on the dry sand north of the surf.
+        let world = sim.world_mut();
+        for mut transform in world.query_filtered::<&mut Transform, With<crate::players::player::Player>>().iter_mut(world) {
+            transform.translation = Vec3::new(COVE_X - 8.0, 0.9, 1.0);
+        }
+        let wet = sim.spawn(Vec3::new(COVE_X - 8.0, 0.0, -11.0), None);
+        let sapper = sim.spawn(Vec3::new(COVE_X - 4.0, 0.0, -11.0), None);
+        sim.world_mut().entity_mut(sapper).insert(Heavyweight::SAPPER);
+        let dry = sim.spawn(Vec3::new(COVE_X + 4.0, 0.0, -3.0), None);
+        sim.run(3);
+        let factor = |sim: &mut headless::Sim, zombie| sim.world_mut().get::<ZombieMoveFactor>(zombie).map(ZombieMoveFactor::factor);
+        assert_eq!(factor(&mut sim, wet), Some(WADE_SPEED_MULT));
+        assert_eq!(factor(&mut sim, sapper), Some(WADE_SPEED_MULT), "the Sapper wades too");
+        assert_eq!(factor(&mut sim, dry), None);
+        // Walking out of the surf toward the Player, it's freed.
+        let mut slowed_for = 0;
+        for _ in 0..sim.frames(20.0) {
+            sim.run(1);
+            let feet_z = sim.world_mut().get::<Transform>(wet).unwrap().translation.z - 0.9;
+            match factor(&mut sim, wet) {
+                Some(f) => {
+                    assert_eq!(f, WADE_SPEED_MULT);
+                    assert!(feet_z < -7.0, "still slowed on the sand at {feet_z}");
+                    slowed_for += 1;
+                }
+                None if feet_z > -6.9 => break,
+                None => {}
+            }
+        }
+        assert!(slowed_for > 30, "was only slowed for {slowed_for} frames");
+        let feet_z = sim.world_mut().get::<Transform>(wet).unwrap().translation.z - 0.9;
+        assert!(feet_z > -7.0, "never walked out of the surf: {feet_z}");
+        assert_eq!(factor(&mut sim, wet), None, "the slow stayed on once out");
+    }
 
     #[test]
     fn a_zombie_without_a_move_factor_moves_at_its_speed() {

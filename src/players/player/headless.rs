@@ -638,7 +638,7 @@ fn replaying_the_same_inputs_from_the_same_start_reaches_the_same_position_and_s
             move |player: Single<(Entity, &Loadout, &Modifiers), With<Player>>,
                   move_and_slide: MoveAndSlide| {
                 let (entity, loadout, modifiers) = *player;
-                let mut context = MoveContext { entity, loadout, modifiers, drinking: false, last_stand: false, jump_pads: &[] };
+                let mut context = MoveContext { entity, loadout, modifiers, drinking: false, last_stand: false, jump_pads: &[], layout: None };
                 let (mut position, mut locomotion, inputs) = args.clone();
                 for input in &inputs {
                     step_move(&mut position, &mut locomotion, input, &mut context, Duration::from_secs_f64(1.0 / 64.0), &move_and_slide);
@@ -1309,7 +1309,7 @@ fn step_once(sim: &mut Sim, position: Vec3, locomotion: Locomotion, input: MoveI
     let id = world.register_system(
         move |player: Single<(Entity, &Loadout, &Modifiers), With<Player>>, move_and_slide: MoveAndSlide| {
             let (entity, loadout, modifiers) = *player;
-            let mut context = MoveContext { entity, loadout, modifiers, drinking: false, last_stand: false, jump_pads: &[] };
+            let mut context = MoveContext { entity, loadout, modifiers, drinking: false, last_stand: false, jump_pads: &[], layout: None };
             let (mut position, mut locomotion, input) = args.clone();
             step_move(&mut position, &mut locomotion, &input, &mut context, Duration::from_secs_f64(1.0 / 64.0), &move_and_slide);
             locomotion
@@ -1693,3 +1693,121 @@ fn the_player_cannot_leave_through_a_window_or_stand_on_its_sill() {
 
 #[cfg(test)]
 mod void_sweep;
+
+/// The Cove's Strand: dry sand along z -7 and up, and the surf from there to the sea wall.
+mod wading {
+    use super::*;
+    use crate::maps::map::COVE_X;
+
+    /// A Player on the Cove with feet at (`x`, `z`) in the Strand, facing `yaw`.
+    fn on_the_strand(x: f32, z: f32, yaw: f32) -> Sim {
+        let mut sim = Sim::on(MapId::Cove, 60.0);
+        sim.place(Vec3::new(COVE_X + x, 0.0, z), yaw);
+        sim
+    }
+
+    /// How far a Player holding forward gets in 1.5 s from the start.
+    fn walked(sim: &mut Sim) -> f32 {
+        let start = sim.frame().pos;
+        sim.hold(&[KeyCode::KeyW]);
+        let end = sim.run_secs(1.5).last().unwrap().pos;
+        (end - start).with_y(0.0).length()
+    }
+
+    /// In Shallow Water a Player moves at about `WADE_SPEED_MULT` of their dry pace.
+    #[test]
+    fn a_player_in_shallow_water_moves_at_seven_tenths() {
+        let dry = walked(&mut on_the_strand(-10.0, -3.0, EAST));
+        let wet = walked(&mut on_the_strand(-10.0, -10.0, EAST));
+        let ratio = wet / dry;
+        assert!(dry > 3.0, "dry: {dry} m");
+        assert!((ratio - WADE_SPEED_MULT).abs() < 0.06, "wading went {wet} m against a dry {dry} m: ×{ratio}");
+    }
+
+    /// The slow multiplies with every other: a sprint in the surf is a sprint at ×0.7.
+    #[test]
+    fn a_sprint_through_the_surf_is_slowed_too() {
+        let sprint = |z: f32| {
+            let mut sim = on_the_strand(-10.0, z, EAST);
+            let start = sim.frame().pos;
+            sim.hold(&[KeyCode::KeyW, KeyCode::ShiftLeft]);
+            (sim.run_secs(1.5).last().unwrap().pos - start).with_y(0.0).length()
+        };
+        let ratio = sprint(-10.0) / sprint(-3.0);
+        assert!((ratio - WADE_SPEED_MULT).abs() < 0.06, "×{ratio}");
+    }
+
+    /// Nobody goes Prone or Dives in Shallow Water: the press brings them to Crouched instead.
+    #[test]
+    fn a_player_cannot_go_prone_in_shallow_water() {
+        let mut sim = on_the_strand(-10.0, -10.0, 0.0);
+        sim.tap_prone();
+        sim.run_secs(1.0);
+        assert_eq!(sim.stance(), Stance::Crouched);
+        // Nor Dive out of a sprint.
+        let mut sim = on_the_strand(-10.0, -10.0, EAST);
+        sim.hold(&[KeyCode::KeyW, KeyCode::ShiftLeft]);
+        sim.run_secs(0.5);
+        sim.hold(&[KeyCode::KeyW, KeyCode::ShiftLeft, KeyCode::KeyZ]);
+        let flight = sim.run_secs(0.5);
+        assert!(flight.iter().all(|sample| sample.grounded), "a Dive left the floor");
+        assert_ne!(sim.stance(), Stance::Prone);
+    }
+
+    /// A Prone Player who crawls into Shallow Water comes up Crouched.
+    #[test]
+    fn a_prone_player_crawling_into_the_surf_rises_to_crouched() {
+        let mut sim = on_the_strand(-10.0, -5.5, 0.0);
+        sim.tap_prone();
+        sim.run_secs(1.0);
+        assert_eq!(sim.stance(), Stance::Prone, "never went Prone on the sand");
+        sim.hold(&[KeyCode::KeyW]);
+        let mut rose = None;
+        for _ in 0..600 {
+            let at = sim.frame().pos;
+            if sim.stance() == Stance::Crouched {
+                rose = Some(at);
+                break;
+            }
+        }
+        let at = rose.expect("never rose out of Prone");
+        assert!(at.z < -6.8, "rose on the dry sand at z {}", at.z);
+    }
+
+    /// Deep Water is a wall to a Player: with the sea wall out of the way, a Player running at the
+    /// sea stops at its edge, and never has feet in it.
+    #[test]
+    fn a_player_running_at_deep_water_stops_at_its_edge() {
+        use crate::layers::GameLayer;
+        let mut sim = on_the_strand(-24.0, -9.0, 0.0);
+        // Take the parapet down between the windows, which would stop them first.
+        let world = sim.app.world_mut();
+        let parapet: Vec<Entity> = world
+            .query::<(Entity, &Transform, &CollisionLayers)>()
+            .iter(world)
+            .filter(|(_, transform, layers)| {
+                layers.memberships.has_all(GameLayer::World)
+                    && (transform.translation.z + 14.0).abs() < 0.2
+                    && transform.translation.y < 1.0
+                    && transform.translation.x > COVE_X - 31.0
+                    && transform.translation.x < COVE_X - 17.0
+            })
+            .map(|(entity, ..)| entity)
+            .collect();
+        assert!(!parapet.is_empty(), "found no parapet to take down");
+        for entity in parapet {
+            world.entity_mut(entity).despawn();
+        }
+        sim.hold(&[KeyCode::KeyW]);
+        let samples = sim.run_secs(6.0);
+        let layout = MapId::Cove.layout();
+        let last = samples.last().unwrap();
+        let feet = last.pos - Vec3::Y * Stance::Standing.half_height();
+        assert!(feet.z < -13.0, "never reached the water's edge: z {}", feet.z);
+        assert!(feet.z > -14.0, "walked into the sea: z {}", feet.z);
+        for sample in &samples {
+            let feet = sample.pos - Vec3::Y * Stance::Standing.half_height();
+            assert!(!layout.out_of_bounds(feet), "had feet in Deep Water at {feet}");
+        }
+    }
+}

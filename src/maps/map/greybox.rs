@@ -42,6 +42,8 @@ pub(super) const GREYBOX: Layout = Layout {
     raised_floors: &RAISED_FLOORS,
     slopes: &SLOPES,
     sunken: &SUNKEN,
+    water: &[],
+    canals: &[],
     props: PROPS,
     lamps: &LAMPS,
     fixed_joins: &FIXED_JOINS,
