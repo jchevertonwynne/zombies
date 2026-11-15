@@ -409,6 +409,18 @@ pub fn materials(zone: Option<ZoneId>) -> Option<MaterialSet> {
         TurbineHall => (HangarConcreteFloor, ConcreteTileFacade, Some(OilStains), &[]),
         SpillwayStair => (WornConcreteFloor, ConcreteBlockWall02, None, &[]),
         DrainageGallery => (CrackedConcrete, ConcreteMoss, Some(Leaks), &[]),
+        // The Greybox's far side. East Hall is a chapel: mosaic under pale sandstone blocks, damp
+        // coming through. The Power Room is steel plate over oily hangar concrete, to set it off
+        // from the chapel and the Dining Room beside it. The Tunnel is wet, mossy poured concrete.
+        EastHall => (OldMosaicFloor, WhiteSandstoneBricks03, Some(Leaks), &[]),
+        PowerRoom => (HangarConcreteFloor, BlueMetalPlate, Some(OilStains), &[]),
+        Tunnel => (WornConcreteFloor, ConcreteMoss, Some(Leaks), &[]),
+        // The south wing, Workshop (tin) to Storeroom (whitewash on boards) to Generator Room (steel
+        // plate under rusted green panels).
+        Storeroom => (WeatheredPlanks, WhitePlasterRough01, None, &[]),
+        GeneratorRoom => (MetalPlate02, GreenMetalRust, None, &[]),
+        // The Balcony: boards under broken render, open to the night.
+        Balcony => (WeatheredPlanks, BrokenWall, None, &[]),
         _ => return None,
     };
     Some(MaterialSet { floor, wall, decals, props })

@@ -14,8 +14,9 @@ use crate::tuning::*;
 use crate::maps::zone::ZoneId;
 
 use super::build::{Builder, Gap};
+use super::textures::Material;
 use super::{
-    BarrierId, DOOR_HEIGHT, DOOR_WIDTH, Layout, PARAPET_THICKNESS, Palette, Prop, PropKind, RAIL_HEIGHT, RaisedFloor, STOREY, Slope, Sunken, door, paints, palette,
+    BarrierId, DOOR_HEIGHT, DOOR_WIDTH, Layout, PARAPET_THICKNESS, Palette, Prop, PropKind, RAIL_HEIGHT, RaisedFloor, STOREY, Slope, Sunken, door, materials, paints, palette,
     prop, v,
 };
 
@@ -429,8 +430,14 @@ fn build(b: &mut Builder) {
     let floor = |zone: ZoneId| palette(Some(zone)).floor;
 
     // The Balcony's floor and the ramp's landing, up at the first storey.
-    b.block(Vec3::new(4.0, 0.2, 24.0), Vec3::new(-12.0, STOREY - 0.1, -2.0), floor(Balcony));
+    let balcony = materials(Some(Balcony)).map(|set| set.floor);
+    b.block_in(Vec3::new(4.0, 0.2, 24.0), Vec3::new(-12.0, STOREY - 0.1, -2.0), floor(Balcony), balcony);
     b.block(Vec3::new(3.0, 0.2, 4.0), Vec3::new(-15.7, STOREY - 0.1, -2.0), floor(WestHall));
+
+    // The outside: asphalt underfoot, plain concrete on the outer walls' faces, a tar roof with
+    // precast parapets.
+    let ground = Some(Material::AsphaltFloor);
+    b.outside_wall = Some(Material::ConcreteWall006);
 
     // Ground outside the outer walls, where Zombies gather at the windows: round the ring, across
     // the gap between the ring and the south wing (just under the Passage floor, and either side of
@@ -445,7 +452,7 @@ fn build(b: &mut Builder) {
         (Vec3::new(4.0, 0.2, 12.0), Vec3::new(-36.0, -0.1, -44.0)),
         (Vec3::new(4.0, 0.2, 12.0), Vec3::new(36.0, -0.1, -44.0)),
     ] {
-        b.block(size, centre, palette(None).floor);
+        b.block_in(size, centre, palette(None).floor, ground);
     }
 
     // Outer walls, with the windows. West Hall's are two storeys tall, since its ramp climbs to
@@ -514,22 +521,25 @@ fn build(b: &mut Builder) {
     let (roof_min, roof_max) = BALCONY_ROOF;
     let roof = roof_max - roof_min;
     let roof_mid = (roof_min + roof_max) / 2.0;
-    b.block(Vec3::new(roof.x, 0.2, roof.y), Vec3::new(roof_mid.x, STOREY - 0.1, roof_mid.y), palette(None).floor);
+    b.block_in(Vec3::new(roof.x, 0.2, roof.y), Vec3::new(roof_mid.x, STOREY - 0.1, roof_mid.y), palette(None).floor, Some(Material::DamagedConcreteFloor03));
+    let parapet = Some(Material::ConcreteSlabWall02);
     let thick = PARAPET_THICKNESS;
     let rise = Vec3::Y * (STOREY + RAIL_HEIGHT / 2.0);
     for x in [roof_min.x + thick / 2.0, roof_max.x - thick / 2.0] {
-        b.block(Vec3::new(thick, RAIL_HEIGHT, roof.y), Vec3::new(x, 0.0, roof_mid.y) + rise, palette(None).trim);
+        b.block_in(Vec3::new(thick, RAIL_HEIGHT, roof.y), Vec3::new(x, 0.0, roof_mid.y) + rise, palette(None).trim, parapet);
     }
-    b.block(Vec3::new(roof.x, RAIL_HEIGHT, thick), Vec3::new(roof_mid.x, 0.0, roof_min.y + thick / 2.0) + rise, palette(None).trim);
+    b.block_in(Vec3::new(roof.x, RAIL_HEIGHT, thick), Vec3::new(roof_mid.x, 0.0, roof_min.y + thick / 2.0) + rise, palette(None).trim, parapet);
 
     // The Pack-a-Punch Gazebo, behind a Door that stays shut until both Teleporter Pads are Linked.
     let gazebo_height = DOOR_HEIGHT;
     b.repaint = Some(GAZEBO);
+    b.repaint_wall = Some(Material::RockWall08);
     b.wall(v(2.0, -10.0), v(8.0, -10.0), 0.0, gazebo_height, &[]);
     b.wall(v(2.0, -10.0), v(2.0, -4.0), 0.0, gazebo_height, &[]);
     b.wall(v(8.0, -10.0), v(8.0, -4.0), 0.0, gazebo_height, &[]);
     b.wall(v(2.0, -4.0), v(8.0, -4.0), 0.0, gazebo_height, &[(3.0, Gap::LinkedDoor(Some((Yard, Yard))))]);
     b.repaint = None;
+    b.repaint_wall = None;
     b.block(Vec3::new(6.8, 0.2, 6.8), Vec3::new(5.0, gazebo_height + 0.1, -7.0), GAZEBO.trim);
 }
 

@@ -361,6 +361,22 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
     },
     {
+      "path": "materials/white_plaster_rough_01",
+      "name": "White Plaster Rough 01",
+      "source": "https://polyhaven.com/a/white_plaster_rough_01",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1 m"
+    },
+    {
+      "path": "materials/white_sandstone_bricks_03",
+      "name": "White Sandstone Bricks 03",
+      "source": "https://polyhaven.com/a/white_sandstone_bricks_03",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
       "path": "materials/worn_brick_floor",
       "name": "Worn Brick Floor",
       "source": "https://polyhaven.com/a/worn_brick_floor",

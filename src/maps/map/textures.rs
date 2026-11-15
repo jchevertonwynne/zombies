@@ -64,11 +64,13 @@ pub enum Material {
     ConcreteBlockWall02,
     ConcreteMoss,
     CrackedConcrete,
+    WhiteSandstoneBricks03,
+    WhitePlasterRough01,
 }
 
 impl Material {
     #[cfg(test)]
-    pub const ALL: [Material; 41] = [
+    pub const ALL: [Material; 43] = [
         Material::DarkWoodenPlanks,
         Material::DamagedPlaster,
         Material::FloorTiles06,
@@ -110,6 +112,8 @@ impl Material {
         Material::ConcreteBlockWall02,
         Material::ConcreteMoss,
         Material::CrackedConcrete,
+        Material::WhiteSandstoneBricks03,
+        Material::WhitePlasterRough01,
     ];
 
     /// Its directory under `assets/materials/`, and the real-world size of one repeat in metres,
@@ -157,6 +161,8 @@ impl Material {
             Material::ConcreteBlockWall02 => ("concrete_block_wall_02", 2.005),
             Material::ConcreteMoss => ("concrete_moss", 3.0),
             Material::CrackedConcrete => ("cracked_concrete", 2.0),
+            Material::WhiteSandstoneBricks03 => ("white_sandstone_bricks_03", 2.0),
+            Material::WhitePlasterRough01 => ("white_plaster_rough_01", 1.0),
         }
     }
 

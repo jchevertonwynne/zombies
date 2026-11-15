@@ -81,6 +81,10 @@ pub(super) struct Builder<'a, 'w, 's> {
     power_door: Handle<StandardMaterial>,
     /// While set, walls are painted in this instead of their Zones' palettes.
     pub repaint: Option<Palette>,
+    /// The material walls wear while `repaint` is set, if any.
+    pub repaint_wall: Option<Material>,
+    /// The material the outer faces of walls (the ones looking out, into no Zone) wear, if any.
+    pub outside_wall: Option<Material>,
     /// The Map's windows, which its outer walls leave gaps for.
     windows: &'static [(ZoneId, Vec3, Vec2)],
     /// Every piece drawn since a Prop began: what its unit model replaces.
@@ -98,7 +102,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let cylinder = meshes.add(Cylinder::new(0.5, 1.0));
         let door = materials.add(Color::srgb(0.85, 0.45, 0.1));
         let power_door = materials.add(Color::srgb(0.5, 0.3, 0.8));
-        Self { commands, meshes, materials, cube, cylinder, paints: HashMap::new(), door, power_door, repaint: None, windows, drawn: Vec::new() }
+        Self { commands, meshes, materials, cube, cylinder, paints: HashMap::new(), door, power_door, repaint: None, repaint_wall: None, outside_wall: None, windows, drawn: Vec::new() }
     }
 
     /// The material for a flat colour.
@@ -733,7 +737,13 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
     /// storey.
     fn skin(&mut self, face: &Face, along_x: bool, line: f32, foot: Option<f32>) {
         let colours = self.repaint.unwrap_or_else(|| palette(face.zone));
-        let wall = if self.repaint.is_some() { None } else { materials(face.zone).map(|set| set.wall) };
+        let wall = if self.repaint.is_some() {
+            self.repaint_wall
+        } else if face.zone.is_none() {
+            self.outside_wall
+        } else {
+            materials(face.zone).map(|set| set.wall)
+        };
         let out = if along_x { face.normal.y } else { face.normal.x };
         let (from, to) = face.along;
         let slab = |this: &mut Self, off: f32, depth: f32, bottom: f32, top: f32, colour: Color, material: Option<Material>| {
