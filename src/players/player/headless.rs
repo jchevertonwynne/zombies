@@ -1690,7 +1690,7 @@ fn the_player_cannot_leave_through_a_window_or_stand_on_its_sill() {
         let last = samples.last().unwrap();
         let feet = last.pos.y - sim.stance().half_height();
         assert!(last.grounded && (feet - floor).abs() < 0.05, "{name}: came to rest {} m up", feet - floor);
-        assert_eq!(crate::enemies::nav::zone_at(last.pos), Some(crate::maps::zone::ZoneId::StartRoom), "{name}");
+        assert_eq!(crate::enemies::nav::zone_at(crate::maps::map::MapId::Greybox, last.pos), Some(crate::maps::zone::ZoneId::StartRoom), "{name}");
     }
 }
 

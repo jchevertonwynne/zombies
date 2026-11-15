@@ -656,7 +656,7 @@ fn climbs_in_over_the_sill(barrier: crate::maps::map::BarrierId, zone: crate::ma
         let end = *path.last().unwrap();
         // Past its landing (1.2 m in): it has set off after the Player.
         assert!((end - centre).dot(out) < -2.5, "crawler {crawler}: still at the window, at {end}");
-        assert_eq!(crate::enemies::nav::zone_at(end + Vec3::Y * 0.1), Some(zone), "crawler {crawler}");
+        assert_eq!(crate::enemies::nav::zone_at(map, end + Vec3::Y * 0.1), Some(zone), "crawler {crawler}");
     }
 }
 
@@ -738,7 +738,7 @@ fn every_open_floor_spot_walks_to_and_from_a_path_node_on(map_id: MapId) {
                             let fits = spatial.shape_intersections(&body, centre + Vec3::Y * 0.05, Quat::IDENTITY, &map).is_empty();
                             // Nobody stands in Deep Water, so nothing there needs a path node.
                             let in_deep = crate::maps::water::water_at(layout, crate::maps::map::TideLevel::Low, feet) == Some(crate::maps::map::Wading::Deep);
-                            if on_prop || in_deep || (map_id == MapId::Polder && (feet.y - floor).abs() > 0.3) || feet.y < -3.0 || !fits || crate::enemies::nav::zone_at(feet + Vec3::Y * 0.1) != Some(zone) {
+                            if on_prop || in_deep || (map_id == MapId::Polder && (feet.y - floor).abs() > 0.3) || feet.y < -3.0 || !fits || crate::enemies::nav::zone_at(map_id, feet + Vec3::Y * 0.1) != Some(zone) {
                                 continue;
                             }
                             if !seen.insert((feet * 10.0).round().as_ivec3()) {

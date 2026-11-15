@@ -823,7 +823,7 @@ fn candidates(
             });
         }
     }
-    all.retain(|c| zone_at(c.spot + Vec3::Y * 0.5).is_none_or(|zone| active.contains(zone)));
+    all.retain(|c| zone_at(graph.map, c.spot + Vec3::Y * 0.5).is_none_or(|zone| active.contains(zone)));
     all
 }
 

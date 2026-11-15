@@ -18,7 +18,7 @@ use super::door_look::{self, Part, Piece};
 use super::fitting::FittedModel;
 use super::textures::{Material, Shape, Textured, Tint, Veneer, box_uv_mesh};
 use crate::maps::machine_look::PowerGlow;
-use super::{DOOR_HEIGHT, DOOR_WIDTH, Palette, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, WALL_THICKNESS, WINDOW_WIDTH, materials, palette, prop_variant};
+use super::{MapId, DOOR_HEIGHT, DOOR_WIDTH, Palette, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, WALL_THICKNESS, WINDOW_WIDTH, materials, palette, prop_variant};
 use crate::maps::generator::{Generator, PlateDisc};
 use crate::maps::jump_pad::JumpPad;
 use crate::maps::zipline::Zipline;
@@ -100,6 +100,8 @@ pub(super) struct Builder<'a, 'w, 's> {
     pub outside_floor: Option<Material>,
     /// The Map's windows, which its outer walls leave gaps for.
     windows: &'static [(ZoneId, Vec3, Vec2)],
+    /// The Map being built: its Zones are the ones a wall's faces look into.
+    map: MapId,
     /// Every piece drawn since a Prop began: what its unit model replaces.
     drawn: Vec<Entity>,
 }
@@ -110,12 +112,13 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         meshes: &'a mut Assets<Mesh>,
         materials: &'a mut Assets<StandardMaterial>,
         windows: &'static [(ZoneId, Vec3, Vec2)],
+        map: MapId,
     ) -> Self {
         let cube = meshes.add(Cuboid::from_length(1.0));
         let cylinder = meshes.add(Cylinder::new(0.5, 1.0));
         let door = materials.add(Color::srgb(0.85, 0.45, 0.1));
         let power_door = materials.add(Color::srgb(0.5, 0.3, 0.8));
-        Self { commands, meshes, materials, cube, cylinder, paints: HashMap::new(), door, power_door, repaint: None, repaint_wall: None, outside_wall: None, outside_floor: None, windows, drawn: Vec::new() }
+        Self { commands, meshes, materials, cube, cylinder, paints: HashMap::new(), door, power_door, repaint: None, repaint_wall: None, outside_wall: None, outside_floor: None, windows, map, drawn: Vec::new() }
     }
 
     /// The material for a flat colour.
@@ -850,7 +853,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let line = if along_x { a.y } else { a.x };
         // Only a piece standing on the wall's foot stands on a floor.
         let foot = (lo == 0.0).then_some(y0);
-        for face in wall_faces(a, b, s, e, y0 + lo, y0 + hi) {
+        for face in wall_faces(self.map, a, b, s, e, y0 + lo, y0 + hi) {
             self.skin(&face, along_x, line, foot);
         }
     }
@@ -955,7 +958,7 @@ const FACE_SAMPLE_OUT: f32 = 0.3;
 /// `y0`..`y1` up: one for each side, each storey, and each Zone along the way. A storey is
 /// sampled a metre above its floor, so the top of a wall belongs to the room below it, and a
 /// storey of wall above a one-storey room looks into the outside.
-pub(super) fn wall_faces(a: Vec2, b: Vec2, s: f32, e: f32, y0: f32, y1: f32) -> Vec<Face> {
+pub(super) fn wall_faces(map: MapId, a: Vec2, b: Vec2, s: f32, e: f32, y0: f32, y1: f32) -> Vec<Face> {
     let along_x = a.y == b.y;
     let dir = (b - a).normalize();
     let (p, q) = (a + dir * s, a + dir * e);
@@ -994,7 +997,7 @@ pub(super) fn wall_faces(a: Vec2, b: Vec2, s: f32, e: f32, y0: f32, y1: f32) -> 
             for pair in cuts.windows(2) {
                 let mid = (pair[0] + pair[1]) / 2.0;
                 let at = if along_x { Vec2::new(mid, line) } else { Vec2::new(line, mid) } + normal * FACE_SAMPLE_OUT;
-                let zone = crate::enemies::nav::zone_at(Vec3::new(at.x, sample_y, at.y));
+                let zone = crate::enemies::nav::zone_at(map, Vec3::new(at.x, sample_y, at.y));
                 match &mut run {
                     Some(face) if face.zone == zone => face.along.1 = pair[1],
                     _ => {
@@ -1018,7 +1021,7 @@ mod tests {
     /// it in decimetres, and its Zone, sorted.
     fn worn(a: Vec2, b: Vec2, s: f32, e: f32, y0: f32, y1: f32) -> Vec<((i32, i32), (i32, i32), (i32, i32), Option<ZoneId>)> {
         let dm = |v: f32| (v * 10.0).round() as i32;
-        let mut faces: Vec<_> = wall_faces(a, b, s, e, y0, y1)
+        let mut faces: Vec<_> = wall_faces(MapId::Greybox, a, b, s, e, y0, y1)
             .into_iter()
             .map(|f| ((dm(f.normal.x), dm(f.normal.y)), (dm(f.along.0), dm(f.along.1)), (dm(f.y.0), dm(f.y.1)), f.zone))
             .collect();

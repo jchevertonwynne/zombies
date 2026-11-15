@@ -601,7 +601,7 @@ mod tests {
         assert!(layout.out_of_bounds(TideLevel::Mid, in_the_channel));
         assert!(!layout.out_of_bounds(TideLevel::Low, in_the_channel));
         let to = washed_up_target(&graph, layout, TideLevel::Mid, in_the_channel, Some(ZoneId::WeighHouse), None).unwrap();
-        assert_eq!(crate::enemies::nav::zone_at(to + Vec3::Y * 0.1), Some(ZoneId::WeighHouse));
+        assert_eq!(crate::enemies::nav::zone_at(MapId::Polder, to + Vec3::Y * 0.1), Some(ZoneId::WeighHouse));
     }
 
     // ---- The Turn, headless ----

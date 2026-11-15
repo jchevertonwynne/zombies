@@ -46,10 +46,10 @@ fn feet_of(transform: &Transform, locomotion: Option<&Locomotion>) -> Vec3 {
 }
 
 /// Notes where each Player last stood on the ground inside a Zone.
-pub fn note_footing(mut players: Query<(&Transform, Option<&Locomotion>, &mut Footing), With<Player>>) {
+pub fn note_footing(mut players: Query<(&Transform, Option<&Locomotion>, &mut Footing), With<Player>>, map: Res<MapId>) {
     for (transform, locomotion, mut footing) in &mut players {
         let feet = feet_of(transform, locomotion);
-        if locomotion.is_some_and(|locomotion| locomotion.grounded) && zone_at(feet + Vec3::Y * 0.1).is_some() {
+        if locomotion.is_some_and(|locomotion| locomotion.grounded) && zone_at(*map, feet + Vec3::Y * 0.1).is_some() {
             footing.0 = Some(feet);
         }
     }
@@ -135,14 +135,14 @@ pub fn washed_up(
         if !caught {
             continue;
         }
-        let Some(to) = washed_up_target(&graph, layout, level, feet, zone_at(feet + Vec3::Y * 0.1), open.as_deref()) else { continue };
+        let Some(to) = washed_up_target(&graph, layout, level, feet, zone_at(*map, feet + Vec3::Y * 0.1), open.as_deref()) else { continue };
         transform.translation = to + Vec3::Y * (Stance::Standing.half_height() + 0.05);
         teleport.write(Teleport { player, feet: to, facing: None });
     }
     for mut dropped in &mut drops {
         let feet = dropped.at() - Vec3::Y * crate::tuning::POWER_UP_FLOAT_HEIGHT;
         if swamped(layout, level, feet)
-            && let Some(to) = washed_up_target(&graph, layout, level, feet, zone_at(feet + Vec3::Y * 0.1), open.as_deref())
+            && let Some(to) = washed_up_target(&graph, layout, level, feet, zone_at(*map, feet + Vec3::Y * 0.1), open.as_deref())
         {
             dropped.wash_to(to + Vec3::Y * crate::tuning::POWER_UP_FLOAT_HEIGHT);
         }

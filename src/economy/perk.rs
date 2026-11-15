@@ -105,7 +105,7 @@ impl Perk {
     /// The Zone its machine stands in on `map`.
     pub fn machine_zone(self, map: MapId) -> Option<ZoneId> {
         let (at, facing) = self.machine_spot(map);
-        crate::enemies::nav::zone_at(at + facing * PERK_MACHINE_ZONE_PROBE_OUT + Vec3::Y * PERK_MACHINE_ZONE_PROBE_UP)
+        crate::enemies::nav::zone_at(map, at + facing * PERK_MACHINE_ZONE_PROBE_OUT + Vec3::Y * PERK_MACHINE_ZONE_PROBE_UP)
     }
 
     /// Where its machine stands on `map`, against a wall of its Zone, and the way it faces.

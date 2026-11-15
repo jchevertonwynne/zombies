@@ -1105,7 +1105,7 @@ mod tests {
     fn every_lever_is_clear_of_every_sweep_and_outside_its_pen() {
         for (id, piece) in pieces(polder()) {
             for &(zone, at, facing) in piece.levers() {
-                assert_eq!(crate::enemies::nav::zone_at(at + Vec3::Y * 0.1), Some(zone), "{id:?}");
+                assert_eq!(crate::enemies::nav::zone_at(MapId::Polder, at + Vec3::Y * 0.1), Some(zone), "{id:?}");
                 assert!((facing.length() - 1.0).abs() < 1e-5);
                 for (other, other_piece) in pieces(polder()) {
                     for rest in 0..other_piece.rests.len() as u8 {
@@ -1629,7 +1629,7 @@ mod tests {
     }
 
     fn zone_of_feet(feet: Vec3) -> Option<ZoneId> {
-        crate::enemies::nav::zone_at(feet + Vec3::Y * 0.1)
+        crate::enemies::nav::zone_at(MapId::Polder, feet + Vec3::Y * 0.1)
     }
 
     /// One nearer the island goes to the island's landing, and one in the sweep of a gate that is

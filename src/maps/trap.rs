@@ -765,7 +765,7 @@ mod tests {
         for &((a, b), doorway, switch_x) in MapId::ALL.iter().flat_map(|&map| traps(map)) {
             let sides: Vec<_> = [WALL_FACE + 0.1, -WALL_FACE - 0.1]
                 .into_iter()
-                .map(|out| zone_at(Vec3::new(switch_x, doorway.y + SWITCH_HEIGHT, doorway.z + out)))
+                .map(|out| zone_at(a.map(), Vec3::new(switch_x, doorway.y + SWITCH_HEIGHT, doorway.z + out)))
                 .collect();
             assert!(sides.contains(&Some(a)) && sides.contains(&Some(b)), "{} - {}", a.name(), b.name());
             // Clear of the field, so throwing it doesn't touch it.

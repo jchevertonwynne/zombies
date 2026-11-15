@@ -1370,7 +1370,7 @@ mod tests {
         let world = sim.world_mut();
         assert_eq!(world.get::<Entering>(zombie).map(|entering| entering.barrier), Some(barrier));
         let at = world.get::<Transform>(zombie).unwrap().translation;
-        assert!(crate::enemies::nav::zone_at(at.with_y(0.1)).is_none(), "{at} is still inside");
+        assert!(crate::enemies::nav::zone_at(MapId::Greybox, at.with_y(0.1)).is_none(), "{at} is still inside");
         assert!(at.with_y(0.0).distance(window_spawn(barrier).with_y(0.0)) < 1.0, "{at} is far from its window");
     }
 
@@ -1381,7 +1381,7 @@ mod tests {
             for spot in 0..BARRIER_ATTACK_SPOTS {
                 let at = spot_at(barrier, spot);
                 // Outside every Zone, or (the Polder's, in a partition's walled strip) in the window's own.
-                let there = crate::enemies::nav::zone_at(at + Vec3::Y * 0.1);
+                let there = crate::enemies::nav::zone_at(WINDOWS[i].0.map(), at + Vec3::Y * 0.1);
                 assert!(there.is_none() || there == Some(WINDOWS[i].0), "window {i} spot {spot}");
                 assert!(at.distance(window_centre(barrier)) < 1.0);
             }

@@ -1310,19 +1310,19 @@ mod tests {
             (PadId::Workshop, ZoneId::Workshop),
             (PadId::Generator, ZoneId::GeneratorRoom),
         ] {
-            assert_eq!(zone_at(pad.at() + Vec3::Y * 0.5), Some(zone));
+            assert_eq!(zone_at(MapId::Greybox, pad.at() + Vec3::Y * 0.5), Some(zone));
             // Clear of the Box Locations.
             for (_, at, _) in BOX_LOCATIONS {
                 assert!(Vec2::new(pad.at().x, pad.at().z).distance(Vec2::new(at.x, at.z)) > 3.0);
             }
         }
         assert_eq!(
-            zone_at(MAINFRAME_AT + Vec3::Y * 0.5),
+            zone_at(MapId::Greybox, MAINFRAME_AT + Vec3::Y * 0.5),
             Some(ZoneId::StartRoom)
         );
-        assert_eq!(zone_at(ARRIVAL_AT + Vec3::Y * 0.5), Some(ZoneId::StartRoom));
+        assert_eq!(zone_at(MapId::Greybox, ARRIVAL_AT + Vec3::Y * 0.5), Some(ZoneId::StartRoom));
         assert_eq!(
-            zone_at(HOLDING_AT + Vec3::Y * 0.5),
+            zone_at(MapId::Greybox, HOLDING_AT + Vec3::Y * 0.5),
             None,
             "the holding space is outside the Map"
         );

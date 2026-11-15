@@ -124,9 +124,10 @@ pub fn floor_ledge(spatial: &SpatialQuery, from: Vec3, to: Vec3, filter: &Spatia
     None
 }
 
-/// The Zone a point is in, or `None` outside the building.
-pub fn zone_at(point: Vec3) -> Option<ZoneId> {
-    ZoneId::ALL.into_iter().find(|zone| {
+/// The Zone a point is in on `map`, or `None` outside the building. Only `map`'s own Zones are
+/// looked at, so two Maps' Zones may overlap in space.
+pub fn zone_at(map: MapId, point: Vec3) -> Option<ZoneId> {
+    ZoneId::ALL.into_iter().filter(|zone| zone.map() == map).find(|zone| {
         let (lo, hi) = zone.volume();
         point.cmpge(lo).all() && point.cmple(hi).all()
     })
@@ -177,7 +178,7 @@ impl NavGraph {
                 Node {
                     name,
                     at,
-                    zone: zone_at(at + Vec3::Y * 0.1),
+                    zone: zone_at(map, at + Vec3::Y * 0.1),
                     vent: name.starts_with("vent_"),
                 }
             })
@@ -247,7 +248,7 @@ impl NavGraph {
 
     /// Every node but the Vents, nearest `feet` first: those in its Zone, then the rest.
     fn ranked(&self, feet: Vec3) -> impl Iterator<Item = usize> {
-        let zone = zone_at(feet + Vec3::Y * 0.1);
+        let zone = zone_at(self.map, feet + Vec3::Y * 0.1);
         let cost = |node: &Node| {
             let d = node.at - feet;
             Vec2::new(d.x, d.z).length() + 3.0 * d.y.abs()

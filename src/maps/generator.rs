@@ -664,7 +664,7 @@ mod tests {
         let dam = MapId::Dam.layout();
         let mut found: Vec<(SectionId, ZoneId, u64)> = Vec::new();
         for generator in dam.generators {
-            assert_eq!(crate::enemies::nav::zone_at(generator.at + Vec3::Y * 0.1), Some(generator.zone), "{generator:?}");
+            assert_eq!(crate::enemies::nav::zone_at(MapId::Dam, generator.at + Vec3::Y * 0.1), Some(generator.zone), "{generator:?}");
             assert_eq!(dam.section_of(generator.zone), Some(generator.section));
             found.push((generator.section, generator.zone, generator.price));
         }

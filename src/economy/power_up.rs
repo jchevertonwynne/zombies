@@ -487,7 +487,7 @@ fn drop_power_ups(
     // A Surge Zombie drops nothing.
     for kill in kills.read().filter(|kill| !kill.surge) {
         // A point just above its feet, so the floor it stood on is inside its Zone.
-        let reached = zone_at(kill.at + Vec3::Y * 0.5).is_some_and(|zone| reachable.contains(zone));
+        let reached = zone_at(*map, kill.at + Vec3::Y * 0.5).is_some_and(|zone| reachable.contains(zone));
         if meter.roll(kill.pay == Pay::Paid, rng.random::<f64>(), reached) {
             drops.push((kill.at, None));
         }

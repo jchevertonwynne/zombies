@@ -954,7 +954,7 @@ mod tests {
                     .filter(|(name, ..)| !name.ends_with("_out"))
                     .map(|&(name, x, y, z)| (name, Vec3::new(x, y, z)))
                     .filter(|&(_, feet)| spatial.cast_ray(feet + Vec3::Y * 2.0, Dir3::Y, 2.0 * STOREY, true, &filter).is_none())
-                    .map(|(name, feet)| (name.to_string(), zone_at(feet + Vec3::Y * 0.1)))
+                    .map(|(name, feet)| (name.to_string(), zone_at(MapId::Dam, feet + Vec3::Y * 0.1)))
                     .collect::<Vec<_>>()
             })
             .unwrap();

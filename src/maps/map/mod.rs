@@ -836,7 +836,7 @@ pub fn spawn_map(
     images: Option<ResMut<Assets<Image>>>,
 ) {
     let layout = map.layout();
-    let mut b = Builder::new(&mut commands, &mut meshes, &mut materials, layout.windows);
+    let mut b = Builder::new(&mut commands, &mut meshes, &mut materials, layout.windows, *map);
     b.outside_floor = layout.outside.map(|outside| outside.floor);
     b.outside_wall = layout.outside.map(|outside| outside.wall);
 
@@ -1395,7 +1395,7 @@ pub(crate) mod tests {
                     .unwrap_or_else(|| panic!("{what} has no path node"));
                 assert!(near.1 <= WADING_NAV_REACH, "{what} is {:.1} m from its nearest path node {}", near.1, near.0);
                 // The Zone's own nodes, and those the nearest one reaches along edges between them.
-                let own: Vec<&str> = nodes.iter().filter(|(_, node)| zone_at(*node + Vec3::Y * 0.5) == Some(zone)).map(|(name, _)| *name).collect();
+                let own: Vec<&str> = nodes.iter().filter(|(_, node)| zone_at(map, *node + Vec3::Y * 0.5) == Some(zone)).map(|(name, _)| *name).collect();
                 let mut reached = vec![near.0];
                 let mut frontier = vec![near.0];
                 while let Some(here) = frontier.pop() {
@@ -1580,7 +1580,7 @@ pub(crate) mod tests {
     fn every_fixture_stands_in_its_map() {
         for map in MapId::ALL {
             for (name, at, _) in fixtures(map) {
-                let zone = zone_at(at.with_y(at.y.min(at.y.floor() + 0.5)) + Vec3::Y * 0.1);
+                let zone = zone_at(map, at.with_y(at.y.min(at.y.floor() + 0.5)) + Vec3::Y * 0.1);
                 assert_eq!(zone.map(|zone| zone.map()), Some(map), "{name} on the {} stands at {at}", map.name());
             }
         }
@@ -1590,7 +1590,7 @@ pub(crate) mod tests {
     fn every_jump_pad_stands_in_its_zone_and_throws_up_into_another_floor() {
         for map in MapId::ALL {
             for pad in map.layout().jump_pads {
-                assert_eq!(zone_at(pad.at + Vec3::Y * 0.1), Some(pad.zone), "the Jump Pad at {}", pad.at);
+                assert_eq!(zone_at(map, pad.at + Vec3::Y * 0.1), Some(pad.zone), "the Jump Pad at {}", pad.at);
                 assert_eq!(pad.zone.map(), map);
                 assert!(pad.to.y >= pad.at.y + STOREY - 0.01, "the Jump Pad at {} doesn't throw a storey up", pad.at);
             }
@@ -1774,7 +1774,7 @@ pub(crate) mod tests {
         // enough.
         let mut keep: Vec<(String, Option<ZoneId>, Vec3, f32)> = fixtures(map)
             .into_iter()
-            .map(|(name, at, clear)| (name, zone_at(at.with_y(at.y.min(at.y.floor() + 0.5))), at, clear + 0.6))
+            .map(|(name, at, clear)| (name, zone_at(map, at.with_y(at.y.min(at.y.floor() + 0.5))), at, clear + 0.6))
             .collect();
         for barrier in map.barriers() {
             let (zone, ..) = WINDOWS[barrier.0 as usize];
@@ -1784,13 +1784,13 @@ pub(crate) mod tests {
             keep.push((format!("{}'s Vent drop", zone.name()), Some(zone), at, 1.0));
         }
         for at in crate::maps::trap::switch_spots(map) {
-            keep.push(("a Trap switch".into(), zone_at(at), at, 1.0));
+            keep.push(("a Trap switch".into(), zone_at(map, at), at, 1.0));
         }
         for (i, at) in layout.seats.iter().enumerate() {
             keep.push((format!("Seat {i}"), Some(layout.start_zone()), *at, PLAYER_RADIUS + 0.8));
         }
         for (i, pad) in layout.jump_pads.iter().enumerate() {
-            keep.push((format!("Jump Pad {i}'s landing"), zone_at(pad.to + Vec3::Y * 0.1), pad.to, PLAYER_RADIUS + 0.8));
+            keep.push((format!("Jump Pad {i}'s landing"), zone_at(map, pad.to + Vec3::Y * 0.1), pad.to, PLAYER_RADIUS + 0.8));
         }
         for (i, line) in layout.ziplines.iter().enumerate() {
             keep.push((format!("Zipline {i}'s top"), Some(line.zone), line.from, PLAYER_RADIUS + 0.8));
@@ -2018,7 +2018,7 @@ pub(crate) mod tests {
             let layout = map.layout();
             for &(zone, at) in layout.hellhound_spawns.iter().chain(layout.special_spawns).chain(layout.risers).chain(layout.wading) {
                 // Just above the floor, which sits a little inside the Zone.
-                assert_eq!(zone_at(at + Vec3::Y * 0.5), Some(zone), "{at} is outside {}", zone.name());
+                assert_eq!(zone_at(map, at + Vec3::Y * 0.5), Some(zone), "{at} is outside {}", zone.name());
             }
             for &zone in layout.zones {
                 assert!(layout.hellhound_spawns.iter().any(|(z, _)| *z == zone), "{} has no Hellhound Spawn Point", zone.name());
@@ -2030,8 +2030,8 @@ pub(crate) mod tests {
     fn vents_open_over_the_floor_of_their_zones() {
         for map in MapId::ALL {
             for &(zone, at) in map.layout().vents {
-                assert_eq!(zone_at(at + Vec3::Y * 0.1), Some(zone), "under the Vent");
-                assert_eq!(zone_at(at + Vec3::Y * NOVA_VENT_HEIGHT), Some(zone), "the Vent");
+                assert_eq!(zone_at(map, at + Vec3::Y * 0.1), Some(zone), "under the Vent");
+                assert_eq!(zone_at(map, at + Vec3::Y * NOVA_VENT_HEIGHT), Some(zone), "the Vent");
             }
         }
     }
@@ -2088,7 +2088,7 @@ pub(crate) mod tests {
             for barrier in map.barriers() {
                 // Outside every Zone, or (the Polder's, in a partition's walled strip) in its own.
                 let (own, ..) = WINDOWS[barrier.0 as usize];
-                let there = zone_at(window_spawn(barrier) + Vec3::Y * 0.1);
+                let there = zone_at(map, window_spawn(barrier) + Vec3::Y * 0.1);
                 assert!(there.is_none() || (map == MapId::Polder && there == Some(own)), "window {}'s Spawn Point is indoors", barrier.0);
             }
         }
@@ -2158,8 +2158,8 @@ pub(crate) mod tests {
             for line in layout.ziplines {
                 let Zipline { zone, from, to, lands_in } = *line;
                 assert_eq!((zone.map(), lands_in.map()), (map, map));
-                assert_eq!(zone_at(from + Vec3::Y * 0.1), Some(zone), "the top at {from}");
-                assert_eq!(zone_at(to + Vec3::Y * 0.1), Some(lands_in), "the landing at {to}");
+                assert_eq!(zone_at(map, from + Vec3::Y * 0.1), Some(zone), "the top at {from}");
+                assert_eq!(zone_at(map, to + Vec3::Y * 0.1), Some(lands_in), "the landing at {to}");
                 assert_ne!(zone, lands_in);
                 assert!(layout.zones.contains(&zone) && layout.zones.contains(&lands_in));
                 assert!(from.y - to.y >= STOREY - 0.01, "the line from {from} drops only {}", from.y - to.y);

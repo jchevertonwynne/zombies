@@ -69,7 +69,7 @@ pub fn lit(map: MapId, generators: &Generators, zone: ZoneId) -> bool {
     if !layout.darkness {
         return true;
     }
-    let pack_a_punch = layout.section_of(zone).is_none() && zone_at(machine_at(map)) == Some(zone);
+    let pack_a_punch = layout.section_of(zone).is_none() && zone_at(map, machine_at(map)) == Some(zone);
     if pack_a_punch { generators.all_held() } else { generators.powers(Some(zone)) }
 }
 
