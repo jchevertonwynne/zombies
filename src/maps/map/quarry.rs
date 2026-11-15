@@ -101,9 +101,9 @@ pub(super) const QUARRY: Layout = Layout {
     generators: &[],
     darkness: false,
     outdoor: &[ZoneId::QuarryFloor, ZoneId::RailYard, ZoneId::Headframe, ZoneId::Incline],
-    roofed: false,
+    roofed: true,
     sun: Vec3::new(1.0, -3.0, -1.5),
-    look: crate::maps::look::NIGHT,
+    look: crate::maps::look::OVERCAST,
     plan: (Vec2::new(Q - 36.0, -38.0), Vec2::new(Q + 38.0, 44.0)),
     build,
 };
@@ -233,20 +233,35 @@ const JUMP_PADS: [JumpPad; 2] = [
     JumpPad { zone: ZoneId::Headframe, at: at(1.5, TERRACE_2, 30.0), to: at(-1.0, DECK, 37.5) },
 ];
 
-/// The lamps.
-const LAMPS: [(ZoneId, Vec3); 12] = [
-    (ZoneId::PumpHouse, at(0.0, STOREY - 0.5, -25.0)),
+/// The lamps: floodlights over the pit, the Rail Yard and the Incline, and under every ceiling
+/// enough that no point of an indoor floor is further than `LAMP_REACH` from one in its Zone (a
+/// test checks).
+const LAMPS: [(ZoneId, Vec3); 25] = [
+    (ZoneId::PumpHouse, at(-4.0, STOREY - 0.5, -25.0)),
+    (ZoneId::PumpHouse, at(4.0, STOREY - 0.5, -25.0)),
     (ZoneId::QuarryFloor, at(-6.0, STOREY + 2.5, -9.0)),
     (ZoneId::QuarryFloor, at(12.0, STOREY + 2.5, -12.0)),
     (ZoneId::RailYard, at(9.0, TERRACE_1 + STOREY + 1.0, 9.0)),
-    (ZoneId::CrusherShed, at(-10.0, TERRACE_1 + STOREY - 0.5, 9.0)),
-    (ZoneId::WindingHouse, at(10.0, TERRACE_2 + STOREY - 0.5, 22.0)),
-    (ZoneId::Offices, at(-10.0, TERRACE_2 + STOREY - 0.5, 22.0)),
+    (ZoneId::CrusherShed, at(-15.0, TERRACE_1 + STOREY - 0.5, 6.0)),
+    (ZoneId::CrusherShed, at(-15.0, TERRACE_1 + STOREY - 0.5, 12.0)),
+    (ZoneId::CrusherShed, at(-5.0, TERRACE_1 + STOREY - 0.5, 6.0)),
+    (ZoneId::CrusherShed, at(-5.0, TERRACE_1 + STOREY - 0.5, 12.0)),
+    (ZoneId::WindingHouse, at(5.0, TERRACE_2 + STOREY - 0.5, 19.5)),
+    (ZoneId::WindingHouse, at(5.0, TERRACE_2 + STOREY - 0.5, 24.5)),
+    (ZoneId::WindingHouse, at(15.0, TERRACE_2 + STOREY - 0.5, 19.5)),
+    (ZoneId::WindingHouse, at(15.0, TERRACE_2 + STOREY - 0.5, 24.5)),
+    (ZoneId::Offices, at(-15.0, TERRACE_2 + STOREY - 0.5, 19.5)),
+    (ZoneId::Offices, at(-15.0, TERRACE_2 + STOREY - 0.5, 24.5)),
+    (ZoneId::Offices, at(-5.0, TERRACE_2 + STOREY - 0.5, 19.5)),
+    (ZoneId::Offices, at(-5.0, TERRACE_2 + STOREY - 0.5, 24.5)),
     (ZoneId::Headframe, at(1.5, DECK + STOREY - 0.5, 32.0)),
     (ZoneId::Incline, at(-25.0, STOREY + 1.0, -5.0)),
     (ZoneId::Incline, at(-25.0, TERRACE_1 + STOREY - 0.5, 13.0)),
     (ZoneId::Incline, at(-25.0, TERRACE_2 + STOREY - 0.5, 27.0)),
-    (ZoneId::LoadingDock, at(27.0, STOREY - 0.5, -11.0)),
+    (ZoneId::LoadingDock, at(24.0, STOREY - 0.5, -16.0)),
+    (ZoneId::LoadingDock, at(24.0, STOREY - 0.5, -6.0)),
+    (ZoneId::LoadingDock, at(30.0, STOREY - 0.5, -16.0)),
+    (ZoneId::LoadingDock, at(30.0, STOREY - 0.5, -6.0)),
 ];
 
 /// The sump: a pond gone dry in the pit floor's south-west corner, a few steps down.

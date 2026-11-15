@@ -73,6 +73,14 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 0.999999 m"
     },
     {
+      "path": "materials/black_painted_planks",
+      "name": "Black Painted Planks",
+      "source": "https://polyhaven.com/a/black_painted_planks",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1.6 m"
+    },
+    {
       "path": "materials/blue_metal_plate",
       "name": "Blue Metal Plate",
       "source": "https://polyhaven.com/a/blue_metal_plate",
@@ -103,6 +111,14 @@
       "licence": "CC0",
       "fetched": "2026-11-15",
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.00092 m"
+    },
+    {
+      "path": "materials/checkered_pavement_tiles",
+      "name": "Checkered Pavement Tiles",
+      "source": "https://polyhaven.com/a/checkered_pavement_tiles",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
     },
     {
       "path": "materials/coast_sand_04",
@@ -217,6 +233,14 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1.85 m"
     },
     {
+      "path": "materials/dark_rock",
+      "name": "Dark Rock",
+      "source": "https://polyhaven.com/a/dark_rock",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.4212 m"
+    },
+    {
       "path": "materials/dark_wooden_planks",
       "name": "Dark Wooden Planks",
       "source": "https://polyhaven.com/a/dark_wooden_planks",
@@ -263,6 +287,22 @@
       "licence": "CC0",
       "fetched": "2026-11-15",
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.51 m"
+    },
+    {
+      "path": "materials/gravel_ground_01",
+      "name": "Gravel Ground 01",
+      "source": "https://polyhaven.com/a/gravel_ground_01",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 3 m"
+    },
+    {
+      "path": "materials/gray_rocks",
+      "name": "Gray Rocks",
+      "source": "https://polyhaven.com/a/gray_rocks",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1.8 m"
     },
     {
       "path": "materials/green_metal_rust",
@@ -393,20 +433,20 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1 m"
     },
     {
-      "path": "materials/slate_floor_02",
-      "name": "Slate Floor 02",
-      "source": "https://polyhaven.com/a/slate_floor_02",
-      "licence": "CC0",
-      "fetched": "2026-11-15",
-      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
-    },
-    {
       "path": "materials/sandy_gravel_02",
       "name": "Sandy Gravel 02",
       "source": "https://polyhaven.com/a/sandy_gravel_02",
       "licence": "CC0",
       "fetched": "2026-11-15",
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.53 m"
+    },
+    {
+      "path": "materials/slate_floor_02",
+      "name": "Slate Floor 02",
+      "source": "https://polyhaven.com/a/slate_floor_02",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
     },
     {
       "path": "materials/smooth_concrete_floor",
@@ -503,6 +543,14 @@
       "licence": "CC0",
       "fetched": "2026-11-15",
       "notes": "2K HDR as a 512px BC6H cubemap, turned -71.6 degrees, via texpack --sky"
+    },
+    {
+      "path": "skies/kloofendal_overcast_puresky",
+      "name": "Poly Haven Kloofendal Overcast (Pure Sky)",
+      "source": "https://polyhaven.com/a/kloofendal_overcast_puresky",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "2K HDR as a 512px BC6H cubemap, turned 184.3 degrees to put its sun at the Quarry's, via texpack --sky; diffuse.ktx2 and specular.ktx2 are its prefiltered irradiance and GGX chain"
     },
     {
       "path": "skies/qwantani_night_puresky",

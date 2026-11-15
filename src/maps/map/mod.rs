@@ -464,6 +464,17 @@ pub fn materials(zone: Option<ZoneId>) -> Option<MaterialSet> {
         LighthouseYard => (SandyGravel02, RockWall08, None, &[]),
         KeepersCottage => (DarkWoodenPlanks, WhiteStucco, None, &[]),
         Battery => (CobblestoneFloor02, RockWall08, None, &[]),
+        // The Quarry, pit to headframe: raw rock over pale grit, ballast under soot-black timber,
+        // corrugated iron and brass tile in the sheds, the offices' parquet, clay-grey rock cutting.
+        PumpHouse => (CrackedConcrete, BrickWall001, Some(Leaks), &[]),
+        QuarryFloor => (GravelGround01, DarkRock, None, &[]),
+        RailYard => (GrayRocks, BlackPaintedPlanks, None, &[]),
+        CrusherShed => (HangarConcreteFloor, RustyCorrugatedIron, Some(OilStains), &[]),
+        WindingHouse => (CheckeredPavementTiles, ConcreteTileFacade, None, &[]),
+        Offices => (DiagonalParquet, PeelingPaintedWall, Some(Leaks), &[]),
+        Headframe => (MetalPlate02, BlueMetalPlate, None, &[]),
+        Incline => (WeatheredPlanks, RockWall08, None, &[]),
+        LoadingDock => (WornConcreteFloor, GreenMetalRust, Some(OilStains), &[]),
         _ => return None,
     };
     Some(MaterialSet { floor, wall, decals, props })
@@ -1063,8 +1074,10 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn every_point_of_an_indoor_greybox_floor_is_within_reach_of_a_lamp_in_its_zone() {
-        let layout = MapId::Greybox.layout();
+    fn every_point_of_an_indoor_floor_of_a_roofed_map_is_within_reach_of_a_lamp_in_its_zone() {
+        for map in [MapId::Greybox, MapId::Quarry] {
+        let layout = map.layout();
+        assert!(layout.roofed, "{map:?}");
         for &zone in layout.zones.iter().filter(|&&zone| layout.indoor(zone)) {
             let (lo, hi) = zone.volume();
             // Clear of the walls, where a Player can't stand.
@@ -1079,6 +1092,7 @@ pub(crate) mod tests {
                     assert!(nearest <= LAMP_REACH, "{at} in {zone:?} is {nearest} m from its nearest lamp");
                 }
             }
+        }
         }
     }
 

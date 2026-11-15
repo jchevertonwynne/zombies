@@ -1,4 +1,4 @@
-//! The screenshot tour, for approving a Map's look: `ZOMBIES_TOUR=<map>` (`greybox`, `cove`, `dam` or `village`) skips the menu, stands the Player at each of the Map's views in turn with no Zombies about,
+//! The screenshot tour, for approving a Map's look: `ZOMBIES_TOUR=<map>` (`greybox`, `cove`, `dam`, `village` or `quarry`) skips the menu, stands the Player at each of the Map's views in turn with no Zombies about,
 //! saves a 1920×1080 shot of the game window for each into `ZOMBIES_TOUR_OUT` (default `tour/`),
 //! and quits. The route views look from Zone to Zone through the Doors, which are hidden for them.
 //! The Dam's tour Holds every Generator, so its Zones are lit to judge, unless `ZOMBIES_TOUR_POWER=off`.
@@ -12,7 +12,7 @@ use bevy::window::PrimaryWindow;
 use crate::enemies::zombie::Zombie;
 use crate::maps::door::Door;
 use crate::maps::generator::Generators;
-use crate::maps::map::{COVE_X, MapId};
+use crate::maps::map::{COVE_X, MapId, QUARRY_X, STOREY};
 use crate::run::gauntlet::boon::{BOONS, HeldBoons};
 use crate::maps::map::{DAM_X, VILLAGE_X};
 use crate::players::player::{Health, LocalPlayer, Player, PlayerCamera, Teleport};
@@ -63,6 +63,29 @@ const GREYBOX: &[View] = &[
     view("route-4-passage-to-workshop", (-12.0, 0.0, -28.0), (-14.0, -48.0), -0.15, true),
     view("route-5-yard-to-start", (0.0, 0.0, 2.0), (0.0, 24.0), 0.0, true),
     view("route-6-yard-to-dining", (-7.0, 0.0, 8.0), (-7.0, -24.0), 0.0, true),
+];
+
+const Q: f32 = QUARRY_X;
+const T1: f32 = STOREY;
+const T2: f32 = 2.0 * STOREY;
+
+/// The Quarry: a view of each of its 9 Zones, with a look at the pit's rim against the sky, the
+/// Incline's rock cutting, and the Headframe's deck.
+const QUARRY: &[View] = &[
+    view("pump-house", (Q + 5.0, 0.0, -22.0), (Q - 6.0, -29.0), -0.1, false),
+    view("quarry-floor", (Q - 15.0, 0.0, -17.0), (Q + 10.0, -2.0), 0.05, false),
+    view("quarry-floor-east", (Q + 17.0, 0.0, -17.0), (Q - 10.0, -4.0), 0.1, false),
+    view("pit-sky", (Q - 12.0, 0.0, -14.0), (Q + 6.0, 0.0), 0.5, false),
+    view("rail-yard", (Q + 3.0, T1, 4.0), (Q + 15.0, 14.0), -0.05, false),
+    view("crusher-shed", (Q - 19.0, T1, 14.0), (Q - 3.0, 4.0), -0.08, false),
+    view("winding-house", (Q + 2.0, T2, 18.0), (Q + 18.0, 26.0), -0.08, false),
+    view("offices", (Q - 2.0, T2, 18.0), (Q - 18.0, 26.0), -0.08, false),
+    view("headframe", (Q, T2, 31.0), (Q, 40.0), 0.25, false),
+    view("headframe-deck", (Q - 4.0, 3.0 * STOREY, 37.0), (Q + 5.0, 33.0), -0.1, false),
+    view("incline", (Q - 25.0, 0.0, -9.0), (Q - 25.0, 25.0), 0.15, false),
+    view("incline-top", (Q - 25.0, T2, 28.0), (Q - 25.0, 0.0), -0.12, false),
+    view("loading-dock", (Q + 22.0, 0.0, -4.0), (Q + 30.0, -18.0), -0.05, false),
+    view("loading-dock-wagons", (Q + 22.0, 0.0, -18.0), (Q + 28.0, -4.0), -0.05, false),
 ];
 
 /// The Dam: a view of each of its 12 Zones, then a Generator's plate from off it and from on it,
@@ -163,7 +186,8 @@ impl Tour {
             "dam" => (MapId::Dam, DAM),
             "cove" => (MapId::Cove, COVE),
             "village" => (MapId::Village, VILLAGE),
-            other => panic!("ZOMBIES_TOUR={other}: only greybox, dam, cove and village have views"),
+            "quarry" => (MapId::Quarry, QUARRY),
+            other => panic!("ZOMBIES_TOUR={other}: only greybox, dam, cove, village and quarry have views"),
         };
         let dir = std::env::var("ZOMBIES_TOUR_OUT").unwrap_or_else(|_| "tour".into());
         std::fs::create_dir_all(&dir).expect("ZOMBIES_TOUR_OUT is writable");
