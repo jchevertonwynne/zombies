@@ -1117,3 +1117,92 @@ fn zombies_have_their_own_steady_sideways_offsets() {
     let spread = ids.iter().map(|&e| personal(e, 2)).fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(v), hi.max(v)));
     assert!(spread.0 < -0.5 && spread.1 > 0.5, "spread {spread:?}");
 }
+
+/// A Crawler, from the Walker standing at `feet`: its legs blown off.
+fn spawn_crawler(sim: &mut Sim, feet: Vec3) -> Entity {
+    let zombie = sim.spawn(feet, None);
+    sim.run(sim.frames(0.5));
+    sim.send(Gibbed { zombie });
+    sim.run(2);
+    assert!(sim.world_mut().get::<Zombie>(zombie).unwrap().crawler);
+    zombie
+}
+
+/// The Player, who runs the Greybox's loop at a sprint (9 m/s) and stops at the end, is followed by
+/// a Crawler (1 m/s) that is left far behind: it isn't cleaned up on the way, and it reaches them.
+#[test]
+fn a_crawler_follows_a_player_who_ran_round_the_loop_and_reaches_them() {
+    let (start, bend, end) = (Vec3::new(20.0, 0.0, -15.5), Vec3::new(0.0, 0.0, 20.0), Vec3::new(-22.0, 0.0, -20.0));
+    let leg = start.distance(bend);
+    let run = leg + bend.distance(end);
+    assert!(run > 60.0);
+    let mut sim = Sim::new(60.0, |_| {});
+    open_every_door(&mut sim);
+    put_player(&mut sim, start);
+    let crawler = spawn_crawler(&mut sim, start);
+    let mut ran = 0.0;
+    let mut reached = None;
+    for frame in 0..sim.frames(240.0) {
+        ran = (ran + 9.0 * sim.frame_secs).min(run);
+        let player = if ran <= leg {
+            start.lerp(bend, ran / leg)
+        } else {
+            bend.lerp(end, (ran - leg) / bend.distance(end))
+        };
+        put_player(&mut sim, player);
+        sim.run(1);
+        let Some(at) = sim.world_mut().get::<Transform>(crawler).map(|t| t.translation) else {
+            panic!("the Crawler was cleaned up after {:.0} s, with the Player at {player}", frame as f32 * sim.frame_secs)
+        };
+        if ran >= run && Vec2::new(at.x - end.x, at.z - end.z).length() < 2.0 {
+            reached = Some(frame as f32 * sim.frame_secs);
+            break;
+        }
+    }
+    assert!(reached.is_some(), "the Crawler never reached the Player");
+}
+
+/// Holds `zombie` still (stunned) for `secs`, as a Zombie wedged on geometry: when the stuck rule
+/// removed it, if it did.
+fn wedged_for(sim: &mut Sim, zombie: Entity, secs: f32) -> Option<f32> {
+    sim.world_mut().entity_mut(zombie).insert(Stunned { left: 1000.0 });
+    for frame in 0..sim.frames(secs) {
+        sim.run(1);
+        if sim.world_mut().get_entity(zombie).is_err() {
+            return Some(frame as f32 * sim.frame_secs);
+        }
+    }
+    None
+}
+
+/// A Zombie that makes no progress along its route, far from the Player or near, is still cleaned
+/// up after the clock.
+#[test]
+fn a_wedged_zombie_is_cleaned_up_after_the_clock() {
+    for player in [Vec3::new(10.0, 0.0, 20.0), Vec3::new(-20.0, 0.0, -20.0)] {
+        let mut sim = Sim::new(60.0, |_| {});
+        open_every_door(&mut sim);
+        put_player(&mut sim, player);
+        let zombie = sim.spawn(Vec3::new(20.0, 0.0, -15.5), None);
+        let gone = wedged_for(&mut sim, zombie, ZOMBIE_CLEANUP_SECS + 3.0);
+        let gone = gone.unwrap_or_else(|| panic!("a wedged Zombie survived, Player at {player}"));
+        assert!((gone - ZOMBIE_CLEANUP_SECS).abs() < 1.5, "went after {gone} s");
+    }
+}
+
+/// The last Zombie of a Round, if it's truly lost, still goes back into the Horde, so a Round
+/// can't stall waiting on it.
+#[test]
+fn the_last_zombie_of_a_round_that_is_truly_lost_still_goes_back_into_the_horde() {
+    use crate::run::round::{Round, requeue_cleaned_up};
+    let mut sim = Sim::new(60.0, |app| {
+        app.insert_resource(Round::in_progress(1)).add_systems(Update, requeue_cleaned_up.after(clean_up_stuck));
+    });
+    open_every_door(&mut sim);
+    put_player(&mut sim, Vec3::new(-20.0, 0.0, -20.0));
+    assert!(sim.world_mut().resource_mut::<Round>().take_from_horde());
+    let spawned = sim.world_mut().resource::<Round>().horde_spawned();
+    let zombie = sim.spawn(Vec3::new(20.0, 0.0, -15.5), None);
+    assert!(wedged_for(&mut sim, zombie, ZOMBIE_CLEANUP_SECS + 3.0).is_some(), "it was never cleaned up");
+    assert_eq!(sim.world_mut().resource::<Round>().horde_spawned(), spawned - 1, "it isn't back in the Horde");
+}

@@ -41,6 +41,9 @@ _Avoid_: invulnerability, i-frames
 
 **Horde**: All the Zombies in a Round, both the ones in play and the ones still waiting to spawn. A Round's Horde is bigger than the number allowed in play at once (the Alive Cap). In Co-op the Horde grows with the number of Players at the start of the Round.
 
+**Lost Zombie**: A Zombie the game quietly removes and puts back into the Horde so a Round never stalls on it. It is either wedged, moving less than a metre in 10 seconds, or far from its Player by the way it has to walk (not in a straight line) and not getting any closer for 30 seconds, or for as long as it takes to walk 60 metres if that's longer, so a Crawler gets a minute. A Zombie that keeps crawling after a Player who ran off is not lost: it only counts once they stop and it still isn't closing in. A Crawler stuck at a planked Barrier is lost after 10 seconds, and a Zombie Out of Bounds at once. Zombies that carry over between Rounds, and requested ones, are never lost this way.
+_Avoid_: stuck Zombie, cleaned-up Zombie
+
 **Alive Cap**: The most Zombies that can be in play at the same time. The rest of the Horde waits until there is room. Co-op has a higher Alive Cap than solo, the same for any number of Players.
 
 **Train**: A tightly packed group of Zombies following the Player in a line, which the Player leads around the Map so they can be shot from the front.

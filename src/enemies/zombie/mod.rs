@@ -388,19 +388,65 @@ pub struct StuckWatch {
     /// Where the Zombie last made progress from.
     anchor: Vec3,
     secs: f32,
+    /// The route length left when `update_on_route` last saw it close in, or the most it has been.
+    reference: f32,
+    /// Seconds it has been far along its route and not closing in.
+    lost: f32,
 }
 
 impl StuckWatch {
     pub fn new(at: Vec3) -> Self {
-        Self { anchor: at, secs: 0.0 }
+        Self {
+            anchor: at,
+            secs: 0.0,
+            reference: 0.0,
+            lost: 0.0,
+        }
+    }
+
+    /// The stuck rule for a Zombie that follows a route to its Player: `remaining` is the length
+    /// of that route from `at` to them, `speed` how fast the Zombie moves. Returns true when it
+    /// should be cleaned up, which is either of:
+    /// - It is wedged: it has gone `ZOMBIE_CLEANUP_SECS` without moving `ZOMBIE_PROGRESS_DIST`.
+    /// - It is lost: its route is over `ZOMBIE_CLEANUP_DIST` long and it hasn't closed in on the
+    ///   Player by `ZOMBIE_PROGRESS_DIST` for `lost_secs(speed)`.
+    ///
+    /// A Zombie crawling steadily after a Player who ran off is neither: it moves, and gets
+    /// closer as soon as they stop. A Zombie at the Player is never stuck.
+    pub fn update_on_route(&mut self, at: Vec3, player: Vec3, remaining: f32, speed: f32, dt: f32) -> bool {
+        if at.distance(player) <= 2.0 * ZOMBIE_REACH {
+            *self = Self {
+                reference: remaining,
+                ..Self::new(at)
+            };
+            return false;
+        }
+        if at.distance(self.anchor) >= ZOMBIE_PROGRESS_DIST {
+            self.anchor = at;
+            self.secs = 0.0;
+        } else {
+            self.secs += dt;
+        }
+        if remaining <= self.reference - ZOMBIE_PROGRESS_DIST {
+            self.reference = remaining;
+            self.lost = 0.0;
+        } else if remaining > self.reference {
+            self.reference = remaining;
+        }
+        if remaining > ZOMBIE_CLEANUP_DIST {
+            self.lost += dt;
+        } else {
+            self.lost = 0.0;
+        }
+        self.secs >= ZOMBIE_CLEANUP_SECS || self.lost >= lost_secs(speed)
     }
 
     /// A watch about to run out on a Zombie at `at` that makes no progress.
     #[cfg(test)]
     pub fn nearly_up(at: Vec3) -> Self {
         Self {
-            anchor: at,
             secs: ZOMBIE_CLEANUP_SECS - 0.05,
+            ..Self::new(at)
         }
     }
 
@@ -420,6 +466,23 @@ impl StuckWatch {
         }
         self.secs >= ZOMBIE_CLEANUP_SECS
     }
+}
+
+/// How long a Zombie moving at `speed` may be far along its route without closing in before it's
+/// lost: `ZOMBIE_LOST_SECS`, or longer for a slow mover, which needs `ZOMBIE_LOST_DIST` of walking.
+pub fn lost_secs(speed: f32) -> f32 {
+    ZOMBIE_LOST_SECS.max(ZOMBIE_LOST_DIST / speed.max(0.1))
+}
+
+/// The length of the walk from `at` along `waypoints` and on to `target`.
+pub fn route_remaining(at: Vec3, waypoints: &[Vec3], target: Vec3) -> f32 {
+    let mut total = 0.0;
+    let mut from = at;
+    for &next in waypoints.iter().chain(std::iter::once(&target)) {
+        total += from.distance(next);
+        from = next;
+    }
+    total
 }
 
 #[derive(Component)]
@@ -1347,7 +1410,7 @@ fn rise(mut commands: Commands, mut risers: Query<(Entity, &mut Rising, &mut Tra
     }
 }
 
-/// A Zombie that's stuck, or lost far from the Player, is quietly removed and sent back into the
+/// A Zombie that's stuck, or lost far along its route from the Player, is quietly removed and sent back into the
 /// Horde, so a Round never stalls. A Zombie outside a window is waiting on its Planks, not
 /// stuck, so its clock only starts once it's in. A Crawler can't tear them, though, so for it
 /// waiting at a planked Barrier too long is stuck. A Zombie Out of Bounds goes the same way at
@@ -1357,7 +1420,7 @@ fn rise(mut commands: Commands, mut risers: Query<(Entity, &mut Rising, &mut Tra
 fn clean_up_stuck(
     mut commands: Commands,
     mut zombies: Query<
-        (Entity, &mut Zombie, &Transform, Option<&Entering>, Has<Surge>),
+        (Entity, &mut Zombie, &Transform, Option<&Entering>, Has<Surge>, Option<&Route>),
         (Without<Dying>, Without<Rising>, Without<Telegraph>, Or<(Without<CarriesOver>, With<Surge>)>, Without<Requested>),
     >,
     players: Players,
@@ -1369,7 +1432,7 @@ fn clean_up_stuck(
 ) {
     let tide = tide.map_or_else(Default::default, |tide| tide.level());
     let dt = time.delta_secs();
-    for (entity, mut zombie, transform, entering, surge) in &mut zombies {
+    for (entity, mut zombie, transform, entering, surge, route) in &mut zombies {
         let gone = if map.layout().out_of_bounds(tide, transform.translation) {
             !zombie.hellhound
         } else if let Some(entering) = entering {
@@ -1378,8 +1441,11 @@ fn clean_up_stuck(
             let stuck;
             (zombie.planked_wait, stuck) = planked_wait(zombie.planked_wait, planked, dt);
             stuck
-        } else if let Some(player) = players.nearest(transform.translation) {
-            zombie.stuck.update(transform.translation, player.centre, dt)
+        } else if let Some(player) = players.target_of(route.and_then(|route| route.target), transform.translation) {
+            let waypoints = route.map_or(&[][..], |route| &route.waypoints[..]);
+            let remaining = route_remaining(transform.translation, waypoints, player.centre);
+            let speed = zombie.speed();
+            zombie.stuck.update_on_route(transform.translation, player.centre, remaining, speed, dt)
         } else {
             false
         };
@@ -1980,6 +2046,53 @@ mod tests {
         let at = |t: f32| if t < 8.0 { Vec3::ZERO } else { Vec3::new(2.0, 0.0, 0.0) };
         let fired = watch(30.0, Vec3::new(10.0, 0.0, 0.0), at).unwrap();
         assert!((fired - 18.0).abs() < STEP * 1.5, "fired at {fired}");
+    }
+
+    /// Runs `update_on_route` for `secs`, with the Zombie at `at(t)` and `remaining(t)` of route
+    /// left, at `speed`. Returns when it fired, if it did.
+    fn on_route(secs: f32, speed: f32, at: impl Fn(f32) -> Vec3, remaining: impl Fn(f32) -> f32) -> Option<f32> {
+        let mut watch = StuckWatch::new(at(0.0));
+        let mut t = 0.0;
+        while t < secs {
+            t += STEP;
+            if watch.update_on_route(at(t), Vec3::new(500.0, 0.0, 0.0), remaining(t), speed, STEP) {
+                return Some(t);
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn a_crawler_left_far_behind_is_not_lost_while_it_keeps_crawling() {
+        // The Player runs off for 10 s at 9 m/s, then stops; the Crawler's route is 100 m at its end.
+        let remaining = |t: f32| if t < 10.0 { 9.0 * t } else { 90.0 - (t - 10.0) * CRAWLER_SPEED };
+        let at = |t: f32| Vec3::new(t * CRAWLER_SPEED, 0.0, 0.0);
+        assert_eq!(on_route(80.0, CRAWLER_SPEED, at, remaining), None);
+    }
+
+    #[test]
+    fn a_zombie_far_along_its_route_and_not_closing_in_is_lost_even_while_moving() {
+        let at = |t: f32| Vec3::new(t * CRAWLER_SPEED, 0.0, 0.0);
+        let fired = on_route(200.0, CRAWLER_SPEED, at, |_| 80.0).unwrap();
+        assert!((fired - lost_secs(CRAWLER_SPEED)).abs() < STEP * 1.5, "fired at {fired}");
+        let quick = on_route(200.0, 6.0, at, |_| 80.0).unwrap();
+        assert!((quick - ZOMBIE_LOST_SECS).abs() < STEP * 1.5, "fired at {quick}");
+        assert!(lost_secs(CRAWLER_SPEED) > lost_secs(ZOMBIE_WALK_SPEED));
+    }
+
+    #[test]
+    fn a_zombie_wedged_on_its_route_is_cleaned_up_far_or_near() {
+        for remaining in [10.0, 80.0] {
+            let fired = on_route(30.0, CRAWLER_SPEED, |_| Vec3::ZERO, |_| remaining).unwrap();
+            assert!((fired - ZOMBIE_CLEANUP_SECS).abs() < STEP * 1.5, "fired at {fired}");
+        }
+    }
+
+    #[test]
+    fn route_remaining_adds_up_the_walk() {
+        let waypoints = [Vec3::new(3.0, 0.0, 0.0), Vec3::new(3.0, 0.0, 4.0)];
+        assert_eq!(route_remaining(Vec3::ZERO, &waypoints, Vec3::new(3.0, 0.0, 10.0)), 3.0 + 4.0 + 6.0);
+        assert_eq!(route_remaining(Vec3::ZERO, &[], Vec3::new(0.0, 0.0, 5.0)), 5.0);
     }
 
     #[test]

@@ -1252,10 +1252,15 @@ pub const ZOMBIE_RISE_SECS: f32 = 1.5;
 /// Seconds a Zombie takes to stand up out of Shallow Water at a Wading Point: a little slower than
 /// a Riser, which has dirt to push through but no water to stand up in.
 pub const ZOMBIE_WADE_RISE_SECS: f32 = 2.0;
-/// Stuck cleanup: a Zombie that makes no progress, or stays beyond `ZOMBIE_CLEANUP_DIST` of the
-/// Player, for `ZOMBIE_CLEANUP_SECS` despawns and goes back into the Horde.
+/// Stuck cleanup: a Zombie that makes no progress for `ZOMBIE_CLEANUP_SECS` despawns and goes
+/// back into the Horde. So does one whose route to its Player is over `ZOMBIE_CLEANUP_DIST` long
+/// and that hasn't closed in on them for `ZOMBIE_LOST_SECS`, or for as long as it takes to walk
+/// `ZOMBIE_LOST_DIST` if that's longer (a Crawler's leash is the longest). A Zombie that keeps
+/// moving along its route is never lost to distance alone.
 pub const ZOMBIE_CLEANUP_DIST: f32 = 40.0;
 pub const ZOMBIE_CLEANUP_SECS: f32 = 10.0;
+pub const ZOMBIE_LOST_SECS: f32 = 30.0;
+pub const ZOMBIE_LOST_DIST: f32 = 60.0;
 /// Out of Bounds: how far below its Map's lowest floor anyone has fallen once they're out.
 pub const OUT_OF_BOUNDS_DROP: f32 = 3.0;
 /// A new Zombie comes from a Spawn Point this near a Player when any in an Active Zone is, so it
