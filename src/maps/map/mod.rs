@@ -18,6 +18,7 @@ use crate::maps::zone::ZoneId;
 
 mod build;
 mod cove;
+mod door_look;
 pub mod decals;
 mod dam;
 mod greybox;

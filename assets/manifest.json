@@ -129,6 +129,14 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
     },
     {
+      "path": "materials/weathered_planks",
+      "name": "Weathered Planks",
+      "source": "https://polyhaven.com/a/weathered_planks",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
       "path": "materials/worn_brick_floor",
       "name": "Worn Brick Floor",
       "source": "https://polyhaven.com/a/worn_brick_floor",

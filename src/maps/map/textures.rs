@@ -34,11 +34,12 @@ pub enum Material {
     RustyCorrugatedIron,
     MossyCobblestone,
     PlasteredStoneWall,
+    WeatheredPlanks,
 }
 
 impl Material {
     #[cfg(test)]
-    pub const ALL: [Material; 12] = [
+    pub const ALL: [Material; 13] = [
         Material::DarkWoodenPlanks,
         Material::DamagedPlaster,
         Material::FloorTiles06,
@@ -51,6 +52,7 @@ impl Material {
         Material::RustyCorrugatedIron,
         Material::MossyCobblestone,
         Material::PlasteredStoneWall,
+        Material::WeatheredPlanks,
     ];
 
     /// Its directory under `assets/materials/`, and the real-world size of one repeat in metres,
@@ -69,6 +71,7 @@ impl Material {
             Material::RustyCorrugatedIron => ("rusty_corrugated_iron", 2.0),
             Material::MossyCobblestone => ("mossy_cobblestone", 2.0),
             Material::PlasteredStoneWall => ("plastered_stone_wall", 2.5),
+            Material::WeatheredPlanks => ("weathered_planks", 2.0),
         }
     }
 
@@ -90,6 +93,8 @@ pub enum Shape {
     /// Upright, its diameter its size's x (and z). For the Props' drums, once they have a material.
     #[allow(dead_code)]
     Cylinder,
+    /// Its mesh is already baked with UVs (a Door, a Plank), so only its material is swapped in.
+    Baked,
 }
 
 /// A Map piece that wears `material` once it has loaded. Its `Transform`'s scale is its size
@@ -99,6 +104,15 @@ pub struct Textured {
     pub material: Material,
     pub shape: Shape,
 }
+
+/// A piece of decoration (a Door's frame, a Barrier's jambs) that is hidden until `Material` has
+/// loaded, so with the files missing the Map keeps its plain look.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct Veneer(pub Material);
+
+/// A `Veneer` that has been shown.
+#[derive(Component)]
+struct Revealed;
 
 /// A `Textured` piece whose material has been settled: it wears it, or stays in the palette for
 /// good because a file is missing or failed.
@@ -217,7 +231,7 @@ impl Plugin for TexturesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Library>()
             .init_resource::<super::decals::DecalLibrary>()
-            .add_systems(Update, ((request, put_on).chain(), (super::decals::request_decals, super::decals::place_decals).chain()));
+            .add_systems(Update, ((request, put_on, reveal).chain(), (super::decals::request_decals, super::decals::place_decals).chain()));
     }
 }
 
@@ -226,13 +240,13 @@ fn request(
     mut library: ResMut<Library>,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    pieces: Query<&Textured, Added<Textured>>,
+    pieces: Query<(Option<&Textured>, Option<&Veneer>), Or<(Added<Textured>, Added<Veneer>)>>,
 ) {
-    for textured in &pieces {
-        library.0.entry(textured.material).or_insert_with(|| {
-            let files = textured.material.files();
+    for material in pieces.iter().filter_map(|(textured, veneer)| textured.map(|t| t.material).or(veneer.map(|v| v.0))) {
+        library.0.entry(material).or_insert_with(|| {
+            let files = material.files();
             if !files.iter().all(|file| on_disk(file)) {
-                debug!("{:?}: files missing, staying in the palette", textured.material);
+                debug!("{material:?}: files missing, staying in the palette");
                 return Entry::Missing;
             }
             let [color, normal, orm] = files.map(|file| load_tiling(&asset_server, file));
@@ -299,16 +313,35 @@ fn put_on(
             (Dress::Textured, Entry::Loading { material, .. }) => {
                 let tile = textured.material.tile();
                 let (size, at, rotation) = (transform.scale, transform.translation, transform.rotation);
-                mesh.0 = meshes.add(match textured.shape {
-                    Shape::Cuboid => box_uv_mesh(size, at, rotation, tile),
-                    Shape::Cylinder => cylinder_uv_mesh(size, at, rotation, tile),
-                });
+                match textured.shape {
+                    Shape::Cuboid => mesh.0 = meshes.add(box_uv_mesh(size, at, rotation, tile)),
+                    Shape::Cylinder => mesh.0 = meshes.add(cylinder_uv_mesh(size, at, rotation, tile)),
+                    Shape::Baked => {}
+                }
                 paint.0 = material.clone();
-                transform.scale = Vec3::ONE;
+                if textured.shape != Shape::Baked {
+                    transform.scale = Vec3::ONE;
+                }
             }
             _ => {}
         }
         commands.entity(entity).insert(Dressed);
+    }
+}
+
+/// Shows each `Veneer` once its material has loaded.
+fn reveal(
+    mut commands: Commands,
+    library: Res<Library>,
+    asset_server: Res<AssetServer>,
+    mut pieces: Query<(Entity, &Veneer, &mut Visibility), Without<Revealed>>,
+) {
+    for (entity, veneer, mut visibility) in &mut pieces {
+        let Some(Entry::Loading { images, .. }) = library.0.get(&veneer.0) else { continue };
+        if dress(true, &images.each_ref().map(|image| load_of(&asset_server, image))) == Dress::Textured {
+            *visibility = Visibility::Inherited;
+            commands.entity(entity).insert(Revealed);
+        }
     }
 }
 

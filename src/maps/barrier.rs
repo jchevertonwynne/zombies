@@ -12,6 +12,7 @@ use crate::players::controls::{Action, Controls};
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
 use crate::economy::buy::{Buyable, Focus, Held, Nearby, UseRequest};
+use crate::maps::map::textures::{Material, Shape, Textured, box_uv_mesh};
 use crate::maps::map::{BarrierId, MapId, WALL_THICKNESS, WINDOWS, window_centre, window_spawn};
 use bevy_transform_interpolation::TranslationEasingState;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_points};
@@ -319,7 +320,8 @@ struct Sliding(f32);
 /// A Plank's look, shared by the Barriers and the Planks torn off them.
 #[derive(Resource)]
 struct PlankLook {
-    mesh: Handle<Mesh>,
+    /// One per place in the stack, each its own stretch of grain.
+    meshes: Vec<Handle<Mesh>>,
     material: Handle<StandardMaterial>,
 }
 
@@ -466,6 +468,9 @@ fn window_axes(barrier: BarrierId) -> (Vec3, Vec3) {
     (out, Vec3::new(-out.z, 0.0, out.x))
 }
 
+/// A Plank's size: along the window, up, and thick.
+const PLANK_SIZE: Vec3 = Vec3::new(1.9, 0.18, 0.05);
+
 /// How far a Plank sits in from the window's centre plane, toward the room.
 const PLANK_INSET: f32 = 0.27;
 
@@ -539,7 +544,14 @@ fn spawn_barriers(
     mut materials: ResMut<Assets<StandardMaterial>>,
     map: Res<MapId>,
 ) {
-    let plank = meshes.add(Cuboid::new(1.9, 0.18, 0.05));
+    // Each Plank's mesh carries its own box UVs into the weathered wood, a different stretch of
+    // grain for each place in the stack, so the Planks don't repeat.
+    let planks: Vec<Handle<Mesh>> = (0..BARRIER_PLANKS)
+        .map(|p| {
+            let grain = Vec3::new(f32::from(p) * 0.53, f32::from(p) * 0.29, 0.0);
+            meshes.add(box_uv_mesh(PLANK_SIZE, grain, Quat::from_rotation_z(std::f32::consts::FRAC_PI_2), Material::WeatheredPlanks.tile()))
+        })
+        .collect();
     let wood = materials.add(StandardMaterial {
         base_color: Color::srgb(0.45, 0.32, 0.18),
         perceptual_roughness: 0.9,
@@ -561,15 +573,16 @@ fn spawn_barriers(
                 for p in 0..BARRIER_PLANKS {
                     window.spawn((
                         Plank(p),
-                        Mesh3d(plank.clone()),
+                        Mesh3d(planks[usize::from(p)].clone()),
                         MeshMaterial3d(wood.clone()),
+                        Textured { material: Material::WeatheredPlanks, shape: Shape::Baked },
                         plank_transform(p),
                     ));
                 }
             });
     }
     commands.insert_resource(PlankLook {
-        mesh: plank,
+        meshes: planks,
         material: wood,
     });
 }
@@ -599,8 +612,9 @@ fn toss_torn_planks(mut commands: Commands, mut torn: MessageReader<PlankTorn>, 
                 ),
                 age: 0.0,
             },
-            Mesh3d(look.mesh.clone()),
+            Mesh3d(look.meshes[usize::from(plank.plank) % look.meshes.len()].clone()),
             MeshMaterial3d(look.material.clone()),
+            Textured { material: Material::WeatheredPlanks, shape: Shape::Baked },
             from,
         ));
     }

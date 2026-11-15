@@ -14,7 +14,8 @@ use crate::tuning::*;
 use crate::maps::zone::ZoneId;
 
 use super::decals::{DecalFamily, DecalPiece, leak_transform, leaks, stain_transform, stains};
-use super::textures::{Material, Shape, Textured};
+use super::door_look::{self, Part, Piece};
+use super::textures::{Material, Shape, Textured, Veneer, box_uv_mesh};
 use super::{DOOR_HEIGHT, DOOR_WIDTH, Palette, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, WALL_THICKNESS, WINDOW_WIDTH, materials, palette};
 use crate::maps::generator::{Generator, PlateDisc};
 use crate::maps::jump_pad::JumpPad;
@@ -479,20 +480,87 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
     }
 
     /// A Door's slab: solid and drawn as one entity, which opening the Door moves and then hides.
-    fn door_slab(&mut self, size: Vec3, at: Vec3, power: bool) -> Entity {
+    /// Once its material has loaded it wears it (weathered wood, or a steel shutter), and its
+    /// boards, frame and ribs (children, so they move and hide with it) appear.
+    fn door_slab(&mut self, size: Vec3, at: Vec3, power: bool, zone: Option<ZoneId>) -> Entity {
         let shape = Cuboid::from_size(size);
-        let material = if power { self.power_door.clone() } else { self.door.clone() };
-        self.commands
+        let along_x = size.x > size.z;
+        let (material, cover) = if power {
+            (self.power_door.clone(), Material::RustyCorrugatedIron)
+        } else {
+            (self.door.clone(), Material::WeatheredPlanks)
+        };
+        let door = self
+            .commands
             .spawn((
                 InRun,
-                Mesh3d(self.meshes.add(shape)),
+                Mesh3d(self.meshes.add(box_uv_mesh(size, at, Quat::IDENTITY, cover.tile()))),
                 MeshMaterial3d(material),
+                Textured { material: cover, shape: Shape::Baked },
                 Transform::from_translation(at),
                 RigidBody::Static,
                 Collider::from(shape),
                 CollisionLayers::new(GameLayer::World, LayerMask::ALL),
             ))
-            .id()
+            .id();
+        // The Door's own frame: x along the wall, z through it.
+        let local = if along_x { size } else { Vec3::new(size.z, size.y, size.x) };
+        let trim = palette(zone).trim;
+        let (pieces, frame) = if power {
+            (door_look::shutter(local), Some(Color::srgb(0.2, 0.21, 0.23)))
+        } else {
+            (door_look::boarded(local), Some(trim))
+        };
+        for piece in pieces {
+            let child = self.veneer(&piece, at, along_x, cover, if piece.part == Part::Frame { frame } else { None }, false);
+            self.commands.entity(door).add_child(child);
+        }
+        door
+    }
+
+    /// One piece of a Door's or window's look, centred `piece.at` from `centre` in the frame whose
+    /// x runs along the wall (the world's x if `along_x`, else its z). It is hidden until `cover`
+    /// has loaded. In `paint` if it has one (trim), else in `cover` itself; at `centre + piece.at` in
+    /// the world if `world`, else relative to its parent.
+    fn veneer(&mut self, piece: &Piece, centre: Vec3, along_x: bool, cover: Material, paint: Option<Color>, world: bool) -> Entity {
+        // On a wall along z the frame is turned: the tilt is about the world's x, through the wall.
+        let (size, at, rotation) = if along_x {
+            (piece.size, piece.at, Quat::from_rotation_z(piece.tilt))
+        } else {
+            (Vec3::new(piece.size.z, piece.size.y, piece.size.x), Vec3::new(piece.at.z, piece.at.y, piece.at.x), Quat::from_rotation_x(piece.tilt))
+        };
+        // Boards are laid with the grain along their length; the wood's own runs up the face.
+        let grain = match (paint, cover) {
+            (None, Material::WeatheredPlanks) if along_x => Quat::from_rotation_z(std::f32::consts::FRAC_PI_2),
+            (None, Material::WeatheredPlanks) => Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+            _ => Quat::IDENTITY,
+        };
+        let mesh = self.meshes.add(box_uv_mesh(size, centre + at, rotation * grain, cover.tile()));
+        let colour = paint.unwrap_or(Color::srgb(0.4, 0.3, 0.2));
+        let material = self.paint(colour);
+        let mut child = self.commands.spawn((
+            Mesh3d(mesh),
+            MeshMaterial3d(material),
+            Transform { translation: if world { centre + at } else { at }, rotation, scale: Vec3::ONE },
+            Visibility::Hidden,
+            Veneer(cover),
+        ));
+        if paint.is_none() {
+            child.insert(Textured { material: cover, shape: Shape::Baked });
+        }
+        child.id()
+    }
+
+    /// A window's frame (its jambs, head and sill) in its Zone's trim paint, shown with the
+    /// weathered wood. Drawn only: the opening stays as it is.
+    fn window_frame(&mut self, mid: Vec3, along_x: bool, zone: Option<ZoneId>) {
+        let opening = WINDOW_HEIGHT - WINDOW_SILL_HEIGHT;
+        let centre = mid + Vec3::Y * (WINDOW_SILL_HEIGHT + opening / 2.0);
+        let trim = palette(zone).trim;
+        for piece in door_look::window_frame(WINDOW_WIDTH, opening, WALL_THICKNESS) {
+            let id = self.veneer(&piece, centre, along_x, Material::WeatheredPlanks, Some(trim), true);
+            self.commands.entity(id).insert(InRun);
+        }
     }
 
     /// An axis-aligned wall from `a` to `b` (x, z), standing on `y0`, `height` tall, with gaps
@@ -528,9 +596,15 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                     Collider::cuboid(size.x, size.y, size.z),
                     CollisionLayers::new(GameLayer::Window, LayerMask::ALL),
                 ));
+                let zone = self
+                    .windows
+                    .iter()
+                    .find(|(_, c, _)| (c.x - mid.x).abs() < 0.01 && (c.z - mid.y).abs() < 0.01 && (c.y - y0).abs() < 0.01)
+                    .map(|(zone, ..)| *zone);
+                self.window_frame(Vec3::new(mid.x, y0, mid.y), along_x, zone);
             }
             if let Gap::Door(joins, price) = gap {
-                let door = self.door_slab(across(0.25, DOOR_HEIGHT), Vec3::new(mid.x, y0 + DOOR_HEIGHT / 2.0, mid.y), price.is_none());
+                let door = self.door_slab(across(0.25, DOOR_HEIGHT), Vec3::new(mid.x, y0 + DOOR_HEIGHT / 2.0, mid.y), price.is_none(), joins.map(|j| j.0));
                 self.commands.entity(door).insert((
                     Door {
                         joins: *joins,
@@ -551,7 +625,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
             }
             if let Gap::LinkedDoor(joins) = gap {
                 let at = Vec3::new(mid.x, y0 + DOOR_HEIGHT / 2.0, mid.y);
-                let door = self.door_slab(across(0.25, DOOR_HEIGHT), at, true);
+                let door = self.door_slab(across(0.25, DOOR_HEIGHT), at, true, joins.map(|j| j.0));
                 // It can't be bought either, but its Prompt says what opens it, and the Use key
                 // buzzes.
                 self.commands.entity(door).insert((
