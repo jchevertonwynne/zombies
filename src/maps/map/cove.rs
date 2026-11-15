@@ -467,7 +467,7 @@ fn build(b: &mut Builder) {
     zwall(b, 18.0, (24.0, 44.0), UPPER, H, vec![(32.0, door(UpperLane, Pensione, DOOR_PRICE_UPPER_LANE_PENSIONE))]);
     zwall(b, 34.0, (24.0, 40.0), UPPER, H + 4.0, vec![]);
     xwall(b, (-30.0, -4.0), 40.0, UPPER, H, vec![(-27.0, Gap::Window), (-22.0, Gap::Window), (-8.0, Gap::Window)]);
-    xwall(b, (18.0, 34.0), 40.0, UPPER, H, vec![(24.0, Gap::Window), (30.0, Gap::Window)]);
+    xwall(b, (18.0, 34.0), 40.0, UPPER, H + 4.0, vec![(24.0, Gap::Window), (30.0, Gap::Window)]);
     // The wall up to the Headland, with the foot of two flights of stairs in it.
     xwall(
         b,
