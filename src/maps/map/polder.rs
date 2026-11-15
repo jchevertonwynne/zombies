@@ -109,6 +109,7 @@ pub(super) const POLDER: Layout = Layout {
     nav_nodes: data::NODES,
     nav_edges: data::EDGES,
     jump_pads: &[],
+    ziplines: &[],
     sapper: SapperTiming::DEFAULT,
     sections: &[],
     generators: &[],
