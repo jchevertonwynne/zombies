@@ -597,7 +597,7 @@ mod tests {
             }
         }
         // The channel is Deep at Mid, and the Ford's own Zone is where a Player there goes.
-        let in_the_channel = Vec3::new(crate::maps::map::POLDER_X - 47.0, -2.2, -6.0);
+        let in_the_channel = Vec3::new(-47.0, -2.2, -6.0);
         assert!(layout.out_of_bounds(TideLevel::Mid, in_the_channel));
         assert!(!layout.out_of_bounds(TideLevel::Low, in_the_channel));
         let to = washed_up_target(&graph, layout, TideLevel::Mid, in_the_channel, Some(ZoneId::WeighHouse), None).unwrap();
@@ -670,7 +670,7 @@ mod tests {
             });
             let layout = MapId::Polder.layout();
             let half = crate::tuning::PLAYER_RADIUS + crate::tuning::PLAYER_CAPSULE_LENGTH / 2.0;
-            let channel = Vec3::new(crate::maps::map::POLDER_X - 47.0, -2.2, -6.0);
+            let channel = Vec3::new(-47.0, -2.2, -6.0);
             let player = {
                 let world = sim.world_mut();
                 let player = world.query_filtered::<Entity, With<Player>>().single(world).unwrap();
@@ -701,7 +701,7 @@ mod tests {
     #[test]
     fn the_air_over_deep_water_catches_a_body_and_a_power_up_is_washed_up() {
         let layout = MapId::Polder.layout();
-        let channel = Vec3::new(crate::maps::map::POLDER_X - 47.0, -2.2, -6.0);
+        let channel = Vec3::new(-47.0, -2.2, -6.0);
         assert!(crate::maps::water::swamped(layout, TideLevel::Mid, channel));
         assert!(crate::maps::water::swamped(layout, TideLevel::Mid, channel + Vec3::Y * 2.0), "over it, within reach");
         assert!(!crate::maps::water::swamped(layout, TideLevel::Mid, channel + Vec3::Y * 4.5), "high over it");

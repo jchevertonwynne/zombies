@@ -769,8 +769,8 @@ fn every_open_floor_spot_walks_to_and_from_a_path_node_on(map_id: MapId) {
 /// two path nodes until the stuck rule takes it.
 #[test]
 fn a_zombie_climbs_to_a_player_at_the_quarry_pack_a_punch() {
-    use crate::maps::map::{MapId, QUARRY_X, STOREY};
-    let q = QUARRY_X;
+    use crate::maps::map::{MapId, STOREY};
+    let q = 0.0;
     let deck = 3.0 * STOREY;
     let at_machine = Vec3::new(q + 2.0, deck, 36.2);
     let starts = [
@@ -796,8 +796,8 @@ fn a_zombie_climbs_to_a_player_at_the_quarry_pack_a_punch() {
 /// up the Church's chancel steps to Pack-a-Punch. A Zombie walks every one to the Player.
 #[test]
 fn a_zombie_follows_the_player_round_every_way_of_the_village() {
-    use crate::maps::map::{MapId, VILLAGE_X};
-    let at = |x: f32, y: f32, z: f32| Vec3::new(VILLAGE_X + x, y, z);
+    use crate::maps::map::{MapId};
+    let at = |x: f32, y: f32, z: f32| Vec3::new(x, y, z);
     // Each start within the cleanup distance of the Player, as a spawn would be.
     let ways = [
         ("out of the Inn across the Market", at(0.0, 0.0, 14.0), at(10.0, 0.0, -18.0)),
@@ -856,9 +856,9 @@ fn open_every_door(sim: &mut Sim) {
 /// the spoil heap, and off the Rail Yard into the pit. A Zombie walks every one to the Player.
 #[test]
 fn a_zombie_follows_the_player_round_every_way_of_the_quarry() {
-    use crate::maps::map::{MapId, QUARRY_X, STOREY};
+    use crate::maps::map::{MapId, STOREY};
     let (t1, t2) = (STOREY, 2.0 * STOREY);
-    let at = |x: f32, y: f32, z: f32| Vec3::new(QUARRY_X + x, y, z);
+    let at = |x: f32, y: f32, z: f32| Vec3::new(x, y, z);
     let ways = [
         ("up the Incline to its top", at(0.0, 0.0, -15.0), at(-25.0, t2, 27.5)),
         ("up the Incline's ramp", at(0.0, 0.0, -15.0), at(-27.0, t1, 12.0)),
@@ -928,7 +928,8 @@ fn drops_after_with(map: MapId, start: Vec3, player: Vec3, under: f32, secs: f32
 /// before the stuck rule gives up on it.
 #[test]
 fn a_zombie_in_the_rail_yard_drops_into_the_pit_after_a_player_there() {
-    use crate::maps::map::{QUARRY_X as Q, STOREY};
+    use crate::maps::map::STOREY;
+    const Q: f32 = 0.0;
     let player = Vec3::new(Q + 6.0, 0.0, -6.0);
     // Each Riser, the window, and the middle of the yard.
     for start in [

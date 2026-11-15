@@ -241,11 +241,11 @@ per_map_slopes! {
 }
 
 /// A Player who somehow reaches the Rail Yard's window ledge can't jump, bunny-hop or run over its
-/// parapets into the void: the ledge is x 220..224, z 2..9, its top at the first terrace.
+/// parapets into the void: the ledge is x 20..24, z 2..9, its top at the first terrace.
 #[test]
 fn a_player_on_a_window_ledge_cannot_get_over_its_parapets() {
     let top = crate::maps::map::STOREY;
-    let max = Vec2::new(224.0, 9.0);
+    let max = Vec2::new(24.0, 9.0);
     let mut sim = Sim::on(MapId::Quarry, 60.0);
     // Yaw 0 faces -Z; a positive yaw turns towards -X.
     for (name, toward) in [
@@ -255,7 +255,7 @@ fn a_player_on_a_window_ledge_cannot_get_over_its_parapets() {
         ("north-east", -3.0 * FRAC_PI_2 / 2.0),
         ("north", std::f32::consts::PI),
     ] {
-        let start = Vec3::new(222.0, top, 5.5);
+        let start = Vec3::new(22.0, top, 5.5);
         for hold_jump in [false, true] {
             for run_up in [0.0, 0.3] {
                 sim.place(start, toward);

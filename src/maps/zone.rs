@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use crate::debug::DebugView;
 use crate::maps::door::Door;
-use crate::maps::map::{COVE_X, DAM_X, MapId, POLDER_X, QUARRY_X, STOREY, VILLAGE_X};
+use crate::maps::map::{MapId, STOREY};
 use crate::players::player::{LocalPlayer, Player};
 use crate::players::respawn::AwaitingRespawn;
 use crate::state::GameState;
@@ -377,21 +377,15 @@ impl ZoneId {
 
     /// The Zone's volume. Floors sit a little inside it, so a Player standing on one is inside.
     /// West Hall is two storeys tall because its ramp climbs to the Balcony, and a Zone with a
-    /// sunken floor (the Yard's garden, the Tunnel's dip) reaches down into it. The Quarry's Zones
-    /// stand at its own patch of the world, `QUARRY_X` along x, and a Zone a ramp or stairs climb
-    /// out of is tall enough to hold a Player on them. The Village's stand `VILLAGE_X` along x,
-    /// and the Dam's `DAM_X`, where a Zone with stairs up a storey is two storeys tall. The Cove's
-    /// stand `COVE_X`, and a Zone that owns the stairs up to it has a stairwell in its floor a storey
-    /// deep, which reaches its volume down to the floor below.
+    /// sunken floor (the Yard's garden, the Tunnel's dip) reaches down into it. A Zone a ramp or
+    /// stairs climb out of is tall enough to hold a Player on them, and a Zone with stairs up a
+    /// storey (the Dam's) is two storeys tall. A Zone that owns the stairs up to it has a stairwell
+    /// in its floor a storey deep, which reaches its volume down to the floor below. Every Map is
+    /// centred on the origin, so a Zone's volume is only ever looked up among its own Map's.
     pub fn volume(self) -> (Vec3, Vec3) {
         const LOW: f32 = -0.25;
         const UPPER: f32 = 3.75;
         const TOP: f32 = 8.0;
-        const Q: f32 = QUARRY_X;
-        const V: f32 = VILLAGE_X;
-        const D: f32 = DAM_X;
-        const C: f32 = COVE_X;
-        const P: f32 = POLDER_X;
         const GALLERY: f32 = STOREY - 0.25;
         const CREST: f32 = 2.0 * STOREY - 0.25;
         let (x0, x1, y0, y1, z0, z1) = match self {
@@ -407,73 +401,73 @@ impl ZoneId {
             ZoneId::Storeroom => (-4.0, 4.0, LOW, UPPER, -50.0, -38.0),
             ZoneId::GeneratorRoom => (4.0, 34.0, LOW, UPPER, -50.0, -38.0),
             ZoneId::Tunnel => (12.5, 15.5, LOW, UPPER, -38.0, -26.0),
-            ZoneId::PumpHouse => (Q - 8.0, Q + 8.0, LOW, UPPER, -30.0, -20.0),
-            ZoneId::QuarryFloor => (Q - 20.0, Q + 20.0, LOW, TOP - 0.25, -20.0, 2.0),
-            ZoneId::RailYard => (Q, Q + 20.0, UPPER, 3.0 * STOREY - 0.25, 2.0, 16.0),
-            ZoneId::CrusherShed => (Q - 20.0, Q, UPPER, TOP - 0.25, 2.0, 16.0),
-            ZoneId::WindingHouse => (Q, Q + 20.0, TOP - 0.25, 3.0 * STOREY - 0.25, 16.0, 28.0),
-            ZoneId::Offices => (Q - 20.0, Q, TOP - 0.25, 3.0 * STOREY - 0.25, 16.0, 28.0),
-            ZoneId::Headframe => (Q - 6.0, Q + 6.0, TOP - 0.25, 4.0 * STOREY, 28.0, 40.0),
-            ZoneId::Incline => (Q - 30.0, Q - 20.0, LOW, 3.0 * STOREY - 0.25, -12.0, 30.0),
-            ZoneId::LoadingDock => (Q + 20.0, Q + 34.0, LOW, UPPER, -20.0, -2.0),
-            ZoneId::Inn => (V - 8.0, V + 8.0, LOW, UPPER, 6.0, 22.0),
-            ZoneId::Market => (V - 24.0, V + 24.0, LOW, UPPER, -22.0, 6.0),
-            ZoneId::WestEnd => (V - 72.0, V - 24.0, LOW, UPPER, -6.0, 6.0),
-            ZoneId::EastEnd => (V + 24.0, V + 72.0, LOW, UPPER, -6.0, 6.0),
-            ZoneId::BackLane => (V - 24.0, V + 24.0, LOW, UPPER, 22.0, 30.0),
-            ZoneId::MillLane => (V - 72.0, V - 24.0, LOW, UPPER, 22.0, 30.0),
-            ZoneId::ChurchLane => (V + 24.0, V + 72.0, LOW, UPPER, 22.0, 30.0),
-            ZoneId::Mill => (V - 72.0, V - 52.0, LOW, UPPER, 6.0, 22.0),
-            ZoneId::Smithy => (V - 40.0, V - 24.0, LOW, UPPER, 6.0, 22.0),
-            ZoneId::Bakery => (V - 24.0, V - 8.0, LOW, UPPER, 6.0, 22.0),
-            ZoneId::Schoolhouse => (V + 24.0, V + 40.0, LOW, UPPER, 6.0, 22.0),
-            ZoneId::Church => (V + 52.0, V + 72.0, LOW, UPPER, 6.0, 22.0),
-            ZoneId::Orchard => (V - 72.0, V - 40.0, LOW, UPPER, 30.0, 54.0),
-            ZoneId::Graveyard => (V + 40.0, V + 72.0, LOW, UPPER, 30.0, 54.0),
-            ZoneId::CrestRoad => (D - 30.0, D + 30.0, CREST, CREST + STOREY, 22.0, 30.0),
-            ZoneId::TowerHead => (D - 46.0, D - 30.0, CREST, CREST + STOREY, 18.0, 32.0),
-            ZoneId::SpillwayGatehouse => (D + 30.0, D + 46.0, CREST, CREST + STOREY, 18.0, 32.0),
-            ZoneId::GateShaft => (D - 44.0, D - 38.0, GALLERY, CREST + STOREY, 2.0, 18.0),
-            ZoneId::IntakeGallery => (D - 44.0, D - 10.0, GALLERY, CREST, -56.0, 2.0),
-            ZoneId::ControlRoom => (D - 10.0, D + 10.0, GALLERY, CREST, -6.0, 8.0),
-            ZoneId::SpillwayGallery => (D + 10.0, D + 44.0, GALLERY, CREST + STOREY, -32.0, 18.0),
-            ZoneId::PenstockTunnel => (D - 3.0, D + 3.0, LOW, CREST, -28.0, -6.0),
-            ZoneId::TurbineHall => (D - 10.0, D + 10.0, LOW, CREST, -56.0, -28.0),
-            ZoneId::SwitchgearRoom => (D + 10.0, D + 26.0, LOW, UPPER, -52.0, -40.0),
-            ZoneId::SpillwayStair => (D + 38.0, D + 44.0, LOW, CREST, -56.0, -32.0),
-            ZoneId::DrainageGallery => (D - 44.0, D + 44.0, LOW, CREST, -62.0, -56.0),
-            ZoneId::SeaCave => (C - 56.0, C - 44.0, LOW, UPPER, -14.0, 6.0),
-            ZoneId::Shingle => (C - 44.0, C - 22.0, LOW, UPPER, -14.0, 6.0),
-            ZoneId::Strand => (C - 22.0, C + 20.0, LOW, UPPER, -14.0, 6.0),
-            ZoneId::Boathouse => (C + 20.0, C + 34.0, LOW, UPPER, -14.0, 6.0),
-            ZoneId::Washhouse => (C - 56.0, C - 44.0, STOREY - 0.25, 2.0 * STOREY - 0.25, 6.0, 24.0),
-            ZoneId::LowerLane => (C - 44.0, C - 20.0, STOREY - 0.25, 2.0 * STOREY - 0.25, 6.0, 20.0),
-            ZoneId::FishMarket => (C - 20.0, C + 6.0, STOREY - 0.25, 2.0 * STOREY - 0.25, 6.0, 24.0),
-            ZoneId::Taverna => (C + 6.0, C + 34.0, STOREY - 0.25, 2.0 * STOREY - 0.25, 6.0, 20.0),
-            ZoneId::Chapel => (C - 56.0, C - 30.0, 2.0 * STOREY - 0.25, 5.0 * STOREY - 0.25, 24.0, 44.0),
-            ZoneId::Piazza => (C - 30.0, C - 4.0, 2.0 * STOREY - 0.25, 3.0 * STOREY - 0.25, 24.0, 40.0),
-            ZoneId::UpperLane => (C - 4.0, C + 18.0, 2.0 * STOREY - 0.25, 3.0 * STOREY - 0.25, 24.0, 44.0),
-            ZoneId::Pensione => (C + 18.0, C + 34.0, 2.0 * STOREY - 0.25, 4.0 * STOREY - 0.25, 24.0, 40.0),
-            ZoneId::Lighthouse => (C - 56.0, C - 40.0, 3.0 * STOREY - 0.25, 6.0 * STOREY - 0.25, 44.0, 64.0),
-            ZoneId::LighthouseYard => (C - 40.0, C - 12.0, 3.0 * STOREY - 0.25, 4.0 * STOREY - 0.25, 44.0, 64.0),
-            ZoneId::KeepersCottage => (C - 12.0, C + 6.0, 3.0 * STOREY - 0.25, 4.0 * STOREY - 0.25, 44.0, 64.0),
-            ZoneId::Battery => (C + 6.0, C + 34.0, 3.0 * STOREY - 0.25, 4.0 * STOREY - 0.25, 44.0, 64.0),
-            ZoneId::TownSquare => (P - 26.0, P + 18.0, LOW, UPPER, -40.0, 0.0),
-            ZoneId::WeighHouse => (P - 56.0, P - 26.0, LOW, UPPER, -40.0, 0.0),
-            ZoneId::Brewery => (P - 80.0, P - 56.0, LOW, UPPER, -56.0, 0.0),
-            ZoneId::CheeseMarket => (P + 18.0, P + 54.0, LOW, UPPER, -40.0, 0.0),
-            ZoneId::AlmshouseCourt => (P - 26.0, P + 40.0, LOW, UPPER, -56.0, -40.0),
-            ZoneId::Windmill => (P - 80.0, P - 56.0, LOW, TOP, 0.0, 48.0),
-            ZoneId::Warehouse => (P - 56.0, P - 34.0, LOW, UPPER, 0.0, 24.0),
-            ZoneId::LockYard => (P - 34.0, P - 13.0, LOW, UPPER, 0.0, 24.0),
-            ZoneId::SluiceHouse => (P - 13.0, P + 13.0, LOW, UPPER, 0.0, 24.0),
-            ZoneId::TollQuay => (P + 13.0, P + 34.0, LOW, UPPER, 0.0, 24.0),
-            ZoneId::Shipyard => (P + 34.0, P + 58.0, LOW, UPPER, 0.0, 24.0),
-            ZoneId::CoalYard => (P + 58.0, P + 80.0, LOW, UPPER, 0.0, 48.0),
-            ZoneId::HerringQuay => (P - 56.0, P + 14.0, LOW, UPPER, 24.0, 48.0),
-            ZoneId::CustomsHouse => (P + 14.0, P + 58.0, LOW, UPPER, 24.0, 48.0),
-            ZoneId::DykeRoad => (P - 80.0, P + 44.0, STOREY - 0.25, 2.0 * STOREY - 0.25, 48.0, 60.0),
-            ZoneId::PumpingStation => (P + 44.0, P + 80.0, STOREY - 0.25, 2.0 * STOREY - 0.25, 48.0, 60.0),
+            ZoneId::PumpHouse => (-8.0, 8.0, LOW, UPPER, -30.0, -20.0),
+            ZoneId::QuarryFloor => (-20.0, 20.0, LOW, TOP - 0.25, -20.0, 2.0),
+            ZoneId::RailYard => (0.0, 20.0, UPPER, 3.0 * STOREY - 0.25, 2.0, 16.0),
+            ZoneId::CrusherShed => (-20.0, 0.0, UPPER, TOP - 0.25, 2.0, 16.0),
+            ZoneId::WindingHouse => (0.0, 20.0, TOP - 0.25, 3.0 * STOREY - 0.25, 16.0, 28.0),
+            ZoneId::Offices => (-20.0, 0.0, TOP - 0.25, 3.0 * STOREY - 0.25, 16.0, 28.0),
+            ZoneId::Headframe => (-6.0, 6.0, TOP - 0.25, 4.0 * STOREY, 28.0, 40.0),
+            ZoneId::Incline => (-30.0, -20.0, LOW, 3.0 * STOREY - 0.25, -12.0, 30.0),
+            ZoneId::LoadingDock => (20.0, 34.0, LOW, UPPER, -20.0, -2.0),
+            ZoneId::Inn => (-8.0, 8.0, LOW, UPPER, 6.0, 22.0),
+            ZoneId::Market => (-24.0, 24.0, LOW, UPPER, -22.0, 6.0),
+            ZoneId::WestEnd => (-72.0, -24.0, LOW, UPPER, -6.0, 6.0),
+            ZoneId::EastEnd => (24.0, 72.0, LOW, UPPER, -6.0, 6.0),
+            ZoneId::BackLane => (-24.0, 24.0, LOW, UPPER, 22.0, 30.0),
+            ZoneId::MillLane => (-72.0, -24.0, LOW, UPPER, 22.0, 30.0),
+            ZoneId::ChurchLane => (24.0, 72.0, LOW, UPPER, 22.0, 30.0),
+            ZoneId::Mill => (-72.0, -52.0, LOW, UPPER, 6.0, 22.0),
+            ZoneId::Smithy => (-40.0, -24.0, LOW, UPPER, 6.0, 22.0),
+            ZoneId::Bakery => (-24.0, -8.0, LOW, UPPER, 6.0, 22.0),
+            ZoneId::Schoolhouse => (24.0, 40.0, LOW, UPPER, 6.0, 22.0),
+            ZoneId::Church => (52.0, 72.0, LOW, UPPER, 6.0, 22.0),
+            ZoneId::Orchard => (-72.0, -40.0, LOW, UPPER, 30.0, 54.0),
+            ZoneId::Graveyard => (40.0, 72.0, LOW, UPPER, 30.0, 54.0),
+            ZoneId::CrestRoad => (-30.0, 30.0, CREST, CREST + STOREY, 22.0, 30.0),
+            ZoneId::TowerHead => (-46.0, -30.0, CREST, CREST + STOREY, 18.0, 32.0),
+            ZoneId::SpillwayGatehouse => (30.0, 46.0, CREST, CREST + STOREY, 18.0, 32.0),
+            ZoneId::GateShaft => (-44.0, -38.0, GALLERY, CREST + STOREY, 2.0, 18.0),
+            ZoneId::IntakeGallery => (-44.0, -10.0, GALLERY, CREST, -56.0, 2.0),
+            ZoneId::ControlRoom => (-10.0, 10.0, GALLERY, CREST, -6.0, 8.0),
+            ZoneId::SpillwayGallery => (10.0, 44.0, GALLERY, CREST + STOREY, -32.0, 18.0),
+            ZoneId::PenstockTunnel => (-3.0, 3.0, LOW, CREST, -28.0, -6.0),
+            ZoneId::TurbineHall => (-10.0, 10.0, LOW, CREST, -56.0, -28.0),
+            ZoneId::SwitchgearRoom => (10.0, 26.0, LOW, UPPER, -52.0, -40.0),
+            ZoneId::SpillwayStair => (38.0, 44.0, LOW, CREST, -56.0, -32.0),
+            ZoneId::DrainageGallery => (-44.0, 44.0, LOW, CREST, -62.0, -56.0),
+            ZoneId::SeaCave => (-56.0, -44.0, LOW, UPPER, -14.0, 6.0),
+            ZoneId::Shingle => (-44.0, -22.0, LOW, UPPER, -14.0, 6.0),
+            ZoneId::Strand => (-22.0, 20.0, LOW, UPPER, -14.0, 6.0),
+            ZoneId::Boathouse => (20.0, 34.0, LOW, UPPER, -14.0, 6.0),
+            ZoneId::Washhouse => (-56.0, -44.0, STOREY - 0.25, 2.0 * STOREY - 0.25, 6.0, 24.0),
+            ZoneId::LowerLane => (-44.0, -20.0, STOREY - 0.25, 2.0 * STOREY - 0.25, 6.0, 20.0),
+            ZoneId::FishMarket => (-20.0, 6.0, STOREY - 0.25, 2.0 * STOREY - 0.25, 6.0, 24.0),
+            ZoneId::Taverna => (6.0, 34.0, STOREY - 0.25, 2.0 * STOREY - 0.25, 6.0, 20.0),
+            ZoneId::Chapel => (-56.0, -30.0, 2.0 * STOREY - 0.25, 5.0 * STOREY - 0.25, 24.0, 44.0),
+            ZoneId::Piazza => (-30.0, -4.0, 2.0 * STOREY - 0.25, 3.0 * STOREY - 0.25, 24.0, 40.0),
+            ZoneId::UpperLane => (-4.0, 18.0, 2.0 * STOREY - 0.25, 3.0 * STOREY - 0.25, 24.0, 44.0),
+            ZoneId::Pensione => (18.0, 34.0, 2.0 * STOREY - 0.25, 4.0 * STOREY - 0.25, 24.0, 40.0),
+            ZoneId::Lighthouse => (-56.0, -40.0, 3.0 * STOREY - 0.25, 6.0 * STOREY - 0.25, 44.0, 64.0),
+            ZoneId::LighthouseYard => (-40.0, -12.0, 3.0 * STOREY - 0.25, 4.0 * STOREY - 0.25, 44.0, 64.0),
+            ZoneId::KeepersCottage => (-12.0, 6.0, 3.0 * STOREY - 0.25, 4.0 * STOREY - 0.25, 44.0, 64.0),
+            ZoneId::Battery => (6.0, 34.0, 3.0 * STOREY - 0.25, 4.0 * STOREY - 0.25, 44.0, 64.0),
+            ZoneId::TownSquare => (-26.0, 18.0, LOW, UPPER, -40.0, 0.0),
+            ZoneId::WeighHouse => (-56.0, -26.0, LOW, UPPER, -40.0, 0.0),
+            ZoneId::Brewery => (-80.0, -56.0, LOW, UPPER, -56.0, 0.0),
+            ZoneId::CheeseMarket => (18.0, 54.0, LOW, UPPER, -40.0, 0.0),
+            ZoneId::AlmshouseCourt => (-26.0, 40.0, LOW, UPPER, -56.0, -40.0),
+            ZoneId::Windmill => (-80.0, -56.0, LOW, TOP, 0.0, 48.0),
+            ZoneId::Warehouse => (-56.0, -34.0, LOW, UPPER, 0.0, 24.0),
+            ZoneId::LockYard => (-34.0, -13.0, LOW, UPPER, 0.0, 24.0),
+            ZoneId::SluiceHouse => (-13.0, 13.0, LOW, UPPER, 0.0, 24.0),
+            ZoneId::TollQuay => (13.0, 34.0, LOW, UPPER, 0.0, 24.0),
+            ZoneId::Shipyard => (34.0, 58.0, LOW, UPPER, 0.0, 24.0),
+            ZoneId::CoalYard => (58.0, 80.0, LOW, UPPER, 0.0, 48.0),
+            ZoneId::HerringQuay => (-56.0, 14.0, LOW, UPPER, 24.0, 48.0),
+            ZoneId::CustomsHouse => (14.0, 58.0, LOW, UPPER, 24.0, 48.0),
+            ZoneId::DykeRoad => (-80.0, 44.0, STOREY - 0.25, 2.0 * STOREY - 0.25, 48.0, 60.0),
+            ZoneId::PumpingStation => (44.0, 80.0, STOREY - 0.25, 2.0 * STOREY - 0.25, 48.0, 60.0),
         };
         let sunk = self.map().layout().sunken.iter().filter(|sunken| sunken.zone == self).map(|sunken| sunken.depth).fold(0.0, f32::max);
         (Vec3::new(x0, y0 - sunk, z0), Vec3::new(x1, y1, z1))
@@ -518,7 +512,8 @@ impl FromIterator<ZoneId> for ZoneSet {
 }
 
 /// The Zone the Player is in after moving. They change Zone only once their whole body
-/// (`min`..`max`) is inside the new one; until then they stay in the old Zone.
+/// (`min`..`max`) is inside the new one; until then they stay in the old Zone. Only the Zones of
+/// `current`'s own Map are looked at.
 pub fn track_zone(current: ZoneId, min: Vec3, max: Vec3) -> ZoneId {
     let fully_inside = |zone: ZoneId| {
         let (lo, hi) = zone.volume();
@@ -527,7 +522,7 @@ pub fn track_zone(current: ZoneId, min: Vec3, max: Vec3) -> ZoneId {
     if fully_inside(current) {
         return current;
     }
-    ZoneId::ALL.into_iter().find(|&zone| fully_inside(zone)).unwrap_or(current)
+    ZoneId::ALL.into_iter().filter(|zone| zone.map() == current.map()).find(|&zone| fully_inside(zone)).unwrap_or(current)
 }
 
 /// The Active Zones: the Player's Zone, plus every Zone one open join away from it.
@@ -690,9 +685,9 @@ mod tests {
     }
 
     #[test]
-    fn zone_volumes_do_not_overlap() {
+    fn zone_volumes_of_one_map_do_not_overlap() {
         for a in ZoneId::ALL {
-            for b in ZoneId::ALL.into_iter().filter(|&b| b != a) {
+            for b in ZoneId::ALL.into_iter().filter(|&b| b != a && b.map() == a.map()) {
                 let ((alo, ahi), (blo, bhi)) = (a.volume(), b.volume());
                 let overlap = alo.cmplt(bhi).all() && blo.cmplt(ahi).all();
                 assert!(!overlap, "{a:?} overlaps {b:?}");

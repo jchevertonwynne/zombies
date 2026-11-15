@@ -4,7 +4,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
-use crate::maps::map::{COVE_X, DAM_X, MapId, POLDER_X, QUARRY_X, STOREY, VILLAGE_X};
+use crate::maps::map::{MapId, STOREY};
 
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
@@ -110,11 +110,6 @@ impl Perk {
 
     /// Where its machine stands on `map`, against a wall of its Zone, and the way it faces.
     pub(crate) fn machine_spot(self, map: MapId) -> (Vec3, Vec3) {
-        const Q: f32 = QUARRY_X;
-        const V: f32 = VILLAGE_X;
-        const D: f32 = DAM_X;
-        const C: f32 = COVE_X;
-        const PO: f32 = POLDER_X;
         match (map, self) {
             // West Hall's outer wall.
             (MapId::Greybox, Perk::Juggernog) => (Vec3::new(-25.2, 0.0, 10.0), Vec3::X),
@@ -125,45 +120,45 @@ impl Perk {
             // The Start Room's north wall, away from its Spawn Points.
             (MapId::Greybox, Perk::QuickRevive) => (Vec3::new(11.5, 0.0, 25.2), Vec3::NEG_Z),
             // The Crusher Shed's back wall, against the terrace above.
-            (MapId::Quarry, Perk::Juggernog) => (Vec3::new(Q - 15.0, STOREY, 15.2), Vec3::NEG_Z),
+            (MapId::Quarry, Perk::Juggernog) => (Vec3::new(-15.0, STOREY, 15.2), Vec3::NEG_Z),
             // The Winding House's south wall, beside the Door up from the Rail Yard.
-            (MapId::Quarry, Perk::SpeedCola) => (Vec3::new(Q + 8.0, 2.0 * STOREY, 16.8), Vec3::Z),
+            (MapId::Quarry, Perk::SpeedCola) => (Vec3::new(8.0, 2.0 * STOREY, 16.8), Vec3::Z),
             // The Offices' north wall.
-            (MapId::Quarry, Perk::DoubleTap) => (Vec3::new(Q - 5.0, 2.0 * STOREY, 27.2), Vec3::NEG_Z),
+            (MapId::Quarry, Perk::DoubleTap) => (Vec3::new(-5.0, 2.0 * STOREY, 27.2), Vec3::NEG_Z),
             // The Pump House's east wall.
-            (MapId::Quarry, Perk::QuickRevive) => (Vec3::new(Q + 7.2, 0.0, -25.0), Vec3::NEG_X),
+            (MapId::Quarry, Perk::QuickRevive) => (Vec3::new(7.2, 0.0, -25.0), Vec3::NEG_X),
             // The Schoolhouse's back wall, east of the Market.
-            (MapId::Village, Perk::Juggernog) => (Vec3::new(V + 37.5, 0.0, 21.2), Vec3::NEG_Z),
+            (MapId::Village, Perk::Juggernog) => (Vec3::new(37.5, 0.0, 21.2), Vec3::NEG_Z),
             // The Smithy's back wall, west of the Market.
-            (MapId::Village, Perk::SpeedCola) => (Vec3::new(V - 37.0, 0.0, 21.2), Vec3::NEG_Z),
+            (MapId::Village, Perk::SpeedCola) => (Vec3::new(-37.0, 0.0, 21.2), Vec3::NEG_Z),
             // The front of the mausoleum, out in the Graveyard.
-            (MapId::Village, Perk::DoubleTap) => (Vec3::new(V + 56.0, 0.0, 39.9), Vec3::NEG_Z),
+            (MapId::Village, Perk::DoubleTap) => (Vec3::new(56.0, 0.0, 39.9), Vec3::NEG_Z),
             // The Inn's back wall.
-            (MapId::Village, Perk::QuickRevive) => (Vec3::new(V + 5.0, 0.0, 21.2), Vec3::NEG_Z),
+            (MapId::Village, Perk::QuickRevive) => (Vec3::new(5.0, 0.0, 21.2), Vec3::NEG_Z),
             // The Switchgear Room's south wall, at the foot of the dam.
-            (MapId::Dam, Perk::Juggernog) => (Vec3::new(D + 18.0, 0.0, -51.2), Vec3::Z),
+            (MapId::Dam, Perk::Juggernog) => (Vec3::new(18.0, 0.0, -51.2), Vec3::Z),
             // The Spillway Gatehouse's north wall.
-            (MapId::Dam, Perk::SpeedCola) => (Vec3::new(D + 38.0, 2.0 * STOREY, 31.2), Vec3::NEG_Z),
+            (MapId::Dam, Perk::SpeedCola) => (Vec3::new(38.0, 2.0 * STOREY, 31.2), Vec3::NEG_Z),
             // The Tower Head's north wall.
-            (MapId::Dam, Perk::DoubleTap) => (Vec3::new(D - 38.0, 2.0 * STOREY, 31.2), Vec3::NEG_Z),
+            (MapId::Dam, Perk::DoubleTap) => (Vec3::new(-38.0, 2.0 * STOREY, 31.2), Vec3::NEG_Z),
             // The Crest Road's reservoir parapet, between the two cheap guns.
-            (MapId::Dam, Perk::QuickRevive) => (Vec3::new(D, 2.0 * STOREY, 29.2), Vec3::NEG_Z),
+            (MapId::Dam, Perk::QuickRevive) => (Vec3::new(0.0, 2.0 * STOREY, 29.2), Vec3::NEG_Z),
             // The Piazza's north wall, the town hall's front.
-            (MapId::Cove, Perk::Juggernog) => (Vec3::new(C - 17.0, 2.0 * STOREY, 39.2), Vec3::NEG_Z),
+            (MapId::Cove, Perk::Juggernog) => (Vec3::new(-17.0, 2.0 * STOREY, 39.2), Vec3::NEG_Z),
             // The Taverna's north wall.
-            (MapId::Cove, Perk::SpeedCola) => (Vec3::new(C + 14.0, STOREY, 19.2), Vec3::NEG_Z),
+            (MapId::Cove, Perk::SpeedCola) => (Vec3::new(14.0, STOREY, 19.2), Vec3::NEG_Z),
             // The Keeper's Cottage's west wall.
-            (MapId::Cove, Perk::DoubleTap) => (Vec3::new(C - 11.2, 3.0 * STOREY, 58.5), Vec3::X),
+            (MapId::Cove, Perk::DoubleTap) => (Vec3::new(-11.2, 3.0 * STOREY, 58.5), Vec3::X),
             // The Strand's sea wall, between the two cheap guns.
-            (MapId::Cove, Perk::QuickRevive) => (Vec3::new(C - 1.0, 0.0, -13.2), Vec3::Z),
+            (MapId::Cove, Perk::QuickRevive) => (Vec3::new(-1.0, 0.0, -13.2), Vec3::Z),
             // The Herring Quay's front on the dyke, on the cheap way to the Power.
-            (MapId::Polder, Perk::Juggernog) => (Vec3::new(PO - 8.0, 0.0, 47.2), Vec3::NEG_Z),
+            (MapId::Polder, Perk::Juggernog) => (Vec3::new(-8.0, 0.0, 47.2), Vec3::NEG_Z),
             // The Warehouse's north wall.
-            (MapId::Polder, Perk::SpeedCola) => (Vec3::new(PO - 38.0, 0.0, 23.2), Vec3::NEG_Z),
+            (MapId::Polder, Perk::SpeedCola) => (Vec3::new(-38.0, 0.0, 23.2), Vec3::NEG_Z),
             // The Shipyard's west wall, on the east axis.
-            (MapId::Polder, Perk::DoubleTap) => (Vec3::new(PO + 34.8, 0.0, 20.0), Vec3::X),
+            (MapId::Polder, Perk::DoubleTap) => (Vec3::new(34.8, 0.0, 20.0), Vec3::X),
             // The Square's south wall, between the two cheap guns.
-            (MapId::Polder, Perk::QuickRevive) => (Vec3::new(PO + 5.0, 0.0, -39.2), Vec3::Z),
+            (MapId::Polder, Perk::QuickRevive) => (Vec3::new(5.0, 0.0, -39.2), Vec3::Z),
         }
     }
 

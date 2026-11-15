@@ -6,7 +6,7 @@ use bevy::ecs::system::RunSystemOnce;
 
 use super::tests::Run;
 use super::*;
-use crate::maps::map::{MapId, POLDER_X};
+use crate::maps::map::{MapId};
 use crate::players::player::Seat;
 use crate::players::respawn::SeatReturned;
 
@@ -42,8 +42,8 @@ fn a_client_sees_warning_then_swinging_then_rest_with_its_deck_at_the_new_rest()
     run.step(10);
     let lever = run.find::<Lever>(1, |lever| lever.piece == PieceId(0));
     // Over the Along deck's middle, and the Span deck's.
-    let along = Vec3::new(POLDER_X - 14.0, 3.0, -10.0);
-    let span = Vec3::new(POLDER_X - 22.0, 3.0, -6.0);
+    let along = Vec3::new(-14.0, 3.0, -10.0);
+    let span = Vec3::new(-22.0, 3.0, -6.0);
     assert!(drop_onto(&mut run, 1, span).is_some_and(|d| (d - 3.0).abs() < 0.05), "the deck stands at Span");
     assert!(drop_onto(&mut run, 1, along).is_none_or(|d| d > 3.5), "and nothing is over the water at Along");
     run.use_buyable(1, lever, false);
@@ -121,8 +121,8 @@ fn a_client_sees_the_lock_gates_swing_with_the_tide() {
     use crate::maps::tide::{TidePhase, TurnState};
     let mut run = polder_with_tide(1);
     run.step(10);
-    let inland = Vec3::new(POLDER_X - 11.0, 3.0, 2.5);
-    let sea = Vec3::new(POLDER_X + 11.0, 3.0, 21.5);
+    let inland = Vec3::new(-11.0, 3.0, 2.5);
+    let sea = Vec3::new(11.0, 3.0, 21.5);
     let walkway = |run: &mut Run, over: Vec3| drop_onto(run, 1, over).is_some_and(|d| (d - 3.0).abs() < 0.05);
     assert!(walkway(&mut run, inland) && !walkway(&mut run, sea), "at Low the Inland Gate is Shut");
     set_tide(&mut run, 0, TidePhase::Rising, TurnState::Turning { elapsed: 0.0 });

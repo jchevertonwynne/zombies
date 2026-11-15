@@ -299,9 +299,9 @@ pub fn unpack_anim(byte: u8) -> (Activity, bool) {
 
 /// What a position on `map` is told relative to: the middle of the Map's plan, at height 0. Both
 /// ends know the Room's `MapId` before any snapshot is sent, so nothing about it goes on the wire.
-/// Each Map sits at its own x (ADR 0005), far past what three `i16`s in steps of
-/// `WIRE_POSITION_STEP` reach from the world's origin (about 327 m), but a plan is at most a few
-/// hundred metres across, so told from its middle every plan fits at 1 cm, in the same six bytes.
+/// Three `i16`s in steps of `WIRE_POSITION_STEP` reach about 327 m from where they are counted
+/// from, and a plan is at most a few hundred metres across, so told from its middle every plan
+/// fits at 1 cm, in the same six bytes, wherever a Map is built (ADR 0009).
 pub fn wire_origin(map: MapId) -> Vec3 {
     let (min, max) = map.layout().plan;
     let middle = (min + max) / 2.0;

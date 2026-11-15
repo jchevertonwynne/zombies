@@ -968,7 +968,7 @@ pub(super) fn wall_faces(map: MapId, a: Vec2, b: Vec2, s: f32, e: f32, y0: f32, 
 
     // Cut along the wall wherever a Zone starts or ends.
     let mut cuts = vec![lo, hi];
-    for zone in ZoneId::ALL {
+    for zone in ZoneId::ALL.into_iter().filter(|zone| zone.map() == map) {
         let (zlo, zhi) = zone.volume();
         for cut in if along_x { [zlo.x, zhi.x] } else { [zlo.z, zhi.z] } {
             if cut > lo + 0.01 && cut < hi - 0.01 {

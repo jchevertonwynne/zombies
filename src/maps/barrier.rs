@@ -348,10 +348,9 @@ pub struct FlingOutside {
     pub zombie: Entity,
 }
 
-/// The window whose centre is nearest `at`.
-pub fn nearest_window(at: Vec3) -> BarrierId {
-    (0..WINDOWS.len())
-        .map(|i| BarrierId(i as u8))
+/// The window of `map` whose centre is nearest `at`.
+pub fn nearest_window(map: MapId, at: Vec3) -> BarrierId {
+    map.barriers()
         .min_by(|&a, &b| window_centre(a).distance(at).total_cmp(&window_centre(b).distance(at)))
         .expect("every Map has windows")
 }
@@ -363,6 +362,7 @@ pub fn nearest_window(at: Vec3) -> BarrierId {
 pub fn fling_outside(
     mut commands: Commands,
     mut requests: MessageReader<FlingOutside>,
+    map: Res<MapId>,
     mut zombies: Query<(&Zombie, &mut Transform, Option<&mut TranslationEasingState>, Option<&mut Route>), (Without<Dying>, Without<Entering>)>,
 ) {
     for &FlingOutside { zombie: entity } in requests.read() {
@@ -372,7 +372,7 @@ pub fn fling_outside(
         if zombie.is_hellhound() || zombie.is_nova_crawler() {
             continue;
         }
-        let barrier = nearest_window(transform.translation);
+        let barrier = nearest_window(*map, transform.translation);
         transform.translation = window_spawn(barrier) + Vec3::Y * (zombie.half_height() + 0.02);
         if let Some(mut easing) = easing {
             easing.start = Some(transform.translation);
@@ -1350,7 +1350,7 @@ mod tests {
         for i in 0..WINDOWS.len() {
             let barrier = BarrierId(i as u8);
             let (out, _) = window_axes(barrier);
-            assert_eq!(nearest_window(window_centre(barrier) - out * 1.5), barrier, "window {i}");
+            assert_eq!(nearest_window(WINDOWS[i].0.map(), window_centre(barrier) - out * 1.5), barrier, "window {i}");
         }
     }
 

@@ -935,13 +935,10 @@ mod tests {
     use crate::enemies::zombie::headless::Sim;
     use crate::enemies::special::SpecialKind;
     use crate::enemies::zombie::{Heavyweight, Pay, ZombieKilled};
-    use crate::maps::map::POLDER_X;
     use crate::maps::tide::TIDE_PHASES;
     use crate::maps::water::{Wading, water_at};
     use crate::maps::zone::{ActiveZones, PlayerZone, update_active_zones};
     use ZoneId::*;
-
-    const P: f32 = POLDER_X;
 
     fn polder() -> &'static Layout {
         MapId::Polder.layout()
@@ -974,7 +971,7 @@ mod tests {
     #[test]
     fn in_way_covers_the_deck_the_sweep_and_the_water_under_them() {
         let piece = market();
-        let at = |x: f32, y: f32, z: f32| Vec3::new(P + x, y, z);
+        let at = |x: f32, y: f32, z: f32| Vec3::new(x, y, z);
         // On the deck at Span, either way round.
         assert!(piece.in_way(at(-22.0, 0.0, -6.0), 0, 1));
         assert!(piece.in_way(at(-22.0, 0.0, -6.0), 1, 0));
@@ -1223,7 +1220,7 @@ mod tests {
     #[test]
     fn a_lever_waits_while_a_player_is_on_the_deck_and_swings_once_they_step_off() {
         let mut sim = polder_sim();
-        move_player(&mut sim, Vec3::new(P - 22.0, 0.0, -6.0));
+        move_player(&mut sim, Vec3::new(-22.0, 0.0, -6.0));
         let pulled = lever(&mut sim, 0, 0);
         sim.run(30);
         pull(&mut sim, pulled);
@@ -1231,7 +1228,7 @@ mod tests {
         assert!(matches!(phase(&mut sim, 0), PiecePhase::Warning { .. }));
         sim.run(sim.frames(SWING_WARN_SECS + 3.0));
         assert_eq!(phase(&mut sim, 0), PiecePhase::Waiting { from: 0, to: 1 }, "no time limit while they stand there");
-        move_player(&mut sim, Vec3::new(P - 30.0, 0.0, -20.0));
+        move_player(&mut sim, Vec3::new(-30.0, 0.0, -20.0));
         sim.run(sim.frames(0.5));
         assert!(phase(&mut sim, 0).swinging(), "{:?}", phase(&mut sim, 0));
         sim.run(sim.frames(SWING_SECS + 0.5));
@@ -1244,7 +1241,7 @@ mod tests {
     #[test]
     fn the_cooldown_is_shared_between_a_bridges_levers() {
         let mut sim = polder_sim();
-        move_player(&mut sim, Vec3::new(P - 30.0, 0.0, -20.0));
+        move_player(&mut sim, Vec3::new(-30.0, 0.0, -20.0));
         let (a, b) = (lever(&mut sim, 0, 0), lever(&mut sim, 0, 1));
         sim.run(5);
         for l in [a, b] {
@@ -1273,9 +1270,9 @@ mod tests {
     #[test]
     fn a_zombie_on_the_deck_is_tipped_as_an_unpaid_kill_and_one_on_the_quay_is_not() {
         let mut sim = polder_sim();
-        move_player(&mut sim, Vec3::new(P - 30.0, 0.0, -30.0));
-        let on_deck = sim.spawn(Vec3::new(P - 22.0, 0.0, -6.0), None);
-        let on_quay = sim.spawn(Vec3::new(P - 22.0, 0.0, -20.0), None);
+        move_player(&mut sim, Vec3::new(-30.0, 0.0, -30.0));
+        let on_deck = sim.spawn(Vec3::new(-22.0, 0.0, -6.0), None);
+        let on_quay = sim.spawn(Vec3::new(-22.0, 0.0, -20.0), None);
         sim.send(SwingStarted { piece: PieceId(0), from: 0, to: 1 });
         sim.run(4);
         assert!(sim.world_mut().get::<Dying>(on_deck).is_some(), "tipped");
@@ -1291,8 +1288,8 @@ mod tests {
     #[test]
     fn a_tipped_sapper_loses_its_share_and_is_moved() {
         let mut sim = polder_sim();
-        move_player(&mut sim, Vec3::new(P - 30.0, 0.0, -30.0));
-        let on_deck = Vec3::new(P - 22.0, 0.0, -6.0);
+        move_player(&mut sim, Vec3::new(-30.0, 0.0, -30.0));
+        let on_deck = Vec3::new(-22.0, 0.0, -6.0);
         let sapper = sim.spawn(on_deck, None);
         sim.world_mut().entity_mut(sapper).insert((Zombie::special(SpecialKind::Sapper, 1000.0, on_deck), Heavyweight::SAPPER));
         sim.world_mut().resource_mut::<ActiveZones>().0 = crate::maps::zone::ZoneSet::from_iter(ZoneId::ALL);
@@ -1434,7 +1431,7 @@ mod tests {
             // Open, every part of both Leaves is inside the chamber's own x range.
             for (leaf, &yaw) in piece.leaves.iter().zip(piece.rests[1].yaws) {
                 let centre = leaf.centre(yaw);
-                assert!(centre.x > P + chamber_x.0 + 0.1 && centre.x < P + chamber_x.1 - 0.1, "folded in the chamber: {centre}");
+                assert!(centre.x > chamber_x.0 + 0.1 && centre.x < chamber_x.1 - 0.1, "folded in the chamber: {centre}");
                 assert!(centre.z > 0.0 && centre.z < 24.0);
                 assert!(!leaf.over(at(mid, 0.0, z), yaw, 0.0), "Open, the middle is clear");
             }
@@ -1442,7 +1439,7 @@ mod tests {
     }
 
     fn at(x: f32, y: f32, z: f32) -> Vec3 {
-        Vec3::new(P + x, y, z)
+        Vec3::new(x, y, z)
     }
 
     /// The Polder's headline check. With every Door open and the Power on, in all 16 combinations
@@ -1554,7 +1551,7 @@ mod tests {
     #[test]
     fn the_gates_swing_on_the_rising_to_high_and_falling_to_low_turns_and_on_no_others() {
         let mut sim = gate_sim();
-        move_player(&mut sim, Vec3::new(P - 30.0, 0.0, -30.0));
+        move_player(&mut sim, Vec3::new(-30.0, 0.0, -30.0));
         let mut log = Vec::new();
         for phase in [TidePhase::Low, TidePhase::Rising, TidePhase::High, TidePhase::Falling] {
             let swings = turn_from(&mut sim, phase);
@@ -1579,7 +1576,7 @@ mod tests {
     #[test]
     fn a_gate_swings_through_the_turn_and_is_at_rest_when_it_lands() {
         let mut sim = gate_sim();
-        move_player(&mut sim, Vec3::new(P - 30.0, 0.0, -30.0));
+        move_player(&mut sim, Vec3::new(-30.0, 0.0, -30.0));
         set_tide(&mut sim, TidePhase::Rising, TurnState::Bells { elapsed: 1.0 });
         sim.run(10);
         assert_eq!(phase(&mut sim, 4), PiecePhase::Rest(0), "the bells move nothing");
@@ -1602,7 +1599,7 @@ mod tests {
     #[test]
     fn a_turn_finished_at_once_puts_the_gates_at_the_new_rest() {
         let mut sim = gate_sim();
-        move_player(&mut sim, Vec3::new(P - 30.0, 0.0, -30.0));
+        move_player(&mut sim, Vec3::new(-30.0, 0.0, -30.0));
         set_tide(&mut sim, TidePhase::High, TurnState::Still);
         sim.run(3);
         assert_eq!(phase(&mut sim, 4), PiecePhase::Rest(1));
@@ -1615,7 +1612,7 @@ mod tests {
     #[test]
     fn a_player_on_the_inland_gate_at_rising_to_high_is_washed_up_to_the_lock_yards_landing() {
         let mut sim = gate_sim();
-        move_player(&mut sim, Vec3::new(P - 11.0, 0.0, 2.5));
+        move_player(&mut sim, Vec3::new(-11.0, 0.0, 2.5));
         sim.run(3);
         set_tide(&mut sim, TidePhase::Rising, TurnState::Turning { elapsed: 0.0 });
         sim.run(3);
@@ -1637,18 +1634,18 @@ mod tests {
     #[test]
     fn a_player_nearer_the_island_is_washed_up_to_its_landing_and_a_gate_that_stays_leaves_them() {
         let mut sim = gate_sim();
-        move_player(&mut sim, Vec3::new(P - 7.5, 0.0, 2.5));
+        move_player(&mut sim, Vec3::new(-7.5, 0.0, 2.5));
         sim.run(3);
         set_tide(&mut sim, TidePhase::Rising, TurnState::Turning { elapsed: 0.0 });
         sim.run(3);
-        let island = Vec3::new(P - 4.0, 0.0, 2.5);
+        let island = Vec3::new(-4.0, 0.0, 2.5);
         let world = sim.world_mut();
         let mut query = world.query_filtered::<&Transform, With<Player>>();
         let feet = query.iter(world).next().unwrap().translation - Vec3::Y * Stance::Standing.half_height();
         assert!(feet.distance(island) < 0.3, "{feet}");
         // Low to Rising moves nothing, so nobody is Washed Up.
         let mut sim = gate_sim();
-        let there = Vec3::new(P - 11.0, 0.0, 2.5);
+        let there = Vec3::new(-11.0, 0.0, 2.5);
         move_player(&mut sim, there);
         sim.run(3);
         set_tide(&mut sim, TidePhase::Low, TurnState::Turning { elapsed: 0.0 });
@@ -1664,8 +1661,8 @@ mod tests {
     #[test]
     fn a_napalm_on_a_gate_is_tipped_by_the_swing() {
         let mut sim = gate_sim();
-        move_player(&mut sim, Vec3::new(P - 30.0, 0.0, -30.0));
-        let on_gate = Vec3::new(P - 11.0, 0.0, 2.5);
+        move_player(&mut sim, Vec3::new(-30.0, 0.0, -30.0));
+        let on_gate = Vec3::new(-11.0, 0.0, 2.5);
         let napalm = sim.spawn(on_gate, None);
         sim.world_mut().entity_mut(napalm).insert(Zombie::special(SpecialKind::Napalm, 1000.0, on_gate));
         set_tide(&mut sim, TidePhase::Rising, TurnState::Turning { elapsed: 0.0 });
@@ -1710,7 +1707,7 @@ mod tests {
     fn the_lock_water_is_deep_under_both_gate_mouths_at_every_phase() {
         for phase in TIDE_PHASES {
             for (x, z) in [(-9.5, 2.5), (9.5, 21.5), (-9.5, 12.0), (9.5, 12.0)] {
-                assert_eq!(water_at(polder(), phase.level(), Vec3::new(P + x, -3.0, z)), Some(Wading::Deep), "{x}, {z} at {phase:?}");
+                assert_eq!(water_at(polder(), phase.level(), Vec3::new(x, -3.0, z)), Some(Wading::Deep), "{x}, {z} at {phase:?}");
             }
         }
     }

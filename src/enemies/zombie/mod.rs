@@ -1496,7 +1496,7 @@ impl ZombieMelee<'_, '_> {
 /// the arc in front of it, all only with a clear line to the Player: a wall or a closed Door
 /// stops a swipe and its wind-up. Those outside a window reach through it instead (see the
 /// Barriers). With no Player in reach, a Zombie swings the same way at a Turned ally in reach
-/// (ADR 0008): the swing lands as `TurnedAllyHit` and hurts nothing.
+/// (ADR 0009): the swing lands as `TurnedAllyHit` and hurts nothing.
 fn attack(
     mut zombies: Query<
         (Entity, &mut Zombie, &Transform, Option<&Route>),
@@ -1929,17 +1929,16 @@ mod tests {
     /// freed the moment they step out.
     #[test]
     fn a_zombie_in_shallow_water_is_slowed_and_freed_as_it_steps_out() {
-        use crate::maps::map::COVE_X;
         let mut sim = headless::Sim::on(MapId::Cove, 60.0, |_| {});
         // The stand-in Player waits on the dry sand north of the surf.
         let world = sim.world_mut();
         for mut transform in world.query_filtered::<&mut Transform, With<crate::players::player::Player>>().iter_mut(world) {
-            transform.translation = Vec3::new(COVE_X - 8.0, 0.9, 1.0);
+            transform.translation = Vec3::new(-8.0, 0.9, 1.0);
         }
-        let wet = sim.spawn(Vec3::new(COVE_X - 8.0, 0.0, -11.0), None);
-        let sapper = sim.spawn(Vec3::new(COVE_X - 4.0, 0.0, -11.0), None);
+        let wet = sim.spawn(Vec3::new(-8.0, 0.0, -11.0), None);
+        let sapper = sim.spawn(Vec3::new(-4.0, 0.0, -11.0), None);
         sim.world_mut().entity_mut(sapper).insert(Heavyweight::SAPPER);
-        let dry = sim.spawn(Vec3::new(COVE_X + 4.0, 0.0, -3.0), None);
+        let dry = sim.spawn(Vec3::new(4.0, 0.0, -3.0), None);
         sim.run(3);
         let factor = |sim: &mut headless::Sim, zombie| sim.world_mut().get::<ZombieMoveFactor>(zombie).map(ZombieMoveFactor::factor);
         assert_eq!(factor(&mut sim, wet), Some(WADE_SPEED_MULT));

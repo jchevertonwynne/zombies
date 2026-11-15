@@ -614,7 +614,7 @@ mod tests {
     fn a_route_sets_off_from_whichever_near_node_leads_on_best() {
         let graph = NavGraph::new(MapId::Quarry);
         let named = |name: &str| graph.node(name).unwrap();
-        let feet = Vec3::new(crate::maps::map::QUARRY_X, 2.0 * crate::maps::map::STOREY, 29.1);
+        let feet = Vec3::new(0.0, 2.0 * crate::maps::map::STOREY, 29.1);
         assert_eq!(graph.nearest(feet), named("head_w"));
         // Anything on the yard's floor is a clear walk from there; the stairs are behind a wall.
         let from = graph.near_where(feet, |node| node.at.y == feet.y);

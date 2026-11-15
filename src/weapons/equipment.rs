@@ -23,7 +23,7 @@ use crate::state::{GameState, InRun, input_runs, world_runs};
 use crate::tuning::*;
 use crate::weapons::weapon::Knife;
 use crate::enemies::zombie::{Dying, Lured, Zombie};
-use crate::maps::map::{COVE_X, DAM_X, MapId, POLDER_X, QUARRY_X, STOREY, VILLAGE_X};
+use crate::maps::map::{MapId, STOREY};
 use crate::maps::zone::ZoneId;
 
 /// Request to give a Player Lethals (frags), capped at their Lethal capacity (ADR 0007).
@@ -309,7 +309,6 @@ struct EquipmentAssets {
 /// Where each Equipment wall's chalk sits on `map`: its Zone, the centre on a wall's face
 /// (x, y, z), and which way that face looks.
 pub(crate) fn equipment_walls(map: MapId) -> &'static [(EquipmentWall, ZoneId, Vec3, Vec3)] {
-    const Q: f32 = QUARRY_X;
     match map {
         MapId::Greybox => {
             const SPOTS: [(EquipmentWall, ZoneId, Vec3, Vec3); 3] = [
@@ -325,59 +324,55 @@ pub(crate) fn equipment_walls(map: MapId) -> &'static [(EquipmentWall, ZoneId, V
         MapId::Quarry => {
             const SPOTS: [(EquipmentWall, ZoneId, Vec3, Vec3); 3] = [
                 // On the face of the terrace, across the pit floor from the Pump House.
-                (EquipmentWall::Frags, ZoneId::QuarryFloor, Vec3::new(Q - 1.0, 1.5, 1.8), Vec3::NEG_Z),
+                (EquipmentWall::Frags, ZoneId::QuarryFloor, Vec3::new(-1.0, 1.5, 1.8), Vec3::NEG_Z),
                 // On the Crusher Shed's back wall.
-                (EquipmentWall::Claymore, ZoneId::CrusherShed, Vec3::new(Q - 5.0, STOREY + 1.5, 15.8), Vec3::NEG_Z),
+                (EquipmentWall::Claymore, ZoneId::CrusherShed, Vec3::new(-5.0, STOREY + 1.5, 15.8), Vec3::NEG_Z),
                 // Up on the Headframe's deck, on its east wall.
-                (EquipmentWall::BowieKnife, ZoneId::Headframe, Vec3::new(Q + 5.8, 3.0 * STOREY + 1.5, 38.0), Vec3::NEG_X),
+                (EquipmentWall::BowieKnife, ZoneId::Headframe, Vec3::new(5.8, 3.0 * STOREY + 1.5, 38.0), Vec3::NEG_X),
             ];
             &SPOTS
         }
         MapId::Village => {
-            const V: f32 = VILLAGE_X;
             const SPOTS: [(EquipmentWall, ZoneId, Vec3, Vec3); 3] = [
                 // On the Market's south wall, behind the cross.
-                (EquipmentWall::Frags, ZoneId::Market, Vec3::new(V, 1.5, -21.8), Vec3::Z),
+                (EquipmentWall::Frags, ZoneId::Market, Vec3::new(0.0, 1.5, -21.8), Vec3::Z),
                 // On the Mill's front wall, beside the Door in from the street.
-                (EquipmentWall::Claymore, ZoneId::Mill, Vec3::new(V - 67.0, 1.5, 6.2), Vec3::Z),
+                (EquipmentWall::Claymore, ZoneId::Mill, Vec3::new(-67.0, 1.5, 6.2), Vec3::Z),
                 // On the back of the mausoleum.
-                (EquipmentWall::BowieKnife, ZoneId::Graveyard, Vec3::new(V + 56.0, 1.5, 45.7), Vec3::Z),
+                (EquipmentWall::BowieKnife, ZoneId::Graveyard, Vec3::new(56.0, 1.5, 45.7), Vec3::Z),
             ];
             &SPOTS
         }
         MapId::Dam => {
-            const D: f32 = DAM_X;
             const SPOTS: [(EquipmentWall, ZoneId, Vec3, Vec3); 3] = [
                 // On the Tower Head's west wall, beside its window.
-                (EquipmentWall::Frags, ZoneId::TowerHead, Vec3::new(D - 45.8, 2.0 * STOREY + 1.5, 30.0), Vec3::X),
+                (EquipmentWall::Frags, ZoneId::TowerHead, Vec3::new(-45.8, 2.0 * STOREY + 1.5, 30.0), Vec3::X),
                 // In the Spillway Gallery, on its south wall.
-                (EquipmentWall::Claymore, ZoneId::SpillwayGallery, Vec3::new(D + 30.0, STOREY + 1.5, -3.8), Vec3::Z),
+                (EquipmentWall::Claymore, ZoneId::SpillwayGallery, Vec3::new(30.0, STOREY + 1.5, -3.8), Vec3::Z),
                 // On the Control Room's north wall, beside the mimic panel.
-                (EquipmentWall::BowieKnife, ZoneId::ControlRoom, Vec3::new(D - 7.5, STOREY + 1.5, 7.8), Vec3::NEG_Z),
+                (EquipmentWall::BowieKnife, ZoneId::ControlRoom, Vec3::new(-7.5, STOREY + 1.5, 7.8), Vec3::NEG_Z),
             ];
             &SPOTS
         }
         MapId::Cove => {
-            const C: f32 = COVE_X;
             const SPOTS: [(EquipmentWall, ZoneId, Vec3, Vec3); 3] = [
                 // On the Fish Market's east wall, beside the Door to the Taverna.
-                (EquipmentWall::Frags, ZoneId::FishMarket, Vec3::new(C + 5.8, STOREY + 1.5, 19.0), Vec3::NEG_X),
+                (EquipmentWall::Frags, ZoneId::FishMarket, Vec3::new(5.8, STOREY + 1.5, 19.0), Vec3::NEG_X),
                 // On the Battery's east wall, behind the guns.
-                (EquipmentWall::Claymore, ZoneId::Battery, Vec3::new(C + 33.8, 3.0 * STOREY + 1.5, 58.0), Vec3::NEG_X),
+                (EquipmentWall::Claymore, ZoneId::Battery, Vec3::new(33.8, 3.0 * STOREY + 1.5, 58.0), Vec3::NEG_X),
                 // On the Chapel's east wall.
-                (EquipmentWall::BowieKnife, ZoneId::Chapel, Vec3::new(C - 30.2, 2.0 * STOREY + 1.5, 27.0), Vec3::NEG_X),
+                (EquipmentWall::BowieKnife, ZoneId::Chapel, Vec3::new(-30.2, 2.0 * STOREY + 1.5, 27.0), Vec3::NEG_X),
             ];
             &SPOTS
         }
         MapId::Polder => {
-            const PO: f32 = POLDER_X;
             const SPOTS: [(EquipmentWall, ZoneId, Vec3, Vec3); 3] = [
                 // On the Cheese Market's east wall.
-                (EquipmentWall::Frags, ZoneId::CheeseMarket, Vec3::new(PO + 53.8, 1.5, -20.0), Vec3::NEG_X),
+                (EquipmentWall::Frags, ZoneId::CheeseMarket, Vec3::new(53.8, 1.5, -20.0), Vec3::NEG_X),
                 // On the Dyke Road's west end wall.
-                (EquipmentWall::Claymore, ZoneId::DykeRoad, Vec3::new(PO - 79.8, STOREY + 1.5, 54.0), Vec3::X),
+                (EquipmentWall::Claymore, ZoneId::DykeRoad, Vec3::new(-79.8, STOREY + 1.5, 54.0), Vec3::X),
                 // On the Windmill's west wall.
-                (EquipmentWall::BowieKnife, ZoneId::Windmill, Vec3::new(PO - 79.8, 1.5, 40.0), Vec3::X),
+                (EquipmentWall::BowieKnife, ZoneId::Windmill, Vec3::new(-79.8, 1.5, 40.0), Vec3::X),
             ];
             &SPOTS
         }

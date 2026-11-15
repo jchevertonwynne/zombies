@@ -724,13 +724,13 @@ fn a_zipline_ride_replays_to_the_same_place_on_the_host() {
     let feet = |at: Vec3| at - Vec3::Y * Stance::Standing.half_height();
     assert!(feet(run.at(0, 1)).distance(line.to) < 1.5, "the Host has them at {}", feet(run.at(0, 1)));
     assert!(run.at(1, 1).distance(run.at(0, 1)) < 0.05);
-    // The other client draws them where the Host has them, though the Cove lies far from the origin.
+    // The other client draws them where the Host has them, .
     assert!(run.at(2, 1).distance(run.at(0, 1)) < 0.2, "the other client draws them at {}", run.at(2, 1));
     assert_eq!(run.pose_of(2, 1).0.action, Action::None);
 }
 
-/// On the Dam, the Cove and the Polder, which lie past what a position told from the world's
-/// start would reach, a client has the Host's Player and a Zombie where the Host has them.
+/// On the Dam, the Cove and the Polder, a client has the Host's Player and a Zombie where the
+/// Host has them.
 #[test]
 fn far_maps_show_the_hosts_player_and_zombie_where_they_are() {
     for map in [crate::maps::map::MapId::Dam, crate::maps::map::MapId::Cove, crate::maps::map::MapId::Polder] {
@@ -743,7 +743,6 @@ fn far_maps_show_the_hosts_player_and_zombie_where_they_are() {
         for on in 1..=2 {
             let seen = run.at(on, 0);
             assert!(seen.distance(run.at(0, 0)) < 0.2, "{}: machine {on} has the Host's Player at {seen}", map.name());
-            assert!(seen.x.abs() > 300.0, "{} is not far from the origin", map.name());
             let puppets = run.puppets(on);
             assert_eq!(puppets.len(), 1, "{}: machine {on}", map.name());
             assert!(puppets[0].1.at.distance(host_zombie) < 0.5, "{}: machine {on} has the Zombie at {}", map.name(), puppets[0].1.at);

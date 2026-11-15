@@ -12,7 +12,7 @@ use crate::maps::machine_look;
 use crate::maps::map::textures::{Shape, Textured, box_uv_mesh};
 use crate::maps::zone::ZoneId;
 
-use crate::maps::map::{COVE_X, MapId, POLDER_X, QUARRY_X, STOREY, VILLAGE_X};
+use crate::maps::map::{MapId, STOREY};
 
 use crate::authority::HostSimulation;
 use crate::economy::buy::{Buyable, Purchased};
@@ -148,15 +148,15 @@ pub(crate) fn switch_spot(map: MapId) -> Option<(Vec3, Vec3)> {
     Some(match map {
         MapId::Greybox => (SWITCH_AT, SWITCH_FACING),
         // On the Offices' south wall, at hand height: the top of the climb but the Headframe.
-        MapId::Quarry => (Vec3::new(QUARRY_X - 10.0, 2.0 * STOREY + 1.3, 16.4), Vec3::Z),
+        MapId::Quarry => (Vec3::new(-10.0, 2.0 * STOREY + 1.3, 16.4), Vec3::Z),
         // On the Mill's west wall, at the far end of the village from Pack-a-Punch.
-        MapId::Village => (Vec3::new(VILLAGE_X - 71.6, 1.3, 19.0), Vec3::X),
+        MapId::Village => (Vec3::new(-71.6, 1.3, 19.0), Vec3::X),
         // It has Generators, so it never gets here.
         MapId::Dam => return None,
         // On the Lighthouse's south wall, at hand height, at the foot of its stairs.
-        MapId::Cove => (Vec3::new(COVE_X - 48.0, 3.0 * STOREY + 1.3, 44.4), Vec3::Z),
+        MapId::Cove => (Vec3::new(-48.0, 3.0 * STOREY + 1.3, 44.4), Vec3::Z),
         // On the Pumping Station's seaward wall, at hand height, by the beam engine.
-        MapId::Polder => (Vec3::new(POLDER_X + 62.0, STOREY + 1.3, 59.6), Vec3::NEG_Z),
+        MapId::Polder => (Vec3::new(62.0, STOREY + 1.3, 59.6), Vec3::NEG_Z),
     })
 }
 

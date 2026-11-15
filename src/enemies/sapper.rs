@@ -1462,7 +1462,7 @@ mod taking_tests {
         sim.world_mut().resource_mut::<Generators>().lose(TURBINE);
         let crest = 2.0 * crate::maps::map::STOREY;
         // A Box on the Crest Road, two storeys up, with no Generator Held.
-        let at = Vec3::new(crate::maps::map::DAM_X - 10.0, crest, 27.0);
+        let at = Vec3::new(-10.0, crest, 27.0);
         sim.world_mut().spawn((
             MysteryBox { location: 0, price: 950, teddy: true, state: BoxState::Idle },
             Transform::from_translation(at),

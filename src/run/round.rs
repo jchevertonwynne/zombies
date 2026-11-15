@@ -659,7 +659,7 @@ mod tests {
         };
         let wading = |picked: &[(&Transform, SpawnKind)]| picked.iter().filter(|(_, kind)| *kind == SpawnKind::Wading).count();
         // Players spread along the shore, so every point is near enough one of them.
-        let middle: Vec<Vec3> = [-45.0, -20.0, 0.0, 27.0].iter().map(|x| Vec3::new(crate::maps::map::COVE_X + x, 0.0, -4.0)).collect();
+        let middle: Vec<Vec3> = [-45.0, -20.0, 0.0, 27.0].iter().map(|x| Vec3::new(*x, 0.0, -4.0)).collect();
         assert_eq!(wading(&pick(&[Strand], &middle)), 4);
         assert_eq!(wading(&pick(&[Strand, SeaCave], &middle)), 5);
         assert_eq!(wading(&pick(&[Strand, Shingle, SeaCave, Boathouse], &middle)), 8);
@@ -667,7 +667,7 @@ mod tests {
         assert_eq!(wading(&pick(&[Taverna], &middle)), 0);
         assert!(pick(&[], &middle).is_empty());
         // Near enough: a Player at the far east end is out of reach of the western points.
-        let east = [Vec3::new(crate::maps::map::COVE_X + 30.0, 0.0, -8.0)];
+        let east = [Vec3::new(30.0, 0.0, -8.0)];
         let near = pick(&[Strand, Shingle, SeaCave, Boathouse], &east);
         assert!(near.iter().all(|(t, _)| t.translation.distance(east[0]) <= ZOMBIE_SPAWN_MAX_DIST));
         assert!(wading(&near) > 0 && wading(&near) < 8);

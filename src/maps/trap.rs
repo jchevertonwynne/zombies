@@ -18,14 +18,13 @@ use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 use crate::enemies::zombie::{Attack, DamageZombie, Dying, Heavyweight, HitZone, Rising, Zombie};
 use crate::maps::map::textures::{Shape, Textured, box_uv_mesh};
-use crate::maps::map::{COVE_X, DAM_X, MapId, POLDER_X, QUARRY_X, STOREY, VILLAGE_X};
+use crate::maps::map::{MapId, STOREY};
 use crate::maps::zone::ZoneId;
 
 /// A Map's Traps: the Door whose doorway each spans, the doorway's centre on its floor (x, y, z),
 /// and where along the wall (x) its two switches sit, one on each face. Every doorway is in a wall
 /// running along x, so a Trap's width lies along x and its depth along z.
 pub(crate) fn traps(map: MapId) -> &'static [((ZoneId, ZoneId), Vec3, f32)] {
-    const Q: f32 = QUARRY_X;
     match map {
         MapId::Greybox => {
             const SPOTS: [((ZoneId, ZoneId), Vec3, f32); 2] = [
@@ -36,16 +35,15 @@ pub(crate) fn traps(map: MapId) -> &'static [((ZoneId, ZoneId), Vec3, f32)] {
         }
         // The Pump House's Door out to the pit floor.
         MapId::Quarry => {
-            const SPOTS: [((ZoneId, ZoneId), Vec3, f32); 1] = [((ZoneId::PumpHouse, ZoneId::QuarryFloor), Vec3::new(Q, 0.0, -20.0), Q + 2.2)];
+            const SPOTS: [((ZoneId, ZoneId), Vec3, f32); 1] = [((ZoneId::PumpHouse, ZoneId::QuarryFloor), Vec3::new(0.0, 0.0, -20.0), 2.2)];
             &SPOTS
         }
         // The Doors off the High Street into the Smithy and the Schoolhouse, the cut-throughs to
         // the lanes nearest the Market.
         MapId::Village => {
-            const V: f32 = VILLAGE_X;
             const SPOTS: [((ZoneId, ZoneId), Vec3, f32); 2] = [
-                ((ZoneId::WestEnd, ZoneId::Smithy), Vec3::new(V - 32.0, 0.0, 6.0), V - 29.8),
-                ((ZoneId::EastEnd, ZoneId::Schoolhouse), Vec3::new(V + 32.0, 0.0, 6.0), V + 34.2),
+                ((ZoneId::WestEnd, ZoneId::Smithy), Vec3::new(-32.0, 0.0, 6.0), -29.8),
+                ((ZoneId::EastEnd, ZoneId::Schoolhouse), Vec3::new(32.0, 0.0, 6.0), 34.2),
             ];
             &SPOTS
         }
@@ -53,33 +51,30 @@ pub(crate) fn traps(map: MapId) -> &'static [((ZoneId, ZoneId), Vec3, f32)] {
         // Gallery onto the Spillway Stair, a storey up, and from the Turbine Hall out to the
         // Drainage Gallery: one in each Section.
         MapId::Dam => {
-            const D: f32 = DAM_X;
             const SPOTS: [((ZoneId, ZoneId), Vec3, f32); 3] = [
-                ((ZoneId::GateShaft, ZoneId::IntakeGallery), Vec3::new(D - 41.0, STOREY, 2.0), D - 38.8),
-                ((ZoneId::SpillwayGallery, ZoneId::SpillwayStair), Vec3::new(D + 41.0, STOREY, -32.0), D + 38.8),
-                ((ZoneId::TurbineHall, ZoneId::DrainageGallery), Vec3::new(D, 0.0, -56.0), D + 2.2),
+                ((ZoneId::GateShaft, ZoneId::IntakeGallery), Vec3::new(-41.0, STOREY, 2.0), -38.8),
+                ((ZoneId::SpillwayGallery, ZoneId::SpillwayStair), Vec3::new(41.0, STOREY, -32.0), 38.8),
+                ((ZoneId::TurbineHall, ZoneId::DrainageGallery), Vec3::new(0.0, 0.0, -56.0), 2.2),
             ];
             &SPOTS
         }
         // The foot of the Chapel Stair, the Long Stair and the Cliff Stair: each Door has a landing
         // before its stairs begin, where the switches are.
         MapId::Cove => {
-            const C: f32 = COVE_X;
             const SPOTS: [((ZoneId, ZoneId), Vec3, f32); 3] = [
-                ((ZoneId::Washhouse, ZoneId::Chapel), Vec3::new(C - 50.0, STOREY, 24.0), C - 47.8),
-                ((ZoneId::FishMarket, ZoneId::Piazza), Vec3::new(C - 12.0, STOREY, 24.0), C - 9.8),
-                ((ZoneId::UpperLane, ZoneId::Battery), Vec3::new(C + 12.0, 2.0 * STOREY, 44.0), C + 14.2),
+                ((ZoneId::Washhouse, ZoneId::Chapel), Vec3::new(-50.0, STOREY, 24.0), -47.8),
+                ((ZoneId::FishMarket, ZoneId::Piazza), Vec3::new(-12.0, STOREY, 24.0), -9.8),
+                ((ZoneId::UpperLane, ZoneId::Battery), Vec3::new(12.0, 2.0 * STOREY, 44.0), 14.2),
             ];
             &SPOTS
         }
         // The Square's way into the Almshouse Court, the foot of the Dyke Steps and the foot of
         // the Coal Stair, all in walls along x.
         MapId::Polder => {
-            const PO: f32 = POLDER_X;
             const SPOTS: [((ZoneId, ZoneId), Vec3, f32); 3] = [
-                ((ZoneId::TownSquare, ZoneId::AlmshouseCourt), Vec3::new(PO - 6.0, 0.0, -40.0), PO - 3.8),
-                ((ZoneId::HerringQuay, ZoneId::DykeRoad), Vec3::new(PO - 20.0, 0.0, 48.0), PO - 17.8),
-                ((ZoneId::CoalYard, ZoneId::PumpingStation), Vec3::new(PO + 68.0, 0.0, 48.0), PO + 70.2),
+                ((ZoneId::TownSquare, ZoneId::AlmshouseCourt), Vec3::new(-6.0, 0.0, -40.0), -3.8),
+                ((ZoneId::HerringQuay, ZoneId::DykeRoad), Vec3::new(-20.0, 0.0, 48.0), -17.8),
+                ((ZoneId::CoalYard, ZoneId::PumpingStation), Vec3::new(68.0, 0.0, 48.0), 70.2),
             ];
             &SPOTS
         }

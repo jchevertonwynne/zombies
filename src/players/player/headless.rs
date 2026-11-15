@@ -1700,12 +1700,11 @@ mod void_sweep;
 /// The Cove's Strand: dry sand along z -7 and up, and the surf from there to the sea wall.
 mod wading {
     use super::*;
-    use crate::maps::map::COVE_X;
 
     /// A Player on the Cove with feet at (`x`, `z`) in the Strand, facing `yaw`.
     fn on_the_strand(x: f32, z: f32, yaw: f32) -> Sim {
         let mut sim = Sim::on(MapId::Cove, 60.0);
-        sim.place(Vec3::new(COVE_X + x, 0.0, z), yaw);
+        sim.place(Vec3::new(x, 0.0, z), yaw);
         sim
     }
 
@@ -1792,8 +1791,8 @@ mod wading {
                 layers.memberships.has_all(GameLayer::World)
                     && (transform.translation.z + 14.0).abs() < 0.2
                     && transform.translation.y < 1.0
-                    && transform.translation.x > COVE_X - 31.0
-                    && transform.translation.x < COVE_X - 17.0
+                    && transform.translation.x > -31.0
+                    && transform.translation.x < -17.0
             })
             .map(|(entity, ..)| entity)
             .collect();

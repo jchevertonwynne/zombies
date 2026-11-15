@@ -21,7 +21,7 @@
 //! Doors, each a `Gate::DoorDrop`, never a fixed join. The Humpback Bridge is the one fixed way
 //! over the Town Canal.
 //!
-//! The whole Map stands `POLDER_X` along x from the world's middle, clear of the others. Its path
+//! The whole Map is centred on the world's origin along x (ADR 0009). Its path
 //! nodes and pools (in `data`) are laid out from this file's walls, Props and canals.
 
 use bevy::prelude::*;
@@ -37,10 +37,6 @@ use super::{Canal, Layout, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, p
 
 #[path = "polder/data.rs"]
 mod data;
-
-/// How far along x the Polder stands from the world's middle, east of the Dam.
-pub const POLDER_X: f32 = 600.0;
-const P: f32 = POLDER_X;
 
 /// The levels: the town, and the dyke's crest a storey up.
 const GROUND: f32 = 0.0;
@@ -75,16 +71,16 @@ const RUN: f32 = 6.0;
 
 /// A point in the Polder, `x` along from its middle.
 const fn at(x: f32, y: f32, z: f32) -> Vec3 {
-    Vec3::new(P + x, y, z)
+    Vec3::new(x, y, z)
 }
 
 /// A spot on a wall or a floor's plan in the Polder, `x` along from its middle.
 const fn v(x: f32, z: f32) -> Vec2 {
-    Vec2::new(P + x, z)
+    Vec2::new(x, z)
 }
 
 const fn p(kind: PropKind, zone: ZoneId, x: f32, y: f32, z: f32, size: (f32, f32, f32)) -> Prop {
-    prop(kind, zone, (P + x, y, z), size)
+    prop(kind, zone, (x, y, z), size)
 }
 
 pub(super) const POLDER: Layout = Layout {
@@ -134,7 +130,7 @@ pub(super) const POLDER: Layout = Layout {
     sun: Vec3::new(1.0, -3.4, 4.7),
     look: crate::maps::look::NORTHERN_DUSK,
     outside: Some(super::Outside { floor: super::textures::Material::CobblestoneFloor06, wall: super::textures::Material::DarkBrickWall }),
-    plan: (Vec2::new(P - 80.0, -56.0), Vec2::new(P + 80.0, 66.0)),
+    plan: (Vec2::new(-80.0, -56.0), Vec2::new(80.0, 66.0)),
     build,
 };
 
@@ -836,8 +832,8 @@ fn build(b: &mut Builder) {
     xwall(b, (-73.0, -69.5), 25.0, CREST, RAIL, vec![]);
     xwall(b, (-66.5, -63.0), 25.0, CREST, RAIL, vec![]);
     // The Pumping Station's cupola, with the tide bell in it.
-    b.block(Vec3::new(3.0, 2.0, 3.0), Vec3::new(P + 62.0, 2.0 * STOREY + 1.0 + 0.3, 54.0), STONE);
-    b.block(Vec3::new(1.0, 1.0, 1.0), Vec3::new(P + 62.0, 2.0 * STOREY + 2.8, 54.0), IRON);
+    b.block(Vec3::new(3.0, 2.0, 3.0), Vec3::new(62.0, 2.0 * STOREY + 1.0 + 0.3, 54.0), STONE);
+    b.block(Vec3::new(1.0, 1.0, 1.0), Vec3::new(62.0, 2.0 * STOREY + 2.8, 54.0), IRON);
 
     // A pocket of floor outside every window, walled in, where Zombies gather.
     for &(_, centre, out) in &WINDOWS {
@@ -862,11 +858,10 @@ mod tests {
     }
 
     #[test]
-    fn sixteen_zones_starting_in_the_town_square_at_polder_x_clear_of_the_others() {
+    fn sixteen_zones_starting_in_the_town_square_centred_on_the_origin() {
         assert_eq!(polder().zones.len(), 16);
         assert_eq!(polder().start_zone(), TownSquare);
-        assert_eq!(POLDER_X, 600.0);
-        assert_eq!(polder().plan, (Vec2::new(520.0, -56.0), Vec2::new(680.0, 66.0)));
+        assert_eq!(polder().plan, (Vec2::new(-80.0, -56.0), Vec2::new(80.0, 66.0)));
         assert_eq!((DykeRoad.floor(), PumpingStation.floor(), TownSquare.floor()), (CREST, CREST, GROUND));
     }
 
@@ -934,7 +929,7 @@ mod tests {
     #[test]
     fn the_fords_can_be_waded_at_their_levels_and_the_reaches_never() {
         use crate::maps::map::{TideLevel, Wading, water_at};
-        let at = |level, x: f32, y: f32, z: f32| water_at(polder(), level, Vec3::new(P + x, y, z));
+        let at = |level, x: f32, y: f32, z: f32| water_at(polder(), level, Vec3::new(x, y, z));
         for (x, z) in [(-47.0, -6.0), (22.0, -6.0), (-52.0, 30.0), (43.0, 30.0)] {
             assert_eq!(at(TideLevel::Low, x, -2.2, z), Some(Wading::Shallow), "the channel at {x}, {z}");
             assert_eq!(at(TideLevel::Mid, x, -2.2, z), Some(Wading::Deep));

@@ -16,7 +16,7 @@
 //! its window. The Dam has no Power Switch; its Perks (but Quick Revive), Traps and Pack-a-Punch
 //! wait for the Generators.
 //!
-//! The whole Map stands `DAM_X` along x from the world's middle, clear of the others.
+//! The whole Map is centred on the world's origin along x (ADR 0009).
 
 use bevy::prelude::*;
 
@@ -31,10 +31,6 @@ use crate::weapons::arsenal::WeaponId;
 use super::build::{Builder, Gap};
 use super::textures::Material;
 use super::{Layout, Prop, PropKind, RaisedFloor, STOREY, Slope, door, materials, palette, prop};
-
-/// How far along x the Dam stands from the world's middle, east of the Quarry.
-pub const DAM_X: f32 = 400.0;
-const D: f32 = DAM_X;
 
 /// The three levels: the foot, the gallery a storey up, and the crest.
 const FOOT: f32 = 0.0;
@@ -53,12 +49,12 @@ const FLIGHT_WIDTH: f32 = 5.6;
 
 /// A point in the Dam, `x` along from its middle.
 const fn at(x: f32, y: f32, z: f32) -> Vec3 {
-    Vec3::new(D + x, y, z)
+    Vec3::new(x, y, z)
 }
 
 /// A spot on a wall or a floor's plan in the Dam, `x` along from its middle.
 const fn v(x: f32, z: f32) -> Vec2 {
-    Vec2::new(D + x, z)
+    Vec2::new(x, z)
 }
 
 /// The three Sections. The Crest Road and the Control Room are in none.
@@ -150,7 +146,7 @@ pub(super) const DAM: Layout = Layout {
     outside: Some(super::Outside { floor: super::textures::Material::AsphaltFloor, wall: super::textures::Material::ConcreteWall006 }),
     sun: Vec3::new(1.0, -3.0, -1.0),
     look: crate::maps::look::DAM_NIGHT,
-    plan: (Vec2::new(D - 52.0, -68.0), Vec2::new(D + 52.0, 36.0)),
+    plan: (Vec2::new(-52.0, -68.0), Vec2::new(52.0, 36.0)),
     build,
 };
 
@@ -341,45 +337,45 @@ const PROPS: &[Prop] = {
     &[
         // The Crest Road: a maintenance truck by the valley parapet, the gate hoist housings by
         // the reservoir parapet, and bollards.
-        prop(Machine, CrestRoad, (D - 10.0, CREST, 23.1), (4.0, 2.2, 1.8)),
-        prop(Machine, CrestRoad, (D - 24.0, CREST, 29.0), (2.0, 2.2, 1.6)),
-        prop(Machine, CrestRoad, (D + 24.0, CREST, 29.0), (2.0, 2.2, 1.6)),
-        prop(Pillar, CrestRoad, (D - 6.0, CREST, 29.4), (0.4, 0.9, 0.4)),
-        prop(Pillar, CrestRoad, (D + 6.0, CREST, 29.4), (0.4, 0.9, 0.4)),
-        prop(Pillar, CrestRoad, (D - 4.0, CREST, 22.6), (0.4, 0.9, 0.4)),
-        prop(Pillar, CrestRoad, (D + 4.0, CREST, 22.6), (0.4, 0.9, 0.4)),
+        prop(Machine, CrestRoad, (-10.0, CREST, 23.1), (4.0, 2.2, 1.8)),
+        prop(Machine, CrestRoad, (-24.0, CREST, 29.0), (2.0, 2.2, 1.6)),
+        prop(Machine, CrestRoad, (24.0, CREST, 29.0), (2.0, 2.2, 1.6)),
+        prop(Pillar, CrestRoad, (-6.0, CREST, 29.4), (0.4, 0.9, 0.4)),
+        prop(Pillar, CrestRoad, (6.0, CREST, 29.4), (0.4, 0.9, 0.4)),
+        prop(Pillar, CrestRoad, (-4.0, CREST, 22.6), (0.4, 0.9, 0.4)),
+        prop(Pillar, CrestRoad, (4.0, CREST, 22.6), (0.4, 0.9, 0.4)),
         // The Tower Head: a hoist winch, and stop-log beams stacked by the wall.
-        prop(Machine, TowerHead, (D - 37.0, CREST, 25.0), (2.4, 2.2, 1.6)),
-        prop(Crate, TowerHead, (D - 34.0, CREST, 18.6), (3.0, 0.6, 0.8)),
+        prop(Machine, TowerHead, (-37.0, CREST, 25.0), (2.4, 2.2, 1.6)),
+        prop(Crate, TowerHead, (-34.0, CREST, 18.6), (3.0, 0.6, 0.8)),
         // The Gate Shaft: cable trays up the wall of its top landing.
-        prop(Shelf, GateShaft, (D - 43.65, CREST, 16.5), (0.3, 2.4, 2.0)),
+        prop(Shelf, GateShaft, (-43.65, CREST, 16.5), (0.3, 2.4, 2.0)),
         // The Intake Gallery: trash-rack sections against its walls, and a rake cart.
-        prop(Shelf, IntakeGallery, (D - 30.0, GALLERY, -3.55), (3.0, 2.4, 0.5)),
-        prop(Shelf, IntakeGallery, (D - 38.45, GALLERY, -45.0), (0.5, 2.4, 3.0)),
-        prop(Machine, IntakeGallery, (D - 43.0, GALLERY, -15.0), (1.4, 1.2, 2.0)),
+        prop(Shelf, IntakeGallery, (-30.0, GALLERY, -3.55), (3.0, 2.4, 0.5)),
+        prop(Shelf, IntakeGallery, (-38.45, GALLERY, -45.0), (0.5, 2.4, 3.0)),
+        prop(Machine, IntakeGallery, (-43.0, GALLERY, -15.0), (1.4, 1.2, 2.0)),
         // The Spillway Gatehouse: the radial-gate winch, and a tool rack.
-        prop(Machine, SpillwayGatehouse, (D + 37.0, CREST, 25.0), (2.4, 2.2, 1.6)),
-        prop(Shelf, SpillwayGatehouse, (D + 34.0, CREST, 18.5), (2.4, 2.2, 0.6)),
+        prop(Machine, SpillwayGatehouse, (37.0, CREST, 25.0), (2.4, 2.2, 1.6)),
+        prop(Shelf, SpillwayGatehouse, (34.0, CREST, 18.5), (2.4, 2.2, 0.6)),
         // The Spillway Gallery: a valve wheel on its stand, and a waist-high pipe run.
-        prop(Machine, SpillwayGallery, (D + 16.0, GALLERY, -3.5), (0.6, 1.4, 0.6)),
-        prop(Machine, SpillwayGallery, (D + 38.5, GALLERY, -16.0), (0.6, 1.0, 8.0)),
+        prop(Machine, SpillwayGallery, (16.0, GALLERY, -3.5), (0.6, 1.4, 0.6)),
+        prop(Machine, SpillwayGallery, (38.5, GALLERY, -16.0), (0.6, 1.0, 8.0)),
         // The Control Room: a ring of dial desks round the dais, and the mimic panel.
-        prop(Counter, ControlRoom, (D - 6.0, GALLERY, -2.5), (0.9, 1.0, 2.4)),
-        prop(Counter, ControlRoom, (D + 6.0, GALLERY, -2.5), (0.9, 1.0, 2.4)),
-        prop(Counter, ControlRoom, (D - 6.0, GALLERY, 3.5), (0.9, 1.0, 2.4)),
-        prop(Counter, ControlRoom, (D + 6.0, GALLERY, 3.5), (0.9, 1.0, 2.4)),
-        prop(Shelf, ControlRoom, (D - 3.0, GALLERY, 7.5), (5.0, 2.4, 0.6)),
+        prop(Counter, ControlRoom, (-6.0, GALLERY, -2.5), (0.9, 1.0, 2.4)),
+        prop(Counter, ControlRoom, (6.0, GALLERY, -2.5), (0.9, 1.0, 2.4)),
+        prop(Counter, ControlRoom, (-6.0, GALLERY, 3.5), (0.9, 1.0, 2.4)),
+        prop(Counter, ControlRoom, (6.0, GALLERY, 3.5), (0.9, 1.0, 2.4)),
+        prop(Shelf, ControlRoom, (-3.0, GALLERY, 7.5), (5.0, 2.4, 0.6)),
         // The Penstock Tunnel: the penstock alongside.
-        prop(Machine, PenstockTunnel, (D + 2.1, FOOT, -22.5), (1.2, 1.2, 7.0)),
+        prop(Machine, PenstockTunnel, (2.1, FOOT, -22.5), (1.2, 1.2, 7.0)),
         // The Turbine Hall: a spare runner on its stand, and the crane's hook block let down
         // onto the deck.
-        prop(Machine, TurbineHall, (D + 6.5, FOOT, -50.5), (2.4, 2.2, 2.4)),
-        prop(Machine, TurbineHall, (D + 3.0, TURBINE_DECK.height, -46.0), (1.0, 1.2, 1.0)),
+        prop(Machine, TurbineHall, (6.5, FOOT, -50.5), (2.4, 2.2, 2.4)),
+        prop(Machine, TurbineHall, (3.0, TURBINE_DECK.height, -46.0), (1.0, 1.2, 1.0)),
         // The Switchgear Room: two rows of breaker cabinets.
-        prop(Shelf, SwitchgearRoom, (D + 15.5, FOOT, -46.0), (0.6, 2.2, 3.0)),
-        prop(Shelf, SwitchgearRoom, (D + 21.0, FOOT, -46.0), (0.6, 2.2, 3.0)),
+        prop(Shelf, SwitchgearRoom, (15.5, FOOT, -46.0), (0.6, 2.2, 3.0)),
+        prop(Shelf, SwitchgearRoom, (21.0, FOOT, -46.0), (0.6, 2.2, 3.0)),
         // The Drainage Gallery: the sump pump.
-        prop(Machine, DrainageGallery, (D + 8.0, FOOT, -61.1), (2.0, 1.4, 1.4)),
+        prop(Machine, DrainageGallery, (8.0, FOOT, -61.1), (2.0, 1.4, 1.4)),
     ]
 };
 
@@ -557,158 +553,158 @@ pub(super) fn pocket(b: &mut Builder, centre: Vec3, out: Vec2) {
 /// The path nodes: a name, then where a Zombie's feet stand there (x, y, z).
 const NODES: &[(&str, f32, f32, f32)] = &[
     // The Crest Road
-    ("cr_w", D - 27.0, CREST, 26.0),
-    ("cr_a", D - 18.0, CREST, 26.0),
-    ("cr_b", D - 9.0, CREST, 26.5),
-    ("cr_c", D, CREST, 26.0),
-    ("cr_d", D + 9.0, CREST, 26.0),
-    ("cr_e", D + 18.0, CREST, 26.0),
-    ("cr_east", D + 27.0, CREST, 26.0),
-    ("w0_in", D - 18.0, CREST, 28.5),
-    ("w0_out", D - 18.0, CREST, 32.0),
-    ("w1_in", D + 18.0, CREST, 28.5),
-    ("w1_out", D + 18.0, CREST, 32.0),
-    ("w2_in", D - 18.0, CREST, 23.5),
-    ("w2_out", D - 18.0, CREST, 20.0),
-    ("w3_in", D + 18.0, CREST, 23.5),
-    ("w3_out", D + 18.0, CREST, 20.0),
+    ("cr_w", -27.0, CREST, 26.0),
+    ("cr_a", -18.0, CREST, 26.0),
+    ("cr_b", -9.0, CREST, 26.5),
+    ("cr_c", 0.0, CREST, 26.0),
+    ("cr_d", 9.0, CREST, 26.0),
+    ("cr_e", 18.0, CREST, 26.0),
+    ("cr_east", 27.0, CREST, 26.0),
+    ("w0_in", -18.0, CREST, 28.5),
+    ("w0_out", -18.0, CREST, 32.0),
+    ("w1_in", 18.0, CREST, 28.5),
+    ("w1_out", 18.0, CREST, 32.0),
+    ("w2_in", -18.0, CREST, 23.5),
+    ("w2_out", -18.0, CREST, 20.0),
+    ("w3_in", 18.0, CREST, 23.5),
+    ("w3_out", 18.0, CREST, 20.0),
     // The Tower Head, round its winch
-    ("th_e", D - 32.5, CREST, 26.0),
-    ("th_ne", D - 33.0, CREST, 29.5),
-    ("th_se", D - 33.0, CREST, 22.0),
-    ("th_s", D - 41.0, CREST, 20.5),
-    ("th_sw", D - 41.0, CREST, 23.0),
-    ("th_nw", D - 41.5, CREST, 29.0),
-    ("w4_in", D - 44.5, CREST, 26.0),
-    ("w4_out", D - 48.0, CREST, 26.0),
+    ("th_e", -32.5, CREST, 26.0),
+    ("th_ne", -33.0, CREST, 29.5),
+    ("th_se", -33.0, CREST, 22.0),
+    ("th_s", -41.0, CREST, 20.5),
+    ("th_sw", -41.0, CREST, 23.0),
+    ("th_nw", -41.5, CREST, 29.0),
+    ("w4_in", -44.5, CREST, 26.0),
+    ("w4_out", -48.0, CREST, 26.0),
     // The Spillway Gatehouse, round its winch
-    ("sg_w", D + 32.5, CREST, 26.0),
-    ("sg_nw", D + 33.0, CREST, 29.5),
-    ("sg_sw", D + 33.0, CREST, 22.0),
-    ("sg_s", D + 41.0, CREST, 20.5),
-    ("sg_se", D + 41.0, CREST, 23.0),
-    ("sg_ne", D + 41.5, CREST, 29.0),
-    ("w5_in", D + 44.5, CREST, 26.0),
-    ("w5_out", D + 48.0, CREST, 26.0),
+    ("sg_w", 32.5, CREST, 26.0),
+    ("sg_nw", 33.0, CREST, 29.5),
+    ("sg_sw", 33.0, CREST, 22.0),
+    ("sg_s", 41.0, CREST, 20.5),
+    ("sg_se", 41.0, CREST, 23.0),
+    ("sg_ne", 41.5, CREST, 29.0),
+    ("w5_in", 44.5, CREST, 26.0),
+    ("w5_out", 48.0, CREST, 26.0),
     // Down the Gate Shaft
-    ("gs_top", D - 41.0, CREST, 16.0),
-    ("gs_mid", D - 41.0, GALLERY + 2.0, 11.0),
-    ("gs_bot", D - 41.0, GALLERY, 4.5),
-    ("w6_in", D - 42.5, GALLERY, 4.0),
-    ("w6_out", D - 46.0, GALLERY, 4.0),
+    ("gs_top", -41.0, CREST, 16.0),
+    ("gs_mid", -41.0, GALLERY + 2.0, 11.0),
+    ("gs_bot", -41.0, GALLERY, 4.5),
+    ("w6_in", -42.5, GALLERY, 4.0),
+    ("w6_out", -46.0, GALLERY, 4.0),
     // The Intake Gallery, along and then down the dam's west side
-    ("ig_j", D - 41.0, GALLERY, -1.0),
-    ("ig_a", D - 32.0, GALLERY, -1.0),
-    ("ig_b", D - 24.0, GALLERY, -1.0),
-    ("ig_c", D - 16.0, GALLERY, -1.0),
-    ("ig_e", D - 12.5, GALLERY, -1.0),
-    ("w7_in", D - 24.0, GALLERY, 0.5),
-    ("w7_out", D - 24.0, GALLERY, 4.0),
-    ("ig_s1", D - 41.0, GALLERY, -10.0),
-    ("ig_s2", D - 41.0, GALLERY, -20.0),
-    ("ig_s3", D - 41.0, GALLERY, -30.0),
-    ("w8_in", D - 42.5, GALLERY, -30.0),
-    ("w8_out", D - 46.0, GALLERY, -30.0),
-    ("ig_s4", D - 41.0, GALLERY, -40.0),
-    ("ig_s5", D - 41.0, GALLERY, -48.0),
-    ("ig_bot", D - 41.0, GALLERY, -53.5),
+    ("ig_j", -41.0, GALLERY, -1.0),
+    ("ig_a", -32.0, GALLERY, -1.0),
+    ("ig_b", -24.0, GALLERY, -1.0),
+    ("ig_c", -16.0, GALLERY, -1.0),
+    ("ig_e", -12.5, GALLERY, -1.0),
+    ("w7_in", -24.0, GALLERY, 0.5),
+    ("w7_out", -24.0, GALLERY, 4.0),
+    ("ig_s1", -41.0, GALLERY, -10.0),
+    ("ig_s2", -41.0, GALLERY, -20.0),
+    ("ig_s3", -41.0, GALLERY, -30.0),
+    ("w8_in", -42.5, GALLERY, -30.0),
+    ("w8_out", -46.0, GALLERY, -30.0),
+    ("ig_s4", -41.0, GALLERY, -40.0),
+    ("ig_s5", -41.0, GALLERY, -48.0),
+    ("ig_bot", -41.0, GALLERY, -53.5),
     // The Spillway Gallery: along, up its steps to the Gatehouse, and down the dam's east side
-    ("sp_w", D + 12.5, GALLERY, -1.0),
-    ("sp_a", D + 20.0, GALLERY, -1.0),
-    ("sp_b", D + 28.0, GALLERY, -1.0),
-    ("sp_c", D + 35.0, GALLERY, -1.0),
-    ("sp_j", D + 41.0, GALLERY, -1.0),
-    ("sp_up", D + 41.0, GALLERY, 4.5),
-    ("sp_mid", D + 41.0, GALLERY + 2.0, 11.0),
-    ("sp_top", D + 41.0, CREST, 16.0),
-    ("sp_s1", D + 41.0, GALLERY, -10.0),
-    ("sp_s2", D + 41.0, GALLERY, -18.0),
-    ("w9_in", D + 42.5, GALLERY, -18.0),
-    ("w9_out", D + 46.0, GALLERY, -18.0),
-    ("sp_s3", D + 41.0, GALLERY, -26.0),
-    ("sp_s4", D + 41.0, GALLERY, -30.5),
+    ("sp_w", 12.5, GALLERY, -1.0),
+    ("sp_a", 20.0, GALLERY, -1.0),
+    ("sp_b", 28.0, GALLERY, -1.0),
+    ("sp_c", 35.0, GALLERY, -1.0),
+    ("sp_j", 41.0, GALLERY, -1.0),
+    ("sp_up", 41.0, GALLERY, 4.5),
+    ("sp_mid", 41.0, GALLERY + 2.0, 11.0),
+    ("sp_top", 41.0, CREST, 16.0),
+    ("sp_s1", 41.0, GALLERY, -10.0),
+    ("sp_s2", 41.0, GALLERY, -18.0),
+    ("w9_in", 42.5, GALLERY, -18.0),
+    ("w9_out", 46.0, GALLERY, -18.0),
+    ("sp_s3", 41.0, GALLERY, -26.0),
+    ("sp_s4", 41.0, GALLERY, -30.5),
     // The Control Room: round the walls, between the desks and the dais, and up onto it
-    ("ct_w", D - 8.5, GALLERY, -1.0),
-    ("ct_sw", D - 8.5, GALLERY, -4.5),
-    ("ct_sw_in", D - 4.3, GALLERY, -4.5),
-    ("ct_s", D, GALLERY, -4.5),
-    ("ct_se_in", D + 4.3, GALLERY, -4.5),
-    ("ct_se", D + 8.5, GALLERY, -4.5),
-    ("ct_e", D + 8.5, GALLERY, -1.0),
-    ("ct_ne", D + 8.5, GALLERY, 6.5),
-    ("ct_ne_in", D + 4.3, GALLERY, 6.3),
-    ("ct_n", D, GALLERY, 6.3),
-    ("ct_nw_in", D - 4.3, GALLERY, 6.3),
-    ("ct_nw", D - 8.5, GALLERY, 6.5),
-    ("ct_dais", D, DAIS.height, 1.5),
-    ("w10_in", D + 7.0, GALLERY, 6.5),
-    ("w10_out", D + 7.0, GALLERY, 10.0),
+    ("ct_w", -8.5, GALLERY, -1.0),
+    ("ct_sw", -8.5, GALLERY, -4.5),
+    ("ct_sw_in", -4.3, GALLERY, -4.5),
+    ("ct_s", 0.0, GALLERY, -4.5),
+    ("ct_se_in", 4.3, GALLERY, -4.5),
+    ("ct_se", 8.5, GALLERY, -4.5),
+    ("ct_e", 8.5, GALLERY, -1.0),
+    ("ct_ne", 8.5, GALLERY, 6.5),
+    ("ct_ne_in", 4.3, GALLERY, 6.3),
+    ("ct_n", 0.0, GALLERY, 6.3),
+    ("ct_nw_in", -4.3, GALLERY, 6.3),
+    ("ct_nw", -8.5, GALLERY, 6.5),
+    ("ct_dais", 0.0, DAIS.height, 1.5),
+    ("w10_in", 7.0, GALLERY, 6.5),
+    ("w10_out", 7.0, GALLERY, 10.0),
     // Down the Penstock Tunnel
-    ("pt_top", D, GALLERY, -8.5),
-    ("pt_mid", D, FOOT + 2.0, -13.0),
-    ("pt_foot", D - 1.0, FOOT, -18.5),
-    ("w11_in", D - 1.5, FOOT, -22.0),
-    ("w11_out", D - 5.0, FOOT, -22.0),
-    ("pt_bot", D, FOOT, -26.5),
+    ("pt_top", 0.0, GALLERY, -8.5),
+    ("pt_mid", 0.0, FOOT + 2.0, -13.0),
+    ("pt_foot", -1.0, FOOT, -18.5),
+    ("w11_in", -1.5, FOOT, -22.0),
+    ("w11_out", -5.0, FOOT, -22.0),
+    ("pt_bot", 0.0, FOOT, -26.5),
     // The Turbine Hall: round the deck, up its steps and across it
-    ("tu_n", D, FOOT, -30.5),
-    ("tu_nw", D - 7.5, FOOT, -31.0),
-    ("tu_ne", D + 7.5, FOOT, -31.0),
-    ("w12_in", D - 7.0, FOOT, -29.5),
-    ("w12_out", D - 7.0, FOOT, -26.0),
-    ("w13_in", D - 8.5, FOOT, -34.0),
-    ("w13_out", D - 12.0, FOOT, -34.0),
-    ("w15_in", D + 8.5, FOOT, -32.0),
-    ("w15_out", D + 12.0, FOOT, -32.0),
-    ("tu_w1", D - 7.5, FOOT, -37.0),
-    ("tu_w2", D - 7.5, FOOT, -44.0),
-    ("tu_w3", D - 7.5, FOOT, -49.0),
-    ("w14_in", D - 8.5, FOOT, -50.0),
-    ("w14_out", D - 12.0, FOOT, -50.0),
-    ("tu_sw", D - 7.5, FOOT, -53.5),
-    ("tu_s", D, FOOT, -53.5),
-    ("tu_se", D + 8.75, FOOT, -54.0),
-    ("tu_e3", D + 8.75, FOOT, -50.5),
-    ("tu_e2", D + 7.5, FOOT, -46.0),
-    ("tu_e1", D + 7.5, FOOT, -37.0),
-    ("tu_deck_n", D, TURBINE_DECK.height, -37.5),
-    ("tu_deck_c", D, TURBINE_DECK.height, -42.0),
-    ("tu_deck_w", D - 3.5, TURBINE_DECK.height, -42.0),
-    ("tu_deck_s", D, TURBINE_DECK.height, -46.5),
+    ("tu_n", 0.0, FOOT, -30.5),
+    ("tu_nw", -7.5, FOOT, -31.0),
+    ("tu_ne", 7.5, FOOT, -31.0),
+    ("w12_in", -7.0, FOOT, -29.5),
+    ("w12_out", -7.0, FOOT, -26.0),
+    ("w13_in", -8.5, FOOT, -34.0),
+    ("w13_out", -12.0, FOOT, -34.0),
+    ("w15_in", 8.5, FOOT, -32.0),
+    ("w15_out", 12.0, FOOT, -32.0),
+    ("tu_w1", -7.5, FOOT, -37.0),
+    ("tu_w2", -7.5, FOOT, -44.0),
+    ("tu_w3", -7.5, FOOT, -49.0),
+    ("w14_in", -8.5, FOOT, -50.0),
+    ("w14_out", -12.0, FOOT, -50.0),
+    ("tu_sw", -7.5, FOOT, -53.5),
+    ("tu_s", 0.0, FOOT, -53.5),
+    ("tu_se", 8.75, FOOT, -54.0),
+    ("tu_e3", 8.75, FOOT, -50.5),
+    ("tu_e2", 7.5, FOOT, -46.0),
+    ("tu_e1", 7.5, FOOT, -37.0),
+    ("tu_deck_n", 0.0, TURBINE_DECK.height, -37.5),
+    ("tu_deck_c", 0.0, TURBINE_DECK.height, -42.0),
+    ("tu_deck_w", -3.5, TURBINE_DECK.height, -42.0),
+    ("tu_deck_s", 0.0, TURBINE_DECK.height, -46.5),
     // The Switchgear Room, round and between the rows of cabinets
-    ("sw_w", D + 12.0, FOOT, -46.0),
-    ("sw_nw", D + 13.0, FOOT, -42.5),
-    ("sw_sw", D + 13.0, FOOT, -49.5),
-    ("sw_n", D + 18.25, FOOT, -42.5),
-    ("sw_m", D + 18.25, FOOT, -46.0),
-    ("sw_s", D + 18.25, FOOT, -49.5),
-    ("sw_ne", D + 23.5, FOOT, -42.5),
-    ("sw_se", D + 23.5, FOOT, -49.5),
-    ("w16_in", D + 24.5, FOOT, -46.0),
-    ("w16_out", D + 28.0, FOOT, -46.0),
+    ("sw_w", 12.0, FOOT, -46.0),
+    ("sw_nw", 13.0, FOOT, -42.5),
+    ("sw_sw", 13.0, FOOT, -49.5),
+    ("sw_n", 18.25, FOOT, -42.5),
+    ("sw_m", 18.25, FOOT, -46.0),
+    ("sw_s", 18.25, FOOT, -49.5),
+    ("sw_ne", 23.5, FOOT, -42.5),
+    ("sw_se", 23.5, FOOT, -49.5),
+    ("w16_in", 24.5, FOOT, -46.0),
+    ("w16_out", 28.0, FOOT, -46.0),
     // Down the Spillway Stair
-    ("ss_top", D + 41.0, GALLERY, -34.0),
-    ("ss_mid", D + 41.0, FOOT + 2.0, -39.0),
-    ("ss_foot", D + 41.0, FOOT, -45.0),
-    ("ss_bot", D + 41.0, FOOT, -53.5),
-    ("w17_in", D + 42.5, FOOT, -50.0),
-    ("w17_out", D + 46.0, FOOT, -50.0),
+    ("ss_top", 41.0, GALLERY, -34.0),
+    ("ss_mid", 41.0, FOOT + 2.0, -39.0),
+    ("ss_foot", 41.0, FOOT, -45.0),
+    ("ss_bot", 41.0, FOOT, -53.5),
+    ("w17_in", 42.5, FOOT, -50.0),
+    ("w17_out", 46.0, FOOT, -50.0),
     // The Drainage Gallery, from the top of its stairs at the west end along the toe
-    ("dg_top", D - 41.0, GALLERY, -59.0),
-    ("dg_edge", D - 38.7, GALLERY, -59.0),
-    ("dg_mid", D - 34.0, FOOT + 2.0, -59.0),
-    ("dg_foot", D - 28.0, FOOT, -59.0),
-    ("dg_a", D - 20.0, FOOT, -59.0),
-    ("w18_in", D - 20.0, FOOT, -60.5),
-    ("w18_out", D - 20.0, FOOT, -64.0),
-    ("dg_b", D - 10.0, FOOT, -59.0),
-    ("dg_c", D, FOOT, -58.5),
-    ("dg_d", D + 10.0, FOOT, -58.5),
-    ("dg_e", D + 20.0, FOOT, -59.0),
-    ("w19_in", D + 20.0, FOOT, -60.5),
-    ("w19_out", D + 20.0, FOOT, -64.0),
-    ("dg_f", D + 30.0, FOOT, -59.0),
-    ("dg_g", D + 41.0, FOOT, -58.5),
+    ("dg_top", -41.0, GALLERY, -59.0),
+    ("dg_edge", -38.7, GALLERY, -59.0),
+    ("dg_mid", -34.0, FOOT + 2.0, -59.0),
+    ("dg_foot", -28.0, FOOT, -59.0),
+    ("dg_a", -20.0, FOOT, -59.0),
+    ("w18_in", -20.0, FOOT, -60.5),
+    ("w18_out", -20.0, FOOT, -64.0),
+    ("dg_b", -10.0, FOOT, -59.0),
+    ("dg_c", 0.0, FOOT, -58.5),
+    ("dg_d", 10.0, FOOT, -58.5),
+    ("dg_e", 20.0, FOOT, -59.0),
+    ("w19_in", 20.0, FOOT, -60.5),
+    ("w19_out", 20.0, FOOT, -64.0),
+    ("dg_f", 30.0, FOOT, -59.0),
+    ("dg_g", 41.0, FOOT, -58.5),
 ];
 
 const OPEN: Gate = Gate::Open;
@@ -926,11 +922,9 @@ mod tests {
     }
 
     #[test]
-    fn the_dam_stands_at_dam_x() {
-        assert_eq!(DAM_X, 400.0);
+    fn the_dam_is_centred_on_the_origin() {
         let (min, max) = dam().plan;
-        assert!(min.x > crate::maps::map::QUARRY_X + 38.0, "clear of the Quarry");
-        assert!((min.x + max.x) / 2.0 == DAM_X);
+        assert!((min.x + max.x) / 2.0 == 0.0);
     }
 
     /// Every Zone but the Crest Road has a ceiling: straight up from any of its path nodes there's
@@ -963,7 +957,7 @@ mod tests {
     }
 
     /// The floor Players can stand on in each indoor Zone, 1 m clear of the walls, as (min, max)
-    /// rectangles in x and z about `DAM_X`. (The Zones' volumes are boxes round the galleries' bends,
+    /// rectangles in x and z about the origin. (The Zones' volumes are boxes round the galleries' bends,
     /// the dam's solid body included.)
     const WALKABLE: [(ZoneId, (f32, f32), (f32, f32)); 13] = [
         (TowerHead, (-45.0, -31.0), (19.0, 31.0)),
@@ -988,7 +982,7 @@ mod tests {
         let zones: std::collections::HashSet<_> = WALKABLE.iter().map(|w| w.0).collect();
         assert_eq!(zones.len(), 11, "every Zone but the Crest Road");
         for (zone, (x0, x1), (z0, z1)) in WALKABLE {
-            let lamps: Vec<Vec2> = LAMPS.iter().filter(|(lamp, _)| *lamp == zone).map(|(_, at)| Vec2::new(at.x - DAM_X, at.z)).collect();
+            let lamps: Vec<Vec2> = LAMPS.iter().filter(|(lamp, _)| *lamp == zone).map(|(_, at)| Vec2::new(at.x, at.z)).collect();
             assert!(!lamps.is_empty(), "{zone:?} has no lamps");
             let (nx, nz) = (((x1 - x0) / 0.25).ceil().max(1.0) as u32, ((z1 - z0) / 0.25).ceil().max(1.0) as u32);
             for i in 0..=nx {

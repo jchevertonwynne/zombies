@@ -9,7 +9,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
-use crate::maps::map::{COVE_X, DAM_X, MapId, POLDER_X, QUARRY_X, STOREY, VILLAGE_X};
+use crate::maps::map::{MapId, STOREY};
 
 use crate::weapons::ammo_mod::{ammo_mod_slots, repack_price};
 use crate::weapons::arsenal::WeaponId;
@@ -266,11 +266,11 @@ impl PackAPunch {
 pub(crate) fn machine_at(map: MapId) -> Vec3 {
     match map {
         MapId::Greybox => Vec3::new(5.0, 0.0, -9.2),
-        MapId::Quarry => Vec3::new(QUARRY_X + 2.0, 3.0 * STOREY, 35.2),
-        MapId::Village => Vec3::new(VILLAGE_X + 69.0, 0.45, 9.0),
-        MapId::Dam => Vec3::new(DAM_X, STOREY + 0.45, -0.8),
-        MapId::Cove => Vec3::new(COVE_X - 50.25, 0.6, -10.3),
-        MapId::Polder => Vec3::new(POLDER_X, 0.6, 7.8),
+        MapId::Quarry => Vec3::new(2.0, 3.0 * STOREY, 35.2),
+        MapId::Village => Vec3::new(69.0, 0.45, 9.0),
+        MapId::Dam => Vec3::new(0.0, STOREY + 0.45, -0.8),
+        MapId::Cove => Vec3::new(-50.25, 0.6, -10.3),
+        MapId::Polder => Vec3::new(0.0, 0.6, 7.8),
     }
 }
 const MACHINE_SIZE: Vec3 = Vec3::new(1.6, 1.6, 0.9);

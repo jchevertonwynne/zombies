@@ -623,16 +623,16 @@ def fy(y):
 
 out = []
 out.append("//! The Polder's pools, sunken floors, lamps and path-node graph, laid out from `polder.rs`'s walls,\n//! Props and canals (Doors, bridges, stairs, Fords and drops by hand). Rewritten by the layout script.\n")
-out.append("use bevy::prelude::*;\n\nuse crate::enemies::nav::Gate;\nuse crate::maps::shifting::PieceId;\nuse crate::maps::map::{BarrierId, Level, Pool, Sunken};\nuse crate::maps::tide::TideMask;\nuse crate::maps::water::CanalId;\nuse crate::maps::zone::ZoneId;\n\nuse super::{OPEN, P, W0};\n")
-out.append("const fn v(x: f32, z: f32) -> Vec2 {\n    Vec2::new(P + x, z)\n}\n")
+out.append("use bevy::prelude::*;\n\nuse crate::enemies::nav::Gate;\nuse crate::maps::shifting::PieceId;\nuse crate::maps::map::{BarrierId, Level, Pool, Sunken};\nuse crate::maps::tide::TideMask;\nuse crate::maps::water::CanalId;\nuse crate::maps::zone::ZoneId;\n\nuse super::{OPEN, W0};\n")
+out.append("const fn v(x: f32, z: f32) -> Vec2 {\n    Vec2::new(x, z)\n}\n")
 out.append("const fn barrier(i: u8) -> Gate {\n    Gate::Barrier(BarrierId(W0 + i))\n}\n")
 out.append("const fn sunk(zone: ZoneId, x0: f32, z0: f32, x1: f32, z1: f32, depth: f32) -> Sunken {\n    Sunken { zone, min: v(x0, z0), max: v(x1, z1), depth, rim: false }\n}\n")
 out.append("/// A pool of one of the Polder's Canals: the sea past z 60, the Harbour from z 3 to its north bank, the Town Canal south of that (and the lock's seaward chamber, which touches both).\nconst fn pool(zone: ZoneId, x0: f32, z0: f32, x1: f32, z1: f32, bed: f32) -> Pool {\n    let canal = if z0 >= 60.0 {\n        2\n    } else if z0 >= 3.0 {\n        1\n    } else {\n        0\n    };\n    Pool { zone, min: v(x0, z0), max: v(x1, z1), level: Level::Canal(CanalId(canal)), bed }\n}\n\n/// An edge walkable only at the Tide levels in `bits` (1 Low, 2 Mid, 4 High).\nconst fn tide(bits: u8) -> Gate {\n    Gate::Tide(TideMask(bits))\n}\n")
 out.append(f"/// The canals' and the sea's beds, and the stairwells up the dyke.\npub(super) const SUNKEN: [Sunken; {len(SUNKEN)}] = [\n" + "".join(f"    sunk(ZoneId::{z}, {f(a)}, {f(b)}, {f(c)}, {f(d)}, {f(e)}),\n" for z, a, b, c, d, e in SUNKEN) + "];\n")
 out.append(f"/// The pools: every Deep reach, the Fords' berms and channels, the lock's chambers and the sea.\npub(super) const POOLS: [Pool; {len(POOLS)}] = [\n" + "".join(f"    pool(ZoneId::{z}, {f(a)}, {f(b)}, {f(c)}, {f(d)}, {f(e)}),\n" for z, a, b, c, d, e in POOLS) + "];\n")
-out.append(f"/// The lamps: a grid under every roof, and a few along the open quays.\npub(super) const LAMPS: [(ZoneId, Vec3); {len(LAMPS)}] = [\n" + "".join(f"    (ZoneId::{z}, Vec3::new(P + {f(x)}, {fy(y)}, {f(zz)})),\n" for z, x, y, zz in LAMPS) + "];\n")
+out.append(f"/// The lamps: a grid under every roof, and a few along the open quays.\npub(super) const LAMPS: [(ZoneId, Vec3); {len(LAMPS)}] = [\n" + "".join(f"    (ZoneId::{z}, Vec3::new({f(x)}, {fy(y)}, {f(zz)})),\n" for z, x, y, zz in LAMPS) + "];\n")
 names = list(NODES)
-out.append(f"/// The path nodes: a name, then where a Zombie's feet stand there (x, y, z).\npub(super) const NODES: &[(&str, f32, f32, f32)] = &[\n" + "".join(f'    ("{n}", P + {f(NODES[n][0])}, {fy(NODES[n][1])}, {f(NODES[n][2])}),\n' for n in names) + "];\n")
+out.append(f"/// The path nodes: a name, then where a Zombie's feet stand there (x, y, z).\npub(super) const NODES: &[(&str, f32, f32, f32)] = &[\n" + "".join(f'    ("{n}", {f(NODES[n][0])}, {fy(NODES[n][1])}, {f(NODES[n][2])}),\n' for n in names) + "];\n")
 def gate(g):
     if g == "OPEN": return "OPEN"
     t = g.split()

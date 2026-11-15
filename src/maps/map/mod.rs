@@ -1,8 +1,8 @@
 //! The Maps: what each is made of, as data, and how the one a Run is played on is built.
 //!
 //! Every Map has a `Layout`: its Zones, windows, Spawn Points, Box Locations, Wall Weapons,
-//! floors, Props and path nodes. Each Map is built in its own part of the world, so no two Maps'
-//! Zones overlap and a point is in at most one Map's Zone (ADR 0005).
+//! floors, Props and path nodes. Every Map is built centred on the world's origin, so two
+//! Maps' Zones overlap in space and every lookup from a point to a Zone takes the Map (ADR 0009).
 
 use bevy::light::{EnvironmentMapLight, LightProbe, NotShadowCaster};
 use bevy::prelude::*;
@@ -33,11 +33,6 @@ use build::{Builder, Gap};
 pub use greybox::CONTROL_PLATFORM;
 #[cfg(test)]
 pub use greybox::PLAYER_START;
-pub use quarry::QUARRY_X;
-pub use village::VILLAGE_X;
-pub use dam::DAM_X;
-pub use cove::COVE_X;
-pub use polder::POLDER_X;
 
 use crate::maps::darkness::{Chalk, Lamp};
 use crate::maps::generator::{Generator, SectionId};
@@ -198,7 +193,7 @@ pub struct Layout {
     pub sun: Vec3,
     /// How the Map is lit and graded.
     pub look: crate::maps::look::Look,
-    /// The corners (x, z) of the patch of the world the Map takes up: everything playable is
+    /// The corners (x, z) of the part of the world the Map takes up: everything playable is
     /// inside it, and past its edge is Out of Bounds.
     pub plan: (Vec2, Vec2),
     /// Builds the walls, the Doors and everything else the data above doesn't cover.
@@ -1418,35 +1413,51 @@ pub(crate) mod tests {
     #[test]
     fn feet_in_deep_water_are_out_of_bounds() {
         // The Polder's channel is Deep from Mid up, and the berms from High.
-        let channel = Vec3::new(POLDER_X - 47.0, -2.2, -6.0);
+        let channel = Vec3::new(-47.0, -2.2, -6.0);
         let polder = MapId::Polder.layout();
         assert!(!polder.out_of_bounds(TideLevel::Low, channel));
         assert!(polder.out_of_bounds(TideLevel::Mid, channel) && polder.out_of_bounds(TideLevel::High, channel));
-        assert!(polder.out_of_bounds(TideLevel::High, Vec3::new(POLDER_X - 47.0, -1.6, -10.25)));
-        assert!(!polder.out_of_bounds(TideLevel::Mid, Vec3::new(POLDER_X - 47.0, -1.6, -10.25)));
+        assert!(polder.out_of_bounds(TideLevel::High, Vec3::new(-47.0, -1.6, -10.25)));
+        assert!(!polder.out_of_bounds(TideLevel::Mid, Vec3::new(-47.0, -1.6, -10.25)));
         let cove = MapId::Cove.layout();
-        let sea = Vec3::new(COVE_X - 30.0, 0.0, -20.0);
+        let sea = Vec3::new(-30.0, 0.0, -20.0);
         assert!(cove.out_of_bounds(crate::maps::water::TideLevel::Low, sea));
         assert!(cove.out_of_bounds(crate::maps::water::TideLevel::Low, sea - Vec3::Y * 1.5));
-        assert!(!cove.out_of_bounds(crate::maps::water::TideLevel::Low, Vec3::new(COVE_X, 0.0, -10.0)), "the surf");
+        assert!(!cove.out_of_bounds(crate::maps::water::TideLevel::Low, Vec3::new(0.0, 0.0, -10.0)), "the surf");
         assert!(!cove.out_of_bounds(crate::maps::water::TideLevel::Low, sea + Vec3::Y * 1.0), "over the sea, on a parapet say");
     }
 
-    /// Each Map stands in its own part of the world, so nothing of one is inside another's Zones.
+    /// Every Map is built centred on the world's origin along x (ADR 0009), with its Zones
+    /// inside its plan.
     #[test]
-    fn every_map_keeps_to_its_own_part_of_the_world() {
+    fn every_map_is_centred_on_the_world_origin() {
         for map in MapId::ALL {
             let (min, max) = map.layout().plan;
+            assert!(((min.x + max.x) / 2.0).abs() <= 1.0, "the {}'s plan is centred on x = {}", map.name(), (min.x + max.x) / 2.0);
             for zone in map.layout().zones {
                 let (lo, hi) = zone.volume();
                 assert!(lo.x >= min.x && lo.z >= min.y && hi.x <= max.x && hi.z <= max.y, "{} sticks out of the {}'s plan", zone.name(), map.name());
             }
-            for other in MapId::ALL.into_iter().filter(|&other| other != map) {
-                let (omin, omax) = other.layout().plan;
-                let overlap = min.cmplt(omax).all() && omin.cmplt(max).all();
-                assert!(!overlap, "the {} and the {} overlap", map.name(), other.name());
+        }
+    }
+
+    /// Maps share the same space, so a point is in a Zone only of the Map it's asked about.
+    #[test]
+    fn two_maps_zones_overlap_in_space_and_each_resolves_to_its_own() {
+        let mut overlaps = 0;
+        for a in ZoneId::ALL {
+            for b in ZoneId::ALL.into_iter().filter(|b| b.map() != a.map()) {
+                let ((alo, ahi), (blo, bhi)) = (a.volume(), b.volume());
+                if !(alo.cmplt(bhi).all() && blo.cmplt(ahi).all()) {
+                    continue;
+                }
+                overlaps += 1;
+                let at = (alo.max(blo) + ahi.min(bhi)) / 2.0;
+                assert_eq!(zone_at(a.map(), at).map(ZoneId::map), Some(a.map()));
+                assert_eq!(zone_at(b.map(), at).map(ZoneId::map), Some(b.map()));
             }
         }
+        assert!(overlaps > 0, "no two Maps' Zones overlap");
     }
 
     #[test]
