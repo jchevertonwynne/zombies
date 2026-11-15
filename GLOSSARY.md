@@ -254,7 +254,7 @@ _Avoid_: Sabotaged (for a Generator), unpowered
 **Dark**: A Zone with no light but the Players' Weapon Lights and whatever glows: a Zone whose Section isn't Powered, or one that waits for every Generator to be Held.
 _Avoid_: unlit, blackout
 
-**Weapon Light**: The narrow light every Player carries, always on, on a Map with Dark Zones.
+**Weapon Light**: The torch-wide spotlight every Player carries, always on, on a Map with Dark Zones.
 _Avoid_: flashlight, torch
 
 **Trap**: A Buyable hazard across a doorway that, once switched on, kills every Zombie that walks into it for a short time and can Down the Player too. It then needs a cooldown before it can be bought again.

@@ -1579,13 +1579,15 @@ pub const LAMP_FLICKER_DIP: f32 = 0.15;
 pub const LAMP_FLICKER_RATE: f32 = 47.0;
 /// They dip while the sine of the level times `LAMP_FLICKER_RATE` is below this.
 pub const LAMP_FLICKER_BELOW: f32 = -0.3;
-/// Every Player's Weapon Light: a narrow spot, always on, casting shadows (#283; the intensity,
+/// Every Player's Weapon Light: a torch-wide spot, always on, casting shadows (#283; the intensity,
 /// in lumens, and colour from the prototype).
 pub const WEAPON_LIGHT_INTENSITY: f32 = 900_000.0;
 pub const WEAPON_LIGHT_COLOR: Color = Color::srgb(1.0, 0.95, 0.85);
 pub const WEAPON_LIGHT_RANGE: f32 = 30.0;
-pub const WEAPON_LIGHT_INNER_ANGLE: f32 = 0.12;
-pub const WEAPON_LIGHT_OUTER_ANGLE: f32 = 0.30;
+/// The cone, in radians. A spot's lumens set its centre's brightness whatever the angle, so widening it
+/// (0.12/0.30 before) leaves the centre as bright and spreads the light wider.
+pub const WEAPON_LIGHT_INNER_ANGLE: f32 = 0.2;
+pub const WEAPON_LIGHT_OUTER_ANGLE: f32 = 0.42;
 /// How far ahead of the eye a Weapon Light sits: past the longest view model's muzzle, so it never
 /// lights the Weapon it's on.
 pub const WEAPON_LIGHT_AHEAD: f32 = 1.3;

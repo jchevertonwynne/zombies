@@ -227,7 +227,7 @@ fn on_a_dark_map_the_camera_carries_a_narrow_shadow_casting_weapon_light() {
     let (on, light) = &lights[0];
     assert_eq!(*on, camera);
     assert!((light.range - 30.0).abs() < 1.0, "about 30 m: {}", light.range);
-    assert!((light.inner_angle - 0.12).abs() < 0.01 && (light.outer_angle - 0.30).abs() < 0.01);
+    assert!((light.inner_angle - 0.2).abs() < 0.01 && (light.outer_angle - 0.42).abs() < 0.01);
     assert!(light.intensity > 0.0, "always on");
     assert!(light.shadow_maps_enabled, "it casts shadows");
 }
