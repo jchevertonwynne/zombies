@@ -1,4 +1,5 @@
 //! The screenshot tour, for approving a Map's look: `ZOMBIES_TOUR=<map>` (`greybox`, `cove`, `dam`, `village` or `quarry`) skips the menu, stands the Player at each of the Map's views in turn with no Zombies about,
+//! The screenshot tour, for approving a Map's look: `ZOMBIES_TOUR=<map>` (`greybox`, `cove`, `dam` or `polder`) skips the menu, stands the Player at each of the Map's views in turn with no Zombies about,
 //! saves a 1920×1080 shot of the game window for each into `ZOMBIES_TOUR_OUT` (default `tour/`),
 //! and quits. The route views look from Zone to Zone through the Doors, which are hidden for them.
 //! The Dam's tour Holds every Generator, so its Zones are lit to judge, unless `ZOMBIES_TOUR_POWER=off`.
@@ -15,6 +16,7 @@ use crate::maps::door::Door;
 use crate::maps::generator::Generators;
 use crate::maps::power::Power;
 use crate::maps::map::{COVE_X, MapId, QUARRY_X, STOREY};
+use crate::maps::map::{COVE_X, MapId, POLDER_X};
 use crate::run::gauntlet::boon::{BOONS, HeldBoons};
 use crate::maps::map::{DAM_X, VILLAGE_X};
 use crate::players::player::{Health, LocalPlayer, Player, PlayerCamera, Teleport};
@@ -172,6 +174,38 @@ const COVE: &[View] = &[
     view("lantern-gallery", (C - 42.2, 20.0, 60.0), (C - 50.0, 50.0), -0.3, false),
 ];
 
+const PO: f32 = POLDER_X;
+
+/// The Polder: a view of each of its 16 Zones, then its bridges, the water and the dyke.
+const POLDER: &[View] = &[
+    view("town-square-pump", (PO + -12.0, 0.0, -34.0), (PO + -4.0, -24.0), -0.05, false),
+    view("town-square-canal", (PO + -6.0, 0.0, -16.0), (PO + -6.0, 8.0), 0.05, false),
+    view("weigh-house", (PO + -54.0, 0.0, -36.0), (PO + -32.0, -20.0), -0.05, false),
+    view("brewery", (PO + -68.0, 0.0, -50.0), (PO + -68.0, -20.0), -0.05, false),
+    view("humpback-bridge", (PO + -68.0, 0.0, -21.0), (PO + -68.0, 8.0), 0.1, false),
+    view("cheese-market", (PO + 22.0, 0.0, -36.0), (PO + 44.0, -18.0), -0.05, false),
+    view("almshouse-court", (PO + -22.0, 0.0, -44.0), (PO + 30.0, -50.0), -0.02, false),
+    view("windmill", (PO + -62.0, 0.0, 10.0), (PO + -70.0, 34.0), 0.2, false),
+    view("windmill-stage", (PO + -68.0, 4.0, 27.0), (PO + -68.0, 35.0), -0.05, false),
+    view("warehouse", (PO + -54.0, 0.0, 22.0), (PO + -40.0, 6.0), -0.05, false),
+    view("lock-yard", (PO + -30.0, 0.0, 3.0), (PO + -13.0, 12.0), 0.0, false),
+    view("sluice-house", (PO + -4.0, 0.0, 2.5), (PO + 0.0, 10.0), -0.05, false),
+    view("pack-a-punch", (PO + 0.0, 0.0, 15.5), (PO + 0.0, 8.0), -0.1, false),
+    view("toll-quay", (PO + 16.0, 0.0, 4.0), (PO + 30.0, 18.0), 0.0, false),
+    view("shipyard", (PO + 38.0, 0.0, 3.0), (PO + 48.0, 14.0), 0.0, false),
+    view("coal-yard", (PO + 62.0, 0.0, 4.0), (PO + 70.0, 30.0), 0.05, false),
+    view("herring-quay", (PO + -54.0, 0.0, 38.0), (PO + -10.0, 42.0), 0.0, false),
+    view("customs-house", (PO + 16.0, 0.0, 38.0), (PO + 55.0, 42.0), 0.0, false),
+    view("dyke-road", (PO + -76.0, 4.0, 52.0), (PO + 20.0, 52.0), 0.0, false),
+    view("pumping-station", (PO + 48.0, 4.0, 52.0), (PO + 78.0, 56.0), 0.0, false),
+    view("sea-from-the-dyke", (PO + -20.0, 4.0, 56.0), (PO + -20.0, 66.0), 0.1, false),
+    view("market-bridge", (PO + -22.0, 0.0, -18.0), (PO + -22.0, 6.0), 0.0, false),
+    view("herring-bridge", (PO + -24.0, 0.0, 18.0), (PO + -24.0, 40.0), 0.0, false),
+    view("ford-f1-stair", (PO + -43.0, 0.0, -14.0), (PO + -43.0, 0.0), -0.45, false),
+    view("harbour", (PO + 0.0, 0.0, 38.0), (PO + -40.0, 30.0), 0.0, false),
+    view("town-canal", (PO + -6.0, 0.0, -14.0), (PO + 40.0, -6.0), 0.0, false),
+];
+
 /// Frames before the first shot, for every file to load.
 const WARM_UP: u32 = 240;
 /// Frames each view settles for before its shot.
@@ -202,6 +236,8 @@ impl Tour {
             "village" => (MapId::Village, VILLAGE),
             "quarry" => (MapId::Quarry, QUARRY),
             other => panic!("ZOMBIES_TOUR={other}: only greybox, dam, cove, village and quarry have views"),
+            "polder" => (MapId::Polder, POLDER),
+            other => panic!("ZOMBIES_TOUR={other}: only greybox, dam, cove and polder have views"),
         };
         let dir = std::env::var("ZOMBIES_TOUR_OUT").unwrap_or_else(|_| "tour".into());
         std::fs::create_dir_all(&dir).expect("ZOMBIES_TOUR_OUT is writable");

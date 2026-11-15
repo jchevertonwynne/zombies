@@ -12,7 +12,7 @@ use crate::maps::machine_look;
 use crate::maps::map::textures::{Shape, Textured, box_uv_mesh};
 use crate::maps::zone::ZoneId;
 
-use crate::maps::map::{COVE_X, MapId, QUARRY_X, STOREY, VILLAGE_X};
+use crate::maps::map::{COVE_X, MapId, POLDER_X, QUARRY_X, STOREY, VILLAGE_X};
 
 use crate::authority::HostSimulation;
 use crate::economy::buy::{Buyable, Purchased};
@@ -155,6 +155,8 @@ pub(crate) fn switch_spot(map: MapId) -> Option<(Vec3, Vec3)> {
         MapId::Dam => return None,
         // On the Lighthouse's south wall, at hand height, at the foot of its stairs.
         MapId::Cove => (Vec3::new(COVE_X - 48.0, 3.0 * STOREY + 1.3, 44.4), Vec3::Z),
+        // On the Pumping Station's seaward wall, at hand height, by the beam engine.
+        MapId::Polder => (Vec3::new(POLDER_X + 62.0, STOREY + 1.3, 59.6), Vec3::NEG_Z),
     })
 }
 

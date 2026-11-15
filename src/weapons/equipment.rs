@@ -23,7 +23,7 @@ use crate::state::{GameState, InRun, input_runs, world_runs};
 use crate::tuning::*;
 use crate::weapons::weapon::Knife;
 use crate::enemies::zombie::{Dying, Lured, Zombie};
-use crate::maps::map::{COVE_X, DAM_X, MapId, QUARRY_X, STOREY, VILLAGE_X};
+use crate::maps::map::{COVE_X, DAM_X, MapId, POLDER_X, QUARRY_X, STOREY, VILLAGE_X};
 use crate::maps::zone::ZoneId;
 
 /// Request to give a Player Lethals (frags), capped at their Lethal capacity (ADR 0007).
@@ -366,6 +366,18 @@ pub(crate) fn equipment_walls(map: MapId) -> &'static [(EquipmentWall, ZoneId, V
                 (EquipmentWall::Claymore, ZoneId::Battery, Vec3::new(C + 33.8, 3.0 * STOREY + 1.5, 58.0), Vec3::NEG_X),
                 // On the Chapel's east wall.
                 (EquipmentWall::BowieKnife, ZoneId::Chapel, Vec3::new(C - 30.2, 2.0 * STOREY + 1.5, 27.0), Vec3::NEG_X),
+            ];
+            &SPOTS
+        }
+        MapId::Polder => {
+            const PO: f32 = POLDER_X;
+            const SPOTS: [(EquipmentWall, ZoneId, Vec3, Vec3); 3] = [
+                // On the Cheese Market's east wall.
+                (EquipmentWall::Frags, ZoneId::CheeseMarket, Vec3::new(PO + 53.8, 1.5, -20.0), Vec3::NEG_X),
+                // On the Dyke Road's west end wall.
+                (EquipmentWall::Claymore, ZoneId::DykeRoad, Vec3::new(PO - 79.8, STOREY + 1.5, 54.0), Vec3::X),
+                // On the Windmill's west wall.
+                (EquipmentWall::BowieKnife, ZoneId::Windmill, Vec3::new(PO - 79.8, 1.5, 40.0), Vec3::X),
             ];
             &SPOTS
         }

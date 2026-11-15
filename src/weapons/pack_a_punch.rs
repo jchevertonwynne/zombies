@@ -9,7 +9,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
-use crate::maps::map::{COVE_X, DAM_X, MapId, QUARRY_X, STOREY, VILLAGE_X};
+use crate::maps::map::{COVE_X, DAM_X, MapId, POLDER_X, QUARRY_X, STOREY, VILLAGE_X};
 
 use crate::weapons::ammo_mod::{ammo_mod_slots, repack_price};
 use crate::weapons::arsenal::WeaponId;
@@ -261,7 +261,8 @@ impl PackAPunch {
 /// The machine's spot on `map`, on the floor. It always faces +Z: on the Greybox, out of the
 /// Gazebo's Door; on the Quarry, along the Headframe's deck from just behind its front rail;
 /// on the Village, along the Church's chancel from its south end; on the Dam, up on the Control
-/// Room's dais from its south end; on the Cove, on the Sea Cave's rock shelf from its south end.
+/// Room's dais from its south end; on the Cove, on the Sea Cave's rock shelf from its south end; on the Polder, on the Sluice House's
+/// winch platform from its south end.
 pub(crate) fn machine_at(map: MapId) -> Vec3 {
     match map {
         MapId::Greybox => Vec3::new(5.0, 0.0, -9.2),
@@ -269,6 +270,7 @@ pub(crate) fn machine_at(map: MapId) -> Vec3 {
         MapId::Village => Vec3::new(VILLAGE_X + 69.0, 0.45, 9.0),
         MapId::Dam => Vec3::new(DAM_X, STOREY + 0.45, -0.8),
         MapId::Cove => Vec3::new(COVE_X - 50.25, 0.6, -10.3),
+        MapId::Polder => Vec3::new(POLDER_X, 0.6, 7.8),
     }
 }
 const MACHINE_SIZE: Vec3 = Vec3::new(1.6, 1.6, 0.9);

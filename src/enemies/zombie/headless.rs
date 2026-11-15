@@ -736,7 +736,9 @@ fn every_open_floor_spot_walks_to_and_from_a_path_node_on(map_id: MapId) {
                             let feet = Vec3::new(x, floor + 1.0 - hit.distance, z);
                             let centre = feet + Vec3::Y * half;
                             let fits = spatial.shape_intersections(&body, centre + Vec3::Y * 0.05, Quat::IDENTITY, &map).is_empty();
-                            if on_prop || !fits || crate::enemies::nav::zone_at(feet + Vec3::Y * 0.1) != Some(zone) {
+                            // Nobody stands in Deep Water, so nothing there needs a path node.
+                            let in_deep = crate::maps::water::water_at(layout, crate::maps::map::TideLevel::Low, feet) == Some(crate::maps::map::Wading::Deep);
+                            if on_prop || in_deep || !fits || crate::enemies::nav::zone_at(feet + Vec3::Y * 0.1) != Some(zone) {
                                 continue;
                             }
                             if !seen.insert((feet * 10.0).round().as_ivec3()) {

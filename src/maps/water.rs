@@ -324,6 +324,19 @@ pub fn spawn_water(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials
         deep.push((Vec2::new(middle - HORIZON, plan_min.y), Vec2::new(west, top), level));
         deep.push((Vec2::new(east, plan_min.y), Vec2::new(middle + HORIZON, top), level));
     }
+    // The same on the north: a Deep pool that reaches the plan's north edge runs on to the horizon.
+    let (_, plan_max) = layout.plan;
+    let north: Vec<&Pool> = deeps.iter().filter(|pool| pool.max.y >= plan_max.y - 0.01).collect();
+    if let Some(&&first) = north.first() {
+        let level = first.surface(canals, tide);
+        let west = north.iter().map(|pool| pool.min.x).fold(f32::INFINITY, f32::min);
+        let east = north.iter().map(|pool| pool.max.x).fold(f32::NEG_INFINITY, f32::max);
+        let bottom = deeps.iter().filter(|pool| pool.max.y >= plan_max.y - 0.01).map(|pool| pool.min.y).fold(f32::INFINITY, f32::min);
+        let middle = (west + east) / 2.0;
+        deep.push((Vec2::new(middle - HORIZON, plan_max.y), Vec2::new(middle + HORIZON, plan_max.y + HORIZON), level));
+        deep.push((Vec2::new(middle - HORIZON, bottom), Vec2::new(west, plan_max.y), level));
+        deep.push((Vec2::new(east, bottom), Vec2::new(middle + HORIZON, plan_max.y), level));
+    }
     for (rects, colour) in [(shallow, SHALLOW), (deep, DEEP), (foam(layout), FOAM)] {
         if rects.is_empty() {
             continue;
@@ -672,7 +685,7 @@ mod tests {
     #[test]
     fn a_map_without_pools_is_dry_everywhere() {
         for map in crate::maps::map::MapId::ALL {
-            if map == crate::maps::map::MapId::Cove {
+            if matches!(map, crate::maps::map::MapId::Cove | crate::maps::map::MapId::Polder) {
                 continue;
             }
             assert!(map.layout().water.is_empty() && map.layout().canals.is_empty(), "{}", map.name());

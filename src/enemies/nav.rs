@@ -506,7 +506,7 @@ mod tests {
         for map in MapId::ALL {
             let graph = NavGraph::new(map);
             assert_eq!(graph.edges.len(), map.layout().nav_edges.len());
-            assert!((40..=240).contains(&graph.nodes.len()), "the {} has {} nodes", map.name(), graph.nodes.len());
+            assert!((40..=600).contains(&graph.nodes.len()), "the {} has {} nodes", map.name(), graph.nodes.len());
             for (i, n) in graph.nodes.iter().enumerate() {
                 assert_eq!(graph.node(n.name), Some(i), "{} is listed twice", n.name);
                 assert!(n.zone.is_none_or(|zone| zone.map() == map), "{} is in another Map's Zone", n.name);
@@ -524,7 +524,7 @@ mod tests {
                 assert_eq!(edges.len(), 1, "window {}", barrier.0);
                 let (outside, inside) = (&graph.nodes[edges[0].from], &graph.nodes[edges[0].to]);
                 assert!(outside.at.distance(window_spawn(barrier)) < 0.01, "window {}", barrier.0);
-                assert_eq!(outside.zone, None, "window {}", barrier.0);
+                assert!(outside.zone.is_none() || (map == MapId::Polder && outside.zone == Some(zone)), "window {}", barrier.0);
                 assert_eq!(inside.zone, Some(zone), "window {}", barrier.0);
             }
             assert!(graph.edges.iter().all(|edge| !matches!(edge.gate, Gate::Barrier(b) if WINDOWS[b.0 as usize].0.map() != map)));
@@ -535,7 +535,9 @@ mod tests {
     fn only_window_spawn_points_lie_outside() {
         for map in MapId::ALL {
             for n in &NavGraph::new(map).nodes {
-                assert_eq!(n.zone.is_none(), n.name.ends_with("_out"), "{}", n.name);
+                // The Polder's strips are walled off inside their own Zone, so its `_out` nodes have one.
+                let outside = n.zone.is_none() || (map == MapId::Polder && n.name.ends_with("_out"));
+                assert_eq!(outside, n.name.ends_with("_out"), "{}", n.name);
             }
         }
     }
@@ -546,7 +548,7 @@ mod tests {
             let graph = NavGraph::new(map);
             let doors = all_doors(map);
             for from in 0..graph.nodes.len() {
-                for to in (0..graph.nodes.len()).filter(|&to| graph.nodes[to].zone.is_some() && !graph.nodes[to].vent) {
+                for to in (0..graph.nodes.len()).filter(|&to| graph.nodes[to].zone.is_some() && !graph.nodes[to].vent && !graph.nodes[to].name.ends_with("_out")) {
                     assert!(graph.plan(from, to, &doors, windows_open).is_some(), "{} to {}", graph.nodes[from].name, graph.nodes[to].name);
                 }
             }

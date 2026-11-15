@@ -127,7 +127,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
     }
 
     /// A box drawn in `colour`, `size` across before `rotation`, centred on `at`. Not solid.
-    fn shape(&mut self, size: Vec3, at: Vec3, rotation: Quat, colour: Color) -> Entity {
+    pub fn shape(&mut self, size: Vec3, at: Vec3, rotation: Quat, colour: Color) -> Entity {
         self.shape_in(size, at, rotation, colour, None)
     }
 
@@ -220,14 +220,18 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
     /// An indoor Zone's ceiling: a slab at the top of its walls, in its wall material. Only drawn,
     /// so nothing in the Zone (a Jump Pad's arc, a Vent's drop) can bump it. It spans the Zone's
     /// volume, so neighbours' slabs meet over the middle of the wall between them, never overlap.
-    pub fn ceiling(&mut self, zone: ZoneId) {
+    pub fn ceiling(&mut self, zone: ZoneId, holes: &[Sunken]) {
         const THICKNESS: f32 = 0.2;
         let (lo, hi) = zone.volume();
         let top = (hi.y / STOREY).ceil() * STOREY;
-        let size = Vec3::new(hi.x - lo.x, THICKNESS, hi.z - lo.z);
-        let centre = Vec3::new((lo.x + hi.x) / 2.0, top + THICKNESS / 2.0, (lo.z + hi.z) / 2.0);
         let material = materials(Some(zone)).map(|set| set.wall);
-        self.shape_in(size, centre, Quat::IDENTITY, palette(Some(zone)).wall, material);
+        // Open over water and stairwells a storey deep or more, which the roof leaves to the sky.
+        let cut: Vec<_> = holes.iter().filter(|hole| hole.zone == zone && hole.depth >= 1.5).map(|hole| (hole.min, hole.max)).collect();
+        for (min, max) in rects_around((Vec2::new(lo.x, lo.z), Vec2::new(hi.x, hi.z)), &cut) {
+            let size = Vec3::new(max.x - min.x, THICKNESS, max.y - min.y);
+            let centre = Vec3::new((min.x + max.x) / 2.0, top + THICKNESS / 2.0, (min.y + max.y) / 2.0);
+            self.shape_in(size, centre, Quat::IDENTITY, palette(Some(zone)).wall, material);
+        }
     }
 
     /// A Raised Floor, with a lip of its Zone's trim round its top.

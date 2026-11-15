@@ -23,6 +23,7 @@ pub mod decals;
 mod dam;
 mod fitting;
 mod greybox;
+mod polder;
 mod quarry;
 pub mod textures;
 mod village;
@@ -36,6 +37,7 @@ pub use quarry::QUARRY_X;
 pub use village::VILLAGE_X;
 pub use dam::DAM_X;
 pub use cove::COVE_X;
+pub use polder::POLDER_X;
 
 use crate::maps::darkness::{Chalk, Lamp};
 use crate::maps::generator::{Generator, SectionId};
@@ -72,10 +74,13 @@ pub enum MapId {
     /// A cliffside town on four levels, climbed by stairs from the beach to a clifftop
     /// lighthouse, the Power at the lighthouse's foot and Pack-a-Punch in a cave on the shore.
     Cove,
+    /// A canal town behind a sea dyke: two Canals crossed by Swing Bridges, a twin lock with
+    /// Pack-a-Punch on its island, and the Power in the pumping station on the dyke.
+    Polder,
 }
 
 impl MapId {
-    pub const ALL: [MapId; 5] = [MapId::Greybox, MapId::Quarry, MapId::Village, MapId::Dam, MapId::Cove];
+    pub const ALL: [MapId; 6] = [MapId::Greybox, MapId::Quarry, MapId::Village, MapId::Dam, MapId::Cove, MapId::Polder];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -84,6 +89,7 @@ impl MapId {
             MapId::Village => "Village",
             MapId::Dam => "Dam",
             MapId::Cove => "Cove",
+            MapId::Polder => "Polder",
         }
     }
 
@@ -95,6 +101,7 @@ impl MapId {
             MapId::Village => "A long village of streets and lanes, walked end to end.",
             MapId::Dam => "A dam's crest, its galleries and the turbine hall at its foot.",
             MapId::Cove => "A cliffside town, climbed by stairs from the beach to its lighthouse.",
+            MapId::Polder => "A canal town behind a sea dyke, its bridges and its lock leading to the pumping station.",
         }
     }
 
@@ -106,6 +113,7 @@ impl MapId {
             MapId::Village => &village::VILLAGE,
             MapId::Dam => &dam::DAM,
             MapId::Cove => &cove::COVE,
+            MapId::Polder => &polder::POLDER,
         }
     }
 }
@@ -247,7 +255,8 @@ const fn concat<T: Copy, const A: usize, const B: usize, const N: usize>(a: [T; 
 /// Every Map's windows, each Map's in a run of its own in `MapId::ALL` order, so a `BarrierId`
 /// names one window in one Map: the Zone it lets into, its centre on the wall line at the height
 /// of the floor it lets onto, and the way out. Each is planked up by its Barrier.
-pub const WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_COVE_WINDOWS.len() + cove::WINDOWS.len()] = concat(BEFORE_THE_COVE_WINDOWS, cove::WINDOWS);
+pub const WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_POLDER_WINDOWS.len() + polder::WINDOWS.len()] = concat(BEFORE_THE_POLDER_WINDOWS, polder::WINDOWS);
+const BEFORE_THE_POLDER_WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_COVE_WINDOWS.len() + cove::WINDOWS.len()] = concat(BEFORE_THE_COVE_WINDOWS, cove::WINDOWS);
 const BEFORE_THE_COVE_WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_DAM_WINDOWS.len() + dam::WINDOWS.len()] = concat(BEFORE_THE_DAM_WINDOWS, dam::WINDOWS);
 const BEFORE_THE_DAM_WINDOWS: [(ZoneId, Vec3, Vec2); GREYBOX_AND_QUARRY_WINDOWS.len() + village::WINDOWS.len()] = concat(GREYBOX_AND_QUARRY_WINDOWS, village::WINDOWS);
 const GREYBOX_AND_QUARRY_WINDOWS: [(ZoneId, Vec3, Vec2); greybox::WINDOWS.len() + quarry::WINDOWS.len()] = concat(greybox::WINDOWS, quarry::WINDOWS);
@@ -255,7 +264,8 @@ const GREYBOX_AND_QUARRY_WINDOWS: [(ZoneId, Vec3, Vec2); greybox::WINDOWS.len() 
 /// Every Map's Box Locations, each Map's in a run of its own, in order: the Zone, where the Box's
 /// centre sits on the floor, and which way its front faces (where the Player stands). Every Run
 /// starts the Box at its Map's first.
-pub const BOX_LOCATIONS: [(ZoneId, Vec3, Vec2); BEFORE_THE_COVE_BOXES.len() + cove::BOX_LOCATIONS.len()] = concat(BEFORE_THE_COVE_BOXES, cove::BOX_LOCATIONS);
+pub const BOX_LOCATIONS: [(ZoneId, Vec3, Vec2); BEFORE_THE_POLDER_BOXES.len() + polder::BOX_LOCATIONS.len()] = concat(BEFORE_THE_POLDER_BOXES, polder::BOX_LOCATIONS);
+const BEFORE_THE_POLDER_BOXES: [(ZoneId, Vec3, Vec2); BEFORE_THE_COVE_BOXES.len() + cove::BOX_LOCATIONS.len()] = concat(BEFORE_THE_COVE_BOXES, cove::BOX_LOCATIONS);
 const BEFORE_THE_COVE_BOXES: [(ZoneId, Vec3, Vec2); BEFORE_THE_DAM_BOXES.len() + dam::BOX_LOCATIONS.len()] = concat(BEFORE_THE_DAM_BOXES, dam::BOX_LOCATIONS);
 const BEFORE_THE_DAM_BOXES: [(ZoneId, Vec3, Vec2); GREYBOX_AND_QUARRY_BOXES.len() + village::BOX_LOCATIONS.len()] =
     concat(GREYBOX_AND_QUARRY_BOXES, village::BOX_LOCATIONS);
@@ -485,6 +495,24 @@ pub fn materials(zone: Option<ZoneId>) -> Option<MaterialSet> {
         Headframe => (MetalPlate02, BlueMetalPlate, None, &[]),
         Incline => (WeatheredPlanks, RockWall08, None, &[]),
         LoadingDock => (WornConcreteFloor, GreenMetalRust, Some(OilStains), &[]),
+        // The Polder: stone setts, grey and red brick, tarred timber and whitewash, each Zone
+        // differing from its neighbours by family.
+        TownSquare => (CobblestoneFloor06, DarkBrickWall, None, &[]),
+        WeighHouse => (DarkWoodenPlanks, BeigeWall001, None, &[]),
+        Brewery => (WornBrickFloor, CastleBrick02Red, None, &[]),
+        CheeseMarket => (MossyCobblestone, BeigeWall001, None, &[]),
+        AlmshouseCourt => (MossyCobblestone, BrickWall001, None, &[]),
+        Windmill => (WornBrickFloor, PlasteredStoneWall, None, &[]),
+        Warehouse => (WeatheredPlanks, BlackPaintedPlanks, Some(Leaks), &[]),
+        LockYard => (WornConcreteFloor, BlackPaintedPlanks, None, &[]),
+        SluiceHouse => (MetalPlate02, FloorTiles06, None, &[]),
+        TollQuay => (DarkWoodenPlanks, BlackPaintedPlanks, None, &[]),
+        Shipyard => (WeatheredPlanks, CastleBrick02Red, None, &[]),
+        CoalYard => (AsphaltFloor, DarkBrickWall, None, &[]),
+        HerringQuay => (BlackPaintedPlanks, WeatheredPlanks, None, &[]),
+        CustomsHouse => (DiagonalParquet, BrickWall001, None, &[]),
+        DykeRoad => (WornConcreteFloor, ConcreteBlockWall02, None, &[]),
+        PumpingStation => (HangarConcreteFloor, ConcreteTileFacade, Some(OilStains), &[]),
         _ => return None,
     };
     Some(MaterialSet { floor, wall, decals, props })
@@ -620,6 +648,38 @@ pub fn palette(zone: Option<ZoneId>) -> Palette {
         Some(KeepersCottage) => paints((0.4, 0.3, 0.2), (0.34, 0.5, 0.48), (0.7, 0.55, 0.2), (1.0, 0.78, 0.5)),
         // Dark flags, pale sandstone ramparts and black iron.
         Some(Battery) => paints((0.3, 0.3, 0.33), (0.28, 0.26, 0.42), (0.86, 0.82, 0.7), (0.8, 0.88, 1.0)),
+        // Wet setts round the pump, between grey-brick frontages with white-painted sills.
+        Some(TownSquare) => paints((0.34, 0.34, 0.36), (0.42, 0.4, 0.42), (0.85, 0.84, 0.78), (1.0, 0.8, 0.52)),
+        // Scrubbed boards, whitewash, black beams, lamp-yellow light.
+        Some(WeighHouse) => paints((0.38, 0.3, 0.22), (0.78, 0.76, 0.68), (0.12, 0.1, 0.09), (1.0, 0.82, 0.55)),
+        // Tarred floorboards, dark red brick, copper-green trim.
+        Some(Brewery) => paints((0.2, 0.15, 0.12), (0.45, 0.2, 0.17), (0.3, 0.5, 0.42), (1.0, 0.72, 0.4)),
+        // Flags under pale-blue shutters on cream render.
+        Some(CheeseMarket) => paints((0.45, 0.43, 0.4), (0.78, 0.74, 0.58), (0.3, 0.45, 0.6), (1.0, 0.82, 0.55)),
+        // Moss between the setts, almshouse brick the colour of weak tea.
+        Some(AlmshouseCourt) => paints((0.3, 0.34, 0.26), (0.56, 0.38, 0.28), (0.82, 0.8, 0.72), (1.0, 0.8, 0.5)),
+        // Trodden clay round a limewashed mill, tarred timber sails.
+        Some(Windmill) => paints((0.36, 0.3, 0.24), (0.84, 0.82, 0.76), (0.16, 0.12, 0.09), (1.0, 0.78, 0.5)),
+        // Plank floor, sooty tiles and grey brick, hoist beams.
+        Some(Warehouse) => paints((0.3, 0.24, 0.18), (0.4, 0.38, 0.38), (0.2, 0.15, 0.1), (1.0, 0.78, 0.5)),
+        // Wet quay stone and the keeper's tarred hut.
+        Some(LockYard) => paints((0.3, 0.31, 0.32), (0.33, 0.25, 0.2), (0.7, 0.68, 0.6), (0.85, 0.9, 1.0)),
+        // Black iron plate and green-painted sluice brick.
+        Some(SluiceHouse) => paints((0.2, 0.22, 0.22), (0.26, 0.4, 0.36), (0.8, 0.7, 0.3), (0.8, 0.95, 1.0)),
+        // Wet cobbles and tarred planking, a blue-grey tollhouse.
+        Some(TollQuay) => paints((0.32, 0.32, 0.34), (0.34, 0.42, 0.5), (0.85, 0.82, 0.7), (1.0, 0.82, 0.58)),
+        // Tarred timber stocks, rough brick sheds, wood shavings.
+        Some(Shipyard) => paints((0.28, 0.22, 0.16), (0.5, 0.26, 0.2), (0.12, 0.1, 0.09), (1.0, 0.75, 0.45)),
+        // Black coal dust and soot-dark brick.
+        Some(CoalYard) => paints((0.12, 0.12, 0.13), (0.26, 0.22, 0.22), (0.62, 0.3, 0.14), (1.0, 0.68, 0.38)),
+        // Fish-scaled quay stones against tarred smokehouse boards.
+        Some(HerringQuay) => paints((0.34, 0.35, 0.36), (0.22, 0.18, 0.15), (0.75, 0.74, 0.7), (1.0, 0.8, 0.52)),
+        // Polished boards, bonded-store brick, brass.
+        Some(CustomsHouse) => paints((0.4, 0.3, 0.2), (0.6, 0.32, 0.26), (0.78, 0.6, 0.22), (1.0, 0.85, 0.6)),
+        // Dyke-top gravel between sandbag-grey parapets.
+        Some(DykeRoad) => paints((0.36, 0.35, 0.32), (0.5, 0.5, 0.48), (0.2, 0.2, 0.2), (0.85, 0.9, 1.0)),
+        // Engine-room plate, white-glazed brick, brass and red.
+        Some(PumpingStation) => paints((0.22, 0.22, 0.24), (0.84, 0.86, 0.82), (0.62, 0.16, 0.12), (1.0, 0.88, 0.7)),
         // Bare ground round weathered brick.
         None => paints((0.15, 0.17, 0.12), (0.3, 0.21, 0.17), (0.42, 0.4, 0.36), (1.0, 0.75, 0.45)),
     }
@@ -808,7 +868,7 @@ pub fn spawn_map(
     // (A Map with Darkness builds its own, solid ones.)
     if layout.roofed && !layout.darkness {
         for &zone in layout.zones.iter().filter(|&&zone| layout.indoor(zone)) {
-            b.ceiling(zone);
+            b.ceiling(zone, layout.sunken);
         }
     }
 
@@ -1993,7 +2053,10 @@ pub(crate) mod tests {
                 .unwrap();
             assert!(floating.is_empty(), "window Spawn Points with no floor under them: {floating:?}");
             for barrier in map.barriers() {
-                assert_eq!(zone_at(window_spawn(barrier) + Vec3::Y * 0.1), None, "window {}'s Spawn Point is indoors", barrier.0);
+                // Outside every Zone, or (the Polder's, in a partition's walled strip) in its own.
+                let (own, ..) = WINDOWS[barrier.0 as usize];
+                let there = zone_at(window_spawn(barrier) + Vec3::Y * 0.1);
+                assert!(there.is_none() || (map == MapId::Polder && there == Some(own)), "window {}'s Spawn Point is indoors", barrier.0);
             }
         }
     }

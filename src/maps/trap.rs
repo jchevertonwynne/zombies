@@ -18,7 +18,7 @@ use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 use crate::enemies::zombie::{Attack, DamageZombie, Dying, Heavyweight, HitZone, Rising, Zombie};
 use crate::maps::map::textures::{Shape, Textured, box_uv_mesh};
-use crate::maps::map::{COVE_X, DAM_X, MapId, QUARRY_X, STOREY, VILLAGE_X};
+use crate::maps::map::{COVE_X, DAM_X, MapId, POLDER_X, QUARRY_X, STOREY, VILLAGE_X};
 use crate::maps::zone::ZoneId;
 
 /// A Map's Traps: the Door whose doorway each spans, the doorway's centre on its floor (x, y, z),
@@ -69,6 +69,17 @@ pub(crate) fn traps(map: MapId) -> &'static [((ZoneId, ZoneId), Vec3, f32)] {
                 ((ZoneId::Washhouse, ZoneId::Chapel), Vec3::new(C - 50.0, STOREY, 24.0), C - 47.8),
                 ((ZoneId::FishMarket, ZoneId::Piazza), Vec3::new(C - 12.0, STOREY, 24.0), C - 9.8),
                 ((ZoneId::UpperLane, ZoneId::Battery), Vec3::new(C + 12.0, 2.0 * STOREY, 44.0), C + 14.2),
+            ];
+            &SPOTS
+        }
+        // The Square's way into the Almshouse Court, the foot of the Dyke Steps and the foot of
+        // the Coal Stair, all in walls along x.
+        MapId::Polder => {
+            const PO: f32 = POLDER_X;
+            const SPOTS: [((ZoneId, ZoneId), Vec3, f32); 3] = [
+                ((ZoneId::TownSquare, ZoneId::AlmshouseCourt), Vec3::new(PO - 6.0, 0.0, -40.0), PO - 3.8),
+                ((ZoneId::HerringQuay, ZoneId::DykeRoad), Vec3::new(PO - 20.0, 0.0, 48.0), PO - 17.8),
+                ((ZoneId::CoalYard, ZoneId::PumpingStation), Vec3::new(PO + 68.0, 0.0, 48.0), PO + 70.2),
             ];
             &SPOTS
         }

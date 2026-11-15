@@ -4,7 +4,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
-use crate::maps::map::{COVE_X, DAM_X, MapId, QUARRY_X, STOREY, VILLAGE_X};
+use crate::maps::map::{COVE_X, DAM_X, MapId, POLDER_X, QUARRY_X, STOREY, VILLAGE_X};
 
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
@@ -114,6 +114,7 @@ impl Perk {
         const V: f32 = VILLAGE_X;
         const D: f32 = DAM_X;
         const C: f32 = COVE_X;
+        const PO: f32 = POLDER_X;
         match (map, self) {
             // West Hall's outer wall.
             (MapId::Greybox, Perk::Juggernog) => (Vec3::new(-25.2, 0.0, 10.0), Vec3::X),
@@ -155,6 +156,14 @@ impl Perk {
             (MapId::Cove, Perk::DoubleTap) => (Vec3::new(C - 11.2, 3.0 * STOREY, 58.5), Vec3::X),
             // The Strand's sea wall, between the two cheap guns.
             (MapId::Cove, Perk::QuickRevive) => (Vec3::new(C - 1.0, 0.0, -13.2), Vec3::Z),
+            // The Herring Quay's front on the dyke, on the cheap way to the Power.
+            (MapId::Polder, Perk::Juggernog) => (Vec3::new(PO - 8.0, 0.0, 47.2), Vec3::NEG_Z),
+            // The Warehouse's north wall.
+            (MapId::Polder, Perk::SpeedCola) => (Vec3::new(PO - 38.0, 0.0, 23.2), Vec3::NEG_Z),
+            // The Shipyard's west wall, on the east axis.
+            (MapId::Polder, Perk::DoubleTap) => (Vec3::new(PO + 34.8, 0.0, 20.0), Vec3::X),
+            // The Square's south wall, between the two cheap guns.
+            (MapId::Polder, Perk::QuickRevive) => (Vec3::new(PO + 5.0, 0.0, -39.2), Vec3::Z),
         }
     }
 

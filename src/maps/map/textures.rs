@@ -83,11 +83,18 @@ pub enum Material {
     GrayRocks,
     BlackPaintedPlanks,
     CheckeredPavementTiles,
+    // The Polder's.
+    DarkBrickWall,
+    CastleBrick02Red,
+    BlackPaintedPlanks,
+    CobblestoneFloor06,
+    BeigeWall001,
 }
 
 impl Material {
     #[cfg(test)]
     pub const ALL: [Material; 59] = [
+    pub const ALL: [Material; 46] = [
         Material::DarkWoodenPlanks,
         Material::DamagedPlaster,
         Material::FloorTiles06,
@@ -147,6 +154,11 @@ impl Material {
         Material::GrayRocks,
         Material::BlackPaintedPlanks,
         Material::CheckeredPavementTiles,
+        Material::DarkBrickWall,
+        Material::CastleBrick02Red,
+        Material::BlackPaintedPlanks,
+        Material::CobblestoneFloor06,
+        Material::BeigeWall001,
     ];
 
     /// Its directory under `assets/materials/`, and the real-world size of one repeat in metres,
@@ -212,6 +224,11 @@ impl Material {
             Material::GrayRocks => ("gray_rocks", 1.8),
             Material::BlackPaintedPlanks => ("black_painted_planks", 1.6),
             Material::CheckeredPavementTiles => ("checkered_pavement_tiles", 2.0),
+            Material::DarkBrickWall => ("dark_brick_wall", 1.05),
+            Material::CastleBrick02Red => ("castle_brick_02_red", 1.5),
+            Material::BlackPaintedPlanks => ("black_painted_planks", 1.6),
+            Material::CobblestoneFloor06 => ("cobblestone_floor_06", 2.0),
+            Material::BeigeWall001 => ("beige_wall_001", 3.0),
         }
     }
 

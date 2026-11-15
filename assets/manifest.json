@@ -73,6 +73,14 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 0.999999 m"
     },
     {
+      "path": "materials/beige_wall_001",
+      "name": "Beige Wall 001",
+      "source": "https://polyhaven.com/a/beige_wall_001",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 3 m"
+    },
+    {
       "path": "materials/black_painted_planks",
       "name": "Black Painted Planks",
       "source": "https://polyhaven.com/a/black_painted_planks",
@@ -113,6 +121,14 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.00092 m"
     },
     {
+      "path": "materials/castle_brick_02_red",
+      "name": "Castle Brick 02 Red",
+      "source": "https://polyhaven.com/a/castle_brick_02_red",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1.5 m"
+    },
+    {
       "path": "materials/checkered_pavement_tiles",
       "name": "Checkered Pavement Tiles",
       "source": "https://polyhaven.com/a/checkered_pavement_tiles",
@@ -132,6 +148,14 @@
       "path": "materials/cobblestone_floor_02",
       "name": "Cobblestone Floor 02",
       "source": "https://polyhaven.com/a/cobblestone_floor_02",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
+      "path": "materials/cobblestone_floor_06",
+      "name": "Cobblestone Floor 06",
+      "source": "https://polyhaven.com/a/cobblestone_floor_06",
       "licence": "CC0",
       "fetched": "2026-11-15",
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
@@ -231,6 +255,14 @@
       "licence": "CC0",
       "fetched": "2026-11-14",
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1.85 m"
+    },
+    {
+      "path": "materials/dark_brick_wall",
+      "name": "Dark Brick Wall",
+      "source": "https://polyhaven.com/a/dark_brick_wall",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1.05 m"
     },
     {
       "path": "materials/dark_rock",
@@ -551,6 +583,14 @@
       "licence": "CC0",
       "fetched": "2026-11-15",
       "notes": "2K HDR as a 512px BC6H cubemap, turned 184.3 degrees to put its sun at the Quarry's, via texpack --sky; diffuse.ktx2 and specular.ktx2 are its prefiltered irradiance and GGX chain"
+    },
+    {
+      "path": "skies/overcast_soil_puresky",
+      "name": "Poly Haven Overcast Soil (Pure Sky)",
+      "source": "https://polyhaven.com/a/overcast_soil_puresky",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "2K HDR as a 512px BC6H cubemap, unrotated, via texpack --sky; diffuse.ktx2 and specular.ktx2 are its prefiltered irradiance and GGX chain, from the same run"
     },
     {
       "path": "skies/qwantani_night_puresky",

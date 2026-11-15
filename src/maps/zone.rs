@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use crate::debug::DebugView;
 use crate::maps::door::Door;
-use crate::maps::map::{COVE_X, DAM_X, MapId, QUARRY_X, STOREY, VILLAGE_X};
+use crate::maps::map::{COVE_X, DAM_X, MapId, POLDER_X, QUARRY_X, STOREY, VILLAGE_X};
 use crate::players::player::{LocalPlayer, Player};
 use crate::players::respawn::AwaitingRespawn;
 use crate::state::GameState;
@@ -133,10 +133,42 @@ pub enum ZoneId {
     KeepersCottage,
     /// The old gun battery at the east end of the Headland, up the Cliff Stair.
     Battery,
+    /// The Polder's start: the square on the south bank of the Town Canal, round its pump.
+    TownSquare,
+    /// The roofed weigh house west of the square, with Ford F1 in front of it.
+    WeighHouse,
+    /// The brewhouse and its yard at the west end of the south bank, at the Humpback Bridge.
+    Brewery,
+    /// The cheese market east of the square, with Ford F2.
+    CheeseMarket,
+    /// The court of almshouses behind the square.
+    AlmshouseCourt,
+    /// The mill yard at the west end of the Harbour, with a stage at the dyke's height.
+    Windmill,
+    /// The roofed warehouse between the two Canals, with a water door onto each.
+    Warehouse,
+    /// The yard along the lock's west chamber, with the Inland Gate.
+    LockYard,
+    /// The island between the lock chambers, with Pack-a-Punch.
+    SluiceHouse,
+    /// The quay along the lock's east chamber, with the Sea Gate.
+    TollQuay,
+    /// The shipyard east of the lock, with Ford F4's far bank.
+    Shipyard,
+    /// The coal yard at the Harbour's east end, under the Coal Stair.
+    CoalYard,
+    /// The herring quay on the Harbour's north bank, with Ford F3.
+    HerringQuay,
+    /// The customs house on the Harbour's north bank, with Ford F4.
+    CustomsHouse,
+    /// The road along the sea dyke's crest.
+    DykeRoad,
+    /// The roofed engine house astride the dyke, with the Power Switch.
+    PumpingStation,
 }
 
 impl ZoneId {
-    pub const ALL: [ZoneId; 63] = [
+    pub const ALL: [ZoneId; 79] = [
         ZoneId::StartRoom,
         ZoneId::WestHall,
         ZoneId::Balcony,
@@ -200,6 +232,22 @@ impl ZoneId {
         ZoneId::LighthouseYard,
         ZoneId::KeepersCottage,
         ZoneId::Battery,
+        ZoneId::TownSquare,
+        ZoneId::WeighHouse,
+        ZoneId::Brewery,
+        ZoneId::CheeseMarket,
+        ZoneId::AlmshouseCourt,
+        ZoneId::Windmill,
+        ZoneId::Warehouse,
+        ZoneId::LockYard,
+        ZoneId::SluiceHouse,
+        ZoneId::TollQuay,
+        ZoneId::Shipyard,
+        ZoneId::CoalYard,
+        ZoneId::HerringQuay,
+        ZoneId::CustomsHouse,
+        ZoneId::DykeRoad,
+        ZoneId::PumpingStation,
     ];
 
     pub fn name(self) -> &'static str {
@@ -267,6 +315,22 @@ impl ZoneId {
             ZoneId::LighthouseYard => "Lighthouse Yard",
             ZoneId::KeepersCottage => "Keeper's Cottage",
             ZoneId::Battery => "Battery",
+            ZoneId::TownSquare => "Town Square",
+            ZoneId::WeighHouse => "Weigh House",
+            ZoneId::Brewery => "Brewery",
+            ZoneId::CheeseMarket => "Cheese Market",
+            ZoneId::AlmshouseCourt => "Almshouse Court",
+            ZoneId::Windmill => "Windmill",
+            ZoneId::Warehouse => "Warehouse",
+            ZoneId::LockYard => "Lock Yard",
+            ZoneId::SluiceHouse => "Sluice House",
+            ZoneId::TollQuay => "Toll Quay",
+            ZoneId::Shipyard => "Shipyard",
+            ZoneId::CoalYard => "Coal Yard",
+            ZoneId::HerringQuay => "Herring Quay",
+            ZoneId::CustomsHouse => "Customs House",
+            ZoneId::DykeRoad => "Dyke Road",
+            ZoneId::PumpingStation => "Pumping Station",
         }
     }
 
@@ -281,6 +345,8 @@ impl ZoneId {
             | SwitchgearRoom | DrainageGallery => MapId::Dam,
             SeaCave | Shingle | Strand | Boathouse | Washhouse | LowerLane | FishMarket | Taverna | Chapel | Piazza | UpperLane | Pensione | Lighthouse | LighthouseYard
             | KeepersCottage | Battery => MapId::Cove,
+            TownSquare | WeighHouse | Brewery | CheeseMarket | AlmshouseCourt | Windmill | Warehouse | LockYard | SluiceHouse | TollQuay | Shipyard | CoalYard | HerringQuay
+            | CustomsHouse | DykeRoad | PumpingStation => MapId::Polder,
         }
     }
 
@@ -303,6 +369,9 @@ impl ZoneId {
             Washhouse | LowerLane | FishMarket | Taverna => STOREY,
             Chapel | Piazza | UpperLane | Pensione => 2.0 * STOREY,
             Lighthouse | LighthouseYard | KeepersCottage | Battery => 3.0 * STOREY,
+            TownSquare | WeighHouse | Brewery | CheeseMarket | AlmshouseCourt | Windmill | Warehouse | LockYard | SluiceHouse | TollQuay | Shipyard | CoalYard | HerringQuay
+            | CustomsHouse => 0.0,
+            DykeRoad | PumpingStation => STOREY,
         }
     }
 
@@ -322,6 +391,7 @@ impl ZoneId {
         const V: f32 = VILLAGE_X;
         const D: f32 = DAM_X;
         const C: f32 = COVE_X;
+        const P: f32 = POLDER_X;
         const GALLERY: f32 = STOREY - 0.25;
         const CREST: f32 = 2.0 * STOREY - 0.25;
         let (x0, x1, y0, y1, z0, z1) = match self {
@@ -388,19 +458,35 @@ impl ZoneId {
             ZoneId::LighthouseYard => (C - 40.0, C - 12.0, 3.0 * STOREY - 0.25, 4.0 * STOREY - 0.25, 44.0, 64.0),
             ZoneId::KeepersCottage => (C - 12.0, C + 6.0, 3.0 * STOREY - 0.25, 4.0 * STOREY - 0.25, 44.0, 64.0),
             ZoneId::Battery => (C + 6.0, C + 34.0, 3.0 * STOREY - 0.25, 4.0 * STOREY - 0.25, 44.0, 64.0),
+            ZoneId::TownSquare => (P - 26.0, P + 18.0, LOW, UPPER, -40.0, 0.0),
+            ZoneId::WeighHouse => (P - 56.0, P - 26.0, LOW, UPPER, -40.0, 0.0),
+            ZoneId::Brewery => (P - 80.0, P - 56.0, LOW, UPPER, -56.0, 0.0),
+            ZoneId::CheeseMarket => (P + 18.0, P + 54.0, LOW, UPPER, -40.0, 0.0),
+            ZoneId::AlmshouseCourt => (P - 26.0, P + 40.0, LOW, UPPER, -56.0, -40.0),
+            ZoneId::Windmill => (P - 80.0, P - 56.0, LOW, TOP, 0.0, 48.0),
+            ZoneId::Warehouse => (P - 56.0, P - 34.0, LOW, UPPER, 0.0, 24.0),
+            ZoneId::LockYard => (P - 34.0, P - 13.0, LOW, UPPER, 0.0, 24.0),
+            ZoneId::SluiceHouse => (P - 13.0, P + 13.0, LOW, UPPER, 0.0, 24.0),
+            ZoneId::TollQuay => (P + 13.0, P + 34.0, LOW, UPPER, 0.0, 24.0),
+            ZoneId::Shipyard => (P + 34.0, P + 58.0, LOW, UPPER, 0.0, 24.0),
+            ZoneId::CoalYard => (P + 58.0, P + 80.0, LOW, UPPER, 0.0, 48.0),
+            ZoneId::HerringQuay => (P - 56.0, P + 14.0, LOW, UPPER, 24.0, 48.0),
+            ZoneId::CustomsHouse => (P + 14.0, P + 58.0, LOW, UPPER, 24.0, 48.0),
+            ZoneId::DykeRoad => (P - 80.0, P + 44.0, STOREY - 0.25, 2.0 * STOREY - 0.25, 48.0, 60.0),
+            ZoneId::PumpingStation => (P + 44.0, P + 80.0, STOREY - 0.25, 2.0 * STOREY - 0.25, 48.0, 60.0),
         };
         let sunk = self.map().layout().sunken.iter().filter(|sunken| sunken.zone == self).map(|sunken| sunken.depth).fold(0.0, f32::max);
         (Vec3::new(x0, y0 - sunk, z0), Vec3::new(x1, y1, z1))
     }
 
-    fn bit(self) -> u64 {
+    fn bit(self) -> u128 {
         1 << self as u32
     }
 }
 
 /// A set of Zones.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ZoneSet(u64);
+pub struct ZoneSet(u128);
 
 impl ZoneSet {
     pub fn insert(&mut self, zone: ZoneId) {

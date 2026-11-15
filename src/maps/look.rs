@@ -148,6 +148,22 @@ pub const OVERCAST: Look = Look {
     lamps: 1.0,
     temperature: 0.0,
     tint: -0.025,
+/// The Polder (#372): a northern dusk. A low, cool, weak sun behind thick cloud, a flat blue-grey
+/// ambient from the overcast sky, a grey-green fog the canals fade into, a little warm lamplight.
+pub const NORTHERN_DUSK: Look = Look {
+    sun_colour: Color::srgb(0.95, 0.78, 0.66),
+    sun_lux: 1800.0,
+    sun_height: 0.25,
+    cascades: Some((2, 45.0)),
+    ambient_colour: Color::srgb(0.6, 0.66, 0.74),
+    ambient_brightness: 260.0,
+    sky: Color::srgb(0.3, 0.33, 0.36),
+    fog: Color::srgb(0.27, 0.3, 0.33),
+    // A CC0 overcast sky from Poly Haven (see `assets/manifest.json`).
+    sky_map: Some(("skies/overcast_soil_puresky/sky.ktx2", 200.0)),
+    lamps: 1.0,
+    temperature: -0.03,
+    tint: 0.01,
 };
 
 /// How strongly the sky lights the Map, as a fraction of how bright it shows.
