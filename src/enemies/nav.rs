@@ -12,6 +12,8 @@ use crate::maps::shifting::PieceId;
 use crate::state::GameState;
 use crate::tuning::*;
 use crate::maps::zone::ZoneId;
+use crate::maps::tide::TideMask;
+use crate::maps::water::TideLevel;
 
 /// How many of the nodes nearest a body `NavGraph::near_where` tries.
 const NEAREST_TRIES: usize = 6;
@@ -34,6 +36,8 @@ pub enum Gate {
     /// Across a Swing Bridge: open only while that Piece stands at that Rest. A Piece that is
     /// moving passes no edge.
     Rest(PieceId, u8),
+    /// Open only while the Tide stands at one of these levels (the Polder's Fords).
+    Tide(TideMask),
 }
 
 impl Gate {
@@ -72,6 +76,16 @@ pub fn passable(gate: Gate, state: NavState) -> bool {
         Gate::Door(a, b) | Gate::DoorDrop(a, b) => state.open_doors.iter().any(|&join| join == (a, b) || join == (b, a)),
         Gate::Barrier(barrier) => (state.barrier_open)(barrier),
         Gate::Rest(piece, rest) => state.rests.get(usize::from(piece.0)).copied().flatten() == Some(rest),
+        // The graph checks the Tide itself (`NavGraph::tide`).
+        Gate::Tide(_) => true,
+    }
+}
+
+/// Whether the Tide at `tide` leaves an edge with `gate` open.
+pub fn tide_open(gate: Gate, tide: TideLevel) -> bool {
+    match gate {
+        Gate::Tide(mask) => mask.contains(tide),
+        _ => true,
     }
 }
 
@@ -147,6 +161,8 @@ pub struct NavGraph {
     pub edges: Vec<Edge>,
     /// For each node, the edges a Zombie can leave it by.
     exits: Vec<Vec<usize>>,
+    /// The Tide level the Map's water stands at: a `Gate::Tide` edge is open only at its levels.
+    pub tide: TideLevel,
 }
 
 impl NavGraph {
@@ -189,7 +205,7 @@ impl NavGraph {
                 exits[edge.to].push(i);
             }
         }
-        Self { map, nodes, edges, exits }
+        Self { map, nodes, edges, exits, tide: TideLevel::default() }
     }
 
     /// The index of the node named `name`.
@@ -258,7 +274,7 @@ impl NavGraph {
             self.exits[node]
                 .iter()
                 .map(|&i| &self.edges[i])
-                .filter(|edge| passable(edge.gate, state))
+                .filter(|edge| passable(edge.gate, state) && tide_open(edge.gate, self.tide))
                 .map(|edge| {
                     let next = if edge.from == node { edge.to } else { edge.from };
                     (next, cm(node, next))
@@ -290,7 +306,7 @@ impl NavGraph {
                 _ => self.exits[node]
                     .iter()
                     .map(|&i| &self.edges[i])
-                    .filter(|edge| passable(edge.gate, state))
+                    .filter(|edge| passable(edge.gate, state) && tide_open(edge.gate, self.tide))
                     .map(|edge| {
                         let next = if edge.from == node { edge.to } else { edge.from };
                         (next, cm(self.nodes[node].at.distance(self.nodes[next].at)))
@@ -388,6 +404,8 @@ fn draw_graph(
             Gate::Door(..) | Gate::DoorDrop(..) | Gate::Rest(..) => Color::srgb(1.0, 0.2, 0.2),
             Gate::Barrier(_) => Color::srgb(1.0, 0.9, 0.2),
             Gate::OneWay => Color::srgb(0.3, 0.6, 1.0),
+            Gate::Tide(mask) if mask.contains(graph.tide) => Color::srgb(0.2, 0.8, 0.9),
+            Gate::Tide(_) => Color::srgb(0.1, 0.3, 0.5),
         };
         if edge.gate.one_way() {
             gizmos.arrow(a, b, colour);

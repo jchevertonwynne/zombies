@@ -249,13 +249,15 @@ fn wade(
     mut commands: Commands,
     mut zombies: Query<(Entity, &Zombie, &Transform, Option<&mut ZombieMoveFactor>), Without<Dying>>,
     map: Option<Res<MapId>>,
+    tide: Option<Res<crate::maps::tide::Tide>>,
 ) {
     let Some(layout) = map.map(|map| map.layout()).filter(|layout| !layout.water.is_empty()) else {
         return;
     };
+    let tide = tide.map_or_else(Default::default, |tide| tide.level());
     for (entity, zombie, transform, factor) in &mut zombies {
         let feet = transform.translation - Vec3::Y * zombie.half_height();
-        let in_water = crate::maps::water::wading(layout, feet);
+        let in_water = crate::maps::water::wading(layout, tide, feet);
         match (factor, in_water) {
             (Some(mut factor), true) => factor.set(WADING, WADE_SPEED_MULT),
             (None, true) => {
@@ -1361,12 +1363,14 @@ fn clean_up_stuck(
     players: Players,
     barriers: Res<Barriers>,
     map: Res<MapId>,
+    tide: Option<Res<crate::maps::tide::Tide>>,
     mut cleaned: MessageWriter<ZombieCleanedUp>,
     time: Res<Time>,
 ) {
+    let tide = tide.map_or_else(Default::default, |tide| tide.level());
     let dt = time.delta_secs();
     for (entity, mut zombie, transform, entering, surge) in &mut zombies {
-        let gone = if map.layout().out_of_bounds(transform.translation) {
+        let gone = if map.layout().out_of_bounds(tide, transform.translation) {
             !zombie.hellhound
         } else if let Some(entering) = entering {
             zombie.stuck = StuckWatch::new(transform.translation);

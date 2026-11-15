@@ -23,15 +23,18 @@ pub enum Overlay {
     NapalmHeat,
     /// A shimmering violet wash after a Teleporter jump.
     TeleporterDaze,
+    /// A white-blue splash over the screen when the Tide Washes the Player up.
+    WashedUp,
 }
 
 impl Overlay {
-    pub const ALL: [Overlay; 5] = [
+    pub const ALL: [Overlay; 6] = [
         Overlay::LowHealth,
         Overlay::LastStand,
         Overlay::Shellshock,
         Overlay::NapalmHeat,
         Overlay::TeleporterDaze,
+        Overlay::WashedUp,
     ];
 
     fn index(self) -> usize {
@@ -58,6 +61,7 @@ impl Overlay {
                     Color::srgba(1.0, 0.3, 0.0, 0.6 * a * flicker),
                 )
             }
+            Overlay::WashedUp => (Color::srgba(0.8, 0.92, 1.0, 0.35 * a), Color::srgba(0.7, 0.88, 1.0, 0.85 * a)),
             Overlay::TeleporterDaze => {
                 let shimmer = 0.75 + 0.25 * (elapsed * 4.0).sin();
                 (

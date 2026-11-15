@@ -244,7 +244,7 @@ fn a_wading_zombie_rises_in_two_seconds_shootable_but_harmless_then_wades() {
     let mut sim = Sim::on(MapId::Cove, 60.0, |_| {});
     let layout = MapId::Cove.layout();
     let bed = layout.wading[1].1;
-    assert!(wading(layout, bed), "over the bed is Shallow Water");
+    assert!(wading(layout, Default::default(), bed), "over the bed is Shallow Water");
     // A Player standing right beside the spot, in the surf.
     put_player(&mut sim, bed + Vec3::new(1.0, 0.0, 1.0));
     let zombie = sim.spawn(bed, Some(ZOMBIE_WADE_RISE_SECS));

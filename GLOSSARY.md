@@ -50,7 +50,7 @@ _Avoid_: saboteur, bruiser
 
 **Sabotage**: A Sapper putting a system out of action: the Mystery Box, a working Perk Machine other than Quick Revive, a Trap, the Teleporter, Pack-a-Punch or a Swing Bridge's Levers (all of a bridge's Levers are one system, restored at any of them). A Sabotaged system stays dead until a Player restores it for Points or the Sapper dies, which brings back everything it Sabotaged.
 
-**Intermission**: The short pause after a Round ends and before the next one begins spawning.
+**Intermission**: The short pause after a Round ends and before the next one begins spawning. On the Polder, the Tide turns during it.
 
 **Weapon**: A gun the Player carries. It has a Magazine and Reserve Ammo.
 
@@ -176,11 +176,28 @@ _Avoid_: stage, dais (for the general term)
 **Out of Bounds**: Anywhere outside the Map's playable space: past the edge of its plan, in Deep Water, or fallen well below its lowest floor. A Player Out of Bounds goes Down and is put back where a teammate can reach them. A Zombie Out of Bounds goes back into the Horde, and a special is moved to a fresh spawn point.
 _Avoid_: OOB, the void, kill plane
 
-**Shallow Water**: Still water less than about waist deep, such as the Cove's surf. Players and Zombies wade through it more slowly, and a Player can't go Prone in it.
+**Shallow Water**: Water that isn't moving, less than about waist deep, such as the Cove's surf. Players and Zombies wade through it more slowly, and a Player can't go Prone in it.
 _Avoid_: puddle, wading water
 
-**Deep Water**: Still water at least waist deep, such as the sea off the Cove's beach. It stops Players and Zombies like a wall, and anything that ends up in it anyway is Out of Bounds. Nobody swims and nobody drowns.
+**Deep Water**: Water that isn't moving, at least waist deep, such as the sea off the Cove's beach. On the Polder, the Tide decides which water is Deep. It stops Players and Zombies like a wall, and anything that ends up in it anyway is Out of Bounds. Nobody swims and nobody drowns.
 _Avoid_: the sea (for the general term), swimming water
+
+**Tide**: The water level of a Map's Canals, which turns one phase each Intermission, through Low, Rising, High and Falling and back to Low. A Run always starts at Low. Only the Polder has one.
+_Avoid_: water level, flood
+
+**Low Tide**: The Tide's phase in which a Canal's bed can be waded, slowly, as a shortcut.
+
+**Rising Tide** and **Falling Tide**: The Tide's two middle phases, at the same level. Only the edges of a Canal can be waded, and its middle is Deep Water. They differ only in which way the Tide turns next.
+
+**High Tide**: The Tide's phase in which every Canal is Deep Water from wall to wall, so only bridges and Lock Gates cross it.
+
+**Turn**: The few seconds in an Intermission when the Tide moves to its next phase, after bells warn of it. The water's rules change only when the Turn ends.
+
+**Canal**: Water whose level the Tide moves, all of it together. Its Fords are the stretches that can be waded when the Tide is low enough.
+
+**Ford**: A stretch of a Canal with a berm along each wall and a channel between, where the water is shallow enough to wade at some phases of the Tide.
+
+**Washed Up**: Moved by the Tide to the nearest ground a Player can stand on, with no harm and no Down: a Player in water that turns Deep when the Tide lands.
 
 **Run**: One game, from Round 1 until Game Over or quitting.
 _Avoid_: game, match

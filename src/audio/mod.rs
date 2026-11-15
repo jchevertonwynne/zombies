@@ -549,7 +549,9 @@ fn play_teammate_sounds(
     >,
     time: Res<Time>,
     map: Option<Res<crate::maps::map::MapId>>,
+    tide: Option<Res<crate::maps::tide::Tide>>,
 ) {
+    let tide = tide.map_or_else(Default::default, |tide| tide.level());
     let dt = time.delta_secs();
     for (teammate, transform, pose, shots, held, heard) in &mut teammates {
         let at = transform.translation;
@@ -588,7 +590,7 @@ fn play_teammate_sounds(
                     };
                     // Through Shallow Water a footstep is a wade.
                     let cue = match (cue, map.as_ref()) {
-                        (Cue::Footstep, Some(map)) if crate::maps::water::wading(map.layout(), feet) => Cue::WadeStep,
+                        (Cue::Footstep, Some(map)) if crate::maps::water::wading(map.layout(), tide, feet) => Cue::WadeStep,
                         _ => cue,
                     };
                     sounds.play_from(&mut commands, cue, from, 1.0);

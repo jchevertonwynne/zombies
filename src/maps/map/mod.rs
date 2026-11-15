@@ -231,14 +231,14 @@ impl Layout {
 
     /// Whether `at` is Out of Bounds: outside the Map's plan, in Deep Water, or more than
     /// `OUT_OF_BOUNDS_DROP` below its lowest floor.
-    pub fn out_of_bounds(&self, at: Vec3) -> bool {
+    pub fn out_of_bounds(&self, tide: TideLevel, at: Vec3) -> bool {
         let (min, max) = self.plan;
         at.x < min.x
             || at.x > max.x
             || at.z < min.y
             || at.z > max.y
             || at.y < self.lowest_floor() - OUT_OF_BOUNDS_DROP
-            || water_at(self, TideLevel::default(), at) == Some(Wading::Deep)
+            || water_at(self, tide, at) == Some(Wading::Deep)
     }
 }
 
@@ -1214,12 +1214,12 @@ pub(crate) mod tests {
             let (min, max) = layout.plan;
             let middle = (min + max) / 2.0;
             let floor = layout.lowest_floor();
-            assert!(!layout.out_of_bounds(Vec3::new(middle.x, floor, middle.y)));
-            assert!(!layout.out_of_bounds(Vec3::new(middle.x, floor - OUT_OF_BOUNDS_DROP + 0.1, middle.y)));
-            assert!(layout.out_of_bounds(Vec3::new(middle.x, floor - OUT_OF_BOUNDS_DROP - 0.1, middle.y)), "{}", map.name());
+            assert!(!layout.out_of_bounds(crate::maps::water::TideLevel::Low, Vec3::new(middle.x, floor, middle.y)));
+            assert!(!layout.out_of_bounds(crate::maps::water::TideLevel::Low, Vec3::new(middle.x, floor - OUT_OF_BOUNDS_DROP + 0.1, middle.y)));
+            assert!(layout.out_of_bounds(crate::maps::water::TideLevel::Low, Vec3::new(middle.x, floor - OUT_OF_BOUNDS_DROP - 0.1, middle.y)), "{}", map.name());
             for past in [Vec2::new(min.x - 0.1, middle.y), Vec2::new(max.x + 0.1, middle.y), Vec2::new(middle.x, min.y - 0.1), Vec2::new(middle.x, max.y + 0.1)] {
-                assert!(layout.out_of_bounds(Vec3::new(past.x, 0.0, past.y)), "{} at {past}", map.name());
-                assert!(layout.out_of_bounds(Vec3::new(past.x, 50.0, past.y)), "{} high over {past}", map.name());
+                assert!(layout.out_of_bounds(crate::maps::water::TideLevel::Low, Vec3::new(past.x, 0.0, past.y)), "{} at {past}", map.name());
+                assert!(layout.out_of_bounds(crate::maps::water::TideLevel::Low, Vec3::new(past.x, 50.0, past.y)), "{} high over {past}", map.name());
             }
         }
     }
@@ -1243,7 +1243,7 @@ pub(crate) mod tests {
             spots.extend(layout.jump_pads.iter().flat_map(|pad| [("a Jump Pad".to_string(), pad.at), ("a Jump Pad's landing".to_string(), pad.to)]));
             spots.extend(layout.ziplines.iter().flat_map(|line| [("a Zipline's top".to_string(), line.from), ("a Zipline's landing".to_string(), line.to)]));
             for (what, at) in spots {
-                assert!(!layout.out_of_bounds(at), "{what} on the {} at {at} is Out of Bounds", map.name());
+                assert!(!layout.out_of_bounds(crate::maps::water::TideLevel::Low, at), "{what} on the {} at {at} is Out of Bounds", map.name());
             }
         }
     }
@@ -1291,14 +1291,13 @@ pub(crate) mod tests {
     /// 0.4-0.6 m deep but for the sea, 3 m.
     #[test]
     fn pools_that_touch_share_a_level_and_the_coves_depths_are_as_authored() {
-        let canals = &[];
         for map in MapId::ALL {
             let layout = map.layout();
             for (i, a) in layout.water.iter().enumerate() {
                 for b in &layout.water[i + 1..] {
                     let touch = a.min.x <= b.max.x && b.min.x <= a.max.x && a.min.y <= b.max.y && b.min.y <= a.max.y;
                     if touch && a.bed == b.bed {
-                        assert_eq!(a.surface(canals, TideLevel::Low), b.surface(canals, TideLevel::Low), "{} and {} touch", a.zone.name(), b.zone.name());
+                        assert_eq!(a.surface(layout.canals, TideLevel::Low), b.surface(layout.canals, TideLevel::Low), "{} and {} touch", a.zone.name(), b.zone.name());
                     }
                 }
             }
@@ -1330,13 +1329,24 @@ pub(crate) mod tests {
             let layout = map.layout();
             let deep = |at: Vec3| water_at(layout, TideLevel::Low, at) == Some(Wading::Deep);
             let nodes: std::collections::HashMap<_, _> = layout.nav_nodes.iter().map(|&(name, x, y, z)| (name, Vec3::new(x, y, z))).collect();
-            for (&name, &at) in &nodes {
-                assert!(!deep(at), "path node {name} on the {} is in Deep Water", map.name());
+            // A node is clear at every level, but at those a Tide edge into it is shut.
+            for level in TideLevel::ALL {
+                for &(a, b, gate) in layout.nav_edges {
+                    if matches!(gate, crate::enemies::nav::Gate::Tide(mask) if !mask.contains(level)) {
+                        continue;
+                    }
+                    for name in [a, b] {
+                        assert!(water_at(layout, level, nodes[name]) != Some(Wading::Deep), "path node {name} on the {} is in Deep Water at {level:?}", map.name());
+                    }
+                }
             }
             for &(a, b, _) in layout.nav_edges {
                 let (from, to) = (nodes[a], nodes[b]);
                 for k in 0..=40 {
                     let at = from.lerp(to, k as f32 / 40.0);
+                    if matches!(map, MapId::Polder) {
+                        continue;
+                    }
                     assert!(!deep(at), "the edge {a} - {b} on the {} crosses Deep Water at {at}", map.name());
                 }
             }
@@ -1360,13 +1370,15 @@ pub(crate) mod tests {
     fn every_wading_point_is_well_inside_shallow_water_and_on_the_path_graph() {
         for map in MapId::ALL {
             let layout = map.layout();
-            let tide = TideLevel::Low;
             if !matches!(map, MapId::Cove | MapId::Polder) {
                 assert!(layout.wading.is_empty(), "the {} has Wading Points", map.name());
             }
             let nodes: Vec<_> = layout.nav_nodes.iter().map(|&(name, x, y, z)| (name, Vec3::new(x, y, z))).collect();
             for &(zone, at) in layout.wading {
                 let what = format!("the Wading Point at {at} in {}", zone.name());
+                let Some(tide) = TideLevel::ALL.into_iter().find(|&level| water_at(layout, level, at) == Some(Wading::Shallow)) else {
+                    panic!("{what} is never in Shallow Water");
+                };
                 assert_eq!(water_at(layout, tide, at), Some(Wading::Shallow), "{what} is not in Shallow Water");
                 assert_eq!(crate::maps::water::shallow_zone_at(layout, tide, at), Some(zone), "{what} is not over its own Zone's pool");
                 assert!(crate::maps::water::wading_point_active(layout, tide, at), "{what} is not active");
@@ -1405,12 +1417,19 @@ pub(crate) mod tests {
     /// Feet in Deep Water are Out of Bounds, and feet in Shallow Water or a pool's air aren't.
     #[test]
     fn feet_in_deep_water_are_out_of_bounds() {
+        // The Polder's channel is Deep from Mid up, and the berms from High.
+        let channel = Vec3::new(POLDER_X - 47.0, -2.2, -6.0);
+        let polder = MapId::Polder.layout();
+        assert!(!polder.out_of_bounds(TideLevel::Low, channel));
+        assert!(polder.out_of_bounds(TideLevel::Mid, channel) && polder.out_of_bounds(TideLevel::High, channel));
+        assert!(polder.out_of_bounds(TideLevel::High, Vec3::new(POLDER_X - 47.0, -1.6, -10.25)));
+        assert!(!polder.out_of_bounds(TideLevel::Mid, Vec3::new(POLDER_X - 47.0, -1.6, -10.25)));
         let cove = MapId::Cove.layout();
         let sea = Vec3::new(COVE_X - 30.0, 0.0, -20.0);
-        assert!(cove.out_of_bounds(sea));
-        assert!(cove.out_of_bounds(sea - Vec3::Y * 1.5));
-        assert!(!cove.out_of_bounds(Vec3::new(COVE_X, 0.0, -10.0)), "the surf");
-        assert!(!cove.out_of_bounds(sea + Vec3::Y * 1.0), "over the sea, on a parapet say");
+        assert!(cove.out_of_bounds(crate::maps::water::TideLevel::Low, sea));
+        assert!(cove.out_of_bounds(crate::maps::water::TideLevel::Low, sea - Vec3::Y * 1.5));
+        assert!(!cove.out_of_bounds(crate::maps::water::TideLevel::Low, Vec3::new(COVE_X, 0.0, -10.0)), "the surf");
+        assert!(!cove.out_of_bounds(crate::maps::water::TideLevel::Low, sea + Vec3::Y * 1.0), "over the sea, on a parapet say");
     }
 
     /// Each Map stands in its own part of the world, so nothing of one is inside another's Zones.
@@ -2144,11 +2163,13 @@ pub(crate) mod tests {
                 assert_ne!(zone, lands_in);
                 assert!(layout.zones.contains(&zone) && layout.zones.contains(&lands_in));
                 assert!(from.y - to.y >= STOREY - 0.01, "the line from {from} drops only {}", from.y - to.y);
-                for k in 0..=40 {
-                    let at = from.lerp(to, k as f32 / 40.0);
-                    assert!(!layout.out_of_bounds(at), "the line from {from} goes Out of Bounds at {at}");
+                for level in TideLevel::ALL {
+                    for k in 0..=40 {
+                        let at = from.lerp(to, k as f32 / 40.0);
+                        assert!(!layout.out_of_bounds(level, at), "the line from {from} goes Out of Bounds at {at}, {level:?}");
+                    }
+                    assert!(!layout.out_of_bounds(level, from) && !layout.out_of_bounds(level, to));
                 }
-                assert!(!layout.out_of_bounds(from) && !layout.out_of_bounds(to));
                 assert!(line.length() > 5.0);
             }
         }

@@ -12,6 +12,7 @@ pub mod power;
 pub mod shifting;
 pub mod surge;
 pub mod teleporter;
+pub mod tide;
 pub mod trap;
 pub mod water;
 pub mod zipline;

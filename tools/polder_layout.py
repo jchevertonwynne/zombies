@@ -609,11 +609,11 @@ def fy(y):
 
 out = []
 out.append("//! The Polder's pools, sunken floors, lamps and path-node graph, laid out from `polder.rs`'s walls,\n//! Props and canals (Doors, bridges, stairs, Fords and drops by hand). Rewritten by the layout script.\n")
-out.append("use bevy::prelude::*;\n\nuse crate::enemies::nav::Gate;\nuse crate::maps::shifting::PieceId;\nuse crate::maps::map::{BarrierId, Level, Pool, Sunken};\nuse crate::maps::zone::ZoneId;\n\nuse super::{OPEN, P, W0};\n")
+out.append("use bevy::prelude::*;\n\nuse crate::enemies::nav::Gate;\nuse crate::maps::shifting::PieceId;\nuse crate::maps::map::{BarrierId, Level, Pool, Sunken};\nuse crate::maps::tide::TideMask;\nuse crate::maps::water::CanalId;\nuse crate::maps::zone::ZoneId;\n\nuse super::{OPEN, P, W0};\n")
 out.append("const fn v(x: f32, z: f32) -> Vec2 {\n    Vec2::new(P + x, z)\n}\n")
 out.append("const fn barrier(i: u8) -> Gate {\n    Gate::Barrier(BarrierId(W0 + i))\n}\n")
 out.append("const fn sunk(zone: ZoneId, x0: f32, z0: f32, x1: f32, z1: f32, depth: f32) -> Sunken {\n    Sunken { zone, min: v(x0, z0), max: v(x1, z1), depth, rim: false }\n}\n")
-out.append("/// A pool of still water at the Low level, -1.7.\nconst fn pool(zone: ZoneId, x0: f32, z0: f32, x1: f32, z1: f32, bed: f32) -> Pool {\n    Pool { zone, min: v(x0, z0), max: v(x1, z1), level: Level::Still(-1.7), bed }\n}\n")
+out.append("/// A pool of one of the Polder's Canals: the sea past z 60, the Harbour from z 3 to its north bank, the Town Canal south of that (and the lock's seaward chamber, which touches both).\nconst fn pool(zone: ZoneId, x0: f32, z0: f32, x1: f32, z1: f32, bed: f32) -> Pool {\n    let canal = if z0 >= 60.0 {\n        2\n    } else if z0 >= 3.0 {\n        1\n    } else {\n        0\n    };\n    Pool { zone, min: v(x0, z0), max: v(x1, z1), level: Level::Canal(CanalId(canal)), bed }\n}\n\n/// An edge walkable only at the Tide levels in `bits` (1 Low, 2 Mid, 4 High).\nconst fn tide(bits: u8) -> Gate {\n    Gate::Tide(TideMask(bits))\n}\n")
 out.append(f"/// The canals' and the sea's beds, and the stairwells up the dyke.\npub(super) const SUNKEN: [Sunken; {len(SUNKEN)}] = [\n" + "".join(f"    sunk(ZoneId::{z}, {f(a)}, {f(b)}, {f(c)}, {f(d)}, {f(e)}),\n" for z, a, b, c, d, e in SUNKEN) + "];\n")
 out.append(f"/// The pools: every Deep reach, the Fords' berms and channels, the lock's chambers and the sea.\npub(super) const POOLS: [Pool; {len(POOLS)}] = [\n" + "".join(f"    pool(ZoneId::{z}, {f(a)}, {f(b)}, {f(c)}, {f(d)}, {f(e)}),\n" for z, a, b, c, d, e in POOLS) + "];\n")
 out.append(f"/// The lamps: a grid under every roof, and a few along the open quays.\npub(super) const LAMPS: [(ZoneId, Vec3); {len(LAMPS)}] = [\n" + "".join(f"    (ZoneId::{z}, Vec3::new(P + {f(x)}, {fy(y)}, {f(zz)})),\n" for z, x, y, zz in LAMPS) + "];\n")
@@ -626,6 +626,7 @@ def gate(g):
     if t[0] == "DROP": return f"Gate::DoorDrop(ZoneId::{t[1]}, ZoneId::{t[2]})"
     if t[0] == "BARRIER": return f"barrier({t[1]})"
     if t[0] == "REST": return f"Gate::Rest(PieceId({t[1]}), 0)"
+    if t[0] == "TIDE": return f"tide({t[1]})"
     raise ValueError(g)
 seen = set()
 E2 = []
@@ -635,6 +636,38 @@ for a, b, g in EDGES:
     seen.add((a, b))
     assert a in NODES and b in NODES, (a, b)
     E2.append((a, b, g))
+# ---- the Tide: which levels each walked edge is clear at ----
+CANAL_LEVELS = (-1.7, -1.1, -0.4)
+def deep_at(x, y, z, lvl):
+    for zone, x0, z0, x1, z1, bed in POOLS:
+        surface = CANAL_LEVELS[lvl] if True else 0
+        if x0 <= x <= x1 and z0 <= z <= z1 and y < surface and y >= bed - 0.5 and surface - bed >= 1.0:
+            return True
+    return False
+def node_mask(name):
+    y = NODES[name][1]
+    if y <= -2.0: return 1
+    if y <= -1.4: return 3
+    return 7
+def edge_mask(a, b):
+    m = node_mask(a) & node_mask(b)
+    (ax, ay, az), (bx, by, bz) = NODES[a], NODES[b]
+    for lvl in range(3):
+        for k in range(41):
+            t = k / 40
+            if deep_at(ax + (bx - ax) * t, ay + (by - ay) * t, az + (bz - az) * t, lvl):
+                m &= ~(1 << lvl)
+                break
+    return m
+E3 = []
+for a, b, g in E2:
+    if g == "OPEN":
+        m = edge_mask(a, b)
+        assert m != 0, (a, b)
+        if m != 7:
+            g = f"TIDE {m}"
+    E3.append((a, b, g))
+E2 = E3
 out.append(f"/// The edges, by node name. Barrier edges and drops run from the first node to the second.\npub(super) const EDGES: &[(&str, &str, Gate)] = &[\n" + "".join(f'    ("{a}", "{b}", {gate(g)}),\n' for a, b, g in E2) + "];\n")
 os.makedirs(f"{ROOT}/src/maps/map/polder", exist_ok=True)
 open(f"{ROOT}/src/maps/map/polder/data.rs", "w").write("\n".join(out))

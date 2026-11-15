@@ -91,6 +91,7 @@ fn draw_map(map: MapId) {
             Gate::Door(..) | Gate::DoorDrop(..) | Gate::Rest(..) => "#ff5050",
             Gate::Barrier(_) => "#ffe040",
             Gate::OneWay => "#50a0ff",
+            Gate::Tide(_) => "#40d0e0",
         };
         let (x0, y0) = px(Vec2::new(a.x, a.z));
         let (x1, y1) = px(Vec2::new(b.x, b.z));

@@ -97,7 +97,7 @@ fn a_player_out_of_bounds_goes_down_and_is_put_back_on_the_path_node_nearest_whe
         let node = put_back_at(&mut sim, footing);
         let back = feet_of(&mut sim, local);
         assert!(back.distance(node) < 0.3, "put back at {back}, not the node at {node}");
-        assert!(!MapId::Greybox.layout().out_of_bounds(back));
+        assert!(!MapId::Greybox.layout().out_of_bounds(crate::maps::water::TideLevel::Low, back));
         assert_eq!(downs(&mut sim), 1, "a second Down");
     }
 }
@@ -125,7 +125,7 @@ fn a_player_in_last_stand_out_of_bounds_is_only_put_back() {
 fn the_teleporters_holding_space_is_not_out_of_bounds() {
     let (mut sim, local) = solo(&[]);
     let holding = crate::maps::teleporter::holding_feet(0);
-    assert!(MapId::Greybox.layout().out_of_bounds(holding), "the holding space is inside the plan now");
+    assert!(MapId::Greybox.layout().out_of_bounds(crate::maps::water::TideLevel::Low, holding), "the holding space is inside the plan now");
     // Its floor, which the Teleporter builds.
     sim.world_mut().spawn((
         RigidBody::Static,

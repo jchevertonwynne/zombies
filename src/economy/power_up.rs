@@ -323,6 +323,11 @@ impl Dropped {
     pub fn at(&self) -> Vec3 {
         self.at
     }
+
+    /// Moves it to float at `at`, as the Tide washes it up. Its time left is untouched.
+    pub fn wash_to(&mut self, at: Vec3) {
+        self.at = at;
+    }
 }
 
 #[cfg(test)]

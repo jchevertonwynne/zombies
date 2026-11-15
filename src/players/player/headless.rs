@@ -417,7 +417,7 @@ fn a_powered_jump_pad_throws_the_player_up_to_land_where_it_aims() {
             assert!(still.iter().all(|s| s.grounded && feet(s).distance(pad.at) < 0.3), "thrown on the {} with the Power off", map.name());
             sim.power_on();
             let flight = sim.run_secs(3.0);
-            let out = flight.iter().map(feet).find(|&at| map.layout().out_of_bounds(at));
+            let out = flight.iter().map(feet).find(|&at| map.layout().out_of_bounds(crate::maps::water::TideLevel::Low, at));
             assert!(out.is_none(), "the throw from {} on the {} goes Out of Bounds at {}", pad.at, map.name(), out.unwrap_or_default());
             let peak = flight.iter().map(|s| feet(s).y).fold(f32::MIN, f32::max);
             let landed = feet(flight.last().unwrap());
@@ -641,7 +641,7 @@ fn replaying_the_same_inputs_from_the_same_start_reaches_the_same_position_and_s
             move |player: Single<(Entity, &Loadout, &Modifiers), With<Player>>,
                   move_and_slide: MoveAndSlide| {
                 let (entity, loadout, modifiers) = *player;
-                let mut context = MoveContext { entity, loadout, modifiers, drinking: false, last_stand: false, jump_pads: &[], ziplines: &[], layout: None };
+                let mut context = MoveContext { entity, loadout, modifiers, drinking: false, last_stand: false, jump_pads: &[], ziplines: &[], layout: None, tide: Default::default() };
                 let (mut position, mut locomotion, inputs) = args.clone();
                 for input in &inputs {
                     step_move(&mut position, &mut locomotion, input, &mut context, Duration::from_secs_f64(1.0 / 64.0), &move_and_slide);
@@ -1312,7 +1312,7 @@ fn step_once(sim: &mut Sim, position: Vec3, locomotion: Locomotion, input: MoveI
     let id = world.register_system(
         move |player: Single<(Entity, &Loadout, &Modifiers), With<Player>>, move_and_slide: MoveAndSlide| {
             let (entity, loadout, modifiers) = *player;
-            let mut context = MoveContext { entity, loadout, modifiers, drinking: false, last_stand: false, jump_pads: &[], ziplines: &[], layout: None };
+            let mut context = MoveContext { entity, loadout, modifiers, drinking: false, last_stand: false, jump_pads: &[], ziplines: &[], layout: None, tide: Default::default() };
             let (mut position, mut locomotion, input) = args.clone();
             step_move(&mut position, &mut locomotion, &input, &mut context, Duration::from_secs_f64(1.0 / 64.0), &move_and_slide);
             locomotion
@@ -1810,7 +1810,7 @@ mod wading {
         assert!(feet.z > -14.0, "walked into the sea: z {}", feet.z);
         for sample in &samples {
             let feet = sample.pos - Vec3::Y * Stance::Standing.half_height();
-            assert!(!layout.out_of_bounds(feet), "had feet in Deep Water at {feet}");
+            assert!(!layout.out_of_bounds(crate::maps::water::TideLevel::Low, feet), "had feet in Deep Water at {feet}");
         }
     }
 }

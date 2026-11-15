@@ -6,6 +6,8 @@ use bevy::prelude::*;
 use crate::enemies::nav::Gate;
 use crate::maps::shifting::PieceId;
 use crate::maps::map::{BarrierId, Level, Pool, Sunken};
+use crate::maps::tide::TideMask;
+use crate::maps::water::CanalId;
 use crate::maps::zone::ZoneId;
 
 use super::{OPEN, P, W0};
@@ -22,9 +24,21 @@ const fn sunk(zone: ZoneId, x0: f32, z0: f32, x1: f32, z1: f32, depth: f32) -> S
     Sunken { zone, min: v(x0, z0), max: v(x1, z1), depth, rim: false }
 }
 
-/// A pool of still water at the Low level, -1.7.
+/// A pool of one of the Polder's Canals: the sea past z 60, the Harbour from z 3 to its north bank, the Town Canal south of that (and the lock's seaward chamber, which touches both).
 const fn pool(zone: ZoneId, x0: f32, z0: f32, x1: f32, z1: f32, bed: f32) -> Pool {
-    Pool { zone, min: v(x0, z0), max: v(x1, z1), level: Level::Still(-1.7), bed }
+    let canal = if z0 >= 60.0 {
+        2
+    } else if z0 >= 3.0 {
+        1
+    } else {
+        0
+    };
+    Pool { zone, min: v(x0, z0), max: v(x1, z1), level: Level::Canal(CanalId(canal)), bed }
+}
+
+/// An edge walkable only at the Tide levels in `bits` (1 Low, 2 Mid, 4 High).
+const fn tide(bits: u8) -> Gate {
+    Gate::Tide(TideMask(bits))
 }
 
 /// The canals' and the sea's beds, and the stairwells up the dyke.
@@ -1494,53 +1508,53 @@ pub(super) const EDGES: &[(&str, &str, Gate)] = &[
     ("wd_foot_e", "wd_top_e", OPEN),
     ("pd1_a", "pd1_b", Gate::Door(ZoneId::LockYard, ZoneId::SluiceHouse)),
     ("f43_ot", "f43_ol", OPEN),
-    ("f43_ol", "f43_of", OPEN),
-    ("f43_of", "f43_c", OPEN),
-    ("f43_c", "f43_cw", OPEN),
-    ("f43_c", "f43_ce", OPEN),
-    ("f43_c", "f43_ff", OPEN),
-    ("f43_ff", "f43_fl", OPEN),
+    ("f43_ol", "f43_of", tide(3)),
+    ("f43_of", "f43_c", tide(1)),
+    ("f43_c", "f43_cw", tide(1)),
+    ("f43_c", "f43_ce", tide(1)),
+    ("f43_c", "f43_ff", tide(1)),
+    ("f43_ff", "f43_fl", tide(3)),
     ("f43_fl", "f43_w", Gate::Door(ZoneId::WeighHouse, ZoneId::Warehouse)),
-    ("f43_bow", "f43_of", OPEN),
-    ("f43_boe", "f43_of", OPEN),
-    ("f43_bfw", "f43_ff", OPEN),
-    ("f43_bfe", "f43_ff", OPEN),
+    ("f43_bow", "f43_of", tide(3)),
+    ("f43_boe", "f43_of", tide(3)),
+    ("f43_bfw", "f43_ff", tide(3)),
+    ("f43_bfe", "f43_ff", tide(3)),
     ("f26_ot", "f26_ol", OPEN),
-    ("f26_ol", "f26_of", OPEN),
-    ("f26_of", "f26_c", OPEN),
-    ("f26_c", "f26_cw", OPEN),
-    ("f26_c", "f26_ce", OPEN),
-    ("f26_c", "f26_ff", OPEN),
-    ("f26_ff", "f26_fl", OPEN),
+    ("f26_ol", "f26_of", tide(3)),
+    ("f26_of", "f26_c", tide(1)),
+    ("f26_c", "f26_cw", tide(1)),
+    ("f26_c", "f26_ce", tide(1)),
+    ("f26_c", "f26_ff", tide(1)),
+    ("f26_ff", "f26_fl", tide(3)),
     ("f26_fl", "f26_w", Gate::Door(ZoneId::CheeseMarket, ZoneId::TollQuay)),
-    ("f26_bow", "f26_of", OPEN),
-    ("f26_boe", "f26_of", OPEN),
-    ("f26_bfw", "f26_ff", OPEN),
-    ("f26_bfe", "f26_ff", OPEN),
+    ("f26_bow", "f26_of", tide(3)),
+    ("f26_boe", "f26_of", tide(3)),
+    ("f26_bfw", "f26_ff", tide(3)),
+    ("f26_bfe", "f26_ff", tide(3)),
     ("f48_ot", "f48_ol", OPEN),
-    ("f48_ol", "f48_of", OPEN),
-    ("f48_of", "f48_c", OPEN),
-    ("f48_c", "f48_cw", OPEN),
-    ("f48_c", "f48_ce", OPEN),
-    ("f48_c", "f48_ff", OPEN),
-    ("f48_ff", "f48_fl", OPEN),
+    ("f48_ol", "f48_of", tide(3)),
+    ("f48_of", "f48_c", tide(1)),
+    ("f48_c", "f48_cw", tide(1)),
+    ("f48_c", "f48_ce", tide(1)),
+    ("f48_c", "f48_ff", tide(1)),
+    ("f48_ff", "f48_fl", tide(3)),
     ("f48_fl", "f48_w", Gate::Door(ZoneId::HerringQuay, ZoneId::Warehouse)),
-    ("f48_bow", "f48_of", OPEN),
-    ("f48_boe", "f48_of", OPEN),
-    ("f48_bfw", "f48_ff", OPEN),
-    ("f48_bfe", "f48_ff", OPEN),
+    ("f48_bow", "f48_of", tide(3)),
+    ("f48_boe", "f48_of", tide(3)),
+    ("f48_bfw", "f48_ff", tide(3)),
+    ("f48_bfe", "f48_ff", tide(3)),
     ("f47_ot", "f47_ol", OPEN),
-    ("f47_ol", "f47_of", OPEN),
-    ("f47_of", "f47_c", OPEN),
-    ("f47_c", "f47_cw", OPEN),
-    ("f47_c", "f47_ce", OPEN),
-    ("f47_c", "f47_ff", OPEN),
-    ("f47_ff", "f47_fl", OPEN),
+    ("f47_ol", "f47_of", tide(3)),
+    ("f47_of", "f47_c", tide(1)),
+    ("f47_c", "f47_cw", tide(1)),
+    ("f47_c", "f47_ce", tide(1)),
+    ("f47_c", "f47_ff", tide(1)),
+    ("f47_ff", "f47_fl", tide(3)),
     ("f47_fl", "f47_w", Gate::Door(ZoneId::CustomsHouse, ZoneId::Shipyard)),
-    ("f47_bow", "f47_of", OPEN),
-    ("f47_boe", "f47_of", OPEN),
-    ("f47_bfw", "f47_ff", OPEN),
-    ("f47_bfe", "f47_ff", OPEN),
+    ("f47_bow", "f47_of", tide(3)),
+    ("f47_boe", "f47_of", tide(3)),
+    ("f47_bfw", "f47_ff", tide(3)),
+    ("f47_bfe", "f47_ff", tide(3)),
     ("w0_out", "w0_in", barrier(0)),
     ("w1_out", "w1_in", barrier(1)),
     ("w2_out", "w2_in", barrier(2)),

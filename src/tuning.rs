@@ -2708,6 +2708,18 @@ pub const WADE_SPRAY_DROPS: usize = 7;
 pub const WADE_SPRAY_HEIGHT: f32 = 1.1;
 pub const WADE_SPRAY_SECS: f32 = 0.6;
 
+// The Tide (#374)
+/// How long the bells toll before a Turn, in seconds, one toll a second.
+pub const TIDE_BELL_SECS: f32 = 3.0;
+/// How long the water takes to move to its next level, smoothstep-eased, in seconds.
+pub const TIDE_TURN_SECS: f32 = 5.0;
+/// How high over Deep Water a Player in the air is still Washed Up when the Tide lands.
+pub const WASHED_UP_AIR_REACH: f32 = 3.0;
+/// How long the white-blue splash over the screen lasts when a Player is Washed Up.
+pub const WASHED_UP_SPLASH_SECS: f32 = 0.4;
+/// How far a Player must be moved in a frame as the Tide lands to count as Washed Up on screen.
+pub const WASHED_UP_MIN_MOVE: f32 = 1.0;
+
 // Interactables' looks (#336)
 /// A powered Perk Machine's or Pack-a-Punch's one small unshadowed point light, in lumens and
 /// metres of reach, in its colour.

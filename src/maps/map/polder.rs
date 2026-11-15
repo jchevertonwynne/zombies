@@ -2,10 +2,11 @@
 //! the Town Canal and the Harbour, and a twin lock in the middle joins them, with Pack-a-Punch on
 //! its island. The town is at y 0 and the dyke's crest at y 4, with the sea beyond (+z).
 //!
-//! In this first slice its water stands still at the Low level (-1.7) and nothing moves: the four
-//! Swing Bridges are fixed decks at Span, the Inland Gate is a fixed walkway, the Sea Gate's top is
-//! a fixed walkway too, and PD2 waits for the Lock Gates slice. A Canal is Deep everywhere but at
-//! its four Fords, where the berms (-1.6) and the channel (-2.2) can be waded.
+//! Its water is the Tide's: three Canals (the Town Canal, the Harbour and the Sea) at -1.7, -1.1
+//! and -0.4 for Low, Mid and High. A Canal is Deep everywhere but at its four Fords, where the
+//! channel (-2.2) can be waded at Low and the berms (-1.6) at Mid. The four Swing Bridges are
+//! fixed decks at Span, the Inland Gate is a fixed walkway, the Sea Gate's top is a fixed walkway
+//! too, and PD2 waits for the Lock Gates slice.
 //!
 //! - South bank: the Town Square (start), the Weigh House, the Brewery, the Cheese Market and the
 //!   Almshouse Court.
@@ -31,7 +32,7 @@ use crate::tuning::*;
 use crate::weapons::arsenal::WeaponId;
 
 use super::build::{Builder, Gap};
-use super::{Layout, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, palette, prop};
+use super::{Canal, Layout, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, palette, prop};
 
 #[path = "polder/data.rs"]
 mod data;
@@ -103,7 +104,7 @@ pub(super) const POLDER: Layout = Layout {
     slopes: &SLOPES,
     sunken: &data::SUNKEN,
     water: &data::POOLS,
-    canals: &[],
+    canals: &CANALS,
     props: PROPS,
     lamps: &data::LAMPS,
     fixed_joins: &[],
@@ -330,14 +331,30 @@ const SPECIAL_SPAWNS: [(ZoneId, Vec3); 4] = [
     (ZoneId::DykeRoad, at(-6.0, CREST, 54.0)),
 ];
 
-/// The Wading Points, one in each Ford's channel, 4 m along from its stairs (active at Low, as all the
-/// water stands there for now). The Ford's berm points, active at Rising and Falling, wait for the
-/// Tide: the berms are dry at Low.
-const WADING_POINTS: [(ZoneId, Vec3); 4] = [
+/// The Canals, each at the layout's levels: the channel (-2.2) is Shallow at Low, the berms (-1.6)
+/// at Mid, and everything is Deep at High. The reaches (-4.5) are Deep at every level.
+const CANALS: [Canal; 3] = [
+    Canal { name: "Town Canal", low: -1.7, mid: -1.1, high: -0.4 },
+    Canal { name: "Harbour", low: -1.7, mid: -1.1, high: -0.4 },
+    Canal { name: "Sea", low: -1.7, mid: -1.1, high: -0.4 },
+];
+
+/// The Wading Points, three to a Ford: one in its channel, 4 m along from its stairs (active at
+/// Low), and two on its own berm, the pool Zone's side (active at Rising and Falling, at Mid). None
+/// is on a far berm.
+const WADING_POINTS: [(ZoneId, Vec3); 12] = [
     (ZoneId::WeighHouse, at(-47.0, -2.2, -6.0)),
     (ZoneId::CheeseMarket, at(22.0, -2.2, -6.0)),
     (ZoneId::HerringQuay, at(-52.0, -2.2, 30.0)),
     (ZoneId::CustomsHouse, at(43.0, -2.2, 30.0)),
+    (ZoneId::WeighHouse, at(-47.0, BERM, -10.25)),
+    (ZoneId::WeighHouse, at(-39.0, BERM, -10.25)),
+    (ZoneId::CheeseMarket, at(22.5, BERM, -10.25)),
+    (ZoneId::CheeseMarket, at(29.5, BERM, -10.25)),
+    (ZoneId::HerringQuay, at(-51.5, BERM, 34.25)),
+    (ZoneId::HerringQuay, at(-44.5, BERM, 34.25)),
+    (ZoneId::CustomsHouse, at(43.0, BERM, 34.25)),
+    (ZoneId::CustomsHouse, at(51.0, BERM, 34.25)),
 ];
 
 /// Quay stone, timber and iron, for the pieces that aren't a Zone's wall.
@@ -877,18 +894,29 @@ mod tests {
         assert_eq!(drops, [(Windmill, DykeRoad), (HerringQuay, DykeRoad), (CoalYard, PumpingStation)]);
     }
 
-    /// Every Ford's channel is Shallow at Low, every Deep reach is Deep, and all the water is at -1.7.
+    /// Each Ford's channel is Shallow at Low and Deep above, its berms dry at Low, Shallow at Mid
+    /// and Deep at High, and every Deep reach is Deep at every level.
     #[test]
-    fn the_fords_can_be_waded_and_the_reaches_cannot() {
+    fn the_fords_can_be_waded_at_their_levels_and_the_reaches_never() {
         use crate::maps::map::{TideLevel, Wading, water_at};
-        let at = |x: f32, y: f32, z: f32| water_at(polder(), TideLevel::Low, Vec3::new(P + x, y, z));
+        let at = |level, x: f32, y: f32, z: f32| water_at(polder(), level, Vec3::new(P + x, y, z));
         for (x, z) in [(-47.0, -6.0), (22.0, -6.0), (-52.0, 30.0), (43.0, 30.0)] {
-            assert_eq!(at(x, -2.2, z), Some(Wading::Shallow), "the channel at {x}, {z}");
+            assert_eq!(at(TideLevel::Low, x, -2.2, z), Some(Wading::Shallow), "the channel at {x}, {z}");
+            assert_eq!(at(TideLevel::Mid, x, -2.2, z), Some(Wading::Deep));
+            assert_eq!(at(TideLevel::High, x, -2.2, z), Some(Wading::Deep));
         }
-        for (x, z) in [(-60.0, -6.0), (0.0, -6.0), (10.0, 30.0), (-9.0, 12.0), (0.0, 63.0)] {
-            assert_eq!(at(x, -4.5, z), Some(Wading::Deep), "the reach at {x}, {z}");
+        for (x, z) in [(-47.0, -10.25), (22.5, -10.25), (-51.5, 34.25), (51.0, 34.25)] {
+            assert_eq!(at(TideLevel::Low, x, -1.6, z), None, "the berm at {x}, {z} is dry at Low");
+            assert_eq!(at(TideLevel::Mid, x, -1.6, z), Some(Wading::Shallow));
+            assert_eq!(at(TideLevel::High, x, -1.6, z), Some(Wading::Deep));
         }
-        assert!(polder().water.iter().all(|pool| matches!(pool.level, crate::maps::map::Level::Still(h) if h == -1.7)));
+        for level in TideLevel::ALL {
+            for (x, z) in [(-60.0, -6.0), (0.0, -6.0), (10.0, 30.0), (-9.0, 12.0), (0.0, 63.0)] {
+                assert_eq!(at(level, x, -4.5, z), Some(Wading::Deep), "the reach at {x}, {z} at {level:?}");
+            }
+        }
+        assert!(polder().water.iter().all(|pool| matches!(pool.level, crate::maps::map::Level::Canal(_))));
+        assert_eq!(polder().canals.len(), 3);
     }
 
     /// Every dry point of an indoor Zone's floor, clear of walls, is within reach of a lamp.

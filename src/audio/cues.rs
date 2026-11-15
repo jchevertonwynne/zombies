@@ -112,6 +112,11 @@ cues! {
     // landing; teammates' are heard from where they are.
     ZiplineRide => "zipline_ride", Root, Spatial, 0.7;
     ZiplineLand => "zipline_land", Root, Spatial, 0.8;
+    // The Polder's Tide: a church-type toll before a Turn, the rush of the water from each Canal
+    // as it moves, and the surge and gasp of a Player Washed Up.
+    TideBell => "tide_bell", Root, Spatial, 1.0;
+    TideRush => "tide_rush", Root, Spatial, 0.8;
+    WashedUp => "washed_up", Root, Flat, 0.7;
 
     // Buying and the Map
     Buy => "buy", Root, Flat, 0.7;
@@ -299,7 +304,7 @@ mod tests {
             // Not in the appendix: a teammate's footstep and Crawl drag, for Co-op, and the stance cues.
             "footstep", "stance_rustle", "dive_land", "crawl_drag",
             // The Cove's water: a wading footstep and the splash of entering.
-            "wade_step", "splash", "zombie_wade", "zipline_ride", "zipline_land",
+            "wade_step", "splash", "zombie_wade", "zipline_ride", "zipline_land", "tide_bell", "tide_rush", "washed_up",
             // The Polder's Swing Bridges: the bell, the grind of the turn and the clunk at Rest.
             "bridge_bell", "bridge_grind", "bridge_clunk",
             // Gauntlet v2's Proc cues (spec #182, Appendix C6).

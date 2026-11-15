@@ -54,7 +54,7 @@ fn classify(map: MapId, feet: Vec3) -> Option<(Out, Option<ZoneId>)> {
 /// Out of the Map: Out of Bounds by the game's rule, or already 1 m below its lowest floor.
 fn lost(map: MapId, feet: Vec3) -> bool {
     let layout = map.layout();
-    layout.out_of_bounds(feet) || feet.y < layout.lowest_floor() - 1.0
+    layout.out_of_bounds(crate::maps::water::TideLevel::Low, feet) || feet.y < layout.lowest_floor() - 1.0
 }
 
 fn starts(map: MapId) -> Vec<(String, Vec3)> {

@@ -8,10 +8,14 @@ use bevy::prelude::*;
 use crate::authority::HostSimulation;
 use crate::enemies::nav::{NavGraph, zone_at};
 use crate::enemies::target::half_height_above_feet;
+use crate::economy::power_up::Dropped;
 use crate::maps::map::MapId;
+use crate::maps::tide::{Tide, TideLanded};
+use crate::maps::water::{TideLevel, Wading, swamped, water_at};
+use crate::maps::zone::{ActiveZones, ZoneId};
 use crate::maps::teleporter::in_holding_space;
 use crate::players::last_stand::{LastStand, go_down};
-use crate::players::player::{Health, Locomotion, Player, Teleport, take_hits};
+use crate::players::player::{Health, Locomotion, Player, Stance, Teleport, take_hits};
 use crate::players::respawn::AwaitingRespawn;
 use crate::state::world_runs;
 
@@ -24,9 +28,9 @@ pub struct OutOfBoundsPlugin;
 
 impl Plugin for OutOfBoundsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.add_message::<TideLanded>().add_message::<Teleport>().add_systems(
             Update,
-            (note_footing, catch_out_of_bounds)
+            (note_footing, washed_up.after(crate::maps::tide::TideTurn), catch_out_of_bounds)
                 .chain()
                 .after(take_hits)
                 .before(go_down)
@@ -62,12 +66,14 @@ pub fn catch_out_of_bounds(
     >,
     map: Res<MapId>,
     graph: Option<Res<NavGraph>>,
+    tide: Option<Res<Tide>>,
     mut teleport: MessageWriter<Teleport>,
 ) {
     let layout = map.layout();
+    let tide = tide.map_or_else(TideLevel::default, |tide| tide.level());
     for (player, transform, locomotion, footing, mut health, last_stand) in &mut players {
         let feet = feet_of(transform, locomotion);
-        if !layout.out_of_bounds(feet) || in_holding_space(feet) {
+        if !layout.out_of_bounds(tide, feet) || in_holding_space(feet) {
             continue;
         }
         if !last_stand {
@@ -77,5 +83,68 @@ pub fn catch_out_of_bounds(
         let from = footing.0.unwrap_or(layout.seat_start(0));
         let back = graph.as_ref().filter(|graph| graph.map == *map).map_or(from, |graph| graph.nodes[graph.nearest_in_zone(from)].at);
         teleport.write(Teleport { player, feet: back, facing: None });
+    }
+}
+
+/// The path node a Washed Up body at `feet` goes to with the Tide at `tide`: the nearest in an open
+/// Zone that is dry or Shallow, their own Zone (`own`) winning ties. `None` if there is no such.
+pub fn washed_up_target(
+    graph: &NavGraph,
+    layout: &crate::maps::map::Layout,
+    tide: TideLevel,
+    feet: Vec3,
+    own: Option<ZoneId>,
+    open: Option<&ActiveZones>,
+) -> Option<Vec3> {
+    graph
+        .nodes
+        .iter()
+        .filter(|node| !node.vent)
+        .filter(|node| node.zone.is_some_and(|zone| open.is_none_or(|open| open.0.contains(zone))))
+        .filter(|node| water_at(layout, tide, node.at) != Some(Wading::Deep))
+        .map(|node| {
+            // Ties are within a few centimetres of one another.
+            let distance = (node.at.distance(feet) * 20.0).round();
+            ((distance, node.zone != own), node.at)
+        })
+        .min_by(|a, b| a.0.0.total_cmp(&b.0.0).then(a.0.1.cmp(&b.0.1)))
+        .map(|(_, at)| at)
+}
+
+/// When the Tide lands, a Player whose feet are in water that is now Deep (or in the air over it)
+/// is Washed Up: moved to the nearest dry or Shallow path node in an open Zone, with no damage and
+/// no Down, their facing kept and their speed gone. A Player already Down keeps their Last Stand.
+/// So are Power-ups lying in it. It runs before `catch_out_of_bounds`, so the Tide never sends
+/// anyone Out of Bounds: the body is moved at once, and the `Teleport` carries the physics.
+pub fn washed_up(
+    mut landed: MessageReader<TideLanded>,
+    mut players: Query<(Entity, &mut Transform, Option<&Locomotion>), (With<Player>, Without<AwaitingRespawn>)>,
+    mut drops: Query<&mut Dropped>,
+    map: Res<MapId>,
+    graph: Option<Res<NavGraph>>,
+    open: Option<Res<ActiveZones>>,
+    mut teleport: MessageWriter<Teleport>,
+) {
+    let Some(TideLanded { level }) = landed.read().last().copied() else { return };
+    let layout = map.layout();
+    let Some(graph) = graph.filter(|graph| graph.map == *map) else { return };
+    for (player, mut transform, locomotion) in &mut players {
+        let feet = feet_of(&transform, locomotion);
+        let airborne = locomotion.is_some_and(|locomotion| !locomotion.grounded);
+        let caught = if airborne { swamped(layout, level, feet) } else { water_at(layout, level, feet) == Some(Wading::Deep) };
+        if !caught {
+            continue;
+        }
+        let Some(to) = washed_up_target(&graph, layout, level, feet, zone_at(feet + Vec3::Y * 0.1), open.as_deref()) else { continue };
+        transform.translation = to + Vec3::Y * (Stance::Standing.half_height() + 0.05);
+        teleport.write(Teleport { player, feet: to, facing: None });
+    }
+    for mut dropped in &mut drops {
+        let feet = dropped.at() - Vec3::Y * crate::tuning::POWER_UP_FLOAT_HEIGHT;
+        if swamped(layout, level, feet)
+            && let Some(to) = washed_up_target(&graph, layout, level, feet, zone_at(feet + Vec3::Y * 0.1), open.as_deref())
+        {
+            dropped.wash_to(to + Vec3::Y * crate::tuning::POWER_UP_FLOAT_HEIGHT);
+        }
     }
 }

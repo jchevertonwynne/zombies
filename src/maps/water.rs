@@ -8,8 +8,10 @@
 //! of Bounds for anything that ends up in it anyway.
 //!
 //! `water_at` is the only function that reads pools; everything else asks it. Where a pool's
-//! surface comes from is behind it: for now every Map's pools are `Level::Still`, and `canals` is
-//! empty. The Tide (#374) will fill in `Level::Canal` and pass the current `TideLevel` in.
+//! surface comes from is behind it: a `Level::Still` pool stands at one height, and a
+//! `Level::Canal` pool follows its Canal through the Tide's three levels (see `maps::tide`), which
+//! `water_at` takes as the `TideLevel` the rules stand at. The drawn surface moves over a Turn; the
+//! rules change only when the Tide lands.
 
 use avian3d::prelude::*;
 use bevy::asset::RenderAssetUsages;
@@ -25,6 +27,7 @@ use crate::players::player::{Locomotion, Player};
 use crate::enemies::zombie::rig::{Activity, Shown};
 use crate::enemies::zombie::{Rising, Zombie, rising_floor};
 use crate::net::play::Puppet;
+use crate::maps::tide::Tide;
 use crate::state::InRun;
 use crate::tuning::*;
 
@@ -33,7 +36,7 @@ use crate::tuning::*;
 pub struct CanalId(pub u8);
 
 /// A set of pools that share one surface, which rises and falls with the Tide through three
-/// authored levels. No Map has one yet.
+/// authored levels. Only the Polder has any.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Canal {
     pub name: &'static str,
@@ -42,14 +45,33 @@ pub struct Canal {
     pub high: f32,
 }
 
-/// How high the Tide stands. With no Canals on a Map it never matters, and it's always `Low`
-/// until the Tide has a clock.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+impl Canal {
+    /// The height of its surface with the Tide at `tide`.
+    pub fn at(&self, tide: TideLevel) -> f32 {
+        match tide {
+            TideLevel::Low => self.low,
+            TideLevel::Mid => self.mid,
+            TideLevel::High => self.high,
+        }
+    }
+}
+
+/// How high the Tide stands. With no Canals on a Map it never matters, and it's always `Low`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum TideLevel {
     #[default]
     Low,
     Mid,
     High,
+}
+
+impl TideLevel {
+    pub const ALL: [TideLevel; 3] = [TideLevel::Low, TideLevel::Mid, TideLevel::High];
+
+    /// Its place in a table of the three levels.
+    pub fn index(self) -> usize {
+        self as usize
+    }
 }
 
 /// Where a pool's surface is: fixed, or following a Canal.
@@ -84,14 +106,7 @@ impl Pool {
     pub fn surface(&self, canals: &[Canal], tide: TideLevel) -> f32 {
         match self.level {
             Level::Still(height) => height,
-            Level::Canal(CanalId(id)) => {
-                let canal = canals[usize::from(id)];
-                match tide {
-                    TideLevel::Low => canal.low,
-                    TideLevel::Mid => canal.mid,
-                    TideLevel::High => canal.high,
-                }
-            }
+            Level::Canal(CanalId(id)) => canals[usize::from(id)].at(tide),
         }
     }
 
@@ -143,9 +158,23 @@ fn water_in(water: &[Pool], canals: &[Canal], tide: TideLevel, feet: Vec3) -> Op
     found
 }
 
-/// Whether feet at `feet` are in Shallow Water, with the Tide at its usual `Low`.
-pub fn wading(layout: &Layout, feet: Vec3) -> bool {
-    water_at(layout, TideLevel::default(), feet) == Some(Wading::Shallow)
+/// Whether feet at `feet` are in Shallow Water, with the Tide at `tide`.
+pub fn wading(layout: &Layout, tide: TideLevel, feet: Vec3) -> bool {
+    water_at(layout, tide, feet) == Some(Wading::Shallow)
+}
+
+/// Whether a body with its feet at `feet` is caught by the Tide landing at `tide`: in Deep Water,
+/// or in the air over it, within `WASHED_UP_AIR_REACH` of the surface. Whoever is, is Washed Up.
+pub fn swamped(layout: &Layout, tide: TideLevel, feet: Vec3) -> bool {
+    if water_at(layout, tide, feet) == Some(Wading::Deep) {
+        return true;
+    }
+    let at = Vec2::new(feet.x, feet.z);
+    layout.water.iter().any(|pool| {
+        pool.covers(at)
+            && pool.kind(layout.canals, tide) == Some(Wading::Deep)
+            && (0.0..=WASHED_UP_AIR_REACH).contains(&(feet.y - pool.surface(layout.canals, tide)))
+    })
 }
 
 /// How high the surface of the Shallow Water is that `feet` stand in, with the Tide at `tide`.
@@ -162,11 +191,28 @@ pub fn surface_at(layout: &Layout, tide: TideLevel, feet: Vec3) -> Option<f32> {
         .find(|&surface| feet.y < surface)
 }
 
-/// Whether a Wading Point at `at` (a spot on the bed) is in use: only where the water over it is
-/// Shallow at this Tide. On the Cove everything is Still, so every one always is; when the Tide
-/// raises the water to Deep, or drains it, its points go quiet.
+/// At which Tide levels a Wading Point at `at` (a spot on the bed) is in use: where the water over
+/// it is Shallow, with `WADING_DEEP_CLEARANCE` between it and Deep Water and dry ground all round
+/// (a hair under, as Deep Water and the shallows share an edge). Worked out once per point and
+/// remembered. On the Cove everything is Still, so every one always is; when the Tide raises the
+/// water to Deep, or drains it, a point goes quiet.
+pub fn wading_levels(layout: &Layout, at: Vec3) -> [bool; 3] {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static TABLES: OnceLock<Mutex<HashMap<(usize, [u32; 3]), [bool; 3]>>> = OnceLock::new();
+    let key = (std::ptr::from_ref(layout) as usize, at.to_array().map(f32::to_bits));
+    let tables = TABLES.get_or_init(Mutex::default);
+    if let Some(&table) = tables.lock().expect("the table is never held across a panic").get(&key) {
+        return table;
+    }
+    let table = TideLevel::ALL.map(|tide| water_at(layout, tide, at) == Some(Wading::Shallow) && shallow_all_round(layout, tide, at, WADING_DEEP_CLEARANCE - 0.01));
+    tables.lock().expect("the table is never held across a panic").insert(key, table);
+    table
+}
+
+/// Whether a Wading Point at `at` is in use with the Tide at `tide`: see `wading_levels`.
 pub fn wading_point_active(layout: &Layout, tide: TideLevel, at: Vec3) -> bool {
-    water_at(layout, tide, at) == Some(Wading::Shallow)
+    wading_levels(layout, at)[tide.index()]
 }
 
 /// Whether all the ground within `radius` of the spot `at` (the bed under it) is Shallow Water:
@@ -214,6 +260,8 @@ const SHALLOW: Color = Color::srgba(0.5, 0.78, 0.78, 0.55);
 const DEEP: Color = Color::srgba(0.03, 0.2, 0.3, 0.9);
 /// The foam where one meets the other.
 const FOAM: Color = Color::srgba(0.92, 0.97, 0.97, 0.85);
+/// The lighter silt a Canal shows over a bed it barely covers: the Fords at Low.
+const SILT: Color = Color::srgba(0.66, 0.62, 0.45, 0.5);
 /// How far past the plan's south edge the sea is drawn, and how far to the sides.
 const HORIZON: f32 = 800.0;
 /// How far foam floats over the surface it lies on.
@@ -225,13 +273,34 @@ const TOUCH: f32 = 0.35;
 
 type Rect = (Vec2, Vec2, f32);
 
-/// The foam strips of `layout`: along each side of a Shallow pool that meets a Deep one, as wide
-/// as `WATER_FOAM_WIDTH` and as long as the two share.
-fn foam(layout: &Layout) -> Vec<Rect> {
-    let tide = TideLevel::default();
+/// What a Canal's surface looks like over a bed `depth` under it: silt over almost nothing, then
+/// the shallows, then the deep, darkening to the deepest reach. Nothing over a bed it doesn't cover.
+fn depth_colour(depth: f32) -> Color {
+    if depth <= 0.0 {
+        return Color::srgba(0.0, 0.0, 0.0, 0.0);
+    }
+    const STOPS: [(f32, Color); 4] = [(0.0, SILT), (0.7, SHALLOW), (1.1, Color::srgba(0.05, 0.28, 0.36, 0.8)), (3.0, DEEP)];
+    for pair in STOPS.windows(2) {
+        let ((d0, c0), (d1, c1)) = (pair[0], pair[1]);
+        if depth <= d1 {
+            return Color::Srgba(c0.to_srgba().mix(&c1.to_srgba(), (depth - d0) / (d1 - d0)));
+        }
+    }
+    DEEP
+}
+
+/// The foam strips of `layout` with the Tide at `tide`: along each side of a Shallow pool that
+/// meets a Deep one, as wide as `WATER_FOAM_WIDTH` and as long as the two share. `of` picks the
+/// Shallow pools: the Still ones (`None`) or one Canal's.
+fn foam(layout: &Layout, tide: TideLevel, of: Option<CanalId>) -> Vec<Rect> {
     let canals = layout.canals;
+    let wanted = |pool: &Pool| match (pool.level, of) {
+        (Level::Still(_), None) => true,
+        (Level::Canal(canal), Some(id)) => canal == id,
+        _ => false,
+    };
     let mut strips = Vec::new();
-    for shallow in layout.water.iter().filter(|pool| pool.kind(canals, tide) == Some(Wading::Shallow)) {
+    for shallow in layout.water.iter().filter(|pool| wanted(pool) && pool.kind(canals, tide) == Some(Wading::Shallow)) {
         for deep in layout.water.iter().filter(|pool| pool.kind(canals, tide) == Some(Wading::Deep)) {
             let y = shallow.surface(canals, tide) + FOAM_LIFT;
             let across = (shallow.min.x.max(deep.min.x), shallow.max.x.min(deep.max.x));
@@ -287,9 +356,54 @@ fn surface_material(colour: Color) -> StandardMaterial {
     }
 }
 
-/// Builds the Layout's water: one flat alpha-blended surface per pool (merged into one mesh each
-/// for Shallow and Deep, so a Map's water is a few draws), foam where Shallow meets Deep, the sea
-/// out to the horizon past a plan edge it reaches, and the invisible walls round Deep Water.
+/// On a mesh of the pools of one Canal over beds at `bed`, drawn flat at height 0 and posed by its
+/// transform at the Canal's drawn level: its colour follows the depth over `bed` there.
+#[derive(Component, Debug)]
+pub struct CanalSurface {
+    pub canal: CanalId,
+    pub bed: f32,
+}
+
+/// On the foam of one Canal's Shallow pools at one Tide level, drawn at that level's surface and
+/// moved with the Canal's drawn one: it fades in as the Tide turns to its level and out as it
+/// turns away.
+#[derive(Component, Debug)]
+pub struct CanalFoam {
+    pub canal: CanalId,
+    pub level: TideLevel,
+}
+
+/// On an invisible wall round Deep Water at one Tide level: only the current level's set is on.
+#[derive(Component, Debug)]
+pub struct TideWall(pub TideLevel);
+
+/// The walls round every side of a Deep pool in `deeps` that doesn't run into another one, as
+/// (centre, size, lowest, highest) of each.
+pub fn wall_rects(deeps: &[Pool], canals: &[Canal], tide: TideLevel) -> Vec<(Vec2, Vec2, f32, f32)> {
+    let mut walls = Vec::new();
+    for pool in deeps {
+        let top = pool.surface(canals, tide) + WATER_EDGE_HEIGHT;
+        for (centre, size, outside) in [
+            (Vec2::new((pool.min.x + pool.max.x) / 2.0, pool.min.y), Vec2::new(pool.max.x - pool.min.x, EDGE_THICKNESS), Vec2::NEG_Y),
+            (Vec2::new((pool.min.x + pool.max.x) / 2.0, pool.max.y), Vec2::new(pool.max.x - pool.min.x, EDGE_THICKNESS), Vec2::Y),
+            (Vec2::new(pool.min.x, (pool.min.y + pool.max.y) / 2.0), Vec2::new(EDGE_THICKNESS, pool.max.y - pool.min.y), Vec2::NEG_X),
+            (Vec2::new(pool.max.x, (pool.min.y + pool.max.y) / 2.0), Vec2::new(EDGE_THICKNESS, pool.max.y - pool.min.y), Vec2::X),
+        ] {
+            let beyond = centre + outside * 0.05;
+            if deeps.iter().any(|other| other != pool && other.covers(beyond)) {
+                continue;
+            }
+            walls.push((centre, size, pool.bed, top));
+        }
+    }
+    walls
+}
+
+/// Builds the Layout's water: one flat alpha-blended surface per kind of Still pool (merged into
+/// one mesh each for Shallow and Deep, so a Map's water is a few draws), one per Canal and bed
+/// that is posed each frame at the Canal's drawn level, foam where Shallow meets Deep (a set per
+/// Tide level for each Canal), the sea out to the horizon past a plan edge it reaches, and the
+/// invisible walls round Deep Water (a set per Tide level on a Map with Canals).
 pub fn spawn_water(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>, layout: &Layout) {
     if layout.water.is_empty() {
         return;
@@ -299,45 +413,71 @@ pub fn spawn_water(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials
     let mut shallow = Vec::new();
     let mut deep = Vec::new();
     let mut deeps = Vec::new();
+    // Each Canal's pools over each bed, drawn flat at height 0.
+    let mut surfaces: Vec<(CanalId, f32, Vec<Rect>)> = Vec::new();
+    fn add(surfaces: &mut Vec<(CanalId, f32, Vec<Rect>)>, canal: CanalId, bed: f32, rect: Rect) {
+        match surfaces.iter_mut().find(|(id, at, _)| *id == canal && at.to_bits() == bed.to_bits()) {
+            Some((.., rects)) => rects.push(rect),
+            None => surfaces.push((canal, bed, vec![rect])),
+        }
+    }
     for pool in layout.water {
-        let rect = (pool.min, pool.max, pool.surface(canals, tide));
-        match pool.kind(canals, tide) {
-            Some(Wading::Shallow) => shallow.push(rect),
-            Some(Wading::Deep) => {
-                deep.push(rect);
-                deeps.push(*pool);
-            }
-            None => {}
+        match pool.level {
+            Level::Still(height) => match pool.kind(canals, tide) {
+                Some(Wading::Shallow) => shallow.push((pool.min, pool.max, height)),
+                Some(Wading::Deep) => deep.push((pool.min, pool.max, height)),
+                None => {}
+            },
+            Level::Canal(canal) => add(&mut surfaces, canal, pool.bed, (pool.min, pool.max, 0.0)),
+        }
+        if pool.kind(canals, tide) == Some(Wading::Deep) {
+            deeps.push(*pool);
         }
     }
     // A Deep pool that reaches the plan's south edge is the open sea: it runs on to the horizon,
-    // and out to either side of the pools along that edge.
-    let (plan_min, _) = layout.plan;
+    // and out to either side of the pools along that edge. The same on the north edge.
+    let (plan_min, plan_max) = layout.plan;
+    let mut horizon = |pools: &[&Pool], rects: [(Vec2, Vec2); 3]| {
+        let Some(&&first) = pools.first() else { return };
+        for (min, max) in rects {
+            match first.level {
+                Level::Still(height) => deep.push((min, max, height)),
+                Level::Canal(canal) => add(&mut surfaces, canal, first.bed, (min, max, 0.0)),
+            }
+        }
+    };
+    let span = |pools: &[&Pool]| {
+        let west = pools.iter().map(|pool| pool.min.x).fold(f32::INFINITY, f32::min);
+        let east = pools.iter().map(|pool| pool.max.x).fold(f32::NEG_INFINITY, f32::max);
+        (west, east, (west + east) / 2.0)
+    };
     let sea: Vec<&Pool> = deeps.iter().filter(|pool| pool.min.y <= plan_min.y + 0.01).collect();
-    if let Some(&&first) = sea.first() {
-        let level = first.surface(canals, tide);
-        let west = sea.iter().map(|pool| pool.min.x).fold(f32::INFINITY, f32::min);
-        let east = sea.iter().map(|pool| pool.max.x).fold(f32::NEG_INFINITY, f32::max);
+    if !sea.is_empty() {
+        let (west, east, middle) = span(&sea);
         let top = deeps.iter().map(|pool| pool.max.y).fold(f32::NEG_INFINITY, f32::max);
-        let middle = (west + east) / 2.0;
-        deep.push((Vec2::new(middle - HORIZON, plan_min.y - HORIZON), Vec2::new(middle + HORIZON, plan_min.y), level));
-        deep.push((Vec2::new(middle - HORIZON, plan_min.y), Vec2::new(west, top), level));
-        deep.push((Vec2::new(east, plan_min.y), Vec2::new(middle + HORIZON, top), level));
+        horizon(
+            &sea,
+            [
+                (Vec2::new(middle - HORIZON, plan_min.y - HORIZON), Vec2::new(middle + HORIZON, plan_min.y)),
+                (Vec2::new(middle - HORIZON, plan_min.y), Vec2::new(west, top)),
+                (Vec2::new(east, plan_min.y), Vec2::new(middle + HORIZON, top)),
+            ],
+        );
     }
-    // The same on the north: a Deep pool that reaches the plan's north edge runs on to the horizon.
-    let (_, plan_max) = layout.plan;
     let north: Vec<&Pool> = deeps.iter().filter(|pool| pool.max.y >= plan_max.y - 0.01).collect();
-    if let Some(&&first) = north.first() {
-        let level = first.surface(canals, tide);
-        let west = north.iter().map(|pool| pool.min.x).fold(f32::INFINITY, f32::min);
-        let east = north.iter().map(|pool| pool.max.x).fold(f32::NEG_INFINITY, f32::max);
-        let bottom = deeps.iter().filter(|pool| pool.max.y >= plan_max.y - 0.01).map(|pool| pool.min.y).fold(f32::INFINITY, f32::min);
-        let middle = (west + east) / 2.0;
-        deep.push((Vec2::new(middle - HORIZON, plan_max.y), Vec2::new(middle + HORIZON, plan_max.y + HORIZON), level));
-        deep.push((Vec2::new(middle - HORIZON, bottom), Vec2::new(west, plan_max.y), level));
-        deep.push((Vec2::new(east, bottom), Vec2::new(middle + HORIZON, plan_max.y), level));
+    if !north.is_empty() {
+        let (west, east, middle) = span(&north);
+        let bottom = north.iter().map(|pool| pool.min.y).fold(f32::INFINITY, f32::min);
+        horizon(
+            &north,
+            [
+                (Vec2::new(middle - HORIZON, plan_max.y), Vec2::new(middle + HORIZON, plan_max.y + HORIZON)),
+                (Vec2::new(middle - HORIZON, bottom), Vec2::new(west, plan_max.y)),
+                (Vec2::new(east, bottom), Vec2::new(middle + HORIZON, plan_max.y)),
+            ],
+        );
     }
-    for (rects, colour) in [(shallow, SHALLOW), (deep, DEEP), (foam(layout), FOAM)] {
+    for (rects, colour) in [(shallow, SHALLOW), (deep, DEEP), (foam(layout, tide, None), FOAM)] {
         if rects.is_empty() {
             continue;
         }
@@ -349,21 +489,43 @@ pub fn spawn_water(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials
             bevy::light::NotShadowCaster,
         ));
     }
-    // The walls: round every side of a Deep pool that doesn't run into another Deep pool.
-    for pool in &deeps {
-        let top = pool.surface(canals, tide) + WATER_EDGE_HEIGHT;
-        let (low, high) = (pool.bed, top);
-        let (size_y, y) = (high - low, (high + low) / 2.0);
-        for (centre, size, outside) in [
-            (Vec2::new((pool.min.x + pool.max.x) / 2.0, pool.min.y), Vec2::new(pool.max.x - pool.min.x, EDGE_THICKNESS), Vec2::NEG_Y),
-            (Vec2::new((pool.min.x + pool.max.x) / 2.0, pool.max.y), Vec2::new(pool.max.x - pool.min.x, EDGE_THICKNESS), Vec2::Y),
-            (Vec2::new(pool.min.x, (pool.min.y + pool.max.y) / 2.0), Vec2::new(EDGE_THICKNESS, pool.max.y - pool.min.y), Vec2::NEG_X),
-            (Vec2::new(pool.max.x, (pool.min.y + pool.max.y) / 2.0), Vec2::new(EDGE_THICKNESS, pool.max.y - pool.min.y), Vec2::X),
-        ] {
-            let beyond = centre + outside * 0.05;
-            if deeps.iter().any(|other| other != pool && other.covers(beyond)) {
+    for (canal, bed, rects) in surfaces {
+        let at = canals[usize::from(canal.0)].at(tide);
+        commands.spawn((
+            InRun,
+            CanalSurface { canal, bed },
+            Mesh3d(meshes.add(quads(&rects))),
+            MeshMaterial3d(materials.add(surface_material(depth_colour(at - bed)))),
+            Transform::from_xyz(0.0, at, 0.0),
+            bevy::light::NotShadowCaster,
+        ));
+    }
+    for index in 0..canals.len() {
+        let canal = CanalId(index as u8);
+        for level in TideLevel::ALL {
+            let rects = foam(layout, level, Some(canal));
+            if rects.is_empty() {
                 continue;
             }
+            let alpha = if level == tide { 1.0 } else { 0.0 };
+            commands.spawn((
+                InRun,
+                CanalFoam { canal, level },
+                Mesh3d(meshes.add(quads(&rects))),
+                MeshMaterial3d(materials.add(surface_material(FOAM.with_alpha(FOAM.alpha() * alpha)))),
+                Transform::default(),
+                bevy::light::NotShadowCaster,
+            ));
+        }
+    }
+    // The walls: round every side of a Deep pool that doesn't run into another Deep pool. A Map
+    // with Canals has a set for each Tide level, and only the current one is on; any other Map's
+    // are always on.
+    let levels: &[TideLevel] = if canals.is_empty() { &[TideLevel::Low] } else { &TideLevel::ALL };
+    for &level in levels {
+        let at_level: Vec<Pool> = layout.water.iter().copied().filter(|pool| pool.kind(canals, level) == Some(Wading::Deep)).collect();
+        for (centre, size, low, high) in wall_rects(&at_level, canals, level) {
+            let (size_y, y) = (high - low, (high + low) / 2.0);
             // A Leaf of a Piece standing there at the start lets the way onto its deck through.
             let at = Vec3::new(centre.x, 0.0, centre.y);
             if layout.shifting.iter().any(|piece| {
@@ -371,13 +533,72 @@ pub fn spawn_water(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials
             }) {
                 continue;
             }
-            commands.spawn((
+            let mut wall = commands.spawn((
                 InRun,
                 Transform::from_xyz(centre.x, y, centre.y),
                 RigidBody::Static,
                 Collider::cuboid(size.x, size_y, size.y),
                 CollisionLayers::new(GameLayer::WaterEdge, GameLayer::Player),
             ));
+            if !canals.is_empty() {
+                wall.insert(TideWall(level));
+                if level != tide {
+                    wall.insert(ColliderDisabled);
+                }
+            }
+        }
+    }
+}
+
+/// Poses each Canal's water at its drawn level and colours it by the depth there, and fades the
+/// foam of each Tide level in and out, whenever the Tide moves.
+fn pose_canals(
+    tide: Option<Res<Tide>>,
+    map: Option<Res<crate::maps::map::MapId>>,
+    mut surfaces: Query<(&CanalSurface, &mut Transform, &MeshMaterial3d<StandardMaterial>)>,
+    mut foams: Query<(&CanalFoam, &mut Transform, &MeshMaterial3d<StandardMaterial>, &mut Visibility), Without<CanalSurface>>,
+    fresh: Query<(), Or<(Added<CanalSurface>, Added<CanalFoam>)>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let Some(map) = map else { return };
+    let canals = map.layout().canals;
+    if canals.is_empty() {
+        return;
+    }
+    let tide_now = tide.as_ref().map_or_else(Tide::default, |tide| **tide);
+    if tide.as_ref().is_some_and(|tide| !tide.is_changed()) && fresh.is_empty() {
+        return;
+    }
+    for (surface, mut transform, material) in &mut surfaces {
+        let at = tide_now.drawn(&canals[usize::from(surface.canal.0)]);
+        transform.translation.y = at;
+        if let Some(mut material) = materials.get_mut(&material.0) {
+            material.base_color = depth_colour(at - surface.bed);
+        }
+    }
+    for (foam, mut transform, material, mut visibility) in &mut foams {
+        let canal = &canals[usize::from(foam.canal.0)];
+        transform.translation.y = tide_now.drawn(canal) - canal.at(foam.level);
+        let weight = tide_now.foam_weight(foam.level);
+        *visibility = if weight > 0.0 { Visibility::Inherited } else { Visibility::Hidden };
+        if let Some(mut material) = materials.get_mut(&material.0) {
+            material.base_color = FOAM.with_alpha(FOAM.alpha() * weight);
+        }
+    }
+}
+
+/// Switches the Deep Water walls to the current Tide level's set: only that one is on.
+fn switch_walls(mut commands: Commands, tide: Option<Res<Tide>>, walls: Query<(Entity, &TideWall, Has<ColliderDisabled>)>) {
+    let level = tide.map_or_else(TideLevel::default, |tide| tide.level());
+    for (entity, wall, off) in &walls {
+        match (wall.0 == level, off) {
+            (true, true) => {
+                commands.entity(entity).remove::<ColliderDisabled>();
+            }
+            (false, false) => {
+                commands.entity(entity).insert(ColliderDisabled);
+            }
+            _ => {}
         }
     }
 }
@@ -485,6 +706,7 @@ fn start_rising(
     hosts: Query<(Entity, &Transform, &Zombie, &Rising), (Added<Rising>, Without<Rise>)>,
     puppets: Query<(Entity, &Transform, &Zombie, &Shown), (With<Puppet>, Changed<Shown>, Without<Rise>)>,
     map: Option<Res<crate::maps::map::MapId>>,
+    tide: Option<Res<Tide>>,
     mut cues: MessageWriter<PlayCue>,
     mut look: Local<Option<SplashLook>>,
     mut meshes: Option<ResMut<Assets<Mesh>>>,
@@ -492,7 +714,7 @@ fn start_rising(
 ) {
     let Some(map) = map else { return };
     let layout = map.layout();
-    let tide = TideLevel::default();
+    let tide = tide.map_or_else(TideLevel::default, |tide| tide.level());
     let rising = hosts
         .iter()
         .map(|(entity, transform, zombie, rising)| (entity, transform.translation, zombie, rising.buried()))
@@ -588,13 +810,15 @@ pub fn mark_wet(
         Or<(With<Player>, With<crate::enemies::zombie::Zombie>)>,
     >,
     map: Option<Res<crate::maps::map::MapId>>,
+    tide: Option<Res<Tide>>,
 ) {
     let Some(layout) = map.map(|map| map.layout()).filter(|layout| !layout.water.is_empty()) else {
         return;
     };
+    let tide = tide.map_or_else(TideLevel::default, |tide| tide.level());
     for (entity, transform, locomotion, zombie, wet) in &bodies {
         let lift = zombie.map_or_else(|| half_height_above_feet(locomotion), |zombie| zombie.half_height());
-        let now = wading(layout, transform.translation - Vec3::Y * lift);
+        let now = wading(layout, tide, transform.translation - Vec3::Y * lift);
         if now && !wet {
             commands.entity(entity).insert(Wet);
         } else if !now && wet {
@@ -608,7 +832,9 @@ pub struct WaterPlugin;
 
 impl Plugin for WaterPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<PlayCue>().add_systems(Update, (mark_wet, start_rising, finish_rising, animate_splashes));
+        app.add_message::<PlayCue>()
+            .add_plugins(crate::maps::tide::TidePlugin)
+            .add_systems(Update, (mark_wet, start_rising, finish_rising, animate_splashes, pose_canals, switch_walls));
     }
 }
 
@@ -832,6 +1058,38 @@ mod tests {
             for puppet in puppets {
                 sim.world_mut().entity_mut(puppet).despawn();
             }
+        }
+    }
+
+    /// The Deep Water walls are built once per level, and only the current level's set is on: on
+    /// landing the walls switch with `water_at`, on a client as on the Host.
+    #[test]
+    fn the_wall_sets_switch_when_the_tide_lands() {
+        use crate::maps::tide::{Tide, TidePhase, TurnState};
+        let mut sim = Sim::on(MapId::Polder, 60.0, |app| {
+            app.add_plugins(WaterPlugin);
+        });
+        let on = |sim: &mut Sim| {
+            let world = sim.world_mut();
+            let mut walls = world.query::<(&TideWall, Has<ColliderDisabled>)>();
+            let mut on = [0usize; 3];
+            let mut total = [0usize; 3];
+            for (wall, off) in walls.iter(world) {
+                total[wall.0.index()] += 1;
+                on[wall.0.index()] += usize::from(!off);
+            }
+            (on, total)
+        };
+        let (on_now, total) = on(&mut sim);
+        assert!(total.iter().all(|&n| n > 0), "a set for each level: {total:?}");
+        assert_eq!(on_now, [total[0], 0, 0]);
+        for (phase, level) in [(TidePhase::Rising, 1), (TidePhase::High, 2), (TidePhase::Falling, 1), (TidePhase::Low, 0)] {
+            *sim.world_mut().resource_mut::<Tide>() = Tide { phase, turn: TurnState::Still };
+            sim.run(3);
+            let (on_now, total) = on(&mut sim);
+            let mut want = [0; 3];
+            want[level] = total[level];
+            assert_eq!(on_now, want, "at {phase:?}");
         }
     }
 }

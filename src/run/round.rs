@@ -351,6 +351,7 @@ fn spawn_horde(
     nova_assets: NovaAssetsParam,
     power: Res<Power>,
     settings: Res<Settings>,
+    tide: Option<Res<crate::maps::tide::Tide>>,
     time: Res<Time>,
 ) {
     if round.phase != RoundPhase::Active || round.left_to_spawn == 0 {
@@ -429,7 +430,7 @@ fn spawn_horde(
     let points = horde_points(
         spawn_points.iter().map(|(t, point)| (point.zone, t, point.kind)),
         map.map(|map| map.layout()),
-        TideLevel::default(),
+        tide.map_or_else(TideLevel::default, |tide| tide.level()),
         active.0,
         &anchors,
     );

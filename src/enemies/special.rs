@@ -1080,14 +1080,16 @@ fn unstick(
     spawn_points: Query<(&Transform, &SpawnPoint), (Without<SpecialWatch>, Without<Player>)>,
     active: Res<ActiveZones>,
     map: Res<MapId>,
+    tide: Option<Res<crate::maps::tide::Tide>>,
     time: Res<Time>,
 ) {
+    let tide = tide.map_or_else(Default::default, |tide| tide.level());
     for (mut watch, mut transform, mut easing, mut route) in &mut specials {
         let Some(player) = players.nearest(transform.translation) else {
             continue;
         };
         let stuck = watch.0.update(transform.translation, player.centre, time.delta_secs());
-        if !stuck && !map.layout().out_of_bounds(transform.translation) {
+        if !stuck && !map.layout().out_of_bounds(tide, transform.translation) {
             continue;
         }
         let points = special_spawn_candidates(

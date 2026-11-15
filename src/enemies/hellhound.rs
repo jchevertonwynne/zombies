@@ -276,9 +276,11 @@ fn return_out_of_bounds(
     players: Players,
     active: Option<Res<ActiveZones>>,
     map: Res<MapId>,
+    tide: Option<Res<crate::maps::tide::Tide>>,
 ) {
+    let tide = tide.map_or_else(Default::default, |tide| tide.level());
     for (zombie, mut transform, mut easing, mut route) in &mut hounds {
-        if !zombie.is_hellhound() || !map.layout().out_of_bounds(transform.translation) {
+        if !zombie.is_hellhound() || !map.layout().out_of_bounds(tide, transform.translation) {
             continue;
         }
         let points = || {
@@ -693,7 +695,7 @@ mod tests {
             let moved = samples.iter().position(|s| s.pos.with_y(0.0).distance(out.with_y(0.0)) >= 0.5).expect("never moved");
             let there = samples[moved].pos;
             assert!(on_a_point(there), "{fps} fps: moved to {there}");
-            assert!(!MapId::Greybox.layout().out_of_bounds(there));
+            assert!(!MapId::Greybox.layout().out_of_bounds(crate::maps::water::TideLevel::Low, there));
         }
     }
 }

@@ -2,6 +2,7 @@
 //! The screenshot tour, for approving a Map's look: `ZOMBIES_TOUR=<map>` (`greybox`, `cove`, `dam` or `polder`) skips the menu, stands the Player at each of the Map's views in turn with no Zombies about,
 //! saves a 1920×1080 shot of the game window for each into `ZOMBIES_TOUR_OUT` (default `tour/`),
 //! and quits. The route views look from Zone to Zone through the Doors, which are hidden for them.
+//! `ZOMBIES_TOUR_TIDE=low|rising|high|falling` holds the Polder's Tide at that phase.
 //! The Dam's tour Holds every Generator, so its Zones are lit to judge, unless `ZOMBIES_TOUR_POWER=off`.
 //! `ZOMBIES_TOUR_POWER=on` throws a Map's Power Switch, so its machines are lit.
 //! `ZOMBIES_TOUR_MODE=gauntlet` plays the tour as a Gauntlet Run, the Player holding a dozen Boons
@@ -229,6 +230,8 @@ pub struct Tour {
     power: bool,
     /// Whether to throw the Power Switch, so a Map's machines are lit (`ZOMBIES_TOUR_POWER=on`).
     switched: bool,
+    /// The Tide phase to hold the water at (`ZOMBIES_TOUR_TIDE=low|rising|high|falling`).
+    tide: Option<crate::maps::tide::TidePhase>,
     shot: usize,
     settle: u32,
 }
@@ -250,7 +253,15 @@ impl Tour {
         std::fs::create_dir_all(&dir).expect("ZOMBIES_TOUR_OUT is writable");
         let switched = std::env::var("ZOMBIES_TOUR_POWER").is_ok_and(|power| power.eq_ignore_ascii_case("on"));
         let power = map == MapId::Dam && !std::env::var("ZOMBIES_TOUR_POWER").is_ok_and(|power| power.eq_ignore_ascii_case("off"));
-        Some(Self { map, views, dir, frames: 0, power, switched, shot: 0, settle: 0 })
+        use crate::maps::tide::TidePhase;
+        let tide = std::env::var("ZOMBIES_TOUR_TIDE").ok().map(|phase| match phase.to_ascii_lowercase().as_str() {
+            "low" => TidePhase::Low,
+            "rising" => TidePhase::Rising,
+            "high" => TidePhase::High,
+            "falling" => TidePhase::Falling,
+            other => panic!("ZOMBIES_TOUR_TIDE={other}: low, rising, high or falling"),
+        });
+        Some(Self { map, views, dir, frames: 0, power, switched, tide, shot: 0, settle: 0 })
     }
 }
 
@@ -262,7 +273,14 @@ impl Plugin for TourPlugin {
         app.insert_resource(tour)
             .add_systems(Startup, set_window)
             .add_systems(OnEnter(GameState::MainMenu), start_run)
-            .add_systems(Update, (clear, shoot, give_boons, hold_generators, throw_switch).run_if(in_state(GameState::Playing)));
+            .add_systems(Update, (clear, shoot, give_boons, hold_generators, throw_switch, hold_tide).run_if(in_state(GameState::Playing)));
+    }
+}
+
+/// Holds the Tide at the phase `ZOMBIES_TOUR_TIDE` asks for, so a shot shows the water there.
+fn hold_tide(tour: Res<Tour>, mut tide: ResMut<crate::maps::tide::Tide>) {
+    if let Some(phase) = tour.tide {
+        *tide = crate::maps::tide::Tide { phase, turn: crate::maps::tide::TurnState::Still };
     }
 }
 

@@ -34,6 +34,7 @@ use crate::economy::buy::{
     BuyRefused, Buyable, CantAfford, HoldPurchased, Purchased, RefusedByPlayer, Refused, UseRequest,
 };
 use crate::maps::door::{Door, open};
+use crate::maps::tide::{Tide, TidePhase, TurnState};
 use crate::run::gauntlet::{
     HeldBoons, HeldPacts, Offer, OfferWire, PickOffer, boons_wire, pacts_wire, show_boons, show_pacts,
 };
@@ -269,6 +270,9 @@ pub enum WorldEvent {
     /// A Power-up was taken by the Player in `taker`, if a Player did; a timed one lasts
     /// `extra_secs` longer for their Boons.
     PowerUp { power_up: PowerUp, taker: Option<Seat>, extra_secs: f32 },
+    /// The Tide is at this phase, in this state of its Turn: told when the bells start, when the
+    /// water starts to move, and when it lands, and always to a Player who comes back.
+    Tide { phase: TidePhase, turn: TurnState },
     /// Round `number` has begun.
     Round { number: u32, hellhound: Option<u32> },
     /// The Round's Horde is dead.
@@ -330,6 +334,10 @@ pub struct Mirror {
     next_drop: u32,
     round: Option<(u32, Option<u32>)>,
     intermission: bool,
+    /// The Tide as last told: its phase and the kind of its Turn.
+    tide: (TidePhase, u8),
+    /// Where each Power-up lying about was when last told.
+    drop_at: HashMap<Entity, Vec3>,
     perks: HashMap<Seat, (Option<Perk>, Vec<Perk>)>,
     held: HashMap<Seat, HeldWeapon>,
     status: HashMap<Seat, Status>,
@@ -462,6 +470,7 @@ pub fn add(app: &mut App) {
         .add_systems(
             Update,
             (
+                tell_tide,
                 tell_extras,
                 tell_sabotage,
                 tell_aftereffect,
@@ -500,7 +509,7 @@ pub fn add(app: &mut App) {
                     hear_offers,
                     hear_gauntlet,
                     hear_left,
-                    (hear_extras, hear_sabotage, hear_aftereffect, stand_after_ride, hear_active).chain(),
+                    (hear_extras, hear_sabotage, hear_aftereffect, stand_after_ride, hear_active, hear_tide).chain(),
                 ),
             )
                 .chain()
@@ -825,9 +834,15 @@ fn tell_drops(
     players: Query<(&PlayerSeat, &Modifiers), With<Player>>,
 ) {
     for (entity, dropped) in &drops {
-        if mirror.drops.contains_key(&entity) {
+        // One the Tide has washed up is told again, where it lies now.
+        if let Some(&id) = mirror.drops.get(&entity) {
+            if mirror.drop_at.get(&entity).is_some_and(|&at| at != dropped.at()) {
+                mirror.drop_at.insert(entity, dropped.at());
+                tell.all(&WorldEvent::DropAppeared { id, power_up: dropped.power_up(), at: dropped.at().to_array() });
+            }
             continue;
         }
+        mirror.drop_at.insert(entity, dropped.at());
         let id = mirror.next_drop;
         mirror.next_drop += 1;
         mirror.drops.insert(entity, id);
@@ -842,6 +857,26 @@ fn tell_drops(
         let taker = taker.and_then(|taker| players.get(taker).ok());
         let extra_secs = taker.map_or(0.0, |(_, modifiers)| resolve(Stat::PowerUpDuration, 0.0, &modifiers.0));
         tell.all(&WorldEvent::PowerUp { power_up, taker: taker.map(|(seat, _)| seat.0), extra_secs });
+    }
+}
+
+/// The Tide, when its phase or the state of its Turn changes.
+fn tell_tide(mut tell: Tell, mut mirror: ResMut<Mirror>, tide: Option<Res<Tide>>) {
+    let Some(tide) = tide else { return };
+    let now = (tide.phase, tide.turn.kind());
+    if mirror.tide != now {
+        mirror.tide = now;
+        tell.all(&WorldEvent::Tide { phase: tide.phase, turn: tide.turn });
+    }
+}
+
+/// A client shows the Tide as the Host says, and runs its Turn on from there.
+fn hear_tide(mut heard: MessageReader<Heard>, tide: Option<ResMut<Tide>>) {
+    let Some(mut tide) = tide else { return };
+    for Heard(event) in heard.read() {
+        if let WorldEvent::Tide { phase, turn } = *event {
+            *tide = Tide { phase, turn };
+        }
     }
 }
 
@@ -1118,11 +1153,12 @@ fn catch_up_world(
         Query<(&NetId, &Trap)>,
         Query<&PlayerSeat>,
     ),
-    (teleporter, active, round, generators): (
+    (teleporter, active, round, generators, tide): (
         Res<crate::maps::teleporter::Teleporter>,
         Res<ActivePowerUps>,
         Option<Res<Round>>,
         Option<Res<Generators>>,
+        Option<Res<Tide>>,
     ),
     (drops, restores, ids): (Query<(Entity, &Dropped)>, Query<(&NetId, &Restore, &Transform)>, Query<&NetId>),
     pieces: Query<&PieceState>,
@@ -1197,6 +1233,10 @@ fn catch_up_world(
                 Target::Teleporter | Target::Generator(_) => None,
             };
             say(WorldEvent::Sabotage { restore: id.0, target, at: at.translation.to_array() });
+        }
+        // The phase decides the water, so it is always told, even when Still.
+        if let Some(tide) = &tide {
+            say(WorldEvent::Tide { phase: tide.phase, turn: tide.turn });
         }
         if let Some(round) = &round {
             say(WorldEvent::Round { number: round.number, hellhound: round.hellhound });
@@ -1590,11 +1630,16 @@ fn hear_drops(
     mut active: ResMut<ActivePowerUps>,
     mut taken: MessageWriter<PowerUpTaken>,
     players: Query<(Entity, &PlayerSeat), With<Player>>,
+    mut lying: Query<&mut Dropped>,
 ) {
     for Heard(event) in heard.read() {
         match *event {
             WorldEvent::DropAppeared { id, power_up, at } => {
-                if let Some(assets) = &assets
+                if let Some(&shown) = mirror.shown_drops.get(&id) {
+                    if let Ok(mut dropped) = lying.get_mut(shown) {
+                        dropped.wash_to(Vec3::from_array(at));
+                    }
+                } else if let Some(assets) = &assets
                     && !mirror.shown_drops.contains_key(&id)
                 {
                     let entity = spawn_drop(&mut commands, assets, power_up, Vec3::from_array(at));

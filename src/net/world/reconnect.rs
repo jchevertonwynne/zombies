@@ -136,3 +136,34 @@ fn the_state_a_returning_player_missed_is_told_to_them() {
     let mut query = world.query::<&Dropped>();
     assert_eq!(query.iter(world).count(), 1);
 }
+
+/// A client sees the Tide's Bells, Turning and landing as the Host sends them, and a Player who
+/// comes back mid-Run is told the phase, even when it is Still.
+#[test]
+fn a_client_follows_the_tide_and_a_returning_player_is_told_its_phase() {
+    use crate::maps::tide::{Tide, TidePhase, TurnState};
+    let mut run = Run::with(2, &|app: &mut App| {
+        coop(app);
+        app.init_resource::<Tide>();
+    });
+    run.step(5);
+    let seen = |run: &mut Run| *run.world(1).resource::<Tide>();
+    *run.world(0).resource_mut::<Tide>() = Tide { phase: TidePhase::Low, turn: TurnState::Bells { elapsed: 0.0 } };
+    run.step(5);
+    assert!(matches!(seen(&mut run).turn, TurnState::Bells { .. }), "the bells are heard");
+    *run.world(0).resource_mut::<Tide>() = Tide { phase: TidePhase::Low, turn: TurnState::Turning { elapsed: 0.0 } };
+    run.step(5);
+    assert!(matches!(seen(&mut run).turn, TurnState::Turning { .. }));
+    *run.world(0).resource_mut::<Tide>() = Tide { phase: TidePhase::Rising, turn: TurnState::Still };
+    run.step(5);
+    assert_eq!(seen(&mut run), Tide { phase: TidePhase::Rising, turn: TurnState::Still }, "the landing");
+
+    // A Player who was away while it moved on is told the phase when they are back.
+    run.cut(1);
+    run.step(2);
+    *run.world(0).resource_mut::<Tide>() = Tide { phase: TidePhase::Falling, turn: TurnState::Still };
+    run.step(30);
+    run.world(0).write_message(RoundStarted);
+    run.step(10);
+    assert_eq!(run.world(1).resource::<Tide>().phase, TidePhase::Falling);
+}

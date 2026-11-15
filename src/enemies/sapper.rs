@@ -1092,8 +1092,10 @@ fn unstick(
     players: Players,
     graph: Res<NavGraph>,
     map: Res<MapId>,
+    tide: Option<Res<crate::maps::tide::Tide>>,
     time: Res<Time>,
 ) {
+    let tide = tide.map_or_else(Default::default, |tide| tide.level());
     let half = ZOMBIE_RADIUS + ZOMBIE_CAPSULE_LENGTH / 2.0;
     for (mut sapper, mut transform, mut easing, mut route, seeking, stunned) in &mut sappers {
         let Some(player) = players.target_of(route.target, transform.translation) else {
@@ -1105,7 +1107,7 @@ fn unstick(
             || sapper.working.is_some()
             || (goal - feet).with_y(0.0).length() <= SAPPER_SABOTAGE_REACH + 0.5;
         let stuck = sapper.watch.update(transform.translation, at_goal, time.delta_secs());
-        if !stuck && !map.layout().out_of_bounds(transform.translation) {
+        if !stuck && !map.layout().out_of_bounds(tide, transform.translation) {
             continue;
         }
         let node = graph.nodes[graph.nearest(goal)].at;

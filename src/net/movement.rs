@@ -662,7 +662,7 @@ fn a_walk_through_shallow_water_replays_to_the_same_place() {
     let mut run = Run::on(MapId::Cove, 1, 3, 0.0, 0, &|_| {});
     let start = run.at(0, 1);
     assert!(
-        crate::maps::water::wading(MapId::Cove.layout(), start - Vec3::Y * Stance::Standing.half_height()),
+        crate::maps::water::wading(MapId::Cove.layout(), Default::default(), start - Vec3::Y * Stance::Standing.half_height()),
         "the Seat isn't in the surf"
     );
     let east = -std::f32::consts::FRAC_PI_2;
