@@ -90,7 +90,7 @@ pub const VILLAGE_NIGHT: Look = Look {
     fog: Color::srgb(0.025, 0.035, 0.07),
     sky_map: Some(("skies/qwantani_night_puresky/sky.ktx2", 200.0)),
     lamps: 1.0,
-    temperature: -0.04,
+    temperature: -0.06,
     tint: 0.0,
 };
 

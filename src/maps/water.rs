@@ -485,7 +485,7 @@ fn start_rising(
     for (entity, at, zombie, centre_y) in rising {
         let floor = Vec3::new(at.x, rising_floor(centre_y), at.z);
         let surface = surface_at(layout, tide, floor).map(|height| Vec3::new(at.x, height, at.z));
-        commands.entity(entity).insert(Rise { surface });
+        commands.entity(entity).try_insert(Rise { surface });
         // A Nova Crawler drops from its Vent, and a special rises with its own sound.
         if !zombie.is_special() && !zombie.is_hellhound() {
             cues.write(PlayCue::new(rise_cue(layout, tide, floor), Some(surface.unwrap_or(at))));

@@ -195,7 +195,7 @@ impl Material {
             Material::ConcreteMoss => ("concrete_moss", 3.0),
             Material::CrackedConcrete => ("cracked_concrete", 2.0),
             Material::WhiteSandstoneBricks03 => ("white_sandstone_bricks_03", 2.0),
-            Material::WhitePlasterRough01 => ("white_plaster_rough_01", 1.0),
+            Material::WhitePlasterRough01 => ("white_plaster_rough_01", 2.0),
             Material::MuddyTracks => ("muddy_tracks", 2.25),
             Material::LeafyGrass => ("leafy_grass", 2.0),
             Material::RockWall05 => ("rock_wall_05", 2.26),
@@ -212,6 +212,14 @@ impl Material {
             Material::GrayRocks => ("gray_rocks", 1.8),
             Material::BlackPaintedPlanks => ("black_painted_planks", 1.6),
             Material::CheckeredPavementTiles => ("checkered_pavement_tiles", 2.0),
+        }
+    }
+
+    /// What the albedo is multiplied by: white, but for the sets that read pale under the lamps.
+    pub fn tint(self) -> Color {
+        match self {
+            Material::RustyMetal02 | Material::BrokenWall => Color::srgb(0.62, 0.62, 0.62),
+            _ => Color::WHITE,
         }
     }
 
@@ -383,6 +391,7 @@ fn request(
 ) {
     for material in pieces.iter().filter_map(|(textured, veneer)| textured.map(|t| t.material).or(veneer.map(|v| v.0))) {
         library.0.entry(material).or_insert_with(|| {
+            let tint = material.tint();
             let files = material.files();
             if !files.iter().all(|file| on_disk(file)) {
                 debug!("{material:?}: files missing, staying in the palette");
@@ -390,6 +399,7 @@ fn request(
             }
             let [color, normal, orm] = files.map(|file| load_tiling(&asset_server, file));
             let material = materials.add(StandardMaterial {
+                base_color: tint,
                 base_color_texture: Some(color.clone()),
                 normal_map_texture: Some(normal.clone()),
                 metallic_roughness_texture: Some(orm.clone()),
@@ -464,7 +474,7 @@ fn put_on(
             }
             _ => {}
         }
-        commands.entity(entity).insert(Dressed);
+        commands.entity(entity).try_insert(Dressed);
     }
 }
 
@@ -479,7 +489,7 @@ fn reveal(
         let Some(Entry::Loading { images, .. }) = library.0.get(&veneer.0) else { continue };
         if dress(true, &images.each_ref().map(|image| load_of(&asset_server, image))) == Dress::Textured {
             *visibility = Visibility::Inherited;
-            commands.entity(entity).insert(Revealed);
+            commands.entity(entity).try_insert(Revealed);
         }
     }
 }
