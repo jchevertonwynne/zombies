@@ -4,13 +4,15 @@
 //! the Look's grade. A Map with Darkness keeps its own close black fog and stronger Bloom.
 //!
 //! A Look may name a CC0 HDRI sky (a KTX2 cubemap from `texpack --sky`), which is the Player
-//! camera's skybox and, filtered on the GPU, its outdoor reflections and ambient. If the Look names
-//! none, or the file isn't on disk, the sky colour is the clear colour.
+//! camera's skybox and, through the `diffuse.ktx2` and `specular.ktx2` prefiltered beside it, its
+//! outdoor ambient and reflections (Bevy's `GeneratedEnvironmentMapLight` filtered the sky on the
+//! GPU every frame, which cost the Greybox ~4 ms). If the Look names none, or the file isn't on
+//! disk, the sky colour is the clear colour; if the prefiltered maps aren't, the sky lights nothing.
 
 use bevy::anti_alias::smaa::Smaa;
 use bevy::camera::Hdr;
 use bevy::core_pipeline::tonemapping::Tonemapping;
-use bevy::light::{CascadeShadowConfig, CascadeShadowConfigBuilder, GeneratedEnvironmentMapLight, Skybox};
+use bevy::light::{CascadeShadowConfig, CascadeShadowConfigBuilder, EnvironmentMapLight, Skybox};
 use bevy::pbr::{DistanceFog, ScreenSpaceAmbientOcclusion};
 use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
@@ -133,7 +135,6 @@ impl Plugin for LookPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(post_stack)
             .add_systems(OnEnter(GameState::Playing), set_world)
-            .add_systems(Update, light_from_sky)
             .add_systems(Update, (follow_zone_fog, shadow_nearest_lamps).run_if(in_state(GameState::Playing)));
     }
 }
@@ -190,18 +191,9 @@ fn shadow_nearest_lamps(eyes: Query<&GlobalTransform, With<PlayerCamera>>, mut l
     }
 }
 
-/// A camera whose sky is still to light the Map, at this intensity.
-#[derive(Component)]
-struct SkyLight(f32);
-
-/// Once the sky has loaded, filter a copy of it into reflections and ambient light. (Sharing the
-/// skybox's own image with the filter blanks the view.)
-fn light_from_sky(mut commands: Commands, mut images: ResMut<Assets<Image>>, cameras: Query<(Entity, &Skybox, &SkyLight)>) {
-    for (entity, skybox, light) in &cameras {
-        let Some(sky) = skybox.image.as_ref().and_then(|handle| images.get(handle)).cloned() else { continue };
-        let copy = images.add(sky);
-        commands.entity(entity).remove::<SkyLight>().insert(GeneratedEnvironmentMapLight { environment_map: copy, intensity: light.0, ..default() });
-    }
+/// The file named `name` in the same directory as the asset `path`.
+fn sibling(path: &str, name: &str) -> String {
+    std::path::Path::new(path).with_file_name(name).to_string_lossy().into_owned()
 }
 
 /// The post stack, from the camera's first frame so its shaders compile while the Map loads.
@@ -224,9 +216,16 @@ fn post_stack(
     {
         let image: Handle<Image> = asset_server.load(file);
         camera.insert(Skybox { image: Some(image), brightness, ..default() });
-        // Under Darkness the sky is only to look at: it lights nothing.
-        if !layout.darkness {
-            camera.insert(SkyLight(brightness * SKY_LIGHT));
+        // Under Darkness the sky is only to look at: it lights nothing. Otherwise it lights the Map
+        // through the maps `texpack --sky` prefiltered beside it, if they're on disk.
+        let (diffuse, specular) = (sibling(file, "diffuse.ktx2"), sibling(file, "specular.ktx2"));
+        if !layout.darkness && on_disk(&diffuse) && on_disk(&specular) {
+            camera.insert(EnvironmentMapLight {
+                diffuse_map: asset_server.load(diffuse),
+                specular_map: asset_server.load(specular),
+                intensity: brightness * SKY_LIGHT,
+                ..default()
+            });
         }
     }
     if layout.darkness {

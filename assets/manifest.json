@@ -390,7 +390,7 @@
       "source": "https://polyhaven.com/a/belfast_sunset_puresky",
       "licence": "CC0",
       "fetched": "2026-11-14",
-      "notes": "2K HDR as a 512px BC6H cubemap, turned 115.7 degrees, via texpack --sky"
+      "notes": "2K HDR as a 512px BC6H cubemap, turned 115.7 degrees, via texpack --sky; diffuse.ktx2 and specular.ktx2 are its prefiltered irradiance and GGX chain, from the same run"
     },
     {
       "path": "skies/qwantani_night_puresky",
@@ -398,7 +398,7 @@
       "source": "https://polyhaven.com/a/qwantani_night_puresky",
       "licence": "CC0",
       "fetched": "2026-11-15",
-      "notes": "2K HDR as a 512px BC6H cubemap via texpack --sky"
+      "notes": "2K HDR as a 512px BC6H cubemap via texpack --sky (its prefiltered diffuse.ktx2 and specular.ktx2 are not kept: the Dam's sky lights nothing)"
     }
   ]
 }

@@ -48,7 +48,11 @@ take 3.5). `--stain <seed>` makes a procedural oil stain here, so it's CC0 with
 
 A sky is one file, `assets/skies/<id>/sky.ktx2`: an equirectangular HDRI as a cubemap of six BC6H
 faces with a full mip chain and zstd supercompression (512 px faces come to about 1.7 MB). The
-camera shows it as its `Skybox` and filters a copy into reflections and ambient light.
+camera shows it as its `Skybox`. The tool also writes the sky prefiltered for lighting, beside it:
+`diffuse.ktx2` (a 32 px cosine-convolved irradiance cubemap, a few KB) and `specular.ktx2` (a
+GGX-filtered chain, mip `m` of `n` being perceptual roughness `m / (n - 1)`, about 1.7 MB), which
+the camera uses as a plain `EnvironmentMapLight`. Bevy's `GeneratedEnvironmentMapLight` would filter
+the sky on the GPU every frame, which cost the Greybox about 4 ms.
 
 ```
 cargo run --release -p texpack -- --sky belfast_sunset_puresky_2k.hdr --yaw 115.7 --out assets/skies/belfast_sunset_puresky

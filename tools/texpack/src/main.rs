@@ -202,44 +202,238 @@ fn write_sky(out: &Path, hdr: &Path, size: u32, yaw: f32) -> Result<()> {
     let lat = (0.5 - (at.1 as f32 + 0.5) / sh as f32) * std::f32::consts::PI;
     println!("brightest pixel {best:.0} at direction ({:.2}, {:.2}, {:.2})", lat.cos() * lon.sin(), lat.sin(), -lat.cos() * lon.cos());
 
-    let faces = (0..6)
+    // The cubemap at full size, face by face (+X, -X, +Y, -Y, +Z, -Z), as linear RGB.
+    // BC6H holds up to half-float range; a sun disc far past that only blows out.
+    let cube: Vec<Vec<[f32; 3]>> = (0..6)
         .map(|face| {
-            let mut data = Vec::with_capacity((size * size * 16) as usize);
+            let mut texels = Vec::with_capacity((size * size) as usize);
             for py in 0..size {
                 for px in 0..size {
                     let (sc, tc) = ((px as f32 + 0.5) / size as f32 * 2.0 - 1.0, (py as f32 + 0.5) / size as f32 * 2.0 - 1.0);
-                    let direction = match face {
-                        0 => [1.0, -tc, -sc],
-                        1 => [-1.0, -tc, sc],
-                        2 => [sc, 1.0, tc],
-                        3 => [sc, -1.0, -tc],
-                        4 => [sc, -tc, 1.0],
-                        _ => [-sc, -tc, -1.0],
-                    };
-                    // BC6H holds up to half-float range; a sun disc far past that only blows out.
-                    for channel in sample(direction) {
-                        data.extend_from_slice(&channel.clamp(0.0, 2000.0).to_le_bytes());
-                    }
-                    data.extend_from_slice(&1.0_f32.to_le_bytes());
+                    texels.push(sample(face_direction(face, sc, tc)).map(|c| c.clamp(0.0, 2000.0)));
                 }
             }
-            vec![Surface {
-                data,
-                width: size,
-                height: size,
-                depth: 1,
-                stride: size * 16,
-                slice_stride: 0,
-                format: Format::R32G32B32A32_SFLOAT,
-                color_space: ColorSpace::Linear,
-                alpha: AlphaMode::Opaque,
-            }]
+            texels
         })
         .collect();
-    write(out, "sky", Image { surfaces: faces, kind: TextureKind::Cubemap }, Format::BC6H_UFLOAT_BLOCK)
+    write(out, "sky", Image { surfaces: cube.iter().map(|face| vec![surface_of(face, size)]).collect(), kind: TextureKind::Cubemap }, Format::BC6H_UFLOAT_BLOCK, true)?;
+    prefilter(out, cube, size)
 }
 
-fn encode(image: Image, format: Format) -> Result<Vec<u8>> {
+/// The direction a cubemap face's texel looks along, for face coordinates `sc`, `tc` in -1..1.
+fn face_direction(face: usize, sc: f32, tc: f32) -> [f32; 3] {
+    match face {
+        0 => [1.0, -tc, -sc],
+        1 => [-1.0, -tc, sc],
+        2 => [sc, 1.0, tc],
+        3 => [sc, -1.0, -tc],
+        4 => [sc, -tc, 1.0],
+        _ => [-sc, -tc, -1.0],
+    }
+}
+
+/// A float cubemap with a full mip chain (a 2x2 box filter), which can be sampled by direction.
+struct CubeChain {
+    /// `levels[mip][face]`, each `(size >> mip)` squared.
+    levels: Vec<Vec<Vec<[f32; 3]>>>,
+}
+
+impl CubeChain {
+    fn new(cube: Vec<Vec<[f32; 3]>>, size: u32) -> Self {
+        let mut levels = vec![cube];
+        let mut width = size as usize;
+        while width > 1 {
+            let last = levels.last().unwrap();
+            let half = width / 2;
+            let next = last
+                .iter()
+                .map(|face| {
+                    (0..half * half)
+                        .map(|i| {
+                            let (x, y) = ((i % half) * 2, (i / half) * 2);
+                            let texels = [face[y * width + x], face[y * width + x + 1], face[(y + 1) * width + x], face[(y + 1) * width + x + 1]];
+                            std::array::from_fn(|c| texels.iter().map(|t| t[c]).sum::<f32>() / 4.0)
+                        })
+                        .collect()
+                })
+                .collect();
+            levels.push(next);
+            width = half;
+        }
+        CubeChain { levels }
+    }
+
+    fn width(&self, mip: usize) -> usize {
+        (self.levels[0][0].len() as f32).sqrt() as usize >> mip
+    }
+
+    /// Bilinear within a face, at one mip.
+    fn sample_mip(&self, d: [f32; 3], mip: usize) -> [f32; 3] {
+        let (ax, ay, az) = (d[0].abs(), d[1].abs(), d[2].abs());
+        let (face, sc, tc) = if ax >= ay && ax >= az {
+            if d[0] > 0.0 { (0, -d[2] / ax, -d[1] / ax) } else { (1, d[2] / ax, -d[1] / ax) }
+        } else if ay >= az {
+            if d[1] > 0.0 { (2, d[0] / ay, d[2] / ay) } else { (3, d[0] / ay, -d[2] / ay) }
+        } else if d[2] > 0.0 {
+            (4, d[0] / az, -d[1] / az)
+        } else {
+            (5, -d[0] / az, -d[1] / az)
+        };
+        let w = self.width(mip);
+        let (u, v) = ((sc * 0.5 + 0.5) * w as f32 - 0.5, (tc * 0.5 + 0.5) * w as f32 - 0.5);
+        let (x0, y0) = (u.floor(), v.floor());
+        let (fx, fy) = (u - x0, v - y0);
+        let at = |x: f32, y: f32| self.levels[mip][face][(y.clamp(0.0, w as f32 - 1.0) as usize) * w + x.clamp(0.0, w as f32 - 1.0) as usize];
+        let (a, b, c, e) = (at(x0, y0), at(x0 + 1.0, y0), at(x0, y0 + 1.0), at(x0 + 1.0, y0 + 1.0));
+        std::array::from_fn(|i| (a[i] * (1.0 - fx) + b[i] * fx) * (1.0 - fy) + (c[i] * (1.0 - fx) + e[i] * fx) * fy)
+    }
+
+    /// Trilinear, at a fractional mip.
+    fn sample(&self, d: [f32; 3], lod: f32) -> [f32; 3] {
+        let lod = lod.clamp(0.0, (self.levels.len() - 1) as f32);
+        let (lo, f) = (lod.floor() as usize, lod.fract());
+        let a = self.sample_mip(d, lo);
+        if f == 0.0 || lo + 1 >= self.levels.len() {
+            return a;
+        }
+        let b = self.sample_mip(d, lo + 1);
+        std::array::from_fn(|i| a[i] * (1.0 - f) + b[i] * f)
+    }
+}
+
+fn surface_of(texels: &[[f32; 3]], width: u32) -> Surface {
+    let mut data = Vec::with_capacity(texels.len() * 16);
+    for texel in texels {
+        for channel in texel {
+            data.extend_from_slice(&channel.to_le_bytes());
+        }
+        data.extend_from_slice(&1.0_f32.to_le_bytes());
+    }
+    Surface {
+        data,
+        width,
+        height: width,
+        depth: 1,
+        stride: width * 16,
+        slice_stride: 0,
+        format: Format::R32G32B32A32_SFLOAT,
+        color_space: ColorSpace::Linear,
+        alpha: AlphaMode::Opaque,
+    }
+}
+
+/// Runs `texel(face, sc, tc)` over every texel of a `width`-px cubemap face set, on all cores.
+fn bake_faces(width: usize, texel: impl Fn([f32; 3]) -> [f32; 3] + Sync) -> Vec<Vec<[f32; 3]>> {
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
+    (0..6)
+        .map(|face| {
+            let mut texels = vec![[0.0; 3]; width * width];
+            let rows = width.div_ceil(threads).max(1);
+            std::thread::scope(|scope| {
+                for (chunk, band) in texels.chunks_mut(rows * width).enumerate() {
+                    let texel = &texel;
+                    scope.spawn(move || {
+                        for (i, out) in band.iter_mut().enumerate() {
+                            let index = chunk * rows * width + i;
+                            let (px, py) = (index % width, index / width);
+                            let (sc, tc) = ((px as f32 + 0.5) / width as f32 * 2.0 - 1.0, (py as f32 + 0.5) / width as f32 * 2.0 - 1.0);
+                            *out = texel(face_direction(face, sc, tc));
+                        }
+                    });
+                }
+            });
+            texels
+        })
+        .collect()
+}
+
+/// The sky, prefiltered for image-based lighting, as `diffuse.ktx2` (a 32 px cosine-convolved
+/// irradiance cubemap) and `specular.ktx2` (a GGX-filtered chain whose mip `m` of `n` is
+/// perceptual roughness `m / (n - 1)`, which is how Bevy's `EnvironmentMapLight` reads it). This is
+/// what Bevy's `GeneratedEnvironmentMapLight` would filter on the GPU, done once, here.
+fn prefilter(out: &Path, cube: Vec<Vec<[f32; 3]>>, size: u32) -> Result<()> {
+    use std::f32::consts::PI;
+    let chain = CubeChain::new(cube, size);
+    let normalise = |d: [f32; 3]| {
+        let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        [d[0] / len, d[1] / len, d[2] / len]
+    };
+    let dot = |a: [f32; 3], b: [f32; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+    // Diffuse: the sky's 64 px mip, weighted by cosine and each texel's solid angle.
+    let source_mip = (size.trailing_zeros() - 6) as usize;
+    let source_width = chain.width(source_mip);
+    let mut texels: Vec<([f32; 3], f32, [f32; 3])> = Vec::new();
+    for face in 0..6 {
+        for i in 0..source_width * source_width {
+            let (px, py) = (i % source_width, i / source_width);
+            let (sc, tc) = ((px as f32 + 0.5) / source_width as f32 * 2.0 - 1.0, (py as f32 + 0.5) / source_width as f32 * 2.0 - 1.0);
+            let omega = 4.0 / (source_width * source_width) as f32 / (1.0 + sc * sc + tc * tc).powf(1.5);
+            texels.push((normalise(face_direction(face, sc, tc)), omega, chain.levels[source_mip][face][i]));
+        }
+    }
+    let diffuse = bake_faces(32, |n| {
+        let mut sum = [0.0; 3];
+        for (d, omega, colour) in &texels {
+            let cos = dot(n, *d);
+            if cos > 0.0 {
+                for c in 0..3 {
+                    sum[c] += colour[c] * cos * omega;
+                }
+            }
+        }
+        sum.map(|c| c / PI)
+    });
+    write(out, "diffuse", Image { surfaces: diffuse.iter().map(|face| vec![surface_of(face, 32)]).collect(), kind: TextureKind::Cubemap }, Format::BC6H_UFLOAT_BLOCK, false)?;
+
+    // Specular: GGX importance sampling with the view along the normal, off a filtered lookup.
+    let mips = size.trailing_zeros() as usize + 1;
+    let mut by_mip: Vec<Vec<Vec<[f32; 3]>>> = Vec::new();
+    for mip in 0..mips {
+        let width = (size >> mip) as usize;
+        let roughness = mip as f32 / (mips - 1) as f32;
+        let alpha = roughness * roughness;
+        if mip == 0 {
+            by_mip.push(chain.levels[0].clone());
+            continue;
+        }
+        let samples = 4 * 32 * 2u32.pow((roughness * 4.0) as u32);
+        let omega_p = 4.0 * PI / (6.0 * (size * size) as f32);
+        by_mip.push(bake_faces(width, |n| {
+            let up = if n[1].abs() < 0.99 { [0.0, 1.0, 0.0] } else { [1.0, 0.0, 0.0] };
+            let t = normalise([up[1] * n[2] - up[2] * n[1], up[2] * n[0] - up[0] * n[2], up[0] * n[1] - up[1] * n[0]]);
+            let b = [n[1] * t[2] - n[2] * t[1], n[2] * t[0] - n[0] * t[2], n[0] * t[1] - n[1] * t[0]];
+            let (mut sum, mut weight) = ([0.0_f32; 3], 0.0_f32);
+            for i in 0..samples {
+                let (u, v) = ((i as f32 + 0.5) / samples as f32, i.reverse_bits() as f32 / 4294967296.0);
+                let cos_h = ((1.0 - v) / (1.0 + (alpha * alpha - 1.0) * v)).sqrt();
+                let sin_h = (1.0 - cos_h * cos_h).max(0.0).sqrt();
+                let phi = 2.0 * PI * u;
+                let h = [t[0] * sin_h * phi.cos() + b[0] * sin_h * phi.sin() + n[0] * cos_h, t[1] * sin_h * phi.cos() + b[1] * sin_h * phi.sin() + n[1] * cos_h, t[2] * sin_h * phi.cos() + b[2] * sin_h * phi.sin() + n[2] * cos_h];
+                let l = [2.0 * cos_h * h[0] - n[0], 2.0 * cos_h * h[1] - n[1], 2.0 * cos_h * h[2] - n[2]];
+                let n_dot_l = dot(n, l);
+                if n_dot_l <= 0.0 {
+                    continue;
+                }
+                let denominator = cos_h * cos_h * (alpha * alpha - 1.0) + 1.0;
+                let pdf = alpha * alpha / (PI * denominator * denominator) / 4.0;
+                let lod = 0.5 * (1.0 / (samples as f32 * pdf) / omega_p).log2();
+                let colour = chain.sample(l, lod);
+                for c in 0..3 {
+                    sum[c] += colour[c] * n_dot_l;
+                }
+                weight += n_dot_l;
+            }
+            sum.map(|c| c / weight.max(1e-6))
+        }));
+    }
+    let surfaces = (0..6)
+        .map(|face| (0..mips).map(|mip| surface_of(&by_mip[mip][face], size >> mip)).collect())
+        .collect();
+    write(out, "specular", Image { surfaces, kind: TextureKind::Cubemap }, Format::BC6H_UFLOAT_BLOCK, false)
+}
+
+fn encode(image: Image, format: Format, mipmap: bool) -> Result<Vec<u8>> {
     let output = ctt::convert(
         image,
         ConvertSettings {
@@ -247,7 +441,7 @@ fn encode(image: Image, format: Format) -> Result<Vec<u8>> {
             container: Container::ktx2_zstd(ZSTD_LEVEL),
             quality: Quality::Slow,
             allow_discarding_alpha: true,
-            mipmap: true,
+            mipmap,
             ..Default::default()
         },
     )?;
@@ -257,8 +451,8 @@ fn encode(image: Image, format: Format) -> Result<Vec<u8>> {
     }
 }
 
-fn write(out: &Path, name: &str, image: Image, format: Format) -> Result<()> {
-    let bytes = encode(image, format).with_context(|| format!("encoding {name}"))?;
+fn write(out: &Path, name: &str, image: Image, format: Format, mipmap: bool) -> Result<()> {
+    let bytes = encode(image, format, mipmap).with_context(|| format!("encoding {name}"))?;
     let path = out.join(format!("{name}.ktx2"));
     std::fs::write(&path, &bytes)?;
     println!("{} ({:.2} MB)", path.display(), bytes.len() as f64 / 1e6);
@@ -271,13 +465,13 @@ fn main() -> Result<()> {
     // ctt names the BC7 block format once; an sRGB source makes it write BC7_SRGB.
     match job {
         Job::Material { color, normal, orm } => {
-            write(&out, "color", load(&color, ColorSpace::Srgb)?, Format::BC7_UNORM_BLOCK)?;
-            write(&out, "normal", load(&normal, ColorSpace::Linear)?, Format::BC5_UNORM_BLOCK)?;
-            write(&out, "orm", load(&orm, ColorSpace::Linear)?, Format::BC7_UNORM_BLOCK)?;
+            write(&out, "color", load(&color, ColorSpace::Srgb)?, Format::BC7_UNORM_BLOCK, true)?;
+            write(&out, "normal", load(&normal, ColorSpace::Linear)?, Format::BC5_UNORM_BLOCK, true)?;
+            write(&out, "orm", load(&orm, ColorSpace::Linear)?, Format::BC7_UNORM_BLOCK, true)?;
         }
-        Job::Decal { color, opacity, gain } => write(&out, "color", load_with_alpha(&color, &opacity, gain)?, Format::BC7_UNORM_BLOCK)?,
+        Job::Decal { color, opacity, gain } => write(&out, "color", load_with_alpha(&color, &opacity, gain)?, Format::BC7_UNORM_BLOCK, true)?,
         Job::Sky { hdr, size, yaw } => write_sky(&out, &hdr, size, yaw)?,
-        Job::Stain { seed } => write(&out, "color", image_of(stain(seed), ColorSpace::Srgb, AlphaMode::Straight), Format::BC7_UNORM_BLOCK)?,
+        Job::Stain { seed } => write(&out, "color", image_of(stain(seed), ColorSpace::Srgb, AlphaMode::Straight), Format::BC7_UNORM_BLOCK, true)?,
     }
     Ok(())
 }
