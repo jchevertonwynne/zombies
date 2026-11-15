@@ -528,8 +528,11 @@ pub fn spawn_water(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials
             let (size_y, y) = (high - low, (high + low) / 2.0);
             // A Leaf of a Piece standing there at the start lets the way onto its deck through.
             let at = Vec3::new(centre.x, 0.0, centre.y);
+            // A Lock Gate's mouths are let through at either Rest: Shut, its walkway crosses them,
+            // and Open, the rail's gap leads to Deep Water, which is Out of Bounds like any other.
             if layout.shifting.iter().any(|piece| {
-                piece.leaves.iter().enumerate().any(|(i, leaf)| leaf.over(at.with_y(leaf.hinge.y), piece.rests[usize::from(piece.start)].yaws[i], 0.3))
+                let rests = if matches!(piece.driver, crate::maps::shifting::Driver::Tide(_)) { 0..piece.rests.len() } else { usize::from(piece.start)..usize::from(piece.start) + 1 };
+                rests.into_iter().any(|rest| piece.leaves.iter().enumerate().any(|(i, leaf)| leaf.over(at.with_y(leaf.hinge.y), piece.rests[rest].yaws[i], 0.3)))
             }) {
                 continue;
             }

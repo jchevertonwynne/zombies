@@ -1,6 +1,7 @@
 //! Shifting: Pieces of the world that turn about vertical hinges between fixed Rests, and the
-//! Levers that drive them. The Polder's four Swing Bridges are the first; the Lock Gates will
-//! drive Pieces from the Tide the same way.
+//! Levers or the Tide that drive them. The Polder's four Swing Bridges are turned by Levers; its
+//! two Lock Gates by the Tide, which gives each the Rest it stands at in every phase and swings it
+//! along with the water.
 //!
 //! A Piece is one or more Leaves, each a solid box (a deck with rails) that turns about its own
 //! vertical hinge. The Host decides everything: a Lever pull starts a cycle of Warning, Waiting
@@ -19,16 +20,17 @@ use crate::audio::cues::Cue;
 use crate::authority::HostSimulation;
 use crate::economy::buy::{Buyable, Purchased, Refused};
 use crate::enemies::sapper::Sabotaged;
-use crate::enemies::target::Players;
+use crate::enemies::target::{Players, half_height_above_feet};
 use crate::enemies::zombie::{Attack, DamageZombie, Dying, HitZone, Rising, Zombie};
 use crate::layers::GameLayer;
 use crate::maps::door::Door;
 use crate::enemies::nav::Route;
 use crate::enemies::special::special_spawn_candidates;
 use crate::maps::map::{Layout, MapId, SpawnKind, SpawnPoint};
+use crate::maps::tide::{Tide, TidePhase, TideTurn, TurnState};
 use crate::maps::zone::ActiveZones;
 use crate::maps::zone::ZoneId;
-use crate::players::player::{LocalPlayer, Player};
+use crate::players::player::{Locomotion, LocalPlayer, Player, Stance, Teleport};
 use crate::state::{InRun, world_runs};
 use crate::tuning::*;
 
@@ -83,6 +85,10 @@ pub enum Driver {
     /// Levers: the Zone each stands in, where (on the floor) and which way it faces (x, z). A
     /// Lever steps to the next Rest, wrapping.
     Levers(&'static [(ZoneId, Vec3, Vec2)]),
+    /// The Tide: the Rest it stands at in each phase (Low, Rising, High, Falling). It Swings only
+    /// on a Turn whose new phase has a different Rest, over the Turn's own seconds, and has no
+    /// Lever, no cooldown and nothing to Sabotage.
+    Tide([u8; 4]),
 }
 
 /// A Piece of world that shifts between Rests.
@@ -146,10 +152,24 @@ impl Piece {
         }
     }
 
-    /// The Levers, as (Zone, floor spot, facing).
+    /// The Levers, as (Zone, floor spot, facing). A Tide-driven Piece has none.
     pub fn levers(&self) -> &'static [(ZoneId, Vec3, Vec2)] {
         match self.driver {
             Driver::Levers(levers) => levers,
+            Driver::Tide(_) => &[],
+        }
+    }
+
+    /// The Rest the Tide holds it at in `phase`, if the Tide drives it.
+    pub fn tide_rest(&self, phase: TidePhase) -> Option<u8> {
+        match self.driver {
+            Driver::Tide(rests) => Some(rests[match phase {
+                TidePhase::Low => 0,
+                TidePhase::Rising => 1,
+                TidePhase::High => 2,
+                TidePhase::Falling => 3,
+            }]),
+            Driver::Levers(_) => None,
         }
     }
 }
@@ -345,6 +365,8 @@ pub struct PieceState {
     phase: PiecePhase,
     /// The Player whose pull it was, whose Tipped kills it credits.
     activator: Option<Entity>,
+    /// Whether the Tide drives it: it comes to Rest at the end of a Swing, with no cooldown.
+    tide: bool,
 }
 
 impl PieceState {
@@ -364,11 +386,21 @@ impl PieceState {
     /// Runs the shown phase on until the Host says what comes next: it never leaves Waiting.
     pub fn advance_shown(&mut self, dt: f32) {
         self.phase.advance(dt, false);
+        self.settle();
+    }
+
+    /// A Tide-driven Piece has no cooldown: a landed Swing is at Rest.
+    fn settle(&mut self) {
+        if self.tide
+            && let PiecePhase::Cooling { at, .. } = self.phase
+        {
+            self.phase = PiecePhase::Rest(at);
+        }
     }
 
     /// A Piece standing at its start Rest.
     pub fn at_start(id: PieceId, piece: &Piece) -> Self {
-        Self { id, phase: PiecePhase::Rest(piece.start), activator: None }
+        Self { id, phase: PiecePhase::Rest(piece.start), activator: None, tide: matches!(piece.driver, Driver::Tide(_)) }
     }
 }
 
@@ -395,6 +427,11 @@ impl Lever {
 /// The amber lamp on a Lever's post.
 #[derive(Component)]
 struct LeverLamp(PieceId);
+
+/// The amber lamp on a Lock Gate's hinge post: lit through the bells and the Turn when the gate
+/// is about to Swing.
+#[derive(Component)]
+struct GateLamp(PieceId);
 
 /// A Zombie being Tipped into the canal: thrown off the side, then it drops and splashes.
 #[derive(Component)]
@@ -476,6 +513,25 @@ pub fn spawn_pieces(commands: &mut Commands, meshes: &mut Assets<Mesh>, material
                     }
                 });
         }
+        if matches!(piece.driver, Driver::Tide(_)) {
+            for leaf in piece.leaves {
+                // On the rail, behind the hinge: away from where the Leaf lies when Shut.
+                let shut = piece.rests[0].yaws[piece.leaves.iter().position(|other| other == leaf).unwrap_or(0)];
+                let outward = (leaf.hinge - leaf.centre(shut)).with_y(0.0).normalize_or_zero();
+                let side = Vec3::new(0.0, 0.0, 1.2);
+                let at = leaf.hinge + outward * 0.25 + side;
+                commands.spawn((InRun, Name::new("Gate post"), Mesh3d(post.clone()), MeshMaterial3d(iron.clone()), Transform::from_translation(at + Vec3::Y * 0.5)));
+                commands.spawn((
+                    InRun,
+                    Name::new("Gate lamp"),
+                    GateLamp(id),
+                    Mesh3d(lamp.clone()),
+                    MeshMaterial3d(lamp_off.clone()),
+                    Transform::from_translation(at + Vec3::Y * 1.2),
+                    Visibility::Hidden,
+                ));
+            }
+        }
         for &(_, at, facing) in piece.levers() {
             let normal = Vec3::new(facing.x, 0.0, facing.y);
             let use_point = at + Vec3::Y * 1.1 + normal * 0.3;
@@ -502,13 +558,14 @@ pub struct ShiftingPlugin;
 impl Plugin for ShiftingPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<SwingStarted>()
+            .add_message::<Teleport>()
             .add_systems(FixedUpdate, (pose_leaves, throw_tipped).run_if(world_runs))
             .add_systems(FixedUpdate, move_sappers.in_set(HostSimulation).run_if(world_runs))
             .add_systems(
                 Update,
                 (
-                    (use_levers, run_pieces, tip_occupants).chain().in_set(HostSimulation),
-                    (prompt_levers, light_lamps, ring_cues).chain(),
+                    (use_levers, drive_gates.after(TideTurn), run_pieces, tip_occupants, wash_gate_players).chain().in_set(HostSimulation),
+                    (prompt_levers, light_lamps, light_gate_lamps, ring_cues).chain(),
                 )
                     .run_if(world_runs),
             );
@@ -567,6 +624,7 @@ fn run_pieces(
         };
         let id = state.id;
         let beat = state.phase.advance(time.delta_secs(), clear);
+        state.settle();
         if let Some((from, to)) = beat.started {
             swings.write(SwingStarted { piece: id, from, to });
         }
@@ -585,7 +643,7 @@ pub(crate) fn debug_swing(
     let layout = map.layout();
     let nearest = pieces
         .iter()
-        .filter_map(|state| layout.shifting.get(usize::from(state.id.0)).map(|piece| (state.id, piece.leaves[0].hinge.distance(player.translation))))
+        .filter_map(|state| layout.shifting.get(usize::from(state.id.0)).filter(|piece| !matches!(piece.driver, Driver::Tide(_))).map(|piece| (state.id, piece.leaves[0].hinge.distance(player.translation))))
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .map(|(id, _)| id);
     for mut state in &mut pieces {
@@ -598,6 +656,74 @@ pub(crate) fn debug_swing(
             let id = state.id;
             state.phase.swing_now(next);
             swings.write(SwingStarted { piece: id, from, to: next });
+        }
+    }
+}
+
+/// The Tide drives its Pieces: a Turn whose new phase has a different Rest sets the Piece
+/// Swinging from the start of Turning, over the Turn's seconds, and the Tide landing puts it at the
+/// Rest of the phase it lands on (a Turn finished at once swings nothing: the Swing's effects come
+/// at once). It has no Lever, no warning and no wait: the bells were the warning.
+fn drive_gates(tide: Option<Res<Tide>>, mut pieces: Query<&mut PieceState>, map: Res<MapId>, mut swings: MessageWriter<SwingStarted>) {
+    let Some(tide) = tide else { return };
+    let layout = map.layout();
+    for mut state in &mut pieces {
+        let Some(piece) = layout.shifting.get(usize::from(state.id.0)) else { continue };
+        let Some(now) = piece.tide_rest(tide.phase) else { continue };
+        let id = state.id;
+        match tide.turn {
+            TurnState::Turning { elapsed } => {
+                let Some(to) = piece.tide_rest(tide.phase.next()) else { continue };
+                if to != now && state.phase == PiecePhase::Rest(now) {
+                    state.phase = PiecePhase::Swinging { from: now, to, elapsed };
+                    swings.write(SwingStarted { piece: id, from: now, to });
+                }
+            }
+            TurnState::Still => match state.phase {
+                PiecePhase::Rest(at) if at == now => {}
+                PiecePhase::Rest(at) => {
+                    // The Turn was finished at once: the Swing's effects come as it is put at Rest.
+                    state.phase = PiecePhase::Rest(now);
+                    swings.write(SwingStarted { piece: id, from: at, to: now });
+                }
+                _ => state.phase = PiecePhase::Rest(now),
+            },
+            TurnState::Bells { .. } => {}
+        }
+    }
+}
+
+/// A Player on a Lock Gate's top or in its sweep when its Swing starts is Washed Up to the nearer
+/// landing node of the Rest they were on, with no damage and no Down (a Down Player keeps their
+/// Last Stand). The Tide can't wait: the bells were the warning.
+fn wash_gate_players(
+    mut swings: MessageReader<SwingStarted>,
+    mut players: Query<(Entity, &mut Transform, Option<&Locomotion>), With<Player>>,
+    graph: Option<Res<crate::enemies::nav::NavGraph>>,
+    map: Res<MapId>,
+    mut teleport: MessageWriter<Teleport>,
+) {
+    let layout = map.layout();
+    for &SwingStarted { piece: id, from, to } in swings.read() {
+        let Some(piece) = layout.shifting.get(usize::from(id.0)) else { continue };
+        if !matches!(piece.driver, Driver::Tide(_)) {
+            continue;
+        }
+        let Some(graph) = graph.as_ref().filter(|graph| graph.map == *map) else { continue };
+        let landings: Vec<Vec3> = graph
+            .edges
+            .iter()
+            .filter(|edge| edge.gate == crate::enemies::nav::Gate::Rest(id, from))
+            .flat_map(|edge| [graph.nodes[edge.from].at, graph.nodes[edge.to].at])
+            .collect();
+        for (player, mut transform, locomotion) in &mut players {
+            let feet = transform.translation - Vec3::Y * half_height_above_feet(locomotion);
+            if !piece.in_way(feet, from, to) {
+                continue;
+            }
+            let Some(&landing) = landings.iter().min_by(|a, b| a.distance(feet).total_cmp(&b.distance(feet))) else { continue };
+            transform.translation = landing + Vec3::Y * (Stance::Standing.half_height() + 0.05);
+            teleport.write(Teleport { player, feet: landing, facing: None });
         }
     }
 }
@@ -741,6 +867,22 @@ fn light_lamps(pieces: Query<&PieceState>, mut lamps: Query<(&LeverLamp, &mut Vi
     }
 }
 
+/// The amber lamps on a Lock Gate burn through the bells and the Turn when it will Swing, and
+/// while it does.
+fn light_gate_lamps(tide: Option<Res<Tide>>, pieces: Query<&PieceState>, map: Res<MapId>, mut lamps: Query<(&GateLamp, &mut Visibility)>) {
+    let layout = map.layout();
+    for (lamp, mut visibility) in &mut lamps {
+        let lit = pieces.iter().find(|state| state.id == lamp.0).is_some_and(|state| {
+            let moving = layout.shifting.get(usize::from(state.id.0)).zip(tide.as_ref()).is_some_and(|(piece, tide)| {
+                tide.turning() && piece.tide_rest(tide.phase) != piece.tide_rest(tide.phase.next())
+            });
+            moving || state.phase.swinging()
+        });
+        let shown = if lit { Visibility::Inherited } else { Visibility::Hidden };
+        visibility.set_if_neq(shown);
+    }
+}
+
 /// The clunk at Rest, on every machine, from the phase it shows.
 fn ring_cues(
     pieces: Query<&PieceState>,
@@ -794,6 +936,8 @@ mod tests {
     use crate::enemies::special::SpecialKind;
     use crate::enemies::zombie::{Heavyweight, Pay, ZombieKilled};
     use crate::maps::map::POLDER_X;
+    use crate::maps::tide::TIDE_PHASES;
+    use crate::maps::water::{Wading, water_at};
     use crate::maps::zone::{ActiveZones, PlayerZone, update_active_zones};
     use ZoneId::*;
 
@@ -911,11 +1055,12 @@ mod tests {
     // ---- Per Map ----
 
     #[test]
-    fn only_the_polder_has_pieces_four_of_them_each_with_span_and_along() {
+    fn only_the_polder_has_pieces_four_bridges_each_with_span_and_along_and_two_lock_gates() {
         for map in MapId::ALL {
-            assert_eq!(map.layout().shifting.len(), if map == MapId::Polder { 4 } else { 0 }, "{}", map.name());
+            assert_eq!(map.layout().shifting.len(), if map == MapId::Polder { 6 } else { 0 }, "{}", map.name());
         }
-        for (id, piece) in pieces(polder()) {
+        for (id, piece) in pieces(polder()).take(4) {
+            assert!(matches!(piece.driver, Driver::Levers(_)));
             assert_eq!(piece.leaves.len(), 1, "{id:?}");
             assert_eq!((piece.rests.len(), piece.start), (2, 0));
             assert_eq!(piece.rests[0].joins.len(), 1);
@@ -951,7 +1096,7 @@ mod tests {
             let zones = (graph.nodes[edge.from].zone.unwrap(), graph.nodes[edge.to].zone.unwrap());
             assert!(joins.iter().any(|&(a, b)| (a, b) == zones || (b, a) == zones), "{} -> {}: {zones:?} vs {joins:?}", graph.nodes[edge.from].name, graph.nodes[edge.to].name);
         }
-        assert_eq!(seen, 4);
+        assert_eq!(seen, 6, "four bridges and two gates, each with one Rest edge");
     }
 
     /// Every Lever is on its landing's Zone, clear of every sweep, and outside its pen: not
@@ -985,7 +1130,9 @@ mod tests {
         let yes = |_: crate::maps::map::BarrierId| true;
         let start = graph.nearest(polder().seat_start(0));
         for combo in 0..16u8 {
-            let rests: Vec<Option<u8>> = (0..4).map(|i| Some((combo >> i) & 1)).collect();
+            // The gates stand at Low's Rests: the Inland Gate Shut and the Sea Gate Open.
+            let mut rests: Vec<Option<u8>> = (0..4).map(|i| Some((combo >> i) & 1)).collect();
+            rests.extend([Some(0), Some(1)]);
             let state = NavState::new(&doors, &yes).with_rests(&rests);
             for (to, node) in graph.nodes.iter().enumerate() {
                 if node.zone.is_none() || node.vent || node.name.ends_with("_out") {
@@ -1024,7 +1171,10 @@ mod tests {
                 .init_resource::<Kills>()
                 .add_message::<Purchased>()
                 .add_message::<PlayCue>()
-                .add_systems(Update, log_kills);
+                .add_message::<Teleport>()
+                .init_resource::<Tide>()
+                .init_resource::<Swings>()
+                .add_systems(Update, (log_kills, log_swings));
         })
     }
 
@@ -1192,11 +1342,13 @@ mod tests {
         let mut sim = polder_sim();
         let graph = NavGraph::new(MapId::Polder);
         let mut walked = 0;
-        for combo in 0..16u8 {
-            for i in 0..4u8 {
+        // the Lock Gates stand wherever this test shows them, whatever the Tide would have them do
+        sim.world_mut().remove_resource::<Tide>();
+        for combo in 0..64u8 {
+            for i in 0..6u8 {
                 show(&mut sim, i, PiecePhase::Rest((combo >> i) & 1));
             }
-            sim.run(3);
+            sim.run(30);
             let blocked: Vec<String> = sim
                 .world_mut()
                 .run_system_once(move |spatial: SpatialQuery, doors: Query<Entity, With<crate::maps::door::Door>>| -> Vec<String> {
@@ -1211,9 +1363,16 @@ mod tests {
                             let (from, to) = (graph.nodes[edge.from].at + Vec3::Y, graph.nodes[edge.to].at + Vec3::Y);
                             let dir = Dir3::new(to - from).ok()?;
                             let config = ShapeCastConfig::from_max_distance(from.distance(to));
-                            spatial
-                                .cast_shape(&body, from, Quat::IDENTITY, dir, &config, &filter)
-                                .map(|_| format!("{} -> {} at {combo:04b}", graph.nodes[edge.from].name, graph.nodes[edge.to].name))
+                            let name = format!("{} -> {} at {combo:04b}", graph.nodes[edge.from].name, graph.nodes[edge.to].name);
+                            // Walked every half metre, it has a floor under it: the deck, not water.
+                            let floorless = (0..=(from.distance(to) * 2.0) as u32).any(|step| {
+                                let at = from + (to - from) * (step as f32 / (from.distance(to) * 2.0).max(1.0)).min(1.0);
+                                spatial.cast_ray(at, Dir3::NEG_Y, 1.4, true, &filter).is_none()
+                            });
+                            if floorless {
+                                return Some(format!("{name}: no floor"));
+                            }
+                            spatial.cast_shape(&body, from, Quat::IDENTITY, dir, &config, &filter).map(|_| name)
                         })
                         .collect()
                 })
@@ -1221,7 +1380,339 @@ mod tests {
             assert!(blocked.is_empty(), "{blocked:?}");
             walked += graph.edges.iter().filter(|edge| matches!(edge.gate, Gate::Rest(id, rest) if (combo >> id.0) & 1 == rest)).count();
         }
-        // Each of four edges is open in half the combinations.
-        assert_eq!(walked, 4 * 8);
+        // Each of six edges is open in half the combinations.
+        assert_eq!(walked, 6 * 32);
     }
+
+    // ---- Lock Gates ----
+
+    const INLAND: PieceId = PieceId(4);
+    const SEA: PieceId = PieceId(5);
+
+    fn gates() -> [&'static Piece; 2] {
+        [&polder().shifting[4], &polder().shifting[5]]
+    }
+
+    #[test]
+    fn the_gates_stand_at_their_rest_per_phase_and_exactly_one_top_is_shut_at_each() {
+        let [inland, sea] = gates();
+        let rests = |piece: &Piece| TIDE_PHASES.map(|phase| piece.tide_rest(phase).unwrap());
+        // Rest 0 is Shut, 1 is Open: the Inland Gate is Shut at Low and Rising, the Sea Gate at
+        // High and Falling.
+        assert_eq!(rests(inland), [0, 0, 1, 1]);
+        assert_eq!(rests(sea), [1, 1, 0, 0]);
+        for phase in TIDE_PHASES {
+            let shut = gates().iter().filter(|piece| piece.tide_rest(phase) == Some(0)).count();
+            assert_eq!(shut, 1, "{phase:?}: exactly one gate top is a walkway to the island");
+        }
+        assert_eq!((inland.start, sea.start), (0, 1), "a Run starts at Low");
+        assert!(gates().iter().all(|piece| piece.levers().is_empty() && piece.door.is_some()));
+        assert!(market().tide_rest(TidePhase::High).is_none(), "a bridge has no Tide Rest");
+        assert_eq!(SWING_SECS, TIDE_TURN_SECS, "a gate swings for as long as the water turns");
+    }
+
+    /// Shut, the two Leaves meet mid-chamber with a 1 m walkway between their rails; Open, they lie
+    /// inside the chamber against its walls.
+    #[test]
+    fn a_shut_gate_is_a_one_metre_walkway_and_an_open_one_lies_in_its_chamber() {
+        let (inland, sea) = (gates()[0], gates()[1]);
+        for (piece, chamber_x, z) in [(inland, (-13.0, -6.0), 2.5), (sea, (6.0, 13.0), 21.5)] {
+            let [west, east] = [piece.leaves[0], piece.leaves[1]];
+            let shut = piece.rests[0].yaws;
+            // They meet in the middle of the chamber.
+            let (a, b) = (west.centre(shut[0]), east.centre(shut[1]));
+            assert!((a.x - b.x).abs() > 3.4 && (a.x - b.x).abs() < 3.6, "{a} {b}");
+            assert!((a.z - z).abs() < 1e-4 && (b.z - z).abs() < 1e-4, "centred on the wicket's line");
+            let mid = (chamber_x.0 + chamber_x.1) / 2.0;
+            for x in [mid - 1.0, mid, mid + 1.0] {
+                let at = at(x, 0.0, z);
+                assert!(west.over(at, shut[0], 0.0) || east.over(at, shut[1], 0.0), "the walkway crosses {x}");
+            }
+            assert!(!west.over(at(mid, 0.0, z + 0.9), shut[0], 0.0), "the deck is 1.4 m across, rails and all");
+            assert!((west.size.x - 2.0 * LEAF_RAIL_THICKNESS - 1.0).abs() < 1e-5, "a 1 m walkway between the rails");
+            assert_eq!(west.top(), 0.0, "level with the quay");
+            // Open, every part of both Leaves is inside the chamber's own x range.
+            for (leaf, &yaw) in piece.leaves.iter().zip(piece.rests[1].yaws) {
+                let centre = leaf.centre(yaw);
+                assert!(centre.x > P + chamber_x.0 + 0.1 && centre.x < P + chamber_x.1 - 0.1, "folded in the chamber: {centre}");
+                assert!(centre.z > 0.0 && centre.z < 24.0);
+                assert!(!leaf.over(at(mid, 0.0, z), yaw, 0.0), "Open, the middle is clear");
+            }
+        }
+    }
+
+    fn at(x: f32, y: f32, z: f32) -> Vec3 {
+        Vec3::new(P + x, y, z)
+    }
+
+    /// The Polder's headline check. With every Door open and the Power on, in all 16 combinations
+    /// of the bridges' Rests at each of the four Tide phases, with each gate at its phase's Rest:
+    /// every dry node reaches the Town Square's, and Pack-a-Punch and the Sluice House are among
+    /// them. With both gates Swinging, the island is cut off.
+    #[test]
+    fn pack_a_punch_is_reachable_and_no_zone_is_cut_off_in_all_sixty_four_combinations() {
+        let mut graph = NavGraph::new(MapId::Polder);
+        let doors = all_doors();
+        let yes = |_: crate::maps::map::BarrierId| true;
+        let start = graph.nearest(polder().seat_start(0));
+        let pap: Vec<usize> = ["pap_foot", "pap_top", "pap_p"].iter().map(|name| graph.node(name).unwrap()).collect();
+        let island: Vec<usize> = graph.nodes.iter().enumerate().filter(|(_, node)| node.zone == Some(ZoneId::SluiceHouse)).map(|(i, _)| i).collect();
+        let mut checked = 0;
+        for phase in TIDE_PHASES {
+            graph.tide = phase.level();
+            for combo in 0..16u8 {
+                let mut rests: Vec<Option<u8>> = (0..4).map(|i| Some((combo >> i) & 1)).collect();
+                rests.extend(gates().iter().map(|piece| piece.tide_rest(phase)));
+                let state = NavState::new(&doors, &yes).with_rests(&rests);
+                for (to, node) in graph.nodes.iter().enumerate() {
+                    // Dry ground only: a ford's berm and channel are under water at some phases.
+                    if node.zone.is_none() || node.vent || node.name.ends_with("_out") || node.at.y < -0.01 {
+                        continue;
+                    }
+                    assert!(graph.plan(to, start, state).is_some(), "{} is cut off at {phase:?} with bridges {combo:04b}", node.name);
+                    checked += 1;
+                }
+                for &node in &pap {
+                    assert!(graph.plan(node, start, state).is_some(), "Pack-a-Punch is cut off at {phase:?} with bridges {combo:04b}");
+                }
+                assert!(island.iter().all(|&node| graph.plan(node, start, state).is_some()), "the island at {phase:?} {combo:04b}");
+            }
+            // With both gates Swinging, the Sluice House is unreachable.
+            for combo in 0..16u8 {
+                let mut rests: Vec<Option<u8>> = (0..4).map(|i| Some((combo >> i) & 1)).collect();
+                rests.extend([None, None]);
+                let state = NavState::new(&doors, &yes).with_rests(&rests);
+                for &node in pap.iter().chain(&island) {
+                    assert!(graph.plan(node, start, state).is_none(), "{} is reachable with both gates Swinging ({phase:?}, {combo:04b})", graph.nodes[node].name);
+                }
+            }
+        }
+        assert!(checked > 64 * 300, "{checked}");
+    }
+
+    /// At High a Zombie reaches the island over the Sea Gate and not the Inland Gate; at Low the
+    /// other way round.
+    #[test]
+    fn a_zombie_reaches_the_island_over_whichever_gate_is_shut() {
+        let mut graph = NavGraph::new(MapId::Polder);
+        let doors = all_doors();
+        let yes = |_: crate::maps::map::BarrierId| true;
+        let start = graph.nearest(polder().seat_start(0));
+        let (landing, inland_w, inland_b, sea_w, sea_b) = (
+            graph.node("pap_foot").unwrap(),
+            graph.node("pd1_w").unwrap(),
+            graph.node("pd1_b").unwrap(),
+            graph.node("pd2_w").unwrap(),
+            graph.node("pd2_b").unwrap(),
+        );
+        for (phase, over_sea) in [(TidePhase::Low, false), (TidePhase::Rising, false), (TidePhase::High, true), (TidePhase::Falling, true)] {
+            graph.tide = phase.level();
+            let rests: Vec<Option<u8>> = [Some(0); 4].into_iter().chain(gates().iter().map(|piece| piece.tide_rest(phase))).collect();
+            let path = graph.plan(start, landing, NavState::new(&doors, &yes).with_rests(&rests)).unwrap();
+            let crosses = |from, to| path.windows(2).any(|pair| pair == [from, to]);
+            assert_eq!((crosses(sea_w, sea_b), crosses(inland_w, inland_b)), (over_sea, !over_sea), "{phase:?}");
+        }
+    }
+
+    // ---- Headless ----
+
+    fn set_tide(sim: &mut Sim, phase: TidePhase, turn: TurnState) {
+        *sim.world_mut().resource_mut::<Tide>() = Tide { phase, turn };
+    }
+
+    /// The Turn from `phase`, run on by hand as `TidePlugin` would: Turning for `TIDE_TURN_SECS`,
+    /// then it lands. Returns every Swing the gates began.
+    fn turn_from(sim: &mut Sim, phase: TidePhase) -> Vec<(PieceId, u8, u8)> {
+        let seen = |sim: &mut Sim| -> Vec<(PieceId, u8, u8)> { sim.world_mut().resource_mut::<Swings>().0.drain(..).collect() };
+        let mut swings = Vec::new();
+        set_tide(sim, phase, TurnState::Turning { elapsed: 0.0 });
+        let frames = sim.frames(TIDE_TURN_SECS);
+        let dt = sim.frames(1.0) as f32;
+        for i in 0..frames {
+            sim.run(1);
+            let elapsed = (i + 1) as f32 / dt;
+            set_tide(sim, phase, TurnState::Turning { elapsed: elapsed.min(TIDE_TURN_SECS) });
+            swings.extend(seen(sim));
+        }
+        set_tide(sim, phase.next(), TurnState::Still);
+        sim.run(3);
+        swings.extend(seen(sim));
+        swings
+    }
+
+    #[derive(Resource, Default)]
+    struct Swings(Vec<(PieceId, u8, u8)>);
+
+    fn log_swings(mut swings: ResMut<Swings>, mut heard: MessageReader<SwingStarted>) {
+        swings.0.extend(heard.read().map(|swing| (swing.piece, swing.from, swing.to)));
+    }
+
+    fn gate_sim() -> Sim {
+        polder_sim()
+    }
+
+    #[test]
+    fn the_gates_swing_on_the_rising_to_high_and_falling_to_low_turns_and_on_no_others() {
+        let mut sim = gate_sim();
+        move_player(&mut sim, Vec3::new(P - 30.0, 0.0, -30.0));
+        let mut log = Vec::new();
+        for phase in [TidePhase::Low, TidePhase::Rising, TidePhase::High, TidePhase::Falling] {
+            let swings = turn_from(&mut sim, phase);
+            log.push((phase, swings));
+            // The gates are at the new phase's Rest once it lands.
+            for (id, piece) in pieces(polder()).skip(4) {
+                assert_eq!(phase_of(&mut sim, id.0), PiecePhase::Rest(piece.tide_rest(phase.next()).unwrap()), "{id:?} after {phase:?}");
+            }
+        }
+        assert!(log[0].1.is_empty(), "Low to Rising: {:?}", log[0].1);
+        assert_eq!(log[1].1, [(INLAND, 0, 1), (SEA, 1, 0)], "Rising to High: both gates");
+        assert!(log[2].1.is_empty(), "High to Falling: {:?}", log[2].1);
+        assert_eq!(log[3].1, [(INLAND, 1, 0), (SEA, 0, 1)], "Falling to Low: both gates");
+    }
+
+    fn phase_of(sim: &mut Sim, id: u8) -> PiecePhase {
+        phase(sim, id)
+    }
+
+    /// A gate swings from the start of Turning over the Turn's seconds, and isn't moving before or
+    /// after. It has no cooldown: it is at Rest the moment it lands.
+    #[test]
+    fn a_gate_swings_through_the_turn_and_is_at_rest_when_it_lands() {
+        let mut sim = gate_sim();
+        move_player(&mut sim, Vec3::new(P - 30.0, 0.0, -30.0));
+        set_tide(&mut sim, TidePhase::Rising, TurnState::Bells { elapsed: 1.0 });
+        sim.run(10);
+        assert_eq!(phase(&mut sim, 4), PiecePhase::Rest(0), "the bells move nothing");
+        set_tide(&mut sim, TidePhase::Rising, TurnState::Turning { elapsed: 0.0 });
+        sim.run(2);
+        assert!(matches!(phase(&mut sim, 4), PiecePhase::Swinging { from: 0, to: 1, .. }), "{:?}", phase(&mut sim, 4));
+        sim.run(sim.frames(TIDE_TURN_SECS / 2.0));
+        let half = leaf_rotation(&mut sim, 4);
+        assert!(half != Quat::from_rotation_y(FRAC_PI_2) && half != Quat::IDENTITY, "mid-swing: {half}");
+        sim.run(sim.frames(TIDE_TURN_SECS / 2.0) + 10);
+        assert_eq!(phase(&mut sim, 4), PiecePhase::Rest(1), "no cooldown, no Lever: straight to Rest");
+        sim.run(30);
+        assert_eq!(leaf_rotation(&mut sim, 4), Quat::IDENTITY, "lands exactly Open");
+        // Nothing a Lever or a Sapper could use.
+        let world = sim.world_mut();
+        assert_eq!(world.query::<&Lever>().iter(world).filter(|lever| lever.piece.0 >= 4).count(), 0);
+    }
+
+    /// The Tide finishing at once (the next Round started) puts the gates at the new Rest.
+    #[test]
+    fn a_turn_finished_at_once_puts_the_gates_at_the_new_rest() {
+        let mut sim = gate_sim();
+        move_player(&mut sim, Vec3::new(P - 30.0, 0.0, -30.0));
+        set_tide(&mut sim, TidePhase::High, TurnState::Still);
+        sim.run(3);
+        assert_eq!(phase(&mut sim, 4), PiecePhase::Rest(1));
+        assert_eq!(phase(&mut sim, 5), PiecePhase::Rest(0));
+        assert_eq!(sim.world_mut().resource::<Swings>().0, [(INLAND, 0, 1), (SEA, 1, 0)]);
+    }
+
+    /// A Player on the Inland Gate's top when it starts to Swing is Washed Up to the Lock Yard's
+    /// landing, with no damage and nothing else moved.
+    #[test]
+    fn a_player_on_the_inland_gate_at_rising_to_high_is_washed_up_to_the_lock_yards_landing() {
+        let mut sim = gate_sim();
+        move_player(&mut sim, Vec3::new(P - 11.0, 0.0, 2.5));
+        sim.run(3);
+        set_tide(&mut sim, TidePhase::Rising, TurnState::Turning { elapsed: 0.0 });
+        sim.run(3);
+        let world = sim.world_mut();
+        let mut query = world.query_filtered::<&Transform, With<Player>>();
+        let half = Stance::Standing.half_height();
+        let feet = query.iter(world).next().unwrap().translation - Vec3::Y * half;
+        let landing = NavGraph::new(MapId::Polder).nodes[NavGraph::new(MapId::Polder).node("pd1_w").unwrap()].at;
+        assert!(feet.distance(landing) < 0.3, "{feet} vs the Lock Yard's landing {landing}");
+        assert_eq!(zone_of_feet(feet), Some(ZoneId::LockYard));
+    }
+
+    fn zone_of_feet(feet: Vec3) -> Option<ZoneId> {
+        crate::enemies::nav::zone_at(feet + Vec3::Y * 0.1)
+    }
+
+    /// One nearer the island goes to the island's landing, and one in the sweep of a gate that is
+    /// not moving is left where they are.
+    #[test]
+    fn a_player_nearer_the_island_is_washed_up_to_its_landing_and_a_gate_that_stays_leaves_them() {
+        let mut sim = gate_sim();
+        move_player(&mut sim, Vec3::new(P - 7.5, 0.0, 2.5));
+        sim.run(3);
+        set_tide(&mut sim, TidePhase::Rising, TurnState::Turning { elapsed: 0.0 });
+        sim.run(3);
+        let island = Vec3::new(P - 4.0, 0.0, 2.5);
+        let world = sim.world_mut();
+        let mut query = world.query_filtered::<&Transform, With<Player>>();
+        let feet = query.iter(world).next().unwrap().translation - Vec3::Y * Stance::Standing.half_height();
+        assert!(feet.distance(island) < 0.3, "{feet}");
+        // Low to Rising moves nothing, so nobody is Washed Up.
+        let mut sim = gate_sim();
+        let there = Vec3::new(P - 11.0, 0.0, 2.5);
+        move_player(&mut sim, there);
+        sim.run(3);
+        set_tide(&mut sim, TidePhase::Low, TurnState::Turning { elapsed: 0.0 });
+        sim.run(10);
+        let world = sim.world_mut();
+        let mut query = world.query_filtered::<&Transform, With<Player>>();
+        let feet = query.iter(world).next().unwrap().translation - Vec3::Y * Stance::Standing.half_height();
+        assert!(feet.distance(there) < 0.1, "{feet}");
+    }
+
+    /// A Napalm carried over onto a gate is Tipped: it dies as an Unpaid Kill by the Swing, which
+    /// the specials' death rules treat as put out, with no explosion.
+    #[test]
+    fn a_napalm_on_a_gate_is_tipped_by_the_swing() {
+        let mut sim = gate_sim();
+        move_player(&mut sim, Vec3::new(P - 30.0, 0.0, -30.0));
+        let on_gate = Vec3::new(P - 11.0, 0.0, 2.5);
+        let napalm = sim.spawn(on_gate, None);
+        sim.world_mut().entity_mut(napalm).insert(Zombie::special(SpecialKind::Napalm, 1000.0, on_gate));
+        set_tide(&mut sim, TidePhase::Rising, TurnState::Turning { elapsed: 0.0 });
+        sim.run(4);
+        let world = sim.world_mut();
+        let dying = world.get::<Dying>(napalm).expect("tipped");
+        assert_eq!(dying.killed_by(), Some(Attack::Swing));
+        assert!(world.get::<Tipped>(napalm).is_some());
+        assert_eq!(world.resource::<Kills>().0, [(Attack::Swing, Pay::Unpaid)]);
+    }
+
+    /// With the gate's Door open and the gate Shut, the Sluice House is an Active Zone from the Lock
+    /// Yard, and not once the gate is Open or moving.
+    #[test]
+    fn the_sluice_house_is_active_only_over_a_shut_gate_with_its_wicket_open() {
+        use crate::maps::door::Door;
+        let mut sim = polder_sim();
+        let active = |sim: &mut Sim| {
+            sim.world_mut().run_system_once(update_active_zones).unwrap();
+            sim.world_mut().resource::<ActiveZones>().0
+        };
+        let world = sim.world_mut();
+        world.query::<&mut PlayerZone>().iter_mut(world).next().unwrap().0 = LockYard;
+        assert!(!active(&mut sim).contains(SluiceHouse), "the wicket is shut");
+        let mut doors = sim.world_mut().query::<&mut Door>();
+        for mut door in doors.iter_mut(sim.world_mut()) {
+            if door.gate == Some((LockYard, SluiceHouse)) {
+                assert_eq!((door.joins, door.price), (None, None), "a Power Door that joins nothing");
+                door.open = true;
+            }
+        }
+        assert!(active(&mut sim).contains(SluiceHouse), "Shut at the start");
+        show(&mut sim, 4, PiecePhase::Rest(1));
+        assert!(!active(&mut sim).contains(SluiceHouse), "Open");
+        show(&mut sim, 4, PiecePhase::Swinging { from: 0, to: 1, elapsed: 1.0 });
+        assert!(!active(&mut sim).contains(SluiceHouse), "none count while it moves");
+    }
+
+    /// At every phase, the gate that is Shut has no Deep wall across its mouth, and the lock's
+    /// water is Deep under both walkways.
+    #[test]
+    fn the_lock_water_is_deep_under_both_gate_mouths_at_every_phase() {
+        for phase in TIDE_PHASES {
+            for (x, z) in [(-9.5, 2.5), (9.5, 21.5), (-9.5, 12.0), (9.5, 12.0)] {
+                assert_eq!(water_at(polder(), phase.level(), Vec3::new(P + x, -3.0, z)), Some(Wading::Deep), "{x}, {z} at {phase:?}");
+            }
+        }
+    }
+
 }

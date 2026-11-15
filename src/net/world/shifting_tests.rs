@@ -103,3 +103,54 @@ fn a_player_who_comes_back_is_told_every_pieces_phase() {
     assert!(matches!(phase(&mut run, 1, 0), PiecePhase::Cooling { at: 1, .. }));
     assert!(matches!(phase(&mut run, 1, 2), PiecePhase::Swinging { from: 1, to: 0, .. }));
 }
+
+fn polder_with_tide(clients: u8) -> Run {
+    Run::on(MapId::Polder, clients, &|app| {
+        app.init_resource::<crate::maps::tide::Tide>();
+    })
+}
+
+fn set_tide(run: &mut Run, on: usize, phase: crate::maps::tide::TidePhase, turn: crate::maps::tide::TurnState) {
+    *run.world(on).resource_mut::<crate::maps::tide::Tide>() = crate::maps::tide::Tide { phase, turn };
+}
+
+/// The Lock Gates swing on the Host's Tide and a client sees them swing and come to Rest, its
+/// walkway present only over the gate that is Shut.
+#[test]
+fn a_client_sees_the_lock_gates_swing_with_the_tide() {
+    use crate::maps::tide::{TidePhase, TurnState};
+    let mut run = polder_with_tide(1);
+    run.step(10);
+    let inland = Vec3::new(POLDER_X - 11.0, 3.0, 2.5);
+    let sea = Vec3::new(POLDER_X + 11.0, 3.0, 21.5);
+    let walkway = |run: &mut Run, over: Vec3| drop_onto(run, 1, over).is_some_and(|d| (d - 3.0).abs() < 0.05);
+    assert!(walkway(&mut run, inland) && !walkway(&mut run, sea), "at Low the Inland Gate is Shut");
+    set_tide(&mut run, 0, TidePhase::Rising, TurnState::Turning { elapsed: 0.0 });
+    run.step(5);
+    assert!(matches!(phase(&mut run, 1, 4), PiecePhase::Swinging { from: 0, to: 1, .. }), "{:?}", phase(&mut run, 1, 4));
+    assert!(matches!(phase(&mut run, 1, 5), PiecePhase::Swinging { from: 1, to: 0, .. }), "{:?}", phase(&mut run, 1, 5));
+    // The Host's Tide lands (the plugin that does it isn't in these tests).
+    run.step(300);
+    set_tide(&mut run, 0, TidePhase::High, TurnState::Still);
+    run.step(10);
+    assert_eq!((phase(&mut run, 0, 4), phase(&mut run, 1, 4)), (PiecePhase::Rest(1), PiecePhase::Rest(1)));
+    assert_eq!((phase(&mut run, 0, 5), phase(&mut run, 1, 5)), (PiecePhase::Rest(0), PiecePhase::Rest(0)));
+    assert!(!walkway(&mut run, inland) && walkway(&mut run, sea), "at High the Sea Gate is Shut");
+}
+
+/// A Player who comes back mid-Run is told both gates' Rests.
+#[test]
+fn a_late_joiner_gets_both_lock_gates_rests() {
+    use crate::maps::tide::{TidePhase, TurnState};
+    let mut run = polder_with_tide(1);
+    run.step(5);
+    set_tide(&mut run, 0, TidePhase::High, TurnState::Still);
+    run.step(10);
+    assert_eq!((phase(&mut run, 0, 4), phase(&mut run, 0, 5)), (PiecePhase::Rest(1), PiecePhase::Rest(0)));
+    // The client forgets, as one that was away would have.
+    show(&mut run, 1, 4, PiecePhase::Rest(0));
+    show(&mut run, 1, 5, PiecePhase::Rest(1));
+    run.world(0).write_message(SeatReturned { seat: Seat(1) });
+    run.step(3);
+    assert_eq!((phase(&mut run, 1, 4), phase(&mut run, 1, 5)), (PiecePhase::Rest(1), PiecePhase::Rest(0)));
+}

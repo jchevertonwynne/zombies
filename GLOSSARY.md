@@ -51,7 +51,7 @@ _Avoid_: stuck Zombie, cleaned-up Zombie
 **Sapper**: A mini-boss on a counter of its own, not part of the Horde, that comes through a Barrier after a warning and walks to a system near the Player to Sabotage it, slamming any Player in its way.
 _Avoid_: saboteur, bruiser
 
-**Sabotage**: A Sapper putting a system out of action: the Mystery Box, a working Perk Machine other than Quick Revive, a Trap, the Teleporter, Pack-a-Punch or a Swing Bridge's Levers (all of a bridge's Levers are one system, restored at any of them). A Sabotaged system stays dead until a Player restores it for Points or the Sapper dies, which brings back everything it Sabotaged.
+**Sabotage**: A Sapper putting a system out of action: the Mystery Box, a working Perk Machine other than Quick Revive, a Trap, the Teleporter, Pack-a-Punch or a Swing Bridge's Levers (all of a bridge's Levers are one system, restored at any of them). A Lock Gate has no Lever, so it can't be Sabotaged. A Sabotaged system stays dead until a Player restores it for Points or the Sapper dies, which brings back everything it Sabotaged.
 
 **Intermission**: The short pause after a Round ends and before the next one begins spawning. On the Polder, the Tide turns during it.
 
@@ -200,7 +200,7 @@ _Avoid_: water level, flood
 
 **Ford**: A stretch of a Canal with a berm along each wall and a channel between, where the water is shallow enough to wade at some phases of the Tide.
 
-**Washed Up**: Moved by the Tide to the nearest ground a Player can stand on, with no harm and no Down: a Player in water that turns Deep when the Tide lands.
+**Washed Up**: Moved by the Tide to the nearest ground a Player can stand on, with no harm and no Down: a Player in water that turns Deep when the Tide lands, or on a Lock Gate's top or in its sweep as it starts to Swing (to the nearer landing of the Rest they were on).
 
 **Run**: One game, from Round 1 until Game Over or quitting.
 _Avoid_: game, match
@@ -277,11 +277,13 @@ _Avoid_: unlit, blackout
 **Weapon Light**: The torch-wide spotlight every Player carries, always on, on a Map with Dark Zones.
 _Avoid_: flashlight, torch
 
-**Shifting**: A Piece of the Map (one or more Leaves, each a solid deck or gate that turns about its own vertical hinge) moving between fixed Rests. Nothing rises, falls or slides, and nothing is carried: a body on a Leaf while it turns is pushed off by it. The Polder's Swing Bridges are the first Pieces; the Lock Gates will be the second.
+**Shifting**: A Piece of the Map (one or more Leaves, each a solid deck or gate that turns about its own vertical hinge) moving between fixed Rests. Nothing rises, falls or slides, and nothing is carried: a body on a Leaf while it turns is pushed off by it. The Polder's Swing Bridges are the first Pieces, turned by Levers; its Lock Gates are the second, turned by the Tide.
 
 **Rest**: One of the fixed places a Shifting Piece can stand still, each with a yaw for every Leaf and the Zone joins it makes. A Swing Bridge has Span (joins its two banks) and Along (lies along its own bank over the water, joins nothing). Zombies and Active Zones count a Rest's joins only while the Piece stands at that Rest and its gate Door (if it has one) is open.
 
 **Swing Bridge**: A Piece with one Leaf, a deck with rails hinged at one bank, that a Lever turns between Span and Along. It crosses Deep Water. A pen and a gate Door guard its near landing; a gate Door joins no Zones itself.
+
+**Lock Gate**: A pair of gates across one of the Polder's lock chambers, a Piece the Tide turns at each Turn that changes its Rest, with no Lever, no cooldown and nothing to Sabotage. Shut, its two Leaves meet mid-chamber and their top is a 1 m walkway with handrails onto the island, reached through a Power Door wicket; Open, they fold against the chamber walls. The Inland Gate is Shut at Low and Rising, the Sea Gate at High and Falling, so exactly one gate top leads to the island at each phase, and which one alternates. A Player on a gate's top or in its sweep when it starts to Swing is Washed Up to the landing nearer them, and a Zombie there is Tipped.
 
 **Lever**: A Buyable for 500 Points, with no Power and no Co-op scaling, that Swings its bridge to the next Rest. Each bridge has one at each landing, outside the pen, and they share one cooldown. A Lever is not a Trap, so no Trap Boon applies.
 

@@ -4,9 +4,10 @@
 //!
 //! Its water is the Tide's: three Canals (the Town Canal, the Harbour and the Sea) at -1.7, -1.1
 //! and -0.4 for Low, Mid and High. A Canal is Deep everywhere but at its four Fords, where the
-//! channel (-2.2) can be waded at Low and the berms (-1.6) at Mid. The four Swing Bridges are
-//! fixed decks at Span, the Inland Gate is a fixed walkway, the Sea Gate's top is a fixed walkway
-//! too, and PD2 waits for the Lock Gates slice.
+//! channel (-2.2) can be waded at Low and the berms (-1.6) at Mid. The four Swing Bridges and the
+//! two Lock Gates (the Inland Gate in the West Chamber, the Sea Gate in the East) are Shifting
+//! Pieces: the bridges are turned by Levers and the gates by the Tide, so exactly one gate top is
+//! a walkway onto the island at each phase.
 //!
 //! - South bank: the Town Square (start), the Weigh House, the Brewery, the Cheese Market and the
 //!   Almshouse Court.
@@ -148,11 +149,23 @@ const fn deck_leaf(x: f32, z: f32, east: bool) -> Leaf {
 }
 
 const SPAN_ALONG: f32 = std::f32::consts::FRAC_PI_2;
+const FRAC_PI_2: f32 = std::f32::consts::FRAC_PI_2;
+
+/// A Lock Gate's Rests, in order: Shut (the Leaves meet mid-chamber) and Open (folded back).
+const SHUT: u8 = 0;
+const OPEN_GATE: u8 = 1;
+
+/// One Leaf of a Lock Gate: 1.4 m across (a 1 m walkway between 0.2 m rails) and 3.5 m long, half
+/// a chamber, its top at quay level. `across` is where the box sits from the hinge across the
+/// Leaf's own width, so that folded Open it lies inside the chamber.
+const fn gate_leaf(x: f32, z: f32, across: f32) -> Leaf {
+    Leaf { hinge: at(x, GROUND, z), size: Vec3::new(1.4, 0.4, 3.5), offset: Vec3::new(across, -0.2, 1.75) }
+}
 
 /// The four Swing Bridges, in the order Market, Herring, Cheese, Customs: each a single Leaf
 /// hinged at its near bank, with Span (the start) and Along (swung 90 degrees over the water along
 /// its bank, joining nothing). Each has a Lever outside its pen at either landing.
-const SHIFTING: [Piece; 4] = [
+const SHIFTING: [Piece; 6] = [
     Piece {
         zone: ZoneId::TownSquare,
         leaves: &[deck_leaf(-22.0, -12.0, true)],
@@ -208,6 +221,33 @@ const SHIFTING: [Piece; 4] = [
             (ZoneId::CustomsHouse, at(19.5, GROUND, 37.4), Vec2::new(0.0, 1.0)),
         ]),
         door: Some((ZoneId::TollQuay, ZoneId::CustomsHouse)),
+    },
+    // The Inland Gate (the West Chamber's south end): Shut at Low and Rising, Open at High and
+    // Falling. The Leaves are hinged on the lock wall (x -13) and the island's (x -6) and meet
+    // mid-chamber; Open, they fold north against the walls.
+    Piece {
+        zone: ZoneId::SluiceHouse,
+        leaves: &[gate_leaf(-13.0, 3.2, 0.7), gate_leaf(-6.0, 3.2, -0.7)],
+        rests: &[
+            Rest { yaws: &[FRAC_PI_2, -FRAC_PI_2], joins: &[(ZoneId::LockYard, ZoneId::SluiceHouse)] },
+            Rest { yaws: &[0.0, 0.0], joins: &[] },
+        ],
+        start: 0,
+        driver: Driver::Tide([SHUT, SHUT, OPEN_GATE, OPEN_GATE]),
+        door: Some((ZoneId::LockYard, ZoneId::SluiceHouse)),
+    },
+    // The Sea Gate (the East Chamber's north end): Open at Low and Rising, Shut at High and
+    // Falling. Open, its Leaves fold south against the walls.
+    Piece {
+        zone: ZoneId::SluiceHouse,
+        leaves: &[gate_leaf(6.0, 20.8, -0.7), gate_leaf(13.0, 20.8, 0.7)],
+        rests: &[
+            Rest { yaws: &[FRAC_PI_2, -FRAC_PI_2], joins: &[(ZoneId::TollQuay, ZoneId::SluiceHouse)] },
+            Rest { yaws: &[std::f32::consts::PI, -std::f32::consts::PI], joins: &[] },
+        ],
+        start: 1,
+        driver: Driver::Tide([OPEN_GATE, OPEN_GATE, SHUT, SHUT]),
+        door: Some((ZoneId::TollQuay, ZoneId::SluiceHouse)),
     },
 ];
 
@@ -569,6 +609,12 @@ fn gate(a: ZoneId, b: ZoneId, price: u64) -> Gap {
     Gap::Gate((a, b), price)
 }
 
+/// The gate Door of a Lock Gate: a Power Door that joins nothing, so the gate's Rest joins the
+/// Zones once Power is on and it stands Shut.
+fn pgate(a: ZoneId, b: ZoneId) -> Gap {
+    Gap::PowerGate((a, b))
+}
+
 /// A Power Door.
 fn pdoor(a: ZoneId, b: ZoneId) -> Gap {
     Gap::Door(Some((a, b)), None)
@@ -597,12 +643,6 @@ fn pocket(b: &mut Builder, centre: Vec3, out: Vec2) {
         let end = middle + across * side * (POCKET / 2.0 - WALL / 2.0);
         b.block(across * WALL + depth * POCKET + Vec3::Y * HEIGHT, Vec3::new(end.x, 0.0, end.z) + rise, outside.wall);
     }
-}
-
-/// A rail or fence along a quay or a deck, a solid wall `height` tall in its two Zones' trim.
-fn deck(b: &mut Builder, (x0, x1): (f32, f32), (z0, z1): (f32, f32), y: f32, colour: Color) {
-    let (size, mid) = (Vec2::new(x1 - x0, z1 - z0), Vec2::new(x0 + x1, z0 + z1) / 2.0);
-    b.block(Vec3::new(size.x, 0.4, size.y), Vec3::new(P + mid.x, y - 0.2, mid.y), colour);
 }
 
 /// The walls and Doors of the town, the dyke and the bridges.
@@ -717,11 +757,13 @@ fn build(b: &mut Builder) {
 
     // The lock: the Lock Yard's rail along the West Chamber with PD1's wicket at the Inland Gate,
     // the Toll Quay's along the East Chamber with PD2's at the Sea Gate, and the island's.
-    zwall(b, -13.0, (0.0, 24.0), GROUND, RAIL, vec![(2.5, pdoor(LockYard, SluiceHouse))]);
-    zwall(b, 13.0, (0.0, 24.0), GROUND, RAIL, vec![(21.5, pdoor(TollQuay, SluiceHouse))]);
-    zwall(b, -6.0, (0.0, 2.0), GROUND, RAIL, vec![]);
-    zwall(b, -6.0, (3.0, 24.0), GROUND, RAIL, vec![]);
-    zwall(b, 6.0, (0.0, 24.0), GROUND, RAIL, vec![]);
+    zwall(b, -13.0, (0.0, 24.0), GROUND, RAIL, vec![(2.5, pgate(LockYard, SluiceHouse))]);
+    zwall(b, 13.0, (0.0, 24.0), GROUND, RAIL, vec![(21.5, pgate(TollQuay, SluiceHouse))]);
+    // The island's rail, open where each gate's top lands (1.4 m: the walkway and its rails).
+    zwall(b, -6.0, (0.0, 1.8), GROUND, RAIL, vec![]);
+    zwall(b, -6.0, (3.2, 24.0), GROUND, RAIL, vec![]);
+    zwall(b, 6.0, (0.0, 20.8), GROUND, RAIL, vec![]);
+    zwall(b, 6.0, (22.2, 24.0), GROUND, RAIL, vec![]);
     // The sluice house on the island: open at both ends.
     xwall(b, (-5.0, 5.0), 5.0, GROUND, H, vec![(0.0, Gap::Open { width: 4.0, height: 3.0 })]);
     xwall(b, (-5.0, 5.0), 17.0, GROUND, H, vec![(0.0, Gap::Open { width: 4.0, height: 3.0 })]);
@@ -732,15 +774,8 @@ fn build(b: &mut Builder) {
     zwall(b, -2.0, (20.0, 24.0), GROUND, H, vec![]);
     zwall(b, 2.0, (20.0, 24.0), GROUND, H, vec![]);
 
-    // The Inland Gate's top: a 1 m walkway over Deep Water, with handrails (the Sea Gate waits).
-    deck(b, (-13.0, -6.0), (2.0, 3.0), GROUND, TIMBER);
-    xwall(b, (-13.0, -6.0), 1.9, GROUND, RAIL, vec![]);
-    xwall(b, (-13.0, -6.0), 3.1, GROUND, RAIL, vec![]);
-
-    // The four Swing Bridges' Leaves are Pieces (`SHIFTING`), spawned with the Map.
-    // The Sea Gate stands as static open Leaves, folded back along the East Chamber's walls.
-    b.block(Vec3::new(0.3, 1.8, 3.5), Vec3::new(P + 6.5, 0.0, 19.75), IRON);
-    b.block(Vec3::new(0.3, 1.8, 3.5), Vec3::new(P + 12.5, 0.0, 19.75), IRON);
+    // The four Swing Bridges' Leaves and the two Lock Gates' are Pieces (`SHIFTING`), spawned with
+    // the Map.
 
     // The Dyke: the face up from the town, with the foot of the three ways up in it, and the
     // wall between the Dyke Road and the Pumping Station.

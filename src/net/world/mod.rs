@@ -326,7 +326,7 @@ pub struct Mirror {
     boxes: HashMap<u16, (u8, BoxPhase)>,
     machines: HashMap<u16, Option<(WeaponId, Option<Seat>)>>,
     traps: HashMap<u16, std::mem::Discriminant<TrapPhase>>,
-    pieces: HashMap<PieceId, std::mem::Discriminant<PiecePhase>>,
+    pieces: HashMap<PieceId, (std::mem::Discriminant<PiecePhase>, Option<u8>)>,
     /// Each Generator as last told, and the seconds since.
     generators: HashMap<u8, (GeneratorState, f32)>,
     teleporter: Option<TeleporterView>,
@@ -790,7 +790,8 @@ fn tell_traps(mut tell: Tell, mut mirror: ResMut<Mirror>, traps: Query<(&NetId, 
 fn tell_pieces(mut tell: Tell, mut mirror: ResMut<Mirror>, pieces: Query<&PieceState>) {
     for state in &pieces {
         let phase = state.phase();
-        let kind = std::mem::discriminant(&phase);
+        // A Rest that changes with no Swing between (the Tide finished at once) is told too.
+        let kind = (std::mem::discriminant(&phase), phase.standing());
         if mirror.pieces.get(&state.id()) != Some(&kind) {
             mirror.pieces.insert(state.id(), kind);
             tell.all(&WorldEvent::Piece { id: state.id(), phase });

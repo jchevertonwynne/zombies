@@ -58,6 +58,9 @@ impl TidePhase {
     }
 }
 
+/// The four phases, in the order the Tide turns through them.
+pub const TIDE_PHASES: [TidePhase; 4] = [TidePhase::Low, TidePhase::Rising, TidePhase::High, TidePhase::Falling];
+
 /// A set of Tide levels, for a path edge that can only be walked at some of them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TideMask(pub u8);

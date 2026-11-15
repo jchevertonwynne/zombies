@@ -63,6 +63,9 @@ pub(super) enum Gap {
     /// The gate Door of a Swing Bridge, bought for the price: it joins nothing, but names the two
     /// Zones whose landings it guards.
     Gate((ZoneId, ZoneId), u64),
+    /// The gate Door of a Lock Gate: a Power Door that joins nothing and names the two Zones whose
+    /// landings it guards.
+    PowerGate((ZoneId, ZoneId)),
     /// A Door that can't be bought and opens once every Teleporter Pad is Linked, like the
     /// Gazebo's.
     LinkedDoor(Option<(ZoneId, ZoneId)>),
@@ -720,7 +723,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let mut cursor = 0.0;
         for (at, gap) in gaps {
             let (width, top) = match gap {
-                Gap::Door(..) | Gap::Gate(..) | Gap::LinkedDoor(_) => (DOOR_WIDTH, DOOR_HEIGHT),
+                Gap::Door(..) | Gap::Gate(..) | Gap::PowerGate(_) | Gap::LinkedDoor(_) => (DOOR_WIDTH, DOOR_HEIGHT),
                 Gap::Open { width, height } => (*width, *height),
                 Gap::Window => (WINDOW_WIDTH, WINDOW_HEIGHT),
             };
@@ -780,6 +783,11 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                     Visibility::default(),
                     Buyable { use_point: at, prompt: String::new(), price: Some(*price), range: DOOR_USE_RANGE },
                 ));
+            }
+            if let Gap::PowerGate(key) = gap {
+                let at = Vec3::new(mid.x, y0 + DOOR_HEIGHT / 2.0, mid.y);
+                let door = self.door_slab(across(0.25, DOOR_HEIGHT), at, true, Some(key.0));
+                self.commands.entity(door).insert((Door { joins: None, price: None, open: false, gate: Some(*key) }, Visibility::default()));
             }
             if let Gap::LinkedDoor(joins) = gap {
                 let at = Vec3::new(mid.x, y0 + DOOR_HEIGHT / 2.0, mid.y);

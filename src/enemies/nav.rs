@@ -513,6 +513,9 @@ mod tests {
                         .edges
                         .iter()
                         .filter(|edge| !edge.gate.one_way())
+                        // A Piece's Rest edge has a floor only while it stands at that Rest: the world
+                        // starts with each Piece at its start Rest, so judge those.
+                        .filter(|edge| !matches!(edge.gate, Gate::Rest(piece, rest) if map.layout().shifting[usize::from(piece.0)].start != rest))
                         .flat_map(|edge| [(edge.from, edge.to), (edge.to, edge.from)])
                         .filter(|&(a, b)| !floor_climbable(&spatial, graph.nodes[a].at, graph.nodes[b].at, &filter))
                         .map(|(a, b)| format!("{} -> {}", graph.nodes[a].name, graph.nodes[b].name))
@@ -593,9 +596,11 @@ mod tests {
         for map in MapId::ALL {
             let graph = NavGraph::new(map);
             let doors = all_doors(map);
+            // Each Piece stands at its start Rest.
+            let rests: Vec<Option<u8>> = map.layout().shifting.iter().map(|piece| Some(piece.start)).collect();
             for from in 0..graph.nodes.len() {
                 for to in (0..graph.nodes.len()).filter(|&to| graph.nodes[to].zone.is_some() && !graph.nodes[to].vent && !graph.nodes[to].name.ends_with("_out")) {
-                    assert!(graph.plan(from, to, NavState::new(&doors, &windows_open)).is_some(), "{} to {}", graph.nodes[from].name, graph.nodes[to].name);
+                    assert!(graph.plan(from, to, NavState::new(&doors, &windows_open).with_rests(&rests)).is_some(), "{} to {}", graph.nodes[from].name, graph.nodes[to].name);
                 }
             }
         }

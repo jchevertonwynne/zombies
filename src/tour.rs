@@ -183,7 +183,7 @@ const COVE: &[View] = &[
 
 const PO: f32 = POLDER_X;
 
-/// The Polder: a view of each of its 16 Zones, then its bridges, the water and the dyke.
+/// The Polder: a view of each of its 16 Zones, then its bridges, the lock gates, the water and the dyke.
 const POLDER: &[View] = &[
     view("town-square-pump", (PO + -12.0, 0.0, -34.0), (PO + -4.0, -24.0), -0.05, false),
     view("town-square-canal", (PO + -6.0, 0.0, -16.0), (PO + -6.0, 8.0), 0.05, false),
@@ -211,6 +211,8 @@ const POLDER: &[View] = &[
     view("market-lever", (PO + -25.0, 0.0, -18.0), (PO + -25.0, -12.5), 0.0, false),
     view("herring-bridge", (PO + -24.0, 0.0, 18.0), (PO + -24.0, 40.0), 0.0, false),
     view("ford-f1-stair", (PO + -43.0, 0.0, -14.0), (PO + -43.0, 0.0), -0.45, false),
+    view("inland-gate", (PO + -22.0, 0.0, 2.5), (PO + -8.0, 2.5), -0.1, false),
+    view("sea-gate", (PO + 22.0, 0.0, 21.5), (PO + 8.0, 21.5), -0.1, false),
     view("harbour", (PO + 0.0, 0.0, 38.0), (PO + -40.0, 30.0), 0.0, false),
     view("town-canal", (PO + -6.0, 0.0, -14.0), (PO + 40.0, -6.0), 0.0, false),
 ];

@@ -74,9 +74,11 @@ deep("CustomsHouse", 14, 22.25, *HB); deep("CustomsHouse", 22.25, 25.75, *HB); d
 ford("CustomsHouse", 40, 54, *HB, 47, True); deep("CustomsHouse", 54, 58, *HB)
 # Lock chambers
 sunk("SluiceHouse", -13, 0, -6, 24, 4.5)
-pool("SluiceHouse", -13, 0, -6, 2, -4.5); pool("SluiceHouse", -13, 3, -6, 24, -4.5)
+# each chamber's pool is cut at its gate's 1.4 m mouth (Inland z 1.8..3.2, Sea z 20.8..22.2), so the
+# Deep Water walls can let the gate's walkway through
+pool("SluiceHouse", -13, 0, -6, 1.8, -4.5); pool("SluiceHouse", -13, 1.8, -6, 3.2, -4.5); pool("SluiceHouse", -13, 3.2, -6, 24, -4.5)
 sunk("SluiceHouse", 6, 0, 13, 24, 4.5)
-pool("SluiceHouse", 6, 0, 13, 24, -4.5)
+pool("SluiceHouse", 6, 0, 13, 20.8, -4.5); pool("SluiceHouse", 6, 20.8, 13, 22.2, -4.5); pool("SluiceHouse", 6, 22.2, 13, 24, -4.5)
 # Sea
 DR_WIN = [-30.0, 10.0]; PS_WIN = [55.0, 70.0]
 sunk("DykeRoad", -80, 60, 44, 66, 8.5); sunk("PumpingStation", 44, 60, 80, 66, 8.5)
@@ -102,7 +104,7 @@ for m in re.finditer(r"^\s+p\((\w+), (\w+), (-?[\d.]+), ([^,]+), (-?[\d.]+), \((
     PROPS.append((kind, zone, float(x), ev(y), float(z), w, h, d))
 
 WALLS = []  # (axis, line, a, b, y0, h, gaps)
-GAPRE = re.compile(r"\((-?[\d.]+), (door|pdoor|gate|Gap::Window|Gap::Open)(?:\((\w+), (\w+)(?:, (\w+))?\))?")
+GAPRE = re.compile(r"\((-?[\d.]+), (door|pdoor|pgate|gate|Gap::Window|Gap::Open)(?:\((\w+), (\w+)(?:, (\w+))?\))?")
 DOORS = []  # (axis, line, pos, zoneA, zoneB, y0, name)
 for m in re.finditer(r"^\s+(xwall|zwall)\(b, (.*?), vec!\[(.*)\]\);", SRC, re.M | re.S):
     pass
@@ -128,7 +130,7 @@ for line in SRC.splitlines():
     for g in GAPRE.finditer(gaps):
         pos, what, za, zb, price = g.groups()
         gl.append((float(pos), what, za, zb))
-        if what in ("door", "pdoor", "gate"):
+        if what in ("door", "pdoor", "pgate", "gate"):
             DOORS.append((axis, line_, float(pos), za, zb, y0, price))
     WALLS.append((axis, line_, a, b, y0, h, gl))
 
@@ -154,7 +156,7 @@ def wall_rects(w):
     axis, line, a, b, y0, h, gaps = w
     cuts = []
     for pos, what, *_ in gaps:
-        width = {"door": 2.4, "pdoor": 2.4, "gate": 2.4, "Gap::Window": 1.6}.get(what, 4.0)
+        width = {"door": 2.4, "pdoor": 2.4, "pgate": 2.4, "gate": 2.4, "Gap::Window": 1.6}.get(what, 4.0)
         cuts.append((pos - width / 2, pos + width / 2, what))
     cuts.sort()
     spans = []
@@ -468,10 +470,21 @@ manual("wd_foot_e", 40.0, 0.0, -29.0); reg("wd_foot_e")
 manual("wd_top_e", 37.2, 0.5, -29.0); reg("wd_top_e")
 both("wd_foot_e", "wd_top_e")
 
-# ---- PD1: the Inland Gate's walkway ----
-manual("pd1_a", -15.0, 0.0, 2.5); reg("pd1_a")
-manual("pd1_b", -4.0, 0.0, 2.5); reg("pd1_b")
-door_edge("pd1_a", "pd1_b", "LockYard", "SluiceHouse")
+# ---- PD1 and PD2: the Lock Gates' wicket Doors and walkways ----
+# The Door is the gate's gate Door; nav runs quay -> wicket node (Door) -> island landing (Rest of
+# the gate Shut). No node sits on a Leaf.
+def lock_gate(tag, quay_x, wicket_x, landing_x, z, quay_zone, piece):
+    manual(f"{tag}_a", quay_x, 0.0, z); reg(f"{tag}_a")
+    manual(f"{tag}_w", wicket_x, 0.0, z)
+    manual(f"{tag}_b", landing_x, 0.0, z); reg(f"{tag}_b")
+    door_edge(f"{tag}_a", f"{tag}_w", quay_zone, "SluiceHouse")
+    both(f"{tag}_w", f"{tag}_b", f"REST {piece}")
+# the corner by the Market Bridge's landing, which its deck's rail end and a shelf close off from
+# the lattice (and which the wicket node would otherwise crowd out of the nearest few)
+manual("ly_qa", -19.2, 0.0, 1.9); reg("ly_qa")
+both("ly_qa", "ly_2_0")
+lock_gate("pd1", -15.0, -13.5, -4.0, 2.5, "LockYard", 4)
+lock_gate("pd2", 15.0, 13.5, 4.0, 21.5, "TollQuay", 5)
 
 # ---- the Fords ----
 DOOR_OF_FORD = {"WeighHouse": ("Warehouse", 0.0, -1), "CheeseMarket": ("TollQuay", 0.0, -1), "HerringQuay": ("Warehouse", 24.0, 1), "CustomsHouse": ("Shipyard", 24.0, 1)}
@@ -518,7 +531,7 @@ for i, (zone, x, y, z, o) in enumerate(WINDOWS):
     LATT[zone].append((nin, NODES[nin][0], NODES[nin][2], y))
 
 # ---- link manual nodes to lattice ----
-manual_links = [n for n in NODES if re.match(r"(mb|cb|hb|tb)_(po|far)|hump_[ae]|d\d+_[ab]|ws_foot|ws_top|pap_foot|pap_top|sc_foot|sc_top|wd_foot|wd_top|pd1_[ab]|(wr|ds|cs)_(lo|u2)|(dw|dh|dc)_(top|bot)|f\d+_(ot|w)|w\d+_in", n)]
+manual_links = [n for n in NODES if re.match(r"(mb|cb|hb|tb)_(po|far)|hump_[ae]|d\d+_[ab]|ws_foot|ws_top|pap_foot|pap_top|sc_foot|sc_top|wd_foot|wd_top|pd[12]_[ab]|(wr|ds|cs)_(lo|u2)|(dw|dh|dc)_(top|bot)|f\d+_(ot|w)|w\d+_in", n)]
 nolink = []
 for n in manual_links:
     y = NODES[n][1]
@@ -546,6 +559,7 @@ both("sh_arch", "sh_3_0"); both("sh_arch", "sh_4_0")
 for nm, x_, z_ in (("sh_na_w", -3.8, 19.0), ("sh_na_e", 3.8, 19.0), ("sh_nb_w", -3.8, 22.5), ("sh_nb_e", 3.8, 22.5)):
     manual(nm, x_, 0.0, z_)
 both("w16_in", "sh_na_w"); both("w16_in", "sh_na_e"); both("sh_na_w", "sh_nb_w"); both("sh_na_e", "sh_nb_e")
+both("pd2_b", "sh_na_e"); both("pd2_b", "sh_nb_e")
 manual("cm_nook", 48.8, 0.0, -13.2); reg("cm_nook"); link("cm_nook", 0.0, radius=12.0, maxn=3, clear=0.6)
 # the Toll Quay's north-east corner, round the tollhouse window's strip
 manual("tq_na", 28.2, 0.0, 18.8); manual("tq_nb", 28.2, 0.0, 22.4); manual("tq_nc", 32.0, 0.0, 22.0)
