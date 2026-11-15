@@ -241,6 +241,14 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.4 m"
     },
     {
+      "path": "materials/grass_ground",
+      "name": "Grass Ground",
+      "source": "https://polyhaven.com/a/grass_ground",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.51 m"
+    },
+    {
       "path": "materials/green_metal_rust",
       "name": "Green Metal Rust",
       "source": "https://polyhaven.com/a/green_metal_rust",
@@ -252,6 +260,14 @@
       "path": "materials/hangar_concrete_floor",
       "name": "Hangar Concrete Floor",
       "source": "https://polyhaven.com/a/hangar_concrete_floor",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
+      "path": "materials/leafy_grass",
+      "name": "Leafy Grass",
+      "source": "https://polyhaven.com/a/leafy_grass",
       "licence": "CC0",
       "fetched": "2026-11-15",
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
@@ -271,6 +287,14 @@
       "licence": "CC0",
       "fetched": "2026-11-14",
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
+      "path": "materials/muddy_tracks",
+      "name": "Muddy Tracks",
+      "source": "https://polyhaven.com/a/muddy_tracks",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.25 m"
     },
     {
       "path": "materials/old_mosaic_floor",
@@ -321,6 +345,14 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1.76 m"
     },
     {
+      "path": "materials/rock_wall_05",
+      "name": "Rock Wall 05",
+      "source": "https://polyhaven.com/a/rock_wall_05",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.26 m"
+    },
+    {
       "path": "materials/rock_wall_08",
       "name": "Rock Wall 08",
       "source": "https://polyhaven.com/a/rock_wall_08",
@@ -343,6 +375,14 @@
       "licence": "CC0",
       "fetched": "2026-11-15",
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1 m"
+    },
+    {
+      "path": "materials/slate_floor_02",
+      "name": "Slate Floor 02",
+      "source": "https://polyhaven.com/a/slate_floor_02",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
     },
     {
       "path": "materials/smooth_concrete_floor",
@@ -414,7 +454,7 @@
       "source": "https://polyhaven.com/a/qwantani_night_puresky",
       "licence": "CC0",
       "fetched": "2026-11-15",
-      "notes": "2K HDR as a 512px BC6H cubemap via texpack --sky (its prefiltered diffuse.ktx2 and specular.ktx2 are not kept: the Dam's sky lights nothing)"
+      "notes": "2K HDR as a 512px BC6H cubemap via texpack --sky ; diffuse.ktx2 and specular.ktx2 are its prefiltered irradiance and GGX chain from the same run (the Village's sky lights its streets; the Dam's lights nothing)"
     }
   ]
 }

@@ -75,6 +75,25 @@ pub const DAM_NIGHT: Look = Look {
     ..NIGHT
 };
 
+/// The Village (#331): a moonlit night. A cool, high moon with soft cascaded shadows, over the
+/// same CC0 night sky as the Dam, which here also lights the streets faintly through its
+/// prefiltered maps; the gas lamps do the rest. Cool fog the colour of the sky's horizon, and a
+/// slightly cool grade so the lamps' warmth stands out against it.
+pub const VILLAGE_NIGHT: Look = Look {
+    sun_colour: Color::srgb(0.62, 0.72, 1.0),
+    sun_lux: 1600.0,
+    sun_height: 0.8,
+    cascades: Some((3, 70.0)),
+    ambient_colour: Color::srgb(0.5, 0.6, 0.85),
+    ambient_brightness: 70.0,
+    sky: Color::srgb(0.01, 0.015, 0.035),
+    fog: Color::srgb(0.025, 0.035, 0.07),
+    sky_map: Some(("skies/qwantani_night_puresky/sky.ktx2", 200.0)),
+    lamps: 1.0,
+    temperature: -0.04,
+    tint: 0.0,
+};
+
 /// Dusk (#277): a low, warm, shadowed sun, a cool sky ambient, dusky mauve-grey fog, the lamps
 /// barely needed, and a slightly warm grade.
 pub const DUSK: Look = Look {
@@ -258,9 +277,10 @@ mod tests {
         assert_eq!(NIGHT.ambient(true), 0.0);
         assert_eq!(DUSK.ambient(false), DUSK.ambient_brightness);
         assert_eq!(MapId::Greybox.layout().look, DUSK);
-        for map in [MapId::Quarry, MapId::Village, MapId::Cove] {
+        for map in [MapId::Quarry, MapId::Cove] {
             assert_eq!(map.layout().look, NIGHT, "{map:?} keeps the night until its own rollout step");
         }
+        assert_eq!(MapId::Village.layout().look, VILLAGE_NIGHT);
         assert_eq!(MapId::Dam.layout().look, DAM_NIGHT);
         assert_eq!(DAM_NIGHT.ambient(true), 0.0);
     }

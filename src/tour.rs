@@ -1,4 +1,4 @@
-//! The screenshot tour, for approving a Map's look: `ZOMBIES_TOUR=<map>` (`greybox`, `cove` or `dam`) skips the menu, stands the Player at each of the Map's views in turn with no Zombies about,
+//! The screenshot tour, for approving a Map's look: `ZOMBIES_TOUR=<map>` (`greybox`, `cove`, `dam` or `village`) skips the menu, stands the Player at each of the Map's views in turn with no Zombies about,
 //! saves a 1920×1080 shot of the game window for each into `ZOMBIES_TOUR_OUT` (default `tour/`),
 //! and quits. The route views look from Zone to Zone through the Doors, which are hidden for them.
 //! The Dam's tour Holds every Generator, so its Zones are lit to judge, unless `ZOMBIES_TOUR_POWER=off`.
@@ -14,7 +14,7 @@ use crate::maps::door::Door;
 use crate::maps::generator::Generators;
 use crate::maps::map::{COVE_X, MapId};
 use crate::run::gauntlet::boon::{BOONS, HeldBoons};
-use crate::maps::map::DAM_X;
+use crate::maps::map::{DAM_X, VILLAGE_X};
 use crate::players::player::{Health, LocalPlayer, Player, PlayerCamera, Teleport};
 use crate::run::mode::Mode;
 use crate::state::GameState;
@@ -87,6 +87,29 @@ const DAM: &[View] = &[
     view("spillway-plate-off", (DAM_X + 35.0, 4.0, -26.0), (DAM_X + 40.5, -26.0), -0.35, false),
 ];
 
+const VX: f32 = VILLAGE_X;
+
+/// The Village: a view of each of its 14 Zones, then the Market's cross and a lane from end to end.
+const VILLAGE: &[View] = &[
+    view("inn", (VX, 0.0, 8.0), (VX, 22.0), -0.05, false),
+    view("market", (VX - 18.0, 0.0, 2.0), (VX + 6.0, -14.0), 0.0, false),
+    view("market-fronts", (VX + 12.0, 0.0, -14.0), (VX - 6.0, 6.0), 0.12, false),
+    view("west-end", (VX - 26.0, 0.0, 0.0), (VX - 70.0, 0.0), 0.0, false),
+    view("east-end", (VX + 26.0, 0.0, 0.0), (VX + 70.0, 0.0), 0.0, false),
+    view("back-lane", (VX - 20.0, 0.0, 26.0), (VX + 22.0, 26.0), 0.0, false),
+    view("mill-lane", (VX - 28.0, 0.0, 26.0), (VX - 70.0, 26.0), 0.0, false),
+    view("church-lane", (VX + 28.0, 0.0, 26.0), (VX + 70.0, 26.0), 0.0, false),
+    view("mill", (VX - 54.0, 0.0, 8.0), (VX - 68.0, 20.0), -0.05, false),
+    view("smithy", (VX - 25.0, 0.0, 8.0), (VX - 38.0, 20.0), -0.05, false),
+    view("bakery", (VX - 9.0, 0.0, 8.0), (VX - 22.0, 20.0), -0.05, false),
+    view("schoolhouse", (VX + 25.0, 0.0, 8.0), (VX + 38.0, 20.0), -0.05, false),
+    view("church", (VX + 53.0, 0.0, 14.0), (VX + 70.0, 14.0), 0.0, false),
+    view("orchard", (VX - 44.0, 0.0, 32.0), (VX - 66.0, 50.0), 0.0, false),
+    view("graveyard", (VX + 44.0, 0.0, 32.0), (VX + 66.0, 50.0), 0.0, false),
+    view("sky", (VX, 0.0, -4.0), (VX + 6.0, -16.0), 0.6, false),
+    view("lamp-row", (VX - 30.0, 0.0, 0.0), (VX + 40.0, 0.0), 0.05, false),
+];
+
 const C: f32 = COVE_X;
 
 const COVE: &[View] = &[
@@ -131,7 +154,8 @@ impl Tour {
             "greybox" => (MapId::Greybox, GREYBOX),
             "dam" => (MapId::Dam, DAM),
             "cove" => (MapId::Cove, COVE),
-            other => panic!("ZOMBIES_TOUR={other}: only greybox, dam and cove have views"),
+            "village" => (MapId::Village, VILLAGE),
+            other => panic!("ZOMBIES_TOUR={other}: only greybox, dam, cove and village have views"),
         };
         let dir = std::env::var("ZOMBIES_TOUR_OUT").unwrap_or_else(|_| "tour".into());
         std::fs::create_dir_all(&dir).expect("ZOMBIES_TOUR_OUT is writable");

@@ -66,11 +66,17 @@ pub enum Material {
     CrackedConcrete,
     WhiteSandstoneBricks03,
     WhitePlasterRough01,
+    // The Village's.
+    MuddyTracks,
+    LeafyGrass,
+    RockWall05,
+    GrassGround,
+    SlateFloor02,
 }
 
 impl Material {
     #[cfg(test)]
-    pub const ALL: [Material; 43] = [
+    pub const ALL: [Material; 48] = [
         Material::DarkWoodenPlanks,
         Material::DamagedPlaster,
         Material::FloorTiles06,
@@ -114,6 +120,11 @@ impl Material {
         Material::CrackedConcrete,
         Material::WhiteSandstoneBricks03,
         Material::WhitePlasterRough01,
+        Material::MuddyTracks,
+        Material::LeafyGrass,
+        Material::RockWall05,
+        Material::GrassGround,
+        Material::SlateFloor02,
     ];
 
     /// Its directory under `assets/materials/`, and the real-world size of one repeat in metres,
@@ -163,6 +174,11 @@ impl Material {
             Material::CrackedConcrete => ("cracked_concrete", 2.0),
             Material::WhiteSandstoneBricks03 => ("white_sandstone_bricks_03", 2.0),
             Material::WhitePlasterRough01 => ("white_plaster_rough_01", 1.0),
+            Material::MuddyTracks => ("muddy_tracks", 2.25),
+            Material::LeafyGrass => ("leafy_grass", 2.0),
+            Material::RockWall05 => ("rock_wall_05", 2.26),
+            Material::GrassGround => ("grass_ground", 2.51),
+            Material::SlateFloor02 => ("slate_floor_02", 2.0),
         }
     }
 

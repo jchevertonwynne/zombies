@@ -45,6 +45,9 @@ use crate::enemies::sapper::SapperTiming;
 
 /// One storey.
 pub(crate) const STOREY: f32 = 4.0;
+
+/// How far a street's gas lamp lights, where a room's lights 25 m: the Village has 86 lamps.
+const OUTDOOR_LAMP_RANGE: f32 = 14.0;
 pub(crate) const WALL_THICKNESS: f32 = 0.4;
 const DOOR_WIDTH: f32 = 2.4;
 const DOOR_HEIGHT: f32 = 3.0;
@@ -424,6 +427,24 @@ pub fn materials(zone: Option<ZoneId>) -> Option<MaterialSet> {
         GeneratorRoom => (MetalPlate02, GreenMetalRust, None, &[]),
         // The Balcony: boards under broken render, open to the night.
         Balcony => (WeatheredPlanks, BrokenWall, None, &[]),
+        // The Village, in families that change from street to street: cobbles in the Market,
+        // rutted mud in the Ends (between rendered fronts, the beams being trim), grass and flint
+        // in the Back Lane, brick along the Mill Lane, hedges along the Church Lane; dark boards in
+        // the Inn, flags in the Church, grass over the Orchard and the Graveyard.
+        Inn => (DarkWoodenPlanks, WeatheredPlanks, None, &[]),
+        Market => (MossyCobblestone, PlasteredStoneWall, None, &[]),
+        WestEnd => (MuddyTracks, DamagedPlaster, None, &[]),
+        EastEnd => (MuddyTracks, PeelingPaintedWall, None, &[]),
+        BackLane => (LeafyGrass, RockWall05, None, &[]),
+        MillLane => (MuddyTracks, BrickWall001, None, &[]),
+        ChurchLane => (MossyCobblestone, LeafyGrass, None, &[]),
+        Mill => (ConcreteFloor02, WornMossyPlasterwall, Some(Leaks), &[]),
+        Smithy => (DamagedConcreteFloor03, RockWall08, None, &[]),
+        Bakery => (WornBrickFloor, PlasteredStoneWall, None, &[]),
+        Schoolhouse => (DiagonalParquet, DamagedPlaster, None, &[]),
+        Church => (SlateFloor02, RockWall08, Some(Leaks), &[]),
+        Orchard => (LeafyGrass, RockWall05, None, &[]),
+        Graveyard => (GrassGround, RockWall08, None, &[]),
         _ => return None,
     };
     Some(MaterialSet { floor, wall, decals, props })
@@ -484,11 +505,11 @@ pub fn palette(zone: Option<ZoneId>) -> Palette {
         // A rutted road between dusty pink house fronts with white dressings.
         Some(EastEnd) => paints((0.3, 0.27, 0.22), (0.72, 0.5, 0.5), (0.92, 0.9, 0.84), (1.0, 0.8, 0.55)),
         // A grassy track between flint walls with pale copings, under the moon.
-        Some(BackLane) => paints((0.24, 0.3, 0.14), (0.3, 0.31, 0.36), (0.62, 0.6, 0.52), (0.7, 0.8, 1.0)),
+        Some(BackLane) => paints((0.24, 0.3, 0.14), (0.3, 0.31, 0.36), (0.62, 0.6, 0.52), (1.0, 0.78, 0.5)),
         // A cart track between old brick walls.
-        Some(MillLane) => paints((0.32, 0.26, 0.18), (0.42, 0.3, 0.22), (0.7, 0.68, 0.6), (0.75, 0.82, 1.0)),
+        Some(MillLane) => paints((0.32, 0.26, 0.18), (0.42, 0.3, 0.22), (0.7, 0.68, 0.6), (1.0, 0.78, 0.5)),
         // Gravel between clipped yew hedges.
-        Some(ChurchLane) => paints((0.42, 0.4, 0.36), (0.14, 0.24, 0.15), (0.6, 0.58, 0.5), (0.75, 0.85, 1.0)),
+        Some(ChurchLane) => paints((0.42, 0.4, 0.36), (0.14, 0.24, 0.15), (0.6, 0.58, 0.5), (1.0, 0.78, 0.5)),
         // Worn flags, limewashed boards, tarred timber, by lantern.
         Some(Mill) => paints((0.4, 0.38, 0.33), (0.6, 0.55, 0.44), (0.36, 0.24, 0.13), (1.0, 0.8, 0.55)),
         // Beaten earth and soot-black stone, lit orange by the forge.
@@ -500,9 +521,9 @@ pub fn palette(zone: Option<ZoneId>) -> Palette {
         // Stone flags, pale limestone, altar-cloth red, candlelight.
         Some(Church) => paints((0.45, 0.45, 0.48), (0.78, 0.76, 0.7), (0.5, 0.08, 0.1), (1.0, 0.72, 0.45)),
         // Long grass inside dry-stone walls, under the moon.
-        Some(Orchard) => paints((0.16, 0.22, 0.1), (0.5, 0.47, 0.4), (0.3, 0.22, 0.14), (0.7, 0.8, 1.0)),
+        Some(Orchard) => paints((0.16, 0.22, 0.1), (0.5, 0.47, 0.4), (0.3, 0.22, 0.14), (1.0, 0.78, 0.5)),
         // Dark churchyard grass inside lichened grey walls, under a cold moon.
-        Some(Graveyard) => paints((0.12, 0.17, 0.11), (0.52, 0.5, 0.56), (0.2, 0.2, 0.24), (0.6, 0.75, 1.0)),
+        Some(Graveyard) => paints((0.12, 0.17, 0.11), (0.52, 0.5, 0.56), (0.2, 0.2, 0.24), (1.0, 0.78, 0.5)),
         // Asphalt between pale concrete parapets with hazard-yellow kerbs, under the moon.
         Some(CrestRoad) => paints((0.08, 0.08, 0.1), (0.66, 0.64, 0.58), (0.85, 0.75, 0.1), (0.75, 0.82, 1.0)),
         // Chequer plate and steel-blue panelling, white trim.
@@ -878,7 +899,11 @@ pub fn spawn_map(
     if layout.roofed {
         // Warm downward spots, each with a glowing bulb, that light every indoor floor.
         let bulb = meshes.add(Sphere::new(0.12));
+        // A street's gas lamp stands on a thin iron post, and lights less far than a room's.
+        let post_mesh = meshes.add(Cuboid::new(0.12, 1.0, 0.12));
+        let post_mat = materials.add(Color::srgb(0.05, 0.05, 0.055));
         for &(zone, at) in layout.lamps {
+            let out_of_doors = !layout.indoor(zone);
             let colour = palette(Some(zone)).light;
             let glow = materials.add(StandardMaterial {
                 base_color: colour,
@@ -892,7 +917,7 @@ pub fn spawn_map(
                     SpotLight {
                         color: colour,
                         intensity: SPOT_LAMP_INTENSITY * look.lamps,
-                        range: 25.0,
+                        range: if out_of_doors { OUTDOOR_LAMP_RANGE } else { 25.0 },
                         outer_angle: SPOT_LAMP_CONE,
                         inner_angle: SPOT_LAMP_CONE * 0.6,
                         ..default()
@@ -900,6 +925,16 @@ pub fn spawn_map(
                     Transform::from_translation(at).looking_to(Vec3::NEG_Y, Vec3::X),
                 ))
                 .with_child((Mesh3d(bulb.clone()), MeshMaterial3d(glow), NotShadowCaster));
+            if out_of_doors && !layout.darkness {
+                let height = at.y - zone.floor() - 0.15;
+                commands.spawn((
+                    InRun,
+                    Mesh3d(post_mesh.clone()),
+                    MeshMaterial3d(post_mat.clone()),
+                    Transform::from_translation(Vec3::new(at.x, zone.floor() + height / 2.0, at.z)).with_scale(Vec3::new(1.0, height, 1.0)),
+                    NotShadowCaster,
+                ));
+            }
         }
         // A light probe in each indoor Zone, so the room is lit by its own dim constant colour and
         // not the sky's, however bright the Yard through its Door.
@@ -986,6 +1021,26 @@ pub(crate) mod tests {
         }
         assert_eq!(MapId::Greybox.layout().outdoor, &[ZoneId::Yard, ZoneId::Balcony]);
         assert!(MapId::Greybox.layout().roofed);
+    }
+
+    #[test]
+    fn every_point_of_every_village_zone_is_within_reach_of_a_lamp_in_its_zone() {
+        // The streets, lanes and fields too: the Village is lit by gas lamps all over.
+        let layout = MapId::Village.layout();
+        for &zone in layout.zones {
+            let (lo, hi) = zone.volume();
+            let (lo, hi) = (Vec2::new(lo.x + 1.0, lo.z + 1.0), Vec2::new(hi.x - 1.0, hi.z - 1.0));
+            let lamps: Vec<Vec2> = layout.lamps.iter().filter(|(lamp, _)| *lamp == zone).map(|(_, at)| Vec2::new(at.x, at.z)).collect();
+            assert!(!lamps.is_empty(), "{zone:?} has no lamps");
+            let (nx, nz) = (((hi.x - lo.x) / 0.25).ceil().max(1.0) as u32, ((hi.y - lo.y) / 0.25).ceil().max(1.0) as u32);
+            for i in 0..=nx {
+                for j in 0..=nz {
+                    let at = Vec2::new(lo.x + (hi.x - lo.x) * i as f32 / nx as f32, lo.y + (hi.y - lo.y) * j as f32 / nz as f32);
+                    let nearest = lamps.iter().map(|lamp| lamp.distance(at)).fold(f32::MAX, f32::min);
+                    assert!(nearest <= LAMP_REACH, "{at} in {zone:?} is {nearest} m from its nearest lamp");
+                }
+            }
+        }
     }
 
     #[test]
