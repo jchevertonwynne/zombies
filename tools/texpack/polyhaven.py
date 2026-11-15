@@ -53,6 +53,9 @@ def fetch(asset_id, res, workdir):
     files = get_json(f"{API}/files/{asset_id}")
     maps = {}
     for key, name in (("Diffuse", "color"), ("nor_gl", "normal"), ("arm", "orm")):
+        if key == "Diffuse" and key not in files:
+            # Fabrics come as colourways: take the first.
+            key = next(k for k in ("col_1", "col_01") if k in files)
         url = files[key][res]["png"]["url"]
         path = workdir / f"{asset_id}_{name}.png"
         path.write_bytes(get(url))

@@ -22,6 +22,8 @@ pub enum Decal {
     Leak005,
     OilStain1,
     OilStain2,
+    /// A Tree's crown: a leaf-cluster alpha card, cut out rather than blended, seen from both sides.
+    Foliage,
 }
 
 const LEAKS: [Decal; 3] = [Decal::Leak003, Decal::Leak004, Decal::Leak005];
@@ -35,6 +37,7 @@ impl Decal {
             Decal::Leak005 => "leaking005",
             Decal::OilStain1 => "oil_stain_1",
             Decal::OilStain2 => "oil_stain_2",
+            Decal::Foliage => "foliage",
         };
         format!("decals/{dir}/color.ktx2")
     }
@@ -42,7 +45,13 @@ impl Decal {
     /// How rough it leaves the surface, and how much it reflects head on. Oil soaked into
     /// concrete is dull, and must stay dark at a glancing look, so it hardly reflects at all.
     fn finish(self) -> (f32, f32) {
-        if OIL_STAINS.contains(&self) { (0.8, 0.1) } else { (0.7, 0.5) }
+        if OIL_STAINS.contains(&self) {
+            (0.8, 0.1)
+        } else if self == Decal::Foliage {
+            (0.95, 0.2)
+        } else {
+            (0.7, 0.5)
+        }
     }
 }
 
@@ -59,6 +68,11 @@ pub enum DecalFamily {
 /// scaled to its size.
 #[derive(Component, Debug, Clone, Copy)]
 pub struct DecalPiece(pub Decal);
+
+/// Pieces drawn only until this decal is: a Tree's boxy crown, which its leaf cards replace once
+/// their file has loaded.
+#[derive(Component, Debug, Clone)]
+pub struct Instead(pub Vec<Entity>);
 
 /// A `DecalPiece` that's been settled: drawn, or left out for good.
 #[derive(Component)]
@@ -195,9 +209,12 @@ pub(super) fn request_decals(
                 })
                 .load(file);
             let (perceptual_roughness, reflectance) = decal.finish();
+            let cut_out = decal == Decal::Foliage;
             let material = materials.add(StandardMaterial {
                 base_color_texture: Some(image.clone()),
-                alpha_mode: AlphaMode::Blend,
+                alpha_mode: if cut_out { AlphaMode::Mask(0.5) } else { AlphaMode::Blend },
+                double_sided: cut_out,
+                cull_mode: if cut_out { None } else { Some(bevy::render::render_resource::Face::Back) },
                 perceptual_roughness,
                 reflectance,
                 depth_bias: 1.0,
@@ -214,9 +231,9 @@ pub(super) fn place_decals(
     mut library: ResMut<DecalLibrary>,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
-    pieces: Query<(Entity, &DecalPiece), Without<Placed>>,
+    pieces: Query<(Entity, &DecalPiece, Option<&Instead>), Without<Placed>>,
 ) {
-    for (entity, &DecalPiece(decal)) in &pieces {
+    for (entity, &DecalPiece(decal), instead) in &pieces {
         let Some(entry) = library.entries.get(&decal).cloned() else { continue };
         let choice = match &entry {
             None => dress(false, &[]),
@@ -227,6 +244,9 @@ pub(super) fn place_decals(
             (Dress::Textured, Some((material, _))) => {
                 let quad = library.quad.get_or_insert_with(|| meshes.add(Rectangle::new(1.0, 1.0))).clone();
                 commands.entity(entity).insert((Mesh3d(quad), MeshMaterial3d(material), NotShadowCaster));
+                for &stand_in in instead.iter().flat_map(|instead| &instead.0) {
+                    commands.entity(stand_in).try_despawn();
+                }
             }
             _ => {}
         }

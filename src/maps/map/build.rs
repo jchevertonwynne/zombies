@@ -13,10 +13,11 @@ use crate::state::InRun;
 use crate::tuning::*;
 use crate::maps::zone::ZoneId;
 
-use super::decals::{DecalFamily, DecalPiece, leak_transform, leaks, stain_transform, stains};
+use super::decals::{Decal, DecalFamily, DecalPiece, Instead, leak_transform, leaks, stain_transform, stains};
 use super::door_look::{self, Part, Piece};
+use super::fitting::FittedModel;
 use super::textures::{Material, Shape, Textured, Veneer, box_uv_mesh};
-use super::{DOOR_HEIGHT, DOOR_WIDTH, Palette, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, WALL_THICKNESS, WINDOW_WIDTH, materials, palette};
+use super::{DOOR_HEIGHT, DOOR_WIDTH, Palette, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, WALL_THICKNESS, WINDOW_WIDTH, materials, palette, prop_variant};
 use crate::maps::generator::{Generator, PlateDisc};
 use crate::maps::jump_pad::JumpPad;
 
@@ -82,6 +83,8 @@ pub(super) struct Builder<'a, 'w, 's> {
     pub repaint: Option<Palette>,
     /// The Map's windows, which its outer walls leave gaps for.
     windows: &'static [(ZoneId, Vec3, Vec2)],
+    /// Every piece drawn since a Prop began: what its unit model replaces.
+    drawn: Vec<Entity>,
 }
 
 impl<'a, 'w, 's> Builder<'a, 'w, 's> {
@@ -95,7 +98,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let cylinder = meshes.add(Cylinder::new(0.5, 1.0));
         let door = materials.add(Color::srgb(0.85, 0.45, 0.1));
         let power_door = materials.add(Color::srgb(0.5, 0.3, 0.8));
-        Self { commands, meshes, materials, cube, cylinder, paints: HashMap::new(), door, power_door, repaint: None, windows }
+        Self { commands, meshes, materials, cube, cylinder, paints: HashMap::new(), door, power_door, repaint: None, windows, drawn: Vec::new() }
     }
 
     /// The material for a flat colour.
@@ -130,7 +133,9 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         if let Some(material) = material {
             shape.insert(Textured { material, shape: Shape::Cuboid });
         }
-        shape.id()
+        let shape = shape.id();
+        self.drawn.push(shape);
+        shape
     }
 
     /// Something solid with nothing drawn: what's seen of it is drawn on its own.
@@ -346,8 +351,9 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         }
     }
 
-    /// A Prop: solid through its whole box (round, for a drum) and drawn as its kind looks. `nth`
-    /// varies the look between Props of a kind.
+    /// A Prop: solid through its whole box (round, for a drum) and drawn as its kind looks, in the
+    /// material its Zone's set names for it (`nth` picks between the variants, and varies the look
+    /// between Props of a kind). A variant with a unit model lays it over the box once it has loaded.
     pub fn prop(&mut self, prop: &Prop, nth: usize) {
         let Prop { kind, zone, at, size } = *prop;
         let middle = at + Vec3::Y * size.y / 2.0;
@@ -355,20 +361,23 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
             PropKind::Barrel => Collider::cylinder(size.x / 2.0, size.y),
             _ => Collider::cuboid(size.x, size.y, size.z),
         };
-        self.bare(collider, middle, Quat::IDENTITY);
+        let solid = self.bare(collider, middle, Quat::IDENTITY);
+        self.drawn.clear();
+        let variant = prop_variant(zone, kind, nth);
+        let mat = variant.map(|variant| variant.material);
         let flat = Quat::IDENTITY;
         // A box `size` across whose bottom is `up` above the Prop's foot, `off` along the floor.
-        let piece = |this: &mut Self, size: Vec3, up: f32, off: Vec2, colour: Color| {
-            this.shape(size, at + Vec3::new(off.x, up + size.y / 2.0, off.y), flat, colour);
+        let piece = |this: &mut Self, size: Vec3, up: f32, off: Vec2, colour: Color, material: Option<Material>| {
+            this.shape_in(size, at + Vec3::new(off.x, up + size.y / 2.0, off.y), flat, colour, material)
         };
         // A band round the Prop, `tall`, its middle `up` above its foot.
         let band = |this: &mut Self, up: f32, tall: f32, colour: Color| {
-            piece(this, Vec3::new(size.x + 0.03, tall, size.z + 0.03), up - tall / 2.0, Vec2::ZERO, colour);
+            piece(this, Vec3::new(size.x + 0.03, tall, size.z + 0.03), up - tall / 2.0, Vec2::ZERO, colour, None);
         };
         match kind {
             PropKind::Crate => {
                 let wood = CRATE_WOOD[nth % 2];
-                piece(self, size, 0.0, Vec2::ZERO, wood);
+                piece(self, size, 0.0, Vec2::ZERO, wood, mat);
                 let batten = darker(wood);
                 band(self, size.y - 0.04, 0.07, batten);
                 band(self, 0.05, 0.07, batten);
@@ -378,35 +387,36 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
             }
             PropKind::Table | PropKind::Bench => {
                 let (wood, top) = if kind == PropKind::Table { (TABLE_WOOD, 0.06) } else { (BENCH_WOOD, 0.08) };
-                piece(self, Vec3::new(size.x, top, size.z), size.y - top, Vec2::ZERO, wood);
+                piece(self, Vec3::new(size.x, top, size.z), size.y - top, Vec2::ZERO, wood, mat);
                 let leg = Vec3::new(0.09, size.y - top, 0.09);
                 let (dx, dz) = (size.x / 2.0 - 0.1, size.z / 2.0 - 0.1);
                 for (x, z) in [(-dx, -dz), (dx, -dz), (-dx, dz), (dx, dz)] {
-                    piece(self, leg, 0.0, Vec2::new(x, z), darker(wood));
+                    piece(self, leg, 0.0, Vec2::new(x, z), darker(wood), mat);
                 }
                 // A rail between the legs, so it reads as solid as it is.
-                piece(self, Vec3::new(size.x - 0.2, 0.12, size.z - 0.2), size.y - top - 0.14, Vec2::ZERO, darker(wood));
+                piece(self, Vec3::new(size.x - 0.2, 0.12, size.z - 0.2), size.y - top - 0.14, Vec2::ZERO, darker(wood), mat);
             }
             PropKind::Counter => {
-                piece(self, Vec3::new(size.x - 0.08, size.y - 0.05, size.z - 0.08), 0.0, Vec2::ZERO, COUNTER_WOOD);
-                piece(self, Vec3::new(size.x, 0.05, size.z), size.y - 0.05, Vec2::ZERO, COUNTER_TOP);
+                piece(self, Vec3::new(size.x - 0.08, size.y - 0.05, size.z - 0.08), 0.0, Vec2::ZERO, COUNTER_WOOD, mat);
+                piece(self, Vec3::new(size.x, 0.05, size.z), size.y - 0.05, Vec2::ZERO, COUNTER_TOP, None);
             }
             PropKind::Altar => {
-                piece(self, size, 0.0, Vec2::ZERO, ALTAR_STONE);
+                piece(self, size, 0.0, Vec2::ZERO, ALTAR_STONE, mat);
                 // A cloth over its top, hanging down the long sides.
                 let cloth = palette(Some(zone)).trim;
-                piece(self, Vec3::new(size.x + 0.04, 0.03, size.z * 0.7), size.y, Vec2::ZERO, cloth);
-                piece(self, Vec3::new(size.x + 0.04, size.y * 0.5, size.z * 0.3), size.y * 0.5, Vec2::ZERO, cloth);
+                let fabric = Some(Material::FabricPattern07);
+                piece(self, Vec3::new(size.x + 0.04, 0.03, size.z * 0.7), size.y, Vec2::ZERO, cloth, fabric);
+                piece(self, Vec3::new(size.x + 0.04, size.y * 0.5, size.z * 0.3), size.y * 0.5, Vec2::ZERO, cloth, fabric);
             }
             PropKind::Pillar => {
-                piece(self, size, 0.0, Vec2::ZERO, PILLAR_STONE);
+                piece(self, size, 0.0, Vec2::ZERO, PILLAR_STONE, mat);
                 let trim = palette(Some(zone)).trim;
                 for up in [0.0, size.y - 0.3] {
-                    piece(self, Vec3::new(size.x + 0.16, 0.3, size.z + 0.16), up, Vec2::ZERO, trim);
+                    piece(self, Vec3::new(size.x + 0.16, 0.3, size.z + 0.16), up, Vec2::ZERO, trim, None);
                 }
             }
             PropKind::Shelf => {
-                piece(self, size, 0.0, Vec2::ZERO, SHELF_WOOD);
+                piece(self, size, 0.0, Vec2::ZERO, SHELF_WOOD, mat);
                 for k in 1..4 {
                     band(self, size.y * k as f32 / 4.0, 0.04, SHELF_BOARD);
                 }
@@ -414,7 +424,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
             PropKind::Rubble => {
                 // A heap, then broken blocks leaning on it, turned this way and that.
                 let turn = nth as f32 * 0.7;
-                piece(self, Vec3::new(size.x * 0.92, size.y * 0.55, size.z * 0.92), 0.0, Vec2::ZERO, RUBBLE_STONE[0]);
+                piece(self, Vec3::new(size.x * 0.92, size.y * 0.55, size.z * 0.92), 0.0, Vec2::ZERO, RUBBLE_STONE[0], mat);
                 for (k, (scale, off, yaw)) in [
                     (Vec3::new(0.55, 1.0, 0.5), Vec2::new(-0.18, 0.15), 0.3),
                     (Vec3::new(0.5, 0.8, 0.45), Vec2::new(0.2, -0.2), -0.5),
@@ -425,7 +435,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                 {
                     let chunk = size * scale;
                     let centre = at + Vec3::new(off.x * size.x, chunk.y / 2.0, off.y * size.z);
-                    self.shape(chunk, centre, Quat::from_rotation_y(yaw + turn), RUBBLE_STONE[(k + nth) % 3]);
+                    self.shape_in(chunk, centre, Quat::from_rotation_y(yaw + turn), RUBBLE_STONE[(k + nth) % 3], mat);
                 }
             }
             PropKind::Sandbags => {
@@ -435,38 +445,63 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                 for k in 0..courses {
                     let shift = if k % 2 == 0 { 0.03 } else { -0.03 };
                     let off = if size.x > size.z { Vec2::new(shift, 0.0) } else { Vec2::new(0.0, shift) };
-                    piece(self, Vec3::new(size.x - 0.06, course - 0.02, size.z - 0.04), k as f32 * course, off, SANDBAG[k % 2]);
+                    piece(self, Vec3::new(size.x - 0.06, course - 0.02, size.z - 0.04), k as f32 * course, off, SANDBAG[k % 2], None);
                 }
             }
             PropKind::Barrel => {
                 let paint = self.paint(DRUM_PAINT[nth % 2]);
-                self.commands.spawn((
+                let mut drum = self.commands.spawn((
                     InRun,
                     Mesh3d(self.cylinder.clone()),
                     MeshMaterial3d(paint),
                     Transform::from_translation(middle).with_scale(size),
                 ));
+                if let Some(material) = mat {
+                    drum.insert(Textured { material, shape: Shape::Cylinder });
+                }
+                let drum = drum.id();
+                self.drawn.push(drum);
                 let ring = self.paint(DRUM_RING);
                 for up in [size.y / 3.0, size.y * 2.0 / 3.0] {
-                    self.commands.spawn((
-                        InRun,
-                        Mesh3d(self.cylinder.clone()),
-                        MeshMaterial3d(ring.clone()),
-                        Transform::from_translation(at + Vec3::Y * up).with_scale(Vec3::new(size.x + 0.03, 0.04, size.z + 0.03)),
-                    ));
+                    let ring = self
+                        .commands
+                        .spawn((
+                            InRun,
+                            Mesh3d(self.cylinder.clone()),
+                            MeshMaterial3d(ring.clone()),
+                            Transform::from_translation(at + Vec3::Y * up).with_scale(Vec3::new(size.x + 0.03, 0.04, size.z + 0.03)),
+                        ))
+                        .id();
+                    self.drawn.push(ring);
                 }
             }
             PropKind::Machine => {
-                piece(self, size, 0.0, Vec2::ZERO, MACHINE_STEEL);
+                piece(self, size, 0.0, Vec2::ZERO, MACHINE_STEEL, mat);
                 band(self, size.y * 0.7, 0.14, palette(Some(zone)).trim);
-                piece(self, Vec3::new(size.x * 0.6, 0.12, size.z * 0.6), size.y, Vec2::ZERO, MACHINE_PANEL);
+                piece(self, Vec3::new(size.x * 0.6, 0.12, size.z * 0.6), size.y, Vec2::ZERO, MACHINE_PANEL, mat);
             }
             PropKind::Tree => {
-                piece(self, size, 0.0, Vec2::ZERO, BARK);
-                // The crown, drawn but not solid, so nothing catches on it.
+                piece(self, size, 0.0, Vec2::ZERO, BARK, mat);
+                // The crown, drawn but not solid, so nothing catches on it: two boxes of leaves
+                // until its alpha cards (crossed, three to a clump) have loaded to replace them.
                 let turn = if nth % 2 == 0 { 1.0 } else { -1.0 };
-                piece(self, Vec3::new(2.8, 1.4, 2.6), size.y - 0.5, Vec2::ZERO, LEAVES[nth % 2]);
-                piece(self, Vec3::new(1.9, 1.0, 2.1), size.y + 0.8, Vec2::new(0.25 * turn, -0.2), LEAVES[(nth + 1) % 2]);
+                let clumps = [
+                    (Vec3::new(2.8, 1.4, 2.6), Vec2::ZERO, size.y - 0.5, LEAVES[nth % 2]),
+                    (Vec3::new(1.9, 1.0, 2.1), Vec2::new(0.25 * turn, -0.2), size.y + 0.8, LEAVES[(nth + 1) % 2]),
+                ];
+                let crown: Vec<Entity> = clumps.iter().map(|&(clump, off, up, leaves)| piece(self, clump, up, off, leaves, None)).collect();
+                for (clump, off, up, _) in clumps {
+                    let middle = at + Vec3::new(off.x, up + clump.y / 2.0, off.y);
+                    for card in 0..3 {
+                        let yaw = (card as f32 / 3.0 + nth as f32 * 0.11) * std::f32::consts::PI;
+                        self.commands.spawn((
+                            InRun,
+                            DecalPiece(Decal::Foliage),
+                            Instead(crown.clone()),
+                            Transform { translation: middle, rotation: Quat::from_rotation_y(yaw), scale: Vec3::new(clump.x * 1.25, clump.y * 1.5, 1.0) },
+                        ));
+                    }
+                }
             }
             PropKind::Headstone => {
                 // A slab with a narrower cap, leaning a little this way or that.
@@ -476,6 +511,10 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                 self.shape(Vec3::new(size.x, slab, size.z), at + Vec3::Y * slab / 2.0, lean, stone);
                 self.shape(Vec3::new(size.x * 0.7, 0.12, size.z), at + lean * (Vec3::Y * (slab + 0.06)), lean, stone);
             }
+        }
+        if let Some((path, unit)) = variant.and_then(|variant| variant.model) {
+            let pieces = std::mem::take(&mut self.drawn);
+            self.commands.entity(solid).insert(FittedModel { path, unit, at, size, pieces });
         }
     }
 

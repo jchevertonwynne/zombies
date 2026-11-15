@@ -34,12 +34,18 @@ pub enum Material {
     RustyCorrugatedIron,
     MossyCobblestone,
     PlasteredStoneWall,
+    // The Props'.
     WeatheredPlanks,
+    RockWall08,
+    FabricPattern07,
+    BrokenWall,
+    RustyMetal02,
+    BarkBrown02,
 }
 
 impl Material {
     #[cfg(test)]
-    pub const ALL: [Material; 13] = [
+    pub const ALL: [Material; 18] = [
         Material::DarkWoodenPlanks,
         Material::DamagedPlaster,
         Material::FloorTiles06,
@@ -53,6 +59,11 @@ impl Material {
         Material::MossyCobblestone,
         Material::PlasteredStoneWall,
         Material::WeatheredPlanks,
+        Material::RockWall08,
+        Material::FabricPattern07,
+        Material::BrokenWall,
+        Material::RustyMetal02,
+        Material::BarkBrown02,
     ];
 
     /// Its directory under `assets/materials/`, and the real-world size of one repeat in metres,
@@ -72,6 +83,11 @@ impl Material {
             Material::MossyCobblestone => ("mossy_cobblestone", 2.0),
             Material::PlasteredStoneWall => ("plastered_stone_wall", 2.5),
             Material::WeatheredPlanks => ("weathered_planks", 2.0),
+            Material::RockWall08 => ("rock_wall_08", 1.8),
+            Material::FabricPattern07 => ("fabric_pattern_07", 0.4),
+            Material::BrokenWall => ("broken_wall", 3.0),
+            Material::RustyMetal02 => ("rusty_metal_02", 1.0),
+            Material::BarkBrown02 => ("bark_brown_02", 1.0),
         }
     }
 
@@ -90,8 +106,7 @@ impl Material {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shape {
     Cuboid,
-    /// Upright, its diameter its size's x (and z). For the Props' drums, once they have a material.
-    #[allow(dead_code)]
+    /// Upright, its diameter its size's x (and z). For the Props' drums.
     Cylinder,
     /// Its mesh is already baked with UVs (a Door, a Plank), so only its material is swapped in.
     Baked,
@@ -231,7 +246,7 @@ impl Plugin for TexturesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Library>()
             .init_resource::<super::decals::DecalLibrary>()
-            .add_systems(Update, ((request, put_on, reveal).chain(), (super::decals::request_decals, super::decals::place_decals).chain()));
+            .add_systems(Update, ((request, put_on, reveal).chain(), (super::decals::request_decals, super::decals::place_decals).chain(), (super::fitting::request_models, super::fitting::put_on_models).chain()));
     }
 }
 

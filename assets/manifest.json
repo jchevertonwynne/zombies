@@ -9,6 +9,14 @@
       "notes": "Placeholders until the Audio lane replaces them; a more specific entry covers each real recording"
     },
     {
+      "path": "decals/foliage",
+      "name": "Leaf-cluster card (procedural)",
+      "source": "tools/texpack/foliage.py",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "Our own procedural leaf cluster as an alpha card for the Trees' crowns, via texpack --color --opacity"
+    },
+    {
       "path": "decals/leaking003",
       "name": "ambientCG Leaking003",
       "source": "https://ambientcg.com/a/Leaking003",
@@ -49,11 +57,27 @@
       "notes": "Procedural"
     },
     {
+      "path": "materials/bark_brown_02",
+      "name": "Bark Brown 02",
+      "source": "https://polyhaven.com/a/bark_brown_02",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 0.999999 m"
+    },
+    {
       "path": "materials/brick_wall_001",
       "name": "Brick Wall 001",
       "source": "https://polyhaven.com/a/brick_wall_001",
       "licence": "CC0",
       "fetched": "2026-11-14",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 3 m"
+    },
+    {
+      "path": "materials/broken_wall",
+      "name": "Broken Wall",
+      "source": "https://polyhaven.com/a/broken_wall",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 3 m"
     },
     {
@@ -89,6 +113,14 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.36 m"
     },
     {
+      "path": "materials/fabric_pattern_07",
+      "name": "Fabric Pattern 07",
+      "source": "https://polyhaven.com/a/fabric_pattern_07",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 0.4 m"
+    },
+    {
       "path": "materials/floor_tiles_06",
       "name": "Floor Tiles 06",
       "source": "https://polyhaven.com/a/floor_tiles_06",
@@ -121,12 +153,28 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.5 m"
     },
     {
+      "path": "materials/rock_wall_08",
+      "name": "Rock Wall 08",
+      "source": "https://polyhaven.com/a/rock_wall_08",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1.8 m"
+    },
+    {
       "path": "materials/rusty_corrugated_iron",
       "name": "Rusty Corrugated Iron",
       "source": "https://polyhaven.com/a/rusty_corrugated_iron",
       "licence": "CC0",
       "fetched": "2026-11-14",
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
+      "path": "materials/rusty_metal_02",
+      "name": "Rusty Metal 02",
+      "source": "https://polyhaven.com/a/rusty_metal_02",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1 m"
     },
     {
       "path": "materials/weathered_planks",

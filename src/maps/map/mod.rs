@@ -21,6 +21,7 @@ mod cove;
 mod door_look;
 pub mod decals;
 mod dam;
+mod fitting;
 mod greybox;
 mod quarry;
 pub mod textures;
@@ -303,7 +304,66 @@ pub struct MaterialSet {
     pub wall: textures::Material,
     /// The decals its walls or floor wear, if any.
     pub decals: Option<decals::DecalFamily>,
+    /// The Props it dresses differently from `default_variants`, each kind with its variants.
+    pub props: &'static [(PropKind, &'static [PropVariant])],
 }
+
+/// One look of a Prop kind in a Zone: the unit model laid over the Prop's box if it has one and the
+/// file is on disk and fits (see `fitting`), and the material the textured box wears otherwise.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PropVariant {
+    /// A unit glTF under `assets/` and its size as modelled, if there's a model yet.
+    pub model: Option<(&'static str, Vec3)>,
+    pub material: textures::Material,
+}
+
+const fn boxed(material: textures::Material) -> PropVariant {
+    PropVariant { model: None, material }
+}
+
+/// How a kind looks in a Zone whose set doesn't name it: a textured box (a Pillar's is its Zone's
+/// wall, set by `prop_variant`).
+fn default_variants(kind: PropKind) -> &'static [PropVariant] {
+    use textures::Material::*;
+    const PLANKS: &[PropVariant] = &[boxed(WeatheredPlanks)];
+    const STONE: &[PropVariant] = &[boxed(RockWall08)];
+    const PLASTER: &[PropVariant] = &[boxed(PlasteredStoneWall)];
+    const BROKEN: &[PropVariant] = &[boxed(BrokenWall)];
+    const STEEL: &[PropVariant] = &[boxed(RustyMetal02)];
+    const BARK: &[PropVariant] = &[boxed(BarkBrown02)];
+    match kind {
+        PropKind::Crate | PropKind::Table | PropKind::Bench | PropKind::Counter | PropKind::Shelf => PLANKS,
+        PropKind::Altar => STONE,
+        PropKind::Pillar => PLASTER,
+        PropKind::Rubble => BROKEN,
+        PropKind::Barrel | PropKind::Machine => STEEL,
+        PropKind::Tree => BARK,
+        PropKind::Sandbags | PropKind::Headstone => &[],
+    }
+}
+
+/// The look of Prop number `nth` of `kind` in `zone`: the Zone's set names its variants and `nth`
+/// picks between them, falling back to the kind's default. A Pillar wears its Zone's wall.
+/// `None` for a kind that stays in paint.
+pub fn prop_variant(zone: ZoneId, kind: PropKind, nth: usize) -> Option<PropVariant> {
+    let set = materials(Some(zone));
+    let listed = set.and_then(|set| set.props.iter().find(|(k, _)| *k == kind).map(|(_, variants)| *variants));
+    let variants = listed.unwrap_or_else(|| default_variants(kind));
+    let mut variant = *variants.get(nth % variants.len().max(1))?;
+    if kind == PropKind::Pillar && listed.is_none() {
+        if let Some(set) = set {
+            variant.material = set.wall;
+        }
+    }
+    Some(variant)
+}
+
+/// Workbenches, racks and counters are steel in the Workshop.
+const WORKSHOP_PROPS: &[(PropKind, &[PropVariant])] = &[
+    (PropKind::Table, &[boxed(textures::Material::RustyMetal02)]),
+    (PropKind::Shelf, &[boxed(textures::Material::RustyMetal02)]),
+    (PropKind::Counter, &[boxed(textures::Material::RustyMetal02)]),
+];
 
 /// The material set of a Zone, or of the outside for `None`. Neighbouring Zones differ by family
 /// (plaster, tile, brick, tin, stone) more than by colour. Zones without one stay in their palette.
@@ -311,22 +371,22 @@ pub fn materials(zone: Option<ZoneId>) -> Option<MaterialSet> {
     use decals::DecalFamily::*;
     use textures::Material::*;
     use ZoneId::*;
-    let (floor, wall, decals) = match zone? {
+    let (floor, wall, decals, props): (_, _, _, &'static [(PropKind, &'static [PropVariant])]) = match zone? {
         // Ruined: bare dark boards and plaster coming off the lath, streaked with damp.
-        StartRoom => (DarkWoodenPlanks, DamagedPlaster, Some(Leaks)),
+        StartRoom => (DarkWoodenPlanks, DamagedPlaster, Some(Leaks), &[]),
         // Tiled: chequered tiles under damp, mossy plaster.
-        WestHall => (FloorTiles06, WornMossyPlasterwall, Some(Leaks)),
+        WestHall => (FloorTiles06, WornMossyPlasterwall, Some(Leaks), &[]),
         // Peeling: diagonal parquet, cracked red paint.
-        DiningRoom => (DiagonalParquet, PeelingPaintedWall, Some(Leaks)),
+        DiningRoom => (DiagonalParquet, PeelingPaintedWall, Some(Leaks), &[]),
         // Brick underfoot and either side.
-        Passage => (WornBrickFloor, BrickWall001, None),
+        Passage => (WornBrickFloor, BrickWall001, None, &[]),
         // Rusty tin: concrete with oil on it, and corrugated iron.
-        Workshop => (ConcreteFloor02, RustyCorrugatedIron, Some(OilStains)),
+        Workshop => (ConcreteFloor02, RustyCorrugatedIron, Some(OilStains), WORKSHOP_PROPS),
         // Cobbled: mossy cobbles (the sunken garden too), and the house's plastered stone outer faces.
-        Yard => (MossyCobblestone, PlasteredStoneWall, None),
+        Yard => (MossyCobblestone, PlasteredStoneWall, None, &[]),
         _ => return None,
     };
-    Some(MaterialSet { floor, wall, decals })
+    Some(MaterialSet { floor, wall, decals, props })
 }
 
 /// The palette of a Zone, or of the outside for `None`.
@@ -837,6 +897,25 @@ pub(crate) mod tests {
     fn inside(zone: ZoneId, at: Vec3) -> bool {
         let (lo, hi) = zone.volume();
         at.cmpge(lo).all() && at.cmple(hi).all()
+    }
+
+    #[test]
+    fn a_zones_set_names_its_prop_variants_and_nth_picks_between_them() {
+        use textures::Material::*;
+        // The Workshop's tables are steel; elsewhere in the house they are planks.
+        assert_eq!(prop_variant(ZoneId::Workshop, PropKind::Table, 0).unwrap().material, RustyMetal02);
+        assert_eq!(prop_variant(ZoneId::StartRoom, PropKind::Table, 0).unwrap().material, WeatheredPlanks);
+        // A Pillar wears its Zone's wall.
+        assert_eq!(prop_variant(ZoneId::Passage, PropKind::Pillar, 3).unwrap().material, BrickWall001);
+        // Every kind but the two still in paint has a look in every Zone, and nth wraps round.
+        for kind in [PropKind::Crate, PropKind::Table, PropKind::Bench, PropKind::Counter, PropKind::Altar, PropKind::Pillar, PropKind::Shelf, PropKind::Rubble, PropKind::Barrel, PropKind::Machine, PropKind::Tree] {
+            assert!(prop_variant(ZoneId::StartRoom, kind, 7).is_some(), "{kind:?}");
+        }
+        assert!(prop_variant(ZoneId::StartRoom, PropKind::Sandbags, 0).is_none());
+        // With two variants named, nth alternates.
+        const TWO: &[PropVariant] = &[boxed(WeatheredPlanks), boxed(RustyMetal02)];
+        let pick = |nth: usize| TWO[nth % TWO.len()].material;
+        assert_eq!((pick(0), pick(1), pick(2)), (WeatheredPlanks, RustyMetal02, WeatheredPlanks));
     }
 
     #[test]
