@@ -653,27 +653,27 @@ pub fn palette(zone: Option<ZoneId>) -> Palette {
         // Scrubbed boards, whitewash, black beams, lamp-yellow light.
         Some(WeighHouse) => paints((0.38, 0.3, 0.22), (0.78, 0.76, 0.68), (0.12, 0.1, 0.09), (1.0, 0.82, 0.55)),
         // Tarred floorboards, dark red brick, copper-green trim.
-        Some(Brewery) => paints((0.2, 0.15, 0.12), (0.45, 0.2, 0.17), (0.3, 0.5, 0.42), (1.0, 0.72, 0.4)),
+        Some(Brewery) => paints((0.12, 0.09, 0.1), (0.34, 0.12, 0.2), (0.3, 0.5, 0.42), (1.0, 0.72, 0.4)),
         // Flags under pale-blue shutters on cream render.
         Some(CheeseMarket) => paints((0.45, 0.43, 0.4), (0.78, 0.74, 0.58), (0.3, 0.45, 0.6), (1.0, 0.82, 0.55)),
         // Moss between the setts, almshouse brick the colour of weak tea.
-        Some(AlmshouseCourt) => paints((0.3, 0.34, 0.26), (0.56, 0.38, 0.28), (0.82, 0.8, 0.72), (1.0, 0.8, 0.5)),
+        Some(AlmshouseCourt) => paints((0.3, 0.34, 0.26), (0.46, 0.55, 0.5), (0.82, 0.8, 0.72), (1.0, 0.8, 0.5)),
         // Trodden clay round a limewashed mill, tarred timber sails.
         Some(Windmill) => paints((0.36, 0.3, 0.24), (0.84, 0.82, 0.76), (0.16, 0.12, 0.09), (1.0, 0.78, 0.5)),
         // Plank floor, sooty tiles and grey brick, hoist beams.
         Some(Warehouse) => paints((0.3, 0.24, 0.18), (0.4, 0.38, 0.38), (0.2, 0.15, 0.1), (1.0, 0.78, 0.5)),
         // Wet quay stone and the keeper's tarred hut.
-        Some(LockYard) => paints((0.3, 0.31, 0.32), (0.33, 0.25, 0.2), (0.7, 0.68, 0.6), (0.85, 0.9, 1.0)),
+        Some(LockYard) => paints((0.22, 0.27, 0.32), (0.3, 0.36, 0.22), (0.7, 0.68, 0.6), (0.85, 0.9, 1.0)),
         // Black iron plate and green-painted sluice brick.
-        Some(SluiceHouse) => paints((0.2, 0.22, 0.22), (0.26, 0.4, 0.36), (0.8, 0.7, 0.3), (0.8, 0.95, 1.0)),
+        Some(SluiceHouse) => paints((0.1, 0.13, 0.13), (0.16, 0.44, 0.4), (0.8, 0.7, 0.3), (0.8, 0.95, 1.0)),
         // Wet cobbles and tarred planking, a blue-grey tollhouse.
         Some(TollQuay) => paints((0.32, 0.32, 0.34), (0.34, 0.42, 0.5), (0.85, 0.82, 0.7), (1.0, 0.82, 0.58)),
         // Tarred timber stocks, rough brick sheds, wood shavings.
-        Some(Shipyard) => paints((0.28, 0.22, 0.16), (0.5, 0.26, 0.2), (0.12, 0.1, 0.09), (1.0, 0.75, 0.45)),
+        Some(Shipyard) => paints((0.2, 0.2, 0.17), (0.58, 0.32, 0.12), (0.12, 0.1, 0.09), (1.0, 0.75, 0.45)),
         // Black coal dust and soot-dark brick.
         Some(CoalYard) => paints((0.12, 0.12, 0.13), (0.26, 0.22, 0.22), (0.62, 0.3, 0.14), (1.0, 0.68, 0.38)),
         // Fish-scaled quay stones against tarred smokehouse boards.
-        Some(HerringQuay) => paints((0.34, 0.35, 0.36), (0.22, 0.18, 0.15), (0.75, 0.74, 0.7), (1.0, 0.8, 0.52)),
+        Some(HerringQuay) => paints((0.28, 0.33, 0.4), (0.27, 0.2, 0.14), (0.75, 0.74, 0.7), (1.0, 0.8, 0.52)),
         // Polished boards, bonded-store brick, brass.
         Some(CustomsHouse) => paints((0.4, 0.3, 0.2), (0.6, 0.32, 0.26), (0.78, 0.6, 0.22), (1.0, 0.85, 0.6)),
         // Dyke-top gravel between sandbag-grey parapets.
@@ -1718,12 +1718,12 @@ pub(crate) mod tests {
         }
         for sunken in layout.sunken {
             // A sea bed lies beyond its Zone, under the sea, not in the way of anything in it.
-            if sunken.max.y <= sunken.zone.volume().0.z {
+            if sunken.max.y <= sunken.zone.volume().0.z || sunken.min.y >= sunken.zone.volume().1.z {
                 continue;
             }
-            let floor = -sunken.depth;
+            let floor = sunken.zone.floor() - sunken.depth;
             let name = format!("the sunken floor in {}", sunken.zone.name());
-            all.push((name, sunken.zone, (sunken.min, sunken.max), (floor, 0.0), Box::new(move |at: Vec3| (at.y - floor).abs() < 0.05)));
+            all.push((name, sunken.zone, (sunken.min, sunken.max), (floor, sunken.zone.floor()), Box::new(move |at: Vec3| at.y >= floor - 0.05 && at.y <= floor + 2.0)));
         }
         all
     }

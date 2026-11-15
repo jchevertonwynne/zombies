@@ -191,6 +191,9 @@ for fx, fz, fy in FIX:
 BOXES = [(-79.35, -26.0, 0), (0, -55.35, 0), (-55.35, 20, 0), (57.35, 20, 0), (50, 47.35, 0), (79.35, 30, 0)]
 for fx, fz, fy in BOXES:
     OBS.append(Ob(fx - 1.2, fz - 1.2, fx + 1.2, fz + 1.2, fy, fy + 1.2))
+# raised floors are solid blocks: nothing on the ground lattice is inside them
+for (_n, _z, _x0, _z0, _x1, _z1, _h) in RAISED:
+    OBS.append(Ob(_x0, _z0, _x1, _z1, 0.0, _h))
 # stair footprints
 SLOPE_RECTS = []  # (x0,z0,x1,z1, y_lo, y_hi)
 def slope(x, y, z, up, run, rise, width):
@@ -331,7 +334,7 @@ def link(name, level, zone=None, radius=8.0, maxn=3, clear=0.8, same_zone=True):
         for (n, nx_, nz_, lv) in lst:
             if n == name: continue
             d = math.hypot(nx_ - x, nz_ - z)
-            if d <= radius and abs(lv - y) < 1.0:
+            if d <= radius and abs(lv - y) < 0.2:
                 cands.append((d, n, nx_, nz_, lv))
     cands.sort()
     made = 0
@@ -429,7 +432,7 @@ both("hump_a", "hump_b"); both("hump_b", "hump_c"); door_edge("hump_c", "hump_d"
 def dyke(tag, x, lower_zone, upper_zone, landing, pdoor_):
     foot_z = 48.2 + landing
     d = manual(f"{tag}_lo", x, 0.0, 45.5); reg(d)
-    u0 = manual(f"{tag}_u0", x, 0.0, 49.2 if landing else 48.5)
+    u0 = manual(f"{tag}_u0", x, 0.0 if landing else 0.2, 49.2 if landing else 48.5)
     mid_z = foot_z + 3.0
     u1 = manual(f"{tag}_u1", x, 2.0, mid_z)
     u2 = manual(f"{tag}_u2", x, 4.0, foot_z + 6.0 + 1.4)
@@ -485,19 +488,19 @@ for zone, sx, x0, x1, zlo, zhi, own_north in FORDS:
     # own stair, from the quay down to the berm; its landing (-0.3) is 2.84 m up from the berm's edge
     ot = manual(f"{t}_ot", sx, 0.0, own_bank + own_dir * 2.0); reg(ot)
     ol = manual(f"{t}_ol", sx, -0.3, own_edge + own_dir * 2.84)
-    of = manual(f"{t}_of", sx, -1.6, own_edge + own_dir * 0.3)
+    of = manual(f"{t}_of", sx, -1.52, own_edge + own_dir * 0.2)
     both(ot, ol); both(ol, of)
     cc = manual(f"{t}_c", sx, -2.2, (b0 + b1) / 2)
     both(of, cc)
     far_dir_z = -own_dir
-    ff = manual(f"{t}_ff", sx, -1.6, far_edge + far_dir_z * 0.3)
+    ff = manual(f"{t}_ff", sx, -1.52, far_edge + far_dir_z * 0.2)
     fl = manual(f"{t}_fl", sx, -0.3, far_edge + far_dir_z * 2.84)
     both(cc, ff); both(ff, fl)
     w = manual(f"{t}_w", sx, 0.0, far_wall + (2.0 if far_wall == 0.0 else -2.0)); reg(w)
     EDGES.append((fl, w, f"DOOR {zone} {far_zone}"))
     # berm nodes
     for (edge, name, dirn) in ((own_edge, "o", own_dir), (far_edge, "f", far_dir_z)):
-        zc = edge + dirn * 1.75
+        zc = edge + dirn * 0.7
         for dx, nm in ((-3.5, "w"), (3.5, "e")):
             n = manual(f"{t}_b{name}{nm}", sx + dx, -1.6, zc)
             both(n, of if name == "o" else ff)
@@ -520,12 +523,48 @@ for n in manual_links:
     made = link(n, y, radius=9.0, maxn=3)
     if not made:
         nolink.append(n)
+# the raised floors' own nodes, around their machines
+manual("pap_p", 0, 0.6, 10.4); both("pap_top", "pap_p")
+manual("sc_a", -44.3, 0.4, -27.4); manual("sc_b", -39.7, 0.4, -27.4); both("sc_top", "sc_a"); both("sc_top", "sc_b")
+for n_, x_, z_ in (("wd_a", 31.5, -27.5), ("wd_b", 37.0, -27.5), ("wd_c", 31.5, -30.5), ("wd_d", 37.0, -30.5)):
+    manual(n_, x_, 0.5, z_)
+both("wd_top_w", "wd_a"); both("wd_a", "wd_b"); both("wd_b", "wd_top_e"); both("wd_top_w", "wd_c"); both("wd_c", "wd_d"); both("wd_d", "wd_top_e")
+for n_ in list(nolink):
+    if link(n_, NODES[n_][1], radius=12.0, maxn=2, clear=0.5):
+        nolink.remove(n_)
+# round the winch platform inside the sluice house
+manual("sh_arch", 0, 0.0, 6.0)
+for sd, nm in ((-3.7, "w"), (3.7, "e")):
+    manual(f"sh_c{nm}1", sd, 0.0, 6.0); manual(f"sh_c{nm}2", sd, 0.0, 15.0)
+    both("sh_arch", f"sh_c{nm}1"); both(f"sh_c{nm}1", f"sh_c{nm}2"); both(f"sh_c{nm}2", "pap_foot")
+both("sh_arch", "sh_3_0"); both("sh_arch", "sh_4_0")
+# the island's north apron, beyond the culvert grate's strip, and a nook by the Cheese Bridge's pen
+for nm, x_, z_ in (("sh_na_w", -3.8, 19.0), ("sh_na_e", 3.8, 19.0), ("sh_nb_w", -3.8, 22.5), ("sh_nb_e", 3.8, 22.5)):
+    manual(nm, x_, 0.0, z_)
+both("w16_in", "sh_na_w"); both("w16_in", "sh_na_e"); both("sh_na_w", "sh_nb_w"); both("sh_na_e", "sh_nb_e")
+manual("cm_nook", 48.8, 0.0, -13.2); reg("cm_nook"); link("cm_nook", 0.0, radius=12.0, maxn=3, clear=0.6)
 # pen inside nodes only join their own far and po (done)
 # raised-floor top nodes join their raised lattices
 for n in ("ws_top", "pap_top", "sc_top", "wd_top_w", "wd_top_e"):
     y = NODES[n][1]
     link(n, y, radius=6.0, maxn=3, clear=0.6)
 
+# ---------------- drop what the start can't reach ----------------
+adj = collections.defaultdict(set)
+for a_, b_, g_ in EDGES:
+    adj[a_].add(b_); adj[b_].add(a_)
+seen_ = {"ts_0_1"}; todo = ["ts_0_1"]
+while todo:
+    n_ = todo.pop()
+    for m_ in adj[n_]:
+        if m_ not in seen_:
+            seen_.add(m_); todo.append(m_)
+dropped = [n_ for n_ in NODES if n_ not in seen_]
+if dropped:
+    print("DROPPED:", dropped, file=sys.stderr)
+for n_ in dropped:
+    del NODES[n_]
+EDGES[:] = [e for e in EDGES if e[0] in NODES and e[1] in NODES]
 # ---------------- coverage report ----------------
 if nolink:
     print("UNLINKED:", nolink, file=sys.stderr)

@@ -171,7 +171,7 @@ pub(super) const WINDOWS: [(ZoneId, Vec3, Vec2); 30] = {
     [
         // 0-1: the Town Square's shopfronts, in a partition across its south-west corner.
         window(TownSquare, -22.0, GROUND, -36.0, Vec2::NEG_Y),
-        window(TownSquare, -17.0, GROUND, -36.0, Vec2::NEG_Y),
+        window(TownSquare, -18.0, GROUND, -36.0, Vec2::NEG_Y),
         // 2-3: the Weigh House's hall windows, over the ground south of it.
         window(WeighHouse, -50.0, GROUND, -40.0, Vec2::NEG_Y),
         window(WeighHouse, -42.0, GROUND, -40.0, Vec2::NEG_Y),
@@ -208,7 +208,7 @@ pub(super) const WINDOWS: [(ZoneId, Vec3, Vec2); 30] = {
         window(HerringQuay, -38.0, GROUND, 44.0, Vec2::Y),
         // 24-25: the bonded stores' windows.
         window(CustomsHouse, 30.0, GROUND, 44.0, Vec2::Y),
-        window(CustomsHouse, 36.0, GROUND, 44.0, Vec2::Y),
+        window(CustomsHouse, 34.0, GROUND, 44.0, Vec2::Y),
         // 26-27: the dyke's seaward parapet, where Zombies climb the sea face.
         window(DykeRoad, -30.0, CREST, 60.0, Vec2::Y),
         window(DykeRoad, 10.0, CREST, 60.0, Vec2::Y),
@@ -239,7 +239,7 @@ const HELLHOUND_SPAWNS: [(ZoneId, Vec3); 19] = [
     (ZoneId::HerringQuay, at(0.0, GROUND, 40.0)),
     (ZoneId::CustomsHouse, at(44.0, GROUND, 40.0)),
     (ZoneId::DykeRoad, at(-45.0, CREST, 54.0)),
-    (ZoneId::PumpingStation, at(60.0, CREST, 54.0)),
+    (ZoneId::PumpingStation, at(54.0, CREST, 56.0)),
 ];
 
 /// The Special Spawn Points, where a Napalm or a Shrieker rises: the Town Square, the Herring
@@ -346,7 +346,7 @@ const PROPS: &[Prop] = {
         p(Barrel, TownSquare, 15.5, GROUND, -14.0, (0.5, 0.9, 0.5)),
         p(Barrel, TownSquare, 1.0, GROUND, -13.6, (0.5, 0.9, 0.5)),
         p(Machine, TownSquare, -16.5, GROUND, -13.0, (0.5, 1.1, 0.5)),
-        p(Shelf, TownSquare, -17.5, GROUND, -11.6, (0.3, 2.0, 1.0)),
+        p(Shelf, TownSquare, -12.0, GROUND, -11.6, (0.3, 2.0, 1.0)),
         // The Weigh House: the great beam scale on its dais, sacks and barrels.
         p(Machine, WeighHouse, -42.0, GROUND + 0.4, -29.0, (2.4, 2.4, 1.0)),
         p(Crate, WeighHouse, -53.5, GROUND, -37.0, (1.4, 1.2, 1.4)),
@@ -367,7 +367,7 @@ const PROPS: &[Prop] = {
         p(Crate, CheeseMarket, 50.0, GROUND, -20.0, (1.2, 0.9, 1.2)),
         p(Machine, CheeseMarket, 35.0, GROUND + 0.5, -29.0, (1.4, 1.2, 0.8)),
         p(Machine, CheeseMarket, 47.5, GROUND, -15.0, (0.5, 1.1, 0.5)),
-        p(Shelf, CheeseMarket, 47.5, GROUND, -13.6, (0.3, 2.0, 1.0)),
+        p(Shelf, CheeseMarket, 51.0, GROUND, -13.6, (0.3, 2.0, 1.0)),
         // The Almshouse Court: a small garden, a well, benches.
         p(Barrel, AlmshouseCourt, 8.0, GROUND, -48.0, (1.6, 0.9, 1.6)),
         p(Bench, AlmshouseCourt, -16.0, GROUND, -52.0, (3.0, 0.9, 0.7)),
@@ -375,7 +375,7 @@ const PROPS: &[Prop] = {
         p(Rubble, AlmshouseCourt, 30.0, GROUND, -46.0, (1.6, 0.9, 1.6)),
         p(Rubble, AlmshouseCourt, -10.0, GROUND, -44.0, (1.4, 0.8, 1.4)),
         // The Windmill: millstones, sacks, still sails; the stage's cap on the stone base.
-        p(Barrel, Windmill, -64.0, GROUND, 6.0, (2.0, 0.6, 2.0)),
+        p(Barrel, Windmill, -64.0, GROUND, 6.0, (1.4, 0.6, 1.4)),
         p(Crate, Windmill, -78.0, GROUND, 18.0, (1.6, 1.2, 1.6)),
         p(Crate, Windmill, -60.0, GROUND, 22.0, (1.4, 1.1, 1.4)),
         p(Counter, Windmill, -60.0, GROUND, 40.0, (2.0, 1.0, 1.2)),
@@ -409,7 +409,7 @@ const PROPS: &[Prop] = {
         p(Counter, Shipyard, 44.0, GROUND, 12.0, (10.0, 2.4, 3.0)),
         p(Crate, Shipyard, 38.0, GROUND, 4.0, (3.0, 1.6, 1.4)),
         p(Crate, Shipyard, 38.0, GROUND, 20.0, (3.0, 1.6, 1.4)),
-        p(Machine, Shipyard, 44.0, GROUND, -1.0, (0.5, 1.1, 0.5)),
+        p(Machine, Shipyard, 48.0, GROUND, 1.2, (0.5, 1.1, 0.5)),
         p(Machine, Shipyard, 39.0, GROUND, 1.3, (0.5, 1.1, 0.5)),
         // The Coal Yard: coal heaps (tall), a hoist frame, wagons on rails.
         p(Rubble, CoalYard, 68.0, GROUND, 8.0, (4.0, 2.4, 4.0)),
@@ -513,8 +513,9 @@ fn build(b: &mut Builder) {
     xwall(b, (-56.0, -26.0), -40.0, GROUND, H, vec![(-50.0, Gap::Window), (-42.0, Gap::Window)]);
     xwall(b, (-26.0, 18.0), -40.0, GROUND, H, vec![(-6.0, door(TownSquare, AlmshouseCourt, DOOR_PRICE_TOWN_SQUARE_ALMSHOUSE_COURT))]);
     xwall(b, (18.0, 54.0), -40.0, GROUND, H, vec![(29.0, door(CheeseMarket, AlmshouseCourt, DOOR_PRICE_CHEESE_MARKET_ALMSHOUSE_COURT)), (45.0, Gap::Window), (50.0, Gap::Window)]);
-    xwall(b, (-26.0, -14.0), -36.0, GROUND, H, vec![(-22.0, Gap::Window), (-17.0, Gap::Window)]);
-    zwall(b, -14.0, (-40.0, -36.0), GROUND, H, vec![]);
+    xwall(b, (-24.0, -16.0), -36.0, GROUND, H, vec![(-22.0, Gap::Window), (-18.0, Gap::Window)]);
+    zwall(b, -24.0, (-40.0, -36.0), GROUND, H, vec![]);
+    zwall(b, -16.0, (-40.0, -36.0), GROUND, H, vec![]);
     // West and east walls of the south bank, and the Court's ends.
     zwall(b, -56.0, (-56.0, -40.0), GROUND, H, vec![(-52.0, Gap::Window), (-46.0, Gap::Window)]);
     zwall(b, -56.0, (-40.0, -12.0), GROUND, H, vec![(-26.0, door(WeighHouse, Brewery, DOOR_PRICE_WEIGH_HOUSE_BREWERY))]);
@@ -687,15 +688,15 @@ fn build(b: &mut Builder) {
     // Partitions that fence a strip off a Zone's floor for its windows' pockets: the Windmill's
     // at its foot and on its stage, the Warehouse's, the Lock Yard's, the Toll Quay's, the
     // Shipyard's, the Coal Yard's, the Herring Quay's and the Customs House's.
-    zwall(b, -76.0, (2.0, 10.0), GROUND, H, vec![(6.0, Gap::Window)]);
-    xwall(b, (-73.0, -63.0), 36.0, CREST, H, vec![(-68.0, Gap::Window)]);
+    zwall(b, -76.0, (4.0, 8.0), GROUND, H, vec![(6.0, Gap::Window)]);
+    xwall(b, (-70.0, -66.0), 36.0, CREST, H, vec![(-68.0, Gap::Window)]);
     zwall(b, -38.0, (2.0, 10.0), GROUND, H, vec![(4.0, Gap::Window), (8.0, Gap::Window)]);
     xwall(b, (-34.0, -26.0), 20.0, GROUND, H, vec![(-32.0, Gap::Window), (-28.0, Gap::Window)]);
-    zwall(b, 30.0, (16.0, 22.0), GROUND, H, vec![(19.0, Gap::Window)]);
+    zwall(b, 30.0, (17.0, 21.0), GROUND, H, vec![(19.0, Gap::Window)]);
     zwall(b, 54.0, (2.0, 10.0), GROUND, H, vec![(4.0, Gap::Window), (8.0, Gap::Window)]);
-    zwall(b, 76.0, (2.0, 12.0), GROUND, H, vec![(6.0, Gap::Window), (10.0, Gap::Window)]);
+    zwall(b, 76.0, (4.0, 12.0), GROUND, H, vec![(6.0, Gap::Window), (10.0, Gap::Window)]);
     xwall(b, (-44.0, -36.0), 44.0, GROUND, H, vec![(-42.0, Gap::Window), (-38.0, Gap::Window)]);
-    xwall(b, (28.0, 38.0), 44.0, GROUND, H, vec![(30.0, Gap::Window), (36.0, Gap::Window)]);
+    xwall(b, (28.0, 36.0), 44.0, GROUND, H, vec![(30.0, Gap::Window), (34.0, Gap::Window)]);
     // The Windmill's stage: its stone base is the Raised Floor; rails round its edges.
     zwall(b, -73.0, (25.0, 36.0), CREST, RAIL, vec![]);
     zwall(b, -63.0, (25.0, 36.0), CREST, RAIL, vec![]);

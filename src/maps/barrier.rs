@@ -1380,11 +1380,9 @@ mod tests {
             let barrier = BarrierId(i as u8);
             for spot in 0..BARRIER_ATTACK_SPOTS {
                 let at = spot_at(barrier, spot);
-                assert_eq!(
-                    crate::enemies::nav::zone_at(at + Vec3::Y * 0.1),
-                    None,
-                    "window {i} spot {spot}"
-                );
+                // Outside every Zone, or (the Polder's, in a partition's walled strip) in the window's own.
+                let there = crate::enemies::nav::zone_at(at + Vec3::Y * 0.1);
+                assert!(there.is_none() || there == Some(WINDOWS[i].0), "window {i} spot {spot}");
                 assert!(at.distance(window_centre(barrier)) < 1.0);
             }
         }
