@@ -1218,6 +1218,18 @@ pub const ZOMBIE_REPATH_FAR_DIST: f32 = 30.0;
 pub const ZOMBIE_RETARGET_SECS: f32 = 1.0;
 /// How close (horizontally) a Zombie gets to a path node before heading for the next one.
 pub const ZOMBIE_WAYPOINT_REACH: f32 = 0.6;
+/// A walking Zombie looks ahead along its route this often (a Zombie's own period varies by up to
+/// half again, so they drift apart rather than all casting on one frame), and skips to the
+/// furthest of the next `ZOMBIE_LOOK_AHEAD_NODES` waypoints it has a clear walk to.
+pub const ZOMBIE_LOOK_AHEAD_SECS: f32 = 0.3;
+pub const ZOMBIE_LOOK_AHEAD_NODES: usize = 3;
+/// At a node where the route turns right round, a Zombie counts it reached this much further out
+/// (scaled by the turn, and only with a clear walk on to the next node), and bends its steering
+/// towards the next node over that distance, so it arcs through the turn.
+pub const ZOMBIE_CORNER_REACH: f32 = 1.4;
+/// The furthest a Zombie's own sideways offset moves it off the line to a node, where there's
+/// room to walk it (seeded per Zombie, so a Train doesn't file along the node line).
+pub const ZOMBIE_SIDE_OFFSET: f32 = 0.7;
 /// The most the Player's feet can be above or below a Zombie's for it to steer straight at them.
 /// More than the Props a Player can clamber onto (up to about 1.2 m), so one standing on a crate
 /// or the sandbags is swiped from beside it, and far less than the Balcony's 4 m, which is a

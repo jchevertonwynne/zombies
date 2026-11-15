@@ -1069,6 +1069,20 @@ pub(crate) fn plan_route(
     waypoints
 }
 
+/// How many of `waypoints` a Zombie at `feet` can skip: those before the furthest of the next
+/// `ZOMBIE_LOOK_AHEAD_NODES` that `walk` reaches in a clear line, all on its own floor, so ramps
+/// and drops are never cut. Never the last.
+fn look_ahead(waypoints: &[Vec3], feet: Vec3, walk: impl Fn(Vec3) -> bool) -> usize {
+    let near = waypoints.iter().take(ZOMBIE_LOOK_AHEAD_NODES + 1).take_while(|w| (w.y - feet.y).abs() < 0.5).count();
+    (1..near).rev().find(|&i| walk(waypoints[i])).unwrap_or(0)
+}
+
+/// A steady number in -1..=1 that is the same for `entity` every time, and differs by `salt`.
+fn personal(entity: Entity, salt: u64) -> f32 {
+    let bits = (entity.to_bits() ^ salt.wrapping_mul(0x9E37_79B9_7F4A_7C15)).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    ((bits >> 40) & 0xFFFF) as f32 / 32767.5 - 1.0
+}
+
 /// Which way a Zombie walks along the line to the Player.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Heading {
@@ -1195,14 +1209,71 @@ fn chase(
             );
         }
 
-        // Reached the next node: on to the one after.
+        // Looks ahead, every so often, for a node further along that it can walk straight to, and
+        // goes on from there: it turns for the next doorway as soon as it can see it.
+        let probe = Collider::sphere(ZOMBIE_RADIUS * 0.8);
+        let walk = |from: Vec3, to: Vec3| clear_walk(&move_and_slide.spatial_query, &probe, from, to, half);
+        route.look_in -= dt;
+        if route.look_in <= 0.0 {
+            route.look_in = ZOMBIE_LOOK_AHEAD_SECS * (1.0 + 0.5 * personal(entity, 1).abs());
+            route.bend_for = None;
+            let skip = look_ahead(&route.waypoints, feet, |to| walk(transform.translation, to + Vec3::Y * half));
+            route.waypoints.drain(..skip);
+        }
+
+        // Its own sideways shift off the line through the next node, where there's room.
+        if route.waypoints.first().copied() != route.side_for {
+            route.side_for = route.waypoints.first().copied();
+            route.side = Vec3::ZERO;
+            if let [next, after, ..] = route.waypoints[..]
+                && (after.y - next.y).abs() < 0.5
+                && (next.y - feet.y).abs() < 0.5
+            {
+                let line = horizontal(after - next).normalize_or_zero();
+                let across = Vec3::new(-line.z, 0.0, line.x) * personal(entity, 2) * ZOMBIE_SIDE_OFFSET;
+                let lift = Vec3::Y * half;
+                route.side = [1.0, 0.5]
+                    .into_iter()
+                    .map(|share| across * share)
+                    .find(|&shift| {
+                        walk(transform.translation, next + shift + lift) && walk(next + shift + lift, after + lift)
+                    })
+                    .unwrap_or(Vec3::ZERO);
+            }
+        }
+
+        // Reached the next node: on to the one after. Where the route turns, sooner, and
+        // steering bends towards the node after over the last stretch.
+        let mut aim = route.waypoints.first().map(|&next| next + route.side);
         if let Some(&next) = route.waypoints.first()
-            && horizontal(next - feet).length() < ZOMBIE_WAYPOINT_REACH
             && (next.y - feet.y).abs() < 1.5
         {
-            route.waypoints.remove(0);
+            let at = next + route.side;
+            let distance = horizontal(at - feet).length();
+            let outer = ZOMBIE_WAYPOINT_REACH + ZOMBIE_CORNER_REACH;
+            let mut reach = ZOMBIE_WAYPOINT_REACH;
+            if let Some(&after) = route.waypoints.get(1)
+                && distance < outer
+                && (after.y - next.y).abs() < 0.5
+                && (next.y - feet.y).abs() < 0.5
+            {
+                if route.bend_for != Some(next) {
+                    route.bend_for = Some(next);
+                    route.bend_clear = walk(transform.translation, after + Vec3::Y * half);
+                }
+                if route.bend_clear {
+                    let turn = horizontal(at - feet).angle_between(horizontal(after - at)) / std::f32::consts::PI;
+                    reach += ZOMBIE_CORNER_REACH * turn;
+                    let bend = 0.5 * turn * (1.0 - (distance / outer).min(1.0));
+                    aim = Some(at.lerp(after, bend));
+                }
+            }
+            if distance < reach {
+                route.waypoints.remove(0);
+                aim = route.waypoints.first().map(|&next| next + route.side);
+            }
         }
-        let goal = route.waypoints.first().copied().unwrap_or(target_feet);
+        let goal = aim.unwrap_or(target_feet);
 
         let to_player = horizontal(target_feet - feet);
         // Same floor only: a Zombie under the Balcony never stops to swing at the Player on it.

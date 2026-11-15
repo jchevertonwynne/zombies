@@ -300,6 +300,15 @@ pub struct Route {
     pub waypoints: Vec<Vec3>,
     /// Seconds until the next re-plan.
     pub repath_in: f32,
+    /// Seconds until it next looks ahead for a waypoint further along it can walk straight to.
+    pub look_in: f32,
+    /// The sideways shift, off the line to the waypoint `side_for`, this Zombie steers with.
+    pub side: Vec3,
+    pub side_for: Option<Vec3>,
+    /// Whether the walk on from the waypoint `bend_for` to the one after it is clear, so the
+    /// Zombie may round the turn there.
+    pub bend_clear: bool,
+    pub bend_for: Option<Vec3>,
 }
 
 #[derive(Default, Reflect, GizmoConfigGroup)]

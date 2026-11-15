@@ -980,3 +980,134 @@ fn a_zombie_takes_every_drop_to_a_player_below() {
     assert!(checked >= 8, "only {checked} drops checked");
     assert!(failures.is_empty(), "stalled at a drop: {failures:#?}");
 }
+
+/// Three Zombies crossing the Greybox to a Player in the Start Room, every Door open: their
+/// feet every frame until each is within a body or two of the Player.
+fn greybox_crossing() -> Vec<(&'static str, Vec<Vec3>)> {
+    let player = Vec3::new(0.0, 0.0, 20.0);
+    let starts = [
+        ("a: Dining Room west to Start Room", Vec3::new(-22.0, 0.0, -20.0)),
+        ("b: Power Room north to Start Room", Vec3::new(20.0, 0.0, -15.5)),
+        ("c: far south wing to Start Room", Vec3::new(-20.0, 0.0, -6.0)),
+    ];
+    let mut sim = Sim::on(MapId::Greybox, 60.0, |_| {});
+    open_every_door(&mut sim);
+    put_player(&mut sim, player);
+    let zombies: Vec<_> = starts.iter().map(|&(name, at)| (name, sim.spawn(at, None))).collect();
+    let mut traces: Vec<Vec<Vec3>> = vec![Vec::new(); zombies.len()];
+    for _ in 0..sim.frames(60.0) {
+        sim.run(1);
+        let mut left = false;
+        for (trace, &(_, zombie)) in traces.iter_mut().zip(&zombies) {
+            let Some(at) = sim.world_mut().get::<Transform>(zombie).map(|t| t.translation) else { continue };
+            if Vec2::new(at.x - player.x, at.z - player.z).length() > 2.0 {
+                trace.push(at);
+                left = true;
+            }
+        }
+        if !left {
+            break;
+        }
+    }
+    zombies.iter().map(|&(name, _)| name).zip(traces).collect()
+}
+
+/// Metres walked, and total turning (radians, over half-second strides) along a trace.
+fn trace_stats(trace: &[Vec3]) -> (f32, f32) {
+    let length = trace.windows(2).map(|w| horizontal(w[1] - w[0]).length()).sum();
+    let strides: Vec<Vec3> = trace.iter().step_by(30).map(|p| horizontal(*p)).collect();
+    let turning = strides
+        .windows(3)
+        .map(|w| {
+            let (a, b) = ((w[1] - w[0]).normalize_or_zero(), (w[2] - w[1]).normalize_or_zero());
+            a.dot(b).clamp(-1.0, 1.0).acos()
+        })
+        .sum();
+    (length, turning)
+}
+
+#[test]
+#[ignore = "prints a trace of Zombies crossing the Greybox; asserts nothing"]
+fn trace_greybox_crossing() {
+    let crossing = greybox_crossing();
+    let graph = NavGraph::new(MapId::Greybox);
+    let (w, h) = (61usize, 61usize);
+    let mut grid = vec![vec![' '; w]; h];
+    let cell = |p: Vec3| ((p.x + 30.5).floor() as isize, (p.z + 30.5).floor() as isize);
+    let mut put = |p: Vec3, c: char| {
+        let (x, z) = cell(p);
+        if (0..w as isize).contains(&x) && (0..h as isize).contains(&z) {
+            grid[z as usize][x as usize] = c;
+        }
+    };
+    for node in graph.nodes.iter().filter(|n| n.at.y.abs() < 0.8) {
+        put(node.at, '+');
+    }
+    for (i, (name, trace)) in crossing.iter().enumerate() {
+        let (length, turning) = trace_stats(trace);
+        println!("{name}: {:.1} s, {length:.1} m walked, {turning:.2} rad turned", trace.len() as f32 / 60.0);
+        let at: Vec<String> = trace.iter().step_by(60).map(|p| format!("({:.1},{:.1})", p.x, p.z)).collect();
+        println!("  every second: {}", at.join(" "));
+        for p in trace.iter().step_by(6) {
+            put(*p, (b'a' + i as u8) as char);
+        }
+    }
+    println!("top-down, x right, z down, 1 m cells, + path node:");
+    for row in grid.iter().skip(5).take(51) {
+        println!("{}", row.iter().collect::<String>().trim_end());
+    }
+}
+
+/// A Zombie standing at `feet` on the Greybox, given `waypoints` to follow with its re-plan held
+/// off, after one look-ahead: the waypoints it has left.
+fn waypoints_after_look(feet: Vec3, waypoints: Vec<Vec3>) -> Vec<Vec3> {
+    let mut sim = Sim::on(MapId::Greybox, 60.0, |_| {});
+    put_player(&mut sim, Vec3::new(0.0, 0.0, 20.0));
+    let zombie = sim.spawn(feet, None);
+    // One frame to pick its Player, then its own route in place of the plan.
+    sim.run(1);
+    let mut route = sim.world_mut().get_mut::<Route>(zombie).unwrap();
+    route.waypoints = waypoints;
+    route.repath_in = 100.0;
+    route.look_in = 0.0;
+    route.side_for = None;
+    sim.run(1);
+    sim.world_mut().get::<Route>(zombie).unwrap().waypoints.clone()
+}
+
+#[test]
+fn a_zombie_with_a_clear_walk_to_a_later_waypoint_skips_the_ones_before_it() {
+    // In the Start Room: the middle, then the east side, then the east window's inside.
+    let (start, east, window) = (Vec3::new(0.0, 0.0, 20.0), Vec3::new(12.5, 0.0, 20.0), Vec3::new(7.0, 0.0, 24.5));
+    let left = waypoints_after_look(Vec3::new(-3.0, 0.0, 17.0), vec![start, east, window]);
+    assert_eq!(left, vec![window], "walks straight to the furthest it can see, never past the last");
+}
+
+#[test]
+fn a_zombie_never_skips_a_waypoint_through_a_wall_or_onto_another_floor() {
+    let (start, dining) = (Vec3::new(0.0, 0.0, 20.0), Vec3::new(-13.0, 0.0, -20.0));
+    let left = waypoints_after_look(Vec3::new(-3.0, 0.0, 17.0), vec![start, dining]);
+    assert_eq!(left.len(), 2, "a wall is between it and the Dining Room: {left:?}");
+    let (bottom, mid) = (Vec3::new(-15.7, 0.0, 10.0), Vec3::new(-15.7, 2.0, 4.0));
+    let left = waypoints_after_look(Vec3::new(-15.7, 0.0, 12.0), vec![bottom, mid]);
+    assert_eq!(left.len(), 2, "the ramp is climbed node by node: {left:?}");
+}
+
+#[test]
+fn a_zombie_rounds_the_corners_of_the_greybox_without_more_turning_than_before() {
+    // Total turning over half-second strides before this change.
+    let before = [3.21, 3.73, 1.40];
+    for ((name, trace), before) in greybox_crossing().iter().zip(before) {
+        assert!(trace.len() < 60 * 45, "{name}: gave up before reaching the Player");
+        let (_, turning) = trace_stats(trace);
+        assert!(turning <= before, "{name}: turned {turning:.2} rad, was {before}");
+    }
+}
+
+#[test]
+fn zombies_have_their_own_steady_sideways_offsets() {
+    let ids: Vec<Entity> = (1..40).map(|i| Entity::from_raw_u32(i).unwrap()).collect();
+    assert!(ids.iter().all(|&e| (-1.0..=1.0).contains(&personal(e, 2)) && personal(e, 2) == personal(e, 2)));
+    let spread = ids.iter().map(|&e| personal(e, 2)).fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(v), hi.max(v)));
+    assert!(spread.0 < -0.5 && spread.1 > 0.5, "spread {spread:?}");
+}
