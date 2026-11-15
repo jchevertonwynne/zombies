@@ -113,6 +113,7 @@ pub struct Horde {
 /// are left out.
 pub fn describe_horde(
     clock: Res<Clock>,
+    map: Res<crate::maps::map::MapId>,
     mut horde: ResMut<Horde>,
     zombies: Query<(
         &ZombieId,
@@ -132,6 +133,7 @@ pub fn describe_horde(
     if !clock.tick.is_multiple_of(SNAPSHOT_EVERY) {
         return;
     }
+    let origin = super::state::wire_origin(*map);
     let (mut walkers, mut hounds, mut specials) = (Vec::new(), Vec::new(), Vec::new());
     for (id, transform, zombie, entering, rising, stunned, down, dying, shrieker, striking, sapper, burst) in &zombies {
         let screaming = shrieker.is_some_and(Shrieker::screaming);
@@ -139,7 +141,7 @@ pub fn describe_horde(
         let activity = describe(0, Some(zombie), entering, rising || striking, stunned, down, dying, screaming);
         let sight = ZombieSight {
             id: id.0,
-            position: pack_position(transform.translation),
+            position: pack_position(origin, transform.translation),
             yaw: pack_yaw(transform.rotation.to_euler(EulerRot::YXZ).0),
             anim: pack_anim(activity, zombie.is_crawler()),
         };
@@ -194,13 +196,13 @@ pub struct Crowd {
 
 impl Crowd {
     /// Takes in what a snapshot says of them.
-    pub fn hear(&mut self, snapshot: &Snapshot) {
+    pub fn hear(&mut self, snapshot: &Snapshot, origin: Vec3) {
         for (hellhound, list) in [(false, &snapshot.zombies), (true, &snapshot.hellhounds)] {
             for sight in list {
                 let glimpses = self.glimpses.entry(sight.id).or_insert_with(|| Glimpses { hellhound, special: 0, seen: VecDeque::new() });
                 glimpses.seen.push_back(Glimpse {
                     tick: snapshot.tick,
-                    position: sight.position(),
+                    position: sight.position(origin),
                     yaw: unpack_yaw(sight.yaw),
                     anim: sight.anim,
                 });

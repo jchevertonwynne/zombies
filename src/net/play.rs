@@ -23,7 +23,7 @@ use super::protocol::{HOST, PROTOCOL, Peer, Refusal, Score, Seat, ToHost, ToPlay
 use super::remote::{Next, Remote};
 use super::world::{self, Mirror, NetIds};
 use super::state::{
-    Inputs, Own, Sight, Snapshot, Step, Tick, pack_pitch, pack_position, pack_yaw, unpack_pitch, unpack_yaw,
+    Inputs, Own, Sight, Snapshot, Step, Tick, pack_pitch, pack_position, pack_yaw, wire_origin, unpack_pitch, unpack_yaw,
 };
 use super::zombies::{
     Crowd, Horde, ZombieIds, describe_horde, forget_zombies, name_zombies, show_zombies,
@@ -464,6 +464,7 @@ fn pose_by_steps(mut remotes: Query<(&Locomotion, &mut Pose), With<Remote>>) {
 /// Tells each remote Player how things stand: themselves in full, and the other Players packed.
 fn send_snapshots(
     clock: Res<Clock>,
+    map: Res<crate::maps::map::MapId>,
     horde: Res<Horde>,
     mut wire: ResMut<Wire>,
     players: Query<
@@ -474,12 +475,13 @@ fn send_snapshots(
     if !clock.tick.is_multiple_of(SNAPSHOT_EVERY) {
         return;
     }
+    let origin = wire_origin(*map);
     let balance = |points: Option<&Points>| points.map_or(0, |points| points.balance);
     let sights: Vec<Sight> = players
         .iter()
         .map(|(seat, transform, _, input, pose, shots, points, _)| Sight {
             seat: seat.0,
-            position: pack_position(transform.translation),
+            position: pack_position(origin, transform.translation),
             yaw: pack_yaw(input.yaw),
             pitch: pack_pitch(input.pitch),
             pose: pose.pack(),
@@ -537,10 +539,10 @@ struct Seen {
 }
 
 impl Seen {
-    fn of(tick: Tick, sight: &Sight) -> Self {
+    fn of(tick: Tick, sight: &Sight, origin: Vec3) -> Self {
         Seen {
             tick,
-            position: sight.position(),
+            position: sight.position(origin),
             yaw: unpack_yaw(sight.yaw),
             pitch: unpack_pitch(sight.pitch),
             pose: Pose::unpack(sight.pose),
@@ -622,16 +624,17 @@ fn reconcile(
     let jump_pads = crate::maps::jump_pad::working(*map, power.is_some_and(|power| power.is_on()));
     let ziplines = crate::maps::zipline::working(*map, open.map_or(Default::default(), |open| open.0));
     let layout = Some(map.layout());
+    let origin = wire_origin(*map);
     let mut heard = std::mem::take(&mut inbox.snapshots);
     heard.retain(|snapshot| prediction.latest.is_none_or(|latest| snapshot.tick > latest));
     heard.sort_by_key(|snapshot| snapshot.tick);
     for snapshot in &heard {
         for sight in &snapshot.players {
             if let Some(seen) = prediction.seen.get_mut(usize::from(sight.seat)) {
-                seen.push_back(Seen::of(snapshot.tick, sight));
+                seen.push_back(Seen::of(snapshot.tick, sight, origin));
             }
         }
-        crowd.hear(snapshot);
+        crowd.hear(snapshot, origin);
     }
     prediction.corrected = 0.0;
     let Some(snapshot) = heard.pop() else { return };

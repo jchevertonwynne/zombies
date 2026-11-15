@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::net::protocol::Seat;
 use crate::players::player::{Locomotion, MoveInput, Stance};
 use crate::enemies::zombie::rig::{Activity, Swing};
+use crate::maps::map::MapId;
 use crate::tuning::WIRE_POSITION_STEP;
 
 /// A count of the simulation's steps. Each machine counts its own.
@@ -252,8 +253,8 @@ pub fn unpack_special(byte: u8) -> Option<(SpecialBody, bool)> {
 }
 
 impl ZombieSight {
-    pub fn position(&self) -> Vec3 {
-        unpack_position(self.position)
+    pub fn position(&self, origin: Vec3) -> Vec3 {
+        unpack_position(origin, self.position)
     }
 }
 
@@ -294,19 +295,32 @@ pub fn unpack_anim(byte: u8) -> (Activity, bool) {
     (activity, byte & 0x10 != 0)
 }
 
-/// The way a position goes on the wire: three `i16`s, `WIRE_POSITION_STEP` apart, as six bytes.
-pub fn pack_position(position: Vec3) -> [u8; 6] {
+/// What a position on `map` is told relative to: the middle of the Map's plan, at height 0. Both
+/// ends know the Room's `MapId` before any snapshot is sent, so nothing about it goes on the wire.
+/// Each Map sits at its own x (ADR 0005), far past what three `i16`s in steps of
+/// `WIRE_POSITION_STEP` reach from the world's origin (about 327 m), but a plan is at most a few
+/// hundred metres across, so told from its middle every plan fits at 1 cm, in the same six bytes.
+pub fn wire_origin(map: MapId) -> Vec3 {
+    let (min, max) = map.layout().plan;
+    let middle = (min + max) / 2.0;
+    Vec3::new(middle.x, 0.0, middle.y)
+}
+
+/// The way a position goes on the wire: three `i16`s, `WIRE_POSITION_STEP` apart, counted from
+/// `origin` (see `wire_origin`), as six bytes. Past 327 m from `origin` it holds at the edge.
+pub fn pack_position(origin: Vec3, position: Vec3) -> [u8; 6] {
     let mut bytes = [0; 6];
-    for (axis, out) in [position.x, position.y, position.z].into_iter().zip(bytes.chunks_mut(2)) {
+    let offset = position - origin;
+    for (axis, out) in [offset.x, offset.y, offset.z].into_iter().zip(bytes.chunks_mut(2)) {
         let units = (axis / WIRE_POSITION_STEP).round().clamp(f32::from(i16::MIN), f32::from(i16::MAX));
         out.copy_from_slice(&(units as i16).to_le_bytes());
     }
     bytes
 }
 
-pub fn unpack_position(bytes: [u8; 6]) -> Vec3 {
+pub fn unpack_position(origin: Vec3, bytes: [u8; 6]) -> Vec3 {
     let axis = |i: usize| f32::from(i16::from_le_bytes([bytes[i], bytes[i + 1]])) * WIRE_POSITION_STEP;
-    Vec3::new(axis(0), axis(2), axis(4))
+    origin + Vec3::new(axis(0), axis(2), axis(4))
 }
 
 /// A yaw (any angle) as a byte: a full turn in 256 steps.
@@ -330,8 +344,8 @@ pub fn unpack_pitch(byte: u8) -> f32 {
 }
 
 impl Sight {
-    pub fn position(&self) -> Vec3 {
-        unpack_position(self.position)
+    pub fn position(&self, origin: Vec3) -> Vec3 {
+        unpack_position(origin, self.position)
     }
 }
 
@@ -344,12 +358,34 @@ mod tests {
 
     #[test]
     fn a_position_is_told_to_a_centimetre() {
+        let origin = Vec3::new(5.0, 0.0, -3.0);
         let at = Vec3::new(-12.344, 1.8, 23.456);
-        let back = unpack_position(pack_position(at));
+        let back = unpack_position(origin, pack_position(origin, at));
         assert!(back.distance(at) < 0.01, "{back} for {at}");
         // Far past the Map's edge it holds at the edge instead of wrapping.
-        assert!(unpack_position(pack_position(Vec3::splat(1e6))).x > 300.0);
-        assert!(unpack_position(pack_position(Vec3::splat(-1e6))).x < -300.0);
+        assert!(unpack_position(origin, pack_position(origin, Vec3::splat(1e6))).x > origin.x + 300.0);
+        assert!(unpack_position(origin, pack_position(origin, Vec3::splat(-1e6))).x < origin.x - 300.0);
+    }
+
+    /// Every Map's whole plan, at each corner and a few points inside, from well below the floor to
+    /// well above the roofs, comes back from the wire to within a centimetre, wherever the Map sits.
+    #[test]
+    fn every_maps_whole_plan_is_told_to_a_centimetre() {
+        for map in MapId::ALL {
+            let origin = wire_origin(map);
+            let (min, max) = map.layout().plan;
+            for fx in [0.0, 0.1, 0.5, 0.77, 1.0] {
+                for fz in [0.0, 0.3, 0.5, 1.0] {
+                    let (x, z) = (min.x + (max.x - min.x) * fx, min.y + (max.y - min.y) * fz);
+                    for y in [-30.0, 0.0, 1.8, 40.0] {
+                        let at = Vec3::new(x + 0.00137, y, z - 0.00291);
+                        let back = unpack_position(origin, pack_position(origin, at));
+                        let off = (back - at).abs().max_element();
+                        assert!(off <= WIRE_POSITION_STEP / 2.0 + 1e-3, "{} told {at} as {back}", map.name());
+                    }
+                }
+            }
+        }
     }
 
     #[test]

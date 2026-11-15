@@ -2623,7 +2623,8 @@ pub const RECONNECT_REDIAL_SECS: f32 = 30.0;
 pub const RECONNECT_INTERVAL_SECS: f32 = 2.0;
 /// How long a link may hear nothing from the other game before it counts as lost, in seconds.
 pub const LINK_LOST_SILENCE_SECS: u64 = 5;
-/// How far a position is told to, in metres: the 1 cm that three `i16`s give a 650 m box.
+/// How far a position is told to, in metres: the 1 cm that three `i16`s give a 650 m box around the
+/// middle of the Map (see `wire_origin`).
 pub const WIRE_POSITION_STEP: f32 = 0.01;
 /// How far a puppet may stray from where it should be, in ticks, before it eases back, and how far
 /// before it jumps.
