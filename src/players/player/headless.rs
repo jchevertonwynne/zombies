@@ -74,11 +74,14 @@ impl Sim {
         .init_resource::<Steps>()
         .insert_resource(map)
         .init_resource::<Power>()
+        .init_resource::<crate::economy::buy::Focus>()
+        .init_resource::<crate::maps::zipline::OpenZones>()
+        .init_resource::<crate::maps::zipline::ZiplineFocus>()
         .init_resource::<SendTeleport>()
         .add_message::<Teleport>()
         .init_resource::<PendingTeleports>()
         .add_systems(PostUpdate, queue_teleports)
-        .add_systems(Update, place_eye)
+        .add_systems(Update, (place_eye, mark_riding))
         .init_resource::<crate::modifier::RunModifiers>()
         .add_systems(Update, send_teleport)
         .insert_resource(Settings::default())
@@ -88,7 +91,7 @@ impl Sim {
         .add_systems(Update, hear)
         .add_systems(
             FixedUpdate,
-            (teleport_player, fill_move_input, move_player, stance_feedback, |mut steps: ResMut<Steps>| steps.0 += 1).chain(),
+            (teleport_player, crate::maps::zipline::focus_zipline, fill_move_input, move_player, stance_feedback, |mut steps: ResMut<Steps>| steps.0 += 1).chain(),
         )
         .add_systems(RunFixedMainLoop, look.in_set(LookSystems));
         configure_look(&mut app);
@@ -638,7 +641,7 @@ fn replaying_the_same_inputs_from_the_same_start_reaches_the_same_position_and_s
             move |player: Single<(Entity, &Loadout, &Modifiers), With<Player>>,
                   move_and_slide: MoveAndSlide| {
                 let (entity, loadout, modifiers) = *player;
-                let mut context = MoveContext { entity, loadout, modifiers, drinking: false, last_stand: false, jump_pads: &[], layout: None };
+                let mut context = MoveContext { entity, loadout, modifiers, drinking: false, last_stand: false, jump_pads: &[], ziplines: &[], layout: None };
                 let (mut position, mut locomotion, inputs) = args.clone();
                 for input in &inputs {
                     step_move(&mut position, &mut locomotion, input, &mut context, Duration::from_secs_f64(1.0 / 64.0), &move_and_slide);
@@ -1309,7 +1312,7 @@ fn step_once(sim: &mut Sim, position: Vec3, locomotion: Locomotion, input: MoveI
     let id = world.register_system(
         move |player: Single<(Entity, &Loadout, &Modifiers), With<Player>>, move_and_slide: MoveAndSlide| {
             let (entity, loadout, modifiers) = *player;
-            let mut context = MoveContext { entity, loadout, modifiers, drinking: false, last_stand: false, jump_pads: &[], layout: None };
+            let mut context = MoveContext { entity, loadout, modifiers, drinking: false, last_stand: false, jump_pads: &[], ziplines: &[], layout: None };
             let (mut position, mut locomotion, input) = args.clone();
             step_move(&mut position, &mut locomotion, &input, &mut context, Duration::from_secs_f64(1.0 / 64.0), &move_and_slide);
             locomotion
@@ -1810,4 +1813,160 @@ mod wading {
             assert!(!layout.out_of_bounds(feet), "had feet in Deep Water at {feet}");
         }
     }
+}
+
+impl Sim {
+    /// Every Zone is open, so every Zipline works.
+    pub fn open_all_zones(&mut self) {
+        self.app.world_mut().resource_mut::<crate::maps::zipline::OpenZones>().0 = crate::maps::zone::ZoneId::ALL.into_iter().collect();
+    }
+
+    /// Whether the Player is wearing the marker that lowers their Weapon for a ride.
+    fn lowered(&mut self) -> bool {
+        let world = self.app.world_mut();
+        world.query_filtered::<Has<Riding>, With<LocalPlayer>>().single(world).unwrap()
+    }
+}
+
+/// A Cove Player standing on `line`'s top with every Zone open.
+fn at_the_top(line: &crate::maps::zipline::Zipline) -> Sim {
+    let mut sim = Sim::on(MapId::Cove, 144.0);
+    sim.open_all_zones();
+    sim.place(line.from, 0.0);
+    sim
+}
+
+fn ride_limit(line: &crate::maps::zipline::Zipline) -> f32 {
+    crate::maps::zipline::ride_secs(line) + 1.0
+}
+
+/// Use at the top of each of the Cove's Ziplines rides it: the Weapon is lowered, the ride takes the
+/// time its pace gives, and the Player comes down on their feet at the landing.
+#[test]
+fn use_at_a_cove_zipline_rides_it_down_to_its_landing() {
+    for line in MapId::Cove.layout().ziplines {
+        let mut sim = at_the_top(line);
+        sim.hold(&[KeyCode::KeyF]);
+        let mut secs = 0.0;
+        let mut lowered = false;
+        while !sim.locomotion().riding() {
+            sim.run(1);
+            secs += sim.frame_secs;
+            assert!(secs < 1.0, "never grabbed the line from {}", line.from);
+        }
+        let mut ride = 0.0;
+        while sim.locomotion().riding() {
+            sim.run(1);
+            lowered |= sim.lowered();
+            ride += sim.frame_secs;
+            assert!(ride < ride_limit(line), "still riding the line from {}", line.from);
+        }
+        sim.hold(&[]);
+        sim.run_secs(0.5);
+        let after = sim.locomotion();
+        assert!(lowered, "the Weapon stayed up on the line from {}", line.from);
+        assert!((ride - crate::maps::zipline::ride_secs(line)).abs() < 0.2, "{ride:.2} s for {} m", line.length());
+        assert!(after.grounded(), "not on the ground at the end of the line from {}", line.from);
+        let feet = feet(&sim.frame());
+        assert!(feet.distance(line.to) < 1.0, "landed at {feet}, not {}", line.to);
+    }
+}
+
+/// A line out of reach, closed (its landing Zone not open yet), or grabbed Prone or Down does
+/// nothing.
+#[test]
+fn a_zipline_is_not_grabbed_out_of_reach_closed_prone_or_down() {
+    let line = MapId::Cove.layout().ziplines[0];
+    let rides = |sim: &mut Sim| {
+        sim.hold(&[KeyCode::KeyF]);
+        let ridden = (0..144).any(|_| {
+            sim.run(1);
+            sim.locomotion().riding()
+        });
+        sim.hold(&[]);
+        ridden
+    };
+    assert!(rides(&mut at_the_top(&line)), "the baseline ride");
+    let mut far = at_the_top(&line);
+    far.place(line.from - line.heading() * 3.0, 0.0);
+    assert!(!rides(&mut far), "grabbed from 3 m back");
+    let mut closed = Sim::on(MapId::Cove, 144.0);
+    closed.place(line.from, 0.0);
+    assert!(!rides(&mut closed), "ridden with the landing Zone shut");
+    let mut prone = at_the_top(&line);
+    prone.tap_prone();
+    prone.run_secs(1.0);
+    assert!(!rides(&mut prone), "grabbed Prone");
+    let mut down = at_the_top(&line);
+    down.go_down();
+    down.run_secs(0.5);
+    assert!(!rides(&mut down), "grabbed in a Last Stand");
+}
+
+/// A Crouched Player stands as they grab, and Jump, Crouch and Prone do nothing during the ride:
+/// it takes as long as it takes.
+#[test]
+fn a_crouched_player_grabs_and_nothing_pressed_mid_ride_changes_it() {
+    let line = MapId::Cove.layout().ziplines[1];
+    let time_of = |mess: bool| {
+        let mut sim = at_the_top(&line);
+        sim.tap_crouch();
+        sim.run_secs(0.6);
+        assert_eq!(sim.stance(), Stance::Crouched);
+        sim.hold(&[KeyCode::KeyF]);
+        let mut secs = 0.0;
+        while !sim.locomotion().riding() {
+            sim.run(1);
+            assert!(secs < 1.0);
+            secs += sim.frame_secs;
+        }
+        assert_eq!(sim.stance(), Stance::Standing, "still crouched on the line");
+        if mess {
+            sim.hold(&[KeyCode::KeyF, KeyCode::Space, KeyCode::KeyC, KeyCode::KeyZ, KeyCode::ShiftLeft, KeyCode::KeyW]);
+        }
+        let mut ride = 0.0;
+        while sim.locomotion().riding() {
+            sim.run(1);
+            ride += sim.frame_secs;
+            assert!(ride < ride_limit(&line));
+        }
+        ride
+    };
+    assert!((time_of(false) - time_of(true)).abs() < 0.03);
+}
+
+/// A Down mid-ride rides on to the landing, where the Last Stand starts: no falling off.
+#[test]
+fn a_down_mid_ride_rides_on_to_the_landing() {
+    let line = MapId::Cove.layout().ziplines[1];
+    let mut sim = at_the_top(&line);
+    sim.hold(&[KeyCode::KeyF]);
+    while !sim.locomotion().riding() {
+        sim.run(1);
+    }
+    sim.run_secs(1.0);
+    assert!(sim.locomotion().riding());
+    sim.hold(&[]);
+    sim.go_down();
+    sim.run_secs(crate::maps::zipline::ride_secs(&line) + 1.5);
+    let after = sim.locomotion();
+    assert!(!after.riding() && after.down, "riding {}, down {}", after.riding(), after.down);
+    let at = sim.frame().pos - Vec3::Y * Stance::Prone.half_height();
+    assert!(at.distance(line.to) < 1.2, "went down at {at}, not {}", line.to);
+}
+
+/// Targeting counts a rider as standing where the ride lands.
+#[test]
+fn a_rider_counts_as_standing_at_the_landing_for_targeting() {
+    let line = MapId::Cove.layout().ziplines[1];
+    let mut sim = at_the_top(&line);
+    sim.hold(&[KeyCode::KeyF]);
+    while !sim.locomotion().riding() {
+        sim.run(1);
+    }
+    sim.run_secs(0.5);
+    let world = sim.app.world_mut();
+    let spot = world.run_system_once(|players: crate::enemies::target::Players| players.first().unwrap()).unwrap();
+    assert!(spot.stand.distance(line.to) < 0.01, "counted at {}", spot.stand);
+    assert!(spot.feet.distance(line.to) > 3.0, "the real feet were already there");
 }

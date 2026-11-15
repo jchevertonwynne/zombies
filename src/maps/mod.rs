@@ -13,4 +13,5 @@ pub mod surge;
 pub mod teleporter;
 pub mod trap;
 pub mod water;
+pub mod zipline;
 pub mod zone;

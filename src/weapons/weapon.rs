@@ -28,6 +28,7 @@ use crate::weapons::muzzle::{BulletImpact, ImpactKind};
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve, resolve_count};
 use crate::weapons::equipment::{Equipment, Handling, arms_free, hand_pose};
 use crate::economy::perk::{Drinking, hands_free};
+use crate::players::player::Riding;
 use crate::players::respawn::not_waiting;
 use crate::players::revive::not_reviving;
 use crate::players::player::{LocalPlayer, Locomotion, Player, PlayerCamera, Stance, not_changing_prone};
@@ -1597,14 +1598,14 @@ fn animate_view_model(
         (Without<ViewModel>, Without<Glint>),
     >,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    player: Single<(&Loadout, &Modifiers, &Knife, Option<&Drinking>, &Equipment, Option<&Handling>), With<LocalPlayer>>,
+    player: Single<(&Loadout, &Modifiers, &Knife, Option<&Drinking>, &Equipment, Option<&Handling>, Has<Riding>), With<LocalPlayer>>,
     guns: Res<GunModels>,
     rebuild: Res<Rebuild>,
     ammo_buy: Res<AmmoBuy>,
     time: Res<Time>,
 ) {
     let (ref mut model, ref mut transform, ref mut mesh) = *view_model;
-    let (loadout, modifiers, knife, drinking, equipment, handling) = *player;
+    let (loadout, modifiers, knife, drinking, equipment, handling, riding) = *player;
     model.kick = (model.kick - time.delta_secs() * 8.0).max(0.0);
 
     // Drop the old gun and raise the new one on a switch.
@@ -1617,6 +1618,9 @@ fn animate_view_model(
     let mut push = 0.0;
     let dip = if drinking.is_some() {
         0.6 * drink_dip
+    } else if riding {
+        // A Zipline ride lowers the Weapon out of sight for the one hand on the bar.
+        crate::players::hands::ride_pose().0
     } else if let Some(swap) = &loadout.swap {
         if swap.elapsed < swap.drop_secs {
             shown_id = swap.from.id;
@@ -1679,6 +1683,7 @@ fn animate_view_model(
     // Rebuilding a Barrier moves the Weapon aside the same way, for the hand that pushes.
     let (rebuild_dip, palm) = rebuild_pose(rebuild.hand().0, rebuild.hand().1);
     let knife_dip = knife_dip.max(rebuild_dip);
+    let palm = if riding { Some(crate::players::hands::ride_pose().1) } else { palm };
     let lunge = knife.swing().filter(|_| stabbing).map_or(0.0, stab_lunge);
 
     // Equipment: the Weapon dips for the left hand to cook, throw or plant it.

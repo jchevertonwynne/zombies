@@ -281,8 +281,12 @@ impl Drinking {
 }
 
 /// Run condition: the Player's hands are free for their Weapon and Knife.
-pub fn hands_free(drinking: Query<(), (With<Player>, With<Drinking>)>) -> bool {
-    drinking.is_empty()
+/// A Zipline ride lowers the Weapon too.
+pub fn hands_free(
+    drinking: Query<(), (With<Player>, With<Drinking>)>,
+    riding: Query<(), (With<crate::players::player::LocalPlayer>, With<crate::players::player::Riding>)>,
+) -> bool {
+    drinking.is_empty() && riding.is_empty()
 }
 
 /// A machine that sells its Perk to each Player once: a Player who holds it, or is drinking it,

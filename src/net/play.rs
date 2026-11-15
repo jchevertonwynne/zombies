@@ -40,7 +40,7 @@ use crate::players::player::{
 use crate::modifier::Modifiers;
 use crate::economy::points::Points;
 use crate::state::{Choosing, GameState, world_runs};
-use crate::players::teammate::{Pose, Shots, Told};
+use crate::players::teammate::{Action, Pose, Shots, Told};
 use crate::tuning::*;
 use crate::weapons::weapon::Loadout;
 
@@ -450,7 +450,13 @@ fn drive_remotes(mut players: Query<(&mut Remote, &mut MoveInput, &mut Transform
 /// an echo, and teammates, Zombies and Host-judged harm all go by where the Host has the body.
 fn pose_by_steps(mut remotes: Query<(&Locomotion, &mut Pose), With<Remote>>) {
     for (locomotion, mut pose) in &mut remotes {
-        let stepped = Pose { stance: locomotion.stance, airborne: !locomotion.grounded(), ..*pose };
+        // Riding is the Host's to say, from its own steps.
+        let action = match (locomotion.riding(), pose.action) {
+            (true, _) => Action::Ride,
+            (false, Action::Ride) => Action::None,
+            (false, other) => other,
+        };
+        let stepped = Pose { stance: locomotion.stance, airborne: !locomotion.grounded(), action, ..*pose };
         pose.set_if_neq(stepped);
     }
 }
@@ -611,9 +617,10 @@ fn reconcile(
     >,
     mut points: Query<(&PlayerSeat, &mut Points), With<Player>>,
     move_and_slide: MoveAndSlide,
-    (map, power): (Res<crate::maps::map::MapId>, Option<Res<crate::maps::power::Power>>),
+    (map, power, open): (Res<crate::maps::map::MapId>, Option<Res<crate::maps::power::Power>>, Option<Res<crate::maps::zipline::OpenZones>>),
 ) {
     let jump_pads = crate::maps::jump_pad::working(*map, power.is_some_and(|power| power.is_on()));
+    let ziplines = crate::maps::zipline::working(*map, open.map_or(Default::default(), |open| open.0));
     let layout = Some(map.layout());
     let mut heard = std::mem::take(&mut inbox.snapshots);
     heard.retain(|snapshot| prediction.latest.is_none_or(|latest| snapshot.tick > latest));
@@ -663,7 +670,7 @@ fn reconcile(
         *locomotion = after_used.clone();
     }
     snapshot.own.put(&mut position, &mut locomotion);
-    let mut context = MoveContext { entity, loadout, modifiers, drinking, last_stand, jump_pads, layout };
+    let mut context = MoveContext { entity, loadout, modifiers, drinking, last_stand, jump_pads, ziplines: &ziplines, layout };
     for (_, step, _) in &prediction.sent {
         step_move(&mut position, &mut locomotion, &step.input(), &mut context, time.delta(), &move_and_slide);
     }

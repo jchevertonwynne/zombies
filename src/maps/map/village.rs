@@ -75,6 +75,7 @@ pub(super) const VILLAGE: Layout = Layout {
     nav_nodes: NODES,
     nav_edges: EDGES,
     jump_pads: &[],
+    ziplines: &[],
     sapper: SapperTiming::DEFAULT,
     sections: &[],
     generators: &[],

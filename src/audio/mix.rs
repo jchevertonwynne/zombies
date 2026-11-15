@@ -67,7 +67,12 @@ pub fn pose_cue(before: &Pose, now: &Pose) -> Option<Cue> {
     if before.action == now.action {
         return None;
     }
+    // The landing at the end of a Zipline ride.
+    if before.action == Action::Ride {
+        return Some(Cue::ZiplineLand);
+    }
     match now.action {
+        Action::Ride => Some(Cue::ZiplineRide),
         Action::Reload => Some(Cue::Reload),
         Action::Knife => Some(Cue::KnifeSwing),
         Action::Drink => Some(Cue::PerkDrink),
@@ -339,6 +344,15 @@ mod tests {
         assert_eq!(cue(standing, down), None);
         assert_eq!(cue(down, standing), None);
         assert_eq!(cue(flying, down), None, "a Down mid-Dive thudded");
+    }
+
+    #[test]
+    fn a_teammate_riding_a_zipline_is_heard_on_the_cable_and_on_landing() {
+        let plain = Pose::default();
+        let riding = Pose { action: Action::Ride, ..plain };
+        assert_eq!(pose_cue(&plain, &riding), Some(Cue::ZiplineRide));
+        assert_eq!(pose_cue(&riding, &riding), None);
+        assert_eq!(pose_cue(&riding, &plain), Some(Cue::ZiplineLand));
     }
 
     #[test]

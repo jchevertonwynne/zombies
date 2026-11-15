@@ -172,6 +172,12 @@ const COVE: &[View] = &[
     view("keepers-cottage", (C - 10.0, 12.0, 48.0), (C + 2.0, 58.0), -0.05, false),
     view("sea-from-the-battery", (C + 20.0, 12.0, 52.0), (C + 20.0, -40.0), 0.02, false),
     view("lantern-gallery", (C - 42.2, 20.0, 60.0), (C - 50.0, 50.0), -0.3, false),
+    view("lighthouse-line-top", (C - 42.2, 20.0, 60.0), (C - 31.0, 61.5), -0.15, false),
+    view("lighthouse-line-landing", (C - 24.0, 12.0, 52.0), (C - 40.0, 60.0), 0.3, false),
+    view("belfry-line-top", (C - 42.0, 16.0, 41.4), (C - 17.0, 35.0), -0.2, false),
+    view("belfry-line-landing", (C - 6.0, 8.0, 28.0), (C - 41.0, 41.0), 0.45, false),
+    view("pensione-line-top", (C + 32.5, 12.0, 27.0), (C + 32.5, 12.0), -0.4, false),
+    view("pergola-deck", (C + 29.0, 4.0, 9.0), (C + 32.5, 20.0), 0.35, false),
 ];
 
 const PO: f32 = POLDER_X;

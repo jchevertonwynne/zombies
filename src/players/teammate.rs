@@ -36,6 +36,8 @@ pub enum Action {
     Knife,
     Throw,
     Drink,
+    /// Riding a Zipline: arms up on the trolley's bar, legs hanging.
+    Ride,
     /// Kneeling to Revive a teammate. Nothing fills it until Co-op's Revive exists.
     #[allow(dead_code, reason = "filled by Revive")]
     Revive,
@@ -72,6 +74,7 @@ impl Pose {
             Action::Throw => 3,
             Action::Drink => 4,
             Action::Revive => 5,
+            Action::Ride => 6,
         };
         stance
             | u16::from(self.sprinting) << 2
@@ -114,6 +117,7 @@ impl Pose {
                 3 => Action::Throw,
                 4 => Action::Drink,
                 5 => Action::Revive,
+                6 => Action::Ride,
                 _ => Action::None,
             },
         }
@@ -198,7 +202,9 @@ fn fill_poses(
     >,
 ) {
     for (locomotion, loadout, knife, throwing, drinking, last_stand, mut pose, mut shots, mut held) in &mut players {
-        let action = if drinking {
+        let action = if locomotion.riding() {
+            Action::Ride
+        } else if drinking {
             Action::Drink
         } else if throwing {
             Action::Throw
@@ -500,6 +506,12 @@ fn body(doing: &Doing) -> Body {
             body.gun_shown = false;
             body.prop = Prop::Bottle;
         }
+        Action::Ride => {
+            // Both hands up on the trolley's bar, the body hanging from it, legs straight.
+            body.arms = [Arm { pitch: 3.0, yaw: 0.1 }, Arm { pitch: 3.0, yaw: -0.1 }];
+            body.legs = [0.1, -0.05];
+            body.gun_shown = false;
+        }
         Action::Revive => {
             // Down on one knee, both hands out in front, working.
             body.hips_y = 0.5;
@@ -766,7 +778,7 @@ fn spawn_bodies(
 /// How long an action takes, for the body to play it out over. `None` for one with no set length.
 fn action_secs(action: Action, held: &HeldWeapon) -> Option<f32> {
     match action {
-        Action::None | Action::Revive => None,
+        Action::None | Action::Revive | Action::Ride => None,
         Action::Reload => {
             let stats = held.id.stats();
             Some(stats.reload.secs(0, stats.magazine).max(0.5))
@@ -774,6 +786,22 @@ fn action_secs(action: Action, held: &HeldWeapon) -> Option<f32> {
         Action::Knife => Some(KNIFE_COOLDOWN_SECS),
         Action::Throw => Some(THROW_SECS),
         Action::Drink => Some(PERK_DRINK_SECS),
+    }
+}
+
+/// The T-bar trolley a riding teammate hangs from: a stem up from their hands to the cable and a
+/// bar across it, dark like the cable. (The Player's own is the hand on the view model.)
+fn draw_trolleys(mut gizmos: Gizmos, riders: Query<(&Transform, &Pose), (With<Player>, Without<LocalPlayer>)>) {
+    for (transform, pose) in &riders {
+        if pose.action != Action::Ride {
+            continue;
+        }
+        let cable = transform.translation + Vec3::Y * (ZIPLINE_HANG - pose.feet_below_centre());
+        let side = transform.rotation * Vec3::X * 0.28;
+        let bar = Color::srgb(0.05, 0.05, 0.06);
+        gizmos.line(cable - Vec3::Y * 0.3, cable, bar);
+        gizmos.line(cable - Vec3::Y * 0.3 - side, cable - Vec3::Y * 0.3 + side, bar);
+        gizmos.line(cable - Vec3::Y * 0.05 - side * 0.4, cable - Vec3::Y * 0.05 + side * 0.4, bar);
     }
 }
 
@@ -1008,7 +1036,7 @@ impl Plugin for TeammatePlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<TeammateShot>().add_systems(
             Update,
-            (fill_poses, spawn_bodies, animate, place_name_tags).chain().run_if(world_runs),
+            (fill_poses, spawn_bodies, animate, place_name_tags, draw_trolleys).chain().run_if(world_runs),
         );
     }
 }
@@ -1025,7 +1053,7 @@ mod tests {
 
     #[test]
     fn a_pose_packs_into_two_bytes_and_back() {
-        for (action, stance) in [Action::None, Action::Reload, Action::Knife, Action::Throw, Action::Drink, Action::Revive]
+        for (action, stance) in [Action::None, Action::Reload, Action::Knife, Action::Throw, Action::Drink, Action::Revive, Action::Ride]
             .into_iter()
             .flat_map(|action| [Stance::Standing, Stance::Crouched, Stance::Prone].map(|stance| (action, stance)))
         {

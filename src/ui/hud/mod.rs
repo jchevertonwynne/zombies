@@ -862,11 +862,24 @@ fn prompt_text(
     cost: Single<(&mut TextSpan, &mut TextColor), (With<PromptCost>, Without<PromptHoldCost>)>,
     mut hold_line: Single<&mut TextSpan, (With<PromptHold>, Without<PromptCost>, Without<PromptHoldCost>)>,
     hold_cost: Single<(&mut TextSpan, &mut TextColor), (With<PromptHoldCost>, Without<PromptCost>)>,
+    zipline: Res<crate::maps::zipline::ZiplineFocus>,
 ) {
     let (modifiers, points) = *player;
     let (mut text, mut visibility) = prompt.into_inner();
     let Some((buyable, hold)) = focus.0.and_then(|e| buyables.get(e).ok()) else {
-        visibility.set_if_neq(Visibility::Hidden);
+        // A Zipline's top, with no Buyable in reach: a Prompt with no price.
+        if zipline.0 {
+            visibility.set_if_neq(Visibility::Inherited);
+            let shown = with_use_key(crate::maps::zipline::ZIPLINE_PROMPT, &settings.bindings);
+            if text.0 != shown {
+                text.0 = shown;
+            }
+            cost.into_inner().0.0.clear();
+            hold_line.0.clear();
+            hold_cost.into_inner().0.0.clear();
+        } else {
+            visibility.set_if_neq(Visibility::Hidden);
+        }
         return;
     };
     visibility.set_if_neq(Visibility::Inherited);

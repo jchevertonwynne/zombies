@@ -1,6 +1,6 @@
 //! The Cove Map: a cliffside town on four levels, a storey apart, climbed by stairs from the beach
 //! to a lighthouse on the cliff top. The sea lies to the south (-z) and the cliff climbs north.
-//! In this first slice the beach is dry sand, and there are no Ziplines.
+//! Three Ziplines run from the lookouts: see `ZIPLINES`.
 //!
 //! - The Shore (y 0): the Sea Cave, the Shingle, the Strand and the Boathouse, side by side along
 //!   the sea wall. A Run starts on the Strand.
@@ -26,6 +26,7 @@ use bevy::prelude::*;
 use crate::enemies::nav::Gate;
 use crate::enemies::sapper::SapperTiming;
 use crate::maps::map::BarrierId;
+use crate::maps::zipline::Zipline;
 use crate::maps::zone::ZoneId;
 use crate::tuning::*;
 use crate::weapons::arsenal::WeaponId;
@@ -102,6 +103,7 @@ pub(super) const COVE: Layout = Layout {
     nav_nodes: NODES,
     nav_edges: EDGES,
     jump_pads: &[],
+    ziplines: &ZIPLINES,
     sapper: SapperTiming::DEFAULT,
     sections: &[],
     generators: &[],
@@ -115,6 +117,18 @@ pub(super) const COVE: Layout = Layout {
     plan: (Vec2::new(C - 70.0, -24.0), Vec2::new(C + 70.0, 72.0)),
     build,
 };
+
+/// The Cove's three Ziplines, each from a lookout over the town's edge to a lower Zone: the
+/// Lighthouse Line from the lantern gallery east over the wall to the Lighthouse Yard, the Belfry
+/// Line from the belfry's south-east corner across the Chapel to the Piazza, and the Pensione Line
+/// from the roof garden's south edge down to the Taverna's pergola deck. (The town's terraces stack
+/// too steeply for a straight cable to clear three of them, so the first two stay on their own
+/// terrace's side.)
+const ZIPLINES: [Zipline; 3] = [
+    Zipline { zone: ZoneId::Lighthouse, from: at(-40.4, HEAD + 2.0 * STOREY, 60.0), to: at(-31.0, HEAD, 61.5), lands_in: ZoneId::LighthouseYard },
+    Zipline { zone: ZoneId::Chapel, from: at(-40.4, UPPER + 2.0 * STOREY, 40.6), to: at(-17.0, UPPER, 35.0), lands_in: ZoneId::Piazza },
+    Zipline { zone: ZoneId::Pensione, from: at(32.5, UPPER + STOREY, 24.3), to: at(32.5, LOWER, 12.0), lands_in: ZoneId::Taverna },
+];
 
 /// The chalk outlines: the cheap guns either side of Quick Revive in the Strand's sea wall, an SMG
 /// in the Lower Lane, a shotgun in the Boathouse and the AK-74u in the Upper Lane.
@@ -565,7 +579,8 @@ fn build(b: &mut Builder) {
         ],
     );
     roof(b, Washhouse, v(-56.0, 6.0), v(-44.0, 24.0), LOWER + H);
-    roof(b, Taverna, v(6.0, 6.0), v(34.0, 20.0), LOWER + H);
+    // The pergola deck at the east end is open to the sky, where the Pensione Line comes down.
+    roof(b, Taverna, v(6.0, 6.0), v(30.0, 20.0), LOWER + H);
 
     // The Upper Town.
     xwall(b, (-56.0, -30.0), 24.0, UPPER, H, vec![]);
@@ -574,7 +589,9 @@ fn build(b: &mut Builder) {
     xwall(b, (-16.0, -4.0), 24.0, UPPER, H, vec![]);
     xwall(b, (-4.0, 18.0), 24.0, UPPER, H, vec![(9.0, Gap::Window), (15.0, Gap::Window)]);
     // The Pensione's roof garden is as high as its walls, so they stand over it.
-    xwall(b, (18.0, 34.0), 24.0, UPPER, H + 4.0, vec![]);
+    // Low over the south edge of the roof garden where the Pensione Line leaves it.
+    xwall(b, (18.0, 31.0), 24.0, UPPER, H + 4.0, vec![]);
+    xwall(b, (31.0, 34.0), 24.0, UPPER, 3.0, vec![]);
     // The bell tower's landings are as high as the walls, so the Chapel's west wall stands over them.
     zwall(b, -56.0, (24.0, 44.0), UPPER, 2.0 * STOREY + 2.0, vec![(28.0, Gap::Window), (33.0, Gap::Window)]);
     zwall(b, -30.0, (24.0, 44.0), UPPER, H, vec![(32.0, door(Chapel, Piazza, DOOR_PRICE_CHAPEL_PIAZZA))]);
@@ -612,7 +629,10 @@ fn build(b: &mut Builder) {
     // The Battery's rampart has a gap over the Upper Lane.
     xwall(b, (17.5, 34.0), 44.0, HEAD, H, vec![]);
     zwall(b, -56.0, (44.0, 64.0), HEAD, tall, vec![]);
-    zwall(b, -40.0, (44.0, 64.0), HEAD, tall, vec![(54.0, door(LighthouseYard, Lighthouse, DOOR_PRICE_YARD_LIGHTHOUSE))]);
+    // The east wall is low where the Lighthouse Line leaves the lantern gallery over it.
+    zwall(b, -40.0, (44.0, 57.0), HEAD, tall, vec![(54.0, door(LighthouseYard, Lighthouse, DOOR_PRICE_YARD_LIGHTHOUSE))]);
+    zwall(b, -40.0, (57.0, 63.0), HEAD, 5.0, vec![]);
+    zwall(b, -40.0, (63.0, 64.0), HEAD, tall, vec![]);
     zwall(b, -12.0, (44.0, 64.0), HEAD, H, vec![(54.0, door(LighthouseYard, KeepersCottage, DOOR_PRICE_YARD_KEEPERS_COTTAGE))]);
     zwall(b, 6.0, (44.0, 64.0), HEAD, H, vec![(54.0, door(KeepersCottage, Battery, DOOR_PRICE_KEEPERS_COTTAGE_BATTERY))]);
     zwall(b, 34.0, (44.0, 64.0), HEAD, H, vec![]);
@@ -637,12 +657,19 @@ fn build(b: &mut Builder) {
     let rail_paint = palette(Some(Lighthouse)).trim;
     rail(b, v(-44.0, 55.4), v(-40.2, 55.6), GALLERY.height, rail_paint);
     rail(b, v(-44.2, 59.6), v(-44.0, 63.8), GALLERY.height, rail_paint);
-    rail(b, v(-45.0, 39.8), v(-40.2, 40.0), BELFRY.height, rail_paint);
-    rail(b, v(-40.4, 40.2), v(-40.2, 43.8), BELFRY.height, rail_paint);
+    // The lantern gallery's east side is open for the Lighthouse Line, between two rails.
+    rail(b, v(-40.4, 55.6), v(-40.2, 58.8), GALLERY.height, rail_paint);
+    rail(b, v(-40.4, 61.2), v(-40.2, 63.8), GALLERY.height, rail_paint);
+    // The belfry's south-east corner is open for the Belfry Line.
+    rail(b, v(-45.0, 39.8), v(-41.8, 40.0), BELFRY.height, rail_paint);
+    rail(b, v(-40.4, 41.6), v(-40.2, 43.8), BELFRY.height, rail_paint);
     let garden_rail = palette(Some(Pensione)).trim;
     rail(b, v(28.0, 36.8), v(33.8, 37.0), GARDEN.height, garden_rail);
     rail(b, v(33.6, 24.2), v(33.8, 37.0), GARDEN.height, garden_rail);
     rail(b, v(28.0, 27.8), v(28.2, 37.0), GARDEN.height, garden_rail);
+    // The south edge, over the low wall, with a gap for the line.
+    rail(b, v(31.0, 24.4), v(32.0, 24.6), GARDEN.height, garden_rail);
+    rail(b, v(33.0, 24.4), v(33.8, 24.6), GARDEN.height, garden_rail);
 
     // A pocket of floor outside every window, walled in, where Zombies gather.
     for &(_, centre, out) in &WINDOWS {

@@ -20,6 +20,7 @@ use crate::players::out_of_bounds::Footing;
 use crate::players::respawn::AwaitingRespawn;
 use crate::layers::GameLayer;
 use crate::maps::jump_pad::JumpPad;
+use crate::maps::zipline::{OpenZones, Zipline, ZiplineFocus};
 use crate::maps::map::MapId;
 use crate::maps::power::Power;
 use crate::run::party::Party;
@@ -295,6 +296,8 @@ pub struct MoveInput {
     /// Move axes, each -1, 0 or 1: x is right, y is forward.
     pub axes: Vec2,
     pub jump: bool,
+    /// The Use key was pressed while a Zipline's Prompt was showing: grab the handle.
+    pub grab: bool,
     pub sprint: bool,
     pub aim: bool,
     /// The Player wants the Crouched Stance.
@@ -334,6 +337,12 @@ pub struct Locomotion {
     pub(crate) diving: bool,
     /// In flight off a Jump Pad: thrown on an arc nothing steers, until it lands.
     pub(crate) thrown: bool,
+    /// Riding a Zipline: along its straight line at its pace, nothing steering or stopping it,
+    /// until it lands. `velocity` is the ride's, along the line.
+    pub(crate) riding: bool,
+    /// Where the ride lands, kept up to date while riding: a riding Player counts as standing
+    /// here for targeting.
+    pub(crate) ride_to: Vec3,
     /// Seconds since the last Dive landed, counting through its recovery and its cooldown.
     /// `f32::INFINITY` until the first Dive lands.
     pub(crate) since_dive_landing: f32,
@@ -455,6 +464,16 @@ impl Locomotion {
         self.since_dive_landing < DIVE_COOLDOWN_SECS
     }
 
+    /// Whether a Zipline ride is under way.
+    pub fn riding(&self) -> bool {
+        self.riding
+    }
+
+    /// Where the Zipline ride under way lands, once the step has found the line.
+    pub fn landing(&self) -> Option<Vec3> {
+        (self.riding && self.ride_to != Vec3::ZERO).then_some(self.ride_to)
+    }
+
     /// Horizontal speed in m/s.
     pub fn ground_speed(&self) -> f32 {
         self.velocity.with_y(0.0).length()
@@ -473,6 +492,8 @@ impl Default for Locomotion {
             grounded: false,
             sprinting: false,
             thrown: false,
+            riding: false,
+            ride_to: Vec3::ZERO,
             stamina: SPRINT_DURATION_SECS,
             winded: false,
             stance: Stance::Standing,
@@ -576,8 +597,24 @@ pub struct PlayerHit {
 /// `not_recovering_from_dive` for its share.)
 pub fn not_changing_prone(players: Query<(&Locomotion, Has<LastStand>), With<LocalPlayer>>) -> bool {
     players.iter().all(|(locomotion, last_stand)| {
-        last_stand || (!locomotion.prone_transition() && !locomotion.recovering_from_dive())
+        // Nothing is fired, thrown or planted on a Zipline either.
+        !locomotion.riding && (last_stand || (!locomotion.prone_transition() && !locomotion.recovering_from_dive()))
     })
+}
+
+/// The local Player is on a Zipline: the Weapon is lowered, so no fire, aim, Reload, throw or
+/// Knife. Kept to `Locomotion::riding` by `mark_riding`.
+#[derive(Component)]
+pub struct Riding;
+
+/// Marks the local Player `Riding` for as long as their ride lasts.
+fn mark_riding(mut commands: Commands, player: Single<(Entity, &Locomotion, Has<Riding>), With<LocalPlayer>>) {
+    let (entity, locomotion, marked) = *player;
+    if locomotion.riding && !marked {
+        commands.entity(entity).insert(Riding);
+    } else if !locomotion.riding && marked {
+        commands.entity(entity).remove::<Riding>();
+    }
 }
 
 /// Whether the local Player is out of a Dive's landing recovery, so aiming down sights is clear:
@@ -642,7 +679,7 @@ impl Plugin for PlayerPlugin {
             )
             // The camera rides the stance glide, the Down's collapse and rise included; the sway
             // reads what it left.
-            .add_systems(Update, place_eye)
+            .add_systems(Update, (place_eye, mark_riding))
             // The OS can drop the grab (e.g. on focus loss); clicking takes it back.
             .add_systems(
                 Update,
@@ -867,6 +904,7 @@ pub(crate) fn fill_move_input(
     settings: Res<Settings>,
     player: Single<(&Transform, &mut MoveInput, &mut StanceKeys, &Locomotion, Has<LastStand>), With<LocalPlayer>>,
     camera: Single<&Transform, (With<PlayerCamera>, Without<LocalPlayer>)>,
+    zipline: Option<Res<ZiplineFocus>>,
 ) {
     let (transform, mut input, mut keys, locomotion, last_stand) = player.into_inner();
     let forward = controls.pressed(Action::Forward) as i8 - controls.pressed(Action::Back) as i8;
@@ -885,6 +923,7 @@ pub(crate) fn fill_move_input(
     *input = MoveInput {
         axes: Vec2::new(right as f32, forward as f32),
         jump,
+        grab: controls.pressed(Action::Use) && zipline.is_some_and(|focus| focus.0),
         sprint: controls.pressed(Action::Sprint),
         aim: controls.pressed(Action::Aim),
         crouch: keys.target == Stance::Crouched,
@@ -905,6 +944,8 @@ pub struct MoveContext<'a> {
     pub last_stand: bool,
     /// The Jump Pads that throw right now (see `jump_pad::working`).
     pub jump_pads: &'static [JumpPad],
+    /// The Ziplines that work now (see `zipline::working`).
+    pub ziplines: &'a [Zipline],
     /// The Map's pools, to wade through: `None` where there is no Map (a bare test world).
     pub layout: Option<&'static crate::maps::map::Layout>,
 }
@@ -922,12 +963,13 @@ pub(crate) fn move_player(
     mut easings: Query<&mut TranslationEasingState>,
     move_and_slide: MoveAndSlide,
     time: Res<Time>,
-    (map, power): (Option<Res<MapId>>, Option<Res<Power>>),
+    (map, power, open): (Option<Res<MapId>>, Option<Res<Power>>, Option<Res<OpenZones>>),
 ) {
     let jump_pads = map.as_ref().map_or(&[][..], |map| crate::maps::jump_pad::working(**map, power.is_some_and(|power| power.is_on())));
+    let ziplines = map.as_ref().map_or(Vec::new(), |map| crate::maps::zipline::working(**map, open.as_ref().map_or(Default::default(), |open| open.0)));
     let layout = map.map(|map| map.layout());
     for (entity, mut transform, mut locomotion, input, loadout, modifiers, drinking, last_stand) in &mut players {
-        let mut context = MoveContext { entity, loadout, modifiers, drinking, last_stand, jump_pads, layout };
+        let mut context = MoveContext { entity, loadout, modifiers, drinking, last_stand, jump_pads, ziplines: &ziplines, layout };
         if let Some(stance) = step_move(&mut transform.translation, &mut locomotion, input, &mut context, time.delta(), &move_and_slide) {
             commands.entity(entity).insert(stance.collider());
             if let Ok(mut easing) = easings.get_mut(entity) {
@@ -949,7 +991,7 @@ pub fn step_move(
     delta: Duration,
     move_and_slide: &MoveAndSlide,
 ) -> Option<Stance> {
-    let MoveContext { entity, loadout, modifiers, drinking, last_stand, jump_pads, layout } = *context;
+    let MoveContext { entity, loadout, modifiers, drinking, last_stand, jump_pads, ziplines, layout } = *context;
     let dt = delta.as_secs_f32();
     let rotation = Quat::from_rotation_y(input.yaw);
 
@@ -967,6 +1009,26 @@ pub fn step_move(
     if last_stand != locomotion.down {
         position.y += if last_stand { locomotion.collapse() } else { locomotion.rise() };
         changed = Some(locomotion.shape());
+    }
+
+    // A Zipline: grabbed by a Player who is up, on the ground, Standing or Crouched and not in the
+    // middle of anything else, and then ridden to the end, whatever else the input says.
+    if !locomotion.riding && input.grab && can_grab(locomotion, last_stand, drinking) {
+        let feet = *position - Vec3::Y * locomotion.shape().half_height();
+        if let Some(line) = crate::maps::zipline::grabbable(ziplines, feet) {
+            // A Crouched Player stands up as they grab: the handle is overhead.
+            locomotion.stand();
+            locomotion.riding = true;
+            locomotion.grounded = false;
+            locomotion.sprinting = false;
+            locomotion.velocity = line.direction() * ZIPLINE_START_SPEED;
+            *position = line.from + Vec3::Y * Stance::Standing.half_height();
+            changed = Some(Stance::Standing);
+        }
+    }
+    if locomotion.riding {
+        ride(position, locomotion, ziplines, dt);
+        return changed;
     }
 
     // Stance: the input carries the Stance wanted, resolved from the keys. The body takes it at
@@ -1175,6 +1237,55 @@ pub fn step_move(
     locomotion.velocity = velocity;
     locomotion.grounded = grounded;
     changed
+}
+
+/// Whether a Player can grab a Zipline's handle: up, on the ground, Standing or Crouched, and
+/// not Diving, thrown, recovering from a Dive or drinking a Perk.
+fn can_grab(locomotion: &Locomotion, last_stand: bool, drinking: bool) -> bool {
+    !last_stand
+        && !locomotion.down
+        && !drinking
+        && locomotion.grounded
+        && !locomotion.diving
+        && !locomotion.thrown
+        && !locomotion.recovering_from_dive()
+        && locomotion.stance != Stance::Prone
+        && locomotion.left_stance != Stance::Prone
+}
+
+/// One tick of a Zipline ride: the body is moved kinematically along the line, passing through
+/// anything on it, and nothing in the input matters. The line is the one the feet are on. At the
+/// end the feet are put at the landing and the ride is over, with walk-speed momentum along the
+/// line's heading; the next step puts them on the floor.
+fn ride(position: &mut Vec3, locomotion: &mut Locomotion, ziplines: &[Zipline], dt: f32) {
+    let half = locomotion.shape().half_height();
+    let feet = *position - Vec3::Y * half;
+    let Some(line) = crate::maps::zipline::ridden(ziplines, feet) else {
+        // No line under the Player (a closed Map's, a bare world): the ride is over where they are.
+        locomotion.riding = false;
+        return;
+    };
+    locomotion.ride_to = line.to;
+    locomotion.since_stance_change += dt;
+    locomotion.since_dive_landing += dt;
+    locomotion.eye = move_towards(locomotion.eye, locomotion.shape().eye_height(), locomotion.eye_rate * dt);
+    // Stamina recharges on the ride.
+    locomotion.sprinting = false;
+    locomotion.stamina += dt * SPRINT_DURATION_SECS / SPRINT_RECHARGE_SECS;
+    if locomotion.stamina >= SPRINT_DURATION_SECS {
+        locomotion.stamina = SPRINT_DURATION_SECS;
+        locomotion.winded = false;
+    }
+    let speed = locomotion.velocity.length().max(ZIPLINE_START_SPEED);
+    let (feet, speed, arrived) = crate::maps::zipline::advance(line, line.at(line.along(feet).1), speed, dt);
+    *position = feet + Vec3::Y * half;
+    locomotion.grounded = false;
+    if arrived {
+        locomotion.riding = false;
+        locomotion.velocity = line.heading() * PLAYER_WALK_SPEED + Vec3::Y * line.direction().y * speed;
+    } else {
+        locomotion.velocity = line.direction() * speed;
+    }
 }
 
 /// Seconds one Stance change takes, by the pair it joins: Standing↔Crouched

@@ -21,6 +21,7 @@ use crate::maps::machine_look::PowerGlow;
 use super::{DOOR_HEIGHT, DOOR_WIDTH, Palette, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, WALL_THICKNESS, WINDOW_WIDTH, materials, palette, prop_variant};
 use crate::maps::generator::{Generator, PlateDisc};
 use crate::maps::jump_pad::JumpPad;
+use crate::maps::zipline::Zipline;
 
 /// How tall the skirting along the foot of a wall is, and how far it stands out from the face.
 const SKIRTING: Vec2 = Vec2::new(0.16, 0.03);
@@ -334,6 +335,45 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                 Transform { translation: at, rotation, scale: size },
             ));
         }
+    }
+
+    /// A Zipline: a pulley post behind its top and a buffer post past its foot, both timber and
+    /// solid, a dark cable between the two heads, and a T-bar trolley hanging at the top. The
+    /// posts stand clear of the line, a metre either side of where a ride starts and ends.
+    pub fn zipline(&mut self, line: &Zipline) {
+        let timber = Color::srgb(0.30, 0.20, 0.12);
+        let iron = Color::srgb(0.07, 0.07, 0.08);
+        let heading = line.heading();
+        // The posts' heads are the cable's ends, and each post's foot is on its floor.
+        let (top, bottom) = line.cable();
+        let pulley = top - heading * 0.6;
+        let buffer = bottom + heading * 0.6;
+        for (head, floor) in [(pulley, line.from.y), (buffer, line.to.y)] {
+            let height = head.y + 0.25 - floor;
+            self.block(Vec3::new(0.24, height, 0.24), Vec3::new(head.x, floor + height / 2.0, head.z), timber);
+        }
+        // The pulley wheel on top of its post, and the buffer's pad on the side facing the cable.
+        let across = Quat::from_rotation_arc(Vec3::Z, if heading == Vec3::ZERO { Vec3::Z } else { heading });
+        self.shape(Vec3::new(0.1, 0.34, 0.34), pulley + Vec3::Y * 0.1, across, iron);
+        self.shape(Vec3::new(0.34, 0.3, 0.14), buffer - heading * 0.17 - Vec3::Y * 0.2, across, iron);
+        // The cable runs from the pulley's head to the buffer's, a thin dark cylinder.
+        let (from, to) = (pulley + Vec3::Y * 0.1 + heading * 0.0, buffer - heading * 0.2);
+        let span = to - from;
+        let paint = self.paint(iron);
+        self.commands.spawn((
+            InRun,
+            Mesh3d(self.cylinder.clone()),
+            MeshMaterial3d(paint),
+            Transform::from_translation((from + to) / 2.0)
+                .with_rotation(Quat::from_rotation_arc(Vec3::Y, span.normalize_or(Vec3::Y)))
+                .with_scale(Vec3::new(ZIPLINE_CABLE_THICKNESS, span.length(), ZIPLINE_CABLE_THICKNESS)),
+        ));
+        // The trolley: two wheels on the cable, a stem and the bar a rider holds, hung where a ride
+        // starts.
+        let trolley = line.from + Vec3::Y * ZIPLINE_HANG;
+        self.shape(Vec3::new(0.12, 0.1, 0.3), trolley + Vec3::Y * 0.02, across, iron);
+        self.shape(Vec3::new(0.04, 0.3, 0.04), trolley - Vec3::Y * 0.15, across, iron);
+        self.shape(Vec3::new(0.5, 0.05, 0.05), trolley - Vec3::Y * 0.3, across, iron);
     }
 
     /// A Generator: its console, solid, at the back of its plate, and the plate drawn on the floor

@@ -108,6 +108,10 @@ cues! {
     // entering water.
     WadeStep => "wade_step", Root, Spatial, 0.45;
     Splash => "splash", Root, Spatial, 0.6;
+    // The whine of a trolley on a Zipline's cable for the length of the ride, and the thump of the
+    // landing; teammates' are heard from where they are.
+    ZiplineRide => "zipline_ride", Root, Spatial, 0.7;
+    ZiplineLand => "zipline_land", Root, Spatial, 0.8;
 
     // Buying and the Map
     Buy => "buy", Root, Flat, 0.7;
@@ -292,7 +296,7 @@ mod tests {
             // Not in the appendix: a teammate's footstep and Crawl drag, for Co-op, and the stance cues.
             "footstep", "stance_rustle", "dive_land", "crawl_drag",
             // The Cove's water: a wading footstep and the splash of entering.
-            "wade_step", "splash", "zombie_wade",
+            "wade_step", "splash", "zombie_wade", "zipline_ride", "zipline_land",
             // Gauntlet v2's Proc cues (spec #182, Appendix C6).
             "proc_frost", "proc_blast",
             "set_bonus_tier_two", "set_bonus_tier_four", "set_bonus_tier_six", "duo_taken",

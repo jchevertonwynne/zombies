@@ -2065,6 +2065,19 @@ pub const JUMP_PAD_PLATE: f32 = 0.06;
 /// How high over the higher of its two ends a Jump Pad's throw peaks.
 pub const JUMP_PAD_APEX: f32 = 2.5;
 
+// Ziplines
+/// How far over the feet line a Zipline's cable runs: just over a raised hand.
+pub const ZIPLINE_HANG: f32 = 2.1;
+/// How far from a Zipline's `from` a Player's feet can be and still grab it.
+pub const ZIPLINE_GRAB_RADIUS: f32 = 1.2;
+/// A ride's pace: it starts at `ZIPLINE_START_SPEED`, speeds up at `ZIPLINE_ACCEL` to
+/// `ZIPLINE_TOP_SPEED` and stays there. No Boon, Perk or slow changes it.
+pub const ZIPLINE_START_SPEED: f32 = 4.0;
+pub const ZIPLINE_TOP_SPEED: f32 = 13.0;
+pub const ZIPLINE_ACCEL: f32 = 6.0;
+/// How thick the cable is drawn.
+pub const ZIPLINE_CABLE_THICKNESS: f32 = 0.03;
+
 // Last Stand
 pub const LAST_STAND_SECS: f32 = 10.0;
 /// A Co-op Last Stand lasts this long, then the Player Bleeds Out.

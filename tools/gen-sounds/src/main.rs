@@ -106,6 +106,8 @@ fn recipe(cue: Cue) -> Recipe {
         Cue::CrawlDrag => Recipe::Synth(crawl_drag()),
         Cue::WadeStep => Recipe::Synth(wade_step()),
         Cue::Splash => Recipe::Synth(splash()),
+        Cue::ZiplineRide => Recipe::Synth(zipline_ride()),
+        Cue::ZiplineLand => Recipe::Synth(zipline_land()),
         Cue::DoorOpen => Recipe::Synth(door_open()),
         Cue::PowerOn => Recipe::Synth(power_on()),
         Cue::PerkJingleJuggernog => Recipe::Synth(chiptune(&[48, 0, 48, 51, 55, 0, 53, 51, 50, 0, 50, 53, 51, 0, 48, 0], 0.3)),
@@ -1442,6 +1444,36 @@ fn wade_surge() -> Vec<f32> {
             let pour = noise(&mut seed) * 0.18 * (t * 3.0).min(1.0) * (-t * 2.2).exp();
             let groan = (TAU * (70.0 + 12.0 * (t * 4.0).sin()) * t).sin() * ((t - 0.5).max(0.0) * 6.0).min(1.0) * (-(t - 0.5).max(0.0) * 2.5).exp() * 0.35;
             (surge + pour + groan).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
+/// The whine of a trolley rolling down a cable: a thin tone that rises in pitch over the ride,
+/// with a rough rattle of the wheel under it.
+fn zipline_ride() -> Vec<f32> {
+    let mut seed = 0x6a00_0040;
+    let secs = 5.0;
+    let mut phase = 0.0;
+    samples(secs)
+        .map(|t| {
+            let freq = 380.0 + 520.0 * (1.0 - (-t * 0.9).exp());
+            phase += TAU * freq / SAMPLE_RATE as f32;
+            let whine = phase.sin() * 0.18 + (phase * 2.0).sin() * 0.06;
+            let rattle = noise(&mut seed) * 0.08 * (0.6 + 0.4 * (TAU * 38.0 * t).sin());
+            (whine + rattle) * (t * 8.0).min(1.0) * ((secs - t) * 6.0).min(1.0)
+        })
+        .collect()
+}
+
+/// A rider's boots coming down: a dull thump with a slap of grit.
+fn zipline_land() -> Vec<f32> {
+    let mut seed = 0x6a00_0041;
+    let secs = 0.5;
+    samples(secs)
+        .map(|t| {
+            let thump = (TAU * (80.0 - 35.0 * t) * t).sin() * (-t * 10.0).exp() * 0.8;
+            let grit = noise(&mut seed) * (-t * 30.0).exp() * 0.35;
+            (thump + grit).clamp(-1.0, 1.0)
         })
         .collect()
 }

@@ -464,7 +464,22 @@ fn play_player_sounds(
     drinks: Query<(), (With<LocalPlayer>, Added<Drinking>)>,
     // Whether the Player was reloading, and switching, last frame.
     mut was: Local<(bool, bool)>,
+    rider: Query<&crate::players::player::Locomotion, With<LocalPlayer>>,
+    mut was_riding: Local<bool>,
 ) {
+    // A Zipline ride: its whine as it starts, the thump of its landing.
+    if let Ok(locomotion) = rider.single() {
+        match (*was_riding, locomotion.riding()) {
+            (false, true) => {
+                sounds.play(&mut commands, Cue::ZiplineRide, None);
+            }
+            (true, false) => {
+                sounds.play(&mut commands, Cue::ZiplineLand, None);
+            }
+            _ => {}
+        }
+        *was_riding = locomotion.riding();
+    }
     for shot in shots.read() {
         let (cue, speed) = mix::shot_cue(shot.weapon, shot.underbarrel);
         sounds.play_at_speed(&mut commands, cue, None, speed);

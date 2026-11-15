@@ -28,6 +28,9 @@ pub struct PlayerSpot {
     pub centre: Vec3,
     /// Where their feet stand.
     pub feet: Vec3,
+    /// Where Zombies count them as standing, for choosing and going after them: their feet, or
+    /// where the ride lands while they are on a Zipline.
+    pub stand: Vec3,
     /// The Zone they stand in.
     pub zone: ZoneId,
     /// Not in a Last Stand, not waiting to Respawn and not disconnected. The one place that decides it is `is_up`.
@@ -64,10 +67,12 @@ impl Players<'_, '_> {
     ) -> PlayerSpot {
         // The centre is the transform, which the Stance lowers along with the collider; the
         // feet follow the same Stance, so they stay on the floor whatever shape the body is.
+        let feet = transform.translation - Vec3::Y * half_height_above_feet(locomotion);
         PlayerSpot {
             entity,
             centre: transform.translation,
-            feet: transform.translation - Vec3::Y * half_height_above_feet(locomotion),
+            feet,
+            stand: locomotion.and_then(Locomotion::landing).unwrap_or(feet),
             zone: zone.0,
             up: is_up(last_stand, awaiting, disconnected),
             local,
@@ -157,8 +162,8 @@ pub fn nearest_up_player(
     }
     up.into_iter()
         .map(|player| {
-            let walk = path_distance(graph, from, player.feet, open_doors, &barrier_open);
-            ((walk.unwrap_or(f32::INFINITY), from.distance(player.feet)), player)
+            let walk = path_distance(graph, from, player.stand, open_doors, &barrier_open);
+            ((walk.unwrap_or(f32::INFINITY), from.distance(player.stand)), player)
         })
         .min_by(|(a, _), (b, _)| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)))
         .map(|(_, player)| player)
@@ -173,6 +178,7 @@ mod tests {
             entity: Entity::from_raw_u32(index).unwrap(),
             centre: feet + Vec3::Y,
             feet,
+            stand: feet,
             zone: ZoneId::StartRoom,
             up,
             local: false,

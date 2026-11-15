@@ -21,7 +21,8 @@ pub type Tick = u32;
 pub struct Step {
     /// Move axes, -1, 0 or 1: right, then forward.
     pub axes: [i8; 2],
-    /// Jump, Sprint, Aim and the resolved target Stance, in bits 0, 1, 2 and 3–4.
+    /// Jump, Sprint, Aim, the resolved target Stance and Grab (a Zipline's handle), in bits 0, 1, 2,
+    /// 3–4 and 5.
     pub buttons: u8,
     pub yaw: f32,
     pub pitch: f32,
@@ -32,6 +33,7 @@ const SPRINT: u8 = 2;
 const AIM: u8 = 4;
 const CROUCH: u8 = 8;
 const PRONE: u8 = 16;
+const GRAB: u8 = 32;
 
 impl Step {
     pub fn of(input: &MoveInput) -> Self {
@@ -41,7 +43,8 @@ impl Step {
                 | u8::from(input.sprint) * SPRINT
                 | u8::from(input.aim) * AIM
                 | u8::from(input.crouch) * CROUCH
-                | u8::from(input.prone) * PRONE,
+                | u8::from(input.prone) * PRONE
+                | u8::from(input.grab) * GRAB,
             yaw: input.yaw,
             pitch: input.pitch,
         }
@@ -57,6 +60,7 @@ impl Step {
                 f32::from(self.axes[1].clamp(-1, 1)),
             ),
             jump: self.buttons & JUMP != 0,
+            grab: self.buttons & GRAB != 0,
             sprint: self.buttons & SPRINT != 0,
             aim: self.buttons & AIM != 0,
             crouch: self.buttons & CROUCH != 0,
@@ -114,7 +118,7 @@ pub struct Own {
     pub velocity: Vec3,
     pub stamina: f32,
     /// Grounded, sprinting and winded, in bits 0, 1 and 2, the Stance in bits 3–4 (Standing,
-    /// Crouched, Prone, the fourth value left free), and in flight off a Jump Pad in bit 5.
+    /// Crouched, Prone, the fourth value left free), in flight off a Jump Pad in bit 5 and riding a Zipline in bit 6.
     pub bits: u8,
     pub points: u32,
 }
@@ -124,6 +128,7 @@ const SPRINTING: u8 = 2;
 const WINDED: u8 = 4;
 const STANCE_SHIFT: u8 = 3;
 const THROWN: u8 = 32;
+const RIDING: u8 = 64;
 
 impl Own {
     pub fn of(position: Vec3, locomotion: &Locomotion, points: u64) -> Self {
@@ -135,6 +140,7 @@ impl Own {
                 | u8::from(locomotion.sprinting) * SPRINTING
                 | u8::from(locomotion.winded) * WINDED
                 | u8::from(locomotion.thrown) * THROWN
+                | u8::from(locomotion.riding) * RIDING
                 | (stance_bits(locomotion.stance) << STANCE_SHIFT),
             points: points.min(u64::from(u32::MAX)) as u32,
         }
@@ -159,6 +165,7 @@ impl Own {
         locomotion.sprinting = self.bits & SPRINTING != 0;
         locomotion.winded = self.bits & WINDED != 0;
         locomotion.thrown = self.bits & THROWN != 0;
+        locomotion.riding = self.bits & RIDING != 0;
         locomotion.heal_stance(self.stance());
     }
 }
@@ -359,7 +366,7 @@ mod tests {
 
     #[test]
     fn a_step_is_the_input_it_came_from() {
-        let input = MoveInput { axes: Vec2::new(-1.0, 1.0), jump: true, sprint: false, aim: true, crouch: true, prone: false, yaw: 1.25, pitch: -0.5 };
+        let input = MoveInput { axes: Vec2::new(-1.0, 1.0), jump: true, grab: true, sprint: false, aim: true, crouch: true, prone: false, yaw: 1.25, pitch: -0.5 };
         assert_eq!(Step::of(&input).input(), input);
         // The prone target rides its own bit, beside the crouched one.
         let prone = MoveInput { crouch: false, prone: true, ..input };
@@ -518,6 +525,18 @@ mod tests {
         let landed = Locomotion { grounded: true, ..default() };
         Own::of(Vec3::ZERO, &landed, 0).put(&mut position, &mut client);
         assert!(!client.thrown);
+    }
+
+    /// A client put right mid-ride keeps riding as the Host has it, and one put right after it landed
+    /// stops.
+    #[test]
+    fn a_correction_carries_a_zipline_ride() {
+        let host = Locomotion { riding: true, velocity: Vec3::new(5.0, -3.0, 5.0), ..default() };
+        let (mut client, mut position) = (Locomotion::default(), Vec3::ZERO);
+        Own::of(Vec3::ZERO, &host, 0).put(&mut position, &mut client);
+        assert!(client.riding && client.velocity == host.velocity);
+        Own::of(Vec3::ZERO, &Locomotion::default(), 0).put(&mut position, &mut client);
+        assert!(!client.riding);
     }
 
     #[test]

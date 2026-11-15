@@ -680,3 +680,50 @@ fn a_walk_through_shallow_water_replays_to_the_same_place() {
     assert!(own.distance(host) < 0.05, "the client has {own} for the Host's {host}");
     assert!(worst < 0.05, "the Host put the client right by {worst} m");
 }
+
+/// A client's whole Zipline ride, predicted from its own inputs, matches the Host's replay of the
+/// same inputs to the landing: the Host is never put right, the other client sees the rider on the
+/// line and then landed, and the ride arrives when its pace says.
+#[test]
+fn a_zipline_ride_replays_to_the_same_place_on_the_host() {
+    let line = crate::maps::map::MapId::Cove.layout().ziplines[1];
+    let open = |app: &mut App| {
+        app.insert_resource(crate::maps::zipline::OpenZones(crate::maps::zone::ZoneId::ALL.into_iter().collect()));
+    };
+    let mut run = Run::on(crate::maps::map::MapId::Cove, 2, 3, 0.0, 0, &open);
+    // Stand seat 1 on the top, on every machine.
+    for on in 0..3 {
+        let world = run.apps[on].world_mut();
+        let mut query = world.query_filtered::<(&Seat, &mut Transform, &mut Position, &mut Locomotion), With<Player>>();
+        for (seat, mut transform, mut position, mut locomotion) in query.iter_mut(world) {
+            if seat.0 == 1 {
+                transform.translation = line.from + Vec3::Y * Stance::Standing.half_height();
+                position.0 = transform.translation;
+                locomotion.velocity = Vec3::ZERO;
+                locomotion.grounded = true;
+            }
+        }
+    }
+    let grab = |_: u8, tick: u32| MoveInput { grab: tick == 31, ..default() };
+    let (mut worst, mut seen_riding, mut host_riding, mut landed_at) = (0.0f32, false, false, None);
+    let start = run.tick;
+    run.step(IDLE, 10);
+    while run.tick < start + 450 {
+        run.step(&grab, 1);
+        worst = worst.max(run.corrected(1));
+        host_riding |= run.locomotion(0, 1).riding();
+        seen_riding |= run.pose_of(2, 1).0.action == Action::Ride;
+        if host_riding && !run.locomotion(0, 1).riding() && landed_at.is_none() {
+            landed_at = Some(run.tick);
+        }
+    }
+    assert!(host_riding && seen_riding, "the Host had them riding {host_riding}, the other client {seen_riding}");
+    assert!(worst < 0.05, "the Host put the Player right by {worst} m");
+    let (own, host) = (run.locomotion(1, 1), run.locomotion(0, 1));
+    assert!(!own.riding() && !host.riding());
+    let feet = |at: Vec3| at - Vec3::Y * Stance::Standing.half_height();
+    assert!(feet(run.at(0, 1)).distance(line.to) < 1.5, "the Host has them at {}", feet(run.at(0, 1)));
+    assert!(run.at(1, 1).distance(run.at(0, 1)) < 0.05);
+    // (Where the other client draws them is not checked: the Cove lies past the wire's position range.)
+    assert_eq!(run.pose_of(2, 1).0.action, Action::None);
+}

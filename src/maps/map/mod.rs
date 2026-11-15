@@ -42,6 +42,7 @@ pub use polder::POLDER_X;
 use crate::maps::darkness::{Chalk, Lamp};
 use crate::maps::generator::{Generator, SectionId};
 use crate::maps::jump_pad::JumpPad;
+use crate::maps::zipline::Zipline;
 pub use crate::maps::water::{Canal, Level, Pool, TideLevel, Wading, water_at};
 use crate::enemies::sapper::SapperTiming;
 
@@ -168,6 +169,8 @@ pub struct Layout {
     pub nav_edges: &'static [(&'static str, &'static str, Gate)],
     /// The Jump Pads.
     pub jump_pads: &'static [JumpPad],
+    /// The Ziplines: a cable from a lookout down to a lower Zone.
+    pub ziplines: &'static [Zipline],
     /// When the Sappers come.
     pub sapper: SapperTiming,
     /// The Sections, each with the Zones its Generator Powers. A Zone is in at most one, and many
@@ -854,6 +857,9 @@ pub fn spawn_map(
     for jump_pad in layout.jump_pads {
         b.jump_pad(jump_pad);
     }
+    for line in layout.ziplines {
+        b.zipline(line);
+    }
     for (index, generator) in layout.generators.iter().enumerate() {
         b.generator(index, generator);
     }
@@ -1231,6 +1237,7 @@ pub(crate) mod tests {
             spots.extend(map.barriers().flat_map(|barrier| [("a window".to_string(), window_centre(barrier)), ("a window's Spawn Point".to_string(), window_spawn(barrier))]));
             spots.extend(map.box_locations().map(|i| ("a Box Location".to_string(), BOX_LOCATIONS[i].1)));
             spots.extend(layout.jump_pads.iter().flat_map(|pad| [("a Jump Pad".to_string(), pad.at), ("a Jump Pad's landing".to_string(), pad.to)]));
+            spots.extend(layout.ziplines.iter().flat_map(|line| [("a Zipline's top".to_string(), line.from), ("a Zipline's landing".to_string(), line.to)]));
             for (what, at) in spots {
                 assert!(!layout.out_of_bounds(at), "{what} on the {} at {at} is Out of Bounds", map.name());
             }
@@ -1762,6 +1769,10 @@ pub(crate) mod tests {
         for (i, pad) in layout.jump_pads.iter().enumerate() {
             keep.push((format!("Jump Pad {i}'s landing"), zone_at(pad.to + Vec3::Y * 0.1), pad.to, PLAYER_RADIUS + 0.8));
         }
+        for (i, line) in layout.ziplines.iter().enumerate() {
+            keep.push((format!("Zipline {i}'s top"), Some(line.zone), line.from, PLAYER_RADIUS + 0.8));
+            keep.push((format!("Zipline {i}'s landing"), Some(line.lands_in), line.to, PLAYER_RADIUS + 0.8));
+        }
         if crate::maps::teleporter::stands_on(map) {
             keep.push(("the Teleporter's landing".into(), Some(layout.start_zone()), ARRIVAL_AT, PLAYER_RADIUS + 0.8));
             let ring = HELLHOUND_AROUND_MAX_DIST + HELLHOUND_RADIUS + 0.1;
@@ -2073,6 +2084,131 @@ pub(crate) mod tests {
         for map in MapId::ALL {
             let shut: Vec<u8> = window_walls_at(map, 1.5).into_iter().filter(|(_, hit)| *hit).map(|(i, _)| i).collect();
             assert!(shut.is_empty(), "windows with solid wall across the opening: {shut:?}");
+        }
+    }
+
+    /// What a Standing body, swept along `line`'s feet line from 1 m past `from` to 1 m short of
+    /// `to`, runs into on the built `map`: a description of each World collider hit, nearest first.
+    pub(crate) fn zipline_blockers(map: MapId, line: crate::maps::zipline::Zipline) -> Vec<String> {
+        use avian3d::prelude::*;
+        use bevy::ecs::system::RunSystemOnce;
+
+        use crate::layers::GameLayer;
+        use crate::players::player::Stance;
+
+        let mut sim = Sim::on(map, 60.0, |_| {});
+        sim.world_mut()
+            .run_system_once(move |spatial: SpatialQuery, solids: Query<(&Transform, &Collider)>| {
+                let filter = SpatialQueryFilter::from_mask(GameLayer::World);
+                let body = Stance::Standing.collider();
+                let lift = Vec3::Y * Stance::Standing.half_height();
+                let (dir, length) = (line.direction(), line.length());
+                let mut hits = Vec::new();
+                let mut travelled = 1.0;
+                while travelled < length - 1.0 && hits.len() < 12 {
+                    let Ok(heading) = Dir3::new(dir) else { break };
+                    let config = ShapeCastConfig::from_max_distance(length - 1.0 - travelled);
+                    let Some(hit) = spatial.cast_shape(&body, line.at(travelled) + lift, Quat::IDENTITY, heading, &config, &filter) else {
+                        break;
+                    };
+                    let at = line.at(travelled + hit.distance);
+                    let what = solids.get(hit.entity).map_or(String::new(), |(transform, collider)| {
+                        let aabb = collider.aabb(transform.translation, transform.rotation, 0.0);
+                        format!("{:.1},{:.1},{:.1} to {:.1},{:.1},{:.1}", aabb.min.x, aabb.min.y, aabb.min.z, aabb.max.x, aabb.max.y, aabb.max.z)
+                    });
+                    hits.push(format!("{:.1} m along, feet at {at:.2}: {what}", travelled + hit.distance));
+                    travelled += hit.distance.max(0.0) + 0.5;
+                }
+                hits
+            })
+            .unwrap()
+    }
+
+    /// Every Zipline: `from` stands on a floor of its Zone and `to` on a floor of the Zone it
+    /// lands in, neither in Deep Water, the line drops at least a storey between two Zones, and
+    /// every point of it is in the plan and not Out of Bounds.
+    #[test]
+    fn every_zipline_runs_from_a_floor_of_its_zone_down_to_a_floor_of_another() {
+        use crate::maps::zipline::Zipline;
+        for map in MapId::ALL {
+            let layout = map.layout();
+            for line in layout.ziplines {
+                let Zipline { zone, from, to, lands_in } = *line;
+                assert_eq!((zone.map(), lands_in.map()), (map, map));
+                assert_eq!(zone_at(from + Vec3::Y * 0.1), Some(zone), "the top at {from}");
+                assert_eq!(zone_at(to + Vec3::Y * 0.1), Some(lands_in), "the landing at {to}");
+                assert_ne!(zone, lands_in);
+                assert!(layout.zones.contains(&zone) && layout.zones.contains(&lands_in));
+                assert!(from.y - to.y >= STOREY - 0.01, "the line from {from} drops only {}", from.y - to.y);
+                for k in 0..=40 {
+                    let at = from.lerp(to, k as f32 / 40.0);
+                    assert!(!layout.out_of_bounds(at), "the line from {from} goes Out of Bounds at {at}");
+                }
+                assert!(!layout.out_of_bounds(from) && !layout.out_of_bounds(to));
+                assert!(line.length() > 5.0);
+            }
+        }
+    }
+
+    /// A Standing body swept along each feet line, from 1 m past `from` to 1 m short of `to`, runs
+    /// into no World collider.
+    #[test]
+    fn nothing_solid_stands_on_any_zipline() {
+        for map in MapId::ALL {
+            for line in map.layout().ziplines {
+                let blocked = zipline_blockers(map, *line);
+                assert!(blocked.is_empty(), "the line from {} on the {}: {blocked:#?}", line.from, map.name());
+            }
+        }
+    }
+
+    /// There is floor under both ends: a Zipline top is stood on and its landing is walked off.
+    #[test]
+    fn both_ends_of_every_zipline_have_floor_under_them() {
+        use avian3d::prelude::*;
+        use bevy::ecs::system::RunSystemOnce;
+
+        use crate::layers::GameLayer;
+        for map in MapId::ALL {
+            let ends: Vec<Vec3> = map.layout().ziplines.iter().flat_map(|line| [line.from, line.to]).collect();
+            if ends.is_empty() {
+                continue;
+            }
+            let mut sim = Sim::on(map, 60.0, |_| {});
+            let floating: Vec<Vec3> = sim
+                .world_mut()
+                .run_system_once(move |spatial: SpatialQuery| {
+                    let filter = SpatialQueryFilter::from_mask(GameLayer::World);
+                    ends.iter().copied().filter(|at| {
+                        spatial.cast_ray(*at + Vec3::Y * 0.3, Dir3::NEG_Y, 0.6, true, &filter).is_none_or(|hit| hit.distance < 0.2)
+                    }).collect::<Vec<Vec3>>()
+                })
+                .unwrap();
+            assert!(floating.is_empty(), "no floor under Zipline ends on the {}: {floating:?}", map.name());
+        }
+    }
+
+    /// A Zipline joins no Zones: no path-node edge runs from its top to its landing.
+    #[test]
+    fn no_nav_edge_follows_a_zipline() {
+        for map in MapId::ALL {
+            let layout = map.layout();
+            let node = |name: &str| layout.nav_nodes.iter().find(|n| n.0 == name).map(|&(_, x, y, z)| Vec3::new(x, y, z)).unwrap();
+            for line in layout.ziplines {
+                for &(a, b, _) in layout.nav_edges {
+                    let (a, b) = (node(a), node(b));
+                    let follows = |from: Vec3, to: Vec3| a.distance(from) < 2.0 && b.distance(to) < 2.0;
+                    assert!(!follows(line.from, line.to) && !follows(line.to, line.from), "a nav edge {a} to {b} follows the line from {}", line.from);
+                }
+            }
+            assert!(layout.fixed_joins.iter().all(|&(a, b)| layout.ziplines.iter().all(|line| (a, b) != (line.zone, line.lands_in))), "a fixed join follows a Zipline");
+        }
+    }
+
+    #[test]
+    fn only_the_cove_has_ziplines_and_it_has_three() {
+        for map in MapId::ALL {
+            assert_eq!(map.layout().ziplines.len(), if map == MapId::Cove { 3 } else { 0 }, "{}", map.name());
         }
     }
 }

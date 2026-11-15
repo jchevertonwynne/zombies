@@ -1190,7 +1190,7 @@ fn chase(
         // A point of its own beats everything; then a Monkey Bomb's pull, even over a Player in
         // Last Stand.
         let goal_feet = seeking.map(|seek| seek.0).or(lured.map(|lure| lure.0));
-        let target_feet = goal_feet.unwrap_or(player.feet);
+        let target_feet = goal_feet.unwrap_or(player.stand);
         let last_stand = !player.up && goal_feet.is_none();
         let rise = target_feet.y - feet.y;
 

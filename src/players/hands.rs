@@ -210,6 +210,13 @@ pub fn rebuild_pose(up: f32, reach: f32) -> (f32, Option<Transform>) {
     (up, Some(Transform::from_translation(at).with_rotation(rotation)))
 }
 
+/// A Zipline ride's view model: how far the Weapon dips out of sight, and where the one raised
+/// hand is (camera space), up on the trolley's bar overhead.
+pub fn ride_pose() -> (f32, Transform) {
+    let hand = Transform::from_translation(Vec3::new(0.1, 0.34, -0.5)).with_rotation(Quat::from_rotation_x(1.2));
+    (0.6, hand)
+}
+
 /// How far forward the view model is pushed `t` of the way (0 to 1) through being put away into
 /// the Pack-a-Punch machine: out toward the slot, before the drop takes it out of sight.
 pub fn machine_push(t: f32) -> f32 {
