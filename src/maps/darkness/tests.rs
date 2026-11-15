@@ -199,14 +199,14 @@ fn chalk_glow(app: &mut App, zone: ZoneId) -> f32 {
 #[test]
 fn chalk_glows_faintly_only_in_dark_zones() {
     let mut app = playing(MapId::Dam);
-    assert_eq!(chalk_glow(&mut app, ZoneId::CrestRoad), 0.0, "lit chalk looks as it does today");
+    assert_eq!(chalk_glow(&mut app, ZoneId::CrestRoad), CHALK_FAINT_GLOW, "lit chalk glows only faintly");
     assert_eq!(chalk_glow(&mut app, ZoneId::TowerHead), CHALK_GLOW);
     show(&mut app, INTAKE, HELD);
     app.update();
-    assert_eq!(chalk_glow(&mut app, ZoneId::TowerHead), 0.0);
+    assert_eq!(chalk_glow(&mut app, ZoneId::TowerHead), CHALK_FAINT_GLOW);
     let mut app = playing(MapId::Greybox);
     let zone = MapId::Greybox.layout().wall_weapons[0].1;
-    assert_eq!(chalk_glow(&mut app, zone), 0.0);
+    assert_eq!(chalk_glow(&mut app, zone), CHALK_FAINT_GLOW);
 }
 
 /// The Weapon Lights in `app`, each with the entity it hangs from.

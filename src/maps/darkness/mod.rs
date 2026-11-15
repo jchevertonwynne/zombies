@@ -49,6 +49,7 @@ impl FromWorld for ChalkMaterials {
         let plain = StandardMaterial {
             base_color: Color::srgb(0.9, 0.9, 0.85),
             perceptual_roughness: 1.0,
+            emissive: LinearRgba::rgb(CHALK_FAINT_GLOW, CHALK_FAINT_GLOW, CHALK_FAINT_GLOW),
             ..default()
         };
         let glowing = StandardMaterial {

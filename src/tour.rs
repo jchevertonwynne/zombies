@@ -2,6 +2,7 @@
 //! saves a 1920×1080 shot of the game window for each into `ZOMBIES_TOUR_OUT` (default `tour/`),
 //! and quits. The route views look from Zone to Zone through the Doors, which are hidden for them.
 //! The Dam's tour Holds every Generator, so its Zones are lit to judge, unless `ZOMBIES_TOUR_POWER=off`.
+//! `ZOMBIES_TOUR_POWER=on` throws a Map's Power Switch, so its machines are lit.
 //! `ZOMBIES_TOUR_MODE=gauntlet` plays the tour as a Gauntlet Run, the Player holding a dozen Boons
 //! so the HUD has something in its corner. Build with `--release`, and run with a scratch `HOME` so no Run Record is kept.
 
@@ -12,6 +13,7 @@ use bevy::window::PrimaryWindow;
 use crate::enemies::zombie::Zombie;
 use crate::maps::door::Door;
 use crate::maps::generator::Generators;
+use crate::maps::power::Power;
 use crate::maps::map::{COVE_X, MapId, QUARRY_X, STOREY};
 use crate::run::gauntlet::boon::{BOONS, HeldBoons};
 use crate::maps::map::{DAM_X, VILLAGE_X};
@@ -57,6 +59,14 @@ const GREYBOX: &[View] = &[
     view("start-room-window", (7.0, 0.0, 22.0), (7.0, 26.0), -0.05, false),
     view("start-room-door", (-4.0, 0.0, 20.0), (-14.0, 20.0), -0.02, false),
     view("gazebo-door", (5.0, 0.0, 2.0), (5.0, -4.0), 0.0, false),
+    view("box", (-13.5, 0.0, -18.5), (-13.5, -14.65), -0.2, false),
+    view("perk-juggernog", (-21.5, 0.0, 10.0), (-25.2, 10.0), -0.12, false),
+    view("perk-quick-revive", (11.5, 0.0, 21.8), (11.5, 25.2), -0.12, false),
+    view("pack-a-punch", (5.0, 0.0, -5.6), (5.0, -9.2), -0.15, false),
+    view("power-switch", (22.6, 0.45, -20.0), (25.6, -20.0), 0.0, false),
+    view("trap-switch", (-17.8, 0.0, -10.8), (-17.8, -14.0), -0.1, false),
+    view("teleporter-pad", (-28.0, 0.0, -41.0), (-28.0, -44.5), -0.4, false),
+    view("mainframe", (-10.5, 0.0, 21.5), (-10.5, 25.4), -0.1, false),
     view("route-1-start-to-west-hall", (-4.0, 0.0, 20.0), (-26.0, 20.0), 0.0, true),
     view("route-2-west-hall-to-dining", (-20.0, 0.0, 0.0), (-20.0, -24.0), 0.0, true),
     view("route-3-dining-to-passage", (-12.0, 0.0, -15.0), (-12.0, -36.0), -0.05, true),
@@ -84,6 +94,7 @@ const QUARRY: &[View] = &[
     view("headframe-deck", (Q - 4.0, 3.0 * STOREY, 37.0), (Q + 5.0, 33.0), -0.1, false),
     view("incline", (Q - 25.0, 0.0, -9.0), (Q - 25.0, 25.0), 0.15, false),
     view("incline-top", (Q - 25.0, T2, 28.0), (Q - 25.0, 0.0), -0.12, false),
+    view("jump-pad", (Q + 6.0, 0.0, -9.0), (Q + 6.0, -3.0), -0.35, false),
     view("loading-dock", (Q + 22.0, 0.0, -4.0), (Q + 30.0, -18.0), -0.05, false),
     view("loading-dock-wagons", (Q + 22.0, 0.0, -18.0), (Q + 28.0, -4.0), -0.05, false),
 ];
@@ -107,6 +118,7 @@ const DAM: &[View] = &[
     view("intake-plate-off", (DAM_X - 35.0, 4.0, -22.0), (DAM_X - 40.5, -22.0), -0.35, false),
     view("intake-plate-on", (DAM_X - 40.5, 4.0, -22.0), (DAM_X - 30.0, -22.0), -0.1, false),
     view("gallery-light", (DAM_X - 39.0, 4.0, -10.0), (DAM_X - 39.0, -30.0), -0.05, false),
+    view("gate-trap-switch", (DAM_X - 38.8, 4.0, -1.5), (DAM_X - 38.8, 2.0), -0.1, false),
     view("spillway-plate-off", (DAM_X + 35.0, 4.0, -26.0), (DAM_X + 40.5, -26.0), -0.35, false),
 ];
 
@@ -173,6 +185,8 @@ pub struct Tour {
     frames: u32,
     /// Whether to Hold every Generator, so a Map with Darkness is lit.
     power: bool,
+    /// Whether to throw the Power Switch, so a Map's machines are lit (`ZOMBIES_TOUR_POWER=on`).
+    switched: bool,
     shot: usize,
     settle: u32,
 }
@@ -191,8 +205,9 @@ impl Tour {
         };
         let dir = std::env::var("ZOMBIES_TOUR_OUT").unwrap_or_else(|_| "tour".into());
         std::fs::create_dir_all(&dir).expect("ZOMBIES_TOUR_OUT is writable");
+        let switched = std::env::var("ZOMBIES_TOUR_POWER").is_ok_and(|power| power.eq_ignore_ascii_case("on"));
         let power = map == MapId::Dam && !std::env::var("ZOMBIES_TOUR_POWER").is_ok_and(|power| power.eq_ignore_ascii_case("off"));
-        Some(Self { map, views, dir, frames: 0, power, shot: 0, settle: 0 })
+        Some(Self { map, views, dir, frames: 0, power, switched, shot: 0, settle: 0 })
     }
 }
 
@@ -204,7 +219,7 @@ impl Plugin for TourPlugin {
         app.insert_resource(tour)
             .add_systems(Startup, set_window)
             .add_systems(OnEnter(GameState::MainMenu), start_run)
-            .add_systems(Update, (clear, shoot, give_boons, hold_generators).run_if(in_state(GameState::Playing)));
+            .add_systems(Update, (clear, shoot, give_boons, hold_generators, throw_switch).run_if(in_state(GameState::Playing)));
     }
 }
 
@@ -245,6 +260,15 @@ fn hold_generators(tour: Res<Tour>, mut done: Local<bool>, mut generators: ResMu
         generators.hold(index);
     }
     *done = true;
+}
+
+/// In a tour that asks for it, the Power on once, so the machines are lit.
+fn throw_switch(tour: Res<Tour>, power: Option<ResMut<Power>>) {
+    if let Some(mut power) = power
+        && tour.switched
+    {
+        power.switch_on();
+    }
 }
 
 /// No Zombies in the shots, and no harm to the Player.

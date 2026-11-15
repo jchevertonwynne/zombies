@@ -1585,6 +1585,8 @@ pub const DARK_FOG_START: f32 = 8.0;
 pub const DARK_FOG_END: f32 = 40.0;
 /// A chalk outline in a Dark Zone glows this much (#283).
 pub const CHALK_GLOW: f32 = 0.25;
+/// Every other chalk outline glows this faintly, so a Wall Weapon reads across a dusk room (#336).
+pub const CHALK_FAINT_GLOW: f32 = 0.06;
 /// A lamp's full intensity, in lumens.
 pub const LAMP_INTENSITY: f32 = 400_000.0;
 /// A roofed Map's lamp is a downward spot of this many lumens, as `LAMP_INTENSITY` is for a point
@@ -2642,3 +2644,9 @@ pub const WADE_FOAM_RING_SECS: f32 = 1.0;
 pub const WADE_SPRAY_DROPS: usize = 7;
 pub const WADE_SPRAY_HEIGHT: f32 = 1.1;
 pub const WADE_SPRAY_SECS: f32 = 0.6;
+
+// Interactables' looks (#336)
+/// A powered Perk Machine's or Pack-a-Punch's one small unshadowed point light, in lumens and
+/// metres of reach, in its colour.
+pub const MACHINE_LIGHT_INTENSITY: f32 = 30_000.0;
+pub const MACHINE_LIGHT_RANGE: f32 = 5.0;

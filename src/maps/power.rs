@@ -8,6 +8,8 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use crate::maps::generator::Generators;
+use crate::maps::machine_look;
+use crate::maps::map::textures::{Shape, Textured, box_uv_mesh};
 use crate::maps::zone::ZoneId;
 
 use crate::maps::map::{COVE_X, MapId, QUARRY_X, STOREY, VILLAGE_X};
@@ -225,7 +227,8 @@ fn spawn_switch(
 ) {
     let Some((at, facing)) = switch_spot(*map) else { return };
     let panel = Cuboid::new(0.8, 1.2, 0.3);
-    commands
+    let steel = machine_look::STEEL;
+    let switch = commands
         .spawn((
             InRun,
             Name::new("Power Switch"),
@@ -236,8 +239,9 @@ fn spawn_switch(
                 price: None,
                 range: USE_RANGE,
             },
-            Mesh3d(meshes.add(panel)),
+            Mesh3d(meshes.add(box_uv_mesh(panel.size(), Vec3::ZERO, Quat::IDENTITY, steel.tile()))),
             MeshMaterial3d(materials.add(Color::srgb(0.3, 0.32, 0.3))),
+            Textured { material: steel, shape: Shape::Baked },
             Transform::from_translation(at).looking_to(facing, Vec3::Y),
             RigidBody::Static,
             Collider::from(panel),
@@ -248,7 +252,25 @@ fn spawn_switch(
             Mesh3d(meshes.add(Cuboid::new(0.08, 0.5, 0.08))),
             MeshMaterial3d(materials.add(Color::srgb(0.7, 0.1, 0.1))),
             lever_transform(0.0),
-        ));
+        ))
+        .id();
+    machine_look::dress(&mut commands, &mut meshes, &mut materials, switch, &machine_look::power_switch(), Color::WHITE, LinearRgba::BLACK);
+    // The cue: a lamp above the lever, red until the Power is on and green after, with a small
+    // unshadowed light in the same colour. Its face is the switch's -Z.
+    let (red, green) = (Color::srgb(1.0, 0.12, 0.08), Color::srgb(0.2, 1.0, 0.3));
+    let lamp = materials.add(StandardMaterial { base_color: red, emissive: LinearRgba::from(red) * 5.0, ..default() });
+    commands.entity(switch).with_child((
+        machine_look::PowerGlow {
+            material: lamp.clone(),
+            off: LinearRgba::from(red) * 5.0,
+            on: LinearRgba::from(green) * 5.0,
+            light: Some((red, green)),
+        },
+        Mesh3d(meshes.add(Cuboid::new(0.14, 0.14, 0.04))),
+        MeshMaterial3d(lamp),
+        Transform::from_xyz(0.0, 0.33, -0.16),
+        PointLight { color: red, intensity: 12_000.0, range: 3.5, shadow_maps_enabled: false, ..default() },
+    ));
 }
 
 /// Up when off, down once thrown. Local to the switch, whose −Z faces the Player.

@@ -6,6 +6,7 @@ pub mod door;
 pub mod generator;
 pub mod jump_pad;
 pub mod look;
+pub mod machine_look;
 pub mod map;
 pub mod power;
 pub mod surge;

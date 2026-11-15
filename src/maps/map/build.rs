@@ -16,7 +16,8 @@ use crate::maps::zone::ZoneId;
 use super::decals::{Decal, DecalFamily, DecalPiece, Instead, leak_transform, leaks, stain_transform, stains};
 use super::door_look::{self, Part, Piece};
 use super::fitting::FittedModel;
-use super::textures::{Material, Shape, Textured, Veneer, box_uv_mesh};
+use super::textures::{Material, Shape, Textured, Tint, Veneer, box_uv_mesh};
+use crate::maps::machine_look::PowerGlow;
 use super::{DOOR_HEIGHT, DOOR_WIDTH, Palette, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, WALL_THICKNESS, WINDOW_WIDTH, materials, palette, prop_variant};
 use crate::maps::generator::{Generator, PlateDisc};
 use crate::maps::jump_pad::JumpPad;
@@ -287,26 +288,47 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let plate = Vec3::new(JUMP_PAD_RADIUS * 2.0, JUMP_PAD_PLATE, JUMP_PAD_RADIUS * 2.0);
         let paint = self.paint(JUMP_PAD_PAINT);
         let rim = self.paint(DRUM_RING);
+        // Dark riveted steel for the rim, hazard-painted rusty steel for the disc.
         self.commands.spawn((
             InRun,
             Mesh3d(self.cylinder.clone()),
             MeshMaterial3d(rim),
+            Textured { material: Material::MetalPlate02, shape: Shape::Cylinder },
             Transform::from_translation(pad.at + Vec3::Y * (JUMP_PAD_PLATE / 2.0 - 0.005)).with_scale(plate + Vec3::new(0.24, -0.01, 0.24)),
         ));
         self.commands.spawn((
             InRun,
             Mesh3d(self.cylinder.clone()),
             MeshMaterial3d(paint),
+            Textured { material: Material::RustyMetal02, shape: Shape::Cylinder },
+            Tint(JUMP_PAD_PAINT),
             Transform::from_translation(pad.at + Vec3::Y * JUMP_PAD_PLATE / 2.0).with_scale(plate),
         ));
         self.bare(Collider::cylinder(JUMP_PAD_RADIUS, JUMP_PAD_PLATE), pad.at + Vec3::Y * JUMP_PAD_PLATE / 2.0, Quat::IDENTITY);
         let flat = Vec3::new(pad.to.x - pad.at.x, 0.0, pad.to.z - pad.at.z).normalize_or(Vec3::Z);
         let rotation = Quat::from_rotation_arc(Vec3::Z, flat);
         let top = pad.at + Vec3::Y * (JUMP_PAD_PLATE + 0.01);
-        self.shape(Vec3::new(0.18, 0.02, 0.9), top - flat * 0.15, rotation, DRUM_RING);
+        // The cue: the arrow glows once the Power is on, which is when the pad throws.
+        let glow = self.materials.add(StandardMaterial {
+            base_color: DRUM_RING,
+            emissive: LinearRgba::BLACK,
+            perceptual_roughness: 0.9,
+            ..default()
+        });
+        let lit = Color::srgb(1.0, 0.8, 0.15);
+        let mut arrows = vec![(Vec3::new(0.18, 0.02, 0.9), top - flat * 0.15, rotation)];
         for side in [-1.0, 1.0] {
             let wing = rotation * Quat::from_rotation_y(side * 0.7);
-            self.shape(Vec3::new(0.16, 0.02, 0.55), top + flat * 0.2 + rotation * Vec3::X * side * 0.14, wing, DRUM_RING);
+            arrows.push((Vec3::new(0.16, 0.02, 0.55), top + flat * 0.2 + rotation * Vec3::X * side * 0.14, wing));
+        }
+        for (size, at, rotation) in arrows {
+            self.commands.spawn((
+                InRun,
+                Mesh3d(self.cube.clone()),
+                MeshMaterial3d(glow.clone()),
+                PowerGlow { material: glow.clone(), off: LinearRgba::BLACK, on: LinearRgba::from(lit) * 3.0, light: None },
+                Transform { translation: at, rotation, scale: size },
+            ));
         }
     }
 
@@ -314,9 +336,22 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
     /// in front of it, flush enough to walk over.
     pub fn generator(&mut self, index: usize, generator: &Generator) {
         let (foot, size) = generator.console();
-        self.block(size, foot + Vec3::Y * size.y / 2.0, GENERATOR_CONSOLE_PAINT);
+        self.block_in(size, foot + Vec3::Y * size.y / 2.0, GENERATOR_CONSOLE_PAINT, Some(Material::GreenMetalRust));
         let face = foot + generator.facing * (GENERATOR_CONSOLE.z / 2.0 + 0.01);
-        self.shape(Vec3::new(0.9, 0.5, 0.02), face + Vec3::Y * GENERATOR_DIAL_HEIGHT, Quat::from_rotation_arc(Vec3::Z, generator.facing), DRUM_RING);
+        let facing = Quat::from_rotation_arc(Vec3::Z, generator.facing);
+        self.shape(Vec3::new(0.9, 0.5, 0.02), face + Vec3::Y * GENERATOR_DIAL_HEIGHT, facing, DRUM_RING);
+        // The lit panel: an amber readout set in that bezel, always glowing.
+        let screen = self.materials.add(StandardMaterial {
+            base_color: Color::srgb(1.0, 0.7, 0.2),
+            emissive: LinearRgba::rgb(2.4, 1.3, 0.3),
+            ..default()
+        });
+        self.commands.spawn((
+            InRun,
+            Mesh3d(self.cube.clone()),
+            MeshMaterial3d(screen),
+            Transform { translation: face + generator.facing * 0.012 + Vec3::Y * GENERATOR_DIAL_HEIGHT, rotation: facing, scale: Vec3::new(0.76, 0.36, 0.02) },
+        ));
         let plate = Vec3::new(GENERATOR_PLATE_RADIUS * 2.0, 0.02, GENERATOR_PLATE_RADIUS * 2.0);
         let rim = self.paint(DRUM_RING);
         self.commands.spawn((

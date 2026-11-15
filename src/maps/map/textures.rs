@@ -252,6 +252,11 @@ pub struct Textured {
     pub shape: Shape,
 }
 
+/// A `Textured` piece whose material is multiplied by a paint colour once it has loaded (the Perk
+/// Machines' paint on one shared metal).
+#[derive(Component, Debug, Clone, Copy)]
+pub struct Tint(pub Color);
+
 /// A piece of decoration (a Door's frame, a Barrier's jambs) that is hidden until `Material` has
 /// loaded, so with the files missing the Map keeps its plain look.
 #[derive(Component, Debug, Clone, Copy)]
@@ -449,9 +454,11 @@ fn put_on(
     library: Res<Library>,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut pieces: Query<(Entity, &Textured, &mut Transform, &mut Mesh3d, &mut MeshMaterial3d<StandardMaterial>), Without<Dressed>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut tinted: Local<HashMap<(Material, [u8; 4]), Handle<StandardMaterial>>>,
+    mut pieces: Query<(Entity, &Textured, Option<&Tint>, &mut Transform, &mut Mesh3d, &mut MeshMaterial3d<StandardMaterial>), Without<Dressed>>,
 ) {
-    for (entity, textured, mut transform, mut mesh, mut paint) in &mut pieces {
+    for (entity, textured, tint, mut transform, mut mesh, mut paint) in &mut pieces {
         let Some(entry) = library.0.get(&textured.material) else { continue };
         let choice = match entry {
             Entry::Missing => dress(false, &[]),
@@ -467,7 +474,19 @@ fn put_on(
                     Shape::Cylinder => mesh.0 = meshes.add(cylinder_uv_mesh(size, at, rotation, tile)),
                     Shape::Baked => {}
                 }
-                paint.0 = material.clone();
+                paint.0 = match tint {
+                    None => material.clone(),
+                    Some(Tint(colour)) => tinted
+                        .entry((textured.material, colour.to_srgba().to_u8_array()))
+                        .or_insert_with(|| {
+                            let mut dyed = materials.get(material).cloned().unwrap_or_default();
+                            dyed.base_color = *colour;
+                            // Paint isn't metal: a painted piece keeps the set's roughness and shows its colour.
+                            dyed.metallic = 0.0;
+                            materials.add(dyed)
+                        })
+                        .clone(),
+                };
                 if textured.shape != Shape::Baked {
                     transform.scale = Vec3::ONE;
                 }

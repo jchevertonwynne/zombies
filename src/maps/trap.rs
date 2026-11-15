@@ -17,6 +17,7 @@ use crate::enemies::target::half_height_above_feet;
 use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 use crate::enemies::zombie::{Attack, DamageZombie, Dying, Heavyweight, HitZone, Rising, Zombie};
+use crate::maps::map::textures::{Shape, Textured, box_uv_mesh};
 use crate::maps::map::{COVE_X, DAM_X, MapId, QUARRY_X, STOREY, VILLAGE_X};
 use crate::maps::zone::ZoneId;
 
@@ -324,8 +325,16 @@ fn spawn_traps(
         unlit: true,
         ..default()
     });
-    let panel = meshes.add(Cuboid::new(0.4, 0.6, 0.06));
+    let steel = crate::maps::machine_look::STEEL;
+    let panel = meshes.add(box_uv_mesh(Vec3::new(0.4, 0.6, 0.06), Vec3::ZERO, Quat::IDENTITY, steel.tile()));
     let panel_mat = materials.add(Color::srgb(0.25, 0.27, 0.3));
+    // The panel's lit screen: a pale blue readout, always glowing.
+    let screen = meshes.add(Cuboid::new(0.28, 0.14, 0.02));
+    let screen_mat = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.3, 0.7, 1.0),
+        emissive: LinearRgba::rgb(0.6, 1.6, 3.0),
+        ..default()
+    });
     let lamp = meshes.add(Cuboid::new(0.12, 0.12, 0.04));
     let lamp_mat = materials.add(StandardMaterial {
         base_color: Color::srgb(0.2, 0.9, 0.3),
@@ -361,15 +370,19 @@ fn spawn_traps(
                 },
                 Mesh3d(panel.clone()),
                 MeshMaterial3d(panel_mat.clone()),
+                Textured { material: steel, shape: Shape::Baked },
                 Transform::from_translation(at).looking_to(-facing, Vec3::Y),
-                children![(
-                    SwitchLight,
-                    Mesh3d(lamp.clone()),
-                    MeshMaterial3d(lamp_mat.clone()),
-                    // The panel's +Z faces out into the room.
-                    Transform::from_xyz(0.0, 0.18, 0.04),
-                    Visibility::Hidden,
-                )],
+                children![
+                    (
+                        SwitchLight,
+                        Mesh3d(lamp.clone()),
+                        MeshMaterial3d(lamp_mat.clone()),
+                        // The panel's +Z faces out into the room.
+                        Transform::from_xyz(0.0, 0.18, 0.04),
+                        Visibility::Hidden,
+                    ),
+                    (Mesh3d(screen.clone()), MeshMaterial3d(screen_mat.clone()), Transform::from_xyz(0.0, -0.08, 0.035)),
+                ],
             ));
         }
     }

@@ -18,6 +18,7 @@ use crate::weapons::gun_model::GunModels;
 use crate::layers::GameLayer;
 use std::ops::Range;
 
+use crate::maps::machine_look;
 use crate::maps::map::{BOX_LOCATIONS, MapId};
 use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_count, resolve_points};
 use crate::weapons::ammo_mod::{AmmoMods, ammo_mod_slots, pick_ammo_mod};
@@ -228,10 +229,18 @@ pub struct BoxAssets {
     teddy_mat: Handle<StandardMaterial>,
     rubble: Handle<Mesh>,
     rubble_mat: Handle<StandardMaterial>,
+    /// The crate's planks, straps and posts, laid over the body once the wood has loaded.
+    crate_parts: machine_look::Parts,
 }
 
 impl FromWorld for BoxAssets {
     fn from_world(world: &mut World) -> Self {
+        let crate_parts = {
+            world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
+                let mut materials = world.resource_mut::<Assets<StandardMaterial>>();
+                machine_look::prepare(&mut meshes, &mut materials, &machine_look::crate_box(), Color::srgb(0.5, 0.75, 1.0), LinearRgba::rgb(0.5, 1.2, 3.0))
+            })
+        };
         let mut meshes = world.resource_mut::<Assets<Mesh>>();
         let body = meshes.add(Cuboid::from_size(BOX_SIZE));
         let beam = meshes.add(Cylinder::new(BEAM_RADIUS, BEAM_HEIGHT));
@@ -271,6 +280,7 @@ impl FromWorld for BoxAssets {
             teddy_mat: materials.add(Color::srgb(0.55, 0.35, 0.18)),
             rubble,
             rubble_mat: materials.add(Color::srgb(0.3, 0.29, 0.27)),
+            crate_parts,
         }
     }
 }
@@ -363,6 +373,7 @@ pub fn spawn_box(commands: &mut Commands, assets: &BoxAssets, location: usize, p
     let body = commands
         .spawn((Mesh3d(assets.body.clone()), MeshMaterial3d(assets.body_mat.clone()), Transform::default()))
         .id();
+    machine_look::spawn(commands, body, &assets.crate_parts);
     let prize = commands
         .spawn((
             Mesh3d(assets.prize.clone()),

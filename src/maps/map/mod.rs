@@ -819,6 +819,7 @@ pub fn spawn_map(
     let chalk_mat = materials.add(StandardMaterial {
         base_color: Color::srgb(0.9, 0.9, 0.85),
         perceptual_roughness: 1.0,
+        emissive: LinearRgba::rgb(CHALK_FAINT_GLOW, CHALK_FAINT_GLOW, CHALK_FAINT_GLOW),
         ..default()
     });
     let barrel = meshes.add(Cuboid::new(1.2, 0.12, 0.02));

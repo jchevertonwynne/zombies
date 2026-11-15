@@ -322,7 +322,7 @@ fn spawn_machine(
         perceptual_roughness: 0.4,
         ..default()
     });
-    commands.spawn((
+    let machine = commands.spawn((
         InRun,
         Name::new("Pack-a-Punch"),
         PackAPunch::default(),
@@ -354,10 +354,27 @@ fn spawn_machine(
                 Mesh3d(meshes.add(Cuboid::new(1.2, 0.1, 0.05))),
                 MeshMaterial3d(glow),
                 Transform::from_xyz(0.0, 0.45, body.half_size.z + 0.03),
+                // One small unshadowed light in its purple, lit with the glow strip.
+                PointLight {
+                    color: UPGRADED_PURPLE,
+                    intensity: MACHINE_LIGHT_INTENSITY,
+                    range: MACHINE_LIGHT_RANGE,
+                    shadow_maps_enabled: false,
+                    ..default()
+                },
                 Visibility::Hidden,
             ),
         ],
-    ));
+    )).id();
+    crate::maps::machine_look::dress(
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        machine,
+        &crate::maps::machine_look::pack_a_punch(),
+        Color::srgb(0.55, 0.25, 0.75),
+        LinearRgba::BLACK,
+    );
 }
 
 /// A bought upgrade or Repack takes the Weapon in hand and brings up the other; a used Ready

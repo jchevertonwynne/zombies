@@ -13,6 +13,7 @@ use crate::economy::buy::{Buyable, Purchased, Refused};
 use crate::layers::GameLayer;
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve_count, resolve_points};
 use crate::players::player::{LocalPlayer, Player};
+use crate::maps::machine_look;
 use crate::maps::power::Supply;
 use crate::maps::zone::ZoneId;
 use crate::enemies::sapper::Sabotaged;
@@ -389,16 +390,36 @@ fn spawn_machines(
                 Collider::from(body),
                 CollisionLayers::new(GameLayer::World, LayerMask::ALL),
             ))
-            // The machine's +Z faces out into the room.
-            .with_child((
+            .id();
+        // The machine's +Z faces out into the room. Its sign glows once powered, with one small
+        // unshadowed point light in the Perk's colour on the same entity, so both follow `light_machines`.
+        let sign_light = commands
+            .spawn((
                 MachineLight,
                 Mesh3d(meshes.add(sign)),
                 MeshMaterial3d(lit),
                 Transform::from_xyz(0.0, 0.75, body.half_size.z + 0.03),
+                PointLight {
+                    color: perk.colour(),
+                    intensity: MACHINE_LIGHT_INTENSITY,
+                    range: MACHINE_LIGHT_RANGE,
+                    shadow_maps_enabled: false,
+                    ..default()
+                },
                 // Quick Revive is lit from the start, solo; `light_machines` fixes it for Co-op.
                 if perk == Perk::QuickRevive { Visibility::Inherited } else { Visibility::Hidden },
             ))
             .id();
+        commands.entity(machine).add_child(sign_light);
+        machine_look::dress(
+            &mut commands,
+            &mut meshes,
+            &mut materials,
+            machine,
+            &machine_look::perk_machine(),
+            perk.colour(),
+            LinearRgba::BLACK,
+        );
         // Quick Revive's rebuys are its own rule (see `quick_revive_buys`).
         if perk != Perk::QuickRevive {
             commands.entity(machine).insert(OncePerPlayer(perk));

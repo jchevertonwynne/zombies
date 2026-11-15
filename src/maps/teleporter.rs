@@ -28,6 +28,7 @@ use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 use crate::enemies::zombie::{Attack, DamageZombie, Dying, Heavyweight, HitZone, Zombie};
 use crate::maps::map::MapId;
+use crate::maps::map::textures::{Material, Shape, Textured, box_uv_mesh, cylinder_uv_mesh};
 use crate::maps::zone::{PlayerZone, ZoneId};
 
 /// One of the two Pads.
@@ -563,7 +564,15 @@ fn spawn_teleporter(
         ..default()
     });
 
-    let base = meshes.add(Cylinder::new(TELEPORTER_PAD_RADIUS, 0.06));
+    let steel = Material::MetalPlate02;
+    let base = meshes.add(cylinder_uv_mesh(Vec3::new(TELEPORTER_PAD_RADIUS * 2.0, 0.06, TELEPORTER_PAD_RADIUS * 2.0), Vec3::ZERO, Quat::IDENTITY, steel.tile()));
+    // The cue: a faint blue rim round every Pad, lit whatever its state.
+    let rim = meshes.add(Cylinder::new(TELEPORTER_PAD_RADIUS + 0.07, 0.04));
+    let rim_mat = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.3, 0.6, 1.0),
+        emissive: LinearRgba::rgb(0.3, 0.9, 2.0),
+        ..default()
+    });
     let ring = meshes.add(Cylinder::new(TELEPORTER_PAD_RADIUS * 0.8, 0.02));
     let beam = meshes.add(Cylinder::new(TELEPORTER_PAD_RADIUS * 0.9, 3.0));
     for pad in PadId::ALL {
@@ -577,9 +586,11 @@ fn spawn_teleporter(
             },
             Mesh3d(base.clone()),
             MeshMaterial3d(metal.clone()),
+            Textured { material: steel, shape: Shape::Baked },
             Transform::from_translation(at + Vec3::Y * 0.03),
             Visibility::default(),
             children![
+                (Mesh3d(rim.clone()), MeshMaterial3d(rim_mat.clone()), Transform::from_xyz(0.0, -0.01, 0.0)),
                 (
                     TeleporterLamp(Some(pad)),
                     Mesh3d(ring.clone()),
@@ -598,14 +609,16 @@ fn spawn_teleporter(
     }
 
     let body = Cuboid::from_size(MAINFRAME_SIZE);
+    let frame = Material::BlueMetalPlate;
     commands.spawn((
         InRun,
         Name::new("Mainframe"),
         Mainframe {
             shown: TeleporterPrompt::NoPrompt,
         },
-        Mesh3d(meshes.add(body)),
+        Mesh3d(meshes.add(box_uv_mesh(MAINFRAME_SIZE, Vec3::ZERO, Quat::IDENTITY, frame.tile()))),
         MeshMaterial3d(metal.clone()),
+        Textured { material: frame, shape: Shape::Baked },
         Transform::from_translation(MAINFRAME_AT + Vec3::Y * MAINFRAME_SIZE.y / 2.0)
             .looking_to(MAINFRAME_FACING, Vec3::Y),
         RigidBody::Static,
