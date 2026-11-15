@@ -235,9 +235,8 @@ impl Tour {
             "cove" => (MapId::Cove, COVE),
             "village" => (MapId::Village, VILLAGE),
             "quarry" => (MapId::Quarry, QUARRY),
-            other => panic!("ZOMBIES_TOUR={other}: only greybox, dam, cove, village and quarry have views"),
             "polder" => (MapId::Polder, POLDER),
-            other => panic!("ZOMBIES_TOUR={other}: only greybox, dam, cove and polder have views"),
+            other => panic!("ZOMBIES_TOUR={other}: only greybox, dam, cove, village, quarry and polder have views"),
         };
         let dir = std::env::var("ZOMBIES_TOUR_OUT").unwrap_or_else(|_| "tour".into());
         std::fs::create_dir_all(&dir).expect("ZOMBIES_TOUR_OUT is writable");
