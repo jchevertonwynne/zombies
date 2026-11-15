@@ -445,6 +445,25 @@ pub fn materials(zone: Option<ZoneId>) -> Option<MaterialSet> {
         Church => (SlateFloor02, RockWall08, Some(Leaks), &[]),
         Orchard => (LeafyGrass, RockWall05, None, &[]),
         Graveyard => (GrassGround, RockWall08, None, &[]),
+        // The Cove, a Mediterranean fishing town, in families that change from Zone to Zone: sand,
+        // shingle and cave rock on the Shore; weathered timber in the Boathouse; whitewash and ochre
+        // render over cobbles and terracotta in the town; whitewashed towers and grey headland stone.
+        Strand => (CoastSand04, PlasteredStoneWall, None, &[]),
+        SeaCave => (RockWall08, RockWall08, Some(Leaks), &[]),
+        Shingle => (SandyGravel02, WornMossyPlasterwall, None, &[]),
+        Boathouse => (WeatheredPlanks, WeatheredPlanks, None, &[]),
+        Washhouse => (MossyCobblestone, WhiteStucco, Some(Leaks), &[]),
+        LowerLane => (CobblestoneFloor02, WhiteStucco, None, &[]),
+        FishMarket => (WornBrickFloor, PlasteredStoneWall, None, &[]),
+        Taverna => (TerracottaFloorTiles, YellowStoneWall, None, &[]),
+        Chapel => (FloorTiles06, WhiteStucco, None, &[]),
+        Piazza => (MossyCobblestone, YellowStoneWall, None, &[]),
+        UpperLane => (CobblestoneFloor02, PlasteredStoneWall, None, &[]),
+        Pensione => (DiagonalParquet, YellowStoneWall, None, &[]),
+        Lighthouse => (OldMosaicFloor, WhiteStucco, None, &[]),
+        LighthouseYard => (SandyGravel02, RockWall08, None, &[]),
+        KeepersCottage => (DarkWoodenPlanks, WhiteStucco, None, &[]),
+        Battery => (CobblestoneFloor02, RockWall08, None, &[]),
         _ => return None,
     };
     Some(MaterialSet { floor, wall, decals, props })
@@ -944,7 +963,7 @@ pub fn spawn_map(
             for &zone in layout.zones.iter().filter(|&&zone| layout.indoor(zone)) {
                 let (lo, hi) = zone.volume();
                 let top = (hi.y / STOREY).ceil() * STOREY;
-                let (lo, hi) = (Vec3::new(lo.x, zone.floor() - 0.25, lo.z), Vec3::new(hi.x, top, hi.z));
+                let (lo, hi) = (Vec3::new(lo.x, zone.floor() - 0.25, lo.z), Vec3::new(hi.x, top + 0.3, hi.z));
                 commands.spawn((
                     InRun,
                     LightProbe::default(),

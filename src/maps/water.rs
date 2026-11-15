@@ -209,8 +209,9 @@ pub fn rise_cue(layout: &Layout, tide: TideLevel, floor: Vec3) -> Cue {
 
 /// Shallow Water: pale green-blue, a little over half opaque so the bed shows.
 const SHALLOW: Color = Color::srgba(0.5, 0.78, 0.78, 0.55);
-/// Deep Water: dark blue, near enough opaque to hide the sea bed.
-const DEEP: Color = Color::srgba(0.01, 0.04, 0.1, 0.9);
+/// Deep Water: a teal-blue the sky and the sun can lift (not black: the Cove lies under a golden
+/// hour), near enough opaque to hide the sea bed.
+const DEEP: Color = Color::srgba(0.03, 0.2, 0.3, 0.9);
 /// The foam where one meets the other.
 const FOAM: Color = Color::srgba(0.92, 0.97, 0.97, 0.85);
 /// How far past the plan's south edge the sea is drawn, and how far to the sides.

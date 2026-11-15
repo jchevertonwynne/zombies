@@ -112,6 +112,25 @@ pub const DUSK: Look = Look {
     tint: 0.02,
 };
 
+/// The Cove (#380): golden hour over the sea. The sun hangs low in the south-west, big and warm, so
+/// the town's whitewash and ochre glow and the lanes fall in long shadows; the fog is a pale warm
+/// haze the sea fades into, never black, under Poly Haven's Evening Road 01 (Pure Sky).
+pub const GOLDEN_HOUR: Look = Look {
+    sun_colour: Color::srgb(1.0, 0.74, 0.46),
+    sun_lux: 6500.0,
+    sun_height: 0.12,
+    cascades: Some((3, 90.0)),
+    ambient_colour: Color::srgb(0.62, 0.7, 0.88),
+    ambient_brightness: 550.0,
+    sky: Color::srgb(0.5, 0.52, 0.62),
+    fog: Color::srgb(0.68, 0.55, 0.5),
+    // Turned to put its sun where the Layout's is.
+    sky_map: Some(("skies/evening_road_01_puresky/sky.ktx2", 300.0)),
+    lamps: 1.0,
+    temperature: 0.06,
+    tint: 0.0,
+};
+
 /// How strongly the sky lights the Map, as a fraction of how bright it shows.
 const SKY_LIGHT: f32 = 0.7;
 
@@ -277,10 +296,11 @@ mod tests {
         assert_eq!(NIGHT.ambient(true), 0.0);
         assert_eq!(DUSK.ambient(false), DUSK.ambient_brightness);
         assert_eq!(MapId::Greybox.layout().look, DUSK);
-        for map in [MapId::Quarry, MapId::Cove] {
+        for map in [MapId::Quarry] {
             assert_eq!(map.layout().look, NIGHT, "{map:?} keeps the night until its own rollout step");
         }
         assert_eq!(MapId::Village.layout().look, VILLAGE_NIGHT);
+        assert_eq!(MapId::Cove.layout().look, GOLDEN_HOUR);
         assert_eq!(MapId::Dam.layout().look, DAM_NIGHT);
         assert_eq!(DAM_NIGHT.ambient(true), 0.0);
     }

@@ -105,6 +105,22 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.00092 m"
     },
     {
+      "path": "materials/coast_sand_04",
+      "name": "Coast Sand 04",
+      "source": "https://polyhaven.com/a/coast_sand_04",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 3.94 m"
+    },
+    {
+      "path": "materials/cobblestone_floor_02",
+      "name": "Cobblestone Floor 02",
+      "source": "https://polyhaven.com/a/cobblestone_floor_02",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
       "path": "materials/concrete_block_wall_02",
       "name": "Concrete Block Wall 02",
       "source": "https://polyhaven.com/a/concrete_block_wall_02",
@@ -385,12 +401,28 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
     },
     {
+      "path": "materials/sandy_gravel_02",
+      "name": "Sandy Gravel 02",
+      "source": "https://polyhaven.com/a/sandy_gravel_02",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.53 m"
+    },
+    {
       "path": "materials/smooth_concrete_floor",
       "name": "Smooth Concrete Floor",
       "source": "https://polyhaven.com/a/smooth_concrete_floor",
       "licence": "CC0",
       "fetched": "2026-11-15",
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
+      "path": "materials/terracotta_floor_tiles",
+      "name": "Terracotta Floor Tiles",
+      "source": "https://polyhaven.com/a/terracotta_floor_tiles",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.08 m"
     },
     {
       "path": "materials/weathered_planks",
@@ -417,6 +449,14 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
     },
     {
+      "path": "materials/white_stucco",
+      "name": "White Stucco",
+      "source": "https://polyhaven.com/a/white_stucco",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1.99806 m"
+    },
+    {
       "path": "materials/worn_brick_floor",
       "name": "Worn Brick Floor",
       "source": "https://polyhaven.com/a/worn_brick_floor",
@@ -441,12 +481,28 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1.8 m"
     },
     {
+      "path": "materials/yellow_stone_wall",
+      "name": "Yellow Stone Wall",
+      "source": "https://polyhaven.com/a/yellow_stone_wall",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
       "path": "skies/belfast_sunset_puresky",
       "name": "Poly Haven Belfast Sunset (Pure Sky)",
       "source": "https://polyhaven.com/a/belfast_sunset_puresky",
       "licence": "CC0",
       "fetched": "2026-11-14",
       "notes": "2K HDR as a 512px BC6H cubemap, turned 115.7 degrees, via texpack --sky; diffuse.ktx2 and specular.ktx2 are its prefiltered irradiance and GGX chain, from the same run"
+    },
+    {
+      "path": "skies/evening_road_01_puresky",
+      "name": "Evening Road 01 (Pure Sky)",
+      "source": "https://polyhaven.com/a/evening_road_01_puresky",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "2K HDR as a 512px BC6H cubemap, turned -71.6 degrees, via texpack --sky"
     },
     {
       "path": "skies/qwantani_night_puresky",

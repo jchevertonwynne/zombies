@@ -31,7 +31,7 @@ use crate::tuning::*;
 use crate::weapons::arsenal::WeaponId;
 
 use super::build::{Builder, Gap};
-use super::{Layout, Level, Pool, Prop, concat, PropKind, RaisedFloor, STOREY, Slope, Sunken, door, palette, prop};
+use super::{Layout, Level, Pool, Prop, concat, PropKind, RaisedFloor, STOREY, Slope, Sunken, door, materials, palette, prop};
 
 /// How far along x the Cove stands from the world's middle, west of the Village.
 pub const COVE_X: f32 = -400.0;
@@ -107,9 +107,10 @@ pub(super) const COVE: Layout = Layout {
     generators: &[],
     darkness: false,
     outdoor: &[ZoneId::Strand, ZoneId::Shingle, ZoneId::LowerLane, ZoneId::FishMarket, ZoneId::Piazza, ZoneId::UpperLane, ZoneId::LighthouseYard, ZoneId::Battery],
-    roofed: false,
-    sun: Vec3::new(1.0, -3.0, -1.0),
-    look: crate::maps::look::NIGHT,
+    roofed: true,
+    // The sun low over the sea to the south-west (the sky's lines up with it), lighting the town's faces.
+    sun: Vec3::new(0.6, -3.0, 0.8),
+    look: crate::maps::look::GOLDEN_HOUR,
     plan: (Vec2::new(C - 70.0, -24.0), Vec2::new(C + 70.0, 72.0)),
     build,
 };
@@ -211,25 +212,47 @@ const SPECIAL_SPAWNS: [(ZoneId, Vec3); 4] = [
     (ZoneId::Battery, at(17.5, HEAD, 52.0)),
 ];
 
-/// The lamps: one under every roof, and a few along the lanes and the sea wall.
-const LAMPS: [(ZoneId, Vec3); 17] = [
-    (ZoneId::Strand, at(-10.0, SHORE + 3.4, -12.0)),
-    (ZoneId::Strand, at(8.0, SHORE + 3.4, -12.0)),
-    (ZoneId::SeaCave, at(-50.0, SHORE + 3.4, -6.0)),
-    (ZoneId::Shingle, at(-33.0, SHORE + 3.4, 4.0)),
-    (ZoneId::Boathouse, at(27.0, SHORE + 3.4, -4.0)),
-    (ZoneId::Washhouse, at(-50.0, LOWER + 3.4, 14.0)),
-    (ZoneId::LowerLane, at(-30.0, LOWER + 3.4, 18.0)),
-    (ZoneId::FishMarket, at(-6.0, LOWER + 3.4, 14.0)),
-    (ZoneId::Taverna, at(20.0, LOWER + 3.4, 14.0)),
-    (ZoneId::Chapel, at(-40.0, UPPER + 3.4, 32.0)),
-    (ZoneId::Piazza, at(-21.0, UPPER + 3.4, 32.0)),
-    (ZoneId::UpperLane, at(7.0, UPPER + 3.4, 38.0)),
-    (ZoneId::Pensione, at(23.0, UPPER + 3.4, 33.0)),
-    (ZoneId::Lighthouse, at(-48.0, HEAD + 3.4, 52.0)),
-    (ZoneId::LighthouseYard, at(-26.0, HEAD + 3.4, 54.0)),
-    (ZoneId::KeepersCottage, at(-3.0, HEAD + 3.4, 54.0)),
-    (ZoneId::Battery, at(20.0, HEAD + 3.4, 54.0)),
+/// The lamps: pendant bulbs under every roof, enough that no point of an indoor floor is further
+/// than `LAMP_REACH` from one in its Zone (a test checks). The outdoor Zones have the sun.
+const LAMPS: [(ZoneId, Vec3); 37] = [
+    (ZoneId::SeaCave, at(-50.0, 3.4, -10.0)),
+    (ZoneId::SeaCave, at(-50.0, 3.4, -4.0)),
+    (ZoneId::SeaCave, at(-50.0, 3.4, 2.0)),
+    (ZoneId::Boathouse, at(24.0, 3.4, -8.5)),
+    (ZoneId::Boathouse, at(24.0, 3.4, 0.5)),
+    (ZoneId::Boathouse, at(30.0, 3.4, -8.5)),
+    (ZoneId::Boathouse, at(30.0, 3.4, 0.5)),
+    (ZoneId::Washhouse, at(-50.0, 7.4, 9.7)),
+    (ZoneId::Washhouse, at(-50.0, 7.4, 15.0)),
+    (ZoneId::Washhouse, at(-50.0, 7.4, 20.3)),
+    (ZoneId::Taverna, at(11.3, 7.4, 10.0)),
+    (ZoneId::Taverna, at(11.3, 7.4, 16.0)),
+    (ZoneId::Taverna, at(20.0, 7.4, 10.0)),
+    (ZoneId::Taverna, at(20.0, 7.4, 16.0)),
+    (ZoneId::Taverna, at(28.7, 7.4, 10.0)),
+    (ZoneId::Taverna, at(28.7, 7.4, 16.0)),
+    (ZoneId::Chapel, at(-51.0, 11.4, 29.5)),
+    (ZoneId::Chapel, at(-51.0, 11.4, 38.5)),
+    (ZoneId::Chapel, at(-43.0, 11.4, 29.5)),
+    (ZoneId::Chapel, at(-43.0, 11.4, 38.5)),
+    (ZoneId::Chapel, at(-35.0, 11.4, 29.5)),
+    (ZoneId::Chapel, at(-35.0, 11.4, 38.5)),
+    (ZoneId::Pensione, at(22.5, 14.5, 28.5)),
+    (ZoneId::Pensione, at(22.5, 14.5, 35.5)),
+    (ZoneId::Pensione, at(29.5, 14.5, 28.5)),
+    (ZoneId::Pensione, at(29.5, 14.5, 35.5)),
+    (ZoneId::Lighthouse, at(-51.5, 17.5, 49.5)),
+    (ZoneId::Lighthouse, at(-51.5, 17.5, 58.5)),
+    (ZoneId::Lighthouse, at(-44.5, 17.5, 49.5)),
+    (ZoneId::Lighthouse, at(-44.5, 17.5, 58.5)),
+    (ZoneId::KeepersCottage, at(-7.0, 15.4, 49.5)),
+    (ZoneId::KeepersCottage, at(-7.0, 15.4, 58.5)),
+    (ZoneId::KeepersCottage, at(1.0, 15.4, 49.5)),
+    (ZoneId::KeepersCottage, at(1.0, 15.4, 58.5)),
+    // Over the Chapel's belfry and bell landing, and the Lighthouse's lantern gallery.
+    (ZoneId::Chapel, at(-42.6, UPPER + 2.0 * STOREY - 0.6, 42.0)),
+    (ZoneId::Chapel, at(-54.4, UPPER + STOREY + 3.4, 40.0)),
+    (ZoneId::Lighthouse, at(-42.1, HEAD + 2.0 * STOREY + 3.0, 59.7)),
 ];
 
 /// Rock, for the Sea Cave's shelf and the stairs; pale stone for the platforms; and flagstone for
@@ -459,7 +482,9 @@ fn zwall(b: &mut Builder, x: f32, (z0, z1): (f32, f32), y0: f32, height: f32, ga
 /// A roof over `min`..`max`, a plain slab on top of the walls at `y`.
 fn roof(b: &mut Builder, zone: ZoneId, min: Vec2, max: Vec2, y: f32) {
     let (size, mid) = (max - min, (min + max) / 2.0);
-    b.block(Vec3::new(size.x, 0.3, size.y), Vec3::new(mid.x, y + 0.15, mid.y), palette(Some(zone)).trim);
+    // In the Zone's wall material, as the ceiling drawn under it is, so the two never show a seam.
+    let material = materials(Some(zone)).map(|set| set.wall);
+    b.block_in(Vec3::new(size.x, 0.3, size.y), Vec3::new(mid.x, y + 0.15, mid.y), palette(Some(zone)).trim, material);
 }
 
 /// A rail along the edge of a lookout, `min`..`max`, standing on `y`.
@@ -1179,6 +1204,44 @@ mod tests {
 
     fn cove() -> &'static Layout {
         MapId::Cove.layout()
+    }
+
+    /// Every point of an indoor Zone's floor, clear of its walls, is within `LAMP_REACH` of a lamp
+    /// in that Zone, so each reads wholly lit; the outdoor Zones have no lamps.
+    #[test]
+    fn every_point_of_an_indoor_cove_floor_is_within_reach_of_a_lamp_in_its_zone() {
+        let layout = cove();
+        assert!(layout.roofed);
+        for &zone in layout.zones.iter().filter(|&&zone| layout.indoor(zone)) {
+            let (lo, hi) = zone.volume();
+            let (lo, hi) = (Vec2::new(lo.x + 1.0, lo.z + 1.0), Vec2::new(hi.x - 1.0, hi.z - 1.0));
+            let lamps: Vec<Vec2> = layout.lamps.iter().filter(|(lamp, _)| *lamp == zone).map(|(_, at)| Vec2::new(at.x, at.z)).collect();
+            assert!(!lamps.is_empty(), "{zone:?} has no lamps");
+            let (nx, nz) = (((hi.x - lo.x) / 0.25).ceil().max(1.0) as u32, ((hi.y - lo.y) / 0.25).ceil().max(1.0) as u32);
+            for i in 0..=nx {
+                for j in 0..=nz {
+                    let at = Vec2::new(lo.x + (hi.x - lo.x) * i as f32 / nx as f32, lo.y + (hi.y - lo.y) * j as f32 / nz as f32);
+                    let nearest = lamps.iter().map(|lamp| lamp.distance(at)).fold(f32::MAX, f32::min);
+                    assert!(nearest <= LAMP_REACH, "{at} in {zone:?} is {nearest} m from its nearest lamp");
+                }
+            }
+        }
+        for &zone in layout.outdoor {
+            assert!(layout.lamps.iter().all(|(lamp, _)| *lamp != zone), "{zone:?} is under the sun");
+        }
+    }
+
+    /// Every Zone has a Material Set, neighbours differ, and the Look has its golden-hour sky.
+    #[test]
+    fn every_cove_zone_has_a_set_and_the_cove_a_golden_sky() {
+        let layout = cove();
+        for &zone in layout.zones {
+            assert!(materials(Some(zone)).is_some(), "{zone:?} has no Material Set");
+        }
+        assert_eq!(layout.look, crate::maps::look::GOLDEN_HOUR);
+        assert!(layout.look.sky_map.is_some());
+        let (a, b) = (materials(Some(Strand)).unwrap(), materials(Some(Shingle)).unwrap());
+        assert!(a.floor != b.floor && a.wall != b.wall);
     }
 
     /// The Cove's 16 Zones are on four levels, a storey apart, and a Run starts on the Strand.

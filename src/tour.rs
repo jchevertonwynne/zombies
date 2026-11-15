@@ -126,6 +126,14 @@ const COVE: &[View] = &[
     view("lighthouse-yard", (C - 14.0, 12.0, 48.0), (C - 35.0, 58.0), 0.0, false),
     view("lighthouse", (C - 42.0, 12.0, 52.0), (C - 52.0, 60.0), 0.3, false),
     view("battery", (C + 10.0, 12.0, 50.0), (C + 27.0, 58.0), 0.0, false),
+    view("boathouse", (C + 22.0, 0.0, 3.0), (C + 30.0, -8.0), -0.05, false),
+    view("washhouse", (C - 46.0, 4.0, 9.0), (C - 52.0, 20.0), -0.05, false),
+    view("lower-lane", (C - 42.0, 4.0, 10.0), (C - 24.0, 14.0), -0.03, false),
+    view("taverna", (C + 9.0, 4.0, 12.0), (C + 30.0, 12.0), -0.05, false),
+    view("upper-lane", (C - 2.0, 8.0, 27.0), (C + 14.0, 38.0), -0.03, false),
+    view("pensione", (C + 20.0, 8.0, 38.0), (C + 30.0, 27.0), -0.05, false),
+    view("keepers-cottage", (C - 10.0, 12.0, 48.0), (C + 2.0, 58.0), -0.05, false),
+    view("sea-from-the-battery", (C + 20.0, 12.0, 52.0), (C + 20.0, -40.0), 0.02, false),
     view("lantern-gallery", (C - 42.2, 20.0, 60.0), (C - 50.0, 50.0), -0.3, false),
 ];
 
