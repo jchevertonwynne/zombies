@@ -600,15 +600,18 @@ fn track_player(mut players: Query<(&Transform, &mut PlayerZone), With<Player>>)
 pub(crate) fn update_active_zones(
     players: Query<&PlayerZone, (With<Player>, Without<AwaitingRespawn>)>,
     doors: Query<&Door>,
+    pieces: Query<&crate::maps::shifting::PieceState>,
     map: Res<MapId>,
     mut active: ResMut<ActiveZones>,
 ) {
-    let joins: Vec<_> = map
-        .layout()
+    let layout = map.layout();
+    let rests = crate::maps::shifting::standing_rests(pieces.iter().map(|state| (state.id(), state.phase())), layout.shifting.len());
+    let joins: Vec<_> = layout
         .fixed_joins
         .iter()
         .copied()
         .chain(doors.iter().filter(|door| door.open).filter_map(|door| door.joins))
+        .chain(crate::maps::shifting::open_joins(layout, &rests, &doors))
         .collect();
     let set = players
         .iter()

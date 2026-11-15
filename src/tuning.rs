@@ -2013,6 +2013,29 @@ pub const TRAP_SHOCK_SPEED_MULT: f32 = 0.5;
 pub const TRAP_SAPPER_HEALTH_FRACTION: f32 = 0.2;
 pub const TRAP_SAPPER_STUN_SECS: f32 = 2.0;
 
+// Shifting: Swing Bridges and Levers
+/// A Lever's price. Flat: no Co-op scaling, no Power, and no Trap Boon applies.
+pub const LEVER_PRICE: u64 = 500;
+/// How long a Swing's warning bell and amber lamps run before it can start.
+pub const SWING_WARN_SECS: f32 = 2.0;
+/// How long a Swing takes from Rest to Rest. It never stops once started.
+pub const SWING_SECS: f32 = 5.0;
+/// After a Swing ends, how long until the bridge's Levers can be pulled again.
+pub const LEVER_COOLDOWN_SECS: f32 = 30.0;
+/// How far a Leaf's reach goes below its deck, down into the water, for what is in its way.
+pub const SWING_REACH_BELOW: f32 = 5.5;
+/// How far a Leaf's reach goes above its deck: a body standing or jumping on it.
+pub const SWING_REACH_ABOVE: f32 = 2.5;
+/// How far past a Leaf's edge a body's centre still counts as on it or in its sweep.
+pub const SWING_MARGIN: f32 = 0.4;
+/// How tall a Leaf's rails stand over its deck, and how thick they are.
+pub const LEAF_RAIL_HEIGHT: f32 = 1.1;
+pub const LEAF_RAIL_THICKNESS: f32 = 0.2;
+/// How fast a Tipped body is thrown off the side of a bridge, and how long it takes to fall into
+/// the canal.
+pub const TIPPED_THROW_SPEED: f32 = 3.0;
+pub const TIPPED_FALL_SECS: f32 = 0.7;
+
 // Teleporter
 /// After activating a Pad, the Player has this long to use the Mainframe and Link it.
 pub const TELEPORTER_LINK_SECS: f32 = 30.0;

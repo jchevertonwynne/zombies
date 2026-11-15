@@ -19,6 +19,17 @@ pub struct Door {
     /// `None` for a Power Door, which can't be bought.
     pub price: Option<u64>,
     pub open: bool,
+    /// For the gate Door of a Swing Bridge: the two Zones whose landings it guards. It joins
+    /// nothing itself (`joins` is `None`); the bridge's Rest does, once this is open.
+    pub gate: Option<(crate::maps::zone::ZoneId, crate::maps::zone::ZoneId)>,
+}
+
+impl Door {
+    /// The pair of Zones planners treat this Door as the way between once it's open: what it
+    /// joins, or for a gate Door the Zones it guards.
+    pub fn route(&self) -> Option<(crate::maps::zone::ZoneId, crate::maps::zone::ZoneId)> {
+        self.joins.or(self.gate)
+    }
 }
 
 /// A Door that can't be bought and waits for the Teleporter, not the Power: it opens once every

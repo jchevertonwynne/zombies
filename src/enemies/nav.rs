@@ -8,6 +8,7 @@ use crate::maps::barrier::Barriers;
 use crate::debug::DebugView;
 use crate::maps::door::Door;
 use crate::maps::map::{BarrierId, MapId};
+use crate::maps::shifting::PieceId;
 use crate::state::GameState;
 use crate::tuning::*;
 use crate::maps::zone::ZoneId;
@@ -30,6 +31,9 @@ pub enum Gate {
     /// the drop runs beside that Door and doesn't join its Zones on its own, so a Zombie never
     /// drops into a Zone no Player can reach yet.
     DoorDrop(ZoneId, ZoneId),
+    /// Across a Swing Bridge: open only while that Piece stands at that Rest. A Piece that is
+    /// moving passes no edge.
+    Rest(PieceId, u8),
 }
 
 impl Gate {
@@ -39,14 +43,35 @@ impl Gate {
     }
 }
 
-/// Whether a Zombie can walk an edge with this gate right now. `open_doors` lists the joins of
-/// the bought Doors; `barrier_open` says whether a Barrier has lost all its Planks (see
-/// `Barriers::is_open`).
-pub fn passable(gate: Gate, open_doors: &[(ZoneId, ZoneId)], barrier_open: impl Fn(BarrierId) -> bool) -> bool {
+/// What decides which edges are walkable now: the bought Doors, the Barriers and the Pieces' Rests.
+#[derive(Clone, Copy)]
+pub struct NavState<'a> {
+    /// The joins of the bought Doors (a gate Door counts as the pair of Zones it guards).
+    pub open_doors: &'a [(ZoneId, ZoneId)],
+    /// Whether a Barrier has lost all its Planks (see `Barriers::is_open`).
+    pub barrier_open: &'a dyn Fn(BarrierId) -> bool,
+    /// The Rest each Piece stands at, by `PieceId`; `None` while it moves. Empty on a Map without
+    /// Pieces.
+    pub rests: &'a [Option<u8>],
+}
+
+impl<'a> NavState<'a> {
+    pub fn new(open_doors: &'a [(ZoneId, ZoneId)], barrier_open: &'a dyn Fn(BarrierId) -> bool) -> Self {
+        Self { open_doors, barrier_open, rests: &[] }
+    }
+
+    pub fn with_rests(self, rests: &'a [Option<u8>]) -> Self {
+        Self { rests, ..self }
+    }
+}
+
+/// Whether a Zombie can walk an edge with this gate right now.
+pub fn passable(gate: Gate, state: NavState) -> bool {
     match gate {
         Gate::Open | Gate::OneWay => true,
-        Gate::Door(a, b) | Gate::DoorDrop(a, b) => open_doors.iter().any(|&join| join == (a, b) || join == (b, a)),
-        Gate::Barrier(barrier) => barrier_open(barrier),
+        Gate::Door(a, b) | Gate::DoorDrop(a, b) => state.open_doors.iter().any(|&join| join == (a, b) || join == (b, a)),
+        Gate::Barrier(barrier) => (state.barrier_open)(barrier),
+        Gate::Rest(piece, rest) => state.rests.get(usize::from(piece.0)).copied().flatten() == Some(rest),
     }
 }
 
@@ -225,8 +250,7 @@ impl NavGraph {
         &self,
         from: usize,
         to: usize,
-        open_doors: &[(ZoneId, ZoneId)],
-        barrier_open: impl Fn(BarrierId) -> bool,
+        state: NavState,
     ) -> Option<Vec<usize>> {
         // A* needs a totally ordered cost, so distances are in whole centimetres.
         let cm = |a: usize, b: usize| (self.nodes[a].at.distance(self.nodes[b].at) * 100.0) as u32;
@@ -234,7 +258,7 @@ impl NavGraph {
             self.exits[node]
                 .iter()
                 .map(|&i| &self.edges[i])
-                .filter(|edge| passable(edge.gate, open_doors, &barrier_open))
+                .filter(|edge| passable(edge.gate, state))
                 .map(|edge| {
                     let next = if edge.from == node { edge.to } else { edge.from };
                     (next, cm(node, next))
@@ -253,8 +277,7 @@ impl NavGraph {
         &self,
         starts: &[(usize, f32)],
         ends: &[(usize, f32)],
-        open_doors: &[(ZoneId, ZoneId)],
-        barrier_open: impl Fn(BarrierId) -> bool,
+        state: NavState,
     ) -> Option<Vec<usize>> {
         // Stand-ins for the body and its target, joined to the nodes they can walk to and from.
         const BODY: usize = usize::MAX;
@@ -267,7 +290,7 @@ impl NavGraph {
                 _ => self.exits[node]
                     .iter()
                     .map(|&i| &self.edges[i])
-                    .filter(|edge| passable(edge.gate, open_doors, &barrier_open))
+                    .filter(|edge| passable(edge.gate, state))
                     .map(|edge| {
                         let next = if edge.from == node { edge.to } else { edge.from };
                         (next, cm(self.nodes[node].at.distance(self.nodes[next].at)))
@@ -344,9 +367,13 @@ fn draw_graph(
     graph: Res<NavGraph>,
     doors: Query<&Door>,
     barriers: Res<Barriers>,
+    pieces: Query<&crate::maps::shifting::PieceState>,
     routes: Query<(&Transform, &Route)>,
 ) {
-    let open_doors: Vec<_> = doors.iter().filter(|door| door.open).filter_map(|door| door.joins).collect();
+    let open_doors: Vec<_> = doors.iter().filter(|door| door.open).filter_map(|door| door.route()).collect();
+    let rests = crate::maps::shifting::standing_rests(pieces.iter().map(|state| (state.id(), state.phase())), graph.map.layout().shifting.len());
+    let barrier_open = |b| barriers.is_open(b);
+    let state = NavState::new(&open_doors, &barrier_open).with_rests(&rests);
     let lift = Vec3::Y * 0.3;
     for node in &graph.nodes {
         gizmos.sphere(Isometry3d::from_translation(node.at + lift), 0.15, Color::WHITE);
@@ -355,10 +382,10 @@ fn draw_graph(
         let (a, b) = (graph.nodes[edge.from].at + lift, graph.nodes[edge.to].at + lift);
         let colour = match edge.gate {
             Gate::Open => Color::srgb(0.7, 0.7, 0.7),
-            Gate::Door(..) | Gate::DoorDrop(..) | Gate::Barrier(_) if passable(edge.gate, &open_doors, |b| barriers.is_open(b)) => {
+            Gate::Door(..) | Gate::DoorDrop(..) | Gate::Barrier(_) | Gate::Rest(..) if passable(edge.gate, state) => {
                 Color::srgb(0.2, 1.0, 0.3)
             }
-            Gate::Door(..) | Gate::DoorDrop(..) => Color::srgb(1.0, 0.2, 0.2),
+            Gate::Door(..) | Gate::DoorDrop(..) | Gate::Rest(..) => Color::srgb(1.0, 0.2, 0.2),
             Gate::Barrier(_) => Color::srgb(1.0, 0.9, 0.2),
             Gate::OneWay => Color::srgb(0.3, 0.6, 1.0),
         };
@@ -413,7 +440,7 @@ mod tests {
 
     fn route(from: &str, to: &str, open_doors: &[(ZoneId, ZoneId)]) -> Option<Vec<&'static str>> {
         let graph = greybox();
-        let path = graph.plan(node(from), node(to), open_doors, windows_open)?;
+        let path = graph.plan(node(from), node(to), NavState::new(open_doors, &windows_open))?;
         Some(path.into_iter().map(|i| graph.nodes[i].name).collect())
     }
 
@@ -480,25 +507,26 @@ mod tests {
 
     #[test]
     fn open_and_one_way_edges_are_always_passable() {
-        assert!(passable(Gate::Open, &[], windows_open));
-        assert!(passable(Gate::OneWay, &[], windows_open));
+        assert!(passable(Gate::Open, NavState::new(&[], &windows_open)));
+        assert!(passable(Gate::OneWay, NavState::new(&[], &windows_open)));
     }
 
     #[test]
     fn a_door_edge_is_passable_only_once_that_door_is_bought() {
         let gate = Gate::Door(StartRoom, WestHall);
-        assert!(!passable(gate, &[], windows_open));
-        assert!(!passable(gate, &[(StartRoom, EastHall)], windows_open));
-        assert!(passable(gate, &[(StartRoom, WestHall)], windows_open));
-        assert!(passable(gate, &[(WestHall, StartRoom)], windows_open), "Doors join both ways");
+        let with = |doors: &[(ZoneId, ZoneId)]| passable(gate, NavState::new(doors, &windows_open));
+        assert!(!with(&[]));
+        assert!(!with(&[(StartRoom, EastHall)]));
+        assert!(with(&[(StartRoom, WestHall)]));
+        assert!(with(&[(WestHall, StartRoom)]), "Doors join both ways");
     }
 
     #[test]
     fn a_barrier_edge_follows_its_barrier() {
         let gate = Gate::Barrier(BarrierId(3));
-        assert!(passable(gate, &[], windows_open));
-        assert!(!passable(gate, &[], |b| b != BarrierId(3)));
-        assert!(passable(gate, &[], |b| b == BarrierId(3)));
+        assert!(passable(gate, NavState::new(&[], &windows_open)));
+        assert!(!passable(gate, NavState::new(&[], &|b| b != BarrierId(3))));
+        assert!(passable(gate, NavState::new(&[], &|b| b == BarrierId(3))));
     }
 
     #[test]
@@ -549,7 +577,7 @@ mod tests {
             let doors = all_doors(map);
             for from in 0..graph.nodes.len() {
                 for to in (0..graph.nodes.len()).filter(|&to| graph.nodes[to].zone.is_some() && !graph.nodes[to].vent && !graph.nodes[to].name.ends_with("_out")) {
-                    assert!(graph.plan(from, to, &doors, windows_open).is_some(), "{} to {}", graph.nodes[from].name, graph.nodes[to].name);
+                    assert!(graph.plan(from, to, NavState::new(&doors, &windows_open)).is_some(), "{} to {}", graph.nodes[from].name, graph.nodes[to].name);
                 }
             }
         }
@@ -566,7 +594,7 @@ mod tests {
         assert_eq!(graph.nearest(feet), named("head_w"));
         // Anything on the yard's floor is a clear walk from there; the stairs are behind a wall.
         let from = graph.near_where(feet, |node| node.at.y == feet.y);
-        let path = graph.plan_between(&from, &[(named("stair_mid"), 0.0)], &all_doors(MapId::Quarry), windows_open).unwrap();
+        let path = graph.plan_between(&from, &[(named("stair_mid"), 0.0)], NavState::new(&all_doors(MapId::Quarry), &windows_open)).unwrap();
         let names: Vec<_> = path.iter().map(|&i| graph.nodes[i].name).collect();
         assert_eq!(names, ["head_corner", "stair_low", "stair_mid"]);
     }
@@ -583,10 +611,10 @@ mod tests {
         let bought: Vec<_> = all_doors(MapId::Village).into_iter().filter(|join| !gated(join)).collect();
         for lane in ["ml_c", "cl_c"] {
             // The long way round, down through a building, along the High Street and back up.
-            let around = graph.plan(named("bl_c"), named(lane), &bought, windows_open).expect("the long way round");
+            let around = graph.plan(named("bl_c"), named(lane), NavState::new(&bought, &windows_open)).expect("the long way round");
             assert!(around.iter().any(|&i| graph.nodes[i].zone == Some(Market)), "to {lane} without the Power: {around:?}");
             let gated: Vec<_> = bought.iter().copied().chain(gates).collect();
-            let through = graph.plan(named("bl_c"), named(lane), &gated, windows_open).unwrap();
+            let through = graph.plan(named("bl_c"), named(lane), NavState::new(&gated, &windows_open)).unwrap();
             assert!(through.iter().all(|&i| matches!(graph.nodes[i].zone, Some(BackLane | MillLane | ChurchLane))), "to {lane} with the Power: {through:?}");
         }
     }
@@ -600,8 +628,8 @@ mod tests {
     #[test]
     fn closed_barriers_block_zombies() {
         let graph = greybox();
-        assert!(graph.plan(node("w0_out"), node("start"), &[], |_| false).is_none());
-        assert!(graph.plan(node("w0_out"), node("start"), &[], windows_open).is_some());
+        assert!(graph.plan(node("w0_out"), node("start"), NavState::new(&[], &|_| false)).is_none());
+        assert!(graph.plan(node("w0_out"), node("start"), NavState::new(&[], &windows_open)).is_some());
     }
 
     #[test]
@@ -684,7 +712,7 @@ mod tests {
                 assert_eq!((edges[0].from, edges[0].gate), (vent, Gate::OneWay));
                 assert_eq!(graph.nodes[edges[0].to].at, floor);
                 // Nothing climbs back up into it.
-                assert!(graph.plan(edges[0].to, vent, &all_doors(map), windows_open).is_none());
+                assert!(graph.plan(edges[0].to, vent, NavState::new(&all_doors(map), &windows_open)).is_none());
             }
         }
     }

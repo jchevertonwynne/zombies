@@ -108,6 +108,7 @@ fn main() {
         .add_plugins(run::gauntlet::GauntletPlugin)
         .add_plugins(players::teammate::TeammatePlugin)
         .add_plugins(maps::generator::GeneratorPlugin)
+        .add_plugins(maps::shifting::ShiftingPlugin)
         .add_plugins(maps::surge::SurgePlugin)
         .add_plugins(maps::darkness::DarknessPlugin)
         .add_plugins(maps::map::textures::TexturesPlugin)

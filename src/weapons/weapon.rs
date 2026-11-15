@@ -1576,7 +1576,7 @@ fn resolve_slots(mut player: Single<(&mut Loadout, &Modifiers), With<LocalPlayer
 /// a Barrier's, the Teleporter's or a Nova Crawler blast's kill is the Map's, not the Player's.
 fn refill_on_kill(mut kills: MessageReader<ZombieKilled>, mut players: Query<(&mut Loadout, &Modifiers), With<Player>>) {
     for kill in kills.read() {
-        if !matches!(kill.attack, Attack::Trap | Attack::Barrier | Attack::Teleporter | Attack::NovaBlast)
+        if !matches!(kill.attack, Attack::Trap | Attack::Barrier | Attack::Teleporter | Attack::NovaBlast | Attack::Swing)
             && let Some(Ok((mut loadout, modifiers))) = kill.player.map(|player| players.get_mut(player))
         {
             loadout.refill_on_kill(&modifiers.0);

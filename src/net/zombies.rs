@@ -280,7 +280,7 @@ pub fn show_zombies(
         let Some(at) = glimpse(&glimpses.seen, shown) else { continue };
         let (activity, crawler) = unpack_anim(at.anim);
         let special = unpack_special(glimpses.special);
-        let dying = matches!(activity, Activity::Dying { .. });
+        let dying = matches!(activity, Activity::Dying { .. } | Activity::Tipped { .. });
         let Some(entity) = ids.entity(id) else {
             // One first seen dying is a corpse the Host is about to lose: not worth a body.
             if dying {

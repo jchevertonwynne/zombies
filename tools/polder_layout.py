@@ -63,14 +63,14 @@ def ford(zone, x0, x1, zlo, zhi, sx, own_north):
 TC = (-12.0, 0.0)
 deep("Brewery", -80, -70, *TC); deep("Brewery", -70, -66, *TC, gap=True); deep("Brewery", -66, -56, *TC)
 deep("WeighHouse", -56, -50, *TC); ford("WeighHouse", -50, -36, *TC, -43, False); deep("WeighHouse", -36, -26, *TC)
-deep("TownSquare", -26, -23.75, *TC); deep("TownSquare", -23.75, -20.25, *TC, gap=True); deep("TownSquare", -20.25, 18, *TC)
+deep("TownSquare", -26, -23.75, *TC); deep("TownSquare", -23.75, -20.25, *TC); deep("TownSquare", -20.25, 18, *TC)
 deep("CheeseMarket", 18, 20, *TC); ford("CheeseMarket", 20, 32, *TC, 26, False); deep("CheeseMarket", 32, 42.25, *TC)
-deep("CheeseMarket", 42.25, 45.75, *TC, gap=True); deep("CheeseMarket", 45.75, 80, *TC)
+deep("CheeseMarket", 42.25, 45.75, *TC); deep("CheeseMarket", 45.75, 80, *TC)
 # Harbour
 HB = (24.0, 36.0)
 deep("HerringQuay", -56, -54, *HB); ford("HerringQuay", -54, -42, *HB, -48, True); deep("HerringQuay", -42, -25.75, *HB)
-deep("HerringQuay", -25.75, -22.25, *HB, gap=True); deep("HerringQuay", -22.25, 14, *HB)
-deep("CustomsHouse", 14, 22.25, *HB); deep("CustomsHouse", 22.25, 25.75, *HB, gap=True); deep("CustomsHouse", 25.75, 40, *HB)
+deep("HerringQuay", -25.75, -22.25, *HB); deep("HerringQuay", -22.25, 14, *HB)
+deep("CustomsHouse", 14, 22.25, *HB); deep("CustomsHouse", 22.25, 25.75, *HB); deep("CustomsHouse", 25.75, 40, *HB)
 ford("CustomsHouse", 40, 54, *HB, 47, True); deep("CustomsHouse", 54, 58, *HB)
 # Lock chambers
 sunk("SluiceHouse", -13, 0, -6, 24, 4.5)
@@ -102,7 +102,7 @@ for m in re.finditer(r"^\s+p\((\w+), (\w+), (-?[\d.]+), ([^,]+), (-?[\d.]+), \((
     PROPS.append((kind, zone, float(x), ev(y), float(z), w, h, d))
 
 WALLS = []  # (axis, line, a, b, y0, h, gaps)
-GAPRE = re.compile(r"\((-?[\d.]+), (door|pdoor|Gap::Window|Gap::Open)(?:\((\w+), (\w+)(?:, (\w+))?\))?")
+GAPRE = re.compile(r"\((-?[\d.]+), (door|pdoor|gate|Gap::Window|Gap::Open)(?:\((\w+), (\w+)(?:, (\w+))?\))?")
 DOORS = []  # (axis, line, pos, zoneA, zoneB, y0, name)
 for m in re.finditer(r"^\s+(xwall|zwall)\(b, (.*?), vec!\[(.*)\]\);", SRC, re.M | re.S):
     pass
@@ -128,7 +128,7 @@ for line in SRC.splitlines():
     for g in GAPRE.finditer(gaps):
         pos, what, za, zb, price = g.groups()
         gl.append((float(pos), what, za, zb))
-        if what in ("door", "pdoor"):
+        if what in ("door", "pdoor", "gate"):
             DOORS.append((axis, line_, float(pos), za, zb, y0, price))
     WALLS.append((axis, line_, a, b, y0, h, gl))
 
@@ -154,7 +154,7 @@ def wall_rects(w):
     axis, line, a, b, y0, h, gaps = w
     cuts = []
     for pos, what, *_ in gaps:
-        width = {"door": 2.4, "pdoor": 2.4, "Gap::Window": 1.6}.get(what, 4.0)
+        width = {"door": 2.4, "pdoor": 2.4, "gate": 2.4, "Gap::Window": 1.6}.get(what, 4.0)
         cuts.append((pos - width / 2, pos + width / 2, what))
     cuts.sort()
     spans = []
@@ -408,17 +408,17 @@ def reg(name):
     LATT[zone_of(x, z, y + 0.1)].append((name, x, z, y))
 
 # ---- bridges ----
-def bridge(tag, x, po_z, pi_z, far_z, za, zb):
+def bridge(tag, x, po_z, pi_z, far_z, za, zb, piece):
     po = manual(f"{tag}_po", x, 0.0, po_z)
     pi = manual(f"{tag}_pi", x, 0.0, pi_z)
     fl = manual(f"{tag}_far", x, 0.0, far_z)
     for n in (po, pi, fl): reg(n)
     door_edge(po, pi, za, zb)
-    both(pi, fl)
-bridge("mb", -22.0, -18.0, -13.8, 1.5, "TownSquare", "LockYard")
-bridge("cb", 44.0, -18.0, -13.8, 1.5, "CheeseMarket", "Shipyard")
-bridge("hb", -24.0, 18.0, 22.2, 37.5, "LockYard", "HerringQuay")
-bridge("tb", 24.0, 18.0, 22.2, 37.5, "TollQuay", "CustomsHouse")
+    both(pi, fl, f"REST {piece}")
+bridge("mb", -22.0, -18.0, -13.8, 1.5, "TownSquare", "LockYard", 0)
+bridge("cb", 44.0, -18.0, -13.8, 1.5, "CheeseMarket", "Shipyard", 2)
+bridge("hb", -24.0, 18.0, 22.2, 37.5, "LockYard", "HerringQuay", 1)
+bridge("tb", 24.0, 18.0, 22.2, 37.5, "TollQuay", "CustomsHouse", 3)
 
 # ---- the Humpback Bridge ----
 manual("hump_a", -68, 0.0, -21.0); reg("hump_a")
@@ -609,7 +609,7 @@ def fy(y):
 
 out = []
 out.append("//! The Polder's pools, sunken floors, lamps and path-node graph, laid out from `polder.rs`'s walls,\n//! Props and canals (Doors, bridges, stairs, Fords and drops by hand). Rewritten by the layout script.\n")
-out.append("use bevy::prelude::*;\n\nuse crate::enemies::nav::Gate;\nuse crate::maps::map::{BarrierId, Level, Pool, Sunken};\nuse crate::maps::zone::ZoneId;\n\nuse super::{OPEN, P, W0};\n")
+out.append("use bevy::prelude::*;\n\nuse crate::enemies::nav::Gate;\nuse crate::maps::shifting::PieceId;\nuse crate::maps::map::{BarrierId, Level, Pool, Sunken};\nuse crate::maps::zone::ZoneId;\n\nuse super::{OPEN, P, W0};\n")
 out.append("const fn v(x: f32, z: f32) -> Vec2 {\n    Vec2::new(P + x, z)\n}\n")
 out.append("const fn barrier(i: u8) -> Gate {\n    Gate::Barrier(BarrierId(W0 + i))\n}\n")
 out.append("const fn sunk(zone: ZoneId, x0: f32, z0: f32, x1: f32, z1: f32, depth: f32) -> Sunken {\n    Sunken { zone, min: v(x0, z0), max: v(x1, z1), depth, rim: false }\n}\n")
@@ -625,6 +625,7 @@ def gate(g):
     if t[0] == "DOOR": return f"Gate::Door(ZoneId::{t[1]}, ZoneId::{t[2]})"
     if t[0] == "DROP": return f"Gate::DoorDrop(ZoneId::{t[1]}, ZoneId::{t[2]})"
     if t[0] == "BARRIER": return f"barrier({t[1]})"
+    if t[0] == "REST": return f"Gate::Rest(PieceId({t[1]}), 0)"
     raise ValueError(g)
 seen = set()
 E2 = []

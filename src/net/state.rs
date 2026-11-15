@@ -272,6 +272,7 @@ pub fn pack_anim(activity: Activity, crawler: bool) -> u8 {
         Activity::Stunned => (6, 0.0),
         Activity::KnockedDown => (7, 0.0),
         Activity::Dying { t } => (8, t),
+        Activity::Tipped { t } => (9, t),
     };
     let eighths = (progress.clamp(0.0, 1.0) * 7.0).round() as u8;
     code | u8::from(crawler) << 4 | eighths << 5
@@ -290,6 +291,7 @@ pub fn unpack_anim(byte: u8) -> (Activity, bool) {
         6 => Activity::Stunned,
         7 => Activity::KnockedDown,
         8 => Activity::Dying { t: progress },
+        9 => Activity::Tipped { t: progress },
         _ => Activity::Moving,
     };
     (activity, byte & 0x10 != 0)

@@ -206,6 +206,8 @@ const POLDER: &[View] = &[
     view("pumping-station", (PO + 48.0, 4.0, 52.0), (PO + 78.0, 56.0), 0.0, false),
     view("sea-from-the-dyke", (PO + -20.0, 4.0, 56.0), (PO + -20.0, 66.0), 0.1, false),
     view("market-bridge", (PO + -22.0, 0.0, -18.0), (PO + -22.0, 6.0), 0.0, false),
+    view("market-bridge-side", (PO + -16.0, 0.0, -14.0), (PO + -22.0, -5.0), -0.12, false),
+    view("market-lever", (PO + -25.0, 0.0, -18.0), (PO + -25.0, -12.5), 0.0, false),
     view("herring-bridge", (PO + -24.0, 0.0, 18.0), (PO + -24.0, 40.0), 0.0, false),
     view("ford-f1-stair", (PO + -43.0, 0.0, -14.0), (PO + -43.0, 0.0), -0.45, false),
     view("harbour", (PO + 0.0, 0.0, 38.0), (PO + -40.0, 30.0), 0.0, false),

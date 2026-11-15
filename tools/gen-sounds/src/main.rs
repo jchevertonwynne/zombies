@@ -127,6 +127,9 @@ fn recipe(cue: Cue) -> Recipe {
         Cue::NukeBlast => Recipe::Synth(nuke_blast()),
         Cue::TrapActive => Recipe::Synth(electric_crackle(1.5, 0x6a00_0016)),
         Cue::TrapKill => Recipe::Synth(zap(0.3, 0x6a00_0017)),
+        Cue::BridgeBell => Recipe::Synth(bridge_bell()),
+        Cue::BridgeGrind => Recipe::Synth(bridge_grind()),
+        Cue::BridgeClunk => Recipe::Synth(bridge_clunk()),
         Cue::TeleporterCharge => Recipe::Synth(sweep(2.0, 200.0, 1600.0, 0.3)),
         Cue::TeleporterFire => Recipe::Synth(boom(1.5, 55.0, 0x6a00_0018)),
         Cue::TeleporterArrive => Recipe::Synth(reversed(boom(1.5, 55.0, 0x6a00_0019))),
@@ -1205,6 +1208,35 @@ fn zap(secs: f32, mut seed: u32) -> Vec<f32> {
     let crack: Vec<f32> = samples(secs).map(|t| noise(&mut seed) * (-t * 25.0).exp() * 0.4).collect();
     let mut out = sweep(secs, 3000.0, 500.0, 0.35);
     layer(&mut out, 0.0, &crack);
+    clamped(out)
+}
+
+/// A ship's bell: a struck bronze note with a long ring, twice over a second.
+fn bridge_bell() -> Vec<f32> {
+    let mut out = vec![0.0; SAMPLE_RATE as usize];
+    for at in [0.0, 0.5] {
+        layer(&mut out, at, &chime(&[523.25, 1046.5, 1568.0], 0.5, 5.0));
+    }
+    clamped(out)
+}
+
+/// Iron grinding on stone: low rumble with a rasp, a second long so it loops.
+fn bridge_grind() -> Vec<f32> {
+    let mut seed = 0x6b1d_0001;
+    let mut low = 0.0;
+    let out: Vec<f32> = samples(1.0)
+        .map(|t| {
+            low += (noise(&mut seed) - low) * 0.05;
+            low * 0.9 + noise(&mut seed) * 0.15 * (0.6 + 0.4 * (t * TAU * 7.0).sin())
+        })
+        .collect();
+    clamped(out)
+}
+
+/// A heavy clunk as the deck seats: a deep thud with a metal knock over it.
+fn bridge_clunk() -> Vec<f32> {
+    let mut out = scaled(thud(0.5, 55.0), 1.0);
+    layer(&mut out, 0.0, &scaled(chime(&[180.0, 310.0], 0.25, 18.0), 0.6));
     clamped(out)
 }
 

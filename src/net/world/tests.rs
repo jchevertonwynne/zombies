@@ -13,7 +13,7 @@ use crate::net::protocol::{PROTOCOL, ToHost};
 use crate::weapons::pack_a_punch::PackAPunchPlugin;
 use crate::economy::power_up::PowerUpAssets;
 use crate::maps::trap::TrapPlugin;
-use crate::net::movement::machine;
+use crate::net::movement::machine_on;
 use crate::maps::power::PowerPlugin;
 use crate::weapons::wall_weapon::{WallWeapon, WallWeaponPlugin};
 
@@ -47,13 +47,14 @@ fn count(
 
 /// One game of the Run: the Map and all `seats` Players, the one in `local` the `LocalPlayer`, and
 /// the machines these tests use.
-fn game(local: u8, seats: u8, extra: &dyn Fn(&mut App), install: impl FnOnce(&mut App)) -> App {
-    machine(local, seats, |app| {
+fn game(map: crate::maps::map::MapId, local: u8, seats: u8, extra: &dyn Fn(&mut App), install: impl FnOnce(&mut App)) -> App {
+    machine_on(map, local, seats, |app| {
         app.init_resource::<Seen>()
             .init_resource::<GunModels>()
             .init_resource::<crate::modifier::RunModifiers>()
             .init_resource::<PowerUpAssets>()
-            .add_plugins((DoorPlugin, PowerPlugin, MysteryBoxPlugin, PackAPunchPlugin, WallWeaponPlugin, TrapPlugin))
+            .insert_resource(crate::maps::zone::ActiveZones(Default::default()))
+            .add_plugins((DoorPlugin, PowerPlugin, MysteryBoxPlugin, PackAPunchPlugin, WallWeaponPlugin, TrapPlugin, crate::maps::shifting::ShiftingPlugin))
             .add_systems(Update, (resolve_use.in_set(HostSimulation), count))
             .add_systems(Update, give_perks);
         extra(app);
@@ -79,19 +80,24 @@ impl Run {
 
     /// The same, with `extra` added to every game before it starts.
     pub(super) fn with(clients: u8, extra: &dyn Fn(&mut App)) -> Self {
+        Self::on(crate::maps::map::MapId::Greybox, clients, extra)
+    }
+
+    /// The same on `map`.
+    pub(super) fn on(map: crate::maps::map::MapId, clients: u8, extra: &dyn Fn(&mut App)) -> Self {
         let hub = Hub::new(1, 0.0);
         let seats = clients + 1;
         let host_link = hub.host();
         let links: Vec<_> = (0..clients).map(|_| hub.join()).collect();
         let remotes: Vec<(Peer, u8)> = links.iter().map(|link| (link.peer(), link.peer() as u8)).collect();
         let tokens: Vec<(u8, u64)> = remotes.iter().map(|&(_, seat)| (seat, token_of(seat))).collect();
-        let mut apps = vec![game(0, seats, extra, |app| {
+        let mut apps = vec![game(map, 0, seats, extra, |app| {
             install_host(app, host_link, remotes);
             app.world_mut().insert_resource(Held { tokens, away: Vec::new() });
         })];
         for link in links {
             let seat = link.peer() as u8;
-            apps.push(game(seat, seats, extra, |app| {
+            apps.push(game(map, seat, seats, extra, |app| {
                 install_client(app, link);
                 let hello = ToHost::Hello {
                     version: PROTOCOL,

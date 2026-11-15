@@ -48,7 +48,7 @@ _Avoid_: invulnerability, i-frames
 **Sapper**: A mini-boss on a counter of its own, not part of the Horde, that comes through a Barrier after a warning and walks to a system near the Player to Sabotage it, slamming any Player in its way.
 _Avoid_: saboteur, bruiser
 
-**Sabotage**: A Sapper putting a system out of action: the Mystery Box, a working Perk Machine other than Quick Revive, a Trap, the Teleporter or Pack-a-Punch. A Sabotaged system stays dead until a Player restores it for Points or the Sapper dies, which brings back everything it Sabotaged.
+**Sabotage**: A Sapper putting a system out of action: the Mystery Box, a working Perk Machine other than Quick Revive, a Trap, the Teleporter, Pack-a-Punch or a Swing Bridge's Levers (all of a bridge's Levers are one system, restored at any of them). A Sabotaged system stays dead until a Player restores it for Points or the Sapper dies, which brings back everything it Sabotaged.
 
 **Intermission**: The short pause after a Round ends and before the next one begins spawning.
 
@@ -224,7 +224,7 @@ _Avoid_: perk-a-cola, buff
 
 **Power**: A state of the whole Map that starts off and, once turned on, stays on for the rest of the Run. Most Perk Machines, every Power Door, every Trap and every Jump Pad wait for it. A Map with Generators has no Power and no Power Switch.
 
-**Power Switch**: The lever that turns Power on. It is free to use.
+**Power Switch**: The switch on the wall that turns Power on. It is free to use. (Not a Lever.)
 
 **Generator**: A Buyable machine that Powers its Section while it is Held. It starts Unclaimed, is Held once a Player Claims it, and is Lost if a Sapper takes it. Only the Dam has them.
 _Avoid_: power node, objective, capture point
@@ -256,6 +256,18 @@ _Avoid_: unlit, blackout
 
 **Weapon Light**: The torch-wide spotlight every Player carries, always on, on a Map with Dark Zones.
 _Avoid_: flashlight, torch
+
+**Shifting**: A Piece of the Map (one or more Leaves, each a solid deck or gate that turns about its own vertical hinge) moving between fixed Rests. Nothing rises, falls or slides, and nothing is carried: a body on a Leaf while it turns is pushed off by it. The Polder's Swing Bridges are the first Pieces; the Lock Gates will be the second.
+
+**Rest**: One of the fixed places a Shifting Piece can stand still, each with a yaw for every Leaf and the Zone joins it makes. A Swing Bridge has Span (joins its two banks) and Along (lies along its own bank over the water, joins nothing). Zombies and Active Zones count a Rest's joins only while the Piece stands at that Rest and its gate Door (if it has one) is open.
+
+**Swing Bridge**: A Piece with one Leaf, a deck with rails hinged at one bank, that a Lever turns between Span and Along. It crosses Deep Water. A pen and a gate Door guard its near landing; a gate Door joins no Zones itself.
+
+**Lever**: A Buyable for 500 Points, with no Power and no Co-op scaling, that Swings its bridge to the next Rest. Each bridge has one at each landing, outside the pen, and they share one cooldown. A Lever is not a Trap, so no Trap Boon applies.
+
+**Swing**: One Lever pull's work on a Swing Bridge: a Warning (bell and amber lamps), Waiting while any Player, Down or not, is on a Leaf or in its sweep, the turn itself from Rest to Rest, and the cooldown.
+
+**Tipped**: What a Swing does to a Zombie or Hellhound on a Leaf or in its sweep as the turn starts: it is thrown off into the canal and dies as an Unpaid Kill that counts toward the Round and the Run Record. A Napalm, Shrieker or Nova Crawler dies with no death effect. A Sapper is not killed: it loses a Trap's share of its health and is moved to a fresh spawn point.
 
 **Trap**: A Buyable hazard across a doorway that, once switched on, kills every Zombie that walks into it for a short time and can Down the Player too. It then needs a cooldown before it can be bought again.
 _Avoid_: electric fence, zapper

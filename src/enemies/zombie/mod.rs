@@ -9,12 +9,11 @@ use crate::maps::door::Door;
 use crate::layers::GameLayer;
 use crate::modifier::{Source, Stat, resolve};
 use crate::maps::barrier::{Barriers, Entering};
-use crate::maps::map::{BarrierId, MapId};
-use crate::maps::zone::ZoneId;
+use crate::maps::map::MapId;
 use crate::weapons::ammo_mod::TurnedAlly;
 use crate::weapons::explosive::in_sight;
 use crate::enemies::hellhound::Telegraph;
-use crate::enemies::nav::{NavGraph, Route, floor_ledge, repath_interval};
+use crate::enemies::nav::{NavGraph, NavState, Route, floor_ledge, repath_interval};
 use crate::enemies::target::{Players, nearest_up_player};
 use crate::enemies::nova::NovaCrawlerKilled;
 use crate::players::player::{HitGrace, PlayerHit};
@@ -77,6 +76,9 @@ pub enum Attack {
     Scream,
     /// A Nova Crawler's gas burst. Its kills are Unpaid.
     NovaBlast,
+    /// A Swing Bridge tipping it into the canal. The Map's kill, Unpaid; the canal puts out a
+    /// Napalm and a Shrieker, so there is no death effect.
+    Swing,
 }
 
 impl Attack {
@@ -91,6 +93,7 @@ impl Attack {
             | Attack::Teleporter
             | Attack::NovaBlast
             | Attack::Napalm
+            | Attack::Swing
             | Attack::Scream => Pay::Unpaid,
         }
     }
@@ -1034,8 +1037,7 @@ pub(crate) fn plan_route(
     half: f32,
     target_feet: Vec3,
     reach: f32,
-    open_doors: &[(ZoneId, ZoneId)],
-    barrier_open: impl Fn(BarrierId) -> bool,
+    state: NavState,
 ) -> Vec<Vec3> {
     let probe = Collider::sphere(ZOMBIE_RADIUS * 0.8);
     let feet = centre - Vec3::Y * half;
@@ -1054,7 +1056,7 @@ pub(crate) fn plan_route(
     if to.is_empty() {
         to.push((graph.nearest(target_feet), 0.0));
     }
-    let path = graph.plan_between(&from, &to, open_doors, barrier_open).unwrap_or_default();
+    let path = graph.plan_between(&from, &to, state).unwrap_or_default();
     let mut waypoints: Vec<Vec3> = path.into_iter().map(|i| graph.nodes[i].at).collect();
     // Skip the first node while the second is a clear walk on the same floor, or the body is
     // already on the edge between them (a ramp changes floor on the way), so it never doubles
@@ -1153,12 +1155,16 @@ fn chase(
     players: Players,
     graph: Res<NavGraph>,
     doors: Query<&Door>,
+    pieces: Query<&crate::maps::shifting::PieceState>,
     barriers: Res<Barriers>,
     move_and_slide: MoveAndSlide,
     time: Res<Time>,
 ) {
     let dt = time.delta_secs();
-    let open_doors: Vec<_> = doors.iter().filter(|door| door.open).filter_map(|door| door.joins).collect();
+    let open_doors: Vec<_> = doors.iter().filter(|door| door.open).filter_map(|door| door.route()).collect();
+    let rests = crate::maps::shifting::standing_rests(pieces.iter().map(|state| (state.id(), state.phase())), graph.map.layout().shifting.len());
+    let barrier_open = |b| barriers.is_open(b);
+    let nav = NavState::new(&open_doors, &barrier_open).with_rests(&rests);
     let filter_mask = [GameLayer::World, GameLayer::Zombie, GameLayer::Player];
     let positions: Vec<_> = zombies.iter().map(|(entity, _, _, transform, ..)| (entity, transform.translation)).collect();
 
@@ -1173,7 +1179,7 @@ fn chase(
         let held = route.target.and_then(|target| players.get(target));
         if route.retarget_in <= 0.0 || held.is_none_or(|player| !player.up) {
             route.retarget_in = ZOMBIE_RETARGET_SECS;
-            let picked = nearest_up_player(&graph, feet, players.iter(), &open_doors, |b| barriers.is_open(b))
+            let picked = nearest_up_player(&graph, feet, players.iter(), nav)
                 .or_else(|| players.nearest(feet));
             if let Some(picked) = picked
                 && route.target != Some(picked.entity)
@@ -1204,8 +1210,7 @@ fn chase(
                 half,
                 target_feet,
                 zombie.attack_stats().0,
-                &open_doors,
-                |b| barriers.is_open(b),
+                nav,
             );
         }
 

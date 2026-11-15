@@ -25,6 +25,7 @@
 use bevy::prelude::*;
 
 use crate::enemies::sapper::SapperTiming;
+use crate::maps::shifting::{Driver, Leaf, Piece, Rest};
 use crate::maps::zone::ZoneId;
 use crate::tuning::*;
 use crate::weapons::arsenal::WeaponId;
@@ -106,6 +107,7 @@ pub(super) const POLDER: Layout = Layout {
     props: PROPS,
     lamps: &data::LAMPS,
     fixed_joins: &[],
+    shifting: &SHIFTING,
     nav_nodes: data::NODES,
     nav_edges: data::EDGES,
     jump_pads: &[],
@@ -133,6 +135,80 @@ pub(super) const POLDER: Layout = Layout {
     plan: (Vec2::new(P - 80.0, -56.0), Vec2::new(P + 80.0, 66.0)),
     build,
 };
+
+/// A Swing Bridge's deck: 13 x 3.5 m, 0.4 thick, its top at quay level.
+const DECK: Vec3 = Vec3::new(3.5, 0.4, 13.0);
+
+/// The Leaf of a bridge whose deck's centre line is `x` and whose hinge is at the bank's edge `z`,
+/// hinged on the deck's east edge (swinging east) or west edge.
+const fn deck_leaf(x: f32, z: f32, east: bool) -> Leaf {
+    let side = if east { 1.0 } else { -1.0 };
+    Leaf { hinge: at(x + side * DECK.x / 2.0, GROUND, z), size: DECK, offset: Vec3::new(-side * DECK.x / 2.0, -DECK.y / 2.0, DECK.z / 2.0) }
+}
+
+const SPAN_ALONG: f32 = std::f32::consts::FRAC_PI_2;
+
+/// The four Swing Bridges, in the order Market, Herring, Cheese, Customs: each a single Leaf
+/// hinged at its near bank, with Span (the start) and Along (swung 90 degrees over the water along
+/// its bank, joining nothing). Each has a Lever outside its pen at either landing.
+const SHIFTING: [Piece; 4] = [
+    Piece {
+        zone: ZoneId::TownSquare,
+        leaves: &[deck_leaf(-22.0, -12.0, true)],
+        rests: &[
+            Rest { yaws: &[0.0], joins: &[(ZoneId::TownSquare, ZoneId::LockYard)] },
+            Rest { yaws: &[SPAN_ALONG], joins: &[] },
+        ],
+        start: 0,
+        driver: Driver::Levers(&[
+            (ZoneId::TownSquare, at(-25.0, GROUND, -13.2), Vec2::new(0.0, -1.0)),
+            (ZoneId::LockYard, at(-25.0, GROUND, 1.6), Vec2::new(0.0, 1.0)),
+        ]),
+        door: Some((ZoneId::TownSquare, ZoneId::LockYard)),
+    },
+    Piece {
+        zone: ZoneId::LockYard,
+        leaves: &[deck_leaf(-24.0, 24.0, false)],
+        rests: &[
+            Rest { yaws: &[0.0], joins: &[(ZoneId::LockYard, ZoneId::HerringQuay)] },
+            Rest { yaws: &[-SPAN_ALONG], joins: &[] },
+        ],
+        start: 0,
+        driver: Driver::Levers(&[
+            (ZoneId::LockYard, at(-20.5, GROUND, 22.8), Vec2::new(0.0, -1.0)),
+            (ZoneId::HerringQuay, at(-20.5, GROUND, 37.4), Vec2::new(0.0, 1.0)),
+        ]),
+        door: Some((ZoneId::LockYard, ZoneId::HerringQuay)),
+    },
+    Piece {
+        zone: ZoneId::CheeseMarket,
+        leaves: &[deck_leaf(44.0, -12.0, true)],
+        rests: &[
+            Rest { yaws: &[0.0], joins: &[(ZoneId::CheeseMarket, ZoneId::Shipyard)] },
+            Rest { yaws: &[SPAN_ALONG], joins: &[] },
+        ],
+        start: 0,
+        driver: Driver::Levers(&[
+            (ZoneId::CheeseMarket, at(40.0, GROUND, -13.2), Vec2::new(0.0, -1.0)),
+            (ZoneId::Shipyard, at(40.0, GROUND, 1.6), Vec2::new(0.0, 1.0)),
+        ]),
+        door: Some((ZoneId::CheeseMarket, ZoneId::Shipyard)),
+    },
+    Piece {
+        zone: ZoneId::TollQuay,
+        leaves: &[deck_leaf(24.0, 24.0, true)],
+        rests: &[
+            Rest { yaws: &[0.0], joins: &[(ZoneId::TollQuay, ZoneId::CustomsHouse)] },
+            Rest { yaws: &[SPAN_ALONG], joins: &[] },
+        ],
+        start: 0,
+        driver: Driver::Levers(&[
+            (ZoneId::TollQuay, at(19.5, GROUND, 22.8), Vec2::new(0.0, -1.0)),
+            (ZoneId::CustomsHouse, at(19.5, GROUND, 37.4), Vec2::new(0.0, 1.0)),
+        ]),
+        door: Some((ZoneId::TollQuay, ZoneId::CustomsHouse)),
+    },
+];
 
 /// The chalk outlines: the cheap guns either side of Quick Revive on the Square's south wall, and
 /// one gun in each of four other Zones.
@@ -471,6 +547,11 @@ fn door(a: ZoneId, b: ZoneId, price: u64) -> Gap {
     Gap::Door(Some((a, b)), Some(price))
 }
 
+/// The gate Door of a Swing Bridge: bought like a Door, but it joins nothing itself.
+fn gate(a: ZoneId, b: ZoneId, price: u64) -> Gap {
+    Gap::Gate((a, b), price)
+}
+
 /// A Power Door.
 fn pdoor(a: ZoneId, b: ZoneId) -> Gap {
     Gap::Door(Some((a, b)), None)
@@ -551,10 +632,10 @@ fn build(b: &mut Builder) {
     xwall(b, (27.0, 42.0), -12.0, GROUND, RAIL, vec![]);
     xwall(b, (46.0, 54.0), -12.0, GROUND, RAIL, vec![]);
     // The Market Bridge's pen (D4) and the Cheese Bridge's (D6).
-    xwall(b, (-24.0, -20.0), -16.0, GROUND, FENCE, vec![(-22.0, door(TownSquare, LockYard, DOOR_PRICE_TOWN_SQUARE_LOCK_YARD))]);
+    xwall(b, (-24.0, -20.0), -16.0, GROUND, FENCE, vec![(-22.0, gate(TownSquare, LockYard, DOOR_PRICE_TOWN_SQUARE_LOCK_YARD))]);
     zwall(b, -24.0, (-16.0, -12.0), GROUND, FENCE, vec![]);
     zwall(b, -20.0, (-16.0, -12.0), GROUND, FENCE, vec![]);
-    xwall(b, (42.0, 46.0), -16.0, GROUND, FENCE, vec![(44.0, door(CheeseMarket, Shipyard, DOOR_PRICE_CHEESE_MARKET_SHIPYARD))]);
+    xwall(b, (42.0, 46.0), -16.0, GROUND, FENCE, vec![(44.0, gate(CheeseMarket, Shipyard, DOOR_PRICE_CHEESE_MARKET_SHIPYARD))]);
     zwall(b, 42.0, (-16.0, -12.0), GROUND, FENCE, vec![]);
     zwall(b, 46.0, (-16.0, -12.0), GROUND, FENCE, vec![]);
 
@@ -602,10 +683,10 @@ fn build(b: &mut Builder) {
     xwall(b, (34.0, 40.0), 24.0, GROUND, RAIL, vec![]);
     xwall(b, (40.0, 54.0), 24.0, GROUND, FENCE, vec![(47.0, door(CustomsHouse, Shipyard, DOOR_PRICE_CUSTOMS_HOUSE_SHIPYARD))]);
     xwall(b, (54.0, 58.0), 24.0, GROUND, RAIL, vec![]);
-    xwall(b, (-26.0, -22.0), 20.0, GROUND, FENCE, vec![(-24.0, door(LockYard, HerringQuay, DOOR_PRICE_LOCK_YARD_HERRING_QUAY))]);
+    xwall(b, (-26.0, -22.0), 20.0, GROUND, FENCE, vec![(-24.0, gate(LockYard, HerringQuay, DOOR_PRICE_LOCK_YARD_HERRING_QUAY))]);
     zwall(b, -26.0, (20.0, 24.0), GROUND, FENCE, vec![]);
     zwall(b, -22.0, (20.0, 24.0), GROUND, FENCE, vec![]);
-    xwall(b, (22.0, 26.0), 20.0, GROUND, FENCE, vec![(24.0, door(TollQuay, CustomsHouse, DOOR_PRICE_TOLL_QUAY_CUSTOMS_HOUSE))]);
+    xwall(b, (22.0, 26.0), 20.0, GROUND, FENCE, vec![(24.0, gate(TollQuay, CustomsHouse, DOOR_PRICE_TOLL_QUAY_CUSTOMS_HOUSE))]);
     zwall(b, 22.0, (20.0, 24.0), GROUND, FENCE, vec![]);
     zwall(b, 26.0, (20.0, 24.0), GROUND, FENCE, vec![]);
     // The north bank: the Herring Quay's rail (Ford F3's stair, the Herring Bridge lands), the
@@ -639,20 +720,7 @@ fn build(b: &mut Builder) {
     xwall(b, (-13.0, -6.0), 1.9, GROUND, RAIL, vec![]);
     xwall(b, (-13.0, -6.0), 3.1, GROUND, RAIL, vec![]);
 
-    // The four Swing Bridges' decks, fixed at Span: 13 x 3.5 m at quay level, with rails. Market
-    // (x -22), Herring (x -24), Cheese (x 44) and Customs (x 24).
-    for (x, near, far) in [(-22.0, -12.5, 0.5), (44.0, -12.5, 0.5)] {
-        deck(b, (x - 1.75, x + 1.75), (near, far), GROUND, TIMBER);
-        for side in [-1.75, 1.75] {
-            zwall(b, x + side, (near, far), GROUND, RAIL, vec![]);
-        }
-    }
-    for (x, near, far) in [(-24.0, 23.5, 36.5), (24.0, 23.5, 36.5)] {
-        deck(b, (x - 1.75, x + 1.75), (near, far), GROUND, TIMBER);
-        for side in [-1.75, 1.75] {
-            zwall(b, x + side, (near, far), GROUND, RAIL, vec![]);
-        }
-    }
+    // The four Swing Bridges' Leaves are Pieces (`SHIFTING`), spawned with the Map.
     // The Sea Gate stands as static open Leaves, folded back along the East Chamber's walls.
     b.block(Vec3::new(0.3, 1.8, 3.5), Vec3::new(P + 6.5, 0.0, 19.75), IRON);
     b.block(Vec3::new(0.3, 1.8, 3.5), Vec3::new(P + 12.5, 0.0, 19.75), IRON);
@@ -761,7 +829,7 @@ mod tests {
         let mut sim = Sim::on(MapId::Polder, 60.0, |_| {});
         let doors: Vec<(Option<(ZoneId, ZoneId)>, Option<u64>)> = sim
             .world_mut()
-            .run_system_once(|doors: Query<&Door>| doors.iter().map(|door| (door.joins, door.price)).collect::<Vec<_>>())
+            .run_system_once(|doors: Query<&Door>| doors.iter().map(|door| (door.route(), door.price)).collect::<Vec<_>>())
             .unwrap();
         assert_eq!(doors.len(), 26);
         assert_eq!(doors.iter().filter(|(_, price)| price.is_none()).count(), 3);

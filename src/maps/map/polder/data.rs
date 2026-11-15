@@ -4,6 +4,7 @@
 use bevy::prelude::*;
 
 use crate::enemies::nav::Gate;
+use crate::maps::shifting::PieceId;
 use crate::maps::map::{BarrierId, Level, Pool, Sunken};
 use crate::maps::zone::ZoneId;
 
@@ -70,7 +71,7 @@ pub(super) const SUNKEN: [Sunken; 39] = [
 ];
 
 /// The pools: every Deep reach, the Fords' berms and channels, the lock's chambers and the sea.
-pub(super) const POOLS: [Pool; 54] = [
+pub(super) const POOLS: [Pool; 58] = [
     pool(ZoneId::Brewery, -80.0, -12.0, -70.0, 0.0, -4.5),
     pool(ZoneId::Brewery, -66.0, -12.0, -56.0, 0.0, -4.5),
     pool(ZoneId::WeighHouse, -56.0, -12.0, -50.0, 0.0, -4.5),
@@ -83,6 +84,7 @@ pub(super) const POOLS: [Pool; 54] = [
     pool(ZoneId::WeighHouse, -44.0, -7.0, -42.0, -5.0, -2.2),
     pool(ZoneId::WeighHouse, -36.0, -12.0, -26.0, 0.0, -4.5),
     pool(ZoneId::TownSquare, -26.0, -12.0, -23.75, 0.0, -4.5),
+    pool(ZoneId::TownSquare, -23.75, -12.0, -20.25, 0.0, -4.5),
     pool(ZoneId::TownSquare, -20.25, -12.0, 18.0, 0.0, -4.5),
     pool(ZoneId::CheeseMarket, 18.0, -12.0, 20.0, 0.0, -4.5),
     pool(ZoneId::CheeseMarket, 20.0, -12.0, 25.0, -8.5, -1.6),
@@ -93,6 +95,7 @@ pub(super) const POOLS: [Pool; 54] = [
     pool(ZoneId::CheeseMarket, 27.0, -8.5, 32.0, -3.5, -2.2),
     pool(ZoneId::CheeseMarket, 25.0, -7.0, 27.0, -5.0, -2.2),
     pool(ZoneId::CheeseMarket, 32.0, -12.0, 42.25, 0.0, -4.5),
+    pool(ZoneId::CheeseMarket, 42.25, -12.0, 45.75, 0.0, -4.5),
     pool(ZoneId::CheeseMarket, 45.75, -12.0, 80.0, 0.0, -4.5),
     pool(ZoneId::HerringQuay, -56.0, 24.0, -54.0, 36.0, -4.5),
     pool(ZoneId::HerringQuay, -54.0, 24.0, -49.0, 27.5, -1.6),
@@ -103,8 +106,10 @@ pub(super) const POOLS: [Pool; 54] = [
     pool(ZoneId::HerringQuay, -47.0, 27.5, -42.0, 32.5, -2.2),
     pool(ZoneId::HerringQuay, -49.0, 29.0, -47.0, 31.0, -2.2),
     pool(ZoneId::HerringQuay, -42.0, 24.0, -25.75, 36.0, -4.5),
+    pool(ZoneId::HerringQuay, -25.75, 24.0, -22.25, 36.0, -4.5),
     pool(ZoneId::HerringQuay, -22.25, 24.0, 14.0, 36.0, -4.5),
     pool(ZoneId::CustomsHouse, 14.0, 24.0, 22.25, 36.0, -4.5),
+    pool(ZoneId::CustomsHouse, 22.25, 24.0, 25.75, 36.0, -4.5),
     pool(ZoneId::CustomsHouse, 25.75, 24.0, 40.0, 36.0, -4.5),
     pool(ZoneId::CustomsHouse, 40.0, 24.0, 46.0, 27.5, -1.6),
     pool(ZoneId::CustomsHouse, 48.0, 24.0, 54.0, 27.5, -1.6),
@@ -1459,13 +1464,13 @@ pub(super) const EDGES: &[(&str, &str, Gate)] = &[
     ("d11_a", "d11_b", Gate::Door(ZoneId::HerringQuay, ZoneId::CustomsHouse)),
     ("d12_a", "d12_b", Gate::Door(ZoneId::DykeRoad, ZoneId::PumpingStation)),
     ("mb_po", "mb_pi", Gate::Door(ZoneId::TownSquare, ZoneId::LockYard)),
-    ("mb_pi", "mb_far", OPEN),
+    ("mb_pi", "mb_far", Gate::Rest(PieceId(0), 0)),
     ("cb_po", "cb_pi", Gate::Door(ZoneId::CheeseMarket, ZoneId::Shipyard)),
-    ("cb_pi", "cb_far", OPEN),
+    ("cb_pi", "cb_far", Gate::Rest(PieceId(2), 0)),
     ("hb_po", "hb_pi", Gate::Door(ZoneId::LockYard, ZoneId::HerringQuay)),
-    ("hb_pi", "hb_far", OPEN),
+    ("hb_pi", "hb_far", Gate::Rest(PieceId(1), 0)),
     ("tb_po", "tb_pi", Gate::Door(ZoneId::TollQuay, ZoneId::CustomsHouse)),
-    ("tb_pi", "tb_far", OPEN),
+    ("tb_pi", "tb_far", Gate::Rest(PieceId(3), 0)),
     ("hump_a", "hump_b", OPEN),
     ("hump_b", "hump_c", OPEN),
     ("hump_c", "hump_d", Gate::Door(ZoneId::Brewery, ZoneId::Windmill)),

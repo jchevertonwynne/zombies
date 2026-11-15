@@ -364,6 +364,13 @@ pub fn spawn_water(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials
             if deeps.iter().any(|other| other != pool && other.covers(beyond)) {
                 continue;
             }
+            // A Leaf of a Piece standing there at the start lets the way onto its deck through.
+            let at = Vec3::new(centre.x, 0.0, centre.y);
+            if layout.shifting.iter().any(|piece| {
+                piece.leaves.iter().enumerate().any(|(i, leaf)| leaf.over(at.with_y(leaf.hinge.y), piece.rests[usize::from(piece.start)].yaws[i], 0.3))
+            }) {
+                continue;
+            }
             commands.spawn((
                 InRun,
                 Transform::from_xyz(centre.x, y, centre.y),

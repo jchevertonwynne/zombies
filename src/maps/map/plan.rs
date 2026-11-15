@@ -88,7 +88,7 @@ fn draw_map(map: MapId) {
         let (a, b) = (graph.nodes[edge.from].at, graph.nodes[edge.to].at);
         let colour = match edge.gate {
             Gate::Open => "#9a9a9a",
-            Gate::Door(..) | Gate::DoorDrop(..) => "#ff5050",
+            Gate::Door(..) | Gate::DoorDrop(..) | Gate::Rest(..) => "#ff5050",
             Gate::Barrier(_) => "#ffe040",
             Gate::OneWay => "#50a0ff",
         };

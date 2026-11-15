@@ -137,6 +137,9 @@ cues! {
     NukeBlast => "nuke_blast", Root, Flat, 1.0;
     TrapActive => "trap_active", Root, Spatial, 0.6;
     TrapKill => "trap_kill", Root, Spatial, 0.8;
+    BridgeBell => "bridge_bell", Root, Spatial, 0.8;
+    BridgeGrind => "bridge_grind", Root, Spatial, 0.8;
+    BridgeClunk => "bridge_clunk", Root, Spatial, 1.0;
     TeleporterCharge => "teleporter_charge", Root, Spatial, 0.9;
     TeleporterFire => "teleporter_fire", Root, Spatial, 1.0;
     TeleporterArrive => "teleporter_arrive", Root, Spatial, 1.0;
@@ -297,6 +300,8 @@ mod tests {
             "footstep", "stance_rustle", "dive_land", "crawl_drag",
             // The Cove's water: a wading footstep and the splash of entering.
             "wade_step", "splash", "zombie_wade", "zipline_ride", "zipline_land",
+            // The Polder's Swing Bridges: the bell, the grind of the turn and the clunk at Rest.
+            "bridge_bell", "bridge_grind", "bridge_clunk",
             // Gauntlet v2's Proc cues (spec #182, Appendix C6).
             "proc_frost", "proc_blast",
             "set_bonus_tier_two", "set_bonus_tier_four", "set_bonus_tier_six", "duo_taken",

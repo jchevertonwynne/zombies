@@ -90,6 +90,8 @@ pub enum Activity {
     KnockedDown,
     /// Falling dead, `t` of the way (0 to 1) down.
     Dying { t: f32 },
+    /// Tipped off a Swing Bridge into the canal, `t` of the way (0 to 1) to the splash.
+    Tipped { t: f32 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -307,6 +309,16 @@ pub fn pose(activity: Activity, phase: f32, stride: f32, run: f32, clock: f32) -
             legs: [0.5, -0.2],
             ..default()
         },
+        Activity::Tipped { t } => {
+            // Arms flailing over its head as it goes over the side.
+            let flail = (t * 24.0).sin() * 0.35;
+            Pose {
+                nod: -0.3,
+                arms: [Limb::new(2.7 + flail, 0.5, 0.0), Limb::new(2.7 - flail, 0.5, 0.0)],
+                legs: [0.6 * flail, -0.6 * flail],
+                ..default()
+            }
+        }
         Activity::Dying { t } => {
             // Arms flung up over its head as it goes over backwards.
             let t = smoothstep(t);
@@ -340,7 +352,7 @@ pub fn crawl(activity: Activity, phase: f32, stride: f32, clock: f32) -> [Limb; 
             arms[side] = Limb::new(1.45 + 0.9 * wind - 1.1 * strike, 0.3, 0.3 * strike);
             arms
         }
-        Activity::Dying { t } => [Limb::new(1.45, 0.2, 0.0).lerp(Limb::new(1.0, 0.8, 0.0), t); 2],
+        Activity::Dying { t } | Activity::Tipped { t } => [Limb::new(1.45, 0.2, 0.0).lerp(Limb::new(1.0, 0.8, 0.0), t); 2],
         _ => [drag(0), drag(1)],
     }
 }
@@ -512,6 +524,9 @@ pub fn describe(
 ) -> Activity {
     let wind_up = zombie.and_then(|zombie| zombie.wind_up.map(|left| (zombie, left)));
     if let Some(dying) = dying {
+        if dying.killed_by() == Some(crate::enemies::zombie::Attack::Swing) {
+            return Activity::Tipped { t: (dying.elapsed / crate::tuning::TIPPED_FALL_SECS).min(1.0) };
+        }
         return Activity::Dying { t: (dying.elapsed / ZOMBIE_FALL_SECS).min(1.0) };
     }
     if down {

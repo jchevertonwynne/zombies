@@ -4,9 +4,8 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use crate::players::last_stand::LastStand;
-use crate::maps::map::BarrierId;
 use crate::modifier::Modifiers;
-use crate::enemies::nav::NavGraph;
+use crate::enemies::nav::{NavGraph, NavState};
 use crate::players::player::{LocalPlayer, Locomotion, Player, Stance};
 use crate::players::respawn::{AwaitingRespawn, Disconnected};
 use crate::maps::zone::PlayerZone;
@@ -132,14 +131,13 @@ pub fn path_distance(
     graph: &NavGraph,
     from: Vec3,
     to: Vec3,
-    open_doors: &[(ZoneId, ZoneId)],
-    barrier_open: impl Fn(BarrierId) -> bool,
+    state: NavState,
 ) -> Option<f32> {
     let (start, end) = (graph.nearest(from), graph.nearest(to));
     if start == end {
         return Some(from.distance(to));
     }
-    let path = graph.plan(start, end, open_doors, barrier_open)?;
+    let path = graph.plan(start, end, state)?;
     let nodes: Vec<Vec3> = path.iter().map(|&i| graph.nodes[i].at).collect();
     let walked: f32 = nodes.windows(2).map(|pair| pair[0].distance(pair[1])).sum();
     Some(from.distance(nodes[0]) + walked + nodes[nodes.len() - 1].distance(to))
@@ -152,8 +150,7 @@ pub fn nearest_up_player(
     graph: &NavGraph,
     from: Vec3,
     players: impl IntoIterator<Item = PlayerSpot>,
-    open_doors: &[(ZoneId, ZoneId)],
-    barrier_open: impl Fn(BarrierId) -> bool,
+    state: NavState,
 ) -> Option<PlayerSpot> {
     let up: Vec<PlayerSpot> = players.into_iter().filter(|player| player.up).collect();
     // One Player up is the pick whatever the walk, so solo plans no route here.
@@ -162,7 +159,7 @@ pub fn nearest_up_player(
     }
     up.into_iter()
         .map(|player| {
-            let walk = path_distance(graph, from, player.stand, open_doors, &barrier_open);
+            let walk = path_distance(graph, from, player.stand, state);
             ((walk.unwrap_or(f32::INFINITY), from.distance(player.stand)), player)
         })
         .min_by(|(a, _), (b, _)| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)))
@@ -196,10 +193,10 @@ mod tests {
         let through_the_wall = Vec3::new(-8.0, 0.0, 0.0);
         let along_the_hall = Vec3::new(-20.0, 0.0, 20.0);
         assert!(zombie.distance(through_the_wall) < zombie.distance(along_the_hall));
-        let walk = |to| path_distance(&graph, zombie, to, &all_open, |_| true).unwrap();
+        let walk = |to| path_distance(&graph, zombie, to, NavState::new(&all_open, &|_| true)).unwrap();
         assert!(walk(through_the_wall) > walk(along_the_hall), "the setup needs a long way round");
         let players = [spot(1, through_the_wall, true), spot(2, along_the_hall, true)];
-        let picked = nearest_up_player(&graph, zombie, players, &all_open, |_| true).unwrap();
+        let picked = nearest_up_player(&graph, zombie, players, NavState::new(&all_open, &|_| true)).unwrap();
         assert_eq!(picked.entity, players[1].entity);
     }
 
@@ -210,7 +207,7 @@ mod tests {
         let behind_a_door = Vec3::new(-12.5, 0.0, 20.0);
         let players = [spot(1, behind_a_door, true), spot(2, Vec3::new(12.5, 0.0, 20.0), true)];
         let open = [(ZoneId::StartRoom, ZoneId::WestHall)];
-        let picked = nearest_up_player(&graph, zombie, players, &open, |_| false).unwrap();
+        let picked = nearest_up_player(&graph, zombie, players, NavState::new(&open, &|_| false)).unwrap();
         assert_eq!(picked.entity, players[0].entity);
     }
 
@@ -220,10 +217,10 @@ mod tests {
         let zombie = Vec3::new(0.0, 0.0, 0.0);
         let down_beside_it = spot(1, Vec3::new(0.5, 0.0, 0.0), false);
         let up_far_off = spot(2, Vec3::new(11.0, 0.0, -2.0), true);
-        let picked = nearest_up_player(&graph, zombie, [down_beside_it, up_far_off], &[], |_| true).unwrap();
+        let picked = nearest_up_player(&graph, zombie, [down_beside_it, up_far_off], NavState::new(&[], &|_| true)).unwrap();
         assert_eq!(picked.entity, up_far_off.entity);
-        assert!(nearest_up_player(&graph, zombie, [down_beside_it], &[], |_| true).is_none());
-        assert!(nearest_up_player(&graph, zombie, [], &[], |_| true).is_none());
+        assert!(nearest_up_player(&graph, zombie, [down_beside_it], NavState::new(&[], &|_| true)).is_none());
+        assert!(nearest_up_player(&graph, zombie, [], NavState::new(&[], &|_| true)).is_none());
     }
 
     #[test]
@@ -233,10 +230,10 @@ mod tests {
         let up = spot(2, Vec3::new(0.0, 0.0, 20.0), true);
         // The barrier test is called when a route from outside the window is planned.
         let planned = std::cell::Cell::new(false);
-        let picked = nearest_up_player(&graph, Vec3::new(-7.0, 0.0, 28.0), [down, up], &[], |_| {
+        let picked = nearest_up_player(&graph, Vec3::new(-7.0, 0.0, 28.0), [down, up], NavState::new(&[], &|_| {
             planned.set(true);
             false
-        });
+        }));
         assert_eq!(picked.unwrap().entity, up.entity);
         assert!(!planned.get(), "it planned a path to the only Player up");
     }
@@ -247,7 +244,7 @@ mod tests {
         // Outside a shut window: no route in.
         let outside = Vec3::new(-7.0, 0.0, 28.0);
         let inside = spot(1, Vec3::new(0.0, 0.0, 20.0), true);
-        let picked = nearest_up_player(&graph, outside, [inside], &[], |_| false);
+        let picked = nearest_up_player(&graph, outside, [inside], NavState::new(&[], &|_| false));
         assert_eq!(picked.unwrap().entity, inside.entity);
     }
 
@@ -257,7 +254,7 @@ mod tests {
         let outside = Vec3::new(-7.0, 0.0, 28.0);
         let near_but_cut_off = spot(1, Vec3::new(0.0, 0.0, 20.0), true);
         let reachable = spot(2, Vec3::new(-7.0, 0.0, 33.0), true);
-        let picked = nearest_up_player(&graph, outside, [near_but_cut_off, reachable], &[], |_| false);
+        let picked = nearest_up_player(&graph, outside, [near_but_cut_off, reachable], NavState::new(&[], &|_| false));
         assert_eq!(picked.unwrap().entity, reachable.entity);
     }
 }

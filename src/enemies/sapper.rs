@@ -30,6 +30,7 @@ use crate::players::player::Player;
 use crate::economy::points::BonusPoints;
 use crate::maps::generator::{GeneratorState, Generators};
 use crate::maps::power::{Power, Powering};
+use crate::maps::shifting::{Lever, PiecePhase, PieceState};
 use crate::maps::trap::trap_zone;
 use crate::economy::power_up::DropPowerUp;
 use crate::run::round::{CarriesOver, ReservedRounds, Round, RoundPhase, zombie_health};
@@ -138,6 +139,8 @@ pub enum SabotageKind {
     Trap,
     Teleporter,
     PackAPunch,
+    /// A Swing Bridge's Levers, one system to it.
+    Lever,
 }
 
 /// What the Sapper means to do at its target: take a Generator, which is then Lost, or Sabotage a
@@ -179,6 +182,7 @@ pub fn can_sabotage(kind: SabotageKind, powered: bool, in_use: bool) -> bool {
     match kind {
         SabotageKind::Perk(Perk::QuickRevive) => false,
         SabotageKind::Trap => powered,
+        SabotageKind::Lever => !in_use,
         SabotageKind::MysteryBox => !in_use,
         SabotageKind::Perk(_) | SabotageKind::Teleporter | SabotageKind::PackAPunch => {
             powered && !in_use
@@ -722,6 +726,7 @@ fn candidates(
     perks: &Query<(Entity, &PerkMachine), Without<Sabotaged>>,
     traps: &Query<(Entity, &Trap, &Transform), Without<Sabotaged>>,
     machines: &Query<(Entity, &PackAPunch, &Transform), Without<Sabotaged>>,
+    bridges: (&Query<(Entity, &PieceState), Without<Sabotaged>>, &Query<&Lever>),
     doors: &Query<&Door>,
     teleporter: Option<&Teleporter>,
     supply: Powering,
@@ -772,6 +777,13 @@ fn candidates(
             supply.powers(Some(trap_zone(trap.joins()))) && door_open,
             false,
         ));
+    }
+    // Every Lever of a bridge is a way to it, and the bridge is one system.
+    for (entity, state) in bridges.0 {
+        let in_use = matches!(state.phase(), PiecePhase::Warning { .. } | PiecePhase::Waiting { .. } | PiecePhase::Swinging { .. });
+        for lever in bridges.1.iter().filter(|lever| lever.piece == state.id()) {
+            all.push(candidate(Target::Entity(entity), SabotageKind::Lever, lever.use_point(), true, in_use));
+        }
     }
     for (entity, machine, transform) in machines {
         let use_point = pack_a_punch::use_point(transform.translation);
@@ -840,6 +852,7 @@ fn sabotage(
     perks: Query<(Entity, &PerkMachine), Without<Sabotaged>>,
     traps: Query<(Entity, &Trap, &Transform), Without<Sabotaged>>,
     machines: Query<(Entity, &PackAPunch, &Transform), Without<Sabotaged>>,
+    (bridges, levers): (Query<(Entity, &PieceState), Without<Sabotaged>>, Query<&Lever>),
     doors: Query<&Door>,
     mut teleporter: ResMut<Teleporter>,
     (power, mut generators): (Res<Power>, Option<ResMut<Generators>>),
@@ -855,6 +868,7 @@ fn sabotage(
         &perks,
         &traps,
         &machines,
+        (&bridges, &levers),
         &doors,
         crate::maps::teleporter::stands_on(*map).then_some(&*teleporter),
         Powering::new(power.is_on(), generators.as_deref()),
@@ -898,6 +912,15 @@ fn sabotage(
                     }
                     continue;
                 }
+            }
+            // A bridge can be restored at any of its Levers.
+            if let (Job::Sabotage(SabotageKind::Lever), Target::Entity(piece)) = (goal.job, goal.target)
+                && let Ok((_, state)) = bridges.get(piece)
+            {
+                for lever in levers.iter().filter(|lever| lever.piece == state.id()) {
+                    spawn_restore(&mut commands, &assets, goal.target, lever.use_point());
+                }
+                continue;
             }
             spawn_restore(&mut commands, &assets, goal.target, goal.use_point);
             continue;

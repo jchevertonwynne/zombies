@@ -806,6 +806,10 @@ fn special_deaths(
         if !requested {
             slot.died(kind, round_number, SpecialSlot::draw_gap(kind));
         }
+        // Tipped into the canal: it is put out, so there is no explosion and no scream.
+        if dying.killed_by() == Some(Attack::Swing) {
+            continue;
+        }
         let at = transform.translation;
         let feet = at - Vec3::Y * zombie.half_height();
         match kind {

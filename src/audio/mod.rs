@@ -853,12 +853,13 @@ fn entity_loops(
     bombs: Query<(Entity, &MonkeyBomb)>,
     dropped: Query<Entity, With<Dropped>>,
     traps: Query<(Entity, &Trap)>,
+    pieces: Query<(Entity, &crate::maps::shifting::PieceState)>,
     boxes: Query<(Entity, &MysteryBox)>,
     active: Res<ActivePowerUps>,
 ) {
     let all = |entities: Vec<Entity>| entities.into_iter().map(|entity| (entity, 1.0)).collect::<Vec<_>>();
     let fire_sale = active.active(PowerUp::FireSale);
-    let wanted: [(Cue, Vec<(Entity, f32)>); 9] = [
+    let wanted: [(Cue, Vec<(Entity, f32)>); 11] = [
         (Cue::NovaGas, all(clouds.iter().collect())),
         (Cue::SapperIdle, all(sappers.iter().map(|(entity, _)| entity).collect())),
         (Cue::SapperSabotage, all(sappers.iter().filter(|(_, working)| *working).map(|(entity, _)| entity).collect())),
@@ -870,6 +871,8 @@ fn entity_loops(
         (Cue::MonkeyBomb, all(bombs.iter().filter(|(_, bomb)| bomb.landed()).map(|(entity, _)| entity).collect())),
         (Cue::PowerupHum, all(dropped.iter().collect())),
         (Cue::TrapActive, all(traps.iter().filter(|(_, trap)| trap.running()).map(|(entity, _)| entity).collect())),
+        (Cue::BridgeBell, all(pieces.iter().filter(|(_, state)| state.phase().bell()).map(|(entity, _)| entity).collect())),
+        (Cue::BridgeGrind, all(pieces.iter().filter(|(_, state)| state.phase().swinging()).map(|(entity, _)| entity).collect())),
         (
             Cue::FireSale,
             all(boxes.iter().filter(|(_, mystery_box)| fire_sale && mystery_box.present()).map(|(entity, _)| entity).collect()),

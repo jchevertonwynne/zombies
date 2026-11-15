@@ -1222,6 +1222,7 @@ fn run_allies(
     graph: Res<NavGraph>,
     barriers: Res<Barriers>,
     doors: Query<&Door>,
+    pieces: Query<&crate::maps::shifting::PieceState>,
     move_and_slide: MoveAndSlide,
     mut damage: MessageWriter<DamageZombie>,
     mut expired: MessageWriter<TurnedAllyExpired>,
@@ -1229,7 +1230,10 @@ fn run_allies(
 ) {
     let dt = time.delta_secs();
     let half = ZOMBIE_RADIUS + ZOMBIE_CAPSULE_LENGTH / 2.0;
-    let open_doors: Vec<_> = doors.iter().filter(|door| door.open).filter_map(|door| door.joins).collect();
+    let open_doors: Vec<_> = doors.iter().filter(|door| door.open).filter_map(|door| door.route()).collect();
+    let rests = crate::maps::shifting::standing_rests(pieces.iter().map(|state| (state.id(), state.phase())), graph.map.layout().shifting.len());
+    let barrier_open = |b| barriers.is_open(b);
+    let nav = crate::enemies::nav::NavState::new(&open_doors, &barrier_open).with_rests(&rests);
     let filter_mask = [GameLayer::World, GameLayer::Zombie, GameLayer::Player];
     for (entity, mut ally, mut route, mut transform, collider) in &mut allies {
         ally.elapsed += dt;
@@ -1290,8 +1294,7 @@ fn run_allies(
                     half,
                     at - Vec3::Y * half,
                     ZOMBIE_REACH,
-                    &open_doors,
-                    |b| barriers.is_open(b),
+                    nav,
                 );
             }
             if let Some(&next) = route.waypoints.first()

@@ -45,6 +45,14 @@ impl Plugin for DebugPlugin {
                 store.config_mut::<PhysicsGizmos>().0.enabled = false;
             })
             .add_systems(Update, toggle.run_if(input_just_pressed(KeyCode::F1)))
+            // Backslash (not an F-key) Swings the nearest bridge now: no price, warning or cooldown.
+            .add_systems(
+                Update,
+                crate::maps::shifting::debug_swing
+                    .in_set(HostSimulation)
+                    .run_if(input_runs)
+                    .run_if(input_just_pressed(KeyCode::Backslash)),
+            )
             .add_systems(
                 Update,
                 grant_weapon

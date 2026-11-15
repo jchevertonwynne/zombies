@@ -161,6 +161,9 @@ pub struct Layout {
     /// Joins between Zones that never close: archways, ramps and drops. A drop is one-way to walk
     /// but counts both ways for activation.
     pub fixed_joins: &'static [(ZoneId, ZoneId)],
+    /// The Pieces that Shift (turn about hinges between Rests): the Swing Bridges. Empty on every
+    /// Map but the Polder. A Piece's `PieceId` is its place in this list.
+    pub shifting: &'static [crate::maps::shifting::Piece],
     /// The path nodes: a name, then where a Zombie's feet stand there (x, y, z).
     pub nav_nodes: &'static [(&'static str, f32, f32, f32)],
     /// The path-node edges, by node name. Barrier and one-way edges run from the first node to
@@ -879,6 +882,7 @@ pub fn spawn_map(
 
     // Water: the surfaces, and the walls round Deep Water.
     crate::maps::water::spawn_water(&mut commands, &mut meshes, &mut materials, layout);
+    crate::maps::shifting::spawn_pieces(&mut commands, &mut meshes, &mut materials, layout);
 
     // Chalk outlines: a pale gun shape drawn on the wall, its Buyable just in front.
     let chalk_mat = materials.add(StandardMaterial {
@@ -1938,7 +1942,7 @@ pub(crate) mod tests {
                 for &other in &layout.seats[i + 1..] {
                     assert!(seat.distance(other) >= 2.5, "Seats are only {:.2} m apart", seat.distance(other));
                 }
-                assert!(path_distance(&graph, seat, out, &all_open, |_| true).is_some(), "Seat {i} can't walk out on the {}", map.name());
+                assert!(path_distance(&graph, seat, out, crate::enemies::nav::NavState::new(&all_open, &|_| true)).is_some(), "Seat {i} can't walk out on the {}", map.name());
             }
         }
     }

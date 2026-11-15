@@ -72,6 +72,7 @@ pub(super) const VILLAGE: Layout = Layout {
     props: PROPS,
     lamps: &LAMPS,
     fixed_joins: &FIXED_JOINS,
+    shifting: &[],
     nav_nodes: NODES,
     nav_edges: EDGES,
     jump_pads: &[],

@@ -62,6 +62,7 @@ use crate::run::round::{Round, RoundEnded, RoundPhase, RoundStarted};
 use crate::state::{Choosing, GameState, Paused, world_runs};
 use crate::players::teammate::HeldWeapon;
 use crate::maps::teleporter::{Mainframe, Pad, TeleporterView, mainframe_use_point};
+use crate::maps::shifting::{Lever, PieceId, PiecePhase, PieceState};
 use crate::maps::trap::{Trap, TrapPhase, TrapSwitch};
 use crate::tuning::*;
 use crate::modifier::{Modifiers, Stat, resolve};
@@ -253,6 +254,9 @@ pub enum WorldEvent {
     /// Pack-a-Punch holds this, or nothing.
     Machine { id: u16, inside: Option<Inside> },
     Trap { id: u16, phase: TrapPhase },
+    /// A Piece of the world (a Swing Bridge) is in this phase of its cycle: told on every change.
+    /// A client poses its own Leaves from `Swinging`, running its clock on from here.
+    Piece { id: PieceId, phase: PiecePhase },
     /// The Generator at this place in `Layout.generators` is in this state: told when it's
     /// bought, Held, or starts or stops Charging, and every `GENERATOR_CHARGE_TELL_SECS` while
     /// its Charge moves.
@@ -318,6 +322,7 @@ pub struct Mirror {
     boxes: HashMap<u16, (u8, BoxPhase)>,
     machines: HashMap<u16, Option<(WeaponId, Option<Seat>)>>,
     traps: HashMap<u16, std::mem::Discriminant<TrapPhase>>,
+    pieces: HashMap<PieceId, std::mem::Discriminant<PiecePhase>>,
     /// Each Generator as last told, and the seconds since.
     generators: HashMap<u8, (GeneratorState, f32)>,
     teleporter: Option<TeleporterView>,
@@ -432,6 +437,7 @@ pub fn add(app: &mut App) {
                 tell_boxes,
                 tell_machines,
                 tell_traps,
+                tell_pieces,
                 tell_generators,
                 tell_teleporter,
                 tell_drops,
@@ -481,6 +487,7 @@ pub fn add(app: &mut App) {
                     hear_boxes,
                     hear_machines,
                     hear_traps,
+                    hear_pieces,
                     hear_generators,
                     hear_teleporter,
                     hear_drops,
@@ -529,6 +536,7 @@ type Machine = Or<(
     With<PackAPunch>,
     With<Trap>,
     With<TrapSwitch>,
+    With<Lever>,
     With<PerkMachine>,
     With<Pad>,
     With<Mainframe>,
@@ -765,6 +773,18 @@ fn tell_traps(mut tell: Tell, mut mirror: ResMut<Mirror>, traps: Query<(&NetId, 
         if kind != told {
             mirror.traps.insert(id.0, kind);
             tell.all(&WorldEvent::Trap { id: id.0, phase });
+        }
+    }
+}
+
+/// Each Piece's phase whenever its kind changes.
+fn tell_pieces(mut tell: Tell, mut mirror: ResMut<Mirror>, pieces: Query<&PieceState>) {
+    for state in &pieces {
+        let phase = state.phase();
+        let kind = std::mem::discriminant(&phase);
+        if mirror.pieces.get(&state.id()) != Some(&kind) {
+            mirror.pieces.insert(state.id(), kind);
+            tell.all(&WorldEvent::Piece { id: state.id(), phase });
         }
     }
 }
@@ -1105,6 +1125,7 @@ fn catch_up_world(
         Option<Res<Generators>>,
     ),
     (drops, restores, ids): (Query<(Entity, &Dropped)>, Query<(&NetId, &Restore, &Transform)>, Query<&NetId>),
+    pieces: Query<&PieceState>,
 ) {
     for &SeatReturned { seat } in returned.read() {
         let Some(&(peer, _)) = tell.roster.0.iter().find(|&&(_, held)| held == seat.0) else { continue };
@@ -1157,6 +1178,9 @@ fn catch_up_world(
             if std::mem::discriminant(&phase) != std::mem::discriminant(&TrapPhase::Idle) {
                 say(WorldEvent::Trap { id: id.0, phase });
             }
+        }
+        for state in &pieces {
+            say(WorldEvent::Piece { id: state.id(), phase: state.phase() });
         }
         say(WorldEvent::Teleporter(teleporter.view()));
         for (entity, dropped) in &drops {
@@ -1325,6 +1349,7 @@ fn run_shown_clocks(
     mut boxes: Query<&mut MysteryBox>,
     mut machines: Query<&mut PackAPunch>,
     mut traps: Query<&mut Trap>,
+    mut pieces: Query<&mut PieceState>,
     mut teleporter: ResMut<crate::maps::teleporter::Teleporter>,
     mut active: ResMut<ActivePowerUps>,
     mut points: Query<&mut Points, With<Player>>,
@@ -1342,6 +1367,9 @@ fn run_shown_clocks(
     }
     for mut trap in &mut traps {
         trap.advance_shown(dt);
+    }
+    for mut piece in &mut pieces {
+        piece.advance_shown(dt);
     }
     teleporter.advance(dt);
     active.tick(dt);
@@ -1507,6 +1535,17 @@ fn hear_traps(mut heard: MessageReader<Heard>, ids: Res<NetIds>, mut traps: Quer
             && let Ok(mut trap) = traps.get_mut(entity)
         {
             trap.show(phase);
+        }
+    }
+}
+
+fn hear_pieces(mut heard: MessageReader<Heard>, mut pieces: Query<&mut PieceState>) {
+    for Heard(event) in heard.read() {
+        let WorldEvent::Piece { id, phase } = *event else { continue };
+        for mut state in &mut pieces {
+            if state.id() == id {
+                state.show(phase);
+            }
         }
     }
 }
@@ -2011,5 +2050,7 @@ mod downs;
 mod reconnect;
 #[cfg(test)]
 mod shared;
+#[cfg(test)]
+mod shifting_tests;
 #[cfg(test)]
 mod tests;

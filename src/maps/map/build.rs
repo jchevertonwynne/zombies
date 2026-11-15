@@ -60,6 +60,9 @@ const JUMP_PAD_PAINT: Color = Color::srgb(0.86, 0.68, 0.1);
 pub(super) enum Gap {
     /// A Door, joining two Zones; `None` price makes it a Power Door.
     Door(Option<(ZoneId, ZoneId)>, Option<u64>),
+    /// The gate Door of a Swing Bridge, bought for the price: it joins nothing, but names the two
+    /// Zones whose landings it guards.
+    Gate((ZoneId, ZoneId), u64),
     /// A Door that can't be bought and opens once every Teleporter Pad is Linked, like the
     /// Gazebo's.
     LinkedDoor(Option<(ZoneId, ZoneId)>),
@@ -717,7 +720,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let mut cursor = 0.0;
         for (at, gap) in gaps {
             let (width, top) = match gap {
-                Gap::Door(..) | Gap::LinkedDoor(_) => (DOOR_WIDTH, DOOR_HEIGHT),
+                Gap::Door(..) | Gap::Gate(..) | Gap::LinkedDoor(_) => (DOOR_WIDTH, DOOR_HEIGHT),
                 Gap::Open { width, height } => (*width, *height),
                 Gap::Window => (WINDOW_WIDTH, WINDOW_HEIGHT),
             };
@@ -755,6 +758,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                         joins: *joins,
                         price: *price,
                         open: false,
+                        gate: None,
                     },
                     Visibility::default(),
                 ));
@@ -768,6 +772,15 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                     });
                 }
             }
+            if let Gap::Gate(key, price) = gap {
+                let at = Vec3::new(mid.x, y0 + DOOR_HEIGHT / 2.0, mid.y);
+                let door = self.door_slab(across(0.25, DOOR_HEIGHT), at, false, Some(key.0));
+                self.commands.entity(door).insert((
+                    Door { joins: None, price: Some(*price), open: false, gate: Some(*key) },
+                    Visibility::default(),
+                    Buyable { use_point: at, prompt: String::new(), price: Some(*price), range: DOOR_USE_RANGE },
+                ));
+            }
             if let Gap::LinkedDoor(joins) = gap {
                 let at = Vec3::new(mid.x, y0 + DOOR_HEIGHT / 2.0, mid.y);
                 let door = self.door_slab(across(0.25, DOOR_HEIGHT), at, true, joins.map(|j| j.0));
@@ -778,6 +791,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                         joins: *joins,
                         price: None,
                         open: false,
+                        gate: None,
                     },
                     OpensOnLinks,
                     Buyable {
