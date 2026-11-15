@@ -384,6 +384,21 @@ pub fn materials(zone: Option<ZoneId>) -> Option<MaterialSet> {
         Workshop => (ConcreteFloor02, RustyCorrugatedIron, Some(OilStains), WORKSHOP_PROPS),
         // Cobbled: mossy cobbles (the sunken garden too), and the house's plastered stone outer faces.
         Yard => (MossyCobblestone, PlasteredStoneWall, None, &[]),
+        // The Dam, in families that change from Zone to Zone: asphalt and precast slab on the crest,
+        // poured concrete in the galleries (ribbed, layered, mossy), painted steel in the Control
+        // Room and Switchgear Room, oily slab and tile in the Turbine Hall, rough-cast in the rest.
+        CrestRoad => (AsphaltFloor, ConcreteSlabWall02, None, &[]),
+        TowerHead => (ConcreteFloor02, ConcreteWall006, None, &[]),
+        SpillwayGatehouse => (PaintedConcrete, ConcreteWall007, None, &[]),
+        GateShaft => (DamagedConcreteFloor03, RibbedConcreteWall, Some(Leaks), &[]),
+        IntakeGallery => (SmoothConcreteFloor, ConcreteLayers02, Some(Leaks), &[]),
+        SpillwayGallery => (BrushedConcrete04, ConcreteWall008, Some(Leaks), &[]),
+        ControlRoom => (OldMosaicFloor, BlueMetalPlate, None, &[]),
+        SwitchgearRoom => (MetalPlate02, GreenMetalRust, None, &[]),
+        PenstockTunnel => (GranularConcrete, RockEmbeddedConcreteWall, None, &[]),
+        TurbineHall => (HangarConcreteFloor, ConcreteTileFacade, Some(OilStains), &[]),
+        SpillwayStair => (WornConcreteFloor, ConcreteBlockWall02, None, &[]),
+        DrainageGallery => (CrackedConcrete, ConcreteMoss, Some(Leaks), &[]),
         _ => return None,
     };
     Some(MaterialSet { floor, wall, decals, props })
@@ -700,7 +715,8 @@ pub fn spawn_map(
     }
 
     // Ceilings over the indoor Zones.
-    if layout.roofed {
+    // (A Map with Darkness builds its own, solid ones.)
+    if layout.roofed && !layout.darkness {
         for &zone in layout.zones.iter().filter(|&&zone| layout.indoor(zone)) {
             b.ceiling(zone);
         }
@@ -847,7 +863,8 @@ pub fn spawn_map(
         }
         // A light probe in each indoor Zone, so the room is lit by its own dim constant colour and
         // not the sky's, however bright the Yard through its Door.
-        if let Some(mut images) = images {
+        // (None under Darkness, whose ambient light is zero.)
+        if let (Some(mut images), false) = (images, layout.darkness) {
             let probe = EnvironmentMapLight::solid_color(&mut images, Color::srgb(0.75, 0.7, 0.65)).with_intensity(INDOOR_PROBE_BRIGHTNESS);
             for &zone in layout.zones.iter().filter(|&&zone| layout.indoor(zone)) {
                 let (lo, hi) = zone.volume();

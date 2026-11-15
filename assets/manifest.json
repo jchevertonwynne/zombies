@@ -57,12 +57,28 @@
       "notes": "Procedural"
     },
     {
+      "path": "materials/asphalt_floor",
+      "name": "Asphalt Floor",
+      "source": "https://polyhaven.com/a/asphalt_floor",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.35 m"
+    },
+    {
       "path": "materials/bark_brown_02",
       "name": "Bark Brown 02",
       "source": "https://polyhaven.com/a/bark_brown_02",
       "licence": "CC0",
       "fetched": "2026-11-15",
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 0.999999 m"
+    },
+    {
+      "path": "materials/blue_metal_plate",
+      "name": "Blue Metal Plate",
+      "source": "https://polyhaven.com/a/blue_metal_plate",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.5 m"
     },
     {
       "path": "materials/brick_wall_001",
@@ -81,11 +97,99 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 3 m"
     },
     {
+      "path": "materials/brushed_concrete_04",
+      "name": "Brushed Concrete 04",
+      "source": "https://polyhaven.com/a/brushed_concrete_04",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.00092 m"
+    },
+    {
+      "path": "materials/concrete_block_wall_02",
+      "name": "Concrete Block Wall 02",
+      "source": "https://polyhaven.com/a/concrete_block_wall_02",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.005 m"
+    },
+    {
       "path": "materials/concrete_floor_02",
       "name": "Concrete Floor 02",
       "source": "https://polyhaven.com/a/concrete_floor_02",
       "licence": "CC0",
       "fetched": "2026-11-14",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
+      "path": "materials/concrete_layers_02",
+      "name": "Concrete Layers 02",
+      "source": "https://polyhaven.com/a/concrete_layers_02",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
+      "path": "materials/concrete_moss",
+      "name": "Concrete Moss",
+      "source": "https://polyhaven.com/a/concrete_moss",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 3 m"
+    },
+    {
+      "path": "materials/concrete_slab_wall_02",
+      "name": "Concrete Slab Wall 02",
+      "source": "https://polyhaven.com/a/concrete_slab_wall_02",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.10232 m"
+    },
+    {
+      "path": "materials/concrete_tile_facade",
+      "name": "Concrete Tile Facade",
+      "source": "https://polyhaven.com/a/concrete_tile_facade",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.09 m"
+    },
+    {
+      "path": "materials/concrete_wall_006",
+      "name": "Concrete Wall 006",
+      "source": "https://polyhaven.com/a/concrete_wall_006",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
+      "path": "materials/concrete_wall_007",
+      "name": "Concrete Wall 007",
+      "source": "https://polyhaven.com/a/concrete_wall_007",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.16 m"
+    },
+    {
+      "path": "materials/concrete_wall_008",
+      "name": "Concrete Wall 008",
+      "source": "https://polyhaven.com/a/concrete_wall_008",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.71 m"
+    },
+    {
+      "path": "materials/cracked_concrete",
+      "name": "Cracked Concrete",
+      "source": "https://polyhaven.com/a/cracked_concrete",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
+      "path": "materials/damaged_concrete_floor_03",
+      "name": "Damaged Concrete Floor 03",
+      "source": "https://polyhaven.com/a/damaged_concrete_floor_03",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
     },
     {
@@ -129,11 +233,59 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 3 m"
     },
     {
+      "path": "materials/granular_concrete",
+      "name": "Granular Concrete",
+      "source": "https://polyhaven.com/a/granular_concrete",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.4 m"
+    },
+    {
+      "path": "materials/green_metal_rust",
+      "name": "Green Metal Rust",
+      "source": "https://polyhaven.com/a/green_metal_rust",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1 m"
+    },
+    {
+      "path": "materials/hangar_concrete_floor",
+      "name": "Hangar Concrete Floor",
+      "source": "https://polyhaven.com/a/hangar_concrete_floor",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
+      "path": "materials/metal_plate_02",
+      "name": "Metal Plate 02",
+      "source": "https://polyhaven.com/a/metal_plate_02",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
       "path": "materials/mossy_cobblestone",
       "name": "Mossy Cobblestone",
       "source": "https://polyhaven.com/a/mossy_cobblestone",
       "licence": "CC0",
       "fetched": "2026-11-14",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
+      "path": "materials/old_mosaic_floor",
+      "name": "Old Mosaic Floor",
+      "source": "https://polyhaven.com/a/old_mosaic_floor",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
+      "path": "materials/painted_concrete",
+      "name": "Painted Concrete",
+      "source": "https://polyhaven.com/a/painted_concrete",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
     },
     {
@@ -151,6 +303,22 @@
       "licence": "CC0",
       "fetched": "2026-11-14",
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.5 m"
+    },
+    {
+      "path": "materials/ribbed_concrete_wall",
+      "name": "Ribbed Concrete Wall",
+      "source": "https://polyhaven.com/a/ribbed_concrete_wall",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
+      "path": "materials/rock_embedded_concrete_wall",
+      "name": "Rock Embedded Concrete Wall",
+      "source": "https://polyhaven.com/a/rock_embedded_concrete_wall",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1.76 m"
     },
     {
       "path": "materials/rock_wall_08",
@@ -177,6 +345,14 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1 m"
     },
     {
+      "path": "materials/smooth_concrete_floor",
+      "name": "Smooth Concrete Floor",
+      "source": "https://polyhaven.com/a/smooth_concrete_floor",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
       "path": "materials/weathered_planks",
       "name": "Weathered Planks",
       "source": "https://polyhaven.com/a/weathered_planks",
@@ -190,6 +366,14 @@
       "source": "https://polyhaven.com/a/worn_brick_floor",
       "licence": "CC0",
       "fetched": "2026-11-14",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
+      "path": "materials/worn_concrete_floor",
+      "name": "Worn Concrete Floor",
+      "source": "https://polyhaven.com/a/worn_concrete_floor",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
     },
     {
@@ -207,6 +391,14 @@
       "licence": "CC0",
       "fetched": "2026-11-14",
       "notes": "2K HDR as a 512px BC6H cubemap, turned 115.7 degrees, via texpack --sky"
+    },
+    {
+      "path": "skies/qwantani_night_puresky",
+      "name": "Poly Haven Qwantani Night (Pure Sky)",
+      "source": "https://polyhaven.com/a/qwantani_night_puresky",
+      "licence": "CC0",
+      "fetched": "2026-11-15",
+      "notes": "2K HDR as a 512px BC6H cubemap via texpack --sky"
     }
   ]
 }

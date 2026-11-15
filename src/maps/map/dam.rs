@@ -29,7 +29,8 @@ use crate::tuning::*;
 use crate::weapons::arsenal::WeaponId;
 
 use super::build::{Builder, Gap};
-use super::{Layout, Prop, PropKind, RaisedFloor, STOREY, Slope, door, palette, prop};
+use super::textures::Material;
+use super::{Layout, Prop, PropKind, RaisedFloor, STOREY, Slope, door, materials, palette, prop};
 
 /// How far along x the Dam stands from the world's middle, east of the Quarry.
 pub const DAM_X: f32 = 400.0;
@@ -140,9 +141,9 @@ pub(super) const DAM: Layout = Layout {
     generators: &GENERATORS,
     darkness: true,
     outdoor: &[ZoneId::CrestRoad],
-    roofed: false,
+    roofed: true,
     sun: Vec3::new(1.0, -3.0, -1.0),
-    look: crate::maps::look::NIGHT,
+    look: crate::maps::look::DAM_NIGHT,
     plan: (Vec2::new(D - 52.0, -68.0), Vec2::new(D + 52.0, 36.0)),
     build,
 };
@@ -235,27 +236,61 @@ const SPECIAL_SPAWNS: [(ZoneId, Vec3); 6] = [
     (ZoneId::DrainageGallery, at(26.0, FOOT, -59.0)),
 ];
 
-/// The lamps: floodlights over the Crest Road, and one or two under every ceiling.
-const LAMPS: [(ZoneId, Vec3); 19] = [
+/// The lamps: floodlights over the Crest Road, and under every ceiling enough that no point of an
+/// indoor floor is further than `LAMP_REACH` from one in its Zone (a test checks).
+const LAMPS: [(ZoneId, Vec3); 52] = [
     (ZoneId::CrestRoad, at(-15.0, CREST + STOREY - 0.5, 26.0)),
     (ZoneId::CrestRoad, at(15.0, CREST + STOREY - 0.5, 26.0)),
-    (ZoneId::TowerHead, at(-38.0, CREST + STOREY - 0.5, 25.0)),
-    (ZoneId::SpillwayGatehouse, at(38.0, CREST + STOREY - 0.5, 25.0)),
-    (ZoneId::GateShaft, at(-41.0, CREST + STOREY - 0.5, 10.0)),
-    (ZoneId::IntakeGallery, at(-24.0, CREST - 0.5, -1.0)),
-    (ZoneId::IntakeGallery, at(-41.0, CREST - 0.5, -30.0)),
-    (ZoneId::SpillwayGallery, at(24.0, CREST - 0.5, -1.0)),
-    (ZoneId::SpillwayGallery, at(41.0, CREST - 0.5, -16.0)),
-    (ZoneId::SpillwayGallery, at(41.0, CREST + STOREY - 0.5, 12.0)),
-    (ZoneId::ControlRoom, at(0.0, CREST - 0.5, 1.0)),
-    (ZoneId::PenstockTunnel, at(0.0, CREST - 0.5, -20.0)),
-    (ZoneId::TurbineHall, at(0.0, CREST - 0.5, -36.0)),
-    (ZoneId::TurbineHall, at(0.0, CREST - 0.5, -50.0)),
-    (ZoneId::SwitchgearRoom, at(18.0, GALLERY - 0.5, -46.0)),
-    (ZoneId::SpillwayStair, at(41.0, CREST - 0.5, -45.0)),
-    (ZoneId::DrainageGallery, at(-20.0, CREST - 0.5, -59.0)),
-    (ZoneId::DrainageGallery, at(20.0, CREST - 0.5, -59.0)),
-    (ZoneId::DrainageGallery, at(-41.0, CREST - 0.5, -59.0)),
+    (ZoneId::TowerHead, at(-41.5, CREST + STOREY - 0.5, 22.0)),
+    (ZoneId::TowerHead, at(-41.5, CREST + STOREY - 0.5, 28.0)),
+    (ZoneId::TowerHead, at(-34.5, CREST + STOREY - 0.5, 22.0)),
+    (ZoneId::TowerHead, at(-34.5, CREST + STOREY - 0.5, 28.0)),
+    (ZoneId::SpillwayGatehouse, at(34.5, CREST + STOREY - 0.5, 22.0)),
+    (ZoneId::SpillwayGatehouse, at(34.5, CREST + STOREY - 0.5, 28.0)),
+    (ZoneId::SpillwayGatehouse, at(41.5, CREST + STOREY - 0.5, 22.0)),
+    (ZoneId::SpillwayGatehouse, at(41.5, CREST + STOREY - 0.5, 28.0)),
+    (ZoneId::GateShaft, at(-41.0, CREST - 0.5, 6.0)),
+    (ZoneId::GateShaft, at(-41.0, CREST + STOREY - 0.5, 13.0)),
+    (ZoneId::IntakeGallery, at(-37.0, CREST - 0.5, -1.0)),
+    (ZoneId::IntakeGallery, at(-25.0, CREST - 0.5, -1.0)),
+    (ZoneId::IntakeGallery, at(-14.0, CREST - 0.5, -1.0)),
+    (ZoneId::IntakeGallery, at(-41.0, CREST - 0.5, -8.0)),
+    (ZoneId::IntakeGallery, at(-41.0, CREST - 0.5, -20.0)),
+    (ZoneId::IntakeGallery, at(-41.0, CREST - 0.5, -32.0)),
+    (ZoneId::IntakeGallery, at(-41.0, CREST - 0.5, -44.0)),
+    (ZoneId::IntakeGallery, at(-41.0, CREST - 0.5, -54.0)),
+    (ZoneId::ControlRoom, at(-4.5, CREST - 0.5, -2.0)),
+    (ZoneId::ControlRoom, at(-4.5, CREST - 0.5, 4.0)),
+    (ZoneId::ControlRoom, at(4.5, CREST - 0.5, -2.0)),
+    (ZoneId::ControlRoom, at(4.5, CREST - 0.5, 4.0)),
+    (ZoneId::SpillwayGallery, at(15.0, CREST - 0.5, -1.0)),
+    (ZoneId::SpillwayGallery, at(27.0, CREST - 0.5, -1.0)),
+    (ZoneId::SpillwayGallery, at(38.0, CREST - 0.5, -1.0)),
+    (ZoneId::SpillwayGallery, at(41.0, CREST - 0.5, -11.0)),
+    (ZoneId::SpillwayGallery, at(41.0, CREST - 0.5, -22.0)),
+    (ZoneId::SpillwayGallery, at(41.0, CREST - 0.5, -31.0)),
+    (ZoneId::SpillwayGallery, at(41.0, CREST + STOREY - 0.5, 6.0)),
+    (ZoneId::SpillwayGallery, at(41.0, CREST + STOREY - 0.5, 14.0)),
+    (ZoneId::PenstockTunnel, at(0.0, CREST - 0.5, -12.0)),
+    (ZoneId::PenstockTunnel, at(0.0, CREST - 0.5, -22.0)),
+    (ZoneId::TurbineHall, at(-4.5, CREST - 0.5, -33.0)),
+    (ZoneId::TurbineHall, at(4.5, CREST - 0.5, -33.0)),
+    (ZoneId::TurbineHall, at(-4.5, CREST - 0.5, -42.0)),
+    (ZoneId::TurbineHall, at(4.5, CREST - 0.5, -42.0)),
+    (ZoneId::TurbineHall, at(-4.5, CREST - 0.5, -51.0)),
+    (ZoneId::TurbineHall, at(4.5, CREST - 0.5, -51.0)),
+    (ZoneId::SwitchgearRoom, at(14.5, GALLERY - 0.5, -46.0)),
+    (ZoneId::SwitchgearRoom, at(21.5, GALLERY - 0.5, -46.0)),
+    (ZoneId::SpillwayStair, at(41.0, CREST - 0.5, -38.0)),
+    (ZoneId::SpillwayStair, at(41.0, CREST - 0.5, -50.0)),
+    (ZoneId::DrainageGallery, at(-40.2, CREST - 0.5, -59.0)),
+    (ZoneId::DrainageGallery, at(-28.8, CREST - 0.5, -59.0)),
+    (ZoneId::DrainageGallery, at(-17.2, CREST - 0.5, -59.0)),
+    (ZoneId::DrainageGallery, at(-5.8, CREST - 0.5, -59.0)),
+    (ZoneId::DrainageGallery, at(5.8, CREST - 0.5, -59.0)),
+    (ZoneId::DrainageGallery, at(17.2, CREST - 0.5, -59.0)),
+    (ZoneId::DrainageGallery, at(28.8, CREST - 0.5, -59.0)),
+    (ZoneId::DrainageGallery, at(40.2, CREST - 0.5, -59.0)),
 ];
 
 /// Concrete, for the stairs and landings; steel plate, for the turbine deck; and dark terrazzo,
@@ -470,7 +505,8 @@ fn build(b: &mut Builder) {
         (DrainageGallery, v(-44.0, -62.0), v(44.0, -56.0), CREST),
     ] {
         let (size, mid) = (max - min, (min + max) / 2.0);
-        b.block(Vec3::new(size.x, 0.3, size.y), Vec3::new(mid.x, y + 0.15, mid.y), palette(Some(zone)).trim);
+        let material = materials(Some(zone)).map(|set| set.wall);
+        b.block_in(Vec3::new(size.x, 0.3, size.y), Vec3::new(mid.x, y + 0.15, mid.y), palette(Some(zone)).trim, material);
     }
 
     // A pocket of floor outside every window, walled in, where Zombies gather.
@@ -482,7 +518,8 @@ fn build(b: &mut Builder) {
 /// The dam's body: solid from `y0` to `y1` over `min`..`max`, so nothing is ever lost in it.
 fn solid(b: &mut Builder, min: Vec2, max: Vec2, y0: f32, y1: f32, colour: Color) {
     let (size, mid) = (max - min, (min + max) / 2.0);
-    b.block(Vec3::new(size.x, y1 - y0, size.y), Vec3::new(mid.x, (y0 + y1) / 2.0, mid.y), colour);
+    // The dam's concrete body.
+    b.block_in(Vec3::new(size.x, y1 - y0, size.y), Vec3::new(mid.x, (y0 + y1) / 2.0, mid.y), colour, Some(Material::ConcreteSlabWall02));
 }
 
 /// How far a window's pocket reaches out from its wall, and how wide it is along it.
@@ -856,6 +893,7 @@ mod tests {
 
     use super::*;
     use crate::maps::map::{MapId, WINDOWS as ALL_WINDOWS};
+    use crate::tuning::LAMP_REACH;
     use ZoneId::*;
 
     fn dam() -> &'static Layout {
@@ -917,6 +955,59 @@ mod tests {
             .unwrap();
         assert!(open.iter().all(|(_, zone)| *zone == Some(CrestRoad)), "open to the sky: {open:?}");
         assert!(open.len() >= 7, "the Crest Road is open to the sky");
+    }
+
+    /// The floor Players can stand on in each indoor Zone, 1 m clear of the walls, as (min, max)
+    /// rectangles in x and z about `DAM_X`. (The Zones' volumes are boxes round the galleries' bends,
+    /// the dam's solid body included.)
+    const WALKABLE: [(ZoneId, (f32, f32), (f32, f32)); 13] = [
+        (TowerHead, (-45.0, -31.0), (19.0, 31.0)),
+        (SpillwayGatehouse, (31.0, 45.0), (19.0, 31.0)),
+        (GateShaft, (-43.0, -39.0), (3.0, 17.0)),
+        (IntakeGallery, (-43.0, -11.0), (-3.0, 1.0)),
+        (IntakeGallery, (-43.0, -39.0), (-55.0, 1.0)),
+        (ControlRoom, (-9.0, 9.0), (-5.0, 7.0)),
+        (SpillwayGallery, (11.0, 43.0), (-3.0, 1.0)),
+        (SpillwayGallery, (39.0, 43.0), (-31.0, 17.0)),
+        (PenstockTunnel, (-2.0, 2.0), (-27.0, -7.0)),
+        (TurbineHall, (-9.0, 9.0), (-55.0, -29.0)),
+        (SwitchgearRoom, (11.0, 25.0), (-51.0, -41.0)),
+        (SpillwayStair, (39.0, 43.0), (-55.0, -33.0)),
+        (DrainageGallery, (-43.0, 43.0), (-61.0, -57.0)),
+    ];
+
+    /// Every point of an indoor Zone's floor is within `LAMP_REACH` of a lamp in that Zone, so the
+    /// Zone reads wholly lit once Powered.
+    #[test]
+    fn every_point_of_an_indoor_dam_floor_is_within_reach_of_a_lamp_in_its_zone() {
+        let zones: std::collections::HashSet<_> = WALKABLE.iter().map(|w| w.0).collect();
+        assert_eq!(zones.len(), 11, "every Zone but the Crest Road");
+        for (zone, (x0, x1), (z0, z1)) in WALKABLE {
+            let lamps: Vec<Vec2> = LAMPS.iter().filter(|(lamp, _)| *lamp == zone).map(|(_, at)| Vec2::new(at.x - DAM_X, at.z)).collect();
+            assert!(!lamps.is_empty(), "{zone:?} has no lamps");
+            let (nx, nz) = (((x1 - x0) / 0.25).ceil().max(1.0) as u32, ((z1 - z0) / 0.25).ceil().max(1.0) as u32);
+            for i in 0..=nx {
+                for j in 0..=nz {
+                    let at = Vec2::new(x0 + (x1 - x0) * i as f32 / nx as f32, z0 + (z1 - z0) * j as f32 / nz as f32);
+                    let nearest = lamps.iter().map(|lamp| lamp.distance(at)).fold(f32::MAX, f32::min);
+                    assert!(nearest <= LAMP_REACH, "{at} in {zone:?} is {nearest} m from its nearest lamp");
+                }
+            }
+        }
+    }
+
+    /// The Dam is roofed and in its own night: every Zone has a Material Set, only the Crest Road
+    /// is outdoor, and the Look has a sky.
+    #[test]
+    fn the_dam_is_roofed_dressed_and_under_its_own_night_sky() {
+        let layout = dam();
+        assert!(layout.roofed && layout.darkness);
+        assert_eq!(layout.outdoor, &[CrestRoad]);
+        for &zone in layout.zones {
+            assert!(materials(Some(zone)).is_some(), "{zone:?} has no Material Set");
+        }
+        assert!(layout.look.sky_map.is_some());
+        assert_eq!(layout.look.ambient(layout.darkness), 0.0);
     }
 
     /// The 14 Doors are all bought, at the layout's prices, and none waits for the Power.

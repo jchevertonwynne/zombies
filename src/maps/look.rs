@@ -16,6 +16,7 @@ use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
 use bevy::render::view::ColorGrading;
 
+use crate::maps::darkness::Lamp;
 use crate::maps::map::{Layout, MapId};
 use crate::maps::zone::{PlayerZone, ZoneId};
 use crate::maps::map::textures::on_disk;
@@ -62,6 +63,14 @@ pub const NIGHT: Look = Look {
     lamps: 1.0,
     temperature: 0.0,
     tint: 0.0,
+};
+
+/// The Dam (#379): the night, under a dark, starry CC0 sky seen from the Crest Road. Its ambient
+/// is the Darkness's none, and the sky lights nothing, so only the lamps and the moon do.
+pub const DAM_NIGHT: Look = Look {
+    // Poly Haven's Qwantani Night (Pure Sky), a deep blue-black with a faint glow low down.
+    sky_map: Some(("skies/qwantani_night_puresky/sky.ktx2", 180.0)),
+    ..NIGHT
 };
 
 /// Dusk (#277): a low, warm, shadowed sun, a cool sky ambient, dusky mauve-grey fog, the lamps
@@ -169,7 +178,7 @@ fn follow_zone_fog(
 }
 
 /// Only the spot lamps nearest the eye cast shadows.
-fn shadow_nearest_lamps(eyes: Query<&GlobalTransform, With<PlayerCamera>>, mut lamps: Query<(&GlobalTransform, &mut SpotLight)>) {
+fn shadow_nearest_lamps(eyes: Query<&GlobalTransform, With<PlayerCamera>>, mut lamps: Query<(&GlobalTransform, &mut SpotLight), With<Lamp>>) {
     let Some(eye) = eyes.iter().next().map(GlobalTransform::translation) else { return };
     let mut by_distance: Vec<_> = lamps.iter_mut().map(|(at, light)| (at.translation().distance_squared(eye), light)).collect();
     by_distance.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -207,16 +216,22 @@ fn post_stack(
     let look = layout.look;
     let mut camera = commands.entity(add.entity);
     camera.insert((Hdr, Msaa::Off, Smaa::default(), ScreenSpaceAmbientOcclusion::default(), Tonemapping::TonyMcMapface));
-    if layout.darkness {
-        // Darkness brings its own Bloom and fog.
-        return;
+    if !layout.darkness {
+        camera.insert(Bloom { intensity: BLOOM, ..Bloom::NATURAL });
     }
-    camera.insert(Bloom { intensity: BLOOM, ..Bloom::NATURAL });
     if let (Some((file, brightness)), Some(asset_server)) = (look.sky_map, asset_server)
         && on_disk(file)
     {
         let image: Handle<Image> = asset_server.load(file);
-        camera.insert((Skybox { image: Some(image), brightness, ..default() }, SkyLight(brightness * SKY_LIGHT)));
+        camera.insert(Skybox { image: Some(image), brightness, ..default() });
+        // Under Darkness the sky is only to look at: it lights nothing.
+        if !layout.darkness {
+            camera.insert(SkyLight(brightness * SKY_LIGHT));
+        }
+    }
+    if layout.darkness {
+        // Darkness brings its own Bloom and fog.
+        return;
     }
     if let Ok((mut grading, mut fog)) = cameras.get_mut(add.entity) {
         grading.global.temperature = look.temperature;
@@ -244,9 +259,11 @@ mod tests {
         assert_eq!(NIGHT.ambient(true), 0.0);
         assert_eq!(DUSK.ambient(false), DUSK.ambient_brightness);
         assert_eq!(MapId::Greybox.layout().look, DUSK);
-        for map in [MapId::Quarry, MapId::Village, MapId::Dam, MapId::Cove] {
+        for map in [MapId::Quarry, MapId::Village, MapId::Cove] {
             assert_eq!(map.layout().look, NIGHT, "{map:?} keeps the night until its own rollout step");
         }
+        assert_eq!(MapId::Dam.layout().look, DAM_NIGHT);
+        assert_eq!(DAM_NIGHT.ambient(true), 0.0);
     }
 
     #[test]

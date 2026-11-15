@@ -1,7 +1,7 @@
-//! The screenshot tour, for approving a Map's look: `ZOMBIES_TOUR=<map>` (`greybox`, `cove`, or `dam`; the
-//! Dam has only a few views, for its Generators and Weapon Light) skips the menu, stands the Player at each of the Map's views in turn with no Zombies about,
+//! The screenshot tour, for approving a Map's look: `ZOMBIES_TOUR=<map>` (`greybox`, `cove` or `dam`) skips the menu, stands the Player at each of the Map's views in turn with no Zombies about,
 //! saves a 1920×1080 shot of the game window for each into `ZOMBIES_TOUR_OUT` (default `tour/`),
 //! and quits. The route views look from Zone to Zone through the Doors, which are hidden for them.
+//! The Dam's tour Holds every Generator, so its Zones are lit to judge, unless `ZOMBIES_TOUR_POWER=off`.
 //! `ZOMBIES_TOUR_MODE=gauntlet` plays the tour as a Gauntlet Run, the Player holding a dozen Boons
 //! so the HUD has something in its corner. Build with `--release`, and run with a scratch `HOME` so no Run Record is kept.
 
@@ -11,6 +11,7 @@ use bevy::window::PrimaryWindow;
 
 use crate::enemies::zombie::Zombie;
 use crate::maps::door::Door;
+use crate::maps::generator::Generators;
 use crate::maps::map::{COVE_X, MapId};
 use crate::run::gauntlet::boon::{BOONS, HeldBoons};
 use crate::maps::map::DAM_X;
@@ -50,9 +51,22 @@ const GREYBOX: &[View] = &[
     view("route-6-yard-to-dining", (-7.0, 0.0, 8.0), (-7.0, -24.0), 0.0, true),
 ];
 
-/// The Dam: a Generator's plate from off it and from on it, the Weapon Light down a gallery, and
-/// the Spillway Gallery's plate from behind it.
+/// The Dam: a view of each of its 12 Zones, then a Generator's plate from off it and from on it,
+/// the Weapon Light down a gallery, and the Spillway Gallery's plate from behind it.
 const DAM: &[View] = &[
+    view("crest-road", (DAM_X - 20.0, 8.0, 26.0), (DAM_X + 15.0, 26.0), 0.12, false),
+    view("crest-sky", (DAM_X - 4.0, 8.0, 25.0), (DAM_X + 8.0, 22.0), 0.45, false),
+    view("tower-head", (DAM_X - 32.0, 8.0, 21.0), (DAM_X - 44.0, 30.0), -0.12, false),
+    view("spillway-gatehouse", (DAM_X + 32.0, 8.0, 21.0), (DAM_X + 44.0, 30.0), -0.12, false),
+    view("gate-shaft", (DAM_X - 41.0, 4.0, 4.0), (DAM_X - 41.0, 17.0), 0.2, false),
+    view("intake-gallery", (DAM_X - 41.0, 4.0, -1.0), (DAM_X - 12.0, -1.0), -0.03, false),
+    view("control-room", (DAM_X, 4.0, -5.0), (DAM_X, 7.0), -0.06, false),
+    view("spillway-gallery", (DAM_X + 13.0, 4.0, -1.0), (DAM_X + 41.0, -1.0), -0.03, false),
+    view("penstock-tunnel", (DAM_X, 0.0, -26.0), (DAM_X, -8.0), 0.1, false),
+    view("turbine-hall", (DAM_X - 8.0, 0.0, -30.0), (DAM_X + 4.0, -52.0), -0.06, false),
+    view("switchgear-room", (DAM_X + 12.0, 0.0, -46.0), (DAM_X + 25.0, -46.0), -0.05, false),
+    view("spillway-stair", (DAM_X + 41.0, 0.0, -54.0), (DAM_X + 41.0, -34.0), 0.12, false),
+    view("drainage-gallery", (DAM_X - 25.0, 0.0, -59.0), (DAM_X + 35.0, -59.0), -0.02, false),
     view("intake-plate-off", (DAM_X - 35.0, 4.0, -22.0), (DAM_X - 40.5, -22.0), -0.35, false),
     view("intake-plate-on", (DAM_X - 40.5, 4.0, -22.0), (DAM_X - 30.0, -22.0), -0.1, false),
     view("gallery-light", (DAM_X - 39.0, 4.0, -10.0), (DAM_X - 39.0, -30.0), -0.05, false),
@@ -87,6 +101,8 @@ pub struct Tour {
     views: &'static [View],
     dir: String,
     frames: u32,
+    /// Whether to Hold every Generator, so a Map with Darkness is lit.
+    power: bool,
     shot: usize,
     settle: u32,
 }
@@ -103,7 +119,8 @@ impl Tour {
         };
         let dir = std::env::var("ZOMBIES_TOUR_OUT").unwrap_or_else(|_| "tour".into());
         std::fs::create_dir_all(&dir).expect("ZOMBIES_TOUR_OUT is writable");
-        Some(Self { map, views, dir, frames: 0, shot: 0, settle: 0 })
+        let power = map == MapId::Dam && !std::env::var("ZOMBIES_TOUR_POWER").is_ok_and(|power| power.eq_ignore_ascii_case("off"));
+        Some(Self { map, views, dir, frames: 0, power, shot: 0, settle: 0 })
     }
 }
 
@@ -115,7 +132,7 @@ impl Plugin for TourPlugin {
         app.insert_resource(tour)
             .add_systems(Startup, set_window)
             .add_systems(OnEnter(GameState::MainMenu), start_run)
-            .add_systems(Update, (clear, shoot, give_boons).run_if(in_state(GameState::Playing)));
+            .add_systems(Update, (clear, shoot, give_boons, hold_generators).run_if(in_state(GameState::Playing)));
     }
 }
 
@@ -145,6 +162,17 @@ fn give_boons(mode: Res<Mode>, mut done: Local<bool>, mut players: Query<&mut He
         }
         *done = true;
     }
+}
+
+/// In a tour that asks for it, every Generator Held once, so every Zone is Powered.
+fn hold_generators(tour: Res<Tour>, mut done: Local<bool>, mut generators: ResMut<Generators>) {
+    if *done || !tour.power || !generators.on_map() {
+        return;
+    }
+    for index in 0..generators.states().len() {
+        generators.hold(index);
+    }
+    *done = true;
 }
 
 /// No Zombies in the shots, and no harm to the Player.
