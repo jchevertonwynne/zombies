@@ -2525,6 +2525,12 @@ pub const GAUNTLET_PACK_ALPHA_SCALE: f32 = 2.0;
 pub const GAUNTLET_PACK_ALPHA_HOWL_SECS: f32 = 20.0;
 pub const GAUNTLET_PACK_ALPHA_PACK_SIZE: u32 = 4;
 pub const GAUNTLET_PACK_ALPHA_MAX_HOUNDS: u32 = 8;
+/// The Warden: a Sapper at this scale. At each `_HELMET_REFORMS_AT` share of its health its helmet
+/// re-forms (holding until it has lost `SAPPER_HELMET_FRACTION` of its max health again), and each
+/// Sabotage takes `_SABOTAGES` systems at once. Each costs `SAPPER_RESTORE_PRICE` to restore.
+pub const GAUNTLET_WARDEN_SCALE: f32 = 1.5;
+pub const GAUNTLET_WARDEN_HELMET_REFORMS_AT: [f32; 2] = [0.66, 0.33];
+pub const GAUNTLET_WARDEN_SABOTAGES: u32 = 2;
 
 // Pacts (Appendix B): fixed, held once, never scaled by Round
 /// Distinct Pacts on one Pact Offer, or fewer if fewer are left.

@@ -34,7 +34,7 @@ use crate::maps::shifting::{Lever, PiecePhase, PieceState};
 use crate::maps::trap::trap_zone;
 use crate::economy::power_up::DropPowerUp;
 use crate::run::round::{CarriesOver, ReservedRounds, Round, RoundPhase, zombie_health};
-use crate::enemies::request::{Entry, Requested, RequestedKind, SpawnZombie, requested_health};
+use crate::enemies::request::{Entry, Requested, RequestedKind, SpawnProfile, SpawnZombie, requested_health};
 use crate::storage::settings::Settings;
 use crate::enemies::special::{SpecialCue, SpecialKind, special_spawn_at};
 use crate::state::{GameState, InRun, world_runs};
@@ -220,8 +220,40 @@ pub fn pick_target<T>(
 
 /// Whether the helmet still holds on a Sapper with `health` of `max_health`: until it has lost
 /// `SAPPER_HELMET_FRACTION` of it.
+#[cfg(test)]
 pub fn helmet_holds(max_health: f32, health: f32) -> bool {
     health > max_health * (1.0 - SAPPER_HELMET_FRACTION)
+}
+
+/// Whether the helmet still holds on a Sapper that put it on with `since` (a share of its max
+/// health, 1.0 for the first helmet) left: until it has lost `SAPPER_HELMET_FRACTION` of max
+/// health from there.
+pub fn helmet_holds_since(max_health: f32, health: f32, since: f32) -> bool {
+    health > max_health * (since - SAPPER_HELMET_FRACTION)
+}
+
+/// The helmet re-forms as health (a `share` of max) reaches a mark in `marks_left`: those reached
+/// are dropped from `marks_left`, and the lowest of them, the phase it is now in, comes back.
+pub fn reform_mark(marks_left: &mut Vec<f32>, share: f32) -> Option<f32> {
+    let reached = marks_left.iter().copied().filter(|&mark| share <= mark).fold(None, |lowest: Option<f32>, mark| {
+        Some(lowest.map_or(mark, |lowest| lowest.min(mark)))
+    });
+    marks_left.retain(|&mark| share > mark);
+    reached
+}
+
+/// The other systems a Sabotage takes along when it takes `at_once` in all: up to `at_once - 1`
+/// of the `open` systems it can Sabotage (never the Generator it might Take, nor `done` itself),
+/// the nearest to where it worked first.
+pub fn extra_sabotages<T: PartialEq + Copy>(open: &[Candidate<T>], done: &Candidate<T>, at_once: u32) -> Vec<Candidate<T>> {
+    let mut rest: Vec<Candidate<T>> = open
+        .iter()
+        .copied()
+        .filter(|c| c.target != done.target && matches!(c.job, Job::Sabotage(_)) && c.job.wanted(c.powered, c.in_use))
+        .collect();
+    rest.sort_by(|a, b| a.spot.distance(done.spot).total_cmp(&b.spot.distance(done.spot)));
+    rest.truncate(at_once.saturating_sub(1) as usize);
+    rest
 }
 
 /// What a hit on the Sapper's head counts as: a body hit while the helmet holds, a Headshot after.
@@ -293,6 +325,12 @@ pub struct SummonSapper;
 #[derive(Component)]
 pub struct Sapper {
     helmet: bool,
+    /// The share of its max health it put its helmet on at: 1.0 at first, a phase mark after.
+    helmet_since: f32,
+    /// The shares of max health at which its helmet re-forms, those not yet reached.
+    reforms: Vec<f32>,
+    /// How many systems each Sabotage takes at once.
+    sabotages_at_once: u32,
     /// Its head (whose hit area the helmet turns into a body hit) and the helmet on it, once dressed.
     head: Option<Entity>,
     helmet_mesh: Option<Entity>,
@@ -313,6 +351,9 @@ impl Sapper {
     fn with_helmet(at: Vec3, helmet: bool) -> Self {
         Self {
             helmet,
+            helmet_since: 1.0,
+            reforms: Vec::new(),
+            sabotages_at_once: 1,
             head: None,
             helmet_mesh: None,
             goal: None,
@@ -325,6 +366,14 @@ impl Sapper {
 }
 
 impl Sapper {
+    /// A Sapper as `profile` asks: its helmet re-forming at the marks, its Sabotages taking more
+    /// systems at once.
+    fn with_profile(mut self, profile: &SpawnProfile) -> Self {
+        self.reforms = profile.helmet_reforms_at.to_vec();
+        self.sabotages_at_once = profile.sabotages_at_once.max(1);
+        self
+    }
+
     /// Whether it has lost its helmet.
     pub fn helmet_lost(&self) -> bool {
         !self.helmet
@@ -550,7 +599,7 @@ fn spawn_sapper(
     }
     let (point, barrier) = windows[rand::random_range(0..windows.len())];
     let health = SpecialKind::Sapper.health(zombie_health(round.number) as f32);
-    let zombie = spawn_sapper_body(&mut commands, &zombie_assets, &assets, point, health, 1.0);
+    let zombie = spawn_sapper_body(&mut commands, &zombie_assets, &assets, point, health, 1.0, &SpawnProfile::default());
     commands.entity(zombie).insert((Entering::new(barrier), CarriesOver, Heavyweight::SAPPER));
     // Every Plank off in one blow.
     barriers.smash(barrier);
@@ -574,13 +623,14 @@ fn spawn_sapper_body(
     at: Vec3,
     health: f32,
     scale: f32,
+    profile: &SpawnProfile,
 ) -> Entity {
     let zombie = spawn_zombie(commands, zombie_assets, at, health, SpeedTier::Walker, None);
     let mut entity = commands.entity(zombie);
     entity.insert((
         Name::new("Sapper"),
         Zombie::special(SpecialKind::Sapper, health, at).scaled(scale),
-        Sapper::new(at),
+        Sapper::new(at).with_profile(profile),
         MeshMaterial3d(assets.armour.clone()),
     ));
     scale_body(&mut entity, at, scale);
@@ -604,7 +654,7 @@ pub(crate) fn spawn_requested_sappers(
             continue;
         };
         let health = requested_health(number, request.health_factor);
-        let zombie = spawn_sapper_body(&mut commands, &zombie_assets, &assets, at, health, request.scale);
+        let zombie = spawn_sapper_body(&mut commands, &zombie_assets, &assets, at, health, request.scale, &request.profile);
         let mut entity = commands.entity(zombie);
         entity.insert((Requested, request.heavyweight.unwrap_or(Heavyweight::SAPPER)));
         if !request.holds_round {
@@ -675,15 +725,40 @@ fn trap_hits(
 }
 
 /// The helmet comes off once the Sapper has lost enough health: from then on a hit to its head
-/// is a Headshot.
+/// is a Headshot. At each phase mark its profile gives, it re-forms.
 fn helmets(
     mut commands: Commands,
     mut sappers: Query<(&mut Sapper, &Zombie, &Transform), Without<Dying>>,
     mut hit_areas: Query<&mut HitArea>,
+    assets: Res<SapperAssets>,
     mut cues: MessageWriter<SpecialCue>,
 ) {
     for (mut sapper, body, transform) in &mut sappers {
-        if !sapper.helmet || helmet_holds(body.max_health(), body.health()) {
+        let share = (body.health() / body.max_health()).max(0.0);
+        let sapper = &mut *sapper;
+        if let Some(mark) = reform_mark(&mut sapper.reforms, share) {
+            sapper.helmet = true;
+            sapper.helmet_since = mark;
+            if let Some(head) = sapper.head {
+                if let Ok(mut area) = hit_areas.get_mut(head) {
+                    area.0 = head_zone(true);
+                }
+                if sapper.helmet_mesh.is_none() {
+                    sapper.helmet_mesh = Some(
+                        commands
+                            .spawn((
+                                Mesh3d(assets.helmet.clone()),
+                                MeshMaterial3d(assets.steel.clone()),
+                                Transform::from_xyz(0.0, ZOMBIE_HEAD_RADIUS * 0.6, 0.0),
+                                ChildOf(head),
+                            ))
+                            .id(),
+                    );
+                }
+            }
+            continue;
+        }
+        if !sapper.helmet || helmet_holds_since(body.max_health(), body.health(), sapper.helmet_since) {
             continue;
         }
         sapper.helmet = false;
@@ -900,29 +975,35 @@ fn sabotage(
             sapper.working = None;
             sapper.goal = None;
             commands.entity(entity).remove::<Sabotaging>();
-            match goal.target {
-                Target::Entity(target) => {
-                    commands.entity(target).insert(Sabotaged);
+            let mut taken = vec![goal];
+            if matches!(goal.job, Job::Sabotage(_)) {
+                taken.extend(extra_sabotages(&open, &goal, sapper.sabotages_at_once));
+            }
+            for taken in taken {
+                match taken.target {
+                    Target::Entity(target) => {
+                        commands.entity(target).insert(Sabotaged);
+                    }
+                    Target::Teleporter => teleporter.sabotage(),
+                    // Lost for good: there's nothing to restore, only a Reclaim.
+                    Target::Generator(index) => {
+                        if let Some(generators) = generators.as_mut() {
+                            generators.lose(index);
+                        }
+                        continue;
+                    }
                 }
-                Target::Teleporter => teleporter.sabotage(),
-                // Lost for good: there's nothing to restore, only a Reclaim.
-                Target::Generator(index) => {
-                    if let Some(generators) = generators.as_mut() {
-                        generators.lose(index);
+                // A bridge can be restored at any of its Levers.
+                if let (Job::Sabotage(SabotageKind::Lever), Target::Entity(piece)) = (taken.job, taken.target)
+                    && let Ok((_, state)) = bridges.get(piece)
+                {
+                    for lever in levers.iter().filter(|lever| lever.piece == state.id()) {
+                        spawn_restore(&mut commands, &assets, taken.target, lever.use_point());
                     }
                     continue;
                 }
+                spawn_restore(&mut commands, &assets, taken.target, taken.use_point);
             }
-            // A bridge can be restored at any of its Levers.
-            if let (Job::Sabotage(SabotageKind::Lever), Target::Entity(piece)) = (goal.job, goal.target)
-                && let Ok((_, state)) = bridges.get(piece)
-            {
-                for lever in levers.iter().filter(|lever| lever.piece == state.id()) {
-                    spawn_restore(&mut commands, &assets, goal.target, lever.use_point());
-                }
-                continue;
-            }
-            spawn_restore(&mut commands, &assets, goal.target, goal.use_point);
             continue;
         }
 
@@ -1316,6 +1397,49 @@ mod tests {
         assert!(!helmet_holds(1000.0, 850.0));
         assert_eq!(head_zone(true), HitZone::Torso);
         assert_eq!(head_zone(false), HitZone::Head);
+    }
+
+    #[test]
+    fn a_reformed_helmet_holds_until_it_has_lost_fifteen_percent_from_its_mark() {
+        assert!(helmet_holds_since(1000.0, 1000.0, 1.0) && helmet_holds(1000.0, 851.0));
+        assert!(helmet_holds_since(1000.0, 520.0, 0.66), "just reformed at the first mark");
+        assert!(helmet_holds_since(1000.0, 511.0, 0.66));
+        assert!(!helmet_holds_since(1000.0, 510.0, 0.66), "15% of max health lost from 66%");
+        assert!(!helmet_holds_since(1000.0, 180.0, 0.33));
+        assert!(helmet_holds_since(1000.0, 181.0, 0.33));
+    }
+
+    #[test]
+    fn the_helmet_reforms_once_at_each_phase_mark() {
+        let mut marks = vec![0.66, 0.33];
+        assert_eq!(reform_mark(&mut marks, 0.9), None);
+        assert_eq!(reform_mark(&mut marks, 0.66), Some(0.66));
+        assert_eq!(marks, [0.33]);
+        assert_eq!(reform_mark(&mut marks, 0.5), None, "not again at the same mark");
+        assert_eq!(reform_mark(&mut marks, 0.2), Some(0.33));
+        assert!(marks.is_empty());
+        let mut both = vec![0.66, 0.33];
+        assert_eq!(reform_mark(&mut both, 0.1), Some(0.33), "a big hit through both marks lands in the last phase");
+        assert!(both.is_empty());
+        let mut none: Vec<f32> = Vec::new();
+        assert_eq!(reform_mark(&mut none, 0.0), None, "no marks, no reform: Classic's Sapper");
+    }
+
+    #[test]
+    fn a_sabotage_takes_the_nearest_other_systems_up_to_the_number_at_once() {
+        let done = at(1, SabotageKind::MysteryBox, 0.0, true, false);
+        let open = [
+            done,
+            at(2, SabotageKind::PackAPunch, 9.0, true, false),
+            at(3, SabotageKind::Trap, 3.0, true, false),
+            at(4, SabotageKind::Teleporter, 1.0, true, true),
+            at(5, Job::Take, 0.5, true, false),
+        ];
+        let ids = |n| extra_sabotages(&open, &done, n).into_iter().map(|c| c.target).collect::<Vec<_>>();
+        assert_eq!(ids(1), Vec::<u32>::new(), "Classic: one at a time");
+        assert_eq!(ids(2), [3], "the nearest one it can Sabotage: not in use, not a Generator");
+        assert_eq!(ids(3), [3, 2]);
+        assert_eq!(ids(9), [3, 2], "never more than there are");
     }
 
     #[test]

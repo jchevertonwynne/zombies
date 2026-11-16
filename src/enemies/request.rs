@@ -52,11 +52,16 @@ pub struct SpawnProfile {
     pub detonates: bool,
     /// Napalm: the fire pools it leaves behind it. Default none.
     pub trail: Option<Trail>,
+    /// Sapper: the shares of its max health at which its helmet re-forms (to hold until it has
+    /// lost `SAPPER_HELMET_FRACTION` again). Default none: the helmet comes off once and stays off.
+    pub helmet_reforms_at: &'static [f32],
+    /// Sapper: how many systems each Sabotage takes at once. Default 1.
+    pub sabotages_at_once: u32,
 }
 
 impl Default for SpawnProfile {
     fn default() -> Self {
-        Self { detonates: true, trail: None }
+        Self { detonates: true, trail: None, helmet_reforms_at: &[], sabotages_at_once: 1 }
     }
 }
 
@@ -185,5 +190,7 @@ mod tests {
         let profile = SpawnProfile::default();
         assert!(profile.detonates);
         assert_eq!(profile.trail, None);
+        assert!(profile.helmet_reforms_at.is_empty());
+        assert_eq!(profile.sabotages_at_once, 1);
     }
 }
