@@ -50,6 +50,7 @@ pub(super) fn gauntlet_players_with(extra: impl FnOnce(&mut App)) -> (Sim, Entit
             .add_message::<PickOffer>()
             .add_message::<RerollOffer>()
             .add_message::<BanishCard>()
+            .add_message::<tools::ToolUsed>()
             .add_message::<crate::economy::points::SpendPoints>()
             .add_message::<PlayCue>()
             .add_message::<TeddyBear>()
@@ -720,4 +721,57 @@ fn a_pact_offer_carries_the_reward_to_the_next_boon_offer() {
     let offer = sim.world_mut().get::<Offer>(local).expect("the next Offer");
     assert!(matches!(offer.choices, Choices::Boons(_)));
     assert!(offer.boost.rarity_bump, "the carried reward lands here");
+}
+
+#[test]
+fn the_banish_track_and_the_kit_help_only_this_machines_player() {
+    let (mut sim, local, teammate) = gauntlet_players_with(|app| {
+        let mut file = GauntletFile { scrip: 5000, ..default() };
+        file.buy_rank(progress::Track::Banish).unwrap();
+        file.buy_rank(progress::Track::Banish).unwrap();
+        app.insert_resource(file).insert_resource(ChosenKit(Kit::Blade));
+    });
+    let world = sim.world_mut();
+    assert_eq!(world.get::<Banishes>(local).unwrap().charges, GAUNTLET_BANISHES_START + 2);
+    assert_eq!(world.get::<Banishes>(teammate).unwrap().charges, GAUNTLET_BANISHES_START);
+    assert_eq!(world.get::<PlayerKit>(local).unwrap().kit, Kit::Blade);
+    assert_eq!(world.get::<PlayerKit>(teammate).unwrap().kit, Kit::Standard);
+}
+
+#[test]
+fn a_family_kit_puts_its_rule_on_its_player_as_an_entry() {
+    let (mut sim, local, teammate) = gauntlet_players_with(|app| {
+        app.insert_resource(ChosenKit(Kit::Grit));
+    });
+    sim.run(2);
+    let revives = |sim: &mut Sim, player| {
+        let entries = sim.world_mut().get::<Modifiers>(player).unwrap().0.clone();
+        crate::modifier::resolve(Stat::SelfRevives, 0.0, &entries)
+    };
+    assert_eq!(revives(&mut sim, local), 1.0);
+    assert_eq!(revives(&mut sim, teammate), 0.0);
+}
+
+#[test]
+fn the_blade_kits_first_boon_offer_has_a_blade_card_every_time() {
+    for _ in 0..30 {
+        let (mut sim, local, _) = gauntlet_players_with(|app| {
+            app.insert_resource(ChosenKit(Kit::Blade));
+        });
+        sim.world_mut().resource_mut::<UnlockAll>().0 = true;
+        end_round(&mut sim);
+        let ids = offered(&mut sim, local);
+        let blade = ids.iter().filter_map(|id| boon::find(id)).filter(|boon| boon.family == boon::Family::Blade).count();
+        assert!(blade >= 1, "{ids:?}");
+        assert!(sim.world_mut().get::<PlayerKit>(local).unwrap().offered);
+    }
+}
+
+#[test]
+fn a_standard_kit_leaves_offers_unbiased_and_unguaranteed() {
+    let (mut sim, local, _) = gauntlet_players();
+    sim.world_mut().resource_mut::<UnlockAll>().0 = true;
+    end_round(&mut sim);
+    let offer = sim.world_mut().get::<Offer>(local).unwrap();
+    assert!(offer.boost.is_none());
 }

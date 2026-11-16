@@ -8,6 +8,8 @@ use bevy::ui_widgets::{Activate, Button};
 use crate::players::controls::{Action, Binding, Bindings};
 use crate::ui::hud::{ROUND_RED, full_screen, text, with_commas};
 use crate::maps::map::MapId;
+use crate::run::gauntlet::kits::kit_picker;
+use crate::run::gauntlet::progress::GauntletFile;
 use crate::run::mode::Mode;
 use crate::players::player::Seat;
 use crate::storage::records::{
@@ -102,7 +104,7 @@ impl Reset {
     fn warning(self) -> &'static str {
         match self {
             Reset::Records => "Every Run Record and Lifetime total will be lost.",
-            Reset::Gauntlet => "All Scrip, Unlocks and Ranks will be lost. Records are kept.",
+            Reset::Gauntlet => "All Scrip, Unlocks, Ranks and Commendations will be lost. Records are kept.",
         }
     }
 }
@@ -233,7 +235,7 @@ impl Plugin for MenuPlugin {
                 Update,
                 refresh_mode_screen
                     .run_if(in_state(MainMenuScreen::Mode))
-                    .run_if(resource_changed::<Settings>),
+                    .run_if(|settings: Res<Settings>, file: Res<GauntletFile>| settings.is_changed() || file.is_changed()),
             )
             .add_systems(
                 Update,
@@ -324,7 +326,7 @@ fn spawn_main_menu(mut commands: Commands) {
         .insert(DespawnOnExit(MainMenuScreen::Root));
 }
 
-fn spawn_mode_screen(mut commands: Commands, settings: Res<Settings>) {
+fn spawn_mode_screen(mut commands: Commands, settings: Res<Settings>, file: Res<GauntletFile>) {
     let (mode, map) = (settings.last_mode, settings.last_map);
     let screen = screen(&mut commands, MENU_BACKGROUND, |screen| {
         screen.spawn((
@@ -344,7 +346,7 @@ fn spawn_mode_screen(mut commands: Commands, settings: Res<Settings>) {
                     ..default()
                 },
             ))
-            .with_children(|board| mode_board(board, mode, map));
+            .with_children(|board| mode_board(board, mode, map, &file));
         button(screen, "Back", MenuButton::Back, 280.0);
     });
     commands
@@ -354,7 +356,7 @@ fn spawn_mode_screen(mut commands: Commands, settings: Res<Settings>) {
 
 /// The Mode buttons and the Map buttons, each with the highlighted one in red and a line on what
 /// it's like, the Armory while Gauntlet is highlighted, and Start.
-fn mode_board(board: &mut ChildSpawnerCommands, highlighted: Mode, map: MapId) {
+fn mode_board(board: &mut ChildSpawnerCommands, highlighted: Mode, map: MapId, file: &GauntletFile) {
     board
         .spawn(Node {
             column_gap: px(16.0),
@@ -390,6 +392,7 @@ fn mode_board(board: &mut ChildSpawnerCommands, highlighted: Mode, map: MapId) {
     board.spawn(text(map.blurb(), 22.0, HINT_GREY));
     if highlighted == Mode::Gauntlet {
         button(board, "Armory", MenuButton::Armory, 280.0);
+        kit_picker(board, file);
     }
     colored_button(board, "Start", MenuButton::Start, 280.0, NEW_BEST_GOLD);
 }
@@ -398,13 +401,14 @@ fn refresh_mode_screen(
     mut commands: Commands,
     board: Query<Entity, With<ModeBoard>>,
     settings: Res<Settings>,
+    file: Res<GauntletFile>,
 ) {
     let (mode, map) = (settings.last_mode, settings.last_map);
     for board in &board {
         commands
             .entity(board)
             .despawn_children()
-            .with_children(|board| mode_board(board, mode, map));
+            .with_children(|board| mode_board(board, mode, map, &file));
     }
 }
 
@@ -556,6 +560,11 @@ fn refresh_records(
                     if let Some(heat) = run.heat.filter(|_| !run.won) {
                         board.spawn(text(format!("Heat {heat}"), 16.0, HINT_GREY));
                     }
+                    if let Some(kit) = run.kit.as_deref().filter(|kit| *kit != "standard") {
+                        let mut name = kit.to_string();
+                        name[..1].make_ascii_uppercase();
+                        board.spawn(text(format!("{name} Kit"), 16.0, HINT_GREY));
+                    }
                     let off = off_types(run);
                     if !off.is_empty() {
                         let labels: Vec<_> = off.iter().map(|kind| kind.label()).collect();
@@ -594,6 +603,9 @@ fn refresh_records(
             ));
             if lifetime.revives > 0 {
                 board.spawn(text(format!("Revives {}", with_commas(lifetime.revives)), 20.0, Color::WHITE));
+            }
+            if lifetime.elites_killed > 0 {
+                board.spawn(text(format!("Elites killed {}", with_commas(lifetime.elites_killed)), 20.0, Color::WHITE));
             }
             if lifetime.wins > 0 {
                 board.spawn(text(

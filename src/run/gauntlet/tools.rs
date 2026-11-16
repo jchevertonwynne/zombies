@@ -7,8 +7,9 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use super::arc::{draw_boss_cards, is_boss_round};
-use super::boon::{BOONS, BoonDef, HeldBoons, Rarity, RunFacts};
+use super::boon::{BOONS, BoonDef, Family, HeldBoons, Rarity, RunFacts};
 use super::duos::DUOS;
+use super::kits::PlayerKit;
 use super::pact::HeldPacts;
 use super::variety::{Boost, draw_boosted, draw_cards_boosted, guarantee_families};
 use super::{Bought, Choices, Offer, PlayerUnlocks, UnlockAll};
@@ -32,8 +33,21 @@ pub struct Banishes {
 
 impl Default for Banishes {
     fn default() -> Self {
-        Self { charges: GAUNTLET_BANISHES_START, banished: Vec::new() }
+        Self::starting(0)
     }
+}
+
+impl Banishes {
+    /// A Run's starting charges: the usual one, plus `track` from the Banish Track's Ranks.
+    pub fn starting(track: u32) -> Self {
+        Self { charges: GAUNTLET_BANISHES_START.saturating_add(track), banished: Vec::new() }
+    }
+}
+
+/// A Player's Reroll or Banish went through (it was affordable and drew something).
+#[derive(Message, Debug, Clone, Copy)]
+pub struct ToolUsed {
+    pub player: Entity,
 }
 
 /// The Player asks to Reroll their open Boon or Boss Offer.
@@ -109,7 +123,7 @@ pub struct RunSources<'w> {
 
 impl RunSources<'_> {
     /// The Run as one Player's Offers see it.
-    pub fn facts(&self, bought: &Bought, loadout: &Loadout, held: &HeldBoons, unlocks: &PlayerUnlocks, banished: &[&'static str]) -> RunFacts {
+    pub fn facts(&self, bought: &Bought, loadout: &Loadout, held: &HeldBoons, unlocks: &PlayerUnlocks, banished: &[&'static str], kit: Option<Family>) -> RunFacts {
         RunFacts {
             power_on: self.supply.has_been_on(),
             held_pacts: self.pacts.ids(),
@@ -120,7 +134,7 @@ impl RunSources<'_> {
             holds_proc_boon: held.0.iter().any(|(boon, _)| boon.proc.is_some()),
             unlocked: unlocks.0.clone(),
             unlock_all: self.unlock_all.0,
-            kit: None,
+            kit,
             banished: banished.to_vec(),
         }
     }
@@ -144,16 +158,17 @@ pub fn grant_banishes(
 /// `SpendPoints`. Refused if the Player can't afford it; a Pact Offer can't be Rerolled.
 pub fn apply_reroll(
     mut requests: MessageReader<RerollOffer>,
-    mut players: Query<(&mut Offer, &HeldBoons, &PlayerUnlocks, &Bought, &Loadout, &Banishes, &Points, Has<LocalPlayer>)>,
+    mut players: Query<(&mut Offer, &HeldBoons, &PlayerUnlocks, &Bought, &Loadout, &Banishes, &Points, &PlayerKit, Has<LocalPlayer>)>,
     sources: RunSources,
     real: Res<Time<Real>>,
     mut spends: MessageWriter<SpendPoints>,
     mut cues: MessageWriter<PlayCue>,
+    mut used: MessageWriter<ToolUsed>,
 ) {
     // Points already asked for this frame, so two Rerolls can't be paid for with one balance.
     let mut committed: Vec<(Entity, u64)> = Vec::new();
     for &RerollOffer { player } in requests.read() {
-        let Ok((mut offer, held, unlocks, bought, loadout, banishes, points, local)) = players.get_mut(player) else {
+        let Ok((mut offer, held, unlocks, bought, loadout, banishes, points, kit, local)) = players.get_mut(player) else {
             continue;
         };
         // After an extra pick the Offer has already paid out; it can't be Rerolled back to full.
@@ -165,13 +180,14 @@ pub fn apply_reroll(
         if points.balance.saturating_sub(owed) < price {
             continue;
         }
-        let run = sources.facts(bought, loadout, held, unlocks, &banishes.banished);
+        let run = sources.facts(bought, loadout, held, unlocks, &banishes.banished, kit.kit.family());
         let cards = draw_cards_boosted(offer.round, held, &run, &offer.boost, |total| rand::random_range(0.0..total));
         if cards.is_empty() {
             continue;
         }
         committed.push((player, price));
         spends.write(SpendPoints { player, amount: price });
+        used.write(ToolUsed { player });
         offer.choices = Choices::Boons(cards);
         offer.rerolls += 1;
         offer.shown_at = real.elapsed_secs();
@@ -186,13 +202,14 @@ pub fn apply_reroll(
 pub fn apply_banish(
     mut commands: Commands,
     mut requests: MessageReader<BanishCard>,
-    mut players: Query<(&mut Offer, &HeldBoons, &PlayerUnlocks, &Bought, &Loadout, &mut Banishes, Has<LocalPlayer>)>,
+    mut players: Query<(&mut Offer, &HeldBoons, &PlayerUnlocks, &Bought, &Loadout, &mut Banishes, &PlayerKit, Has<LocalPlayer>)>,
     sources: RunSources,
     real: Res<Time<Real>>,
     mut cues: MessageWriter<PlayCue>,
+    mut used: MessageWriter<ToolUsed>,
 ) {
     for &BanishCard { player, card } in requests.read() {
-        let Ok((mut offer, held, unlocks, bought, loadout, mut banishes, local)) = players.get_mut(player) else {
+        let Ok((mut offer, held, unlocks, bought, loadout, mut banishes, kit, local)) = players.get_mut(player) else {
             continue;
         };
         let Choices::Boons(cards) = &offer.choices else {
@@ -204,9 +221,10 @@ pub fn apply_banish(
         if banishes.charges == 0 {
             continue;
         }
-        let run = sources.facts(bought, loadout, held, unlocks, &banishes.banished);
+        let run = sources.facts(bought, loadout, held, unlocks, &banishes.banished, kit.kit.family());
         let cards = banish(cards, card, offer.round, held, &run, &offer.boost, |total| rand::random_range(0.0..total));
         banishes.charges -= 1;
+        used.write(ToolUsed { player });
         if !banishes.banished.contains(&gone.id) {
             banishes.banished.push(gone.id);
         }

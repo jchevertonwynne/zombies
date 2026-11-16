@@ -167,6 +167,8 @@ cues! {
     BossHowl => "boss_howl", Root, Spatial, 1.0;
     EliteSpawn => "elite_spawn", Root, Spatial, 0.9;
     GauntletWin => "gauntlet_win", Root, Flat, 0.85;
+    // A Commendation earned.
+    Commendation => "commendation", Root, Flat, 0.8;
     // Round variety: a Challenge broken or met, and a Twist Round's start in place of `RoundStart`.
     ChallengeBreach => "challenge_breach", Root, Flat, 0.7;
     ChallengeMet => "challenge_met", Root, Flat, 0.75;
@@ -316,7 +318,7 @@ mod tests {
             // Gauntlet v2's Proc cues (spec #182, Appendix C6).
             "proc_frost", "proc_blast",
             "set_bonus_tier_two", "set_bonus_tier_four", "set_bonus_tier_six", "duo_taken",
-            "boss_warning", "boss_howl", "elite_spawn", "gauntlet_win",
+            "boss_warning", "boss_howl", "elite_spawn", "gauntlet_win", "commendation",
             "challenge_breach", "challenge_met", "twist_round_start",
         ];
         let declared: Vec<_> = Cue::ALL.iter().map(|cue| cue.spec().name).collect();

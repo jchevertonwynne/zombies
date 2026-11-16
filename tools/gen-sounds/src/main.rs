@@ -149,6 +149,7 @@ fn recipe(cue: Cue) -> Recipe {
         Cue::BossHowl => Recipe::Synth(boss_howl()),
         Cue::EliteSpawn => Recipe::Synth(elite_spawn()),
         Cue::GauntletWin => Recipe::Synth(gauntlet_win()),
+        Cue::Commendation => Recipe::Synth(commendation()),
         Cue::ChallengeBreach => Recipe::Synth(challenge_breach()),
         Cue::ChallengeMet => Recipe::Synth(challenge_met()),
         Cue::TwistRoundStart => Recipe::Synth(twist_round_start()),
@@ -1322,6 +1323,11 @@ fn challenge_breach() -> Vec<f32> {
 }
 
 /// A Challenge met: two bright rising chimes.
+/// A Commendation earned: a longer, brighter chime than a Challenge met, rising a fifth and an octave.
+fn commendation() -> Vec<f32> {
+    clamped(chime(&[659.3, 987.8, 1318.5], 1.4, 3.5))
+}
+
 fn challenge_met() -> Vec<f32> {
     clamped(chime(&[784.0, 1174.7], 0.9, 5.0))
 }

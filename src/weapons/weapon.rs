@@ -940,6 +940,46 @@ pub fn hip_spread_mult(locomotion: &Locomotion) -> f32 {
     }
 }
 
+/// The Loadout a Run's Player begins with (ADR 0007), read once as the Run starts. Classic leaves
+/// it at its default: the starting Weapon with its usual Reserve, no Bowie Knife, `FRAG_START`
+/// Lethals. Whatever is layered on Classic sets it before the Run begins, for the local Player
+/// only, as with `RunModifiers`.
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StartingLoadout {
+    pub weapon: WeaponId,
+    /// Bullets of Reserve Ammo the Weapon starts with; `None` for its usual.
+    pub reserve: Option<u32>,
+    /// Starts carrying the Bowie Knife.
+    pub bowie: bool,
+    /// Lethals carried.
+    pub lethals: u32,
+}
+
+impl Default for StartingLoadout {
+    fn default() -> Self {
+        Self { weapon: STARTING_WEAPON, reserve: None, bowie: false, lethals: FRAG_START }
+    }
+}
+
+impl StartingLoadout {
+    /// The Weapon slots: the Weapon with a full Magazine and its Reserve.
+    pub fn loadout(&self) -> Loadout {
+        let mut loadout = Loadout::new(self.weapon);
+        if let Some(reserve) = self.reserve {
+            loadout.held_mut().reserve = reserve;
+        }
+        loadout
+    }
+
+    pub fn knife(&self) -> Knife {
+        Knife { bowie: self.bowie, ..default() }
+    }
+
+    pub fn equipment(&self) -> Equipment {
+        Equipment { frags: self.lethals, ..default() }
+    }
+}
+
 #[derive(Component, Default)]
 pub struct Knife {
     cooldown: f32,

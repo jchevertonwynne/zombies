@@ -398,6 +398,7 @@ mod tests {
         .init_resource::<BackTo>()
         .init_resource::<GauntletFile>()
         .init_resource::<RunModifiers>()
+        .init_resource::<crate::weapons::weapon::StartingLoadout>()
         .init_resource::<Mode>()
         .init_resource::<MapId>()
         .insert_resource(Settings::default())

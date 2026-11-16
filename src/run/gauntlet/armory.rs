@@ -1,14 +1,17 @@
 //! The Armory, reached from the Mode screen while Gauntlet is highlighted and never mid-Run: Scrip
-//! is spent on Unlocks and Upgrade Track Ranks, and Tracks are switched on or off. Every purchase
-//! or toggle changes `GauntletFile`, which is saved on change.
+//! is spent on Unlocks and Upgrade Track Ranks, and Tracks are switched on or off. A third tab lists
+//! the Commendations, and the Unlocks tab ends in the Duo codex. Every purchase or toggle changes
+//! `GauntletFile`, which is saved on change.
 
 use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 use bevy::ui_widgets::{Activate, Button};
 
-use super::boon::{BOONS, Rarity};
+use super::boon::{BOONS, Rarity, find as find_boon};
+use super::commendations::{COMMENDATIONS, Group};
+use super::duos::DUOS;
 use super::pact::{CRIMSON, PACTS};
-use super::progress::{Card, GauntletFile, Refusal, TRACK_RANKS, Track, rank_price};
+use super::progress::{Card, GauntletFile, Refusal, Track};
 use crate::ui::hud::{ROUND_RED, text, with_commas};
 use crate::ui::menu::{
     HINT_GREY, MENU_BACKGROUND, MenuButton, MenuButtonLook, NEW_BEST_GOLD, button, colored_button,
@@ -24,6 +27,7 @@ pub enum ArmoryTab {
     #[default]
     Unlocks,
     Upgrades,
+    Commendations,
 }
 
 /// The Armory's last refusal, shown under the Scrip balance until the next purchase.
@@ -146,6 +150,7 @@ pub fn refresh_armory(
                     for (label, each) in [
                         ("Unlocks", ArmoryTab::Unlocks),
                         ("Upgrades", ArmoryTab::Upgrades),
+                        ("Commendations", ArmoryTab::Commendations),
                     ] {
                         let color = if each == tab { ROUND_RED } else { Color::WHITE };
                         colored_button(tabs, label, ArmoryButton::Tab(each), 200.0, color);
@@ -154,6 +159,7 @@ pub fn refresh_armory(
             match tab {
                 ArmoryTab::Unlocks => unlocks_tab(board, &file),
                 ArmoryTab::Upgrades => upgrades_tab(board, &file),
+                ArmoryTab::Commendations => commendations_tab(board, &file),
             }
         });
 }
@@ -222,6 +228,96 @@ fn unlocks_tab(board: &mut ChildSpawnerCommands, file: &GauntletFile) {
                 });
             }
         });
+    duo_codex(board, file);
+}
+
+/// Every Duo Boon's recipe, from the start, with a recipe Boon not yet Unlocked greyed out.
+fn duo_codex(board: &mut ChildSpawnerCommands, file: &GauntletFile) {
+    board.spawn((
+        text("DUO CODEX", 22.0, Color::WHITE),
+        Node {
+            margin: UiRect::top(px(6.0)),
+            ..default()
+        },
+    ));
+    board
+        .spawn(Node {
+            flex_wrap: FlexWrap::Wrap,
+            justify_content: JustifyContent::Center,
+            column_gap: px(18.0),
+            max_width: px(1500.0),
+            ..default()
+        })
+        .with_children(|codex| {
+            for duo in DUOS {
+                let Some(recipe) = duo.duo else { continue };
+                codex
+                    .spawn(Node {
+                        column_gap: px(6.0),
+                        ..default()
+                    })
+                    .with_children(|row| {
+                        row.spawn(text(duo.name, 16.0, Rarity::Legendary.colour()));
+                        for (at, id) in recipe.recipe.iter().enumerate() {
+                            let Some(boon) = find_boon(id) else { continue };
+                            let colour = if file.is_unlocked(Card::Boon(boon)) {
+                                recipe.families[at].colour()
+                            } else {
+                                HINT_GREY
+                            };
+                            let joiner = if at == 0 { "=" } else { "+" };
+                            row.spawn(text(format!("{joiner} {}", boon.name), 16.0, colour));
+                        }
+                    });
+            }
+        });
+}
+
+/// Each Commendation by group, its reward and whether it's earned, with the Kit a Family one earns.
+fn commendations_tab(board: &mut ChildSpawnerCommands, file: &GauntletFile) {
+    let earned = COMMENDATIONS
+        .iter()
+        .filter(|commendation| file.has_commendation(commendation.id))
+        .count();
+    board.spawn(text(
+        format!(
+            "{earned} of {} earned. Each pays its Scrip once, whatever the Heat. A Family one earns that Family's Kit.",
+            COMMENDATIONS.len()
+        ),
+        18.0,
+        HINT_GREY,
+    ));
+    board
+        .spawn(Node {
+            column_gap: px(28.0),
+            align_items: AlignItems::FlexStart,
+            ..default()
+        })
+        .with_children(|row| {
+            for group in Group::ALL {
+                row.spawn(Node {
+                    flex_direction: FlexDirection::Column,
+                    row_gap: px(4.0),
+                    ..default()
+                })
+                .with_children(|column| {
+                    column.spawn(text(group.name(), 22.0, Color::WHITE));
+                    for commendation in COMMENDATIONS.iter().filter(|c| c.group == group) {
+                        let done = file.has_commendation(commendation.id);
+                        let (mark, colour) = if done {
+                            ("[x]", UNLOCKED_GREEN)
+                        } else {
+                            ("[ ]", HINT_GREY)
+                        };
+                        column.spawn(text(
+                            format!("{mark} {}  +{}", commendation.name, commendation.scrip),
+                            17.0,
+                            colour,
+                        ));
+                    }
+                });
+            }
+        });
 }
 
 /// A row per Upgrade Track: its Ranks, its effect now and after the next Rank, the next Rank's
@@ -231,7 +327,7 @@ fn upgrades_tab(board: &mut ChildSpawnerCommands, file: &GauntletFile) {
         format!(
             "Ranks switched on apply to every Gauntlet Run: {} of {} active.",
             file.active_ranks(),
-            TRACK_RANKS * Track::ALL.len() as u32
+            Track::total_ranks()
         ),
         18.0,
         HINT_GREY,
@@ -248,13 +344,13 @@ fn upgrades_tab(board: &mut ChildSpawnerCommands, file: &GauntletFile) {
             .with_children(|row| {
                 let colour = if on { Color::WHITE } else { HINT_GREY };
                 cell(row, track.name(), 220.0, colour);
-                cell(row, format!("Rank {ranks}/{TRACK_RANKS}"), 110.0, colour);
-                let effect = match rank_price(ranks) {
+                cell(row, format!("Rank {ranks}/{}", track.max_ranks()), 110.0, colour);
+                let effect = match track.rank_price(ranks) {
                     Some(_) => format!("{} -> {}", track.effect(ranks), track.effect(ranks + 1)),
                     None => track.effect(ranks),
                 };
                 cell(row, effect, 220.0, colour);
-                match rank_price(ranks) {
+                match track.rank_price(ranks) {
                     Some(price) => {
                         let colour = if price > file.scrip {
                             HINT_GREY

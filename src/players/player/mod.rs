@@ -38,7 +38,7 @@ use crate::storage::settings::{Settings, StanceMode};
 use crate::state::{Choosing, GameState, InRun, Pause, input_runs, world_runs};
 use crate::players::teammate::{HeldWeapon, Pose, Shots};
 use crate::tuning::*;
-use crate::weapons::weapon::{Knife, Loadout, move_towards};
+use crate::weapons::weapon::{Knife, Loadout, StartingLoadout, move_towards};
 
 /// How low a Player's body is: Standing, Crouched behind the Crouch key, Prone behind theirs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -655,6 +655,7 @@ impl Plugin for PlayerPlugin {
             .add_message::<HealPlayer>()
             .init_resource::<FovWarp>()
             .init_resource::<RunModifiers>()
+            .init_resource::<StartingLoadout>()
             .add_systems(
                 OnEnter(GameState::Playing),
                 (spawn_player.in_set(SpawnPlayers), |mut warp: ResMut<FovWarp>| *warp = FovWarp::default()),
@@ -749,6 +750,7 @@ pub(crate) fn spawn_player(
     mut commands: Commands,
     settings: Res<Settings>,
     run: Res<RunModifiers>,
+    starting: Res<StartingLoadout>,
     party: Option<Res<Party>>,
     map: Res<MapId>,
 ) {
@@ -766,6 +768,8 @@ pub(crate) fn spawn_player(
         }
         commands
             .spawn((player_body(seat, &name, &run.0, map), LocalPlayer))
+            // Only this Player's own start, as with their Tracks.
+            .insert((starting.loadout(), starting.knife(), starting.equipment()))
             .with_child((
                 PlayerCamera,
                 Eye {
@@ -1615,6 +1619,7 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(Settings::default());
         world.init_resource::<RunModifiers>();
+        world.init_resource::<StartingLoadout>();
         world.init_resource::<MapId>();
         world.run_system_once(spawn_player).unwrap();
         let (player, seat) = world
@@ -1624,6 +1629,29 @@ mod tests {
         assert_eq!(*seat, Seat(0));
         let camera = world.query_filtered::<&ChildOf, With<PlayerCamera>>().single(&world).unwrap();
         assert_eq!(camera.parent(), player);
+    }
+
+    #[test]
+    fn the_starting_loadout_sets_the_local_players_opening_gear_and_defaults_to_classics() {
+        use bevy::ecs::system::RunSystemOnce;
+        use crate::weapons::arsenal::WeaponId;
+        let spawned = |start: StartingLoadout| {
+            let mut world = World::new();
+            world.insert_resource(Settings::default());
+            world.init_resource::<RunModifiers>();
+            world.insert_resource(start);
+            world.init_resource::<MapId>();
+            world.run_system_once(spawn_player).unwrap();
+            let (loadout, knife, equipment) = world
+                .query_filtered::<(&Loadout, &Knife, &Equipment), With<LocalPlayer>>()
+                .single(&world)
+                .unwrap();
+            (loadout.held().id, loadout.held().reserve, knife.bowie, equipment.frags)
+        };
+        let usual = WeaponId::M1911.stats().starting_reserve();
+        assert_eq!(spawned(StartingLoadout::default()), (STARTING_WEAPON, usual, false, FRAG_START));
+        let start = StartingLoadout { weapon: WeaponId::M14, reserve: Some(8), bowie: true, lethals: 4 };
+        assert_eq!(spawned(start), (WeaponId::M14, 8, true, 4));
     }
 
     #[test]

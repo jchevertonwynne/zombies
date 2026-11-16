@@ -393,5 +393,13 @@ _Avoid_: talent, mirror, upgrade
 **Rank**: One bought step on an Upgrade Track. A Track has a fixed number of Ranks.
 _Avoid_: level, stack
 
+**Banish Track**: The sixth Upgrade Track, with two Ranks, each adding one Banish charge to every Run's start.
+
+**Kit**: How a Gauntlet Run starts, picked on the Mode screen before the Run: the Standard Kit (free), or a Family Kit that sets the opening Loadout, counts as one held Boon of its Family for Offers, and gives one small rule. A Family Kit is earned by that Family's Commendation and never costs Scrip. Like Tracks, a Kit helps only its own Player.
+_Avoid_: class, loadout, starter pack
+
+**Commendation**: A one-off goal that pays Scrip once, across Runs (a Win, a Set Bonus, no Pact, 100 Elites, and so on), shown by a banner when met and again on Game Over. Any Gauntlet Run counts, Endless included. The six Family Commendations also earn that Family's Kit.
+_Avoid_: achievement, trophy, medal
+
 **Armory**: The screen, reached from the Mode screen, where Scrip is spent on Unlocks and Ranks and Upgrade Tracks are switched on or off.
 _Avoid_: shop, store, meta screen

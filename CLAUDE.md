@@ -15,3 +15,7 @@ Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-
 ### Domain docs
 
 Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+## Invariants
+
+- **Co-op is first-class.** Every feature must work in single player and in Co-op, with feature parity between them. A feature that is solo-only, or that remote clients can't see (snapshot caps, wire format, visuals), is a gap to close, not an accepted limit. If a change leaves one, file or extend a ticket for it (see #161 and #390) and say so in the PR.
