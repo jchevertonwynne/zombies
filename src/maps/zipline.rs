@@ -135,6 +135,7 @@ pub fn advance(line: &Zipline, feet: Vec3, speed: f32, dt: f32) -> (Vec3, f32, b
 }
 
 /// Seconds a whole ride on `line` takes.
+#[cfg(test)]
 pub fn ride_secs(line: &Zipline) -> f32 {
     let ramp = (ZIPLINE_TOP_SPEED - ZIPLINE_START_SPEED) / ZIPLINE_ACCEL;
     let ramp_length = (ZIPLINE_START_SPEED + ZIPLINE_TOP_SPEED) / 2.0 * ramp;
