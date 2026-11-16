@@ -20,6 +20,12 @@ pub trait SaveFile: Serialize + DeserializeOwned + Default {
 
     /// The `version` field read from the file.
     fn version(&self) -> u32;
+
+    /// The file brought up to this build's version from an older one's text, or `None` if the text
+    /// isn't one this file knows how to migrate. The default migrates nothing.
+    fn migrate(_text: &str) -> Option<Self> {
+        None
+    }
 }
 
 /// `~/.zombies/` on Linux and macOS, `%APPDATA%\zombies\` on Windows.
@@ -44,11 +50,13 @@ fn save_dir_from(
     }
 }
 
-/// Parses a save file's text. `None` if it doesn't parse or has the wrong version.
+/// Parses a save file's text. An older version is migrated if the file knows how; `None` if it
+/// doesn't parse or has a version nothing handles.
 pub fn parse<T: SaveFile>(text: &str) -> Option<T> {
     ron::from_str::<T>(text)
         .ok()
         .filter(|value| value.version() == T::VERSION)
+        .or_else(|| T::migrate(text))
 }
 
 /// Loads `T` from `dir`, falling back to defaults. A corrupt file is renamed to `.bak`.

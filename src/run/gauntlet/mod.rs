@@ -10,8 +10,10 @@
 mod arc;
 mod armory;
 pub mod boon;
+mod commendations;
 mod duos;
 mod elite;
+pub mod kits;
 mod pact;
 mod procs;
 pub mod progress;
@@ -45,14 +47,14 @@ use crate::players::player::{LocalPlayer, Player, Seat};
 use crate::players::respawn::{BledOut, Disconnected, SeatDropped};
 use crate::economy::points::BonusPoints;
 use crate::economy::power_up::{DropPowerUp, GivePowerUp, PowerUp, PowerUpTaken};
-use crate::storage::records::{RecordExtra, RecordExtras};
+use crate::storage::records::{RecordExtra, RecordExtras, RunKit};
 use crate::run::round::{IntermissionHold, ReservedRounds, Round, RoundEnded, RoundPhase};
 use crate::storage::save;
 use crate::storage::settings::SaveDir;
 use crate::state::{Choosing, Freeze, GameState, MainMenuScreen, Pause, RunType, world_runs};
 use crate::tuning::*;
 use crate::weapons::ammo_mod::TurnedAllyCap;
-use crate::weapons::weapon::Loadout;
+use crate::weapons::weapon::{Loadout, StartingLoadout};
 use crate::enemies::zombie::{DamageZombie, Dying, HitZone, KillDamage, Zombie, ZombieKilled};
 use boon::{
     BLOOD_MONEY, BOONS, BOUNTY, BUTCHERS_BILL, BoonDef, LUCKY_STRIKE,
@@ -68,7 +70,8 @@ use progress::{GauntletFile, rounds_completed, scrip_for_rounds};
 pub use boon::HeldBoons;
 pub use pact::HeldPacts;
 use screen::{OfferCard, SkipButton};
-use tools::{Banishes, BanishCard, RerollOffer};
+use kits::{Kit, PlayerKit, chosen_kit};
+use tools::{Banishes, BanishCard, RerollOffer, ToolUsed};
 use variety::{Boost, PickRound, RoundVariety};
 
 /// The Offers a Player is waiting for.
@@ -121,6 +124,10 @@ struct UnlockAll(bool);
 /// The Upgrade Track Ranks switched on as this Run began (0 to 25), for its Run Record.
 #[derive(Resource, Default)]
 struct ActiveRanks(u32);
+
+/// The Kit this Run started with (Standard in Classic), fixed as the Run begins.
+#[derive(Resource, Default, Clone, Copy)]
+struct ChosenKit(Kit);
 
 /// The Run Record line holding the active Rank count.
 const RANKS_RECORD_ID: &str = "upgrade_ranks";
@@ -229,6 +236,11 @@ impl Plugin for GauntletPlugin {
             .add_message::<PickOffer>()
             .add_message::<RerollOffer>()
             .add_message::<BanishCard>()
+            .add_message::<ToolUsed>()
+            .add_message::<commendations::CommendationEarned>()
+            .init_resource::<commendations::RunLog>()
+            .init_resource::<commendations::RunCommendations>()
+            .init_resource::<ChosenKit>()
             .add_message::<procs::ProcFired>()
             .add_message::<sets::SetTierReached>()
             .add_message::<duos::DuoTaken>()
@@ -277,9 +289,19 @@ impl Plugin for GauntletPlugin {
                     .run_if(armory::armory_changed),
             )
             .add_observer(armory::armory_click)
+            .add_observer(kits::pick_kit)
             .add_systems(
                 OnEnter(GameState::Playing),
-                (reset, screen::spawn_held_column, sets::spawn_set_banner, duos::spawn_duo_banner, arc::spawn_boss_hud, variety::spawn_hud)
+                (
+                    reset,
+                    commendations::begin_run,
+                    screen::spawn_held_column,
+                    sets::spawn_set_banner,
+                    duos::spawn_duo_banner,
+                    commendations::spawn_banner,
+                    arc::spawn_boss_hud,
+                    variety::spawn_hud,
+                )
                     .chain()
                     .run_if(gauntlet),
             )
@@ -304,6 +326,8 @@ impl Plugin for GauntletPlugin {
                         )
                             .chain(),
                         track_purchases,
+                        kits::spend_first_buys,
+                        (commendations::log_run, commendations::earn_commendations).chain(),
                         blood_money,
                         teddys_tithe,
                         (war_bonds, bounty, butchers_bill, lucky_strike),
@@ -349,6 +373,8 @@ impl Plugin for GauntletPlugin {
                     (elite::tint_elites, elite::draw_rally_rings),
                     (sets::show_set_banner, sets::draw_set_flashes, sets::draw_frost_patches),
                     (duos::announce_duos, duos::show_duo_banner).chain(),
+                    commendations::show_banner,
+                    record_run_meta,
                 )
                     .run_if(in_state(GameState::Playing))
                     .run_if(gauntlet),
@@ -431,7 +457,12 @@ fn give_gauntlet_state(
     add: On<Add<Player>>,
     mut commands: Commands,
     progress: Option<Res<GauntletFile>>,
+    chosen: Option<Res<ChosenKit>>,
+    locals: Query<(), With<LocalPlayer>>,
 ) {
+    // Their own Tracks' Banish charges and their own Kit help only this machine's Player.
+    let local = locals.contains(add.entity);
+    let track_banishes = progress.as_ref().filter(|_| local).map_or(0, |file| file.track_banishes());
     // The local save's Unlocks stand in for every Player's until the Room's `Hello` fills a
     // remote one's.
     let unlocked = progress.map_or_else(Vec::new, |file| file.unlocked.clone());
@@ -440,7 +471,8 @@ fn give_gauntlet_state(
         PendingOffer::default(),
         PlayerUnlocks(unlocked),
         Bought::default(),
-        Banishes::default(),
+        Banishes::starting(track_banishes),
+        PlayerKit::new(chosen.filter(|_| local).map_or(Kit::Standard, |chosen| chosen.0)),
         procs::ProcCooldowns::default(),
         sets::SetBonuses::default(),
         sets::Jackpot::default(),
@@ -502,6 +534,7 @@ fn open_offer(
         &PlayerUnlocks,
         &Bought,
         &Banishes,
+        &mut PlayerKit,
         &mut PendingOffer,
     )>,
     pacts: Res<HeldPacts>,
@@ -524,7 +557,7 @@ fn open_offer(
         })
         .flatten()
         .collect();
-    for (player, last_stand, local, offer, loadout, held, unlocks, bought, banishes, mut pending) in &mut players {
+    for (player, last_stand, local, offer, loadout, held, unlocks, bought, banishes, mut kit, mut pending) in &mut players {
         let Some(left) = pending.left.as_mut() else {
             continue;
         };
@@ -537,7 +570,7 @@ fn open_offer(
             continue;
         }
         let round = pending.owed.remove(0);
-        let run = sources.facts(bought, loadout, held, unlocks, &banishes.banished);
+        let run = sources.facts(bought, loadout, held, unlocks, &banishes.banished, kit.kit.family());
         let roll = |total| rand::random_range(0.0..total);
         let pact_choices = if is_pact_round(round) {
             draw_pact_offer(PACTS, &pacts, &claimed, &run, roll)
@@ -564,7 +597,13 @@ fn open_offer(
         let mut boost = Boost::default();
         let choices = match choices {
             Choices::Boons(cards) => {
-                boost = variety.take_reward(true);
+                // The Round Choice is this machine's Player's to make, so its reward is theirs.
+                if local {
+                    boost = variety.take_reward(true);
+                }
+                // The Blade Kit's first Boon Offer holds a Blade card.
+                boost.merge(kits::first_offer_boost(kit.kit, !kit.offered));
+                kit.offered = true;
                 if boost.is_none() {
                     Choices::Boons(cards)
                 } else {
@@ -780,10 +819,11 @@ fn apply_entries(
     pacts: Res<HeldPacts>,
     round: Option<Res<Round>>,
     variety: Res<RoundVariety>,
-    mut players: Query<(&Seat, &HeldBoons, &sets::SetBonuses, &Loadout, &mut Modifiers), With<Player>>,
+    mut players: Query<(&Seat, &HeldBoons, &sets::SetBonuses, &Loadout, &PlayerKit, &mut Modifiers), With<Player>>,
 ) {
     let ours = |source| {
         is_boon_source(source)
+            || kits::is_kit_source(source)
             || is_pact_source(source)
             || sets::is_set_source(source)
             || is_arc_source(source)
@@ -794,11 +834,12 @@ fn apply_entries(
         entries.extend(variety.entries(round.number, &round.phase));
         entries
     });
-    for (&seat, held, set_bonuses, loadout, mut modifiers) in &mut players {
+    for (&seat, held, set_bonuses, loadout, kit, mut modifiers) in &mut players {
         let low = sets::magazine_low(loadout.gun_ammo().0, loadout.magazine_size(&modifiers.0));
         let mut wanted = held.modifiers();
         wanted.extend(pacts.modifiers(seat));
         wanted.extend(sets::set_entries(set_bonuses, low));
+        wanted.extend(kit.kit.entries(kit.spent));
         wanted.extend(arc_entries.iter().copied());
         let current: Vec<_> = modifiers
             .0
@@ -1055,6 +1096,14 @@ fn record_picks(
     extras.0 = boons.chain(pacts).chain([ranks]).collect();
 }
 
+/// The Run Record's Kit: the one the Run started with.
+fn record_run_meta(chosen: Res<ChosenKit>, mut kit: ResMut<RunKit>) {
+    let id = Some(chosen.0.id().to_string());
+    if kit.0 != id {
+        kit.0 = id;
+    }
+}
+
 fn load_progress(mut commands: Commands, dir: Res<SaveDir>) {
     let file = match &dir.0 {
         Some(dir) => save::load::<GauntletFile>(dir),
@@ -1085,7 +1134,8 @@ fn reset_progress(mut file: ResMut<GauntletFile>) {
 }
 
 /// The Upgrade Tracks switched on give a Gauntlet Run's Player its entries, starting Points
-/// included, through Classic's `RunModifiers`, the Run caps Turned allies at
+/// included, through Classic's `RunModifiers`, the Kit picked sets the Player's `StartingLoadout`,
+/// the Run caps Turned allies at
 /// `GAUNTLET_TURNED_ALLY_CAP`, and its Boss Rounds are kept clear of Classic's own schedules. A
 /// Classic Run gets no entries, no cap and no reserved Rounds.
 fn set_run_modifiers(
@@ -1095,15 +1145,20 @@ fn set_run_modifiers(
     mut ranks: ResMut<ActiveRanks>,
     mut cap: ResMut<TurnedAllyCap>,
     mut reserved: ResMut<ReservedRounds>,
+    (mut start, mut chosen): (ResMut<StartingLoadout>, ResMut<ChosenKit>),
 ) {
     if *mode == Mode::Gauntlet {
         run.0 = file.track_entries();
         ranks.0 = file.active_ranks();
+        chosen.0 = chosen_kit(&file);
+        *start = chosen.0.starting_loadout();
         *cap = TurnedAllyCap(Some(GAUNTLET_TURNED_ALLY_CAP));
         reserved.0 = arc::boss_rounds_through(arc::win_round()).collect();
     } else {
         run.0.clear();
         ranks.0 = 0;
+        chosen.0 = Kit::Standard;
+        *start = StartingLoadout::default();
         *cap = TurnedAllyCap(None);
         reserved.0.clear();
     }
@@ -1116,6 +1171,7 @@ fn pay_scrip(
     round: Res<Round>,
     arc: Res<RunArc>,
     variety: Res<RoundVariety>,
+    (log, earned, chosen): (Res<commendations::RunLog>, Res<commendations::RunCommendations>, Res<ChosenKit>),
     mut file: ResMut<GauntletFile>,
     dir: Res<SaveDir>,
     mut lines: ResMut<GameOverLines>,
@@ -1123,9 +1179,14 @@ fn pay_scrip(
     let in_intermission = matches!(round.phase, RoundPhase::Intermission(_));
     let scrip = scrip_for_rounds(rounds_completed(round.number, in_intermission)).saturating_add(arc.act_scrip);
     file.pay(scrip);
+    file.elites_killed = file.elites_killed.max(log.elites_total());
     store_progress(&file, &dir);
     if arc.won {
         lines.0.push("RUN WON".to_string());
+    }
+    lines.0.push(format!("Kit: {}", chosen.0.name()));
+    if let Some(line) = commendations::game_over_line(&earned) {
+        lines.0.push(line);
     }
     if variety.challenges_met > 0 {
         lines.0.push(format!("Challenges met {}", variety.challenges_met));

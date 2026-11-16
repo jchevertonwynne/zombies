@@ -56,6 +56,13 @@ pub struct RunRecord {
     /// The Host's Heat, once Heat exists.
     #[serde(default)]
     pub heat: Option<u32>,
+    /// The stable ID of the Kit the Run started with. `None` reads as the Standard Kit (every Classic
+    /// Run and every Record from before Kits).
+    #[serde(default)]
+    pub kit: Option<String>,
+    /// Elites this Player killed in the Run.
+    #[serde(default)]
+    pub elites_killed: u32,
     /// Lines a Mode layered on Classic adds to its Run Records, in the order it added them (see
     /// [`RecordExtras`]), then one for each Special Zombie type switched off during the Run (see
     /// [`off_extras`]). A faithful Classic Run leaves this empty.
@@ -108,6 +115,15 @@ pub struct RecordExtra {
 /// once reached, and it's copied onto the Run Record as it ends.
 #[derive(Resource, Default)]
 pub struct RunWon(pub bool);
+
+/// The stable ID of the Kit the current Run started with, if a Mode layered on Classic has Kits.
+/// Classic never sets it.
+#[derive(Resource, Default)]
+pub struct RunKit(pub Option<String>);
+
+/// Elites the current Run has killed. Classic never sets it.
+#[derive(Resource, Default)]
+pub struct RunElitesKilled(pub u32);
 
 /// The current Run's extra Record lines. Classic never writes here; a Mode layered on top keeps it
 /// up to date during the Run, and it's copied onto the Run Record as-is when the Run ends.
@@ -253,6 +269,9 @@ pub struct LifetimeStats {
     /// The highest Heat a Win was had at.
     #[serde(default)]
     pub highest_heat_won: u32,
+    /// Elites killed over every Run.
+    #[serde(default)]
+    pub elites_killed: u64,
 }
 
 impl LifetimeStats {
@@ -265,6 +284,7 @@ impl LifetimeStats {
         self.points_earned = self.points_earned.saturating_add(record.points_earned);
         self.time_played_secs += record.survived_secs;
         self.revives = self.revives.saturating_add(record.revives.into());
+        self.elites_killed = self.elites_killed.saturating_add(record.elites_killed.into());
         if record.won {
             self.wins = self.wins.saturating_add(1);
             self.highest_heat_won = self.highest_heat_won.max(record.heat.unwrap_or(0));
@@ -379,6 +399,8 @@ impl Plugin for RecordsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<RecordExtras>()
             .init_resource::<RunWon>()
+            .init_resource::<RunKit>()
+            .init_resource::<RunElitesKilled>()
             .init_resource::<RunSpecialZombies>()
             .init_resource::<RunPlayers>()
             .init_resource::<RunRecorded>()
@@ -400,9 +422,13 @@ impl Plugin for RecordsPlugin {
                 |mut extras: ResMut<RecordExtras>,
                  mut run: ResMut<RunSpecialZombies>,
                  mut won: ResMut<RunWon>,
+                 mut kit: ResMut<RunKit>,
+                 mut elites: ResMut<RunElitesKilled>,
                  settings: Res<Settings>| {
                     extras.0.clear();
                     won.0 = false;
+                    kit.0 = None;
+                    elites.0 = 0;
                     run.0 = settings.special_zombies;
                 },
             )
@@ -465,7 +491,7 @@ pub fn record_run(
         Res<RunType>,
     ),
     others: Query<(&Seat, &PlayerName, &RunStats, &Points), (With<Player>, Without<LocalPlayer>)>,
-    (extras, won): (Res<RecordExtras>, Res<RunWon>),
+    (extras, won, kit, elites): (Res<RecordExtras>, Res<RunWon>, Res<RunKit>, Res<RunElitesKilled>),
     switches: Res<RunSpecialZombies>,
     mut file: ResMut<RecordsFile>,
     dir: Res<SaveDir>,
@@ -498,6 +524,8 @@ pub fn record_run(
         teammates,
         won: won.0,
         heat: None,
+        kit: kit.0.clone(),
+        elites_killed: elites.0,
         extras: extras.0.iter().cloned().chain(off_extras(&switches.0)).collect(),
     };
     let rank = file.add(record.clone());
@@ -582,6 +610,8 @@ mod tests {
             teammates: Vec::new(),
             won: false,
             heat: None,
+            kit: None,
+            elites_killed: 0,
             extras: Vec::new(),
         }
     }
@@ -802,6 +832,23 @@ mod tests {
     }
 
     #[test]
+    fn an_old_record_reads_as_the_standard_kit_with_no_elites_and_new_ones_add_elites_to_lifetime() {
+        let text = "(version: 1, records: (runs: [(map: Greybox, mode: Gauntlet, date: 0, round: 3, \
+                    kills: 9, headshots: 2, downs: 1, points_earned: 900, survived_secs: 61.0)]), \
+                    lifetime: (runs: 1, kills: 9, headshots: 2, downs: 1, points_earned: 900, \
+                    time_played_secs: 61.0, best_rounds: []))";
+        let file = save::parse::<RecordsFile>(text).unwrap();
+        let old = file.records.board(MapId::Greybox, Mode::Gauntlet, 1).next().unwrap();
+        assert_eq!((old.kit.as_deref(), old.elites_killed), (None, 0), "no Kit reads as Standard");
+        assert_eq!(file.lifetime.elites_killed, 0);
+
+        let mut lifetime = LifetimeStats::default();
+        lifetime.add(&RunRecord { kit: Some("spark".into()), elites_killed: 7, ..run(9, 0.0) });
+        lifetime.add(&RunRecord { elites_killed: 5, ..run(9, 0.0) });
+        assert_eq!(lifetime.elites_killed, 12);
+    }
+
+    #[test]
     fn records_split_by_player_count() {
         let mut records = Records::default();
         for round in 1..=10 {
@@ -852,6 +899,8 @@ mod tests {
             .insert_resource(Mode::Classic)
             .init_resource::<RecordExtras>()
             .init_resource::<RunWon>()
+            .init_resource::<RunKit>()
+            .init_resource::<RunElitesKilled>()
             .init_resource::<RunSpecialZombies>()
             .init_resource::<RunPlayers>()
             .init_resource::<RunRecorded>()

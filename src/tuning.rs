@@ -2647,6 +2647,59 @@ pub const TRACK_MOVE_SPEED_INCREASE_PER_RANK: f32 = 0.02;
 pub const TRACK_BOX_PRICE_FACTOR_PER_RANK: f32 = 0.95;
 /// Extra seconds on timed Power-ups per Rank.
 pub const TRACK_POWER_UP_DURATION_SECS_PER_RANK: f32 = 2.0;
+/// The Banish Track's Rank prices in Scrip, first Rank first. The Track has this many Ranks.
+pub const TRACK_BANISH_RANK_PRICES: [u64; 2] = [300, 600];
+/// Banish charges each Banish Track Rank adds to a Run's start.
+pub const TRACK_BANISHES_PER_RANK: u32 = 1;
+
+// Kits (Appendix B6)
+/// The Lead Kit starts with this Weapon in place of the M1911.
+pub const KIT_LEAD_WEAPON: WeaponId = WeaponId::M14;
+/// Spare Magazines of Reserve the Lead Kit's Weapon starts with.
+pub const KIT_LEAD_RESERVE_MAGAZINES: u32 = 1;
+/// Cards of the Blade Family the first Boon Offer is guaranteed under the Blade Kit.
+pub const KIT_BLADE_FIRST_OFFER_FAMILY_CARDS: u32 = 1;
+/// Points off Pack-a-Punch under the Spark Kit, until the first Pack-a-Punch is bought.
+pub const KIT_SPARK_FIRST_PAP_DISCOUNT: u32 = 2500;
+/// Lethals the Ember Kit starts with, in place of `FRAG_START`.
+pub const KIT_EMBER_STARTING_LETHALS: u32 = 4;
+/// Extra Lethals each new Round restocks under the Ember Kit.
+pub const KIT_EMBER_RESTOCK_BONUS: u32 = 2;
+/// Mystery Box spins the Gold Kit makes free (and Teddy-proof), the first one.
+pub const KIT_GOLD_FREE_SPINS: u32 = 1;
+/// Extra Self-Revives the Grit Kit gives.
+pub const KIT_GRIT_SELF_REVIVES: u32 = 1;
+
+// Commendations (Appendix B7): Scrip each pays once, by stable ID.
+pub const COMMENDATION_FAMILY_SCRIP: u64 = 100;
+pub const COMMENDATION_CLEAR_ACT_1_SCRIP: u64 = 100;
+pub const COMMENDATION_CLEAR_ACT_2_SCRIP: u64 = 150;
+pub const COMMENDATION_WIN_SCRIP: u64 = 300;
+pub const COMMENDATION_ENDLESS_50_SCRIP: u64 = 300;
+pub const COMMENDATION_HEAT_5_SCRIP: u64 = 400;
+pub const COMMENDATION_HEAT_10_SCRIP: u64 = 500;
+pub const COMMENDATION_HOLD_DUO_SCRIP: u64 = 100;
+pub const COMMENDATION_THREE_DUOS_SCRIP: u64 = 300;
+pub const COMMENDATION_SET_TIER_6_SCRIP: u64 = 250;
+pub const COMMENDATION_FAMILY_WIN_SCRIP: u64 = 400;
+pub const COMMENDATION_NO_PACT_SCRIP: u64 = 250;
+pub const COMMENDATION_NO_JUGGERNOG_SCRIP: u64 = 250;
+pub const COMMENDATION_NO_TRACKS_SCRIP: u64 = 400;
+pub const COMMENDATION_NO_TOOLS_SCRIP: u64 = 300;
+pub const COMMENDATION_ELITES_SCRIP: u64 = 200;
+/// Elites to kill, across Runs, for its Commendation.
+pub const COMMENDATION_ELITE_KILLS: u64 = 100;
+/// The Endless Round to reach for its Commendation.
+pub const COMMENDATION_ENDLESS_ROUND: u32 = 50;
+/// The Heats a Win is had at for the two Heat Commendations.
+pub const COMMENDATION_HEAT_WINS: [u32; 2] = [5, 10];
+/// Distinct Boons of one Family for the 4-Boon and 6-Boon Set Bonus Commendations.
+pub const COMMENDATION_FAMILY_TIER_BOONS: u32 = 4;
+pub const COMMENDATION_SET_CAPSTONE_BOONS: u32 = 6;
+/// Duo Boons held in one Run for its Commendation.
+pub const COMMENDATION_DUOS_HELD: u32 = 3;
+/// Seconds the Commendation banner shows.
+pub const GAUNTLET_COMMENDATION_BANNER_SECS: f32 = 2.5;
 
 // Muzzle flash, tracers and impact puffs
 /// How long the muzzle flash and its light last after a shot, in seconds.

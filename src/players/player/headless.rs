@@ -83,6 +83,7 @@ impl Sim {
         .add_systems(PostUpdate, queue_teleports)
         .add_systems(Update, (place_eye, mark_riding))
         .init_resource::<crate::modifier::RunModifiers>()
+        .init_resource::<crate::weapons::weapon::StartingLoadout>()
         .add_systems(Update, send_teleport)
         .insert_resource(Settings::default())
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / fps)))
