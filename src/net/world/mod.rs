@@ -346,6 +346,11 @@ pub enum WorldEvent {
     RoundVotes([Option<u8>; 4]),
     /// The Round Choice for `round` went to this option: told once, and to a Player who comes back.
     RoundPicked { round: u32, option: u8 },
+    /// How the team's Challenge stands: `standing` (`Standing::index`), the kills counted, the
+    /// Horde's size (a client's Round doesn't know it) and, once Blitz's clock has started, its tenths of a second left (the client counts down from
+    /// it). Told on a change, at most `CHALLENGE_TELL_PER_SEC` times a second unless the standing
+    /// changed, and to a Player who comes back.
+    Challenge { standing: u8, kills: u16, horde: u16, blitz_left_ds: Option<u16> },
 }
 
 /// What has come in, and what each end remembers of what it has said or been told.
@@ -393,6 +398,9 @@ pub struct Mirror {
     choice: Option<(u32, [(Option<u8>, Option<u8>); 2], bool)>,
     votes: [Option<u8>; 4],
     picked: Option<u32>,
+    /// The Challenge as last told (standing, kills, horde, whether Blitz's clock runs), and when.
+    challenge: Option<(u8, u16, u16, bool)>,
+    challenge_told: Option<f32>,
     /// Each Seat's Points as last told, and the seconds since.
     points: HashMap<Seat, (u32, f32)>,
     offers: HashMap<Seat, Option<OfferWire>>,
@@ -538,7 +546,7 @@ pub fn add(app: &mut App) {
                 catch_up_world,
                 catch_up_player,
                 catch_up_tags.after(tell_tags).after(tell_elites_killed),
-                (cosmetics::tell_frosts, cosmetics::tell_capstones, cosmetics::tell_cues, bosses::tell_boss_health, choice::tell_choice),
+                (cosmetics::tell_frosts, cosmetics::tell_capstones, cosmetics::tell_cues, bosses::tell_boss_health, choice::tell_choice, choice::tell_challenge),
                 bosses::catch_up_boss.after(bosses::tell_boss_health),
                 choice::catch_up_choice.after(choice::tell_choice).after(catch_up_world),
                 cosmetics::catch_up_capstones.after(cosmetics::tell_capstones),
