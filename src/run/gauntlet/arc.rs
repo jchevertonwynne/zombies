@@ -54,7 +54,8 @@ impl BossKind {
     pub fn phase_marks(self) -> &'static [f32] {
         match self {
             BossKind::Bloater => &GAUNTLET_BLOATER_BURST_AT,
-            BossKind::PackAlpha | BossKind::Warden => &[],
+            BossKind::Warden => &GAUNTLET_WARDEN_HELMET_REFORMS_AT,
+            BossKind::PackAlpha => &[],
         }
     }
 }
@@ -102,27 +103,27 @@ pub fn boss_of(round: u32) -> Option<BossKind> {
     })
 }
 
-/// The Boss that actually comes in Boss Round `round`. Until the Warden is built (slice 4c), the
-/// Bloater stands in for its Act.
-fn spawned_boss(round: u32) -> Option<BossKind> {
-    boss_of(round).map(|boss| match boss {
-        BossKind::PackAlpha => BossKind::PackAlpha,
-        BossKind::Bloater | BossKind::Warden => BossKind::Bloater,
-    })
-}
-
 /// The request for `kind`'s Boss in Boss Round `round`: through a window in an Active Zone (a
 /// Hellhound Spawn Point, for a hound), holding the Round open, carrying the Boss Share.
 fn boss_request(kind: BossKind, round: u32) -> SpawnZombie {
     let (requested, scale, profile) = match kind {
         BossKind::PackAlpha => (RequestedKind::Hellhound, GAUNTLET_PACK_ALPHA_SCALE, SpawnProfile::default()),
-        // The Bloater, and the Warden's stand-in until slice 4c.
-        BossKind::Bloater | BossKind::Warden => (
+        BossKind::Warden => (
+            RequestedKind::Sapper,
+            GAUNTLET_WARDEN_SCALE,
+            SpawnProfile {
+                helmet_reforms_at: &GAUNTLET_WARDEN_HELMET_REFORMS_AT,
+                sabotages_at_once: GAUNTLET_WARDEN_SABOTAGES,
+                ..SpawnProfile::default()
+            },
+        ),
+        BossKind::Bloater => (
             RequestedKind::Napalm,
             GAUNTLET_BLOATER_SCALE,
             SpawnProfile {
                 detonates: false,
                 trail: Some(Trail { every_secs: GAUNTLET_BLOATER_POOL_EVERY_SECS, pool_secs: GAUNTLET_BLOATER_POOL_SECS }),
+                ..SpawnProfile::default()
             },
         ),
     };
@@ -320,7 +321,7 @@ pub fn plan_boss(
         return;
     }
     *plan = BossPlan { round: round.number, ..default() };
-    if let Some(kind) = spawned_boss(round.number) {
+    if let Some(kind) = boss_of(round.number) {
         plan.kind = Some(kind);
         plan.warning = Some(GAUNTLET_BOSS_WARNING_SECS);
         cues.write(PlayCue::new(Cue::BossWarning, None));
@@ -791,17 +792,31 @@ mod tests {
     }
 
     #[test]
-    fn act_two_comes_the_pack_alpha_and_the_bloater_stands_in_for_the_warden() {
+    fn act_three_comes_the_warden_and_each_act_its_own_boss() {
         for round in [10, 40] {
-            assert_eq!(spawned_boss(round), Some(BossKind::Bloater), "round {round}");
+            assert_eq!(boss_of(round), Some(BossKind::Bloater), "round {round}");
         }
         for round in [20, 50] {
-            assert_eq!(spawned_boss(round), Some(BossKind::PackAlpha), "round {round}");
+            assert_eq!(boss_of(round), Some(BossKind::PackAlpha), "round {round}");
         }
         for round in [30, 60] {
-            assert_eq!(spawned_boss(round), Some(BossKind::Bloater), "the Warden's stand-in, round {round}");
+            assert_eq!(boss_of(round), Some(BossKind::Warden), "round {round}");
         }
-        assert_eq!(spawned_boss(15), None);
+        assert_eq!(boss_of(15), None);
+    }
+
+    #[test]
+    fn the_warden_is_a_boss_sapper_with_reforming_helmet_and_double_sabotage() {
+        let request = boss_request(BossKind::Warden, 30);
+        assert_eq!(request.kind, RequestedKind::Sapper);
+        assert_eq!(request.scale, GAUNTLET_WARDEN_SCALE);
+        assert_eq!(request.health_factor, boss_health_factor(30));
+        assert_eq!(request.at, SpawnAt::BarrierInActiveZone);
+        assert!(request.holds_round);
+        assert_eq!(request.heavyweight, Some(BOSS_SHARE));
+        assert_eq!(request.profile.helmet_reforms_at, &GAUNTLET_WARDEN_HELMET_REFORMS_AT);
+        assert_eq!(request.profile.sabotages_at_once, GAUNTLET_WARDEN_SABOTAGES);
+        assert_eq!(BossKind::Warden.phase_marks(), &GAUNTLET_WARDEN_HELMET_REFORMS_AT);
     }
 
     #[test]
