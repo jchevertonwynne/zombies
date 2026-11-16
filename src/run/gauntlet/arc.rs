@@ -644,6 +644,15 @@ pub fn clear_boss_rounds(
     }
 }
 
+/// A client's own Win: the Host's `RoundEnded` at `win_round()` is the Win, so the client's
+/// `RunArc.won` is set from it, as `clear_boss_rounds` sets the Host's. Co-op has no Win screen.
+pub fn infer_win(mut ended: MessageReader<RoundEnded>, round: Res<Round>, mut arc: ResMut<RunArc>, mut won: ResMut<RunWon>) {
+    if ended.read().count() > 0 && round.number == win_round() && !arc.won {
+        arc.won = true;
+        won.0 = true;
+    }
+}
+
 /// The Win screen's End the Run button.
 #[derive(Component)]
 pub struct EndRunButton;

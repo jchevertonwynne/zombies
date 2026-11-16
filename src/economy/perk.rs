@@ -308,6 +308,12 @@ pub struct PerkMachine {
 }
 
 impl PerkMachine {
+    /// A machine for `perk` with nothing around it, for other modules' tests.
+    #[cfg(test)]
+    pub fn bare(perk: Perk) -> Self {
+        Self { perk, use_point: Vec3::ZERO, zone: None, buys: 0 }
+    }
+
     /// Whether it works now: with the Power its Perk needs on `map`, or always if it needs none.
     pub fn powered(&self, supply: &Supply, run: RunType, map: MapId) -> bool {
         !self.perk.needs_power(run, map) || supply.powers(self.zone)

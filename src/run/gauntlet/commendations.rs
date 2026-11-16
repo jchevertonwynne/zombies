@@ -10,6 +10,7 @@
 use bevy::prelude::*;
 
 use super::arc::{RunArc, act_of, is_boss_round, win_round};
+use crate::authority::Authority;
 use super::boon::{Family, HeldBoons};
 use super::elite::Elite;
 use super::pact::HeldPacts;
@@ -265,6 +266,7 @@ pub fn log_run(
     elites: Query<(), (With<Elite>, With<Zombie>, Added<Dying>)>,
     mut file: ResMut<GauntletFile>,
     mut killed: ResMut<RunElitesKilled>,
+    authority: Option<Res<State<Authority>>>,
 ) {
     let (player, held, seat) = *local;
     // Only a rise marks the log changed, so `earn_commendations` sleeps through the quiet frames.
@@ -285,10 +287,17 @@ pub fn log_run(
     if ended.read().count() > 0 && is_boss_round(round.number) {
         log.note_cleared(round.number);
     }
-    let kills = elites.iter().count() as u64;
-    if kills > 0 {
-        log.elites = log.elites.saturating_add(kills);
-        killed.0 = log.elites.min(u64::from(u32::MAX)) as u32;
+    if authority.is_some_and(|state| *state.get() == Authority::Client) {
+        // The Host counts every Elite death in the Run and tells the count.
+        if u64::from(killed.0) > log.elites {
+            log.elites = u64::from(killed.0);
+        }
+    } else {
+        let kills = elites.iter().count() as u64;
+        if kills > 0 {
+            log.elites = log.elites.saturating_add(kills);
+            killed.0 = log.elites.min(u64::from(u32::MAX)) as u32;
+        }
     }
     if log.win.is_none() && arc.won {
         debug_assert!(round.number >= win_round());
@@ -373,6 +382,7 @@ pub fn show_banner(
 mod tests {
     use super::*;
     use crate::run::gauntlet::boon::find as boon;
+    use crate::storage::records::RunWon;
 
     fn held(ids: &[&str]) -> HeldBoons {
         let mut held = HeldBoons::default();
@@ -665,5 +675,64 @@ mod tests {
             held(&["hollow_points", "marksmans_eye", "full_belt", "stripper_clips"]);
         app.update();
         assert!(earned(&app).is_empty());
+    }
+
+    /// A client's Run: the same systems, with the Host's word for Elites and the Win.
+    fn client(round: u32) -> (App, Entity) {
+        let (mut app, player) = running(round);
+        app.insert_resource(State::new(Authority::Client))
+            .init_resource::<RunWon>()
+            .add_systems(Update, super::super::arc::infer_win.before(log_run));
+        (app, player)
+    }
+
+    #[test]
+    fn a_client_counts_the_elites_the_host_tells() {
+        let (mut app, _) = client(3);
+        app.update();
+        assert_eq!(app.world().resource::<RunLog>().elites, 0);
+        app.world_mut().resource_mut::<RunElitesKilled>().0 = COMMENDATION_ELITE_KILLS as u32;
+        app.update();
+        assert_eq!(app.world().resource::<RunLog>().elites, COMMENDATION_ELITE_KILLS);
+        assert_eq!(earned(&app), ["elites_100"]);
+    }
+
+    #[test]
+    fn a_client_infers_its_win_from_the_round_ending_at_the_win_round() {
+        let (mut app, _) = client(win_round() - 1);
+        app.world_mut().write_message(RoundEnded);
+        app.update();
+        assert!(!app.world().resource::<RunArc>().won, "not the Win Round");
+        app.world_mut().insert_resource(Round::in_progress(win_round()));
+        app.world_mut().write_message(RoundEnded);
+        app.update();
+        assert!(app.world().resource::<RunArc>().won);
+        assert!(app.world().resource::<RunWon>().0);
+        assert!(earned(&app).iter().any(|id| id == "win"), "{:?}", earned(&app));
+    }
+
+    #[test]
+    fn a_client_logs_its_own_pact_and_ranks_into_its_win() {
+        let (mut app, _) = client(win_round());
+        app.world_mut().resource_mut::<ActiveRanks>().0 = 2;
+        app.world_mut().write_message(RoundEnded);
+        app.update();
+        let log = app.world().resource::<RunLog>();
+        let win = log.win.expect("won");
+        assert!(!win.tracks_off && !win.held_pact && !win.used_tools);
+        assert!(!earned(&app).iter().any(|id| id == "win_no_tracks"));
+    }
+
+    #[test]
+    fn a_client_notes_the_rounds_it_is_told_and_its_own_tool_and_purchase() {
+        let (mut app, player) = client(7);
+        app.world_mut().write_message(RoundStarted);
+        app.world_mut().write_message(ToolUsed { player });
+        let machine = app.world_mut().spawn(PerkMachine::bare(Perk::Juggernog)).id();
+        app.world_mut().write_message(Purchased { player, buyable: machine });
+        app.update();
+        let log = app.world().resource::<RunLog>();
+        assert_eq!(log.highest_round, 7);
+        assert!(log.used_tools && log.bought_juggernog);
     }
 }
