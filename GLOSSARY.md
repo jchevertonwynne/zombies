@@ -342,7 +342,7 @@ _Avoid_: skill, buff, upgrade
 **Boon Offer**: The choice of Boons shown after each Round in Gauntlet; it can't be skipped, but it can be Rerolled or have a Boon Banished. Solo, the world is frozen until the Player picks one. In Co-op, each Player gets their own during the Intermission, which waits for every pick for a short time and then lets the next Round start; a Player who hasn't picked can do nothing until they do.
 _Avoid_: draft, level-up, card pick
 
-**Round Choice**: The last step of a Solo Gauntlet Intermission, after the Boon Offer: two options for the next Round, a safe one and one with a Twist, each possibly carrying a Challenge. Rounds 1 and 2, Boss Rounds and Hellhound Rounds are Plain and have none. It can't be Rerolled or Banished, and the world stays frozen until it's picked. Co-op has none yet.
+**Round Choice**: The last step of a Solo Gauntlet Intermission, after the Boon Offer: two options for the next Round, a safe one and one with a Twist, each possibly carrying a Challenge. Rounds 1 and 2, Boss Rounds and Hellhound Rounds are Plain and have none. It can't be Rerolled or Banished, and in Solo the world stays frozen until it's picked. In Co-op it is a vote: every Player votes, the majority wins, a tie goes to the Host's vote, and no vote by the timeout picks the safe option, with the world running meanwhile. A Challenge is the team's: every Player's kills count, any Player's breach breaks it, and everyone gets the reward.
 _Avoid_: round vote, modifier pick
 
 **Twist**: What the Round Choice's second option does to its Round: Fog, Stampede, Swarm, Low Gravity or Drought. Surviving it (clearing the Round) raises the Rarity of the next Offer. No Twist repeats within an Act.

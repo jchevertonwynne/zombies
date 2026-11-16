@@ -11,9 +11,10 @@
 //! In Co-op the Round Choice is a vote (issue #402): every Player votes, the majority wins, a tie
 //! goes to the Host's vote and no vote by `GAUNTLET_ROUND_CHOICE_COOP_SECS` picks the safe option.
 //! The Host draws and owns the result; a client mirrors `RoundVariety` from the Host's events, so
-//! the Fog, the banner, the panels and the Twists' stat entries run unchanged. Round Choices stay
-//! off in Co-op (`has_round_choices`) until the whole feature is on. Swarm's Alive Cap fits the
-//! Co-op snapshot (`run::gauntlet::snapshot_tests`).
+//! the Fog, the banner, the panels and the Twists' stat entries run unchanged. Challenges are
+//! team-wide in Co-op (issue #403): the Host judges every Player's kills, Reloads, purchases and
+//! Zone, any Player's breach breaks it, and the reward is everyone's; clients are told its standing.
+//! Swarm's Alive Cap fits the Co-op snapshot (`run::gauntlet::snapshot_tests`).
 
 use bevy::ecs::system::SystemParam;
 use bevy::pbr::{DistanceFog, FogFalloff};
@@ -31,7 +32,10 @@ use crate::economy::points::Points;
 use crate::enemies::zombie::{Attack, ZombieKilled};
 use crate::maps::zone::{PlayerZone, ZoneId};
 use crate::modifier::{Effect, Modifier, Source, Stat};
-use crate::players::player::{LocalPlayer, PlayerCamera, Seat};
+use crate::players::player::{LocalPlayer, Player, PlayerCamera, Seat};
+use crate::players::teammate::{Action, Pose};
+use crate::net::remote::Remote;
+use std::collections::{HashMap, HashSet};
 use crate::players::respawn::Disconnected;
 use crate::run::round::{ReservedRounds, Round, RoundEnded, RoundPhase, RoundStarted};
 use crate::state::{InRun, RunType};
@@ -219,6 +223,25 @@ pub enum Standing {
     Met,
 }
 
+impl Standing {
+    /// This standing's code on the wire.
+    pub fn index(self) -> u8 {
+        match self {
+            Standing::Active => 0,
+            Standing::Broken => 1,
+            Standing::Met => 2,
+        }
+    }
+
+    pub fn from_index(index: u8) -> Standing {
+        match index {
+            1 => Standing::Broken,
+            2 => Standing::Met,
+            _ => Standing::Active,
+        }
+    }
+}
+
 /// A Challenge under way in a Round.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChallengeRun {
@@ -226,15 +249,19 @@ pub struct ChallengeRun {
     pub standing: Standing,
     /// Kills counted toward it so far.
     pub kills: u32,
-    /// The Zone the Player held at the Round's start, for Hold the Line.
-    zone: Option<ZoneId>,
+    /// The Zone each Player held at the Round's start, for Hold the Line.
+    zones: Vec<(Entity, ZoneId)>,
     /// Blitz's seconds since the Round's first spawn.
     clock: Option<f32>,
+    /// A client's Blitz seconds left, as the Host last told it and counted down since.
+    told_left: Option<f32>,
+    /// A client's Horde size, which only the Host's Round knows.
+    told_horde: Option<u32>,
 }
 
 impl ChallengeRun {
     pub fn new(kind: ChallengeKind) -> Self {
-        Self { kind, standing: Standing::Active, kills: 0, zone: None, clock: None }
+        Self { kind, standing: Standing::Active, kills: 0, zones: Vec::new(), clock: None, told_left: None, told_horde: None }
     }
 
     /// Breaks it, if it's still on. Returns whether it just broke.
@@ -268,16 +295,23 @@ impl ChallengeRun {
     }
 
     /// The Player's Zone now. Returns whether it just broke.
+    #[cfg(test)]
     pub fn in_zone(&mut self, zone: ZoneId) -> bool {
+        self.in_zone_of(Entity::PLACEHOLDER, zone)
+    }
+
+    /// `player`'s Zone now: any Player leaving the Zone they started in breaks it. Returns whether
+    /// it just broke.
+    pub fn in_zone_of(&mut self, player: Entity, zone: ZoneId) -> bool {
         if self.kind != ChallengeKind::HoldTheLine {
             return false;
         }
-        match self.zone {
+        match self.zones.iter().find(|(held, _)| *held == player) {
             None => {
-                self.zone = Some(zone);
+                self.zones.push((player, zone));
                 false
             }
-            Some(held) => held != zone && self.breach(),
+            Some(&(_, held)) => held != zone && self.breach(),
         }
     }
 
@@ -294,7 +328,26 @@ impl ChallengeRun {
 
     /// The seconds Blitz has left, once it's started.
     pub fn time_left(&self, horde: u32) -> Option<f32> {
-        (self.kind == ChallengeKind::Blitz).then(|| (blitz_limit_secs(horde) - self.clock.unwrap_or(0.0)).max(0.0))
+        let horde = self.told_horde.unwrap_or(horde);
+        (self.kind == ChallengeKind::Blitz)
+            .then(|| self.told_left.unwrap_or_else(|| (blitz_limit_secs(horde) - self.clock.unwrap_or(0.0)).max(0.0)))
+    }
+
+    /// The Host's Blitz seconds left in tenths, once the clock has started: what clients are told.
+    pub fn left_ds(&self, horde: u32) -> Option<u16> {
+        self.clock.and_then(|_| self.time_left(horde)).map(|left| (left * 10.0).round().min(f32::from(u16::MAX)) as u16)
+    }
+
+    /// A client takes the Host's word of how the Challenge stands. Returns the standing it was.
+    pub fn mirror(&mut self, standing: Standing, kills: u32, horde: u32, left_ds: Option<u16>) -> Standing {
+        let was = self.standing;
+        self.standing = standing;
+        self.kills = kills;
+        self.told_horde = Some(horde);
+        if let Some(left) = left_ds {
+            self.told_left = Some(f32::from(left) / 10.0);
+        }
+        was
     }
 
     /// The Round was cleared: an unbroken Challenge is met.
@@ -316,10 +369,10 @@ pub fn round_choice_applies(next: u32, hellhound: bool) -> bool {
     next >= GAUNTLET_ROUND_CHOICE_FIRST_ROUND && !is_boss_round(next) && !hellhound
 }
 
-/// Whether a Run of this type draws Round Choices. Co-op's vote and mirroring are built (issue
-/// #402) but stay off until the Challenge reaches every client too.
-pub fn has_round_choices(run_type: RunType) -> bool {
-    !run_type.is_coop()
+/// Whether a Run of this type draws Round Choices. Every Gauntlet Run does: in Co-op it is a vote
+/// (issue #402) and the Challenge reaches every client (issue #403).
+pub fn has_round_choices(_run_type: RunType) -> bool {
+    true
 }
 
 /// One side of a Round Choice.
@@ -435,6 +488,7 @@ pub fn reward_line(option: RoundOption) -> &'static str {
 
 /// The HUD's Challenge line: its goal and kills against the Horde, with Blitz's seconds left.
 pub fn challenge_line(run: &ChallengeRun, horde: u32) -> String {
+    let horde = run.told_horde.unwrap_or(horde);
     let kills = run.kills.min(horde.max(run.kills));
     match run.time_left(horde) {
         Some(left) if run.standing == Standing::Active => {
@@ -614,6 +668,8 @@ pub struct Chosen {
     pub option: RoundOption,
     /// Which of the Round Choice's two options this was: 0 the safe one, 1 the Twist one.
     pub index: u8,
+    /// Both options the Round Choice offered, which a returning Player is told again.
+    pub options: [RoundOption; 2],
     pub challenge: Option<ChallengeRun>,
     /// The Round has begun and not yet been cleared, so events count.
     live: bool,
@@ -700,13 +756,12 @@ impl RoundVariety {
     /// Mirrors the Host's pick on a client, in Round `now` (`active` while it is under way): the
     /// Round's variety is set as the Host set it, for the HUD, the Fog and the Twists' entries.
     pub fn mirror_pick(&mut self, round: u32, index: u8, now: u32, active: bool) {
-        let option = match self.pending.take() {
-            Some(pending) if pending.round == round => pending.options.get(usize::from(index)).copied(),
-            _ => None,
-        };
+        let pending = self.pending.take().filter(|pending| pending.round == round);
+        let option = pending.as_ref().and_then(|pending| pending.options.get(usize::from(index)).copied());
         let Some(option) = option.or_else(|| self.chosen.as_ref().filter(|chosen| chosen.round == round).map(|chosen| chosen.option)) else {
             return;
         };
+        let options = pending.map_or([option; 2], |pending| pending.options);
         self.lit = false;
         self.votes = [None; VOTE_SEATS];
         self.history.for_act(act_of(round));
@@ -714,6 +769,7 @@ impl RoundVariety {
             round,
             option,
             index,
+            options,
             challenge: option.challenge.map(ChallengeRun::new),
             live: round == now && active,
         });
@@ -721,13 +777,43 @@ impl RoundVariety {
 
     /// A client's Round `round` begins: its Twist shows its banner. (Its Challenge is the Host's.)
     pub fn mirror_begin(&mut self, number: u32) {
-        if self.chosen.as_ref().is_some_and(|chosen| chosen.round != number) {
+        // The last Round's result goes. A pick for a Round still to come stays: a returning Player
+        // hears the current Round begin again, then the pick for the next.
+        if self.chosen.as_ref().is_some_and(|chosen| chosen.round < number) {
             self.chosen = None;
         }
-        let Some(chosen) = self.chosen.as_mut() else { return };
+        let Some(chosen) = self.chosen.as_mut().filter(|chosen| chosen.round == number) else { return };
         chosen.live = true;
         self.flash_left = 0.0;
         self.banner_left = if chosen.option.twist.is_some() { GAUNTLET_TWIST_BANNER_SECS } else { 0.0 };
+    }
+
+    /// A client takes the Host's word of the Challenge's standing. Returns the cue the change
+    /// sounds, and counts a Challenge met for its own Scrip and Run Record.
+    pub fn mirror_challenge(&mut self, standing: Standing, kills: u32, horde: u32, left_ds: Option<u16>) -> Option<Cue> {
+        let run = self.chosen.as_mut()?.challenge.as_mut()?;
+        let was = run.mirror(standing, kills, horde, left_ds);
+        match (was, standing) {
+            (Standing::Active, Standing::Broken) => {
+                self.flash_left = GAUNTLET_CHALLENGE_BREACH_FLASH_SECS;
+                Some(Cue::ChallengeBreach)
+            }
+            (Standing::Active, Standing::Met) => {
+                self.challenges_met += 1;
+                Some(Cue::ChallengeMet)
+            }
+            _ => None,
+        }
+    }
+
+    /// A client's Blitz clock runs down between the Host's tellings.
+    pub fn tick_challenge(&mut self, dt: f32) {
+        if let Some(run) = self.chosen.as_mut().and_then(|chosen| chosen.challenge.as_mut())
+            && run.standing == Standing::Active
+            && let Some(left) = run.told_left.as_mut()
+        {
+            *left = (*left - dt).max(0.0);
+        }
     }
 
     /// A client's Round `round` is cleared: its Twist is survived, for its own Scrip and Run Record.
@@ -885,7 +971,7 @@ fn choose(variety: &mut RoundVariety, option: usize, standing_in: &mut RoundStar
     let Some(&picked) = pending.options.get(option) else {
         return;
     };
-    let round = pending.round;
+    let (round, options) = (pending.round, pending.options);
     variety.pending = None;
     variety.lit = false;
     variety.votes = [None; VOTE_SEATS];
@@ -895,6 +981,7 @@ fn choose(variety: &mut RoundVariety, option: usize, standing_in: &mut RoundStar
         round,
         option: picked,
         index: option as u8,
+        options,
         challenge: picked.challenge.map(ChallengeRun::new),
         live: false,
     });
@@ -958,7 +1045,7 @@ pub fn settle_votes(
 pub fn begin_round(
     mut started: MessageReader<RoundStarted>,
     round: Res<Round>,
-    zone: Query<&PlayerZone, With<LocalPlayer>>,
+    zones: Query<(Entity, &PlayerZone), (With<Player>, Without<Disconnected>)>,
     mut variety: ResMut<RoundVariety>,
 ) {
     if started.read().count() == 0 {
@@ -974,8 +1061,10 @@ pub fn begin_round(
     };
     chosen.live = true;
     let twist = chosen.option.twist.is_some();
-    if let (Some(run), Ok(&PlayerZone(zone))) = (chosen.challenge.as_mut(), zone.single()) {
-        run.in_zone(zone);
+    if let Some(run) = chosen.challenge.as_mut() {
+        for (player, &PlayerZone(zone)) in &zones {
+            run.in_zone_of(player, zone);
+        }
     }
     variety.flash_left = 0.0;
     variety.banner_left = if twist { GAUNTLET_TWIST_BANNER_SECS } else { 0.0 };
@@ -989,7 +1078,9 @@ pub fn client_rounds(
     round: Res<Round>,
     mut variety: ResMut<RoundVariety>,
     mut standing_in: ResMut<RoundStartCue>,
+    time: Res<Time>,
 ) {
+    variety.tick_challenge(time.delta_secs());
     if started.read().count() > 0 {
         variety.mirror_begin(round.number);
     }
@@ -1004,17 +1095,22 @@ pub fn client_rounds(
 pub struct Watched<'w, 's> {
     kills: MessageReader<'w, 's, ZombieKilled>,
     reloads: MessageReader<'w, 's, Reloaded>,
-    points: Query<'w, 's, &'static Points, With<LocalPlayer>>,
-    /// The Player's `Points::spent` as last seen, so the Points actually deducted since count.
-    seen_spent: Local<'s, u64>,
+    points: Query<'w, 's, (Entity, &'static Points), With<Player>>,
+    /// Each Player's `Points::spent` as last seen, so the Points actually deducted since count.
+    seen_spent: Local<'s, HashMap<Entity, u64>>,
+    /// A remote Player's Reload as the Host sees it: their pose turning to Reload (a Reload
+    /// started, where the `LocalPlayer`'s `Reloaded` counts one finished). Who was Reloading last frame.
+    poses: Query<'w, 's, (Entity, &'static Pose), (With<Player>, With<Remote>)>,
+    reloading: Local<'s, HashSet<Entity>>,
 }
 
-/// Feeds the live Challenge the Player's kills, Reloads, purchases, Zone and the clock, and sounds
-/// the buzz when it breaks. Never on a Down: only these break one.
+/// Feeds the live Challenge every Player's kills, Reloads, purchases, Zone and the clock, and sounds
+/// the buzz when it breaks. It is the team's: any Player's breach breaks it. Never on a Down: only
+/// these break one.
 pub fn track_challenge(
     mut watched: Watched,
     round: Res<Round>,
-    zone: Query<&PlayerZone, With<LocalPlayer>>,
+    zones: Query<(Entity, &PlayerZone), (With<Player>, Without<Disconnected>)>,
     time: Res<Time>,
     mut variety: ResMut<RoundVariety>,
     mut cues: MessageWriter<PlayCue>,
@@ -1022,12 +1118,20 @@ pub fn track_challenge(
     let mut broke = false;
     let live = variety.chosen.as_ref().is_some_and(|chosen| chosen.live && chosen.round == round.number);
     let kills: Vec<_> = watched.kills.read().copied().collect();
-    let reloads = watched.reloads.read().count();
-    // What was really deducted, whatever was bought (a Door, a Repack or Pack-a-Punch price lives on
-    // no `Buyable`) and wherever the Points went.
-    let total = watched.points.single().map_or(*watched.seen_spent, |points| points.spent);
-    let spent = total.saturating_sub(*watched.seen_spent);
-    *watched.seen_spent = total;
+    let mut reloads = watched.reloads.read().count();
+    // A remote Player's Reload started this frame.
+    let reloading: HashSet<Entity> =
+        watched.poses.iter().filter(|(_, pose)| pose.action == Action::Reload).map(|(player, _)| player).collect();
+    reloads += reloading.difference(&watched.reloading).count();
+    *watched.reloading = reloading;
+    // What was really deducted from anyone, whatever was bought (a Door, a Repack or Pack-a-Punch
+    // price lives on no `Buyable`) and wherever the Points went. A Player seen for the first time has
+    // spent nothing yet.
+    let mut spent = 0;
+    for (player, points) in &watched.points {
+        let seen = watched.seen_spent.insert(player, points.spent).unwrap_or(points.spent);
+        spent += points.spent.saturating_sub(seen);
+    }
     if !live {
         return;
     }
@@ -1041,8 +1145,8 @@ pub fn track_challenge(
         broke |= run.reloaded();
     }
     broke |= run.spent(spent);
-    if let Ok(&PlayerZone(zone)) = zone.single() {
-        broke |= run.in_zone(zone);
+    for (player, &PlayerZone(zone)) in &zones {
+        broke |= run.in_zone_of(player, zone);
     }
     broke |= run.tick(time.delta_secs(), round.horde(), round.horde_spawned() > 0);
     if broke {
@@ -1425,9 +1529,9 @@ mod tests {
     }
 
     #[test]
-    fn co_op_has_no_round_choices_until_clients_can_see_them() {
+    fn co_op_has_round_choices_now_that_clients_can_see_them() {
         assert!(has_round_choices(RunType::Solo));
-        assert!(!has_round_choices(RunType::Coop));
+        assert!(has_round_choices(RunType::Coop));
     }
 
     // --- the draw ---
@@ -1644,6 +1748,7 @@ mod tests {
                 round,
                 option: option(twist, challenge),
                 index: 0,
+                options: [option(None, None), option(twist, challenge)],
                 challenge: challenge.map(ChallengeRun::new),
                 live: true,
             }),
@@ -1661,13 +1766,163 @@ mod tests {
             .insert_resource(Round::in_progress(7))
             .insert_resource(live(7, None, Some(ChallengeKind::TightFist)))
             .add_systems(Update, track_challenge);
-        let player = app.world_mut().spawn((LocalPlayer, Points { balance: 5000, ..default() })).id();
+        let player = app.world_mut().spawn((Player, LocalPlayer, Points { balance: 5000, ..default() })).id();
         app.update();
         let standing = |app: &App| app.world().resource::<RoundVariety>().chosen.as_ref().unwrap().challenge.as_ref().unwrap().standing;
         assert_eq!(standing(&app), Standing::Active);
         app.world_mut().get_mut::<Points>(player).unwrap().spend(1000);
         app.update();
         assert_eq!(standing(&app), Standing::Broken);
+    }
+
+    /// A Co-op Round under way with `challenge`, tracked by `track_challenge`: the Host's own Player
+    /// (a `LocalPlayer`) and a remote one, in Zone 1.
+    fn team(challenge: ChallengeKind) -> (App, Entity, Entity) {
+        let mut app = App::new();
+        app.add_message::<ZombieKilled>()
+            .add_message::<Reloaded>()
+            .add_message::<PlayCue>()
+            .init_resource::<Time>()
+            .insert_resource(Round::in_progress(7))
+            .insert_resource(live(7, None, Some(challenge)))
+            .add_systems(Update, track_challenge);
+        let host = app.world_mut().spawn((Player, LocalPlayer, Points { balance: 5000, ..default() }, PlayerZone(ZoneId::StartRoom))).id();
+        let remote = app
+            .world_mut()
+            .spawn((Player, Remote::new(1), Pose::default(), Points { balance: 5000, ..default() }, PlayerZone(ZoneId::StartRoom)))
+            .id();
+        app.update();
+        (app, host, remote)
+    }
+
+    fn run_of(app: &App) -> &ChallengeRun {
+        app.world().resource::<RoundVariety>().chosen.as_ref().unwrap().challenge.as_ref().unwrap()
+    }
+
+    fn kill(app: &mut App, player: Entity, attack: Attack, headshot: bool) {
+        let zombie = app.world_mut().spawn_empty().id();
+        app.world_mut().write_message(ZombieKilled {
+            player: Some(player),
+            pay: crate::enemies::zombie::Pay::Paid,
+            headshot,
+            zone: crate::enemies::zombie::HitZone::Torso,
+            attack,
+            at: Vec3::ZERO,
+            surge: false,
+            zombie,
+        });
+        app.update();
+    }
+
+    #[test]
+    fn every_players_kills_count_toward_the_team_challenge() {
+        let (mut app, host, remote) = team(ChallengeKind::ColdSteel);
+        kill(&mut app, host, Attack::Knife, false);
+        kill(&mut app, remote, Attack::Knife, false);
+        assert_eq!((run_of(&app).kills, run_of(&app).standing), (2, Standing::Active));
+    }
+
+    #[test]
+    fn a_remote_players_wrong_kill_breaks_the_team_challenge() {
+        let (mut app, _, remote) = team(ChallengeKind::CleanShots);
+        kill(&mut app, remote, Attack::Bullet, false);
+        assert_eq!(run_of(&app).standing, Standing::Broken);
+    }
+
+    #[test]
+    fn a_remote_players_spending_breaks_tight_fist_for_the_team() {
+        let (mut app, _, remote) = team(ChallengeKind::TightFist);
+        app.world_mut().get_mut::<Points>(remote).unwrap().spend(500);
+        app.update();
+        assert_eq!(run_of(&app).standing, Standing::Broken);
+    }
+
+    #[test]
+    fn a_remote_player_leaving_their_zone_breaks_hold_the_line_for_the_team() {
+        let (mut app, host, remote) = team(ChallengeKind::HoldTheLine);
+        app.update();
+        assert_eq!(run_of(&app).standing, Standing::Active);
+        app.world_mut().get_mut::<PlayerZone>(host).unwrap().0 = ZoneId::StartRoom;
+        app.world_mut().get_mut::<PlayerZone>(remote).unwrap().0 = ZoneId::WestHall;
+        app.update();
+        assert_eq!(run_of(&app).standing, Standing::Broken);
+    }
+
+    #[test]
+    fn each_player_holds_the_zone_they_started_in() {
+        let (mut app, host, remote) = team(ChallengeKind::HoldTheLine);
+        // Both started in Zone 1; neither moving is no breach, and a late Player's own Zone is theirs.
+        app.world_mut().get_mut::<PlayerZone>(host).unwrap().0 = ZoneId::StartRoom;
+        app.update();
+        let late = app.world_mut().spawn((Player, Points::default(), PlayerZone(ZoneId::Balcony))).id();
+        app.update();
+        assert_eq!(run_of(&app).standing, Standing::Active, "{remote:?} and {late:?} are where they started");
+    }
+
+    #[test]
+    fn a_remote_players_reload_breaks_full_mag_for_the_team_once_started() {
+        let (mut app, _, remote) = team(ChallengeKind::FullMag);
+        app.world_mut().get_mut::<Pose>(remote).unwrap().action = Action::Reload;
+        app.update();
+        assert_eq!(run_of(&app).standing, Standing::Broken);
+    }
+
+    #[test]
+    fn a_remote_player_already_reloading_when_the_round_began_does_not_break_full_mag_twice() {
+        let (mut app, _, remote) = team(ChallengeKind::FullMag);
+        app.world_mut().get_mut::<Pose>(remote).unwrap().action = Action::Knife;
+        app.update();
+        assert_eq!(run_of(&app).standing, Standing::Active, "only a Reload breaks it");
+    }
+
+    #[test]
+    fn the_hosts_own_reload_breaks_full_mag_for_the_team() {
+        let (mut app, host, _) = team(ChallengeKind::FullMag);
+        app.world_mut().write_message(Reloaded { player: host, weapon: crate::weapons::arsenal::WeaponId::M1911 });
+        app.update();
+        assert_eq!(run_of(&app).standing, Standing::Broken);
+    }
+
+    #[test]
+    fn blitz_runs_on_the_hosts_clock_and_breaks_for_the_team() {
+        let (mut app, ..) = team(ChallengeKind::Blitz);
+        let mut round = Round::in_progress(7);
+        let horde = round.horde();
+        assert!(round.take_from_horde() || horde == 0);
+        app.insert_resource(round);
+        app.world_mut().resource_mut::<Time>().advance_by(std::time::Duration::from_secs_f32(blitz_limit_secs(horde) + 1.0));
+        app.update();
+        assert_eq!(run_of(&app).standing, Standing::Broken);
+    }
+
+    #[test]
+    fn a_met_team_challenge_pays_every_player_and_counts_once() {
+        let mut app = app();
+        app.insert_resource(RunType::Coop);
+        let players = [(); 2].map(|()| app.world_mut().spawn(OwedBoost::default()).id());
+        app.insert_resource(live(4, None, Some(ChallengeKind::ColdSteel)));
+        app.world_mut().write_message(RoundEnded);
+        app.update();
+        for player in players {
+            assert_eq!(app.world().get::<OwedBoost>(player).unwrap().0.families, vec![Family::Blade], "everyone gets the reward");
+        }
+        assert_eq!(app.world().resource::<RoundVariety>().challenges_met, 1);
+    }
+
+    #[test]
+    fn a_client_mirrors_the_standing_counts_a_met_challenge_and_sounds_each_change_once() {
+        let mut variety = live(7, None, Some(ChallengeKind::Blitz));
+        assert_eq!(variety.mirror_challenge(Standing::Active, 3, 20, Some(255)), None);
+        assert_eq!(challenge_line(variety.chosen.as_ref().unwrap().challenge.as_ref().unwrap(), 0), "Clear it fast (26s): 3/20");
+        variety.tick_challenge(5.0);
+        let run = variety.chosen.as_ref().unwrap().challenge.as_ref().unwrap();
+        assert_eq!(run.time_left(0).map(f32::ceil), Some(21.0), "it counts down between tellings");
+        assert_eq!(variety.mirror_challenge(Standing::Met, 20, 20, Some(100)), Some(Cue::ChallengeMet));
+        assert_eq!(variety.mirror_challenge(Standing::Met, 20, 20, Some(100)), None);
+        assert_eq!(variety.challenges_met, 1, "the client counts it for its own Run Record");
+        let mut broken = live(7, None, Some(ChallengeKind::FullMag));
+        assert_eq!(broken.mirror_challenge(Standing::Broken, 0, 20, None), Some(Cue::ChallengeBreach));
+        assert_eq!(broken.challenges_met, 0);
     }
 
     #[test]
@@ -1861,12 +2116,12 @@ mod tests {
     }
 
     #[test]
-    fn co_op_draws_no_choice() {
+    fn co_op_draws_a_choice_for_the_vote() {
         let mut app = app();
         app.insert_resource(RunType::Coop);
         app.world_mut().write_message(RoundEnded);
         app.update();
-        assert!(app.world().resource::<RoundVariety>().pending.is_none());
+        assert!(app.world().resource::<RoundVariety>().pending.is_some());
     }
 
     #[test]
