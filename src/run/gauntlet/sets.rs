@@ -450,6 +450,11 @@ impl SetFlashes {
         self.sent.push(Fx::Ring { at, secs });
     }
 
+    /// Tells the Players of a Bloater's burst ring, which each draws from its own `BurstView`.
+    pub fn tell_burst_ring(&mut self, at: Vec3) {
+        self.sent.push(Fx::GrowingRing { at, radius: GAUNTLET_BLOATER_BURST_RADIUS_M, secs: GAUNTLET_BLOATER_BURST_SECS });
+    }
+
     /// Tells the Players of a Supply Drop frag in flight.
     pub fn tell_shell(&mut self, from: Vec3, to: Vec3) {
         self.sent.push(Fx::Arc { from, to });

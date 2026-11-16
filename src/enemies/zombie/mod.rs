@@ -598,6 +598,11 @@ impl Zombie {
         Self { scale, ..self }
     }
 
+    /// Makes the body `scale` times the usual size, for a puppet of a scaled Zombie.
+    pub fn set_scale(&mut self, scale: f32) {
+        self.scale = scale;
+    }
+
     /// A normal Zombie with `health`, for tests.
     #[cfg(test)]
     pub fn new_for_test(health: f32) -> Self {

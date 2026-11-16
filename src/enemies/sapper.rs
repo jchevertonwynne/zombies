@@ -386,6 +386,27 @@ impl Sapper {
             commands.entity(helmet).despawn();
         }
     }
+
+    /// Puts the helmet back on a puppet Sapper whose helmet the Host has re-formed (the Warden at
+    /// its phase marks).
+    pub fn regain_helmet(&mut self, commands: &mut Commands, assets: &SapperAssetsParam) {
+        self.helmet = true;
+        // A puppet not yet dressed has no head: `dress_sappers` gives it the helmet then.
+        if self.helmet_mesh.is_none()
+            && let Some(head) = self.head
+        {
+            self.helmet_mesh = Some(
+                commands
+                    .spawn((
+                        Mesh3d(assets.0.helmet.clone()),
+                        MeshMaterial3d(assets.0.steel.clone()),
+                        Transform::from_xyz(0.0, ZOMBIE_HEAD_RADIUS * 0.6, 0.0),
+                        ChildOf(head),
+                    ))
+                    .id(),
+            );
+        }
+    }
 }
 
 /// Lets a client dress its puppets as the Sapper without knowing about the asset handles.

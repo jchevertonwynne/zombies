@@ -333,6 +333,9 @@ pub enum WorldEvent {
     Capstones { seat: Seat, families: u8 },
     /// A sound the Host made that clients would miss: the cue's code in `Cue::ALL`, and where.
     Cue { cue: u8, at: Option<[u8; 6]> },
+    /// The Boss's health in 255ths (0 when there is no Boss): told when the byte changes, at most
+    /// `BOSS_HEALTH_TELL_PER_SEC` times a second, and to a Player who comes back.
+    BossHealth(u8),
 }
 
 /// What has come in, and what each end remembers of what it has said or been told.
@@ -372,6 +375,9 @@ pub struct Mirror {
     capstones: HashMap<Seat, u8>,
     /// The Run's count of Elites killed as last told.
     elites_killed: u32,
+    /// The Boss's health as last told (0 for none), and when.
+    boss_health: u8,
+    boss_told: Option<f32>,
     /// Each Seat's Points as last told, and the seconds since.
     points: HashMap<Seat, (u32, f32)>,
     offers: HashMap<Seat, Option<OfferWire>>,
@@ -429,6 +435,7 @@ impl Tell<'_> {
     }
 }
 
+mod bosses;
 mod cosmetics;
 
 pub fn add(app: &mut App) {
@@ -514,7 +521,8 @@ pub fn add(app: &mut App) {
                 catch_up_world,
                 catch_up_player,
                 catch_up_tags.after(tell_tags).after(tell_elites_killed),
-                (cosmetics::tell_frosts, cosmetics::tell_capstones, cosmetics::tell_cues),
+                (cosmetics::tell_frosts, cosmetics::tell_capstones, cosmetics::tell_cues, bosses::tell_boss_health),
+                bosses::catch_up_boss.after(bosses::tell_boss_health),
                 cosmetics::catch_up_capstones.after(cosmetics::tell_capstones),
             )
                 .after(HostSimulation)
@@ -561,7 +569,7 @@ pub fn add(app: &mut App) {
         )
         .add_systems(
             Update,
-            (hear_tags, hear_elites_killed, cosmetics::hear_capstones, cosmetics::hear_cues, cosmetics::hear_frosts)
+            (hear_tags, hear_elites_killed, cosmetics::hear_capstones, cosmetics::hear_cues, cosmetics::hear_frosts, bosses::hear_boss_health)
                 .after(release_events)
                 .run_if(resource_exists::<Prediction>)
                 .run_if(resource_exists::<NetIds>)

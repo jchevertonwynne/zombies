@@ -218,16 +218,32 @@ pub enum SpecialBody {
     Shrieker,
     Sapper,
     NovaCrawler,
+    /// A Hellhound that is a Boss (the Pack Alpha): the only Hellhound told of by name.
+    Hellhound,
+}
+
+/// Bit 4 of `SpecialSight::body`: the Zombie is the Boss of the Round.
+pub const BOSS_BIT: u8 = 0x10;
+
+/// `byte` with the Boss bit set.
+pub fn pack_boss(byte: u8) -> u8 {
+    byte | BOSS_BIT
+}
+
+/// Whether `byte` is the Boss's.
+pub fn is_boss(byte: u8) -> bool {
+    byte & BOSS_BIT != 0
 }
 
 /// Which Special Zombie it is in bits 0 to 2, and in bit 3 whether the Sapper has lost its helmet
-/// or the Nova Crawler's gas has burst.
+/// or the Nova Crawler's gas has burst. Bit 4 is `BOSS_BIT`, set with `pack_boss`.
 pub fn pack_special(body: SpecialBody, marked: bool) -> u8 {
     let code = match body {
         SpecialBody::Napalm => 1,
         SpecialBody::Shrieker => 2,
         SpecialBody::Sapper => 3,
         SpecialBody::NovaCrawler => 4,
+        SpecialBody::Hellhound => 5,
     };
     code | u8::from(marked) << 3
 }
@@ -239,6 +255,7 @@ pub fn unpack_special(byte: u8) -> Option<(SpecialBody, bool)> {
         2 => SpecialBody::Shrieker,
         3 => SpecialBody::Sapper,
         4 => SpecialBody::NovaCrawler,
+        5 => SpecialBody::Hellhound,
         _ => return None,
     };
     Some((body, byte & 0x8 != 0))
@@ -511,7 +528,7 @@ mod tests {
 
     #[test]
     fn which_special_a_zombie_is_is_told_to_a_byte() {
-        for body in [SpecialBody::Napalm, SpecialBody::Shrieker, SpecialBody::Sapper, SpecialBody::NovaCrawler] {
+        for body in [SpecialBody::Napalm, SpecialBody::Shrieker, SpecialBody::Sapper, SpecialBody::NovaCrawler, SpecialBody::Hellhound] {
             for marked in [false, true] {
                 assert_eq!(unpack_special(pack_special(body, marked)), Some((body, marked)));
             }
@@ -519,6 +536,24 @@ mod tests {
         assert_eq!(unpack_special(0), None);
         let one = encode(&Snapshot { specials: vec![SpecialSight { id: u16::MAX, body: 255 }], ..worst_snapshot() }).len();
         assert!(one - encode(&worst_snapshot()).len() <= 4, "a special is {} B", one - encode(&worst_snapshot()).len());
+    }
+
+    #[test]
+    fn the_boss_bit_rides_beside_the_body_and_the_marked_flag() {
+        for body in [SpecialBody::Napalm, SpecialBody::Sapper, SpecialBody::Hellhound] {
+            for marked in [false, true] {
+                let byte = pack_boss(pack_special(body, marked));
+                assert!(is_boss(byte));
+                assert_eq!(unpack_special(byte), Some((body, marked)));
+                assert!(!is_boss(pack_special(body, marked)));
+            }
+        }
+    }
+
+    #[test]
+    fn the_pack_alpha_is_told_of_as_a_hellhound_with_the_boss_bit() {
+        assert_eq!(pack_special(SpecialBody::Hellhound, false) & 0x7, 5);
+        assert_eq!(pack_boss(pack_special(SpecialBody::Hellhound, false)), 0x15);
     }
 
     #[test]

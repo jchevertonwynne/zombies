@@ -15,13 +15,13 @@ use bevy::prelude::*;
 
 use super::play::{Clock, Prediction, Puppet, SNAPSHOT_EVERY};
 use super::state::{
-    Snapshot, SpecialBody, SpecialSight, Tick, ZombieSight, pack_anim, pack_position, pack_special, pack_yaw, unpack_anim,
-    unpack_special, unpack_yaw,
+    Snapshot, SpecialBody, SpecialSight, Tick, ZombieSight, is_boss, pack_anim, pack_boss, pack_position, pack_special, pack_yaw,
+    unpack_anim, unpack_special, unpack_yaw,
 };
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
 use crate::maps::barrier::Entering;
-use crate::run::gauntlet::{Elite, EliteTrait};
+use crate::run::gauntlet::{Boss, Elite, EliteTrait};
 use crate::enemies::hellhound::{HellhoundAssetsParam, Telegraph, end_strike, spawn_hellhound_puppet};
 use crate::enemies::nova::{Burst, NovaAssetsParam, show_gas, spawn_nova_puppet};
 use crate::enemies::sapper::{self, Sapper, SapperAssetsParam};
@@ -29,7 +29,10 @@ use crate::enemies::special::{self, Shrieker, SpecialAssetsParam, SpecialKind};
 use crate::run::gauntlet::boon::Family;
 use crate::weapons::ammo_mod::{AmmoModAssets, TurnedAlly, glow};
 use avian3d::prelude::{Collider, CollisionLayers};
-use crate::tuning::{PUPPET_SNAP_METRES, SNAPSHOT_MAX_CREATURES, SNAPSHOT_MAX_SPECIALS};
+use crate::tuning::{
+    GAUNTLET_BLOATER_SCALE, GAUNTLET_PACK_ALPHA_SCALE, GAUNTLET_WARDEN_SCALE, PUPPET_SNAP_METRES, SNAPSHOT_MAX_CREATURES,
+    SNAPSHOT_MAX_SPECIALS,
+};
 use crate::enemies::zombie::rig::{Activity, Shown, Swing, describe};
 use crate::enemies::zombie::{
     Dying, HitArea, KnockedDown, Rising, Stunned, Zombie, ZombieAssetsParam, make_puppet_crawler, spawn_puppet,
@@ -54,6 +57,24 @@ pub enum Tag {
     Frosted { tenths: u8 },
     /// A Turned ally that is a Grit Bodyguard, so it glows Grit red.
     Bodyguard,
+}
+
+/// How many times the usual size a Boss with this body is: the Bloater is a Napalm, the Pack Alpha
+/// a Hellhound and the Warden a Sapper. A client works its puppet's size out from the Boss bit and
+/// the body, so no size is sent.
+pub fn boss_scale(body: SpecialBody) -> f32 {
+    match body {
+        SpecialBody::Napalm => GAUNTLET_BLOATER_SCALE,
+        SpecialBody::Hellhound => GAUNTLET_PACK_ALPHA_SCALE,
+        SpecialBody::Sapper => GAUNTLET_WARDEN_SCALE,
+        SpecialBody::Shrieker | SpecialBody::NovaCrawler => 1.0,
+    }
+}
+
+/// Makes a puppet `scale` times the usual size.
+fn scale_puppet(commands: &mut Commands, entity: Entity, scale: f32) {
+    commands.entity(entity).entry::<Transform>().and_modify(move |mut transform| transform.scale = Vec3::splat(scale));
+    commands.entity(entity).entry::<Zombie>().and_modify(move |mut zombie| zombie.set_scale(scale));
 }
 
 /// Every Zombie and Hellhound that has an id, by id and by entity.
@@ -211,6 +232,7 @@ pub fn describe_horde(
         Has<Telegraph>,
         Option<&Sapper>,
         Has<Burst>,
+        Has<Boss>,
     )>,
     allies: Query<(&ZombieId, &Transform, Option<&TurnedAlly>, Option<&Dying>), Without<Zombie>>,
 ) {
@@ -219,7 +241,7 @@ pub fn describe_horde(
     }
     let origin = super::state::wire_origin(*map);
     let (mut walkers, mut hounds, mut specials) = (Vec::new(), Vec::new(), Vec::new());
-    for (id, transform, zombie, entering, rising, stunned, down, dying, shrieker, striking, sapper, burst) in &zombies {
+    for (id, transform, zombie, entering, rising, stunned, down, dying, shrieker, striking, sapper, burst, boss) in &zombies {
         let screaming = shrieker.is_some_and(Shrieker::screaming);
         // A hound in its lightning strike is shown as rising from the ground.
         let activity = describe(0, Some(zombie), entering, rising || striking, stunned, down, dying, screaming);
@@ -236,10 +258,14 @@ pub fn describe_horde(
             Some(SpecialKind::Shrieker) => Some((SpecialBody::Shrieker, false)),
             Some(SpecialKind::Sapper) => Some((SpecialBody::Sapper, sapper.is_some_and(Sapper::helmet_lost))),
             None if zombie.is_nova_crawler() => Some((SpecialBody::NovaCrawler, burst)),
+            // The Pack Alpha is the one Hellhound with a body of its own.
+            None if boss && zombie.is_hellhound() => Some((SpecialBody::Hellhound, false)),
             None => None,
         };
         if let Some((body, marked)) = body {
-            specials.push((dying.is_some(), SpecialSight { id: id.0, body: pack_special(body, marked) }));
+            let byte = pack_special(body, marked);
+            let byte = if boss { pack_boss(byte) } else { byte };
+            specials.push((dying.is_some(), SpecialSight { id: id.0, body: byte }));
         }
     }
     // A Turned ally keeps its id but is no longer a `Zombie`. One that has expired is still told
@@ -458,6 +484,11 @@ pub fn show_zombies(
                 entity
             };
             commands.entity(entity).insert((Puppet, ZombieId(id), Shown(activity)));
+            if let Some((body, _)) = special
+                && is_boss(glimpses.special)
+            {
+                scale_puppet(&mut commands, entity, boss_scale(body));
+            }
             if glimpses.ally {
                 commands.entity(entity).insert(PuppetAlly);
             }
@@ -470,6 +501,13 @@ pub fn show_zombies(
         }
         if transform.translation != at.position {
             transform.translation = at.position;
+        }
+        // The Boss bit can come a snapshot after the Zombie does: it grows to its size then.
+        if let Some((body, _)) = special
+            && is_boss(glimpses.special)
+            && transform.scale.x != boss_scale(body)
+        {
+            scale_puppet(&mut commands, entity, boss_scale(body));
         }
         if dying && !falling {
             commands.entity(entity).insert(Dying::default());
@@ -488,11 +526,14 @@ pub fn show_zombies(
         };
         was.set_if_neq(Shown(activity));
         match special {
-            Some((SpecialBody::Sapper, true)) => {
-                if let Some(mut sapper) = sapper
-                    && !sapper.helmet_lost()
-                {
-                    sapper.lose_helmet(&mut commands);
+            Some((SpecialBody::Sapper, lost)) => {
+                if let Some(mut sapper) = sapper {
+                    if lost && !sapper.helmet_lost() {
+                        sapper.lose_helmet(&mut commands);
+                    } else if !lost && sapper.helmet_lost() {
+                        // The Warden's helmet re-forms at a phase mark.
+                        sapper.regain_helmet(&mut commands, &assets.sapper);
+                    }
                 }
             }
             Some((SpecialBody::NovaCrawler, true)) if !burst => {

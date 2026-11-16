@@ -15,6 +15,7 @@ use super::protocol::{ToPlayer, encode};
 use super::state::{pack_position, unpack_position, wire_origin};
 use crate::authority::HostSimulation;
 use crate::maps::map::MapId;
+use crate::run::gauntlet::BurstView;
 use crate::run::gauntlet::duos::ShellView;
 use crate::run::gauntlet::procs::ProcFlashes;
 use crate::run::gauntlet::sets::{FrostPatch, SetFlashes};
@@ -45,6 +46,8 @@ pub enum Fx {
     Ring { at: Vec3, secs: f32 },
     /// Supply Drop's shell, flown from `from` to `to`.
     Arc { from: Vec3, to: Vec3 },
+    /// A Bloater's burst: a ring on the ground growing from `at` out to `radius` over `secs`.
+    GrowingRing { at: Vec3, radius: f32, secs: f32 },
 }
 
 /// An `Fx` as it goes on the wire: positions as `pack_position` triples, a radius in decimetres,
@@ -61,6 +64,7 @@ pub enum FxWire {
     Scorched { at: [u8; 6], radius: u8, colour: u8, life: u8 },
     Ring { at: [u8; 6], life: u8 },
     Arc { from: [u8; 6], to: [u8; 6] },
+    GrowingRing { at: [u8; 6], radius: u8, life: u8 },
 }
 
 /// A colour as one byte.
@@ -146,6 +150,9 @@ impl Fx {
             },
             Fx::Ring { at: place, secs } => FxWire::Ring { at: at(place), life: pack_life(secs) },
             Fx::Arc { from, to } => FxWire::Arc { from: at(from), to: at(to) },
+            Fx::GrowingRing { at: place, radius, secs } => {
+                FxWire::GrowingRing { at: at(place), radius: pack_radius(radius), life: pack_life(secs) }
+            }
         }
     }
 }
@@ -196,6 +203,9 @@ impl FxWire {
             },
             FxWire::Ring { at: place, life } => Fx::Ring { at: at(place), secs: unpack_life(life) },
             FxWire::Arc { from, to } => Fx::Arc { from: at(from), to: at(to) },
+            FxWire::GrowingRing { at: place, radius, life } => {
+                Fx::GrowingRing { at: at(place), radius: unpack_radius(radius), secs: unpack_life(life) }
+            }
         }
     }
 }
@@ -269,6 +279,9 @@ pub fn hear_fx(
             Fx::Arc { from, to } => {
                 commands.spawn((crate::state::InRun, Name::new("Supply Drop frag"), ShellView::new(from, to)));
             }
+            Fx::GrowingRing { at, radius, secs } => {
+                commands.spawn((crate::state::InRun, Name::new("Bloater burst"), BurstView::new(at, radius, secs)));
+            }
         }
     }
 }
@@ -298,6 +311,7 @@ mod tests {
             Fx::Scorched { at, radius: 2.5, colour, secs: 2.0 },
             Fx::Ring { at, secs: 2.0 },
             Fx::Arc { from: at, to: at + Vec3::new(8.0, 0.0, 2.0) },
+            Fx::GrowingRing { at, radius: 6.0, secs: 1.0 },
         ]
     }
 
