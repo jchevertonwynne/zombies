@@ -2582,6 +2582,9 @@ pub const GAUNTLET_ELITE_TINTS: [[f32; 3]; 5] = [
 pub const GAUNTLET_SAFE_CHALLENGE_CHANCE: f64 = 0.6;
 /// The Round Choice's Twist option carries a Challenge this often.
 pub const GAUNTLET_TWIST_CHALLENGE_CHANCE: f64 = 0.5;
+/// In Co-op the Round Choice's vote waits this long at most, then the votes cast decide it (no vote
+/// at all picks the safe option). The world runs meanwhile, as it does for Offers.
+pub const GAUNTLET_ROUND_CHOICE_COOP_SECS: f32 = BOON_OFFER_COOP_TIMEOUT_SECS;
 /// The first Round a Round Choice can decide: Rounds 1 and 2 are always Plain.
 pub const GAUNTLET_ROUND_CHOICE_FIRST_ROUND: u32 = 3;
 /// Extra picks from the next Offer for surviving a Twist and meeting a Challenge in one Round.

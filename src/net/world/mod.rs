@@ -109,6 +109,8 @@ pub enum Request {
     Banish { card: u8 },
     /// They picked this card of their open Offer, or skipped a Pact Offer.
     Pick { card: Option<u8> },
+    /// They vote for this option of the Round Choice: 0 the safe one, 1 the Twist one.
+    VoteRound { option: u8 },
 }
 
 /// A Weapon copy on the wire: all of it that its holder's game can't work out for itself.
@@ -336,6 +338,14 @@ pub enum WorldEvent {
     /// The Boss's health in 255ths (0 when there is no Boss): told when the byte changes, at most
     /// `BOSS_HEALTH_TELL_PER_SEC` times a second, and to a Player who comes back.
     BossHealth(u8),
+    /// The Round Choice for `round`: each option's Twist and Challenge by their place in `ALL`, and
+    /// whether it can be voted on. Told when it is drawn and when `lit` changes, and to a Player
+    /// who comes back (after a pick, with the picked option in both places).
+    RoundChoice { round: u32, options: [(Option<u8>, Option<u8>); 2], lit: bool },
+    /// What each Seat has voted for in the Round Choice: told on a change.
+    RoundVotes([Option<u8>; 4]),
+    /// The Round Choice for `round` went to this option: told once, and to a Player who comes back.
+    RoundPicked { round: u32, option: u8 },
 }
 
 /// What has come in, and what each end remembers of what it has said or been told.
@@ -378,6 +388,11 @@ pub struct Mirror {
     /// The Boss's health as last told (0 for none), and when.
     boss_health: u8,
     boss_told: Option<f32>,
+    /// The Round Choice as last told: its Round, options and whether it was lit; the votes; and
+    /// the Round of the last pick.
+    choice: Option<(u32, [(Option<u8>, Option<u8>); 2], bool)>,
+    votes: [Option<u8>; 4],
+    picked: Option<u32>,
     /// Each Seat's Points as last told, and the seconds since.
     points: HashMap<Seat, (u32, f32)>,
     offers: HashMap<Seat, Option<OfferWire>>,
@@ -436,6 +451,7 @@ impl Tell<'_> {
 }
 
 mod bosses;
+mod choice;
 mod cosmetics;
 
 pub fn add(app: &mut App) {
@@ -459,6 +475,7 @@ pub fn add(app: &mut App) {
         .add_message::<RerollOffer>()
         .add_message::<BanishCard>()
         .add_message::<ToolUsed>()
+        .add_message::<crate::run::gauntlet::VoteRound>()
         .add_message::<PlayerLeft>()
         .add_message::<WentDown>()
         .add_message::<Revived>()
@@ -521,8 +538,9 @@ pub fn add(app: &mut App) {
                 catch_up_world,
                 catch_up_player,
                 catch_up_tags.after(tell_tags).after(tell_elites_killed),
-                (cosmetics::tell_frosts, cosmetics::tell_capstones, cosmetics::tell_cues, bosses::tell_boss_health),
+                (cosmetics::tell_frosts, cosmetics::tell_capstones, cosmetics::tell_cues, bosses::tell_boss_health, choice::tell_choice),
                 bosses::catch_up_boss.after(bosses::tell_boss_health),
+                choice::catch_up_choice.after(choice::tell_choice).after(catch_up_world),
                 cosmetics::catch_up_capstones.after(cosmetics::tell_capstones),
             )
                 .after(HostSimulation)
@@ -569,7 +587,7 @@ pub fn add(app: &mut App) {
         )
         .add_systems(
             Update,
-            (hear_tags, hear_elites_killed, cosmetics::hear_capstones, cosmetics::hear_cues, cosmetics::hear_frosts, bosses::hear_boss_health)
+            (hear_tags, hear_elites_killed, cosmetics::hear_capstones, cosmetics::hear_cues, cosmetics::hear_frosts, bosses::hear_boss_health, choice::hear_choice.run_if(resource_exists::<crate::run::gauntlet::RoundVariety>))
                 .after(release_events)
                 .run_if(resource_exists::<Prediction>)
                 .run_if(resource_exists::<NetIds>)
@@ -580,7 +598,7 @@ pub fn add(app: &mut App) {
             Update,
             (
                 forward_requests,
-                (forward_picks, forward_tools),
+                (forward_picks, forward_tools, choice::forward_votes.run_if(resource_exists::<crate::run::gauntlet::RoundVariety>)),
                 report_switches,
                 report_paused,
                 (run_shown_clocks, show_box_prices).run_if(in_state(Authority::Client)),
@@ -648,6 +666,7 @@ fn hear_requests(
     mut picks: MessageWriter<PickOffer>,
     mut rerolls: MessageWriter<RerollOffer>,
     mut banishes: MessageWriter<BanishCard>,
+    mut votes: MessageWriter<crate::run::gauntlet::VoteRound>,
 ) {
     for (peer, request) in std::mem::take(&mut mirror.requests) {
         let Some(&(_, seat)) = roster.0.iter().find(|(held, _)| *held == peer) else { continue };
@@ -689,6 +708,9 @@ fn hear_requests(
             }
             Request::Banish { card } => {
                 banishes.write(BanishCard { player, card: usize::from(card) });
+            }
+            Request::VoteRound { option } => {
+                votes.write(crate::run::gauntlet::VoteRound { seat, option: usize::from(option) });
             }
         }
     }

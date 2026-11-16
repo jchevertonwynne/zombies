@@ -8,8 +8,12 @@
 //! Round Choice screen are below; the Twists reach Classic only through stat entries (ADR 0002),
 //! the Round-start cue through `RoundStartCue`, and the Fog through the camera's own fog.
 //!
-//! Round Choices are Solo only for now: a Co-op client can't see a Twist or a Challenge (issue
-//! #161). Swarm's Alive Cap fits the Co-op snapshot (`run::gauntlet::snapshot_tests`).
+//! In Co-op the Round Choice is a vote (issue #402): every Player votes, the majority wins, a tie
+//! goes to the Host's vote and no vote by `GAUNTLET_ROUND_CHOICE_COOP_SECS` picks the safe option.
+//! The Host draws and owns the result; a client mirrors `RoundVariety` from the Host's events, so
+//! the Fog, the banner, the panels and the Twists' stat entries run unchanged. Round Choices stay
+//! off in Co-op (`has_round_choices`) until the whole feature is on. Swarm's Alive Cap fits the
+//! Co-op snapshot (`run::gauntlet::snapshot_tests`).
 
 use bevy::ecs::system::SystemParam;
 use bevy::pbr::{DistanceFog, FogFalloff};
@@ -20,14 +24,15 @@ use bevy::ui_widgets::{Activate, Button};
 
 use super::arc::{RunArc, act_of, is_boss_round};
 use super::boon::{BOONS, BoonDef, Family, HeldBoons, RunFacts, draw, offer_pool};
-use super::{Offer, PendingOffer};
+use super::{Offer, OfferWait, PendingOffer};
 use crate::audio::cues::Cue;
 use crate::audio::{PlayCue, RoundStartCue};
 use crate::economy::points::Points;
 use crate::enemies::zombie::{Attack, ZombieKilled};
 use crate::maps::zone::{PlayerZone, ZoneId};
 use crate::modifier::{Effect, Modifier, Source, Stat};
-use crate::players::player::{LocalPlayer, PlayerCamera};
+use crate::players::player::{LocalPlayer, PlayerCamera, Seat};
+use crate::players::respawn::Disconnected;
 use crate::run::round::{ReservedRounds, Round, RoundEnded, RoundPhase, RoundStarted};
 use crate::state::{InRun, RunType};
 use crate::storage::records::{RecordExtra, RecordExtras};
@@ -52,6 +57,15 @@ pub enum Twist {
 
 impl Twist {
     pub const ALL: [Twist; 5] = [Twist::Fog, Twist::Stampede, Twist::Swarm, Twist::LowGravity, Twist::Drought];
+
+    /// This Twist's place in `ALL`, which is what it is called on the wire.
+    pub fn index(self) -> u8 {
+        Self::ALL.iter().position(|&twist| twist == self).unwrap_or(0) as u8
+    }
+
+    pub fn from_index(index: u8) -> Option<Twist> {
+        Self::ALL.get(usize::from(index)).copied()
+    }
 
     pub fn name(self) -> &'static str {
         match self {
@@ -124,6 +138,15 @@ impl ChallengeKind {
         ChallengeKind::TightFist,
         ChallengeKind::Blitz,
     ];
+
+    /// This Challenge's place in `ALL`, which is what it is called on the wire.
+    pub fn index(self) -> u8 {
+        Self::ALL.iter().position(|&kind| kind == self).unwrap_or(0) as u8
+    }
+
+    pub fn from_index(index: u8) -> Option<ChallengeKind> {
+        Self::ALL.get(usize::from(index)).copied()
+    }
 
     pub fn name(self) -> &'static str {
         match self {
@@ -293,8 +316,8 @@ pub fn round_choice_applies(next: u32, hellhound: bool) -> bool {
     next >= GAUNTLET_ROUND_CHOICE_FIRST_ROUND && !is_boss_round(next) && !hellhound
 }
 
-/// Whether a Run of this type has Round Choices. Co-op doesn't yet: a client can't see a Twist or
-/// a Challenge (issue #161).
+/// Whether a Run of this type draws Round Choices. Co-op's vote and mirroring are built (issue
+/// #402) but stay off until the Challenge reaches every client too.
 pub fn has_round_choices(run_type: RunType) -> bool {
     !run_type.is_coop()
 }
@@ -312,6 +335,17 @@ pub struct ActHistory {
     pub act: u32,
     pub twists: Vec<Twist>,
     pub challenges: Vec<ChallengeKind>,
+}
+
+impl RoundOption {
+    /// This option as the Host tells it: its Twist's and Challenge's places in their `ALL`.
+    pub fn wire(self) -> (Option<u8>, Option<u8>) {
+        (self.twist.map(Twist::index), self.challenge.map(ChallengeKind::index))
+    }
+
+    pub fn from_wire((twist, challenge): (Option<u8>, Option<u8>)) -> Self {
+        Self { twist: twist.and_then(Twist::from_index), challenge: challenge.and_then(ChallengeKind::from_index) }
+    }
 }
 
 impl ActHistory {
@@ -578,6 +612,8 @@ pub struct PendingChoice {
 pub struct Chosen {
     pub round: u32,
     pub option: RoundOption,
+    /// Which of the Round Choice's two options this was: 0 the safe one, 1 the Twist one.
+    pub index: u8,
     pub challenge: Option<ChallengeRun>,
     /// The Round has begun and not yet been cleared, so events count.
     live: bool,
@@ -599,12 +635,108 @@ pub struct RoundVariety {
     pub lit: bool,
     /// When the pending Round Choice was lit, in real seconds, for the input lockout.
     lit_at: f32,
+    /// Co-op: what each Seat has voted for (0 the safe option, 1 the Twist one), and the seconds
+    /// the vote has left. A client holds the Host's word of the votes and no clock.
+    pub votes: [Option<u8>; VOTE_SEATS],
+    vote_left: f32,
     /// Seconds left of the Twist banner and of a broken Challenge's flash.
     banner_left: f32,
     flash_left: f32,
 }
 
+/// The most Seats a vote has.
+pub const VOTE_SEATS: usize = 4;
+
+/// The reward each Player's next Boon or Boss Offer will carry: the Round Choice's reward is every
+/// Player's, and a Pact Offer carries it on to the next.
+#[derive(Component, Debug, Default, Clone)]
+pub struct OwedBoost(pub Boost);
+
+/// A Player voted for this option of the Round Choice (Co-op). The `LocalPlayer`'s own is a
+/// `PickRound`; a remote Player's comes from the netcode.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct VoteRound {
+    pub seat: u8,
+    pub option: usize,
+}
+
+/// The option the votes decide: the majority's, a tie going to the Host's vote (`host`'s Seat), and
+/// no vote or a tie the Host sat out picks the safe option, `0`.
+pub fn vote_winner(votes: &[Option<u8>; VOTE_SEATS], host: usize) -> usize {
+    let count = |option| votes.iter().filter(|&&vote| vote == Some(option)).count();
+    match count(0).cmp(&count(1)) {
+        std::cmp::Ordering::Greater => 0,
+        std::cmp::Ordering::Less => 1,
+        std::cmp::Ordering::Equal => votes.get(host).copied().flatten().map_or(0, usize::from),
+    }
+}
+
 impl RoundVariety {
+    /// Records a vote for `option` by `seat`, if the Round Choice can be voted on.
+    pub fn cast(&mut self, seat: u8, option: usize) -> bool {
+        let voting = self.lit && self.pending.is_some() && option < 2;
+        match self.votes.get_mut(usize::from(seat)) {
+            Some(vote) if voting => {
+                *vote = Some(option as u8);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Mirrors the Host's Round Choice on a client: drawn, or lit or unlit.
+    pub fn mirror_choice(&mut self, round: u32, options: [(Option<u8>, Option<u8>); 2], lit: bool, real_secs: f32) {
+        let options = options.map(RoundOption::from_wire);
+        if self.pending.as_ref().is_none_or(|pending| pending.round != round) {
+            self.votes = [None; VOTE_SEATS];
+        }
+        self.pending = Some(PendingChoice { round, options });
+        if lit && !self.lit {
+            self.lit_at = real_secs;
+        }
+        self.lit = lit;
+    }
+
+    /// Mirrors the Host's pick on a client, in Round `now` (`active` while it is under way): the
+    /// Round's variety is set as the Host set it, for the HUD, the Fog and the Twists' entries.
+    pub fn mirror_pick(&mut self, round: u32, index: u8, now: u32, active: bool) {
+        let option = match self.pending.take() {
+            Some(pending) if pending.round == round => pending.options.get(usize::from(index)).copied(),
+            _ => None,
+        };
+        let Some(option) = option.or_else(|| self.chosen.as_ref().filter(|chosen| chosen.round == round).map(|chosen| chosen.option)) else {
+            return;
+        };
+        self.lit = false;
+        self.votes = [None; VOTE_SEATS];
+        self.history.for_act(act_of(round));
+        self.chosen = Some(Chosen {
+            round,
+            option,
+            index,
+            challenge: option.challenge.map(ChallengeRun::new),
+            live: round == now && active,
+        });
+    }
+
+    /// A client's Round `round` begins: its Twist shows its banner. (Its Challenge is the Host's.)
+    pub fn mirror_begin(&mut self, number: u32) {
+        if self.chosen.as_ref().is_some_and(|chosen| chosen.round != number) {
+            self.chosen = None;
+        }
+        let Some(chosen) = self.chosen.as_mut() else { return };
+        chosen.live = true;
+        self.flash_left = 0.0;
+        self.banner_left = if chosen.option.twist.is_some() { GAUNTLET_TWIST_BANNER_SECS } else { 0.0 };
+    }
+
+    /// A client's Round `round` is cleared: its Twist is survived, for its own Scrip and Run Record.
+    pub fn mirror_cleared(&mut self, round: u32) {
+        let Some(chosen) = self.chosen.as_mut().filter(|chosen| chosen.round == round && chosen.live) else { return };
+        chosen.live = false;
+        self.twists_survived += u32::from(chosen.option.twist.is_some());
+    }
+
     /// The Twist of the Round, if one is chosen for `round`.
     fn twist_for(&self, round: u32) -> Option<Twist> {
         self.chosen.as_ref().filter(|chosen| chosen.round == round).and_then(|chosen| chosen.option.twist)
@@ -640,17 +772,6 @@ impl RoundVariety {
         self.reward.merge(reward(survived, met));
         met.is_some()
     }
-
-    /// The reward onto an Offer opening now: all of it for a Boon or Boss Offer, none for a Pact
-    /// Offer, which leaves it for the next.
-    pub fn reward_for(&self, boons: bool) -> Boost {
-        if boons { self.reward.clone() } else { Boost::default() }
-    }
-
-    /// Takes the reward `reward_for` showed, once an Offer carries it.
-    pub fn take_reward(&mut self, boons: bool) -> Boost {
-        if boons { std::mem::take(&mut self.reward) } else { Boost::default() }
-    }
 }
 
 /// The Round Choice's pick: `0` the safe option, `1` the Twist one.
@@ -668,6 +789,7 @@ pub fn end_round(
     mut variety: ResMut<RoundVariety>,
     mut standing_in: ResMut<RoundStartCue>,
     mut cues: MessageWriter<PlayCue>,
+    mut owed: Query<&mut OwedBoost>,
 ) {
     if ended.read().count() == 0 {
         return;
@@ -675,6 +797,13 @@ pub fn end_round(
     standing_in.0 = None;
     if variety.cleared(round.number) {
         cues.write(PlayCue::new(Cue::ChallengeMet, None));
+    }
+    // The reward is every Player's: it waits on each for their next Boon or Boss Offer.
+    if !variety.reward.is_none() && !owed.is_empty() {
+        let reward = std::mem::take(&mut variety.reward);
+        for mut boost in &mut owed {
+            boost.0.merge(reward.clone());
+        }
     }
     if !has_round_choices(*run_type) {
         return;
@@ -688,29 +817,39 @@ pub fn end_round(
         draw_round_choice(&history, |total| rand::random_range(0.0..total))
     };
     variety.pending = Some(PendingChoice { round: next, options });
+    variety.votes = [None; VOTE_SEATS];
 }
 
 /// Works out whether the Round Choice can be picked: one is waiting, and no Offer is open or due.
 pub fn light_choice(
     players: Query<(&PendingOffer, Has<Offer>)>,
     arc: Res<RunArc>,
+    (run_type, wait): (Res<RunType>, Res<OfferWait>),
     real: Res<Time<Real>>,
     mut variety: ResMut<RoundVariety>,
 ) {
-    let lit = variety.pending.is_some()
-        && !arc.choosing
-        && players.iter().all(|(pending, open)| pending.left.is_none() && !open);
+    // In Co-op the Intermission only waits so long for the Offers, and the vote opens then.
+    let offers_done = players.iter().all(|(pending, open)| pending.left.is_none() && !open);
+    let lit = variety.pending.is_some() && !arc.choosing && (offers_done || (run_type.is_coop() && wait.0 <= 0.0));
     if variety.lit != lit {
         variety.lit = lit;
         if lit {
             variety.lit_at = real.elapsed_secs();
+            variety.vote_left = GAUNTLET_ROUND_CHOICE_COOP_SECS;
         }
     }
 }
 
 /// Keys 1 and 2 pick a Round Choice's option.
-pub fn pick_keys(keys: Res<ButtonInput<KeyCode>>, variety: Res<RoundVariety>, mut picks: MessageWriter<PickRound>, real: Res<Time<Real>>) {
-    if !variety.lit || real.elapsed_secs() - variety.lit_at < BOON_OFFER_INPUT_LOCKOUT_SECS {
+pub fn pick_keys(
+    keys: Res<ButtonInput<KeyCode>>,
+    variety: Res<RoundVariety>,
+    mut picks: MessageWriter<PickRound>,
+    real: Res<Time<Real>>,
+    reading: Query<(), (With<LocalPlayer>, With<Offer>)>,
+) {
+    // A Player with an Offer open has the same keys to pick its cards with.
+    if !variety.lit || !reading.is_empty() || real.elapsed_secs() - variety.lit_at < BOON_OFFER_INPUT_LOCKOUT_SECS {
         return;
     }
     for (index, key) in [KeyCode::Digit1, KeyCode::Digit2].into_iter().enumerate() {
@@ -727,41 +866,92 @@ pub fn click_panel(
     variety: Res<RoundVariety>,
     real: Res<Time<Real>>,
     mut picks: MessageWriter<PickRound>,
+    reading: Query<(), (With<LocalPlayer>, With<Offer>)>,
 ) {
     let Ok(&RoundPanel(option)) = panels.get(activate.entity) else {
         return;
     };
-    if variety.lit && real.elapsed_secs() - variety.lit_at >= BOON_OFFER_INPUT_LOCKOUT_SECS {
+    if variety.lit && reading.is_empty() && real.elapsed_secs() - variety.lit_at >= BOON_OFFER_INPUT_LOCKOUT_SECS {
         picks.write(PickRound { option });
     }
 }
 
-/// A pick sets the next Round's variety, files it in the Act's history, and closes the choice.
+/// Picks `option` of the pending Round Choice: it sets the next Round's variety, is filed in the
+/// Act's history, and closes the choice.
+fn choose(variety: &mut RoundVariety, option: usize, standing_in: &mut RoundStartCue, cues: &mut MessageWriter<PlayCue>) {
+    let Some(pending) = variety.pending.as_ref() else {
+        return;
+    };
+    let Some(&picked) = pending.options.get(option) else {
+        return;
+    };
+    let round = pending.round;
+    variety.pending = None;
+    variety.lit = false;
+    variety.votes = [None; VOTE_SEATS];
+    variety.history.for_act(act_of(round));
+    variety.history.used(picked);
+    variety.chosen = Some(Chosen {
+        round,
+        option: picked,
+        index: option as u8,
+        challenge: picked.challenge.map(ChallengeRun::new),
+        live: false,
+    });
+    standing_in.0 = picked.twist.map(|_| Cue::TwistRoundStart);
+    cues.write(PlayCue::new(Cue::OfferPick, None));
+}
+
+/// A pick by the `LocalPlayer` chooses in Solo; in Co-op it is the Host's vote.
 pub fn apply_pick(
     mut picks: MessageReader<PickRound>,
     mut variety: ResMut<RoundVariety>,
     mut standing_in: ResMut<RoundStartCue>,
     mut cues: MessageWriter<PlayCue>,
+    (run_type, local): (Res<RunType>, Query<&Seat, With<LocalPlayer>>),
 ) {
     for &PickRound { option } in picks.read() {
         if !variety.lit {
             continue;
         }
-        let Some(pending) = variety.pending.as_ref() else {
+        if run_type.is_coop() {
+            if let Ok(seat) = local.single() {
+                variety.cast(seat.0, option);
+            }
             continue;
-        };
-        let Some(&picked) = pending.options.get(option) else {
-            continue;
-        };
-        let round = pending.round;
-        variety.pending = None;
-        variety.lit = false;
-        variety.history.for_act(act_of(round));
-        variety.history.used(picked);
-        variety.chosen = Some(Chosen { round, option: picked, challenge: picked.challenge.map(ChallengeRun::new), live: false });
-        standing_in.0 = picked.twist.map(|_| Cue::TwistRoundStart);
-        cues.write(PlayCue::new(Cue::OfferPick, None));
+        }
+        choose(&mut variety, option, &mut standing_in, &mut cues);
     }
+}
+
+/// Co-op: a remote Player's vote is counted.
+pub fn count_votes(mut votes: MessageReader<VoteRound>, mut variety: ResMut<RoundVariety>) {
+    for &VoteRound { seat, option } in votes.read() {
+        variety.cast(seat, option);
+    }
+}
+
+/// Co-op: the vote is settled once every Player has voted or `GAUNTLET_ROUND_CHOICE_COOP_SECS` is
+/// up. The Players present are those whose connection hasn't dropped.
+pub fn settle_votes(
+    run_type: Res<RunType>,
+    time: Res<Time>,
+    players: Query<(&Seat, Has<Disconnected>, Has<LocalPlayer>), With<crate::players::player::Player>>,
+    mut variety: ResMut<RoundVariety>,
+    mut standing_in: ResMut<RoundStartCue>,
+    mut cues: MessageWriter<PlayCue>,
+) {
+    if !run_type.is_coop() || !variety.lit || variety.pending.is_none() {
+        return;
+    }
+    variety.vote_left -= time.delta_secs();
+    let all_in = players.iter().filter(|(_, away, _)| !away).all(|(seat, ..)| variety.votes.get(usize::from(seat.0)).is_some_and(Option::is_some));
+    if !all_in && variety.vote_left > 0.0 {
+        return;
+    }
+    let host = players.iter().find(|(.., local)| *local).map_or(0, |(seat, ..)| usize::from(seat.0));
+    let option = vote_winner(&variety.votes, host);
+    choose(&mut variety, option, &mut standing_in, &mut cues);
 }
 
 /// The chosen Round begins: its Challenge starts counting, and a Twist shows its banner.
@@ -789,6 +979,24 @@ pub fn begin_round(
     }
     variety.flash_left = 0.0;
     variety.banner_left = if twist { GAUNTLET_TWIST_BANNER_SECS } else { 0.0 };
+}
+
+/// A client's Round begins and ends: it infers the Twist's banner and survival from the Host's pick
+/// and the Round's own start and end.
+pub fn client_rounds(
+    mut started: MessageReader<RoundStarted>,
+    mut ended: MessageReader<RoundEnded>,
+    round: Res<Round>,
+    mut variety: ResMut<RoundVariety>,
+    mut standing_in: ResMut<RoundStartCue>,
+) {
+    if started.read().count() > 0 {
+        variety.mirror_begin(round.number);
+    }
+    if ended.read().count() > 0 {
+        standing_in.0 = None;
+        variety.mirror_cleared(round.number);
+    }
 }
 
 /// Everything the live Challenge watches, as it happens.
@@ -908,6 +1116,10 @@ pub struct RoundChoiceScreen {
 /// A Round Choice panel and its option.
 #[derive(Component)]
 pub struct RoundPanel(pub usize);
+
+/// A panel's line of votes (Co-op): who has voted for it.
+#[derive(Component)]
+pub struct VoteTally(pub usize);
 
 /// Text on a panel, dimmed with it.
 #[derive(Component)]
@@ -1114,7 +1326,29 @@ fn panel(row: &mut ChildSpawnerCommands, index: usize, round: u32, option: Round
             }
         }
         panel.spawn((PanelText(Color::WHITE), text(reward_line(option), 15.0, Color::WHITE)));
+        panel.spawn((VoteTally(index), PanelText(Color::WHITE), text("", 16.0, Color::WHITE)));
     });
+}
+
+/// Each panel says how many Players have voted for it, and whether one of them is you. Only Co-op
+/// has votes.
+pub fn show_votes(
+    variety: Res<RoundVariety>,
+    local: Query<&Seat, With<LocalPlayer>>,
+    mut tallies: Query<(&VoteTally, &mut Text)>,
+) {
+    let mine = local.single().ok().and_then(|seat| variety.votes.get(usize::from(seat.0)).copied().flatten());
+    for (&VoteTally(option), mut line) in &mut tallies {
+        let count = variety.votes.iter().filter(|vote| **vote == Some(option as u8)).count();
+        let say = match (count, mine == Some(option as u8)) {
+            (0, _) => String::new(),
+            (count, true) => format!("{count} vote{} (including yours)", if count == 1 { "" } else { "s" }),
+            (count, false) => format!("{count} vote{}", if count == 1 { "" } else { "s" }),
+        };
+        if line.0 != say {
+            line.0 = say;
+        }
+    }
 }
 
 /// The panels light up when the choice can be picked, and show hover.
@@ -1397,15 +1631,6 @@ mod tests {
     }
 
     #[test]
-    fn the_pact_offer_carries_a_reward_to_the_next_boon_offer() {
-        let mut variety = RoundVariety { reward: reward(true, None), ..default() };
-        assert!(variety.take_reward(false).is_none(), "a Pact Offer takes none");
-        assert!(variety.reward.rarity_bump, "and it's still owed");
-        assert!(variety.take_reward(true).rarity_bump);
-        assert!(variety.reward.is_none(), "paid once");
-    }
-
-    #[test]
     fn a_carried_reward_adds_to_the_next_rounds() {
         let mut boost = reward(true, None);
         boost.merge(reward(false, Some(ChallengeKind::TightFist)));
@@ -1418,6 +1643,7 @@ mod tests {
             chosen: Some(Chosen {
                 round,
                 option: option(twist, challenge),
+                index: 0,
                 challenge: challenge.map(ChallengeRun::new),
                 live: true,
             }),
@@ -1442,16 +1668,6 @@ mod tests {
         app.world_mut().get_mut::<Points>(player).unwrap().spend(1000);
         app.update();
         assert_eq!(standing(&app), Standing::Broken);
-    }
-
-    #[test]
-    fn looking_at_the_reward_leaves_it_to_be_taken_once_an_offer_carries_it() {
-        let mut variety = RoundVariety { reward: reward(true, None), ..default() };
-        assert!(variety.reward_for(true).rarity_bump);
-        assert!(variety.reward_for(false).is_none());
-        assert!(variety.reward_for(true).rarity_bump, "not consumed");
-        assert!(variety.take_reward(true).rarity_bump);
-        assert!(variety.reward_for(true).is_none());
     }
 
     #[test]
@@ -1608,6 +1824,7 @@ mod tests {
             .init_resource::<Settings>()
             .init_resource::<RunArc>()
             .init_resource::<RunType>()
+            .init_resource::<OfferWait>()
             .insert_resource(Round::in_progress(4))
             .add_message::<RoundEnded>()
             .add_message::<PickRound>()
@@ -1662,5 +1879,155 @@ mod tests {
         app.world_mut().write_message(PickRound { option: 0 });
         app.update();
         assert!(app.world().resource::<RoundVariety>().pending.is_some());
+    }
+
+    // --- the Co-op vote ---
+
+    fn votes(seats: [Option<u8>; 4]) -> [Option<u8>; 4] {
+        seats
+    }
+
+    #[test]
+    fn the_majority_wins_the_vote() {
+        assert_eq!(vote_winner(&votes([Some(1), Some(1), Some(0), None]), 0), 1);
+        assert_eq!(vote_winner(&votes([Some(0), Some(1), Some(0), Some(1)]), 0), 0, "a tie, and the Host voted 0");
+        assert_eq!(vote_winner(&votes([Some(0), Some(0), Some(1), None]), 2), 0);
+    }
+
+    #[test]
+    fn a_tied_vote_goes_to_the_hosts_vote() {
+        assert_eq!(vote_winner(&votes([Some(1), Some(0), None, None]), 0), 1);
+        assert_eq!(vote_winner(&votes([Some(0), Some(1), None, None]), 0), 0);
+        assert_eq!(vote_winner(&votes([Some(1), Some(1), Some(0), Some(0)]), 0), 1);
+    }
+
+    #[test]
+    fn no_vote_by_the_timeout_picks_the_safe_option() {
+        assert_eq!(vote_winner(&[None; 4], 0), 0);
+        assert_eq!(vote_winner(&votes([None, Some(1), Some(0), None]), 0), 0, "a tie the Host sat out");
+    }
+
+    fn coop_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<RoundVariety>()
+            .init_resource::<RoundStartCue>()
+            .init_resource::<RunArc>()
+            .init_resource::<OfferWait>()
+            .insert_resource(RunType::Coop)
+            .insert_resource(Round::in_progress(4))
+            .add_message::<PickRound>()
+            .add_message::<VoteRound>()
+            .add_message::<PlayCue>()
+            .add_systems(Update, (light_choice, apply_pick, count_votes, settle_votes).chain());
+        let twist = option(Some(Twist::LowGravity), None);
+        app.world_mut().resource_mut::<RoundVariety>().pending =
+            Some(PendingChoice { round: 5, options: [option(None, None), twist] });
+        app.world_mut().spawn((Seat(0), LocalPlayer, crate::players::player::Player));
+        app.world_mut().spawn((Seat(1), crate::players::player::Player));
+        app.world_mut().spawn((Seat(2), crate::players::player::Player));
+        app.update();
+        app
+    }
+
+    fn chosen_twist(app: &App) -> Option<Option<Twist>> {
+        app.world().resource::<RoundVariety>().chosen.as_ref().map(|chosen| chosen.option.twist)
+    }
+
+    #[test]
+    fn every_player_voting_settles_the_vote_by_majority() {
+        let mut app = coop_app();
+        assert!(app.world().resource::<RoundVariety>().lit);
+        app.world_mut().write_message(PickRound { option: 0 });
+        app.world_mut().write_message(VoteRound { seat: 1, option: 1 });
+        app.update();
+        assert!(app.world().resource::<RoundVariety>().pending.is_some(), "one Player has yet to vote");
+        assert_eq!(app.world().resource::<RoundVariety>().votes, [Some(0), Some(1), None, None]);
+        app.world_mut().write_message(VoteRound { seat: 2, option: 1 });
+        app.update();
+        assert_eq!(chosen_twist(&app), Some(Some(Twist::LowGravity)));
+        assert!(app.world().resource::<RoundVariety>().pending.is_none());
+    }
+
+    #[test]
+    fn a_tied_vote_goes_to_the_host_in_the_game() {
+        let mut app = coop_app();
+        let third = app.world_mut().query::<(Entity, &Seat)>().iter(app.world()).find(|(_, seat)| seat.0 == 2).unwrap().0;
+        app.world_mut().despawn(third);
+        app.world_mut().write_message(PickRound { option: 1 });
+        app.world_mut().write_message(VoteRound { seat: 1, option: 0 });
+        app.update();
+        assert_eq!(chosen_twist(&app), Some(Some(Twist::LowGravity)), "the Host's vote broke the tie");
+    }
+
+    #[test]
+    fn no_vote_by_the_timeout_picks_the_safe_option_in_the_game() {
+        let mut app = coop_app();
+        assert_eq!(app.world().resource::<RoundVariety>().vote_left, GAUNTLET_ROUND_CHOICE_COOP_SECS, "the clock starts when it is lit");
+        app.update();
+        assert!(app.world().resource::<RoundVariety>().pending.is_some(), "still waiting");
+        app.world_mut().resource_mut::<RoundVariety>().vote_left = 0.0;
+        app.update();
+        assert_eq!(chosen_twist(&app), Some(None), "the safe option has no Twist");
+    }
+
+    #[test]
+    fn a_player_whose_connection_dropped_is_not_waited_for() {
+        let mut app = coop_app();
+        let seats: Vec<(Entity, u8)> = app.world_mut().query::<(Entity, &Seat)>().iter(app.world()).map(|(entity, seat)| (entity, seat.0)).collect();
+        for (entity, seat) in seats {
+            if seat == 2 {
+                app.world_mut().entity_mut(entity).insert(Disconnected::default());
+            }
+        }
+        app.world_mut().write_message(PickRound { option: 1 });
+        app.world_mut().write_message(VoteRound { seat: 1, option: 1 });
+        app.update();
+        assert_eq!(chosen_twist(&app), Some(Some(Twist::LowGravity)));
+    }
+
+    #[test]
+    fn a_vote_before_the_choice_is_lit_is_ignored() {
+        let mut variety = RoundVariety {
+            pending: Some(PendingChoice { round: 5, options: [option(None, None), option(Some(Twist::Fog), None)] }),
+            ..default()
+        };
+        assert!(!variety.cast(1, 1));
+        variety.lit = true;
+        assert!(variety.cast(1, 1));
+        assert!(!variety.cast(1, 2), "there are two options");
+        assert!(!variety.cast(7, 0), "there are four Seats");
+    }
+
+    #[test]
+    fn a_rounds_reward_is_owed_to_every_player() {
+        let mut app = app();
+        app.insert_resource(RunType::Coop);
+        let players = [(); 3].map(|()| app.world_mut().spawn(OwedBoost::default()).id());
+        app.insert_resource(live(4, Some(Twist::Fog), None));
+        app.world_mut().write_message(RoundEnded);
+        app.update();
+        for player in players {
+            assert!(app.world().get::<OwedBoost>(player).unwrap().0.rarity_bump, "every Player's next Offer is Boosted");
+        }
+        assert!(app.world().resource::<RoundVariety>().reward.is_none(), "paid out");
+    }
+
+    #[test]
+    fn a_client_mirroring_the_pick_has_the_twist_and_survives_it() {
+        let mut variety = RoundVariety::default();
+        let twist = option(Some(Twist::LowGravity), None);
+        variety.mirror_choice(5, [option(None, None).wire(), twist.wire()], true, 1.0);
+        assert!(variety.lit);
+        variety.mirror_pick(5, 1, 4, false);
+        assert!(variety.pending.is_none() && !variety.lit);
+        assert!(!variety.entries(4, &RoundPhase::Intermission(1.0)).is_empty() || !variety.entries(5, &RoundPhase::Active).is_empty());
+        assert!(
+            variety.entries(5, &RoundPhase::Active).iter().any(|entry| entry.stat == Stat::PlayerGravity),
+            "Low Gravity is in the client's own entries"
+        );
+        variety.mirror_begin(5);
+        variety.mirror_cleared(5);
+        assert_eq!(variety.twists_survived, 1);
     }
 }

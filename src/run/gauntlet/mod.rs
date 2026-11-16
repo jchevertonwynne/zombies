@@ -23,7 +23,7 @@ pub(crate) mod sets;
 mod tools;
 #[cfg(test)]
 pub(crate) use tools::reroll_price_from;
-mod variety;
+pub(crate) mod variety;
 #[cfg(test)]
 mod coop_tests;
 #[cfg(test)]
@@ -82,11 +82,12 @@ use heat::RunHeat;
 use kits::{Kit, PlayerKit, chosen_kit};
 pub(crate) use tools::Banishes;
 pub(crate) use tools::{BanishCard, RerollOffer, ToolUsed};
-use variety::{Boost, PickRound, RoundVariety};
+use variety::{Boost, OwedBoost};
+pub use variety::{PickRound, RoundVariety, VoteRound};
 
 /// The Offers a Player is waiting for.
 #[derive(Component, Default)]
-struct PendingOffer {
+pub(crate) struct PendingOffer {
     /// Seconds left before the next one opens, counted from the Round's last kill. `None` once
     /// there's nothing owed.
     left: Option<f32>,
@@ -116,7 +117,7 @@ struct Gifts(Vec<(Entity, PowerUp)>);
 
 /// Seconds left of the Co-op Intermission's wait for every Player's pick.
 #[derive(Resource, Default)]
-struct OfferWait(f32);
+pub(crate) struct OfferWait(f32);
 
 /// A Player picked a card of their open Offer, or `None` to skip a Pact Offer. The screen sends it
 /// for the `LocalPlayer`; the netcode will for a remote one.
@@ -319,6 +320,7 @@ impl Plugin for GauntletPlugin {
             .init_resource::<RoundVariety>()
             .init_resource::<crate::audio::RoundStartCue>()
             .add_message::<PickRound>()
+            .add_message::<VoteRound>()
             .init_resource::<arc::BossPlan>()
             .init_resource::<arc::BossView>()
             .init_resource::<armory::ArmoryTab>()
@@ -383,8 +385,9 @@ impl Plugin for GauntletPlugin {
                             (tools::apply_reroll, tools::apply_banish),
                             apply_pick,
                             variety::light_choice,
-                            variety::pick_keys,
                             variety::apply_pick,
+                            variety::count_votes,
+                            variety::settle_votes,
                             hold_intermission,
                         )
                             .chain(),
@@ -430,7 +433,9 @@ impl Plugin for GauntletPlugin {
                     (apply_entries, sets::lend_ammo_mods),
                     (record_picks, screen::refresh_held_column).run_if(picks_changed).after(sets::reach_set_bonuses),
                     variety::record_counts.after(record_picks),
-                    (variety::update_hud, variety::show_choice, variety::light_panels).chain(),
+                    (variety::update_hud, variety::show_choice, variety::light_panels, variety::show_votes).chain(),
+                    variety::pick_keys,
+                    variety::client_rounds.run_if(in_state(Authority::Client)),
                     (procs::draw_procs, screen::update_proc_bars, screen::update_jackpot_bar),
                     (elite::tint_elites, elite::draw_rally_rings, elite::puppet_fuses.run_if(in_state(Authority::Client))),
                     (sets::show_set_banner, sets::draw_set_flashes, sets::draw_frost_patches),
@@ -577,6 +582,7 @@ pub(crate) fn give_gauntlet_state(
     commands.entity(add.entity).insert((
         HeldBoons::default(),
         PendingOffer::default(),
+        OwedBoost::default(),
         PlayerUnlocks(unlocked),
         Bought::default(),
         // Tight Offers' base is the Run's, so every Player starts with it.
@@ -646,13 +652,13 @@ fn open_offer(
         &Banishes,
         &mut PlayerKit,
         &mut PendingOffer,
+        &mut OwedBoost,
     )>,
     pacts: Res<HeldPacts>,
     sources: tools::RunSources,
     run_type: Res<RunType>,
     time: Res<Time>,
     arc: Res<RunArc>,
-    mut variety: ResMut<RoundVariety>,
     mut cues: MessageWriter<PlayCue>,
 ) {
     if arc.choosing {
@@ -667,7 +673,7 @@ fn open_offer(
         })
         .flatten()
         .collect();
-    for (player, last_stand, local, offer, loadout, held, unlocks, bought, banishes, mut kit, mut pending) in &mut players {
+    for (player, last_stand, local, offer, loadout, held, unlocks, bought, banishes, mut kit, mut pending, mut owed) in &mut players {
         let Some(left) = pending.left.as_mut() else {
             continue;
         };
@@ -707,12 +713,9 @@ fn open_offer(
         let mut boost = Boost::default();
         let choices = match choices {
             Choices::Boons(cards) => {
-                // The Round Choice is this machine's Player's to make, so its reward is theirs.
-                // Looked at, not taken, until a boosted draw has really made the Offer.
-                let mut earned = Boost::default();
-                if local {
-                    earned = variety.reward_for(true);
-                }
+                // The Round Choice's reward is every Player's. Looked at, not taken, until a boosted
+                // draw has really made the Offer.
+                let mut earned = owed.0.clone();
                 // The Blade Kit's first Boon Offer holds a Blade card.
                 let kit_boost = kits::first_offer_boost(kit.kit, !kit.offered);
                 let first_offer = !kit.offered;
@@ -729,9 +732,7 @@ fn open_offer(
                         kit.offered |= first_offer && kit_adds_nothing;
                         Choices::Boons(cards)
                     } else {
-                        if local {
-                            variety.take_reward(true);
-                        }
+                        owed.0 = Boost::default();
                         kit.offered |= first_offer;
                         boost = earned;
                         Choices::Boons(boosted)
@@ -927,7 +928,9 @@ fn hold_intermission(
             .any(|(pending, open)| pending.left.is_some() || open);
     let (held, frozen) = if run_type.is_coop() {
         wait.0 = (wait.0 - time.delta_secs()).max(0.0);
-        (busy && wait.0 > 0.0, false)
+        // The vote has its own clock, so the Intermission waits for it however the Offers went.
+        let offers = players.iter().any(|(pending, open)| pending.left.is_some() || open);
+        ((offers && wait.0 > 0.0) || choosing, false)
     } else {
         // The Win screen holds the world frozen too, until the Player chooses.
         (busy || arc.choosing, arc.choosing || variety.lit || players.iter().any(|(_, open)| open))
