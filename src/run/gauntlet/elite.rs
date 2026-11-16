@@ -58,6 +58,16 @@ impl EliteTrait {
         Self::ALL[i.min(Self::ALL.len() - 1)]
     }
 
+    /// What it goes as on the wire (see `WorldEvent::Tags`).
+    pub fn code(self) -> u8 {
+        self as u8
+    }
+
+    /// The trait a wire `code` names, if any.
+    pub fn from_code(code: u8) -> Option<Self> {
+        Self::ALL.get(usize::from(code)).copied()
+    }
+
     /// Its emissive tint.
     pub fn tint(self) -> Color {
         let [r, g, b] = GAUNTLET_ELITE_TINTS[self as usize];
@@ -411,6 +421,38 @@ pub fn elite_deaths(
     }
 }
 
+/// A dying Volatile Elite's puppet on a client lights a cosmetic fuse ring where it fell, which
+/// burns down for as long as the Host's does and then goes out. The blast itself comes as a `Burst`.
+pub fn puppet_fuses(
+    mut commands: Commands,
+    deaths: Query<(&Elite, &Zombie, &Transform), (Added<Dying>, With<Zombie>)>,
+    mut fuses: Query<(Entity, &mut Fuse)>,
+    mut gizmos: Gizmos,
+    time: Res<Time>,
+) {
+    for (elite, zombie, transform) in &deaths {
+        if elite.0 == EliteTrait::Volatile {
+            let feet = transform.translation - Vec3::Y * zombie.half_height();
+            commands.spawn((InRun, Fuse { at: feet + Vec3::Y * 0.5, left: GAUNTLET_ELITE_VOLATILE_FUSE_SECS }));
+        }
+    }
+    for (entity, mut fuse) in &mut fuses {
+        fuse.left -= time.delta_secs();
+        if fuse.left > 0.0 {
+            draw_fuse(&mut gizmos, &fuse);
+        } else {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+/// A burning fuse's flickering ring at the blast's radius.
+fn draw_fuse(gizmos: &mut Gizmos, fuse: &Fuse) {
+    let flicker = 0.9 + 0.1 * (fuse.left * 30.0).sin();
+    let ring = Isometry3d::new(fuse.at, Quat::from_rotation_x(FRAC_PI_2));
+    gizmos.circle(ring, GAUNTLET_ELITE_VOLATILE_RADIUS_M * flicker, Color::srgb(1.0, 0.45, 0.05));
+}
+
 /// A lit fuse burns down, then goes off as a blast at each Player that hurts no Zombie.
 pub fn burn_fuses(
     mut commands: Commands,
@@ -423,10 +465,7 @@ pub fn burn_fuses(
     for (entity, mut fuse) in &mut fuses {
         fuse.left -= time.delta_secs();
         if fuse.left > 0.0 {
-            // A flickering ring at the blast's radius while it burns.
-            let flicker = 0.9 + 0.1 * (fuse.left * 30.0).sin();
-            let ring = Isometry3d::new(fuse.at, Quat::from_rotation_x(FRAC_PI_2));
-            gizmos.circle(ring, GAUNTLET_ELITE_VOLATILE_RADIUS_M * flicker, Color::srgb(1.0, 0.45, 0.05));
+            draw_fuse(&mut gizmos, &fuse);
             continue;
         }
         let up: Vec<Entity> = players.iter().filter(|player| player.up).map(|player| player.entity).collect();

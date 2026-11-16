@@ -8,6 +8,7 @@ use crate::net::away::{Reach, Rejoin};
 use crate::net::play::Held;
 use crate::net::protocol::Refusal;
 use crate::economy::power_up::ActivePowerUps;
+use crate::storage::records::RunElitesKilled;
 
 fn run(clients: u8) -> Run {
     Run::with(clients, &coop)
@@ -189,4 +190,30 @@ fn a_returning_player_is_told_every_teammates_points() {
     };
     assert_eq!(client(&mut run, 0), 5_500);
     assert_eq!(client(&mut run, 2), 6_600);
+}
+
+#[test]
+fn a_returning_player_is_told_the_live_tags_and_the_elites_killed() {
+    use crate::run::gauntlet::EliteTrait;
+    let mut run = Run::with(2, &|app| {
+        coop(app);
+        app.init_resource::<RunElitesKilled>();
+    });
+    run.step(10);
+    run.cut(1);
+    run.step(2);
+    // While they are away: Elites spawn and die.
+    let first = super::tests::spawn_elite(&mut run, EliteTrait::Volatile, crate::maps::map::PLAYER_START + Vec3::new(8.0, 0.0, 4.0));
+    super::tests::spawn_elite(&mut run, EliteTrait::Regenerating, crate::maps::map::PLAYER_START + Vec3::new(10.0, 0.0, 4.0));
+    run.step(10);
+    run.world(0).entity_mut(first).despawn();
+    run.world(0).resource_mut::<RunElitesKilled>().0 = 4;
+    run.step(40);
+    assert_eq!(reach(&mut run, 1), Reach::Up);
+    run.world(0).write_message(RoundStarted);
+    run.step(30);
+    let host = super::tests::elites_on(&mut run, 0);
+    assert_eq!(host.len(), 1);
+    assert_eq!(super::tests::elites_on(&mut run, 1), host);
+    assert_eq!(run.world(1).resource::<RunElitesKilled>().0, 4);
 }

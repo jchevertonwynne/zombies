@@ -26,7 +26,7 @@ use super::state::{
     Inputs, Own, Sight, Snapshot, Step, Tick, pack_pitch, pack_position, pack_yaw, wire_origin, unpack_pitch, unpack_yaw,
 };
 use super::zombies::{
-    Crowd, Horde, ZombieIds, describe_horde, forget_zombies, name_zombies, show_zombies,
+    Crowd, Horde, ZombieIds, describe_horde, dress_elites, forget_zombies, name_zombies, show_zombies,
 };
 use crate::authority::Authority;
 use crate::players::last_stand::LastStand;
@@ -179,7 +179,7 @@ impl Plugin for PlayPlugin {
             )
             .add_systems(
                 FixedUpdate,
-                (forget_zombies, show_zombies)
+                (forget_zombies, show_zombies, dress_elites)
                     .chain()
                     .after(show_puppets)
                     .run_if(world_runs)

@@ -23,6 +23,9 @@ use serde::{Deserialize, Serialize};
 use super::play::{Prediction, Roster, Wire};
 use super::protocol::{HOST, Peer, Seat, ToHost, ToPlayer, encode};
 use super::remote::Remote;
+use super::zombies::{Crowd, Tag, ZombieId};
+use crate::run::gauntlet::Elite;
+use crate::storage::records::RunElitesKilled;
 use crate::weapons::ammo_mod::AmmoMods;
 use crate::weapons::arsenal::WeaponId;
 use crate::weapons::attachment::{Attachment, UnderbarrelAmmo};
@@ -289,6 +292,12 @@ pub enum WorldEvent {
     /// at most `POINTS_TELL_PER_SEC` times a second per Seat, and all of them to a Player who
     /// comes back.
     Points { seat: Seat, points: u32 },
+    /// Lasting facts about Zombies, by id, told once when they are first true (batched per
+    /// frame) and again to a Player who comes back: an Elite's trait.
+    Tags(Vec<(u16, Tag)>),
+    /// How many Elites the Run has killed so far, told when it changes and to a Player who comes
+    /// back: every Elite death counts for every Player.
+    ElitesKilled(u32),
     /// To one Player, how much Health they have of how much.
     Health { current: f32, max: f32 },
     /// To one Player, a hit has come from here: their damage indicator.
@@ -346,6 +355,10 @@ pub struct Mirror {
     held: HashMap<Seat, HeldWeapon>,
     status: HashMap<Seat, Status>,
     health: HashMap<Seat, f32>,
+    /// The Zombie tags last told, by id.
+    tags: HashMap<u16, Tag>,
+    /// The Run's count of Elites killed as last told.
+    elites_killed: u32,
     /// Each Seat's Points as last told, and the seconds since.
     points: HashMap<Seat, (u32, f32)>,
     offers: HashMap<Seat, Option<OfferWire>>,
@@ -460,7 +473,7 @@ pub fn add(app: &mut App) {
                 tell_perks,
                 tell_held,
                 tell_status,
-                (tell_health, tell_points),
+                (tell_health, tell_points, tell_tags, tell_elites_killed),
                 tell_hurts,
                 tell_offers,
                 tell_gauntlet,
@@ -482,6 +495,7 @@ pub fn add(app: &mut App) {
                 tell_aftereffect,
                 catch_up_world,
                 catch_up_player,
+                catch_up_tags.after(tell_tags).after(tell_elites_killed),
             )
                 .after(HostSimulation)
                 .after(hear_requests)
@@ -520,6 +534,15 @@ pub fn add(app: &mut App) {
             )
                 .chain()
                 .after(name_machines)
+                .run_if(resource_exists::<Prediction>)
+                .run_if(resource_exists::<NetIds>)
+                .run_if(in_state(GameState::Playing))
+                .run_if(world_runs),
+        )
+        .add_systems(
+            Update,
+            (hear_tags, hear_elites_killed)
+                .after(release_events)
                 .run_if(resource_exists::<Prediction>)
                 .run_if(resource_exists::<NetIds>)
                 .run_if(in_state(GameState::Playing))
@@ -1002,6 +1025,51 @@ fn tell_status(
         }
         mirror.status.insert(seat.0, status);
         tell.all(&WorldEvent::Status { seat: seat.0, status });
+    }
+}
+
+/// Tells everyone of each new Elite's trait, once, in one event a frame, and forgets the Zombies
+/// that have gone. The table stays for `catch_up_tags`.
+fn tell_tags(mut tell: Tell, mut mirror: ResMut<Mirror>, elites: Query<(&ZombieId, &Elite)>) {
+    let mut fresh = Vec::new();
+    let mut live = HashSet::new();
+    for (id, elite) in &elites {
+        live.insert(id.0);
+        let tag = Tag::Elite(elite.0.code());
+        if mirror.tags.insert(id.0, tag) != Some(tag) {
+            fresh.push((id.0, tag));
+        }
+    }
+    if mirror.tags.len() != live.len() {
+        mirror.tags.retain(|id, _| live.contains(id));
+    }
+    if !fresh.is_empty() {
+        fresh.sort_by_key(|(id, _)| *id);
+        tell.all(&WorldEvent::Tags(fresh));
+    }
+}
+
+/// Tells everyone the Run's count of Elites killed when it changes.
+fn tell_elites_killed(mut tell: Tell, mut mirror: ResMut<Mirror>, killed: Option<Res<RunElitesKilled>>) {
+    let Some(killed) = killed else { return };
+    if mirror.elites_killed != killed.0 {
+        mirror.elites_killed = killed.0;
+        tell.all(&WorldEvent::ElitesKilled(killed.0));
+    }
+}
+
+/// Brings a Player who has come back up to date on the live tags and the Elites killed.
+fn catch_up_tags(mut tell: Tell, mut returned: MessageReader<SeatReturned>, mirror: Res<Mirror>) {
+    for &SeatReturned { seat } in returned.read() {
+        let Some(&(peer, _)) = tell.roster.0.iter().find(|&&(_, held)| held == seat.0) else { continue };
+        if !mirror.tags.is_empty() {
+            let mut all: Vec<(u16, Tag)> = mirror.tags.iter().map(|(&id, &tag)| (id, tag)).collect();
+            all.sort_by_key(|(id, _)| *id);
+            tell.to(peer, &WorldEvent::Tags(all));
+        }
+        if mirror.elites_killed > 0 {
+            tell.to(peer, &WorldEvent::ElitesKilled(mirror.elites_killed));
+        }
     }
 }
 
@@ -1940,6 +2008,28 @@ fn hear_health(
         }
         health.max = max;
         health.current = current;
+    }
+}
+
+/// The Host's tags, kept by id in the `Crowd` until the puppet they are about exists.
+fn hear_tags(mut heard: MessageReader<Heard>, mut crowd: ResMut<Crowd>) {
+    for Heard(event) in heard.read() {
+        let WorldEvent::Tags(tags) = event else { continue };
+        for &(id, tag) in tags {
+            crowd.tag(id, tag);
+        }
+    }
+}
+
+/// The Run's count of Elites killed, by the Host's word.
+fn hear_elites_killed(mut heard: MessageReader<Heard>, killed: Option<ResMut<RunElitesKilled>>) {
+    let Some(mut killed) = killed else { return };
+    for Heard(event) in heard.read() {
+        if let WorldEvent::ElitesKilled(count) = *event
+            && killed.0 != count
+        {
+            killed.0 = count;
+        }
     }
 }
 

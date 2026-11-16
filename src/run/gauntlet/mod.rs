@@ -37,7 +37,7 @@ use bevy::ui_widgets::Activate;
 
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
-use crate::authority::HostSimulation;
+use crate::authority::{Authority, HostSimulation};
 use crate::economy::buy::Purchased;
 use crate::weapons::explosive::Explosion;
 use crate::players::last_stand::LastStand;
@@ -71,6 +71,7 @@ use pact::{
 };
 use progress::{GauntletFile, rounds_completed, scrip_for_rounds};
 pub use boon::HeldBoons;
+pub use elite::{Elite, EliteTrait};
 pub use pact::HeldPacts;
 use screen::{OfferCard, SkipButton};
 use heat::RunHeat;
@@ -376,7 +377,7 @@ impl Plugin for GauntletPlugin {
                     variety::record_counts.after(record_picks),
                     (variety::update_hud, variety::show_choice, variety::light_panels).chain(),
                     (procs::draw_procs, screen::update_proc_bars, screen::update_jackpot_bar),
-                    (elite::tint_elites, elite::draw_rally_rings),
+                    (elite::tint_elites, elite::draw_rally_rings, elite::puppet_fuses.run_if(in_state(Authority::Client))),
                     (sets::show_set_banner, sets::draw_set_flashes, sets::draw_frost_patches),
                     (duos::announce_duos, duos::show_duo_banner).chain(),
                     commendations::show_banner,

@@ -393,3 +393,77 @@ fn a_clients_own_points_come_from_own_not_the_event() {
     assert_eq!(points_on(&mut run, 1, 1), 900);
     assert_eq!(points_on(&mut run, 2, 1), 900);
 }
+
+/// A Walker on the Host's floor, an Elite of `elite`.
+pub(super) fn spawn_elite(run: &mut Run, elite: crate::run::gauntlet::EliteTrait, at: Vec3) -> Entity {
+    use crate::enemies::zombie::{SpeedTier, ZombieAssetsParam, spawn_zombie};
+    use bevy::ecs::system::RunSystemOnce;
+    let zombie = run
+        .world(0)
+        .run_system_once(move |mut commands: Commands, assets: ZombieAssetsParam| {
+            spawn_zombie(&mut commands, &assets, at, 1000.0, SpeedTier::Walker, None)
+        })
+        .unwrap();
+    run.world(0).entity_mut(zombie).insert(crate::run::gauntlet::Elite(elite));
+    zombie
+}
+
+/// The Elite traits of the puppets game `on` has, by Zombie id.
+pub(super) fn elites_on(run: &mut Run, on: usize) -> Vec<(u16, crate::run::gauntlet::EliteTrait)> {
+    let world = run.world(on);
+    let mut found: Vec<_> = world
+        .query::<(&crate::net::zombies::ZombieId, &crate::run::gauntlet::Elite)>()
+        .iter(world)
+        .map(|(id, elite)| (id.0, elite.0))
+        .collect();
+    found.sort_by_key(|(id, _)| *id);
+    found
+}
+
+#[test]
+fn an_elites_trait_reaches_every_clients_puppet() {
+    use crate::run::gauntlet::EliteTrait;
+    let mut run = Run::new(2);
+    let start = crate::maps::map::PLAYER_START;
+    let rallier = spawn_elite(&mut run, EliteTrait::Rallying, start + Vec3::new(8.0, 0.0, 4.0));
+    let armoured = spawn_elite(&mut run, EliteTrait::Armoured, start + Vec3::new(10.0, 0.0, 4.0));
+    run.step(60);
+    let id = |run: &mut Run, zombie| run.world(0).get::<crate::net::zombies::ZombieId>(zombie).unwrap().0;
+    let mut want = vec![(id(&mut run, rallier), EliteTrait::Rallying), (id(&mut run, armoured), EliteTrait::Armoured)];
+    want.sort_by_key(|(id, _)| *id);
+    for on in 0..3 {
+        assert_eq!(elites_on(&mut run, on), want, "game {on}");
+    }
+}
+
+#[test]
+fn an_elites_tag_is_told_once_and_goes_with_its_zombie() {
+    use crate::run::gauntlet::EliteTrait;
+    let mut run = Run::new(1);
+    let zombie = spawn_elite(&mut run, EliteTrait::Splitter, crate::maps::map::PLAYER_START + Vec3::new(8.0, 0.0, 4.0));
+    run.step(40);
+    assert_eq!(run.world(0).resource::<Mirror>().tags.len(), 1);
+    let id = run.world(0).get::<crate::net::zombies::ZombieId>(zombie).unwrap().0;
+    assert_eq!(run.world(1).resource::<crate::net::zombies::Crowd>().tag_of(id), Some(Tag::Elite(EliteTrait::Splitter.code())));
+    run.world(0).entity_mut(zombie).despawn();
+    run.step(60);
+    assert!(run.world(0).resource::<Mirror>().tags.is_empty());
+    assert!(elites_on(&mut run, 1).is_empty());
+    assert!(!run.world(1).resource::<crate::net::zombies::Crowd>().has_tags());
+}
+
+#[test]
+fn elites_killed_reaches_every_client_on_change() {
+    let mut run = Run::with(2, &|app| {
+        app.init_resource::<RunElitesKilled>();
+    });
+    run.step(10);
+    for on in 0..3 {
+        assert_eq!(run.world(on).resource::<RunElitesKilled>().0, 0);
+    }
+    run.world(0).resource_mut::<RunElitesKilled>().0 = 3;
+    run.step(20);
+    for on in 0..3 {
+        assert_eq!(run.world(on).resource::<RunElitesKilled>().0, 3, "game {on}");
+    }
+}

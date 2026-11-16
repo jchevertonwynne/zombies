@@ -40,6 +40,8 @@ Facts from the code that the design depends on:
 
 *Done in #392: teammates' Points are `WorldEvent::Points`, the specials test uses ids below `ZOMBIE_ID_SPAN`, `PROTOCOL` is 2, and the worst-case test asserts **920 B** (947 B minus 27 B), before allies.*
 
+*Done in #393: `WorldEvent::Tags` with `Tag::Elite(u8)` (a live-tag table on the Host, replayed to a returning Player; a client holds tags by id in `Crowd`, dropping one when its id goes or after `TAG_PATIENCE_SECS` unseen), `WorldEvent::ElitesKilled(u32)` into `RunElitesKilled`, the `EliteSpawn` cue inferred when `dress_elites` gives a puppet its `Elite`, and `puppet_fuses` for a dying Volatile puppet. Snapshot bytes unchanged (920 B).*
+
 Today's worst case, as `four_players_and_a_full_horde_fit_in_a_datagram` builds it, is **947 B**:
 
 | Part | Bytes |
