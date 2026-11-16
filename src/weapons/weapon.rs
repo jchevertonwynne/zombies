@@ -1426,6 +1426,7 @@ fn fire(
                 thrower: Some(entity),
                 splash,
                 hurts_player: true,
+                hurts_zombies: true,
                 ammo_mods,
                 // Only the Grenade Launcher flies among the underbarrels.
                 crawlers: makes_crawlers(match underbarrel {

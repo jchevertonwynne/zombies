@@ -18,7 +18,7 @@ use crate::enemies::target::{Players, nearest_up_player};
 use crate::enemies::nova::NovaCrawlerKilled;
 use crate::players::player::{HitGrace, PlayerHit};
 use crate::economy::power_up::{ActivePowerUps, PowerUp};
-use crate::run::round::CarriesOver;
+use crate::run::round::{CarriesOver, Round};
 use crate::maps::surge::Surge;
 use crate::enemies::request::Requested;
 use crate::enemies::special::{SpecialCue, SpecialKind, hit_pays};
@@ -224,6 +224,11 @@ impl ZombieMoveFactor {
         }
     }
 
+    /// Whether `source` has a factor on.
+    pub fn has(&self, source: Source) -> bool {
+        self.0.iter().any(|(held, _)| *held == source)
+    }
+
     /// Takes `source`'s factor off.
     pub fn clear(&mut self, source: Source) {
         self.0.retain(|(held, _)| *held != source);
@@ -352,7 +357,61 @@ pub struct ZombieKilled {
     pub at: Vec3,
     /// A Surge Zombie: it pays as normal but drops no Power-up.
     pub surge: bool,
+    /// The Zombie that died. A Turned Zombie's kill (Unpaid) names the ally it makes, which lives.
+    pub zombie: Entity,
 }
+
+/// What kind of Zombie it is, for rules layered on Classic that care.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZombieKind {
+    /// A normal Zombie of any Speed Tier, or a Crawler it became.
+    Normal,
+    Hellhound,
+    NovaCrawler,
+    /// A Napalm, a Shrieker or the Sapper.
+    Special(SpecialKind),
+}
+
+impl ZombieKind {
+    pub fn of(zombie: &Zombie) -> Self {
+        if zombie.is_hellhound() {
+            Self::Hellhound
+        } else if zombie.is_nova_crawler() {
+            Self::NovaCrawler
+        } else if let Some(kind) = zombie.special_kind() {
+            Self::Special(kind)
+        } else {
+            Self::Normal
+        }
+    }
+}
+
+/// A Zombie entered play: from the Horde, a special slot or a `SpawnZombie` (`requested`), in
+/// Round `round`. It's sent once the Zombie's kind is settled, so a rule that marks Zombies as
+/// they spawn can read the Zombie.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct ZombieSpawned {
+    pub zombie: Entity,
+    pub kind: ZombieKind,
+    pub round: u32,
+    pub requested: bool,
+}
+
+/// Restores a Zombie's health, capped at its max. A dead or dying Zombie isn't healed.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct HealZombie {
+    pub zombie: Entity,
+    pub amount: f32,
+}
+
+/// The health a Zombie has after a heal of `amount`: never above `max`.
+pub fn healed_health(health: f32, max: f32, amount: f32) -> f32 {
+    (health + amount.max(0.0)).min(max)
+}
+
+/// A Zombie's multiple of the Power-up drop chance of its kill. Absent, it's 1.0.
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct DropChanceFactor(pub f32);
 
 /// The damage side of a kill made by a hit, sent beside its `ZombieKilled` for rules that need
 /// it: the dead Zombie's max Health, and the damage beyond what it took to kill it.
@@ -536,6 +595,18 @@ impl Zombie {
     /// The same Zombie with a body `scale` times the usual size, which reaches that much farther.
     pub fn scaled(self, scale: f32) -> Self {
         Self { scale, ..self }
+    }
+
+    /// A normal Zombie with `health`, for tests.
+    #[cfg(test)]
+    pub fn new_for_test(health: f32) -> Self {
+        Self::new(health, SpeedTier::Walker, Vec3::ZERO)
+    }
+
+    /// Sets its health, for tests.
+    #[cfg(test)]
+    pub fn set_health_for_test(&mut self, health: f32) {
+        self.health = health;
     }
 
     /// A Hellhound with `health`, its centre at `at`.
@@ -798,6 +869,8 @@ impl Plugin for ZombiePlugin {
             .add_message::<KnockDown>()
             .add_message::<Gibbed>()
             .add_message::<TurnedAllyHit>()
+            .add_message::<ZombieSpawned>()
+            .add_message::<HealZombie>()
             .add_systems(Startup, load_assets)
             .configure_sets(
                 RunFixedMainLoop,
@@ -825,6 +898,8 @@ impl Plugin for ZombiePlugin {
                     become_crawler.before(apply_damage),
                     apply_damage,
                     clean_up_stuck,
+                    heal_zombies,
+                    announce_spawns,
                 )
                     .in_set(HostSimulation)
                     .run_if(world_runs),
@@ -1832,6 +1907,7 @@ pub fn apply_damage(
             attack: request.attack,
             at,
             surge,
+            zombie: request.zombie,
         });
         kill_damage.write(KillDamage {
             player: request.player,
@@ -1863,6 +1939,29 @@ pub fn apply_damage(
             if hit_areas.contains(child) {
                 commands.entity(child).remove::<(Collider, CollisionLayers)>();
             }
+        }
+    }
+}
+
+/// Tells the world of each Zombie that has just entered play.
+fn announce_spawns(
+    new: Query<(Entity, &Zombie, Has<Requested>), Added<Zombie>>,
+    round: Option<Res<Round>>,
+    mut spawned: MessageWriter<ZombieSpawned>,
+) {
+    let round = round.map_or(1, |round| round.number);
+    for (zombie, body, requested) in &new {
+        spawned.write(ZombieSpawned { zombie, kind: ZombieKind::of(body), round, requested });
+    }
+}
+
+/// Each `HealZombie` restores health to a Zombie that's still alive.
+fn heal_zombies(mut heals: MessageReader<HealZombie>, mut zombies: Query<&mut Zombie, Without<Dying>>) {
+    for heal in heals.read() {
+        if let Ok(mut zombie) = zombies.get_mut(heal.zombie)
+            && zombie.health > 0.0
+        {
+            zombie.health = healed_health(zombie.health, zombie.max_health, heal.amount);
         }
     }
 }
@@ -2449,5 +2548,51 @@ mod tests {
         cover_between(&mut sim, 0.75);
         let hits = swipes_at(sim, 3.0);
         assert!(!hits.is_empty(), "the cover shielded a standing Player");
+    }
+
+    #[test]
+    fn a_heal_never_goes_past_max_health_or_below_none() {
+        assert_eq!(healed_health(50.0, 100.0, 30.0), 80.0);
+        assert_eq!(healed_health(90.0, 100.0, 30.0), 100.0);
+        assert_eq!(healed_health(50.0, 100.0, -30.0), 50.0);
+    }
+
+    #[test]
+    fn heal_zombie_restores_a_live_zombies_health_only() {
+        let mut app = App::new();
+        app.add_message::<HealZombie>().add_systems(Update, heal_zombies);
+        let mut hurt = Zombie::new_for_test(100.0);
+        hurt.set_health_for_test(40.0);
+        let live = app.world_mut().spawn(hurt).id();
+        let mut dying = Zombie::new_for_test(100.0);
+        dying.set_health_for_test(0.0);
+        let dead = app.world_mut().spawn((dying, Dying::default())).id();
+        for zombie in [live, dead] {
+            app.world_mut().write_message(HealZombie { zombie, amount: 25.0 });
+        }
+        app.update();
+        assert_eq!(app.world().get::<Zombie>(live).unwrap().health(), 65.0);
+        assert_eq!(app.world().get::<Zombie>(dead).unwrap().health(), 0.0);
+    }
+
+    #[test]
+    fn a_new_zombie_is_announced_once_with_its_kind_and_whether_it_was_requested() {
+        let mut app = App::new();
+        app.add_message::<ZombieSpawned>().insert_resource(Round::in_progress(7)).add_systems(Update, announce_spawns);
+        let normal = app.world_mut().spawn(Zombie::new_for_test(100.0)).id();
+        let hound = app.world_mut().spawn((Zombie::hellhound(100.0, Vec3::ZERO), Requested)).id();
+        app.update();
+        app.update();
+        let told: Vec<_> = app.world_mut().resource_mut::<Messages<ZombieSpawned>>().drain().map(|s| (s.zombie, s.kind, s.round, s.requested)).collect();
+        assert_eq!(told.len(), 2, "each told once");
+        assert!(told.contains(&(normal, ZombieKind::Normal, 7, false)));
+        assert!(told.contains(&(hound, ZombieKind::Hellhound, 7, true)));
+    }
+
+    #[test]
+    fn a_zombies_kind_is_read_from_its_body() {
+        assert_eq!(ZombieKind::of(&Zombie::special(SpecialKind::Sapper, 10.0, Vec3::ZERO)), ZombieKind::Special(SpecialKind::Sapper));
+        assert_eq!(ZombieKind::of(&Zombie::nova_crawler(10.0, Vec3::ZERO)), ZombieKind::NovaCrawler);
+        assert_eq!(ZombieKind::of(&Zombie::new_for_test(10.0)), ZombieKind::Normal);
     }
 }

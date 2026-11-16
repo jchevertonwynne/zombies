@@ -918,7 +918,7 @@ mod tests {
         }
 
         fn kill(player: Entity, attack: Attack, headshot: bool) -> ZombieKilled {
-            ZombieKilled { player: Some(player), pay: Pay::Paid, headshot, zone: HitZone::Head, attack, at: Vec3::new(4.0, 1.0, 12.0), surge: false }
+            ZombieKilled { player: Some(player), pay: Pay::Paid, headshot, zone: HitZone::Head, attack, at: Vec3::new(4.0, 1.0, 12.0), surge: false, zombie: Entity::PLACEHOLDER }
         }
 
         fn casts(sim: &mut Sim) -> Vec<CastEffect> {

@@ -972,7 +972,7 @@ mod tests {
     #[test]
     fn gold_4_pays_a_paid_kill_again_only_while_a_timed_power_up_is_on() {
         use crate::economy::points::kill_points;
-        let kill = |pay| ZombieKilled { player: None, pay, headshot: false, zone: HitZone::Torso, attack: Attack::Bullet, at: Vec3::ZERO, surge: false };
+        let kill = |pay| ZombieKilled { player: None, pay, headshot: false, zone: HitZone::Torso, attack: Attack::Bullet, at: Vec3::ZERO, surge: false, zombie: Entity::PLACEHOLDER };
         let paid = kill(Pay::Paid);
         assert_eq!(gold_4_points(&paid, true), kill_points(&paid));
         assert!(gold_4_points(&paid, true) > 0);

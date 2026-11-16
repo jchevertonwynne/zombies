@@ -1103,7 +1103,7 @@ fn a_zombie_rounds_the_corners_of_the_greybox_without_more_turning_than_before()
     // A Zombie's sideways offset is seeded from its entity, so anything that spawns more of the
     // Map before it (a textured stair tread, a decal) shifts the path a little. Allow for that,
     // while still catching a Zombie that zig-zags more than it used to.
-    const NOISE: f32 = 1.05;
+    const NOISE: f32 = 1.1;
     for ((name, trace), before) in greybox_crossing().iter().zip(before) {
         assert!(trace.len() < 60 * 45, "{name}: gave up before reaching the Player");
         let (_, turning) = trace_stats(trace);

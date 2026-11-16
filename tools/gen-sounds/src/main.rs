@@ -147,6 +147,7 @@ fn recipe(cue: Cue) -> Recipe {
         Cue::DuoTaken => Recipe::Synth(duo_taken()),
         Cue::BossWarning => Recipe::Synth(boss_warning()),
         Cue::BossHowl => Recipe::Synth(boss_howl()),
+        Cue::EliteSpawn => Recipe::Synth(elite_spawn()),
         Cue::GauntletWin => Recipe::Synth(gauntlet_win()),
         Cue::AmmoModDeadWire => Recipe::Synth(zap_chain()),
         Cue::AmmoModFireworks => Recipe::Synth(pops()),
@@ -1290,6 +1291,20 @@ fn boss_howl() -> Vec<f32> {
             tone * (1.0 + 0.15 * noise(&mut seed)) * swell * 0.3
         })
         .collect()
+}
+
+/// An Elite entering play: a short, ominous two-tone sting, a low thud under a rising metallic ring.
+fn elite_spawn() -> Vec<f32> {
+    let mut out = scaled(thud(0.5, 80.0), 0.8);
+    let ring: Vec<f32> = samples(0.9)
+        .map(|t| {
+            let swell = (t / 0.03).min(1.0) * (1.0 - t / 0.9).max(0.0).powi(2);
+            let freq = 330.0 + 120.0 * (t / 0.9).min(1.0);
+            ((TAU * freq * t).sin() + 0.5 * (TAU * freq * 2.76 * t).sin()) * swell * 0.22
+        })
+        .collect();
+    layer(&mut out, 0.05, &ring);
+    clamped(out)
 }
 
 /// The Win: a rising major arpeggio landing on a long, bright chord.

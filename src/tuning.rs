@@ -2532,6 +2532,44 @@ pub const GAUNTLET_WARDEN_SCALE: f32 = 1.5;
 pub const GAUNTLET_WARDEN_HELMET_REFORMS_AT: [f32; 2] = [0.66, 0.33];
 pub const GAUNTLET_WARDEN_SABOTAGES: u32 = 2;
 
+/// Elites: an ordinary Zombie that gets one Elite Trait as it spawns. From Round
+/// `_FIRST_ROUND` the chance is `_CHANCE_BASE` + `_CHANCE_PER_ROUND` per Round past it, capped at
+/// `_CHANCE_MAX`, and at most `_MAX_ALIVE` are alive at once. An Elite kill pays its kill Points
+/// `_POINTS_FACTOR` times over in all, and its Power-up drop chance is ×`_DROP_FACTOR`.
+pub const GAUNTLET_ELITE_FIRST_ROUND: u32 = 6;
+pub const GAUNTLET_ELITE_CHANCE_BASE: f64 = 0.02;
+pub const GAUNTLET_ELITE_CHANCE_PER_ROUND: f64 = 0.005;
+pub const GAUNTLET_ELITE_CHANCE_MAX: f64 = 0.15;
+pub const GAUNTLET_ELITE_MAX_ALIVE: u32 = 3;
+pub const GAUNTLET_ELITE_POINTS_FACTOR: u64 = 2;
+pub const GAUNTLET_ELITE_DROP_FACTOR: f32 = 3.0;
+/// Armoured: body hits do this share of their damage until the armour has soaked `_SOAK_FRACTION`
+/// of its max health. Headshots are unarmoured.
+pub const GAUNTLET_ELITE_ARMOURED_BODY_FACTOR: f32 = 0.25;
+pub const GAUNTLET_ELITE_ARMOURED_SOAK_FRACTION: f32 = 0.5;
+/// Splitter: on death, `_COUNT` Walkers each at `_HEALTH_FRACTION` of its max health.
+pub const GAUNTLET_ELITE_SPLITTER_COUNT: u32 = 2;
+pub const GAUNTLET_ELITE_SPLITTER_HEALTH_FRACTION: f32 = 0.3;
+/// Volatile: on death, explodes after `_FUSE_SECS`, hurting a Player within `_RADIUS_M` for up to
+/// `_DAMAGE`.
+pub const GAUNTLET_ELITE_VOLATILE_FUSE_SECS: f32 = 1.0;
+pub const GAUNTLET_ELITE_VOLATILE_RADIUS_M: f32 = 3.0;
+pub const GAUNTLET_ELITE_VOLATILE_DAMAGE: f32 = 60.0;
+/// Regenerating: after `_DELAY_SECS` without damage, heals `_FRACTION_PER_SEC` of its max health a second.
+pub const GAUNTLET_ELITE_REGEN_DELAY_SECS: f32 = 3.0;
+pub const GAUNTLET_ELITE_REGEN_FRACTION_PER_SEC: f32 = 0.10;
+/// Rallying: other Zombies within `_RADIUS_M` move `_SPEED_FACTOR` times as fast.
+pub const GAUNTLET_ELITE_RALLY_RADIUS_M: f32 = 6.0;
+pub const GAUNTLET_ELITE_RALLY_SPEED_FACTOR: f32 = 1.25;
+/// An Elite's emissive tint by trait: Armoured, Splitter, Volatile, Regenerating, Rallying.
+pub const GAUNTLET_ELITE_TINTS: [[f32; 3]; 5] = [
+    [0.55, 0.6, 0.65],
+    [0.6, 0.15, 0.9],
+    [1.0, 0.45, 0.05],
+    [0.15, 0.9, 0.2],
+    [0.95, 0.1, 0.1],
+];
+
 // Pacts (Appendix B): fixed, held once, never scaled by Round
 /// Distinct Pacts on one Pact Offer, or fewer if fewer are left.
 pub const PACT_OFFER_SIZE: usize = 3;

@@ -196,6 +196,7 @@ impl Throw {
             thrower: Some(thrower),
             splash: splash_in(splash),
             hurts_player,
+            hurts_zombies: true,
             ammo_mods: AmmoMods::from_bits(ammo_mods),
             crawlers,
         })
@@ -536,6 +537,7 @@ fn hear(
             thrower: None,
             splash: Splash { max: 0.0, min: 0.0, radius: burst.radius },
             hurts_player: false,
+            hurts_zombies: true,
             ammo_mods: AmmoMods::NONE,
             crawlers: false,
         });
@@ -752,6 +754,7 @@ mod tests {
             thrower: Some(thrower),
             splash: Splash { max: 1.0, min: 1.0, radius: 3.0 },
             hurts_player: false,
+            hurts_zombies: true,
             ammo_mods: AmmoMods::NONE,
             crawlers: false,
         });
@@ -840,6 +843,7 @@ mod tests {
             thrower: None,
             splash: Splash { max: 1.0, min: 1.0, radius: 3.0 },
             hurts_player: false,
+            hurts_zombies: true,
             ammo_mods: AmmoMods::NONE,
             crawlers: false,
         });

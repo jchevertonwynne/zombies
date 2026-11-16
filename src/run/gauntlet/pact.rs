@@ -423,6 +423,7 @@ pub fn scorched_earth_blast(at: Vec3, max_health: f32, player: Option<Entity>) -
             radius: PACT_SCORCHED_EARTH_RADIUS_M,
         },
         hurts_player: false,
+        hurts_zombies: true,
         ammo_mods: AmmoMods::NONE,
         crawlers: true,
     }

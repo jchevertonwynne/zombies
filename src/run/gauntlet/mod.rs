@@ -11,6 +11,7 @@ mod arc;
 mod armory;
 pub mod boon;
 mod duos;
+mod elite;
 mod pact;
 mod procs;
 pub mod progress;
@@ -276,6 +277,16 @@ impl Plugin for GauntletPlugin {
                         teddys_tithe,
                         (war_bonds, bounty, butchers_bill, lucky_strike),
                         (scorched_earth, overkill),
+                        (
+                            elite::mark_elites,
+                            elite::soak_armour,
+                            elite::regenerate,
+                            elite::rally,
+                            elite::elite_deaths,
+                            elite::burn_fuses,
+                            elite::elite_points,
+                            elite::strip_turned_elites,
+                        ),
                         (procs::fire_procs, procs::land_lethals, procs::cast_procs, procs::thaw).chain(),
                         (
                             duos::gun_and_blade,
@@ -302,6 +313,7 @@ impl Plugin for GauntletPlugin {
                     (apply_entries, sets::lend_ammo_mods),
                     (record_picks, screen::refresh_held_column).run_if(picks_changed).after(sets::reach_set_bonuses),
                     (procs::draw_procs, screen::update_proc_bars, screen::update_jackpot_bar),
+                    (elite::tint_elites, elite::draw_rally_rings),
                     (sets::show_set_banner, sets::draw_set_flashes, sets::draw_frost_patches),
                     (duos::announce_duos, duos::show_duo_banner).chain(),
                 )

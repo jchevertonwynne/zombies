@@ -91,6 +91,7 @@ mod tests {
             attack: Attack::Bullet,
             at: bevy::math::Vec3::ZERO,
             surge: false,
+            zombie: Entity::PLACEHOLDER,
         }
     }
 

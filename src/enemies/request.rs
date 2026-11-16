@@ -11,7 +11,11 @@ use crate::enemies::hellhound::hellhound_spawn_candidates;
 use crate::enemies::sapper::window_candidates;
 use crate::enemies::special::SpecialCue;
 use crate::enemies::target::Players;
-use crate::enemies::zombie::Heavyweight;
+use crate::authority::HostSimulation;
+use crate::enemies::zombie::{Heavyweight, SpeedTier, ZombieAssetsParam, spawn_zombie};
+use crate::run::round::{CarriesOver, Round};
+use crate::state::world_runs;
+use crate::maps::barrier::Entering;
 use crate::maps::barrier::Barriers;
 use crate::maps::map::{BarrierId, MapId, SpawnKind, SpawnPoint};
 use crate::maps::zone::{ActiveZones, ZoneId};
@@ -24,6 +28,8 @@ pub enum RequestedKind {
     Sapper,
     /// A Hellhound: it comes in a lightning strike, never through a Barrier, and bites as hounds do.
     Hellhound,
+    /// A normal Zombie: a Walker, at the point asked for or through a window. Always its usual size.
+    Walker,
 }
 
 /// Where a requested Zombie enters.
@@ -156,7 +162,40 @@ pub struct RequestPlugin;
 
 impl Plugin for RequestPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<SpawnZombie>();
+        app.add_message::<SpawnZombie>().add_systems(
+            Update,
+            spawn_requested_walkers.run_if(on_message::<SpawnZombie>).in_set(HostSimulation).run_if(world_runs),
+        );
+    }
+}
+
+/// Each `SpawnZombie` for a Walker spawns a normal Zombie outside the Horde: standing where it's
+/// asked for, or smashing in through a window. Without `holds_round` it carries over.
+pub(crate) fn spawn_requested_walkers(
+    mut commands: Commands,
+    mut requests: MessageReader<SpawnZombie>,
+    round: Option<Res<Round>>,
+    mut entry: Entry,
+    zombie_assets: ZombieAssetsParam,
+) {
+    let number = round.map_or(1, |round| round.number);
+    for request in requests.read().filter(|request| request.kind == RequestedKind::Walker) {
+        let Some((at, barrier)) = entry.resolve(request.at) else {
+            continue;
+        };
+        let health = requested_health(number, request.health_factor);
+        let zombie = spawn_zombie(&mut commands, &zombie_assets, at, health, SpeedTier::Walker, None);
+        let mut entity = commands.entity(zombie);
+        entity.insert(Requested);
+        if !request.holds_round {
+            entity.insert(CarriesOver);
+        }
+        if let Some(heavyweight) = request.heavyweight {
+            entity.insert(heavyweight);
+        }
+        if let Some(barrier) = barrier {
+            entity.insert(Entering::new(barrier));
+        }
     }
 }
 
@@ -179,6 +218,7 @@ mod tests {
             let mut world = World::new();
             IntoSystem::into_system(system).initialize(&mut world);
         }
+        set_up(spawn_requested_walkers);
         set_up(crate::enemies::special::spawn_requested_napalms);
         set_up(crate::enemies::special::napalm_trails);
         set_up(crate::enemies::sapper::spawn_requested_sappers);

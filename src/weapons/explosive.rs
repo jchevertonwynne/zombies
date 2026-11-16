@@ -28,6 +28,9 @@ pub struct Explosion {
     /// Whether the blast hurts its thrower, and only them. Their own frags, launchers and Monkey
     /// Bombs do; Claymores never do.
     pub hurts_player: bool,
+    /// Whether the blast hurts Zombies. Every explosive does; a blast made only to hurt the Player
+    /// (an Elite Volatile's) sets it false.
+    pub hurts_zombies: bool,
     /// The Ammo Mods of the Weapon that fired it, which each Zombie it hurts rolls. None for
     /// Equipment.
     pub ammo_mods: AmmoMods,
@@ -296,6 +299,7 @@ fn fly(
                 thrower: Some(projectile.player),
                 splash: projectile.splash,
                 hurts_player: true,
+                hurts_zombies: true,
                 ammo_mods: projectile.ammo_mods,
                 crawlers: projectile.crawlers,
             });
@@ -335,7 +339,7 @@ pub(crate) fn explode(
     let mut blasted: Vec<(Entity, f32, bool)> = Vec::new();
     for explosion in explosions.read() {
         let splash = explosion.splash;
-        for (zombie, body, transform) in &zombies {
+        for (zombie, body, transform) in zombies.iter().filter(|_| explosion.hurts_zombies) {
             let centre = transform.translation();
             let Some(amount) = splash.damage(centre.distance(explosion.at)) else {
                 continue;
@@ -522,6 +526,7 @@ mod tests {
             thrower: Some(thrower),
             splash: FRAG_SPLASH,
             hurts_player: true,
+            hurts_zombies: true,
             ammo_mods: AmmoMods::NONE,
             crawlers: false,
         });
@@ -529,5 +534,42 @@ mod tests {
         let hit: Vec<_> = app.world_mut().resource_mut::<Messages<PlayerHit>>().drain().map(|hit| hit.player).collect();
         assert_eq!(hit, [thrower], "the Player standing as close to the blast is not hurt");
         assert_ne!(thrower, teammate);
+    }
+
+    #[test]
+    fn a_blast_that_hurts_no_zombie_still_hurts_its_thrower() {
+        use avian3d::prelude::PhysicsPlugins;
+        use crate::players::player::PlayerHit;
+
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default(), TransformPlugin, PhysicsPlugins::default()))
+            .init_asset::<Mesh>()
+            .init_asset::<StandardMaterial>()
+            .insert_resource(Settings::default())
+            .add_message::<Explosion>()
+            .add_message::<DamageZombie>()
+            .add_message::<AmmoModHit>()
+            .add_message::<Gibbed>()
+            .add_message::<PlayerHit>()
+            .add_systems(Startup, load_assets)
+            .add_systems(Update, explode);
+        let player = app.world_mut().spawn((Player, Health { current: 100.0, max: 100.0, since_hit: 0.0 }, Transform::from_xyz(0.0, 1.0, 0.0))).id();
+        app.world_mut().spawn((Zombie::new_for_test(100.0), GlobalTransform::from_xyz(0.5, 1.0, 0.0)));
+        let blast = |hurts_zombies| Explosion {
+            at: Vec3::new(0.5, 1.0, 0.0),
+            thrower: Some(player),
+            splash: FRAG_SPLASH,
+            hurts_player: true,
+            hurts_zombies,
+            ammo_mods: AmmoMods::NONE,
+            crawlers: false,
+        };
+        app.world_mut().write_message(blast(false));
+        app.update();
+        assert_eq!(app.world_mut().resource_mut::<Messages<DamageZombie>>().drain().count(), 0);
+        assert_eq!(app.world_mut().resource_mut::<Messages<PlayerHit>>().drain().count(), 1);
+        app.world_mut().write_message(blast(true));
+        app.update();
+        assert_eq!(app.world_mut().resource_mut::<Messages<DamageZombie>>().drain().count(), 1, "an ordinary blast still hurts the Zombie");
     }
 }

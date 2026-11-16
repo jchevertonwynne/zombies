@@ -299,6 +299,7 @@ fn blast(sim: &mut Sim, thrower: Entity, hurts_player: bool) -> Vec<Entity> {
         thrower: Some(thrower),
         splash: FRAG_SPLASH,
         hurts_player,
+        hurts_zombies: true,
         ammo_mods: AmmoMods::NONE,
         crawlers: false,
     });
@@ -365,6 +366,7 @@ fn a_crouched_player_is_shielded_from_their_own_blast_by_low_cover() {
             thrower: Some(teammate),
             splash: FRAG_SPLASH,
             hurts_player: true,
+            hurts_zombies: true,
             ammo_mods: AmmoMods::NONE,
             crawlers: false,
         });

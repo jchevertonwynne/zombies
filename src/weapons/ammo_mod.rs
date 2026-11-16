@@ -824,6 +824,7 @@ impl Turn {
             attack: Attack::AmmoMod(Pay::Unpaid),
             at,
             surge: false,
+            zombie,
         });
         let mut ally = commands.entity(zombie);
         ally.remove::<(Zombie, Lured, Burning)>().insert((

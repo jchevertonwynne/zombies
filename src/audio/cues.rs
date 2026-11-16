@@ -165,6 +165,7 @@ cues! {
     // The Run arc: a Boss Round's warning, and the Win.
     BossWarning => "boss_warning", Root, Flat, 0.9;
     BossHowl => "boss_howl", Root, Spatial, 1.0;
+    EliteSpawn => "elite_spawn", Root, Spatial, 0.9;
     GauntletWin => "gauntlet_win", Root, Flat, 0.85;
     PowerDown => "power_down", Root, Spatial, 0.9;
     PowerRestore => "power_restore", Root, Flat, 0.8;
@@ -311,7 +312,7 @@ mod tests {
             // Gauntlet v2's Proc cues (spec #182, Appendix C6).
             "proc_frost", "proc_blast",
             "set_bonus_tier_two", "set_bonus_tier_four", "set_bonus_tier_six", "duo_taken",
-            "boss_warning", "boss_howl", "gauntlet_win",
+            "boss_warning", "boss_howl", "elite_spawn", "gauntlet_win",
         ];
         let declared: Vec<_> = Cue::ALL.iter().map(|cue| cue.spec().name).collect();
         for slot in APPENDIX_C {

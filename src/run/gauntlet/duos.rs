@@ -575,6 +575,7 @@ pub fn fly_supply_shells(
             thrower: Some(shell.player),
             splash: equipment_splash(FRAG_SPLASH, entries),
             hurts_player: false,
+            hurts_zombies: true,
             ammo_mods: AmmoMods::NONE,
             crawlers: makes_crawlers(Explosive::Frag),
         });
