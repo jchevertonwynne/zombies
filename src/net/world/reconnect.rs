@@ -167,3 +167,26 @@ fn a_client_follows_the_tide_and_a_returning_player_is_told_its_phase() {
     run.step(10);
     assert_eq!(run.world(1).resource::<Tide>().phase, TidePhase::Falling);
 }
+
+#[test]
+fn a_returning_player_is_told_every_teammates_points() {
+    let mut run = run(2);
+    run.give_points(0, 5_000);
+    run.give_points(2, 6_000);
+    run.step(10);
+    run.cut(1);
+    run.step(2);
+    // While they are away: the others' Points change.
+    run.give_points(0, 5_500);
+    run.give_points(2, 6_600);
+    run.step(40);
+    assert_eq!(reach(&mut run, 1), Reach::Up);
+    run.world(0).write_message(RoundStarted);
+    run.step(10);
+    let client = |run: &mut Run, seat: u8| {
+        let player = run.player(1, seat);
+        run.world(1).get::<Points>(player).unwrap().balance
+    };
+    assert_eq!(client(&mut run, 0), 5_500);
+    assert_eq!(client(&mut run, 2), 6_600);
+}

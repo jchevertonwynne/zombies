@@ -340,3 +340,56 @@ fn give_perks(mut commands: Commands, players: Query<Entity, (With<Player>, With
         commands.entity(player).insert(Perks::default());
     }
 }
+
+/// Game `on`'s own copy of the Points of the Player in `seat`.
+fn points_on(run: &mut Run, on: usize, seat: u8) -> u64 {
+    let player = run.player(on, seat);
+    run.world(on).get::<Points>(player).unwrap().balance
+}
+
+#[test]
+fn teammates_points_reach_every_client_by_event() {
+    let mut run = Run::new(2);
+    run.give_points(0, 4_321);
+    run.give_points(1, 1_234);
+    run.give_points(2, 777);
+    run.step(30);
+    for on in 0..3 {
+        for (seat, balance) in [(0, 4_321), (1, 1_234), (2, 777)] {
+            assert_eq!(points_on(&mut run, on, seat), balance, "game {on}'s view of seat {seat}");
+        }
+    }
+}
+
+#[test]
+fn a_seats_points_are_told_at_most_eight_times_a_second() {
+    let mut run = Run::new(1);
+    run.step(30);
+    let mut changes = 0;
+    let mut seen = points_on(&mut run, 1, 0);
+    // The Host's Points change on every tick for a second.
+    for tick in 0..64u64 {
+        run.give_points(0, 1_000 + tick);
+        run.step(1);
+        let now = points_on(&mut run, 1, 0);
+        changes += u32::from(now != seen);
+        seen = now;
+    }
+    assert!(changes <= 9, "{changes} changes in a second");
+    assert!(changes >= 4, "{changes} changes in a second");
+    // And the last one is not lost to the gap.
+    run.step(30);
+    assert_eq!(points_on(&mut run, 1, 0), 1_063);
+}
+
+#[test]
+fn a_clients_own_points_come_from_own_not_the_event() {
+    let mut run = Run::new(2);
+    run.give_points(1, 900);
+    run.step(30);
+    // The Host never sends a Player their own Points as an event, only teammates'.
+    let told = run.world(0).resource::<Mirror>().points.get(&1).copied();
+    assert_eq!(told.map(|(points, _)| points), Some(900));
+    assert_eq!(points_on(&mut run, 1, 1), 900);
+    assert_eq!(points_on(&mut run, 2, 1), 900);
+}

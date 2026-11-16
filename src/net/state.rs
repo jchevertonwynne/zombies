@@ -171,7 +171,7 @@ fn stance_bits(stance: Stance) -> u8 {
     }
 }
 
-/// Another Player as a snapshot packs them, in about 15 bytes.
+/// Another Player as a snapshot packs them, in about 12 bytes. Their Points are a `WorldEvent::Points`.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct Sight {
     pub seat: Seat,
@@ -183,7 +183,6 @@ pub struct Sight {
     /// `Pose::pack`.
     pub pose: u16,
     pub shots: u8,
-    pub points: u32,
 }
 
 /// A Zombie or a Hellhound as a snapshot packs them, in at most 10 bytes: its id (a varint of up
@@ -417,7 +416,6 @@ mod tests {
             pitch: 255,
             pose: Pose { stance: Stance::Prone, sprinting: true, aiming: true, airborne: true, last_stand: true, action: Action::Revive }.pack(),
             shots: 255,
-            points: u32::MAX,
         };
         Snapshot {
             tick: Tick::MAX,
@@ -447,7 +445,7 @@ mod tests {
         Snapshot {
             zombies: vec![worst_zombie(); SNAPSHOT_MAX_CREATURES - hellhounds],
             hellhounds: vec![worst_zombie(); hellhounds],
-            specials: vec![SpecialSight { id: u16::MAX, body: 255 }; SNAPSHOT_MAX_SPECIALS],
+            specials: vec![SpecialSight { id: ZOMBIE_ID_SPAN - 1, body: 255 }; SNAPSHOT_MAX_SPECIALS],
             ..worst_snapshot()
         }
     }
@@ -458,12 +456,15 @@ mod tests {
         for hellhounds in [0, 2, 9, 17, SNAPSHOT_MAX_CREATURES] {
             let bytes = encode(&worst_horde(hellhounds)).len();
             assert!(bytes <= SNAPSHOT_MAX_BYTES, "{bytes} B with {hellhounds} Hellhounds");
+            // 947 B before teammates' Points left (-15 B) and the specials' ids were told as the
+            // 3 B they are (-12 B).
+            assert_eq!(bytes, 920, "the worst case, with {hellhounds} Hellhounds");
         }
         const { assert!(SNAPSHOT_MAX_BYTES <= DATAGRAM) };
-        // The receiver's own Player is about 32 B, and each of the others about 15.
+        // The receiver's own Player is about 32 B, and each of the others about 12.
         let one = |players: usize| encode(&Snapshot { players: vec![worst_snapshot().players[0]; players], ..worst_snapshot() }).len();
-        assert!(one(1) - one(0) <= 18, "a Player is {} B", one(1) - one(0));
-        let usual = Snapshot { tick: 100_000, used: 99_990, own: Own { points: 5000, ..worst_snapshot().own }, players: vec![Sight { points: 5000, ..worst_snapshot().players[0] }], zombies: vec![], hellhounds: vec![], specials: vec![] };
+        assert!(one(1) - one(0) <= 13, "a Player is {} B", one(1) - one(0));
+        let usual = Snapshot { tick: 100_000, used: 99_990, own: Own { points: 5000, ..worst_snapshot().own }, players: vec![worst_snapshot().players[0]], zombies: vec![], hellhounds: vec![], specials: vec![] };
         assert!(encode(&usual).len() <= 36 + 16 + 4 + 2, "{}", encode(&usual).len());
     }
 
