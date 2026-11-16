@@ -64,6 +64,11 @@ impl Party {
         &self.seats
     }
 
+    /// The Host's Room, if this machine is the Host.
+    pub(crate) fn room(&self) -> Option<&Room> {
+        self.room.as_ref()
+    }
+
     /// The Host's Degrees, one per Condition.
     pub fn heat(&self) -> [u8; 8] {
         self.heat
@@ -412,6 +417,7 @@ mod tests {
         .init_resource::<crate::storage::records::RunHeatRecord>()
         .init_resource::<crate::weapons::ammo_mod::TurnedAllyCap>()
         .init_resource::<crate::run::round::ReservedRounds>()
+        .add_observer(crate::run::gauntlet::give_gauntlet_state)
         .add_systems(OnExit(GameState::MainMenu), crate::run::gauntlet::set_run_modifiers)
         .init_resource::<crate::weapons::weapon::StartingLoadout>()
         .init_resource::<Mode>()
@@ -445,12 +451,19 @@ mod tests {
 
     /// `room`, in `mode` with the Host's `heat` set.
     fn room_with(joiners: usize, mode: Mode, heat: [u8; 8]) -> (Hub, Vec<App>) {
+        room_bringing(vec![Unlocks::default(); joiners], mode, heat)
+    }
+
+    /// `room_with`, one joiner for each Armory in `armories`.
+    fn room_bringing(armories: Vec<Unlocks>, mode: Mode, heat: [u8; 8]) -> (Hub, Vec<App>) {
         let hub = Hub::new(1, 0.0);
         let mut room = Room::new("Hostess", Unlocks::default(), mode);
         room.set_heat(heat);
         let mut hosting: Hosting<Box<dyn Link>> = Hosting::new(Box::new(hub.host()), room);
-        let mut joining: Vec<Joining<Box<dyn Link>>> = (0..joiners)
-            .map(|n| Joining::new(Box::new(hub.join()) as Box<dyn Link>, &format!("P{n}"), "", Unlocks::default()))
+        let mut joining: Vec<Joining<Box<dyn Link>>> = armories
+            .into_iter()
+            .enumerate()
+            .map(|(n, armory)| Joining::new(Box::new(hub.join()) as Box<dyn Link>, &format!("P{n}"), "", armory))
             .collect();
         settle(&hub, &mut hosting, &mut joining);
         joining.iter_mut().for_each(|joining| joining.ready(true));
@@ -682,5 +695,52 @@ mod tests {
             assert_eq!(record.heat, Some(3));
             assert_eq!(record.conditions.len(), host_record.conditions.len());
         }
+    }
+
+    /// A Player's Banish charges and Track entries, on the machine that holds their body.
+    fn banish_and_speed(app: &mut App, seat: u8) -> (u32, usize) {
+        use crate::modifier::Modifiers;
+        use crate::run::gauntlet::Banishes;
+        let world = app.world_mut();
+        let mut query = world.query_filtered::<(&crate::players::player::Seat, &Banishes, &Modifiers), With<Player>>();
+        let (_, banishes, modifiers) = query.iter(world).find(|(held, ..)| held.0 == seat).expect("a body in the Seat");
+        (banishes.charges, modifiers.0.len())
+    }
+
+    fn tracks(banish: u32, speed: u32) -> Unlocks {
+        use crate::net::protocol::TrackState;
+        let track = |id: &str, ranks| TrackState { id: id.into(), ranks, on: true };
+        Unlocks { unlocked: Vec::new(), tracks: vec![track("banish", banish), track("move_speed", speed)] }
+    }
+
+    #[test]
+    fn the_host_applies_each_remote_players_own_tracks() {
+        use crate::run::gauntlet::progress::{GauntletFile, Track, TrackSave};
+        let mut host_save = GauntletFile::default();
+        host_save.tracks.push(TrackSave { id: Track::Banish.id().into(), ranks: 1, on: true });
+        // Seat 1 brings two Banish Ranks and Move speed; Seat 2 brings none of either.
+        let (hub, mut apps) = room_bringing(vec![tracks(2, 3), tracks(0, 0)], Mode::Gauntlet, [0; 8]);
+        for (at, armory) in [(1, tracks(2, 3)), (2, tracks(0, 0))] {
+            // A client plays its own save: give each the Tracks it brought.
+            let mut file = GauntletFile::default();
+            for track in &armory.tracks {
+                file.tracks.push(TrackSave { id: track.id.clone(), ranks: track.ranks, on: track.on });
+            }
+            apps[at].world_mut().insert_resource(file);
+        }
+        apps[0].world_mut().insert_resource(host_save);
+        assert!(start(&mut apps[0]));
+        frames(&hub, &mut apps, 12);
+        assert_in_run(&mut apps);
+
+        let per_rank = TRACK_BANISHES_PER_RANK;
+        let base = GAUNTLET_BANISHES_START;
+        // The Host holds every Player's body: each has their own Banish charges and entries.
+        assert_eq!(banish_and_speed(&mut apps[0], 0), (base + per_rank, 0));
+        assert_eq!(banish_and_speed(&mut apps[0], 1), (base + 2 * per_rank, 1), "the remote Player's own Tracks");
+        assert_eq!(banish_and_speed(&mut apps[0], 2), (base, 0), "a Player with no Ranks");
+        // And each client's own Player matches what the Host holds for them.
+        assert_eq!(banish_and_speed(&mut apps[1], 1), (base + 2 * per_rank, 1));
+        assert_eq!(banish_and_speed(&mut apps[2], 2), (base, 0));
     }
 }

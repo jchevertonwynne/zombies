@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::boon::{BOONS, BoonDef, Rarity};
 use super::pact::PACTS;
 use crate::modifier::{Effect, Modifier, Source, Stat};
+use crate::net::protocol::TrackState;
 use crate::storage::save::SaveFile;
 use crate::tuning::*;
 
@@ -404,12 +405,17 @@ impl GauntletFile {
     }
 
     /// Banish charges the Banish Track gives a Run's start, if it's on.
+    #[cfg(test)]
     pub fn track_banishes(&self) -> u32 {
-        if self.is_on(Track::Banish) {
-            self.ranks(Track::Banish) * TRACK_BANISHES_PER_RANK
-        } else {
-            0
-        }
+        track_banishes_of(&self.tracks_on_the_wire())
+    }
+
+    /// The Tracks as a Room carries them.
+    pub fn tracks_on_the_wire(&self) -> Vec<TrackState> {
+        self.tracks
+            .iter()
+            .map(|track| TrackState { id: track.id.clone(), ranks: track.ranks, on: track.on })
+            .collect()
     }
 
     /// Whether the Commendation with stable ID `id` is earned.
@@ -430,12 +436,33 @@ impl GauntletFile {
 
     /// The stat-modifier entries the Tracks toggled on give a Gauntlet Run's Player.
     pub fn track_entries(&self) -> Vec<Modifier> {
-        Track::ALL
-            .iter()
-            .filter(|&&track| self.is_on(track))
-            .filter_map(|&track| track.entry(self.ranks(track)))
-            .collect()
+        track_entries_of(&self.tracks_on_the_wire())
     }
+}
+
+/// `track`'s Ranks in `tracks`: none if unlisted, never past the Track's last.
+fn ranks_in(tracks: &[TrackState], track: Track) -> u32 {
+    tracks.iter().find(|saved| saved.id == track.id()).map_or(0, |saved| saved.ranks.min(track.max_ranks()))
+}
+
+/// Whether `track` is on in `tracks`: unlisted Tracks are on.
+fn is_on_in(tracks: &[TrackState], track: Track) -> bool {
+    tracks.iter().find(|saved| saved.id == track.id()).is_none_or(|saved| saved.on)
+}
+
+/// The stat-modifier entries a Player's Tracks (their own save's, or those they brought to a Room)
+/// give them.
+pub fn track_entries_of(tracks: &[TrackState]) -> Vec<Modifier> {
+    Track::ALL
+        .iter()
+        .filter(|&&track| is_on_in(tracks, track))
+        .filter_map(|&track| track.entry(ranks_in(tracks, track)))
+        .collect()
+}
+
+/// The Banish charges a Player's Banish Track gives their Run's start, if it's on.
+pub fn track_banishes_of(tracks: &[TrackState]) -> u32 {
+    if is_on_in(tracks, Track::Banish) { ranks_in(tracks, Track::Banish) * TRACK_BANISHES_PER_RANK } else { 0 }
 }
 
 #[cfg(test)]
@@ -608,6 +635,17 @@ mod tests {
         ));
         assert!(close(resolve(Stat::PowerUpDuration, 0.0, &entries), 10.0));
         assert_eq!(Track::BoxPrice.effect(5), "x0.774");
+    }
+
+    #[test]
+    fn tracks_brought_to_a_room_give_the_same_entries_and_banishes_as_a_save() {
+        let brought = |id: &str, ranks, on| TrackState { id: id.into(), ranks, on };
+        let tracks = [brought("banish", 2, true), brought("move_speed", 3, true), brought("box_price", 4, false)];
+        assert_eq!(track_banishes_of(&tracks), 2 * TRACK_BANISHES_PER_RANK);
+        assert_eq!(track_entries_of(&tracks).len(), 1, "Move speed only: Banish is no stat, Box price is off");
+        assert_eq!(track_banishes_of(&[brought("banish", 2, false)]), 0, "switched off");
+        assert_eq!(track_banishes_of(&[brought("banish", 99, true)]), Track::Banish.max_ranks() * TRACK_BANISHES_PER_RANK);
+        assert!(track_entries_of(&[]).is_empty());
     }
 
     #[test]
