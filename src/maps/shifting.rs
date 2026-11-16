@@ -1520,7 +1520,7 @@ mod tests {
     /// The Turn from `phase`, run on by hand as `TidePlugin` would: Turning for `TIDE_TURN_SECS`,
     /// then it lands. Returns every Swing the gates began.
     fn turn_from(sim: &mut Sim, phase: TidePhase) -> Vec<(PieceId, u8, u8)> {
-        let seen = |sim: &mut Sim| -> Vec<(PieceId, u8, u8)> { sim.world_mut().resource_mut::<Swings>().0.drain(..).collect() };
+        let seen = |sim: &mut Sim| -> Vec<(PieceId, u8, u8)> { std::mem::take(&mut sim.world_mut().resource_mut::<Swings>().0) };
         let mut swings = Vec::new();
         set_tide(sim, phase, TurnState::Turning { elapsed: 0.0 });
         let frames = sim.frames(TIDE_TURN_SECS);

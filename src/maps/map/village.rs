@@ -1097,7 +1097,7 @@ mod tests {
     /// round it stays a body's length behind, and too tall to climb onto.
     #[test]
     fn the_market_cross_stands_on_a_base_too_wide_to_cut_round_and_too_tall_to_climb() {
-        assert!(MARKET_CROSS_BASE >= 4.0);
-        assert!(MARKET_CROSS_BASE_HEIGHT > 1.3, "a Player could clamber onto the market cross's base");
+        const { assert!(MARKET_CROSS_BASE >= 4.0) };
+        const { assert!(MARKET_CROSS_BASE_HEIGHT > 1.3, "a Player could clamber onto the market cross's base") };
     }
 }

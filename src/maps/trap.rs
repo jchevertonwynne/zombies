@@ -860,10 +860,11 @@ mod two_player_tests {
         sim.world_mut().get_mut::<MoveInput>(teammate).unwrap().crouch = true;
         sim.run(10);
         assert_eq!(sim.world_mut().get::<Locomotion>(teammate).unwrap().stance, Stance::Crouched);
-        let mut trap_state = sim.world_mut().get_mut::<Trap>(trap).unwrap();
-        trap_state.phase = TrapPhase::Running(0.0);
-        trap_state.activator = Some(teammate);
-        drop(trap_state);
+        {
+            let mut trap_state = sim.world_mut().get_mut::<Trap>(trap).unwrap();
+            trap_state.phase = TrapPhase::Running(0.0);
+            trap_state.activator = Some(teammate);
+        }
         // Hover the volume over the teammate's head, clear of the local Player: out of the
         // Crouched body's reach — nothing about the Stance reaches it — where the standing
         // capsule the Trap used to test would still touch.

@@ -1347,10 +1347,10 @@ mod tests {
 
     #[test]
     fn a_zombie_is_flung_out_past_the_window_nearest_it() {
-        for i in 0..WINDOWS.len() {
+        for (i, window) in WINDOWS.iter().enumerate() {
             let barrier = BarrierId(i as u8);
             let (out, _) = window_axes(barrier);
-            assert_eq!(nearest_window(WINDOWS[i].0.map(), window_centre(barrier) - out * 1.5), barrier, "window {i}");
+            assert_eq!(nearest_window(window.0.map(), window_centre(barrier) - out * 1.5), barrier, "window {i}");
         }
     }
 
@@ -1376,13 +1376,13 @@ mod tests {
 
     #[test]
     fn attack_spots_sit_outside_their_window() {
-        for i in 0..WINDOWS.len() {
+        for (i, window) in WINDOWS.iter().enumerate() {
             let barrier = BarrierId(i as u8);
             for spot in 0..BARRIER_ATTACK_SPOTS {
                 let at = spot_at(barrier, spot);
                 // Outside every Zone, or (the Polder's, in a partition's walled strip) in the window's own.
-                let there = crate::enemies::nav::zone_at(WINDOWS[i].0.map(), at + Vec3::Y * 0.1);
-                assert!(there.is_none() || there == Some(WINDOWS[i].0), "window {i} spot {spot}");
+                let there = crate::enemies::nav::zone_at(window.0.map(), at + Vec3::Y * 0.1);
+                assert!(there.is_none() || there == Some(window.0), "window {i} spot {spot}");
                 assert!(at.distance(window_centre(barrier)) < 1.0);
             }
         }

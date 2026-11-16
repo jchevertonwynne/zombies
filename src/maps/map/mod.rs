@@ -387,11 +387,10 @@ pub fn prop_variant(zone: ZoneId, kind: PropKind, nth: usize) -> Option<PropVari
     let listed = set.and_then(|set| set.props.iter().find(|(k, _)| *k == kind).map(|(_, variants)| *variants));
     let variants = listed.unwrap_or_else(|| default_variants(kind));
     let mut variant = *variants.get(nth % variants.len().max(1))?;
-    if kind == PropKind::Pillar && listed.is_none() {
-        if let Some(set) = set {
+    if kind == PropKind::Pillar && listed.is_none()
+        && let Some(set) = set {
             variant.material = set.wall;
         }
-    }
     Some(variant)
 }
 
