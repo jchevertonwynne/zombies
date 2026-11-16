@@ -232,6 +232,14 @@ impl Round {
         }
     }
 
+    /// Whether the Round after this one will be a Hellhound Round, as the scheduler places it
+    /// once `reserved` Rounds are kept clear and with Hellhounds `hounds_on` or switched off.
+    /// Anything that wants to know before the Round begins asks this; it changes nothing.
+    pub fn next_is_hellhound(&self, reserved: &ReservedRounds, hounds_on: bool) -> bool {
+        let next = self.number.saturating_add(1);
+        hounds_on && !reserved.contains(next) && self.schedule.due(next)
+    }
+
     /// The Hellhound Round count whose health hounds outside a Hellhound Round use: the latest
     /// one so far.
     pub fn hellhound_tier(&self) -> u32 {
@@ -828,6 +836,17 @@ mod tests {
 
     fn reserved(rounds: &[u32]) -> ReservedRounds {
         ReservedRounds(rounds.iter().copied().collect())
+    }
+
+    #[test]
+    fn the_round_after_is_known_to_be_a_hellhound_round_before_it_begins() {
+        let none = ReservedRounds::default();
+        let round = Round::begin(4, HellhoundSchedule::new(5), &[], true, 1);
+        assert!(round.next_is_hellhound(&none, true), "Round 5 is due");
+        assert!(!round.next_is_hellhound(&none, false), "with Hellhounds off it's a normal Round");
+        assert!(!round.next_is_hellhound(&reserved(&[5]), true), "a reserved Round slides");
+        let round = Round::begin(3, HellhoundSchedule::new(5), &[], true, 1);
+        assert!(!round.next_is_hellhound(&none, true), "Round 4 isn't due yet");
     }
 
     #[test]

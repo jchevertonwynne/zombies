@@ -374,6 +374,11 @@ fn play_cues(
     }
 }
 
+/// A cue that plays in place of `RoundStart` when a normal Round begins. Classic leaves it unset;
+/// anything layered on top may set it for a Round of its own.
+#[derive(Resource, Default)]
+pub struct RoundStartCue(pub Option<Cue>);
+
 /// Round stings, the Down and the Self-Revive.
 fn play_round_sounds(
     mut commands: Commands,
@@ -384,6 +389,7 @@ fn play_round_sounds(
     mut revives: MessageReader<SelfRevived>,
     local_player: Query<(), With<LocalPlayer>>,
     round: Option<Res<Round>>,
+    standing_in: Option<Res<RoundStartCue>>,
 ) {
     for _ in started.read() {
         // A Hellhound Round opens with thunder and the announcer instead.
@@ -391,7 +397,8 @@ fn play_round_sounds(
             sounds.play(&mut commands, Cue::HellhoundRoundStart, None);
             sounds.play(&mut commands, Cue::AnnouncerHellhoundRound, None);
         } else {
-            sounds.play(&mut commands, Cue::RoundStart, None);
+            let cue = standing_in.as_ref().and_then(|standing_in| standing_in.0).unwrap_or(Cue::RoundStart);
+            sounds.play(&mut commands, cue, None);
         }
     }
     for _ in ended.read() {

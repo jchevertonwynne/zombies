@@ -167,6 +167,10 @@ cues! {
     BossHowl => "boss_howl", Root, Spatial, 1.0;
     EliteSpawn => "elite_spawn", Root, Spatial, 0.9;
     GauntletWin => "gauntlet_win", Root, Flat, 0.85;
+    // Round variety: a Challenge broken or met, and a Twist Round's start in place of `RoundStart`.
+    ChallengeBreach => "challenge_breach", Root, Flat, 0.7;
+    ChallengeMet => "challenge_met", Root, Flat, 0.75;
+    TwistRoundStart => "twist_round_start", Root, Flat, 0.9;
     PowerDown => "power_down", Root, Spatial, 0.9;
     PowerRestore => "power_restore", Root, Flat, 0.8;
     // Heard Map-wide, wherever the Generator is.
@@ -313,6 +317,7 @@ mod tests {
             "proc_frost", "proc_blast",
             "set_bonus_tier_two", "set_bonus_tier_four", "set_bonus_tier_six", "duo_taken",
             "boss_warning", "boss_howl", "elite_spawn", "gauntlet_win",
+            "challenge_breach", "challenge_met", "twist_round_start",
         ];
         let declared: Vec<_> = Cue::ALL.iter().map(|cue| cue.spec().name).collect();
         for slot in APPENDIX_C {

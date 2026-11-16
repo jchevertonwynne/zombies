@@ -524,6 +524,11 @@ pub struct StanceFeel {
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct FeltStance(StanceFeel);
 
+/// The gravity the Player falls and jumps under, after their `Stat::PlayerGravity` entries.
+pub fn player_gravity(entries: &[Modifier]) -> f32 {
+    resolve(Stat::PlayerGravity, GRAVITY, entries)
+}
+
 /// Plays the local Player's own stance sounds: a rustle at the start of every stance change, and
 /// a thud when a Dive lands instead. Ignored stance input changes nothing, so it's silent.
 pub(crate) fn stance_feedback(
@@ -1148,7 +1153,10 @@ pub fn step_move(
     };
     // Gravity only pulls in the air; on the floor it would just push the Player into it, and
     // slowly down the ramp while standing still.
-    let mut vertical = if locomotion.grounded { 0.0 } else { locomotion.velocity.y - GRAVITY * dt };
+    // A Jump Pad's throw is a fixed ballistic arc, so it falls under the base gravity whatever the
+    // stat says.
+    let gravity = if locomotion.thrown { GRAVITY } else { player_gravity(&modifiers.0) };
+    let mut vertical = if locomotion.grounded { 0.0 } else { locomotion.velocity.y - gravity * dt };
     // No jumping from a crawl, and no jumping out of a Stance: Jump while Crouched or Prone
     // stands the Player up instead (the resolver turned the press into the stand-up).
     let jumped = locomotion.grounded && input.jump && !last_stand && locomotion.stance == Stance::Standing;

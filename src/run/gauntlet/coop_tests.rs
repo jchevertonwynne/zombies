@@ -36,6 +36,7 @@ pub(super) fn gauntlet_players_with(extra: impl FnOnce(&mut App)) -> (Sim, Entit
             .init_resource::<Gifts>()
             .init_resource::<OfferWait>()
             .init_resource::<super::RunArc>()
+            .init_resource::<RoundVariety>()
             .init_resource::<UnlockAll>()
             .init_resource::<IntermissionHold>()
             .init_resource::<Freeze>()
@@ -121,7 +122,7 @@ fn pact_def(id: &str) -> &'static PactDef {
 
 /// Opens a Pact Offer of just `pact` for `player`, as the draw would.
 fn offer_pact(sim: &mut Sim, player: Entity, pact: &'static PactDef) {
-    let offer = Offer { choices: Choices::Pacts(vec![pact]), round: 5, shown_at: 0.0, rerolls: 0 };
+    let offer = Offer::new(Choices::Pacts(vec![pact]), 5);
     sim.world_mut().entity_mut(player).insert((offer, Choosing));
 }
 
@@ -673,4 +674,50 @@ fn a_cleared_boss_round_gives_every_player_a_banish_charge() {
     sim.world_mut().insert_resource(Round::in_progress(7));
     end_round(&mut sim);
     assert_eq!(sim.world_mut().get::<Banishes>(local).unwrap().charges, 2, "an ordinary Round gives none");
+}
+
+#[test]
+fn a_rounds_reward_lands_on_the_next_boon_offer_with_its_extra_pick() {
+    use super::variety::{ChallengeKind, reward};
+    let (mut sim, local, _) = gauntlet_players();
+    sim.world_mut().resource_mut::<UnlockAll>().0 = true;
+    sim.world_mut().resource_mut::<RoundVariety>().reward = reward(true, Some(ChallengeKind::Blitz));
+    end_round(&mut sim);
+    let offer = sim.world_mut().get::<Offer>(local).expect("an Offer");
+    assert_eq!((offer.picks, offer.picked), (2, 0));
+    assert!(offer.boost.rarity_bump);
+    assert!(offer.boost.families.contains(&boon::Family::Ember));
+    let Choices::Boons(cards) = &offer.choices else { panic!("a Boon Offer") };
+    assert!(cards.iter().any(|card| card.family == boon::Family::Ember), "a guaranteed Ember card");
+    assert!(sim.world_mut().resource::<RoundVariety>().reward.is_none(), "paid once");
+
+    pick(&mut sim, local, Some(0));
+    assert!(has_offer(&mut sim, local), "the extra pick keeps the Offer open");
+    assert_eq!(offered(&mut sim, local).len(), BOON_OFFER_SIZE - 1);
+    sim.send(RerollOffer { player: local });
+    sim.run(2);
+    assert_eq!(sim.world_mut().get::<Offer>(local).unwrap().rerolls, 0, "no Reroll after a pick");
+    pick(&mut sim, local, Some(0));
+    assert!(!has_offer(&mut sim, local), "and the second pick closes it");
+    assert_eq!(sim.world_mut().get::<HeldBoons>(local).unwrap().0.len(), 2);
+}
+
+#[test]
+fn a_pact_offer_carries_the_reward_to_the_next_boon_offer() {
+    use super::variety::reward;
+    let (mut sim, local, _) = gauntlet_players();
+    sim.world_mut().resource_mut::<UnlockAll>().0 = true;
+    sim.world_mut().insert_resource(Round::in_progress(5));
+    sim.world_mut().resource_mut::<RoundVariety>().reward = reward(true, None);
+    end_round(&mut sim);
+    let offer = sim.world_mut().get::<Offer>(local).expect("an Offer");
+    assert!(matches!(offer.choices, Choices::Pacts(_)), "Round 5 is a Pact Round");
+    assert!(offer.boost.is_none());
+    assert!(sim.world_mut().resource::<RoundVariety>().reward.rarity_bump, "still owed");
+    pick(&mut sim, local, None);
+    sim.world_mut().insert_resource(Round::in_progress(6));
+    end_round(&mut sim);
+    let offer = sim.world_mut().get::<Offer>(local).expect("the next Offer");
+    assert!(matches!(offer.choices, Choices::Boons(_)));
+    assert!(offer.boost.rarity_bump, "the carried reward lands here");
 }

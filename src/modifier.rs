@@ -125,6 +125,8 @@ pub enum Stat {
     BurnSpeed,
     /// How many Ammo Mods an Upgraded Weapon from the Mystery Box comes out with (base 0).
     BoxAmmoModRolls,
+    /// The Player's gravity while falling or jumping, in m/s² (base `GRAVITY`).
+    PlayerGravity,
 }
 
 /// Where an entry comes from. Each Perk, Pack-a-Punch, Attachment and so on is its own source:
@@ -238,6 +240,8 @@ mod tests {
         assert_eq!(crate::weapons::burn::burn_speed(&[]), 1.0);
         assert_eq!(resolve(Stat::BoxAmmoModRolls, 0.0, &[]), 0.0);
         assert!(crate::weapons::mystery_box::box_ammo_mods(&[], || 0.0).is_empty());
+        assert_eq!(resolve(Stat::PlayerGravity, crate::tuning::GRAVITY, &[]), crate::tuning::GRAVITY);
+        assert_eq!(crate::players::player::player_gravity(&[]), crate::tuning::GRAVITY);
     }
 
     #[test]

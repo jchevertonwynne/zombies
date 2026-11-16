@@ -342,6 +342,13 @@ _Avoid_: skill, buff, upgrade
 **Boon Offer**: The choice of Boons shown after each Round in Gauntlet; it can't be skipped, but it can be Rerolled or have a Boon Banished. Solo, the world is frozen until the Player picks one. In Co-op, each Player gets their own during the Intermission, which waits for every pick for a short time and then lets the next Round start; a Player who hasn't picked can do nothing until they do.
 _Avoid_: draft, level-up, card pick
 
+**Round Choice**: The last step of a Solo Gauntlet Intermission, after the Boon Offer: two options for the next Round, a safe one and one with a Twist, each possibly carrying a Challenge. Rounds 1 and 2, Boss Rounds and Hellhound Rounds are Plain and have none. It can't be Rerolled or Banished, and the world stays frozen until it's picked. Co-op has none yet.
+_Avoid_: round vote, modifier pick
+
+**Twist**: What the Round Choice's second option does to its Round: Fog, Stampede, Swarm, Low Gravity or Drought. Surviving it (clearing the Round) raises the Rarity of the next Offer. No Twist repeats within an Act.
+
+**Challenge**: An optional goal on a Round, tied to a Family (Cold Steel, Clean Shots, Full Mag, Hold the Line, Tight Fist, Blitz). Only Player kills count toward one or break it. It fails the moment it's broken, never on a Down, and failing costs only the reward; meeting it raises the Rarity of the next Offer and guarantees a card of its Family. Meeting a Challenge and surviving a Twist in the same Round also gives an extra pick.
+
 **Reroll**: Paying Points to swap all 3 cards of a Boon Offer or Boss Offer for a fresh draw. Each Reroll in the same Offer costs double the one before, and the price starts over at the next Offer. A Pact Offer can't be Rerolled.
 
 **Banish**: Spending a Banish charge to remove one card's Boon from the Offer and from the Player's pool for the rest of the Run, redrawing its slot at once. A Player starts a Run with one charge and gets another for each cleared Boss Round. A held Boon keeps its Stacks, and a Banished Boon still counts toward its Duo. A Pact Offer can't Banish.

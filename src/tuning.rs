@@ -2577,6 +2577,32 @@ pub const GAUNTLET_ELITE_TINTS: [[f32; 3]; 5] = [
     [0.95, 0.1, 0.1],
 ];
 
+// Round variety (Appendix B3, B4, C): the Round Choice, its Challenges and Twists
+/// The Round Choice's safe option carries a Challenge this often, otherwise it's Plain.
+pub const GAUNTLET_SAFE_CHALLENGE_CHANCE: f64 = 0.6;
+/// The Round Choice's Twist option carries a Challenge this often.
+pub const GAUNTLET_TWIST_CHALLENGE_CHANCE: f64 = 0.5;
+/// The first Round a Round Choice can decide: Rounds 1 and 2 are always Plain.
+pub const GAUNTLET_ROUND_CHOICE_FIRST_ROUND: u32 = 3;
+/// Extra picks from the next Offer for surviving a Twist and meeting a Challenge in one Round.
+pub const GAUNTLET_BOTH_EXTRA_PICKS: u32 = 1;
+/// Blitz: seconds allowed per Zombie of the Horde, and the least it allows, from the first spawn.
+pub const GAUNTLET_BLITZ_SECS_PER_ZOMBIE: f32 = 1.5;
+pub const GAUNTLET_BLITZ_MIN_SECS: f32 = 45.0;
+/// Fog: how far the Player can see through it, in metres.
+pub const GAUNTLET_FOG_DISTANCE: f32 = 12.0;
+/// Swarm: the Horde's factor and the Alive Cap's addition.
+pub const GAUNTLET_SWARM_HORDE_FACTOR: f32 = 1.5;
+pub const GAUNTLET_SWARM_ALIVE_CAP_BONUS: u32 = 8;
+/// Low Gravity: the factor on the Player's gravity. Zombies are unchanged.
+pub const GAUNTLET_LOW_GRAVITY_FACTOR: f32 = 0.4;
+/// The Twist's colour (sRGB, warning violet).
+pub const GAUNTLET_TWIST_COLOUR: [u8; 3] = [0x9B, 0x59, 0xD0];
+/// How long the Twist banner shows beside the Round-start banner.
+pub const GAUNTLET_TWIST_BANNER_SECS: f32 = 3.0;
+/// How long a broken Challenge's line flashes red before it dims.
+pub const GAUNTLET_CHALLENGE_BREACH_FLASH_SECS: f32 = 1.0;
+
 // Pacts (Appendix B): fixed, held once, never scaled by Round
 /// Distinct Pacts on one Pact Offer, or fewer if fewer are left.
 pub const PACT_OFFER_SIZE: usize = 3;

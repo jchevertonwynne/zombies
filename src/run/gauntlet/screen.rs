@@ -215,6 +215,10 @@ fn spawn_cards(commands: &mut Commands, offer: &Offer, held: &HeldBoons, z: i32,
                 root.spawn((RerollButton, tool_button(), Text::new("Reroll"), tool_font(), TextColor(Color::WHITE)));
                 root.spawn((BanishCount, text("", 16.0, GREY)));
             }
+            if offer.picks > 1 {
+                let left = offer.picks - offer.picked;
+                root.spawn(text(format!("Extra pick earned: take {left} more"), 20.0, super::variety::twist_colour()));
+            }
             root.spawn(text(footer, 18.0, GREY));
         });
 }
@@ -237,6 +241,20 @@ fn tool_button() -> impl Bundle {
 
 fn tool_font() -> TextFont {
     TextFont { font_size: FontSize::Px(22.0), ..default() }
+}
+
+/// Solo, the Offer's cards come down once the Player has picked, even while the world stays frozen
+/// for the Round Choice that follows. (In Co-op `show_coop_offer` does it.)
+pub fn close_offer_screen(
+    mut commands: Commands,
+    player: Query<Has<Offer>, With<LocalPlayer>>,
+    screens: Query<Entity, (With<OfferScreen>, Without<CoopOfferScreen>)>,
+) {
+    if player.single().is_ok_and(|open| !open) {
+        for screen in &screens {
+            commands.entity(screen).despawn();
+        }
+    }
 }
 
 /// A Reroll or Banish rebuilds the cards where they stand, over whichever world they are on.

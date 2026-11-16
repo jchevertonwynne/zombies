@@ -54,6 +54,12 @@ impl HellhoundSchedule {
         hounds_on.then_some(self.played)
     }
 
+    /// Whether Round `round` is due to be a Hellhound Round, which `begin` will make it. Changes
+    /// nothing.
+    pub fn due(&self, round: u32) -> bool {
+        round >= self.next
+    }
+
     /// How many Hellhound Rounds have begun so far.
     pub fn played(&self) -> u32 {
         self.played

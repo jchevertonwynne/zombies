@@ -149,6 +149,9 @@ fn recipe(cue: Cue) -> Recipe {
         Cue::BossHowl => Recipe::Synth(boss_howl()),
         Cue::EliteSpawn => Recipe::Synth(elite_spawn()),
         Cue::GauntletWin => Recipe::Synth(gauntlet_win()),
+        Cue::ChallengeBreach => Recipe::Synth(challenge_breach()),
+        Cue::ChallengeMet => Recipe::Synth(challenge_met()),
+        Cue::TwistRoundStart => Recipe::Synth(twist_round_start()),
         Cue::AmmoModDeadWire => Recipe::Synth(zap_chain()),
         Cue::AmmoModFireworks => Recipe::Synth(pops()),
         Cue::AmmoModThunderWall => Recipe::Synth(gust()),
@@ -1304,6 +1307,35 @@ fn elite_spawn() -> Vec<f32> {
         })
         .collect();
     layer(&mut out, 0.05, &ring);
+    clamped(out)
+}
+
+/// A Challenge broken: a short, low, falling buzz.
+fn challenge_breach() -> Vec<f32> {
+    samples(0.4)
+        .map(|t| {
+            let freq = 150.0 - 60.0 * (t / 0.4);
+            let square = if (TAU * freq * t).sin() >= 0.0 { 1.0 } else { -1.0 };
+            square * (t * 300.0).min(1.0) * (1.0 - t / 0.4) * 0.3
+        })
+        .collect()
+}
+
+/// A Challenge met: two bright rising chimes.
+fn challenge_met() -> Vec<f32> {
+    clamped(chime(&[784.0, 1174.7], 0.9, 5.0))
+}
+
+/// A Twist Round's start: `round_start`'s low notes, bent flat and sour under a violet shimmer.
+fn twist_round_start() -> Vec<f32> {
+    let mut out = descending_notes(&[(116.5, 0.0), (92.5, 0.45), (65.4, 0.9)], 2.4);
+    let shimmer: Vec<f32> = samples(1.6)
+        .map(|t| {
+            let swell = (t / 0.4).min(1.0) * (1.0 - t / 1.6).max(0.0).powi(2);
+            ((TAU * 622.0 * t).sin() + (TAU * 659.0 * t).sin()) * swell * 0.1
+        })
+        .collect();
+    layer(&mut out, 0.3, &shimmer);
     clamped(out)
 }
 
