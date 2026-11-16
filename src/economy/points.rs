@@ -156,6 +156,7 @@ mod tests {
             attack,
             at: Vec3::ZERO,
             surge: false,
+            zombie: Entity::PLACEHOLDER,
         }
     }
 
@@ -260,6 +261,7 @@ mod tests {
             attack: Attack::Bullet,
             at: Vec3::ZERO,
             surge: false,
+            zombie: Entity::PLACEHOLDER,
         });
         // No Player behind it, so no one is paid.
         app.world_mut().write_message(ZombieHit { player: None, pays: true, headshot: false });

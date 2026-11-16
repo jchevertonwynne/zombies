@@ -144,6 +144,7 @@ pub(super) fn killed(by: Entity, pay: Pay, attack: Attack) -> ZombieKilled {
         attack,
         at: Vec3::ZERO,
         surge: false,
+        zombie: Entity::PLACEHOLDER,
     }
 }
 

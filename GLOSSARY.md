@@ -322,6 +322,10 @@ _Avoid_: roguelite mode
 
 **Boss Round**: A Gauntlet Round built around a boss: the last Round of each Act, and every tenth Round in Endless.
 
+**Elite**: An ordinary Zombie of a Gauntlet Run's Horde, from Round 6, that has one Elite Trait. It pays its kill Points twice and drops Power-ups three times as often. At most three are alive at once; Hellhounds, Special Zombies, Nova Crawlers, Bosses and requested Zombies are never Elites, and Turning one strips its trait.
+
+**Elite Trait**: What marks an Elite, each with its own tint: Armoured (body hits soaked until half its health is gone), Splitter (two Walkers on death), Volatile (a fused blast that hurts only the Player), Regenerating (heals after a quiet spell) or Rallying (Zombies near it move faster).
+
 **Win**: Clearing the Boss Round that ends the third Act. The Player then chooses to end the Run or keep going into Endless; a Run that has reached its Win stays a Win whatever happens after. In Co-op each Player chooses for themselves: one who ends the Run leaves with the Win, the others keep going, and the Host ending it ends it for everyone.
 
 **Endless**: The Rounds a Gauntlet Run plays after its Win, when the Player keeps going. Endless keeps the Act rhythm, with a Boss Round every tenth Round and a Pact Offer between, but has no Acts and no further Win.

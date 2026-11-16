@@ -269,6 +269,7 @@ fn burn_bolts(
                 thrower: Some(bolt.player),
                 splash: bolt.splash,
                 hurts_player: true,
+                hurts_zombies: true,
                 ammo_mods: AmmoMods::NONE,
                 // Only the Crossbow and its Awful Lawton fire bolts.
                 crawlers: makes_crawlers(Explosive::Weapon(WeaponId::Crossbow)),

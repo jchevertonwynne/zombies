@@ -729,6 +729,7 @@ fn throw_frags(
                 thrower: Some(entity),
                 splash: equipment_splash(FRAG_SPLASH, entries),
                 hurts_player: true,
+                hurts_zombies: true,
                 ammo_mods: AmmoMods::NONE,
                 crawlers: makes_crawlers(Explosive::Frag),
             });
@@ -869,6 +870,7 @@ fn burn_frags(
                 thrower: Some(frag.thrower),
                 splash: equipment_splash(FRAG_SPLASH, entries),
                 hurts_player: true,
+                hurts_zombies: true,
                 ammo_mods: AmmoMods::NONE,
                 crawlers: makes_crawlers(Explosive::Frag),
             });
@@ -907,6 +909,7 @@ fn land_monkey_bombs(
                     thrower: Some(bomb.thrower),
                     splash: equipment_splash(MONKEY_BOMB_SPLASH, entries),
                     hurts_player: true,
+                    hurts_zombies: true,
                     ammo_mods: AmmoMods::NONE,
                     crawlers: makes_crawlers(Explosive::MonkeyBomb),
                 });
@@ -994,6 +997,7 @@ fn trigger_claymores(
                     thrower: Some(claymore.thrower),
                     splash: equipment_splash(CLAYMORE_SPLASH, entries),
                     hurts_player: false,
+                    hurts_zombies: true,
                     ammo_mods: AmmoMods::NONE,
                     crawlers: makes_crawlers(Explosive::Claymore),
                 });

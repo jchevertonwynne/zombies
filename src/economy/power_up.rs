@@ -26,7 +26,7 @@ use crate::enemies::zombie::Heavyweight;
 use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 use crate::weapons::weapon::Loadout;
-use crate::enemies::zombie::{Attack, DamageZombie, Dying, HitZone, Pay, Zombie, ZombieKilled};
+use crate::enemies::zombie::{Attack, DamageZombie, DropChanceFactor, Dying, HitZone, Pay, Zombie, ZombieKilled};
 use crate::maps::zone::{PlayerZone, ZoneId, ZoneSet};
 
 /// The six Power-ups.
@@ -443,10 +443,17 @@ fn tick_timers(mut active: ResMut<ActivePowerUps>, mut players: Query<&mut Point
     }
 }
 
+/// A kill's uniform roll, made likelier to drop by its Zombie's `DropChanceFactor`: the roll is
+/// compared with the kill chance, so ×3 chance is a third of the roll.
+pub fn scaled_roll(roll: f64, factor: f32) -> f64 {
+    if factor > 0.0 { roll / f64::from(factor) } else { f64::INFINITY }
+}
+
 /// Arms drops from Points Earned, rolls each kill, and drops what's asked for outside the cap.
 fn drop_power_ups(
     mut commands: Commands,
     mut kills: MessageReader<ZombieKilled>,
+    factors: Query<&DropChanceFactor>,
     mut requests: MessageReader<DropPowerUp>,
     mut rounds: MessageReader<RoundStarted>,
     mut meter: ResMut<DropMeter>,
@@ -488,7 +495,8 @@ fn drop_power_ups(
     for kill in kills.read().filter(|kill| !kill.surge) {
         // A point just above its feet, so the floor it stood on is inside its Zone.
         let reached = zone_at(*map, kill.at + Vec3::Y * 0.5).is_some_and(|zone| reachable.contains(zone));
-        if meter.roll(kill.pay == Pay::Paid, rng.random::<f64>(), reached) {
+        let factor = factors.get(kill.zombie).map_or(1.0, |factor| factor.0);
+        if meter.roll(kill.pay == Pay::Paid, scaled_roll(rng.random::<f64>(), factor), reached) {
             drops.push((kill.at, None));
         }
     }
@@ -753,6 +761,16 @@ mod tests {
         assert!(!meter.roll(true, 0.031, true));
         assert!(meter.roll(true, 0.029, true));
         assert!(!meter.roll(false, 0.0, true));
+    }
+
+    #[test]
+    fn a_drop_chance_factor_multiplies_the_kill_chance() {
+        let mut meter = DropMeter::default();
+        // 3% × 3 = 9%: a roll of 0.08 drops with the factor, and doesn't without it.
+        assert!(!meter.roll(true, scaled_roll(0.08, 1.0), true));
+        assert!(meter.roll(true, scaled_roll(0.08, 3.0), true));
+        assert_eq!(scaled_roll(0.5, 1.0), 0.5, "a factor of 1 changes nothing");
+        assert!(!DropMeter::default().roll(true, scaled_roll(0.01, 0.0), true), "a factor of 0 never drops");
     }
 
     #[test]
