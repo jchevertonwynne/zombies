@@ -8,8 +8,8 @@
 //! Round Choice screen are below; the Twists reach Classic only through stat entries (ADR 0002),
 //! the Round-start cue through `RoundStartCue`, and the Fog through the camera's own fog.
 //!
-//! Round Choices are Solo only for now: a Co-op client can't see a Twist or a Challenge, and Swarm
-//! would push the Alive Cap past the Co-op snapshot's Zombie list (issue #390).
+//! Round Choices are Solo only for now: a Co-op client can't see a Twist or a Challenge (issue
+//! #161). Swarm's Alive Cap fits the Co-op snapshot (`run::gauntlet::snapshot_tests`).
 
 use bevy::ecs::system::SystemParam;
 use bevy::pbr::{DistanceFog, FogFalloff};
@@ -294,7 +294,7 @@ pub fn round_choice_applies(next: u32, hellhound: bool) -> bool {
 }
 
 /// Whether a Run of this type has Round Choices. Co-op doesn't yet: a client can't see a Twist or
-/// a Challenge, and Swarm's Alive Cap would overflow the Co-op snapshot (issue #390).
+/// a Challenge (issue #161).
 pub fn has_round_choices(run_type: RunType) -> bool {
     !run_type.is_coop()
 }
@@ -1191,12 +1191,9 @@ mod tests {
     }
 
     #[test]
-    fn co_op_has_no_round_choices_because_swarm_would_overflow_its_snapshot() {
+    fn co_op_has_no_round_choices_until_clients_can_see_them() {
         assert!(has_round_choices(RunType::Solo));
         assert!(!has_round_choices(RunType::Coop));
-        // The Alive Cap's top end, Overkill's bonus and Swarm's together pass the snapshot list.
-        let worst = ALIVE_CAP_MAX + PACT_OVERKILL_ALIVE_CAP_BONUS + GAUNTLET_SWARM_ALIVE_CAP_BONUS;
-        assert!(worst as usize > SNAPSHOT_MAX_ZOMBIES, "{worst} against {SNAPSHOT_MAX_ZOMBIES}");
     }
 
     // --- the draw ---

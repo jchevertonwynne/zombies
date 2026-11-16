@@ -27,6 +27,8 @@ mod coop_tests;
 #[cfg(test)]
 mod sets_tests;
 #[cfg(test)]
+mod snapshot_tests;
+#[cfg(test)]
 mod duos_tests;
 
 use bevy::input::common_conditions::input_just_pressed;

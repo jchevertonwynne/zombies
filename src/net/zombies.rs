@@ -23,11 +23,15 @@ use crate::enemies::hellhound::{HellhoundAssetsParam, Telegraph, end_strike, spa
 use crate::enemies::nova::{Burst, NovaAssetsParam, show_gas, spawn_nova_puppet};
 use crate::enemies::sapper::{self, Sapper, SapperAssetsParam};
 use crate::enemies::special::{self, Shrieker, SpecialAssetsParam, SpecialKind};
-use crate::tuning::{PUPPET_SNAP_METRES, SNAPSHOT_MAX_HELLHOUNDS, SNAPSHOT_MAX_SPECIALS, SNAPSHOT_MAX_ZOMBIES};
+use crate::tuning::{PUPPET_SNAP_METRES, SNAPSHOT_MAX_CREATURES, SNAPSHOT_MAX_SPECIALS};
 use crate::enemies::zombie::rig::{Activity, Shown, Swing, describe};
 use crate::enemies::zombie::{
     Dying, KnockedDown, Rising, Stunned, Zombie, ZombieAssetsParam, make_puppet_crawler, spawn_puppet,
 };
+
+/// Every Zombie id is below this, so on the wire it is a varint of at most 2 bytes and a
+/// `ZombieSight` at most 10: room in a snapshot for `SNAPSHOT_MAX_CREATURES`.
+pub const ZOMBIE_ID_SPAN: u16 = 1 << 14;
 
 /// Which Zombie or Hellhound this is on the wire. The Host numbers them; a client's puppets carry
 /// the Host's number.
@@ -58,12 +62,12 @@ impl ZombieIds {
         self.by_entity.insert(entity, id);
     }
 
-    /// Gives `entity` the next id not in use. Ids count up and come round again, so one is not
-    /// back in use until 65 535 others have been.
+    /// Gives `entity` the next id not in use. Ids count up below `ZOMBIE_ID_SPAN` and come round
+    /// again, so one is not back in use until 16 383 others have been.
     fn allocate(&mut self, entity: Entity) -> u16 {
         let id = loop {
             let id = self.next;
-            self.next = self.next.wrapping_add(1);
+            self.next = (self.next + 1) % ZOMBIE_ID_SPAN;
             if !self.by_id.contains_key(&id) {
                 break id;
             }
@@ -158,16 +162,26 @@ pub fn describe_horde(
             specials.push((dying.is_some(), SpecialSight { id: id.0, body: pack_special(body, marked) }));
         }
     }
-    let tell = |mut list: Vec<(bool, ZombieSight)>, most: usize| -> Vec<ZombieSight> {
-        list.sort_by_key(|(dead, sight)| (*dead, sight.id));
-        list.truncate(most);
-        list.into_iter().map(|(_, sight)| sight).collect()
-    };
-    horde.zombies = tell(walkers, SNAPSHOT_MAX_ZOMBIES);
-    horde.hellhounds = tell(hounds, SNAPSHOT_MAX_HELLHOUNDS);
+    (horde.zombies, horde.hellhounds) = fit_horde(walkers, hounds);
     specials.sort_by_key(|(dead, sight)| (*dead, sight.id));
     specials.truncate(SNAPSHOT_MAX_SPECIALS);
     horde.specials = specials.into_iter().map(|(_, sight)| sight).collect();
+}
+
+/// The Zombies and Hellhounds a snapshot tells of, each `(dying, sight)`: all of them while they
+/// fit in `SNAPSHOT_MAX_CREATURES` between them, and past that the dying and then the highest ids
+/// left out, whichever list they are in.
+pub fn fit_horde(walkers: Vec<(bool, ZombieSight)>, hounds: Vec<(bool, ZombieSight)>) -> (Vec<ZombieSight>, Vec<ZombieSight>) {
+    let mut all: Vec<(bool, bool, ZombieSight)> = walkers
+        .into_iter()
+        .map(|(dead, sight)| (dead, false, sight))
+        .chain(hounds.into_iter().map(|(dead, sight)| (dead, true, sight)))
+        .collect();
+    all.sort_by_key(|(dead, _, sight)| (*dead, sight.id));
+    all.truncate(SNAPSHOT_MAX_CREATURES);
+    let (hounds, walkers): (Vec<_>, Vec<_>) = all.into_iter().partition(|(_, hound, _)| *hound);
+    let sights = |list: Vec<(bool, bool, ZombieSight)>| list.into_iter().map(|(_, _, sight)| sight).collect();
+    (sights(walkers), sights(hounds))
 }
 
 /// Where a Zombie or Hellhound was said to be, and what it was doing, at one of the Host's ticks.
@@ -353,5 +367,41 @@ pub fn show_zombies(
         if let Some(entity) = ids.entity(id) {
             commands.entity(entity).despawn();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sight(id: u16) -> ZombieSight {
+        ZombieSight { id, position: [0; 6], yaw: 0, anim: 0 }
+    }
+
+    #[test]
+    fn ids_stay_below_their_span_and_skip_those_in_use() {
+        let mut ids = ZombieIds { next: ZOMBIE_ID_SPAN - 2, ..default() };
+        ids.insert(0, Entity::from_raw_u32(900).unwrap());
+        let [a, b, c] = [1, 2, 3].map(|n| ids.allocate(Entity::from_raw_u32(n).unwrap()));
+        assert_eq!((a, b, c), (ZOMBIE_ID_SPAN - 2, ZOMBIE_ID_SPAN - 1, 1), "round again, past the 0 in use");
+    }
+
+    /// The Gauntlet's worst case of 78 alive, as a Pack Alpha Round can have it, is told in full.
+    #[test]
+    fn a_full_gauntlet_horde_and_pack_are_told_in_full() {
+        let walkers: Vec<_> = (0..69).map(|id| (false, sight(id))).collect();
+        let hounds: Vec<_> = (100..109).map(|id| (false, sight(id))).collect();
+        let (zombies, hellhounds) = fit_horde(walkers, hounds);
+        assert_eq!((zombies.len(), hellhounds.len()), (69, 9));
+    }
+
+    #[test]
+    fn past_the_room_the_dying_and_then_the_highest_ids_are_left_out() {
+        let walkers: Vec<_> = (0..SNAPSHOT_MAX_CREATURES as u16).map(|id| (false, sight(id * 2))).collect();
+        let hounds = vec![(true, sight(1)), (false, sight(3)), (false, sight(9999))];
+        let (zombies, hellhounds) = fit_horde(walkers, hounds);
+        assert_eq!(zombies.len() + hellhounds.len(), SNAPSHOT_MAX_CREATURES);
+        assert_eq!(hellhounds.iter().map(|s| s.id).collect::<Vec<_>>(), vec![3], "the dying hound and the highest id go");
+        assert!(!zombies.iter().any(|s| s.id == (SNAPSHOT_MAX_CREATURES as u16 - 1) * 2), "the highest Zombie id goes");
     }
 }
