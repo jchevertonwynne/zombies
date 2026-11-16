@@ -38,6 +38,8 @@ Facts from the code that the design depends on:
 
 ## 2. Snapshot byte ledger
 
+*Done in #392: teammates' Points are `WorldEvent::Points`, the specials test uses ids below `ZOMBIE_ID_SPAN`, `PROTOCOL` is 2, and the worst-case test asserts **920 B** (947 B minus 27 B), before allies.*
+
 Today's worst case, as `four_players_and_a_full_horde_fit_in_a_datagram` builds it, is **947 B**:
 
 | Part | Bytes |

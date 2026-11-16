@@ -285,6 +285,10 @@ pub enum WorldEvent {
     Held { seat: Seat, weapon: HeldWeapon },
     /// A Player is Down, is waiting to Respawn, is Reviving, has Pause open or has an Offer open.
     Status { seat: Seat, status: Status },
+    /// A Player's Points, to their teammates (their own come in `Own`): told when they change,
+    /// at most `POINTS_TELL_PER_SEC` times a second per Seat, and all of them to a Player who
+    /// comes back.
+    Points { seat: Seat, points: u32 },
     /// To one Player, how much Health they have of how much.
     Health { current: f32, max: f32 },
     /// To one Player, a hit has come from here: their damage indicator.
@@ -342,6 +346,8 @@ pub struct Mirror {
     held: HashMap<Seat, HeldWeapon>,
     status: HashMap<Seat, Status>,
     health: HashMap<Seat, f32>,
+    /// Each Seat's Points as last told, and the seconds since.
+    points: HashMap<Seat, (u32, f32)>,
     offers: HashMap<Seat, Option<OfferWire>>,
     boons: HashMap<Seat, Vec<(String, u32)>>,
     pacts: Vec<(String, u8)>,
@@ -454,7 +460,7 @@ pub fn add(app: &mut App) {
                 tell_perks,
                 tell_held,
                 tell_status,
-                tell_health,
+                (tell_health, tell_points),
                 tell_hurts,
                 tell_offers,
                 tell_gauntlet,
@@ -505,7 +511,7 @@ pub fn add(app: &mut App) {
                     hear_perks,
                     hear_held,
                     hear_status,
-                    (hear_health, hear_hurts),
+                    (hear_health, hear_hurts, hear_points),
                     hear_offers,
                     hear_gauntlet,
                     hear_left,
@@ -999,6 +1005,38 @@ fn tell_status(
     }
 }
 
+/// How often a Seat's Points are told at most, in a second.
+pub const POINTS_TELL_PER_SEC: f32 = 8.0;
+
+/// A balance as a snapshot or an event says it.
+fn wire_points(balance: u64) -> u32 {
+    balance.min(u64::from(u32::MAX)) as u32
+}
+
+/// Each Player's Points, to everyone else, when they change and at most `POINTS_TELL_PER_SEC` times
+/// a second per Seat: a change inside the gap waits for it to pass. Their own Points ride `Own`.
+fn tell_points(
+    mut tell: Tell,
+    mut mirror: ResMut<Mirror>,
+    time: Res<Time>,
+    players: Query<(&PlayerSeat, &Points, Option<&Remote>), With<Player>>,
+) {
+    for (seat, points, remote) in &players {
+        let now = wire_points(points.balance);
+        let (told, since) = mirror.points.entry(seat.0).or_insert((now, f32::MAX));
+        *since += time.delta_secs();
+        if *told == now && *since != f32::MAX {
+            continue;
+        }
+        if *since < 1.0 / POINTS_TELL_PER_SEC {
+            continue;
+        }
+        *told = now;
+        *since = 0.0;
+        tell.all_but(remote.map(|remote| remote.peer), &WorldEvent::Points { seat: seat.0, points: now });
+    }
+}
+
 /// Each remote Player's Health, to them: at once when it falls, and as it regenerates in steps.
 fn tell_health(mut tell: Tell, mut mirror: ResMut<Mirror>, players: Query<(&PlayerSeat, &Health, &Remote), With<Player>>) {
     for (seat, health, remote) in &players {
@@ -1270,6 +1308,7 @@ fn catch_up_player(
             &Health,
             Option<&Offer>,
             &HeldBoons,
+            &Points,
         ),
         With<Player>,
     >,
@@ -1277,7 +1316,10 @@ fn catch_up_player(
 ) {
     for &SeatReturned { seat } in returned.read() {
         let Some(&(peer, _)) = tell.roster.0.iter().find(|&&(_, held)| held == seat.0) else { continue };
-        for (held_seat, perks, drinking, weapon, loadout, equipment, knife, health, offer, boons) in &players {
+        for (held_seat, perks, drinking, weapon, loadout, equipment, knife, health, offer, boons, points) in &players {
+            if *held_seat != seat {
+                tell.to(peer, &WorldEvent::Points { seat: held_seat.0, points: wire_points(points.balance) });
+            }
             tell.to(peer, &WorldEvent::Perks { seat: held_seat.0, drinking: drinking.map(|drinking| drinking.perk), held: perks.0.clone() });
             if *held_seat != seat {
                 tell.to(peer, &WorldEvent::Held { seat: held_seat.0, weapon: weapon.clone() });
@@ -1898,6 +1940,18 @@ fn hear_health(
         }
         health.max = max;
         health.current = current;
+    }
+}
+
+/// Each teammate's Points, by the Host's word. The `LocalPlayer`'s own come in `Own`.
+fn hear_points(mut heard: MessageReader<Heard>, mut players: Query<(&PlayerSeat, &mut Points), (With<Player>, Without<LocalPlayer>)>) {
+    for Heard(event) in heard.read() {
+        let WorldEvent::Points { seat, points } = *event else { continue };
+        for (held, mut balance) in &mut players {
+            if held.0 == seat && balance.balance != u64::from(points) {
+                balance.balance = u64::from(points);
+            }
+        }
     }
 }
 

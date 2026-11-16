@@ -479,14 +479,13 @@ fn send_snapshots(
     let balance = |points: Option<&Points>| points.map_or(0, |points| points.balance);
     let sights: Vec<Sight> = players
         .iter()
-        .map(|(seat, transform, _, input, pose, shots, points, _)| Sight {
+        .map(|(seat, transform, _, input, pose, shots, _, _)| Sight {
             seat: seat.0,
             position: pack_position(origin, transform.translation),
             yaw: pack_yaw(input.yaw),
             pitch: pack_pitch(input.pitch),
             pose: pose.pack(),
             shots: shots.count(),
-            points: balance(points).min(u64::from(u32::MAX)) as u32,
         })
         .collect();
     for (seat, transform, locomotion, _, _, _, points, remote) in &players {
@@ -641,14 +640,6 @@ fn reconcile(
     prediction.corrected = 0.0;
     let Some(snapshot) = heard.pop() else { return };
     prediction.latest = Some(snapshot.tick);
-    for (seat, mut points) in &mut points {
-        let balance = snapshot.players.iter().find(|sight| sight.seat == seat.0).map(|sight| sight.points);
-        if let Some(balance) = balance.map(u64::from)
-            && points.balance != balance
-        {
-            points.balance = balance;
-        }
-    }
     let Ok((entity, mut transform, mut locomotion, loadout, modifiers, drinking, last_stand, easing)) =
         local.single_mut()
     else {
