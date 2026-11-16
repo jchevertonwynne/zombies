@@ -151,6 +151,8 @@ pub struct RunFacts {
     pub unlock_all: bool,
     /// The Family of the Kit the Run started with, which Offers lean toward. No Kits yet.
     pub kit: Option<Family>,
+    /// The stable IDs of the Boons Banished this Run, which no Offer draws again.
+    pub banished: Vec<&'static str>,
 }
 
 pub struct BoonDef {
@@ -930,7 +932,8 @@ impl HeldBoons {
 
 /// Whether a Boon can be on an Offer: Unlocked, with its Requirement holding now.
 pub fn eligible(boon: &BoonDef, run: &RunFacts) -> bool {
-    (boon.starts_unlocked || run.unlock_all || run.unlocked.iter().any(|id| id == boon.id))
+    !run.banished.contains(&boon.id)
+        && (boon.starts_unlocked || run.unlock_all || run.unlocked.iter().any(|id| id == boon.id))
         && boon
             .requirements
             .iter()
@@ -968,6 +971,17 @@ pub fn draw_offer(
     run: &RunFacts,
     roll: impl FnMut(f64) -> f64,
 ) -> Vec<&'static BoonDef> {
+    draw_offer_sized(table, held, run, BOON_OFFER_SIZE, roll)
+}
+
+/// `draw_offer` for `size` cards, which a Banish redraws one of.
+pub fn draw_offer_sized(
+    table: &'static [BoonDef],
+    held: &HeldBoons,
+    run: &RunFacts,
+    size: usize,
+    roll: impl FnMut(f64) -> f64,
+) -> Vec<&'static BoonDef> {
     let pool = table
         .iter()
         .filter(|boon| eligible(boon, run))
@@ -977,7 +991,7 @@ pub fn draw_offer(
         })
         .chain(duo_pool(DUOS, held, run).into_iter().map(|duo| (duo, offer_weight(duo.rarity, 0))))
         .collect();
-    draw(pool, BOON_OFFER_SIZE, roll)
+    draw(pool, size, roll)
 }
 
 /// A card's Stack line: NEW, or the Stacks before and after the pick.
@@ -1650,6 +1664,7 @@ mod tests {
             unlocked: Vec::new(),
             unlock_all: true,
             kit: None,
+            banished: Vec::new(),
         }
     }
 

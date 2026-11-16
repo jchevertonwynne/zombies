@@ -233,10 +233,24 @@ pub fn draw_boss_offer(
     duos: &'static [BoonDef],
     held: &HeldBoons,
     run: &RunFacts,
+    roll: impl FnMut(f64) -> f64,
+) -> Vec<&'static BoonDef> {
+    draw_boss_cards(table, duos, held, run, BOON_OFFER_SIZE, true, roll)
+}
+
+/// `draw_boss_offer` for `size` cards, with or without the guaranteed Duo slot: a Banish redraws
+/// one card, and only wants the guarantee if no Duo is left among the others.
+pub fn draw_boss_cards(
+    table: &'static [BoonDef],
+    duos: &'static [BoonDef],
+    held: &HeldBoons,
+    run: &RunFacts,
+    size: usize,
+    guarantee: bool,
     mut roll: impl FnMut(f64) -> f64,
 ) -> Vec<&'static BoonDef> {
     let eligible_duos = duo_pool(duos, held, run);
-    let guaranteed = (!eligible_duos.is_empty()).then(|| {
+    let guaranteed = (guarantee && !eligible_duos.is_empty()).then(|| {
         let index = (roll(eligible_duos.len() as f64) as usize).min(eligible_duos.len() - 1);
         eligible_duos[index]
     });
@@ -255,7 +269,7 @@ pub fn draw_boss_offer(
                 .map(|duo| (duo, offer_weight(duo.rarity, 0))),
         )
         .collect();
-    let rest = BOON_OFFER_SIZE - usize::from(guaranteed.is_some());
+    let rest = size - usize::from(guaranteed.is_some());
     guaranteed.into_iter().chain(draw(pool, rest, roll)).collect()
 }
 

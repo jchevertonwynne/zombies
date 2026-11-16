@@ -13,11 +13,13 @@ use super::procs::ProcCooldowns;
 use super::sets::{Jackpot, SetBonuses, tier_tag};
 use crate::tuning::SET_BONUS_TIERS;
 use super::arc::is_boss_round;
+use super::tools::{Banishes, reroll_price};
 use super::{Choices, Offer};
 use crate::players::player::LocalPlayer;
 use crate::maps::map::MapId;
 use crate::ui::hud::generators::{CORNER_PX, corner_below_generators};
-use crate::ui::hud::{BOTTOM_LEFT_HEIGHT_PX, full_screen, text};
+use crate::economy::points::Points;
+use crate::ui::hud::{BOTTOM_LEFT_HEIGHT_PX, full_screen, text, with_commas};
 use crate::run::round::Round;
 use crate::state::{InRun, Pause};
 
@@ -36,6 +38,26 @@ pub struct OfferCard(pub usize);
 /// A Pact Offer's Skip button.
 #[derive(Component)]
 pub struct SkipButton;
+
+/// A Boon or Boss Offer's Reroll button, which carries its own label.
+#[derive(Component)]
+pub struct RerollButton;
+
+/// The Banish button under a Boon or Boss Offer's card, which carries its own label. The first
+/// click arms it ("Banish? Click again") and the second Banishes.
+#[derive(Component)]
+pub struct BanishButton {
+    pub card: usize,
+    pub armed: bool,
+}
+
+/// The Banish charges left, shown during an Offer.
+#[derive(Component)]
+pub struct BanishCount;
+
+/// The root of an Offer's cards, solo or Co-op, so a Reroll or Banish can rebuild them.
+#[derive(Component)]
+pub struct OfferScreen;
 
 /// The Held column on the HUD's left edge.
 #[derive(Component)]
@@ -137,6 +159,7 @@ fn spawn_cards(commands: &mut Commands, offer: &Offer, held: &HeldBoons, z: i32,
             },
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.72)),
             GlobalZIndex(z),
+            OfferScreen,
             marker,
         ))
         .with_children(|root| {
@@ -153,7 +176,18 @@ fn spawn_cards(commands: &mut Commands, offer: &Offer, held: &HeldBoons, z: i32,
             .with_children(|row| match &offer.choices {
                 Choices::Boons(boons) => {
                     for (index, boon) in boons.iter().enumerate() {
-                        boon_card(row, index, boon, held);
+                        // The Banish button sits in a footer under its card.
+                        row.spawn(Node { flex_direction: FlexDirection::Column, row_gap: px(8.0), ..default() })
+                            .with_children(|column| {
+                                boon_card(column, index, boon, held);
+                                column.spawn((
+                                    BanishButton { card: index, armed: false },
+                                    tool_button(),
+                                    Text::new("Banish"),
+                                    tool_font(),
+                                    TextColor(Color::WHITE),
+                                ));
+                            });
                     }
                 }
                 Choices::Pacts(pacts) => {
@@ -177,8 +211,92 @@ fn spawn_cards(commands: &mut Commands, offer: &Offer, held: &HeldBoons, z: i32,
                 ))
                 .with_child(text("SKIP", 24.0, Color::WHITE));
             }
+            if matches!(offer.choices, Choices::Boons(_)) {
+                root.spawn((RerollButton, tool_button(), Text::new("Reroll"), tool_font(), TextColor(Color::WHITE)));
+                root.spawn((BanishCount, text("", 16.0, GREY)));
+            }
             root.spawn(text(footer, 18.0, GREY));
         });
+}
+
+/// The look of an Offer tool's button.
+fn tool_button() -> impl Bundle {
+    (
+        Button,
+        Hovered::default(),
+        Node {
+            padding: UiRect::axes(px(36.0), px(10.0)),
+            border: UiRect::all(px(2.0)),
+            justify_content: JustifyContent::Center,
+            ..default()
+        },
+        BorderColor::all(GREY),
+        BackgroundColor(CARD_IDLE),
+    )
+}
+
+fn tool_font() -> TextFont {
+    TextFont { font_size: FontSize::Px(22.0), ..default() }
+}
+
+/// A Reroll or Banish rebuilds the cards where they stand, over whichever world they are on.
+pub fn refresh_offer(
+    mut commands: Commands,
+    player: Query<(&Offer, &HeldBoons), With<LocalPlayer>>,
+    screens: Query<(Entity, Option<&CoopOfferScreen>), With<OfferScreen>>,
+    mut shown: Local<Option<(u32, Vec<String>)>>,
+) {
+    let Ok((offer, held)) = player.single() else {
+        *shown = None;
+        return;
+    };
+    let (_, _, cards) = offer.wire();
+    let last = shown.replace((offer.round, cards.clone()));
+    // Only the same Offer's cards changing is a Reroll or Banish; a new Offer builds its own.
+    if last.is_none_or(|(round, last)| round != offer.round || last == cards) {
+        return;
+    }
+    for (screen, coop) in &screens {
+        // A Co-op screen for another Round's Offer is `show_coop_offer`'s to replace.
+        if coop.is_some_and(|&CoopOfferScreen(round)| round != offer.round) {
+            continue;
+        }
+        commands.entity(screen).despawn();
+        if coop.is_some() {
+            spawn_cards(&mut commands, offer, held, 15, CoopOfferScreen(offer.round));
+        } else {
+            spawn_cards(&mut commands, offer, held, 20, DespawnOnExit(Pause::Frozen));
+        }
+    }
+}
+
+/// The Reroll button shows its price and greys out when it can't be paid; each Banish button
+/// shows its prompt, and the pair hide at no charges. The count shows beside them.
+pub fn update_tools(
+    player: Query<(&Offer, &Points, &Banishes), With<LocalPlayer>>,
+    mut rerolls: Query<(&mut Text, &mut TextColor), (With<RerollButton>, Without<BanishButton>)>,
+    mut banishes: Query<(&BanishButton, &mut Text, &mut Node), Without<RerollButton>>,
+    mut counts: Query<&mut Text, (With<BanishCount>, Without<RerollButton>, Without<BanishButton>)>,
+) {
+    let Ok((offer, points, banish)) = player.single() else {
+        return;
+    };
+    let price = reroll_price(offer.rerolls);
+    for (mut label, mut colour) in &mut rerolls {
+        label.set_if_neq(Text::new(format!("Reroll: {}", with_commas(price))));
+        colour.set_if_neq(TextColor(if points.balance >= price { Color::WHITE } else { GREY }));
+    }
+    for (button, mut label, mut node) in &mut banishes {
+        let text = if button.armed { "Banish? Click again" } else { "Banish" };
+        label.set_if_neq(Text::new(format!("{text} ({})", banish.charges)));
+        let display = if banish.charges == 0 { Display::None } else { Display::Flex };
+        if node.display != display {
+            node.display = display;
+        }
+    }
+    for mut count in &mut counts {
+        count.set_if_neq(Text::new(format!("Banishes: {}", banish.charges)));
+    }
 }
 
 /// An empty card with its accent border and a label strip along the top; the body goes in the
@@ -303,7 +421,10 @@ fn pact_card(row: &mut ChildSpawnerCommands, index: usize, pact: &PactDef, round
 }
 
 pub fn highlight_cards(
-    mut cards: Query<(&Hovered, &mut BackgroundColor), Or<(With<OfferCard>, With<SkipButton>)>>,
+    mut cards: Query<
+        (&Hovered, &mut BackgroundColor),
+        Or<(With<OfferCard>, With<SkipButton>, With<RerollButton>, With<BanishButton>)>,
+    >,
 ) {
     for (hovered, mut background) in &mut cards {
         let colour = if hovered.get() { CARD_HOVER } else { CARD_IDLE };
