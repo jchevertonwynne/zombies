@@ -275,6 +275,7 @@ pub struct Hits {
     heard: Vec<(Vec3, f32)>,
     launched: Vec<Launched>,
     bursts: Vec<Burst>,
+    fx: Vec<super::fx::FxWire>,
 }
 
 impl Hits {
@@ -289,11 +290,20 @@ impl Hits {
 
     /// Takes in what the Host said, if it is about launches.
     pub fn hear_host(&mut self, message: &ToPlayer) {
+        if let ToPlayer::Fx(fx) = message {
+            self.fx.extend(fx.iter().copied());
+            return;
+        }
         match *message {
             ToPlayer::Launched(launched) => self.launched.push(launched),
             ToPlayer::Burst(burst) => self.bursts.push(burst),
             _ => {}
         }
+    }
+
+    /// Takes the cosmetic effects the Host has told of, not yet drawn.
+    pub fn take_fx(&mut self) -> Vec<super::fx::FxWire> {
+        std::mem::take(&mut self.fx)
     }
 }
 

@@ -7,6 +7,7 @@ use bevy::prelude::*;
 
 use super::boon::{BUTCHERS_BILL, BoonDef, Family, HeldBoons, Rarity, RunFacts, WAR_BONDS, find};
 use super::procs::{Frosted, ProcFlashes, feet};
+use super::sets::SetFlashes;
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
 use crate::economy::points::BonusPoints;
@@ -523,6 +524,40 @@ pub struct SupplyShell {
     elapsed: f32,
 }
 
+/// A free frag the Host threw, as a client shows it: the arc and nothing else (the blast arrives as
+/// a `Burst`).
+#[derive(Component, Debug)]
+pub struct ShellView {
+    from: Vec3,
+    to: Vec3,
+    elapsed: f32,
+}
+
+impl ShellView {
+    pub fn new(from: Vec3, to: Vec3) -> Self {
+        Self { from, to, elapsed: 0.0 }
+    }
+}
+
+/// A client flies each free frag the Host threw along its drawn arc.
+pub fn fly_shell_views(
+    mut commands: Commands,
+    mut shells: Query<(Entity, &mut ShellView)>,
+    mut gizmos: Gizmos,
+    time: Res<Time>,
+) {
+    let colour = Family::Ember.colour();
+    for (entity, mut shell) in &mut shells {
+        shell.elapsed += time.delta_secs();
+        let t = (shell.elapsed / DUO_SUPPLY_DROP_FLIGHT_SECS).min(1.0);
+        gizmos.linestrip((0..=16).map(|i| shell_arc(shell.from, shell.to, t * i as f32 / 16.0)), colour);
+        gizmos.sphere(Isometry3d::from_translation(shell_arc(shell.from, shell.to, t)), 0.12, colour);
+        if t >= 1.0 {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
 /// Where a free frag is `t` (0 to 1) of the way along its drawn arc.
 pub fn shell_arc(from: Vec3, to: Vec3, t: f32) -> Vec3 {
     from.lerp(to, t) + Vec3::Y * DUO_SUPPLY_DROP_ARC_HEIGHT_M * 4.0 * t * (1.0 - t)
@@ -537,6 +572,7 @@ pub fn supply_drop(
     transforms: Query<&GlobalTransform, With<Player>>,
     zombies: Query<&GlobalTransform, (With<Zombie>, Without<Dying>)>,
     mut lethals: MessageWriter<GiveLethals>,
+    mut flashes: ResMut<SetFlashes>,
 ) {
     for &PowerUpTaken(_, taker) in taken.read() {
         let Some(player) = taker.filter(|_| holds(&players, taker, SUPPLY_DROP)) else {
@@ -550,6 +586,7 @@ pub fn supply_drop(
         if let Some(to) = densest_point(feet(transform), &crowd) {
             let from = transform.translation();
             commands.spawn((InRun, Name::new("Supply Drop frag"), SupplyShell { player, from, to, elapsed: 0.0 }));
+            flashes.tell_shell(from, to);
         }
     }
 }

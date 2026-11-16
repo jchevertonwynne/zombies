@@ -47,6 +47,8 @@ pub struct ZombieId(pub u16);
 pub enum Tag {
     /// An Elite, with its trait's `EliteTrait::code`.
     Elite(u8),
+    /// Frosted for this many more tenths of a second.
+    Frosted { tenths: u8 },
 }
 
 /// Every Zombie and Hellhound that has an id, by id and by entity.
