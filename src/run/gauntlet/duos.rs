@@ -160,7 +160,10 @@ pub fn duo_eligible(duo: &BoonDef, held: &HeldBoons, run: &RunFacts) -> bool {
     let Some(def) = duo.duo else {
         return false;
     };
-    held.stacks(duo.id) == 0 && def.recipe.iter().all(|&id| held.stacks(id) > 0 && unlocked(id, run))
+    // A Banished recipe Boon still counts toward its Duo; a Banished Duo is out for the Run.
+    !run.banished.contains(&duo.id)
+        && held.stacks(duo.id) == 0
+        && def.recipe.iter().all(|&id| held.stacks(id) > 0 && unlocked(id, run))
 }
 
 /// Every Duo in `table` the Player is eligible for: what an Offer may draw, and what the Boss

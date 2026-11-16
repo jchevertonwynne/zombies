@@ -1,7 +1,7 @@
 //! Gauntlet between two Players in one Co-op world, with no netcode: each Player's own Offers,
 //! the Intermission's wait for them, and Boons and Pacts that touch only their holders.
 
-use super::boon::{BOONS, BoonDef};
+use super::boon::{BOONS, BoonDef, RunFacts};
 use super::pact::{GOLD_RUSH, OVERKILL, SCORCHED_EARTH, UNDYING};
 use super::*;
 use crate::players::controls::{Action, Controls};
@@ -10,7 +10,7 @@ use crate::modifier::{Effect, Modifier, Source, Stat};
 use crate::players::player::Health;
 use crate::economy::perk::Perks;
 use crate::players::player::two_players::{balance, two_players_with};
-use crate::economy::points::BonusPoints;
+use crate::economy::points::{BonusPoints, Points};
 use crate::economy::power_up::{ActivePowerUps, Dropped};
 use crate::players::respawn::{AwaitingRespawn, Disconnected, RespawnPlugin};
 use crate::players::revive::Revived;
@@ -47,6 +47,9 @@ pub(super) fn gauntlet_players_with(extra: impl FnOnce(&mut App)) -> (Sim, Entit
             .add_message::<Revived>()
             .add_message::<RoundStarted>()
             .add_message::<PickOffer>()
+            .add_message::<RerollOffer>()
+            .add_message::<BanishCard>()
+            .add_message::<crate::economy::points::SpendPoints>()
             .add_message::<PlayCue>()
             .add_message::<TeddyBear>()
             .add_message::<PowerUpTaken>()
@@ -60,9 +63,11 @@ pub(super) fn gauntlet_players_with(extra: impl FnOnce(&mut App)) -> (Sim, Entit
                 Update,
                 (
                     (
+                        tools::grant_banishes,
                         schedule_offer,
                         open_offer.run_if(world_runs),
                         withdraw_offer,
+                        (tools::apply_reroll, tools::apply_banish).chain(),
                         apply_pick,
                         hold_intermission,
                     )
@@ -116,7 +121,7 @@ fn pact_def(id: &str) -> &'static PactDef {
 
 /// Opens a Pact Offer of just `pact` for `player`, as the draw would.
 fn offer_pact(sim: &mut Sim, player: Entity, pact: &'static PactDef) {
-    let offer = Offer { choices: Choices::Pacts(vec![pact]), round: 5, shown_at: 0.0 };
+    let offer = Offer { choices: Choices::Pacts(vec![pact]), round: 5, shown_at: 0.0, rerolls: 0 };
     sim.world_mut().entity_mut(player).insert((offer, Choosing));
 }
 
@@ -216,6 +221,7 @@ fn each_offer_is_drawn_from_that_players_own_unlocks_and_boons() {
         unlocked,
         unlock_all: false,
         kit: None,
+        banished: Vec::new(),
     };
     let own = sim.world_mut().get::<PlayerUnlocks>(teammate).unwrap().0.clone();
     assert!(bought.iter().all(|boon| super::boon::eligible(boon, &facts(own.clone()))));
@@ -576,4 +582,95 @@ fn a_dropped_players_missed_offers_come_in_their_first_intermission_back() {
     }
     assert_eq!(sim.world_mut().get::<Offer>(teammate).unwrap().round, 5);
     assert!(!offered(&mut sim, teammate).contains(&"gold_rush"));
+}
+
+fn points_of(sim: &mut Sim, player: Entity) -> u64 {
+    sim.world_mut().get::<Points>(player).unwrap().balance
+}
+
+fn give_points(sim: &mut Sim, player: Entity, balance: u64) {
+    sim.world_mut().get_mut::<Points>(player).unwrap().balance = balance;
+}
+
+#[test]
+fn a_reroll_swaps_the_cards_for_points_and_its_price_doubles() {
+    let (mut sim, local, _) = gauntlet_players();
+    give_points(&mut sim, local, 3500);
+    end_round(&mut sim);
+    assert!(has_offer(&mut sim, local));
+    sim.send(RerollOffer { player: local });
+    sim.run(2);
+    assert_eq!(points_of(&mut sim, local), 2500, "the first costs 1,000");
+    assert_eq!(sim.world_mut().get::<Offer>(local).unwrap().rerolls, 1);
+    sim.send(RerollOffer { player: local });
+    sim.run(2);
+    assert_eq!(points_of(&mut sim, local), 500, "the second costs 2,000");
+    sim.send(RerollOffer { player: local });
+    sim.run(2);
+    assert_eq!(points_of(&mut sim, local), 500, "the third costs 4,000, which they can't pay");
+    assert_eq!(sim.world_mut().get::<Offer>(local).unwrap().rerolls, 2);
+    assert_eq!(offered(&mut sim, local).len(), BOON_OFFER_SIZE);
+}
+
+#[test]
+fn a_reroll_starts_at_its_base_price_in_the_next_offer() {
+    let (mut sim, local, _) = gauntlet_players();
+    give_points(&mut sim, local, 10_000);
+    end_round(&mut sim);
+    sim.send(RerollOffer { player: local });
+    sim.run(2);
+    pick(&mut sim, local, Some(0));
+    sim.world_mut().insert_resource(Round::in_progress(4));
+    end_round(&mut sim);
+    assert_eq!(sim.world_mut().get::<Offer>(local).unwrap().rerolls, 0);
+    sim.send(RerollOffer { player: local });
+    sim.run(2);
+    assert_eq!(points_of(&mut sim, local), 8000, "1,000 again, not 2,000");
+}
+
+#[test]
+fn a_pact_offer_takes_neither_tool() {
+    let (mut sim, local, _) = gauntlet_players();
+    give_points(&mut sim, local, 5000);
+    offer_pact(&mut sim, local, pact_def(GOLD_RUSH.id));
+    sim.send(RerollOffer { player: local });
+    sim.send(BanishCard { player: local, card: 0 });
+    sim.run(2);
+    assert_eq!(points_of(&mut sim, local), 5000);
+    assert_eq!(sim.world_mut().get::<Banishes>(local).unwrap().charges, GAUNTLET_BANISHES_START);
+    assert_eq!(offered(&mut sim, local), vec![GOLD_RUSH.id]);
+}
+
+#[test]
+fn a_banish_spends_a_charge_and_the_boon_is_gone_for_the_run() {
+    let (mut sim, local, _) = gauntlet_players();
+    end_round(&mut sim);
+    let before = offered(&mut sim, local);
+    sim.send(BanishCard { player: local, card: 1 });
+    sim.run(2);
+    let after = offered(&mut sim, local);
+    assert_eq!(after.len(), BOON_OFFER_SIZE);
+    assert_ne!(after[1], before[1]);
+    let banishes = sim.world_mut().get::<Banishes>(local).unwrap().clone();
+    assert_eq!(banishes, Banishes { charges: 0, banished: vec![before[1]] });
+    // No charge left: a second Banish does nothing.
+    sim.send(BanishCard { player: local, card: 0 });
+    sim.run(2);
+    assert_eq!(offered(&mut sim, local), after);
+}
+
+#[test]
+fn a_cleared_boss_round_gives_every_player_a_banish_charge() {
+    let (mut sim, local, teammate) = gauntlet_players();
+    sim.world_mut().insert_resource(Round::in_progress(10));
+    end_round(&mut sim);
+    for player in [local, teammate] {
+        assert_eq!(
+            sim.world_mut().get::<Banishes>(player).unwrap().charges,
+            GAUNTLET_BANISHES_START + GAUNTLET_BANISHES_PER_BOSS
+        );
+    }
+    sim.world_mut().insert_resource(Round::in_progress(7));
+    end_round(&mut sim);
+    assert_eq!(sim.world_mut().get::<Banishes>(local).unwrap().charges, 2, "an ordinary Round gives none");
 }

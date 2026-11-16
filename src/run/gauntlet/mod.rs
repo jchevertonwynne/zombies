@@ -17,6 +17,7 @@ mod procs;
 pub mod progress;
 mod screen;
 mod sets;
+mod tools;
 #[cfg(test)]
 mod coop_tests;
 #[cfg(test)]
@@ -42,7 +43,6 @@ use crate::economy::perk::{Perk, PerkMachine};
 use crate::players::player::{LocalPlayer, Player, Seat};
 use crate::players::respawn::{BledOut, Disconnected, SeatDropped};
 use crate::economy::points::BonusPoints;
-use crate::maps::power::Supply;
 use crate::economy::power_up::{DropPowerUp, GivePowerUp, PowerUp, PowerUpTaken};
 use crate::storage::records::{RecordExtra, RecordExtras};
 use crate::run::round::{IntermissionHold, ReservedRounds, Round, RoundEnded, RoundPhase};
@@ -54,7 +54,7 @@ use crate::weapons::ammo_mod::TurnedAllyCap;
 use crate::weapons::weapon::Loadout;
 use crate::enemies::zombie::{DamageZombie, Dying, HitZone, KillDamage, Zombie, ZombieKilled};
 use boon::{
-    BLOOD_MONEY, BOONS, BOUNTY, BUTCHERS_BILL, BoonDef, LUCKY_STRIKE, RunFacts,
+    BLOOD_MONEY, BOONS, BOUNTY, BUTCHERS_BILL, BoonDef, LUCKY_STRIKE,
     TEDDYS_TITHE, WAR_BONDS, blood_money_points, bounty_points, butchers_bill_drops, draw_offer,
     is_boon_source, lucky_strike_gift, teddys_tithe_points, war_bonds_points,
 };
@@ -67,6 +67,7 @@ use progress::{GauntletFile, rounds_completed, scrip_for_rounds};
 pub use boon::HeldBoons;
 pub use pact::HeldPacts;
 use screen::{OfferCard, SkipButton};
+use tools::{Banishes, BanishCard, RerollOffer};
 
 /// The Offers a Player is waiting for.
 #[derive(Component, Default)]
@@ -147,6 +148,8 @@ pub struct Offer {
     round: u32,
     /// When the cards last appeared, in real seconds, for the input lockout.
     shown_at: f32,
+    /// Rerolls already made in this Offer, which set the next one's price.
+    rerolls: u32,
 }
 
 /// An open Offer as it goes over the network: the Round it follows, whether its cards are Pacts,
@@ -169,7 +172,7 @@ impl Offer {
         } else {
             Choices::Boons(ids.iter().map(|id| boon::find(id)).collect::<Option<_>>()?)
         };
-        Some(Self { choices, round: *round, shown_at: 0.0 })
+        Some(Self { choices, round: *round, shown_at: 0.0, rerolls: 0 })
     }
 }
 
@@ -209,6 +212,8 @@ impl Plugin for GauntletPlugin {
             .init_resource::<Gifts>()
             .init_resource::<OfferWait>()
             .add_message::<PickOffer>()
+            .add_message::<RerollOffer>()
+            .add_message::<BanishCard>()
             .add_message::<procs::ProcFired>()
             .add_message::<sets::SetTierReached>()
             .add_message::<duos::DuoTaken>()
@@ -265,9 +270,11 @@ impl Plugin for GauntletPlugin {
                 (
                     (
                         (
+                            tools::grant_banishes,
                             schedule_offer,
                             open_offer.run_if(world_runs),
                             (withdraw_dropped, withdraw_offer).chain(),
+                            (tools::apply_reroll, tools::apply_banish),
                             apply_pick,
                             hold_intermission,
                         )
@@ -359,10 +366,12 @@ impl Plugin for GauntletPlugin {
                         .run_if(in_state(GameState::Playing))
                         .run_if(coop),
                     screen::highlight_cards,
+                    (screen::refresh_offer, screen::update_tools).chain().run_if(in_state(GameState::Playing)),
                 )
                     .run_if(gauntlet),
             )
             .add_observer(give_gauntlet_state)
+            .add_observer(click_tool)
             .add_observer(click_card);
     }
 }
@@ -403,6 +412,7 @@ fn give_gauntlet_state(
         PendingOffer::default(),
         PlayerUnlocks(unlocked),
         Bought::default(),
+        Banishes::default(),
         procs::ProcCooldowns::default(),
         sets::SetBonuses::default(),
         sets::Jackpot::default(),
@@ -461,11 +471,11 @@ fn open_offer(
         &HeldBoons,
         &PlayerUnlocks,
         &Bought,
+        &Banishes,
         &mut PendingOffer,
     )>,
     pacts: Res<HeldPacts>,
-    unlock_all: Res<UnlockAll>,
-    supply: Supply,
+    sources: tools::RunSources,
     run_type: Res<RunType>,
     time: Res<Time>,
     arc: Res<RunArc>,
@@ -483,7 +493,7 @@ fn open_offer(
         })
         .flatten()
         .collect();
-    for (player, last_stand, local, offer, loadout, held, unlocks, bought, mut pending) in &mut players {
+    for (player, last_stand, local, offer, loadout, held, unlocks, bought, banishes, mut pending) in &mut players {
         let Some(left) = pending.left.as_mut() else {
             continue;
         };
@@ -496,18 +506,7 @@ fn open_offer(
             continue;
         }
         let round = pending.owed.remove(0);
-        let run = RunFacts {
-            power_on: supply.has_been_on(),
-            held_pacts: pacts.ids(),
-            used_box: bought.from_box,
-            bought_quick_revive: bought.quick_revive,
-            holds_upgraded: loadout.weapons().any(|weapon| weapon.upgraded),
-            holds_ammo_mod: loadout.weapons().any(|weapon| !weapon.ammo_mods.is_empty()),
-            holds_proc_boon: held.0.iter().any(|(boon, _)| boon.proc.is_some()),
-            unlocked: unlocks.0.clone(),
-            unlock_all: unlock_all.0,
-            kit: None,
-        };
+        let run = sources.facts(bought, loadout, held, unlocks, &banishes.banished);
         let roll = |total| rand::random_range(0.0..total);
         let pact_choices = if is_pact_round(round) {
             draw_pact_offer(PACTS, &pacts, &claimed, &run, roll)
@@ -542,6 +541,7 @@ fn open_offer(
             choices,
             round,
             shown_at: 0.0,
+            rerolls: 0,
         });
         if run_type.is_coop() {
             entity.insert(Choosing);
@@ -609,6 +609,42 @@ fn click_card(
         return;
     }
     picks.write(PickOffer { player, card });
+}
+
+/// A click on the Reroll button asks for a Reroll; on a Banish button, the first click arms it
+/// and the second asks for the Banish. Both wait out the input lockout.
+fn click_tool(
+    activate: On<Activate>,
+    mut banishes: Query<&mut screen::BanishButton>,
+    rerolls: Query<(), With<screen::RerollButton>>,
+    player: Query<(Entity, &Offer), With<LocalPlayer>>,
+    real: Res<Time<Real>>,
+    mut reroll_requests: MessageWriter<RerollOffer>,
+    mut banish_requests: MessageWriter<BanishCard>,
+) {
+    let Ok((player, offer)) = player.single() else {
+        return;
+    };
+    if real.elapsed_secs() - offer.shown_at < BOON_OFFER_INPUT_LOCKOUT_SECS {
+        return;
+    }
+    if rerolls.contains(activate.entity) {
+        reroll_requests.write(RerollOffer { player });
+        return;
+    }
+    let Ok(clicked) = banishes.get(activate.entity).map(|button| (button.card, button.armed)) else {
+        return;
+    };
+    match clicked {
+        (card, true) => {
+            banish_requests.write(BanishCard { player, card });
+        }
+        (card, false) => {
+            for mut button in &mut banishes {
+                button.armed = button.card == card;
+            }
+        }
+    }
 }
 
 /// A pick takes that Boon or Pact for its Player, or nothing on a skip, and closes their Offer.

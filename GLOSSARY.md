@@ -339,8 +339,13 @@ _Avoid_: roguelite mode
 **Boon**: A lasting upgrade the Player picks from an offer after completing a Round in Gauntlet. Boons are picked, never bought, and unlike Perks they survive a Down and a Bleed Out. In Co-op each Player holds their own.
 _Avoid_: skill, buff, upgrade
 
-**Boon Offer**: The choice of Boons shown after each Round in Gauntlet; there is no skipping or rerolling. Solo, the world is frozen until the Player picks one. In Co-op, each Player gets their own during the Intermission, which waits for every pick for a short time and then lets the next Round start; a Player who hasn't picked can do nothing until they do.
+**Boon Offer**: The choice of Boons shown after each Round in Gauntlet; it can't be skipped, but it can be Rerolled or have a Boon Banished. Solo, the world is frozen until the Player picks one. In Co-op, each Player gets their own during the Intermission, which waits for every pick for a short time and then lets the next Round start; a Player who hasn't picked can do nothing until they do.
 _Avoid_: draft, level-up, card pick
+
+**Reroll**: Paying Points to swap all 3 cards of a Boon Offer or Boss Offer for a fresh draw. Each Reroll in the same Offer costs double the one before, and the price starts over at the next Offer. A Pact Offer can't be Rerolled.
+
+**Banish**: Spending a Banish charge to remove one card's Boon from the Offer and from the Player's pool for the rest of the Run, redrawing its slot at once. A Player starts a Run with one charge and gets another for each cleared Boss Round. A held Boon keeps its Stacks, and a Banished Boon still counts toward its Duo. A Pact Offer can't Banish.
+_Avoid_: ban, remove
 
 **Rarity**: How often a Boon turns up in Boon Offers: Common, Rare or Legendary. Each Boon has one fixed Rarity, and Rarity never changes how strong it is.
 _Avoid_: tier, quality

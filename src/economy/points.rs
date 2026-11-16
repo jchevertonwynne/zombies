@@ -89,6 +89,14 @@ pub struct BonusPoints {
     pub amount: u64,
 }
 
+/// Request to spend `amount` of `player`'s Points outside the purchase flow. Refused, spending
+/// nothing, if they can't afford it.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct SpendPoints {
+    pub player: Entity,
+    pub amount: u64,
+}
+
 /// Points were awarded to `player` (for HUD popups).
 #[derive(Message)]
 pub struct PointsAwarded {
@@ -103,7 +111,8 @@ impl Plugin for PointsPlugin {
         app.init_resource::<RunModifiers>()
             .add_message::<PointsAwarded>()
             .add_message::<BonusPoints>()
-            .add_systems(Update, (resolve_rate, earn).chain().in_set(HostSimulation));
+            .add_message::<SpendPoints>()
+            .add_systems(Update, (resolve_rate, spend, earn).chain().in_set(HostSimulation));
     }
 }
 
@@ -113,6 +122,17 @@ fn resolve_rate(mut players: Query<(&Modifiers, &mut Points), With<Player>>) {
         let extra = resolve(Stat::PointsRate, 0.0, &modifiers.0);
         if points.extra_rate != extra {
             points.extra_rate = extra;
+        }
+    }
+}
+
+/// Spends asked for come out of the Player's balance, unless they can't afford it.
+fn spend(mut spends: MessageReader<SpendPoints>, mut players: Query<&mut Points, With<Player>>) {
+    for &SpendPoints { player, amount } in spends.read() {
+        if let Ok(mut points) = players.get_mut(player)
+            && points.balance >= amount
+        {
+            points.spend(amount);
         }
     }
 }
@@ -268,5 +288,18 @@ mod tests {
         app.update();
         assert_eq!(app.world().get::<Points>(first).unwrap().balance, POINTS_HEADSHOT_KILL);
         assert_eq!(app.world().get::<Points>(second).unwrap().balance, POINTS_PER_HIT);
+    }
+
+    #[test]
+    fn a_spend_takes_points_and_is_refused_without_them() {
+        let mut app = App::new();
+        app.add_message::<SpendPoints>().add_systems(Update, spend);
+        let player = app.world_mut().spawn((Player, Points { balance: 1500, ..default() })).id();
+        app.world_mut().write_message(SpendPoints { player, amount: 1000 });
+        app.update();
+        assert_eq!(app.world().get::<Points>(player).unwrap().balance, 500);
+        app.world_mut().write_message(SpendPoints { player, amount: 1000 });
+        app.update();
+        assert_eq!(app.world().get::<Points>(player).unwrap().balance, 500, "refused, nothing spent");
     }
 }

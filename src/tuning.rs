@@ -2294,6 +2294,13 @@ pub const BOON_OFFER_INPUT_LOCKOUT_SECS: f32 = 0.5;
 /// In Co-op the Intermission waits this long at most for every Player's pick, then the next Round
 /// starts with any Offer still open.
 pub const BOON_OFFER_COOP_TIMEOUT_SECS: f32 = 30.0;
+/// A Reroll's price in Points when none has been made in the Offer; each Reroll already made in
+/// the Offer doubles it. Paid through `SpendPoints`, so `Price` never scales it.
+pub const GAUNTLET_REROLL_BASE_PRICE: u64 = 1000;
+/// Banish charges a Player starts a Run with.
+pub const GAUNTLET_BANISHES_START: u32 = 1;
+/// Banish charges a cleared Boss Round gives every Player.
+pub const GAUNTLET_BANISHES_PER_BOSS: u32 = 1;
 /// A Boon's Offer weight by Rarity: Common, Rare, Legendary.
 pub const BOON_RARITY_WEIGHTS: [f64; 3] = [60.0, 30.0, 10.0];
 /// Each Stack held multiplies a Boon's Offer weight by this.
