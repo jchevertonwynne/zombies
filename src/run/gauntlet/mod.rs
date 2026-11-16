@@ -18,6 +18,7 @@ pub mod progress;
 mod screen;
 mod sets;
 mod tools;
+mod variety;
 #[cfg(test)]
 mod coop_tests;
 #[cfg(test)]
@@ -68,6 +69,7 @@ pub use boon::HeldBoons;
 pub use pact::HeldPacts;
 use screen::{OfferCard, SkipButton};
 use tools::{Banishes, BanishCard, RerollOffer};
+use variety::{Boost, PickRound, RoundVariety};
 
 /// The Offers a Player is waiting for.
 #[derive(Component, Default)]
@@ -150,6 +152,19 @@ pub struct Offer {
     shown_at: f32,
     /// Rerolls already made in this Offer, which set the next one's price.
     rerolls: u32,
+    /// What the last Round's variety adds to it: a higher Rarity, a Family's card.
+    boost: Boost,
+    /// Cards that may be picked from it (more than one with a Boosted Offer's extra pick), and
+    /// how many have been.
+    picks: u32,
+    picked: u32,
+}
+
+impl Offer {
+    /// An Offer of `choices` after Round `round`, with one pick.
+    fn new(choices: Choices, round: u32) -> Self {
+        Self { choices, round, shown_at: 0.0, rerolls: 0, boost: Boost::default(), picks: 1, picked: 0 }
+    }
 }
 
 /// An open Offer as it goes over the network: the Round it follows, whether its cards are Pacts,
@@ -172,7 +187,7 @@ impl Offer {
         } else {
             Choices::Boons(ids.iter().map(|id| boon::find(id)).collect::<Option<_>>()?)
         };
-        Some(Self { choices, round: *round, shown_at: 0.0, rerolls: 0 })
+        Some(Self::new(choices, *round))
     }
 }
 
@@ -227,6 +242,9 @@ impl Plugin for GauntletPlugin {
             .init_resource::<RunModifiers>()
             .init_resource::<TurnedAllyCap>()
             .init_resource::<RunArc>()
+            .init_resource::<RoundVariety>()
+            .init_resource::<crate::audio::RoundStartCue>()
+            .add_message::<PickRound>()
             .init_resource::<arc::BossPlan>()
             .init_resource::<armory::ArmoryTab>()
             .init_resource::<armory::ArmoryNote>()
@@ -261,7 +279,7 @@ impl Plugin for GauntletPlugin {
             .add_observer(armory::armory_click)
             .add_systems(
                 OnEnter(GameState::Playing),
-                (reset, screen::spawn_held_column, sets::spawn_set_banner, duos::spawn_duo_banner, arc::spawn_boss_hud)
+                (reset, screen::spawn_held_column, sets::spawn_set_banner, duos::spawn_duo_banner, arc::spawn_boss_hud, variety::spawn_hud)
                     .chain()
                     .run_if(gauntlet),
             )
@@ -270,12 +288,18 @@ impl Plugin for GauntletPlugin {
                 (
                     (
                         (
+                            variety::begin_round,
+                            variety::track_challenge,
+                            variety::end_round,
                             tools::grant_banishes,
                             schedule_offer,
                             open_offer.run_if(world_runs),
                             (withdraw_dropped, withdraw_offer).chain(),
                             (tools::apply_reroll, tools::apply_banish),
                             apply_pick,
+                            variety::light_choice,
+                            variety::pick_keys,
+                            variety::apply_pick,
                             hold_intermission,
                         )
                             .chain(),
@@ -319,6 +343,8 @@ impl Plugin for GauntletPlugin {
                     sets::reach_set_bonuses,
                     (apply_entries, sets::lend_ammo_mods),
                     (record_picks, screen::refresh_held_column).run_if(picks_changed).after(sets::reach_set_bonuses),
+                    variety::record_counts.after(record_picks),
+                    (variety::update_hud, variety::show_choice, variety::light_panels).chain(),
                     (procs::draw_procs, screen::update_proc_bars, screen::update_jackpot_bar),
                     (elite::tint_elites, elite::draw_rally_rings),
                     (sets::show_set_banner, sets::draw_set_flashes, sets::draw_frost_patches),
@@ -366,10 +392,12 @@ impl Plugin for GauntletPlugin {
                         .run_if(in_state(GameState::Playing))
                         .run_if(coop),
                     screen::highlight_cards,
-                    (screen::refresh_offer, screen::update_tools).chain().run_if(in_state(GameState::Playing)),
+                    (screen::refresh_offer, screen::update_tools, screen::close_offer_screen).chain().run_if(in_state(GameState::Playing)),
                 )
                     .run_if(gauntlet),
             )
+            .add_systems(PostUpdate, variety::draw_fog.run_if(in_state(GameState::Playing)).run_if(gauntlet))
+            .add_observer(variety::click_panel)
             .add_observer(give_gauntlet_state)
             .add_observer(click_tool)
             .add_observer(click_card);
@@ -431,6 +459,8 @@ fn reset(mut commands: Commands) {
     commands.insert_resource(sets::SetFlashes::default());
     commands.insert_resource(RunArc::default());
     commands.insert_resource(arc::BossPlan::default());
+    commands.insert_resource(RoundVariety::default());
+    commands.insert_resource(crate::audio::RoundStartCue::default());
 }
 
 /// The Round ended: every Player's Offer is due after its delay, and the Intermission waits for
@@ -479,6 +509,7 @@ fn open_offer(
     run_type: Res<RunType>,
     time: Res<Time>,
     arc: Res<RunArc>,
+    mut variety: ResMut<RoundVariety>,
     mut cues: MessageWriter<PlayCue>,
 ) {
     if arc.choosing {
@@ -529,6 +560,22 @@ fn open_offer(
         if choices.is_empty() {
             continue;
         }
+        // The last Round's reward lands on the first Boon or Boss Offer: a Pact Offer carries it.
+        let mut boost = Boost::default();
+        let choices = match choices {
+            Choices::Boons(cards) => {
+                boost = variety.take_reward(true);
+                if boost.is_none() {
+                    Choices::Boons(cards)
+                } else {
+                    Choices::Boons(variety::draw_cards_boosted(round, held, &run, &boost, roll))
+                }
+            }
+            pacts => pacts,
+        };
+        if choices.is_empty() {
+            continue;
+        }
         if local {
             let cue = match choices {
                 Choices::Boons(_) => Cue::BoonOffer,
@@ -537,12 +584,10 @@ fn open_offer(
             cues.write(PlayCue::new(cue, None));
         }
         let mut entity = commands.entity(player);
-        entity.insert(Offer {
-            choices,
-            round,
-            shown_at: 0.0,
-            rerolls: 0,
-        });
+        let mut offer = Offer::new(choices, round);
+        offer.picks = 1 + boost.extra_picks;
+        offer.boost = boost;
+        entity.insert(offer);
         if run_type.is_coop() {
             entity.insert(Choosing);
         }
@@ -652,20 +697,23 @@ fn click_tool(
 pub(crate) fn apply_pick(
     mut commands: Commands,
     mut picks: MessageReader<PickOffer>,
-    mut players: Query<(&Seat, &Offer, &mut HeldBoons, Has<LocalPlayer>)>,
+    mut players: Query<(&Seat, &mut Offer, &mut HeldBoons, Has<LocalPlayer>)>,
     mut pacts: ResMut<HeldPacts>,
     mut cues: MessageWriter<PlayCue>,
 ) {
     for &PickOffer { player, card } in picks.read() {
-        let Ok((&seat, offer, mut held, local)) = players.get_mut(player) else {
+        let Ok((&seat, mut offer, mut held, local)) = players.get_mut(player) else {
             continue;
         };
+        let mut more = false;
         match (card, &offer.choices) {
             (Some(index), Choices::Boons(boons)) => {
                 let Some(&boon) = boons.get(index) else {
                     continue;
                 };
                 held.add(boon);
+                // An extra pick leaves the other cards open to take another from.
+                more = offer.picked + 1 < offer.picks && boons.len() > 1;
             }
             (Some(index), Choices::Pacts(choices)) => {
                 let Some(&pact) = choices.get(index) else {
@@ -680,6 +728,13 @@ pub(crate) fn apply_pick(
         if local {
             cues.write(PlayCue::new(Cue::OfferPick, None));
         }
+        if more {
+            offer.picked += 1;
+            if let (Some(index), Choices::Boons(boons)) = (card, &mut offer.choices) {
+                boons.remove(index);
+            }
+            continue;
+        }
         commands.entity(player).remove::<(Offer, Choosing)>();
     }
 }
@@ -691,20 +746,24 @@ fn hold_intermission(
     players: Query<(&PendingOffer, Has<Offer>), With<Player>>,
     run_type: Res<RunType>,
     arc: Res<RunArc>,
+    variety: Res<RoundVariety>,
     time: Res<Time>,
     mut wait: ResMut<OfferWait>,
     mut hold: ResMut<IntermissionHold>,
     mut freeze: ResMut<Freeze>,
 ) {
-    let busy = players
-        .iter()
-        .any(|(pending, open)| pending.left.is_some() || open);
+    // The Round Choice is the last step of the Intermission, and the Win screen goes before it.
+    let choosing = variety.pending.is_some() && !arc.choosing;
+    let busy = choosing
+        || players
+            .iter()
+            .any(|(pending, open)| pending.left.is_some() || open);
     let (held, frozen) = if run_type.is_coop() {
         wait.0 = (wait.0 - time.delta_secs()).max(0.0);
         (busy && wait.0 > 0.0, false)
     } else {
         // The Win screen holds the world frozen too, until the Player chooses.
-        (busy || arc.choosing, arc.choosing || players.iter().any(|(_, open)| open))
+        (busy || arc.choosing, arc.choosing || variety.lit || players.iter().any(|(_, open)| open))
     };
     if hold.0 != held {
         hold.0 = held;
@@ -720,12 +779,21 @@ fn hold_intermission(
 fn apply_entries(
     pacts: Res<HeldPacts>,
     round: Option<Res<Round>>,
+    variety: Res<RoundVariety>,
     mut players: Query<(&Seat, &HeldBoons, &sets::SetBonuses, &Loadout, &mut Modifiers), With<Player>>,
 ) {
     let ours = |source| {
-        is_boon_source(source) || is_pact_source(source) || sets::is_set_source(source) || is_arc_source(source)
+        is_boon_source(source)
+            || is_pact_source(source)
+            || sets::is_set_source(source)
+            || is_arc_source(source)
+            || variety::is_twist_source(source)
     };
-    let arc_entries = round.map_or_else(Vec::new, |round| arc::arc_entries(round.number, &round.phase));
+    let arc_entries = round.map_or_else(Vec::new, |round| {
+        let mut entries = arc::arc_entries(round.number, &round.phase);
+        entries.extend(variety.entries(round.number, &round.phase));
+        entries
+    });
     for (&seat, held, set_bonuses, loadout, mut modifiers) in &mut players {
         let low = sets::magazine_low(loadout.gun_ammo().0, loadout.magazine_size(&modifiers.0));
         let mut wanted = held.modifiers();
@@ -1047,6 +1115,7 @@ fn set_run_modifiers(
 fn pay_scrip(
     round: Res<Round>,
     arc: Res<RunArc>,
+    variety: Res<RoundVariety>,
     mut file: ResMut<GauntletFile>,
     dir: Res<SaveDir>,
     mut lines: ResMut<GameOverLines>,
@@ -1057,6 +1126,12 @@ fn pay_scrip(
     store_progress(&file, &dir);
     if arc.won {
         lines.0.push("RUN WON".to_string());
+    }
+    if variety.challenges_met > 0 {
+        lines.0.push(format!("Challenges met {}", variety.challenges_met));
+    }
+    if variety.twists_survived > 0 {
+        lines.0.push(format!("Twists survived {}", variety.twists_survived));
     }
     lines
         .0

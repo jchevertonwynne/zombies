@@ -6,10 +6,11 @@
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
-use super::arc::{draw_boss_cards, draw_boss_offer, is_boss_round};
-use super::boon::{BOONS, BoonDef, HeldBoons, Rarity, RunFacts, draw_offer, draw_offer_sized};
+use super::arc::{draw_boss_cards, is_boss_round};
+use super::boon::{BOONS, BoonDef, HeldBoons, Rarity, RunFacts};
 use super::duos::DUOS;
 use super::pact::HeldPacts;
+use super::variety::{Boost, draw_boosted, draw_cards_boosted, guarantee_families};
 use super::{Bought, Choices, Offer, PlayerUnlocks, UnlockAll};
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
@@ -54,13 +55,6 @@ pub fn reroll_price(rerolls: u32) -> u64 {
     GAUNTLET_REROLL_BASE_PRICE.saturating_mul(2u64.saturating_pow(rerolls))
 }
 
-/// A fresh draw of a Boon or Boss Offer's cards under the usual rules: a Boss Round's Offer is
-/// all Legendary with its guaranteed Duo where it can be, and an ordinary one otherwise.
-pub fn draw_cards(round: u32, held: &HeldBoons, run: &RunFacts, mut roll: impl FnMut(f64) -> f64) -> Vec<&'static BoonDef> {
-    let boss = if is_boss_round(round) { draw_boss_offer(BOONS, DUOS, held, run, &mut roll) } else { Vec::new() };
-    if boss.is_empty() { draw_offer(BOONS, held, run, roll) } else { boss }
-}
-
 /// Whether `cards` are a Boss Offer's: on a Boss Round, and all Legendary.
 fn is_boss_offer(round: u32, cards: &[&'static BoonDef]) -> bool {
     is_boss_round(round) && cards.iter().all(|card| card.rarity == Rarity::Legendary)
@@ -75,7 +69,8 @@ pub fn banish(
     round: u32,
     held: &HeldBoons,
     run: &RunFacts,
-    roll: impl FnMut(f64) -> f64,
+    boost: &Boost,
+    mut roll: impl FnMut(f64) -> f64,
 ) -> Vec<&'static BoonDef> {
     let Some(&gone) = cards.get(index) else {
         return cards.to_vec();
@@ -88,14 +83,17 @@ pub fn banish(
     run.banished.extend(remaining.iter().map(|card| card.id));
     let fresh = if is_boss_offer(round, cards) {
         let guarantee = !remaining.iter().any(|card| card.duo.is_some());
-        draw_boss_cards(BOONS, DUOS, held, &run, 1, guarantee, roll)
+        draw_boss_cards(BOONS, DUOS, held, &run, 1, guarantee, &mut roll)
     } else {
-        draw_offer_sized(BOONS, held, &run, 1, roll)
+        // The redrawn slot keeps the Offer's Rarity bump.
+        let slot = Boost { families: Vec::new(), ..boost.clone() };
+        draw_boosted(BOONS, held, &run, 1, &slot, &mut roll)
     };
     match fresh.first() {
         Some(&card) => {
             remaining.insert(index, card);
-            remaining
+            // A Family's guaranteed card may have been the one Banished.
+            guarantee_families(remaining, boost, is_boss_offer(round, cards), BOONS, held, &run, roll)
         }
         None => remaining,
     }
@@ -158,7 +156,8 @@ pub fn apply_reroll(
         let Ok((mut offer, held, unlocks, bought, loadout, banishes, points, local)) = players.get_mut(player) else {
             continue;
         };
-        if !matches!(offer.choices, Choices::Boons(_)) {
+        // After an extra pick the Offer has already paid out; it can't be Rerolled back to full.
+        if !matches!(offer.choices, Choices::Boons(_)) || offer.picked > 0 {
             continue;
         }
         let price = reroll_price(offer.rerolls);
@@ -167,7 +166,7 @@ pub fn apply_reroll(
             continue;
         }
         let run = sources.facts(bought, loadout, held, unlocks, &banishes.banished);
-        let cards = draw_cards(offer.round, held, &run, |total| rand::random_range(0.0..total));
+        let cards = draw_cards_boosted(offer.round, held, &run, &offer.boost, |total| rand::random_range(0.0..total));
         if cards.is_empty() {
             continue;
         }
@@ -206,7 +205,7 @@ pub fn apply_banish(
             continue;
         }
         let run = sources.facts(bought, loadout, held, unlocks, &banishes.banished);
-        let cards = banish(cards, card, offer.round, held, &run, |total| rand::random_range(0.0..total));
+        let cards = banish(cards, card, offer.round, held, &run, &offer.boost, |total| rand::random_range(0.0..total));
         banishes.charges -= 1;
         if !banishes.banished.contains(&gone.id) {
             banishes.banished.push(gone.id);
@@ -226,7 +225,7 @@ pub fn apply_banish(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::run::gauntlet::boon::{HeldBoons, find};
+    use crate::run::gauntlet::boon::{HeldBoons, draw_offer, find};
 
     fn everything() -> RunFacts {
         RunFacts { unlock_all: true, ..default() }
@@ -273,7 +272,7 @@ mod tests {
         let run = everything();
         for seed in 0..50 {
             let cards = draw_offer(BOONS, &HeldBoons::default(), &run, seeded(seed));
-            let after = banish(&cards, 1, 4, &HeldBoons::default(), &run, seeded(seed + 100));
+            let after = banish(&cards, 1, 4, &HeldBoons::default(), &run, &Boost::default(), seeded(seed + 100));
             assert_eq!(after.len(), BOON_OFFER_SIZE);
             assert_eq!((after[0].id, after[2].id), (cards[0].id, cards[2].id), "the other slots stay");
             assert_ne!(after[1].id, cards[1].id, "the Banished Boon is gone");
@@ -290,7 +289,7 @@ mod tests {
         let mut run = RunFacts::default();
         let cards: Vec<_> = BOONS.iter().filter(|boon| boon.starts_unlocked).take(3).collect();
         run.banished = BOONS.iter().filter(|boon| !cards.iter().any(|card| card.id == boon.id)).map(|boon| boon.id).collect();
-        let after = banish(&cards.to_vec(), 0, 4, &HeldBoons::default(), &run, seeded(3));
+        let after = banish(&cards.to_vec(), 0, 4, &HeldBoons::default(), &run, &Boost::default(), seeded(3));
         assert_eq!(after.len(), 2);
         assert!(after.iter().all(|boon| boon.id != cards[0].id));
     }
@@ -300,16 +299,16 @@ mod tests {
         let held = holding(&["marksmans_eye", "trench_raider"]);
         let run = everything();
         for seed in 0..30 {
-            let cards = draw_cards(10, &held, &run, seeded(seed));
+            let cards = draw_cards_boosted(10, &held, &run, &Boost::default(), seeded(seed));
             assert!(cards.iter().all(|boon| boon.rarity == Rarity::Legendary));
             // Banishing the guaranteed Duo: the guarantee skips it (it was the only one).
             let duo = cards.iter().position(|boon| boon.duo.is_some()).expect("a guaranteed Duo");
-            let after = banish(&cards, duo, 10, &held, &run, seeded(seed + 7));
+            let after = banish(&cards, duo, 10, &held, &run, &Boost::default(), seeded(seed + 7));
             assert!(after.iter().all(|boon| boon.rarity == Rarity::Legendary));
             assert!(after.iter().all(|boon| boon.id != cards[duo].id), "a Banished Duo is out");
             // Banishing another card keeps the Duo and redraws a Legendary.
             let other = (duo + 1) % cards.len();
-            let kept = banish(&cards, other, 10, &held, &run, seeded(seed + 9));
+            let kept = banish(&cards, other, 10, &held, &run, &Boost::default(), seeded(seed + 9));
             assert!(kept.iter().any(|boon| boon.id == cards[duo].id));
             assert!(kept.iter().all(|boon| boon.rarity == Rarity::Legendary));
         }
@@ -330,7 +329,7 @@ mod tests {
     fn a_reroll_of_a_boss_offer_keeps_its_duo_slot() {
         let held = holding(&["marksmans_eye", "trench_raider"]);
         for seed in 0..30 {
-            let cards = draw_cards(20, &held, &everything(), seeded(seed));
+            let cards = draw_cards_boosted(20, &held, &everything(), &Boost::default(), seeded(seed));
             assert_eq!(cards[0].id, "gun_and_blade");
         }
     }

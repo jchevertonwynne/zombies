@@ -982,7 +982,12 @@ pub fn draw_offer_sized(
     size: usize,
     roll: impl FnMut(f64) -> f64,
 ) -> Vec<&'static BoonDef> {
-    let pool = table
+    draw(offer_pool(table, held, run), size, roll)
+}
+
+/// Every Boon (and Duo) an Offer can draw, with its weight: Rarity, Stacks held and Family bias.
+pub fn offer_pool(table: &'static [BoonDef], held: &HeldBoons, run: &RunFacts) -> Vec<(&'static BoonDef, f64)> {
+    table
         .iter()
         .filter(|boon| eligible(boon, run))
         .map(|boon| {
@@ -990,8 +995,7 @@ pub fn draw_offer_sized(
             (boon, offer_weight(boon.rarity, held.stacks(boon.id)) * bias)
         })
         .chain(duo_pool(DUOS, held, run).into_iter().map(|duo| (duo, offer_weight(duo.rarity, 0))))
-        .collect();
-    draw(pool, size, roll)
+        .collect()
 }
 
 /// A card's Stack line: NEW, or the Stacks before and after the pick.
