@@ -18,7 +18,10 @@ use super::state::{
     Snapshot, SpecialBody, SpecialSight, Tick, ZombieSight, pack_anim, pack_position, pack_special, pack_yaw, unpack_anim,
     unpack_special, unpack_yaw,
 };
+use crate::audio::PlayCue;
+use crate::audio::cues::Cue;
 use crate::maps::barrier::Entering;
+use crate::run::gauntlet::{Elite, EliteTrait};
 use crate::enemies::hellhound::{HellhoundAssetsParam, Telegraph, end_strike, spawn_hellhound_puppet};
 use crate::enemies::nova::{Burst, NovaAssetsParam, show_gas, spawn_nova_puppet};
 use crate::enemies::sapper::{self, Sapper, SapperAssetsParam};
@@ -37,6 +40,14 @@ pub const ZOMBIE_ID_SPAN: u16 = 1 << 14;
 /// the Host's number.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ZombieId(pub u16);
+
+/// A lasting fact about a Zombie that is told once, over the reliable stream, rather than in every
+/// snapshot (see `WorldEvent::Tags`).
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tag {
+    /// An Elite, with its trait's `EliteTrait::code`.
+    Elite(u8),
+}
 
 /// Every Zombie and Hellhound that has an id, by id and by entity.
 #[derive(Resource, Default)]
@@ -101,6 +112,25 @@ pub fn name_zombies(
     for entity in &new {
         let id = ids.allocate(entity);
         commands.entity(entity).insert(ZombieId(id));
+    }
+}
+
+/// Dresses each puppet the Host has told is an Elite as one: its trait, so its tint and rings show,
+/// and the cue of its spawn, which is inferred from the tag rather than sent.
+pub fn dress_elites(
+    mut commands: Commands,
+    crowd: Res<Crowd>,
+    puppets: Query<(Entity, &ZombieId, &Transform), (With<Puppet>, Without<Elite>)>,
+    mut cues: MessageWriter<PlayCue>,
+) {
+    if crowd.tags.is_empty() {
+        return;
+    }
+    for (entity, id, transform) in &puppets {
+        let Some(Tag::Elite(code)) = crowd.tag_of(id.0) else { continue };
+        let Some(elite) = EliteTrait::from_code(code) else { continue };
+        commands.entity(entity).insert(Elite(elite));
+        cues.write(PlayCue::new(Cue::EliteSpawn, Some(transform.translation)));
     }
 }
 
@@ -206,9 +236,41 @@ struct Glimpses {
 #[derive(Resource, Default)]
 pub struct Crowd {
     glimpses: HashMap<u16, Glimpses>,
+    /// What the Host has told of each Zombie, by id, with the seconds it has gone unseen: the
+    /// reliable stream can beat the datagram that first shows the Zombie, so a tag waits here for
+    /// its puppet, and goes when the id does.
+    tags: HashMap<u16, (Tag, f32)>,
 }
 
+/// How long a tag may wait for a puppet that never comes (a corpse the Host dropped).
+const TAG_PATIENCE_SECS: f32 = 10.0;
+
 impl Crowd {
+    /// Takes in a tag the Host told of the Zombie `id`.
+    pub fn tag(&mut self, id: u16, tag: Tag) {
+        self.tags.insert(id, (tag, 0.0));
+    }
+
+    /// Lets a tag whose Zombie has not shown wait `dt` longer, and drops those that have waited
+    /// out `TAG_PATIENCE_SECS`, so that an id the Host reuses is never dressed by an old tag.
+    fn age_tags(&mut self, dt: f32) {
+        let Crowd { glimpses, tags } = self;
+        tags.retain(|id, (_, unseen)| {
+            *unseen = if glimpses.contains_key(id) { 0.0 } else { *unseen + dt };
+            *unseen < TAG_PATIENCE_SECS
+        });
+    }
+
+    /// Whether any tag is held.
+    pub fn has_tags(&self) -> bool {
+        !self.tags.is_empty()
+    }
+
+    /// What is known of the Zombie `id`.
+    pub fn tag_of(&self, id: u16) -> Option<Tag> {
+        self.tags.get(&id).map(|&(tag, _)| tag)
+    }
+
     /// Takes in what a snapshot says of them.
     pub fn hear(&mut self, snapshot: &Snapshot, origin: Vec3) {
         for (hellhound, list) in [(false, &snapshot.zombies), (true, &snapshot.hellhounds)] {
@@ -275,6 +337,7 @@ pub fn show_zombies(
     prediction: Res<Prediction>,
     mut crowd: ResMut<Crowd>,
     mut ids: ResMut<ZombieIds>,
+    time: Res<Time>,
     mut puppets: Query<
         (&mut Transform, &Zombie, &mut Shown, Has<Dying>, Option<&mut Sapper>, Has<Burst>, Option<&Telegraph>),
         With<Puppet>,
@@ -362,8 +425,11 @@ pub fn show_zombies(
             make_puppet_crawler(&mut commands, &assets.zombie, entity);
         }
     }
+    let dt = time.delta_secs();
+    crowd.age_tags(dt);
     for id in over {
         crowd.glimpses.remove(&id);
+        crowd.tags.remove(&id);
         if let Some(entity) = ids.entity(id) {
             commands.entity(entity).despawn();
         }
@@ -372,6 +438,34 @@ pub fn show_zombies(
 
 #[cfg(test)]
 mod tests {
+    use crate::run::gauntlet::{Elite, EliteTrait};
+
+    #[test]
+    fn a_tag_told_before_its_puppet_waits_and_dresses_it_when_it_comes() {
+        let mut app = App::new();
+        app.add_message::<PlayCue>().init_resource::<Crowd>().add_systems(Update, dress_elites);
+        app.world_mut().resource_mut::<Crowd>().tag(7, Tag::Elite(EliteTrait::Rallying.code()));
+        app.update();
+        let puppet = app.world_mut().spawn((Puppet, ZombieId(7), Transform::default())).id();
+        let other = app.world_mut().spawn((Puppet, ZombieId(8), Transform::default())).id();
+        app.update();
+        assert_eq!(app.world().get::<Elite>(puppet).map(|elite| elite.0), Some(EliteTrait::Rallying));
+        assert!(app.world().get::<Elite>(other).is_none());
+        let cues = app.world().resource::<Messages<PlayCue>>().len();
+        assert_eq!(cues, 1, "the spawn cue is inferred from the tag, once");
+        app.update();
+        assert_eq!(app.world().resource::<Messages<PlayCue>>().len(), 1);
+    }
+
+    #[test]
+    fn a_tag_whose_zombie_never_shows_is_dropped_so_its_id_cannot_dress_another() {
+        let mut crowd = Crowd::default();
+        crowd.tag(3, Tag::Elite(0));
+        crowd.age_tags(TAG_PATIENCE_SECS - 1.0);
+        assert!(crowd.has_tags());
+        crowd.age_tags(1.0);
+        assert!(!crowd.has_tags());
+    }
     use super::*;
 
     fn sight(id: u16) -> ZombieSight {
@@ -405,3 +499,4 @@ mod tests {
         assert!(!zombies.iter().any(|s| s.id == (SNAPSHOT_MAX_CREATURES as u16 - 1) * 2), "the highest Zombie id goes");
     }
 }
+
