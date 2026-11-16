@@ -24,7 +24,7 @@ use crate::run::round::{Round, RoundStarted};
 use crate::state::{GameState, Paused, RunType, world_runs};
 use crate::enemies::target::is_up;
 use crate::tuning::*;
-use crate::weapons::weapon::{Knife, Loadout};
+use crate::weapons::weapon::{Knife, Loadout, StartingLoadout};
 
 /// A Player waiting to Respawn: they have no body, no name tag, can't be targeted or hurt, and
 /// don't hold any Zone open. It stays until the next Round starts.
@@ -221,6 +221,7 @@ fn respawn(
             &mut Points,
             &mut Locomotion,
             &Modifiers,
+            Option<&StartingLoadout>,
             Has<AwaitingRespawn>,
             Has<LastStand>,
             Has<Disconnected>,
@@ -238,7 +239,7 @@ fn respawn(
         .map(|(_, transform, ..)| *transform)
         .collect();
     let Some(&beside) = anchors.first() else { return };
-    for (entity, mut transform, mut health, mut loadout, mut knife, mut equipment, mut perks, mut points, mut locomotion, modifiers, awaiting, _, disconnected) in
+    for (entity, mut transform, mut health, mut loadout, mut knife, mut equipment, mut perks, mut points, mut locomotion, modifiers, start, awaiting, _, disconnected) in
         &mut players
     {
         // One still away comes back with the Round their game is there for.
@@ -251,9 +252,11 @@ fn respawn(
         commands.entity(entity).insert(Position(spot));
         transform.rotation = beside.rotation;
         health.current = health.max;
-        loadout.replace(Loadout::new(STARTING_WEAPON));
-        *knife = Knife::default();
-        *equipment = Equipment { frag_limits: FragLimits::resolve(&modifiers.0), ..default() };
+        // Their own Kit's start, as at the beginning of the Run; Classic's is the usual one.
+        let start = start.copied().unwrap_or_default();
+        loadout.replace(start.loadout());
+        *knife = start.knife();
+        *equipment = Equipment { frag_limits: FragLimits::resolve(&modifiers.0), ..start.equipment() };
         perks.0.clear();
         points.balance = respawn_points(points.balance, round.number);
         *locomotion = Locomotion::default();

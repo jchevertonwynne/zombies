@@ -710,7 +710,62 @@ mod tests {
     fn tracks(banish: u32, speed: u32) -> Unlocks {
         use crate::net::protocol::TrackState;
         let track = |id: &str, ranks| TrackState { id: id.into(), ranks, on: true };
-        Unlocks { unlocked: Vec::new(), tracks: vec![track("banish", banish), track("move_speed", speed)] }
+        Unlocks { unlocked: Vec::new(), tracks: vec![track("banish", banish), track("move_speed", speed)], kit: String::new() }
+    }
+
+    /// The Weapon and Bowie Knife of the Player in `seat`, on the machine that holds their body.
+    fn arms_of(app: &mut App, seat: u8) -> (crate::weapons::arsenal::WeaponId, bool) {
+        use crate::weapons::weapon::{Knife, Loadout};
+        let world = app.world_mut();
+        let mut query = world.query_filtered::<(&crate::players::player::Seat, &Loadout, &Knife), With<Player>>();
+        let (_, loadout, knife) = query.iter(world).find(|(held, ..)| held.0 == seat).expect("a body in the Seat");
+        (loadout.held().id, knife.bowie)
+    }
+
+    fn kit_on(app: &mut App, seat: u8) -> crate::run::gauntlet::kits::Kit {
+        let world = app.world_mut();
+        let mut query = world.query_filtered::<(&crate::players::player::Seat, &crate::run::gauntlet::kits::PlayerKit), With<Player>>();
+        query.iter(world).find(|(held, _)| held.0 == seat).expect("a body in the Seat").1.kit
+    }
+
+    #[test]
+    fn a_remote_lead_kit_player_holds_the_m14_on_both_machines() {
+        use crate::run::gauntlet::kits::Kit;
+        use crate::run::gauntlet::progress::GauntletFile;
+        use crate::weapons::arsenal::WeaponId;
+        let save = |kit: Kit| GauntletFile {
+            commendations: kit.commendation().map(String::from).into_iter().collect(),
+            kit: Some(kit.id().into()),
+            ..default()
+        };
+        let brought = |kit: Kit| Unlocks { kit: kit.id().into(), ..Unlocks::default() };
+        let (hub, mut apps) = room_bringing(vec![brought(Kit::Lead), brought(Kit::Blade)], Mode::Gauntlet, [0; 8]);
+        apps[1].world_mut().insert_resource(save(Kit::Lead));
+        apps[2].world_mut().insert_resource(save(Kit::Blade));
+        assert!(start(&mut apps[0]));
+        frames(&hub, &mut apps, 12);
+        assert_in_run(&mut apps);
+        // The Host's copy of each remote Player matches what their machine gave them.
+        assert_eq!(arms_of(&mut apps[0], 1), (WeaponId::M14, false), "the Lead Kit on the Host");
+        assert_eq!(arms_of(&mut apps[0], 2), (crate::tuning::STARTING_WEAPON, true), "the Blade Kit on the Host");
+        assert_eq!(arms_of(&mut apps[1], 1), (WeaponId::M14, false), "the Lead Kit on its own machine");
+        assert_eq!(arms_of(&mut apps[2], 2), (crate::tuning::STARTING_WEAPON, true));
+        assert_eq!(arms_of(&mut apps[0], 0), (crate::tuning::STARTING_WEAPON, false), "the Host's Standard Kit");
+        // And the Host runs each remote Player's Kit rules.
+        assert_eq!(kit_on(&mut apps[0], 1), Kit::Lead);
+        assert_eq!(kit_on(&mut apps[0], 2), Kit::Blade);
+    }
+
+    #[test]
+    fn classic_gives_every_remote_player_the_usual_loadout() {
+        use crate::run::gauntlet::kits::Kit;
+        let lead = Unlocks { kit: Kit::Lead.id().into(), ..Unlocks::default() };
+        let (hub, mut apps) = room_bringing(vec![lead], Mode::Classic, [0; 8]);
+        assert!(start(&mut apps[0]));
+        frames(&hub, &mut apps, 12);
+        assert_in_run(&mut apps);
+        assert_eq!(arms_of(&mut apps[0], 1), (crate::tuning::STARTING_WEAPON, false));
+        assert_eq!(kit_on(&mut apps[0], 1), Kit::Standard);
     }
 
     #[test]

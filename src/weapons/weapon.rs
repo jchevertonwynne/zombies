@@ -942,8 +942,8 @@ pub fn hip_spread_mult(locomotion: &Locomotion) -> f32 {
 
 /// The Loadout a Run's Player begins with (ADR 0007), read once as the Run starts. Classic leaves
 /// it at its default: the starting Weapon with its usual Reserve, no Bowie Knife, `FRAG_START`
-/// Lethals. Whatever is layered on Classic sets it before the Run begins, for the local Player
-/// only, as with `RunModifiers`.
+/// Lethals. Whatever is layered on Classic sets it before the Run begins. The Resource is this
+/// machine's own Player's; every Player body also carries the one they start, and Respawn, with.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StartingLoadout {
     pub weapon: WeaponId,

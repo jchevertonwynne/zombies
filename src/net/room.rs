@@ -638,6 +638,7 @@ mod tests {
                 ranks,
                 on: true,
             }],
+            kit: "lead".into(),
         }
     }
 

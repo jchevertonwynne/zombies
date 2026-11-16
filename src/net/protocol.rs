@@ -25,7 +25,7 @@ pub type Seat = u8;
 
 /// What version of the wire format this game speaks. The Host refuses a Player on
 /// another, and it is raised whenever the format changes (along with the ALPN).
-pub const PROTOCOL: u32 = 3;
+pub const PROTOCOL: u32 = 4;
 /// The most a datagram may be, in bytes: what the real link is tried with, and under
 /// what it carries. One bigger is not sent at all.
 pub const DATAGRAM: usize = 1000;
@@ -80,6 +80,8 @@ pub struct Unlocks {
     /// Stable IDs of the Boons and Pacts bought in the Armory.
     pub unlocked: Vec<String>,
     pub tracks: Vec<TrackState>,
+    /// The stable ID of the Kit they start the Run with; empty is Standard.
+    pub kit: String,
 }
 
 /// One Upgrade Track's Ranks and whether it is switched on.

@@ -763,13 +763,14 @@ pub(crate) fn spawn_player(
     };
     for (seat, name) in seats {
         if seat != local {
-            commands.spawn(player_body(seat, &name, &[], map));
+            // The Host swaps in their own Kit's start once it knows it.
+            commands.spawn((player_body(seat, &name, &[], map), StartingLoadout::default()));
             continue;
         }
         commands
             .spawn((player_body(seat, &name, &run.0, map), LocalPlayer))
             // Only this Player's own start, as with their Tracks.
-            .insert((starting.loadout(), starting.knife(), starting.equipment()))
+            .insert((*starting, starting.loadout(), starting.knife(), starting.equipment()))
             .with_child((
                 PlayerCamera,
                 Eye {
