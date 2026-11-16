@@ -293,7 +293,7 @@ pub fn refresh_offer(
 /// shows its prompt, and the pair hide at no charges. The count shows beside them.
 pub fn update_tools(
     player: Query<(&Offer, &Points, &Banishes), With<LocalPlayer>>,
-    mut rerolls: Query<(&mut Text, &mut TextColor), (With<RerollButton>, Without<BanishButton>)>,
+    mut rerolls: Query<(&mut Text, &mut TextColor, &mut Node), (With<RerollButton>, Without<BanishButton>)>,
     mut banishes: Query<(&BanishButton, &mut Text, &mut Node), Without<RerollButton>>,
     mut counts: Query<&mut Text, (With<BanishCount>, Without<RerollButton>, Without<BanishButton>)>,
     heat: Res<RunHeat>,
@@ -302,14 +302,20 @@ pub fn update_tools(
         return;
     };
     let price = reroll_price_from(heat.reroll_base_price(), offer.rerolls);
-    for (mut label, mut colour) in &mut rerolls {
+    // After an extra pick the Offer has paid out, so neither tool applies.
+    let open = offer.picked == 0;
+    for (mut label, mut colour, mut node) in &mut rerolls {
         label.set_if_neq(Text::new(format!("Reroll: {}", with_commas(price))));
         colour.set_if_neq(TextColor(if points.balance >= price { Color::WHITE } else { GREY }));
+        let display = if open { Display::Flex } else { Display::None };
+        if node.display != display {
+            node.display = display;
+        }
     }
     for (button, mut label, mut node) in &mut banishes {
         let text = if button.armed { "Banish? Click again" } else { "Banish" };
         label.set_if_neq(Text::new(format!("{text} ({})", banish.charges)));
-        let display = if banish.charges == 0 { Display::None } else { Display::Flex };
+        let display = if banish.charges == 0 || !open { Display::None } else { Display::Flex };
         if node.display != display {
             node.display = display;
         }

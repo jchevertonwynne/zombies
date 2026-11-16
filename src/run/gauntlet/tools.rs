@@ -228,6 +228,10 @@ pub fn apply_banish(
         let Choices::Boons(cards) = &offer.choices else {
             continue;
         };
+        // After an extra pick the Offer has already paid out; it can't be Banished back to full.
+        if offer.picked > 0 {
+            continue;
+        }
         let Some(&gone) = cards.get(card) else {
             continue;
         };

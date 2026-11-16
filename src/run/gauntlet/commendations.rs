@@ -146,13 +146,16 @@ impl RunLog {
         Self { elites_before, ..default() }
     }
 
-    /// Notes the Boons held: the most of each Family and the most Duos held so far.
-    pub fn note_held(&mut self, held: &HeldBoons) {
+    /// Notes the Boons held: the most of each Family and the most Duos held so far. Returns
+    /// whether any maximum rose.
+    pub fn note_held(&mut self, held: &HeldBoons) -> bool {
+        let before = (self.most_in_family, self.most_duos);
         for family in Family::ALL {
             let most = &mut self.most_in_family[family as usize];
             *most = (*most).max(held.in_family(family));
         }
         self.most_duos = self.most_duos.max(held.0.iter().filter(|(boon, _)| boon.duo.is_some()).count() as u32);
+        before != (self.most_in_family, self.most_duos)
     }
 
     pub fn most_in_any_family(&self) -> u32 {
@@ -264,7 +267,10 @@ pub fn log_run(
     mut killed: ResMut<RunElitesKilled>,
 ) {
     let (player, held, seat) = *local;
-    log.note_held(held);
+    // Only a rise marks the log changed, so `earn_commendations` sleeps through the quiet frames.
+    if log.bypass_change_detection().note_held(held) {
+        log.set_changed();
+    }
     for &Purchased { player: buyer, buyable } in purchases.read() {
         if buyer == player && machines.get(buyable).is_ok_and(|machine| machine.perk == Perk::Juggernog) {
             log.bought_juggernog = true;
@@ -382,6 +388,15 @@ mod tests {
 
     fn clean_win() -> WinFacts {
         WinFacts { heat: 0, most_in_family: 0, held_pact: false, tracks_off: true, used_tools: false }
+    }
+
+    #[test]
+    fn noting_the_boons_held_reports_only_a_rise() {
+        let mut log = RunLog::default();
+        let two = held(&["hollow_points", "marksmans_eye"]);
+        assert!(log.note_held(&two));
+        assert!(!log.note_held(&two), "nothing new");
+        assert!(!log.note_held(&HeldBoons::default()), "a smaller hand lowers nothing");
     }
 
     #[test]

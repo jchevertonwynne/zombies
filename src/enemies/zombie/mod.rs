@@ -1952,9 +1952,10 @@ pub fn apply_damage(
 }
 
 /// Applies the Player's `Stat::ZombieHealth` entries to each Zombie that has just entered play, of
-/// any kind. A requested Heavyweight is a Boss, which only its own rules scale. Neutral at 1.
+/// any kind but a requested one: a request carries its final health (a Boss's own rules, a Splitter's
+/// Walkers from its already-scaled health, a Pack Alpha's hounds at the tier's health). Neutral at 1.
 fn scale_spawn_health(
-    mut new: Query<(&mut Zombie, Has<Requested>, Has<Heavyweight>), Added<Zombie>>,
+    mut new: Query<&mut Zombie, (Added<Zombie>, Without<Requested>)>,
     players: Query<&Modifiers, With<LocalPlayer>>,
 ) {
     let Some(modifiers) = players.iter().next() else {
@@ -1964,10 +1965,8 @@ fn scale_spawn_health(
     if factor == 1.0 {
         return;
     }
-    for (mut zombie, requested, heavyweight) in &mut new {
-        if !(requested && heavyweight) {
-            zombie.scale_health(factor);
-        }
+    for mut zombie in &mut new {
+        zombie.scale_health(factor);
     }
 }
 
@@ -2624,7 +2623,7 @@ mod tests {
     }
 
     #[test]
-    fn zombie_health_scales_every_new_kind_but_a_boss() {
+    fn zombie_health_scales_every_new_kind_but_a_requested_one() {
         let mut app = App::new();
         app.add_systems(Update, scale_spawn_health);
         app.world_mut().spawn((LocalPlayer, thick_hide(1.5)));
@@ -2638,7 +2637,7 @@ mod tests {
             (zombie.health(), zombie.max_health())
         };
         assert_eq!(health(&app, normal), (150.0, 150.0));
-        assert_eq!(health(&app, hound), (150.0, 150.0));
+        assert_eq!(health(&app, hound), (100.0, 100.0), "a requested hound already carries its final health");
         assert_eq!(health(&app, sapper), (150.0, 150.0), "a Sapper that isn't a Boss is thick too");
         assert_eq!(health(&app, boss), (100.0, 100.0), "a Boss isn't");
         app.update();
