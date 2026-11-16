@@ -17,6 +17,7 @@ use crate::enemies::zombie::{
 use crate::modifier::{Effect, Modifier, Source, Stat};
 use crate::players::player::{DownGuard, HealPlayer, LocalPlayer};
 use crate::run::round::RoundStarted;
+use crate::net::fx::Fx;
 use crate::state::InRun;
 use crate::tuning::*;
 use crate::ui::hud::text;
@@ -34,6 +35,22 @@ impl SetBonuses {
     pub fn has(&self, family: Family, tier: u32) -> bool {
         let reached = self.0[family as usize] as usize;
         SET_BONUS_TIERS[..reached].contains(&tier)
+    }
+
+    /// The Families at tier 6, one bit each in `Family::ALL` order.
+    pub fn capstones(&self) -> u8 {
+        Family::ALL.iter().enumerate().filter(|&(_, &family)| self.has(family, 6)).fold(0, |bits, (i, _)| bits | 1 << i)
+    }
+
+    /// What a teammate who holds the Capstones in `families` shows: every tier of those Families.
+    pub fn from_capstones(families: u8) -> Self {
+        let mut tiers = [0; 6];
+        for (i, tier) in tiers.iter_mut().enumerate() {
+            if families & (1 << i) != 0 {
+                *tier = SET_BONUS_TIERS.len() as u8;
+            }
+        }
+        Self(tiers)
     }
 
     /// Raises each Family to the tiers its distinct held Boons reach, returning every tier newly
@@ -409,7 +426,53 @@ pub fn grit_4(
 
 /// Short-lived capstone visuals, drawn by Gauntlet.
 #[derive(Resource, Default)]
-pub struct SetFlashes(Vec<SetFlash>);
+pub struct SetFlashes {
+    flashes: Vec<SetFlash>,
+    /// What the Host drew, for it to tell the Players (`crate::net::fx`).
+    pub sent: Vec<Fx>,
+}
+
+impl SetFlashes {
+    /// Shows `flash` and tells the Players of it.
+    fn add(&mut self, flash: SetFlash) {
+        let SetFlash { shape, colour, left: secs } = flash;
+        self.sent.push(match shape {
+            FlashShape::Line(from, to) => Fx::Tracer { from, to, colour, secs },
+            FlashShape::Arc(feet, forward, radius) => Fx::Cleave { feet, forward, radius, colour, secs },
+            FlashShape::Burst(at, radius) => Fx::Jackpot { at, radius, colour, secs },
+            FlashShape::Disc(at, radius) => Fx::Scorched { at, radius, colour, secs },
+        });
+        self.flashes.push(SetFlash { shape, colour, left: secs });
+    }
+
+    /// Tells the Players of a Frost patch, which each draws from its own `FrostPatch`.
+    fn tell_patch(&mut self, at: Vec3, secs: f32) {
+        self.sent.push(Fx::Ring { at, secs });
+    }
+
+    /// Tells the Players of a Supply Drop frag in flight.
+    pub fn tell_shell(&mut self, from: Vec3, to: Vec3) {
+        self.sent.push(Fx::Arc { from, to });
+    }
+
+    /// Shows an effect the Host told of, which is not told on.
+    pub fn hear(&mut self, fx: Fx) {
+        let (shape, colour, left) = match fx {
+            Fx::Tracer { from, to, colour, secs } => (FlashShape::Line(from, to), colour, secs),
+            Fx::Cleave { feet, forward, radius, colour, secs } => (FlashShape::Arc(feet, forward, radius), colour, secs),
+            Fx::Jackpot { at, radius, colour, secs } => (FlashShape::Burst(at, radius), colour, secs),
+            Fx::Scorched { at, radius, colour, secs } => (FlashShape::Disc(at, radius), colour, secs),
+            _ => return,
+        };
+        self.flashes.push(SetFlash { shape, colour, left });
+    }
+
+    /// How many are showing.
+    #[cfg(test)]
+    pub fn showing(&self) -> usize {
+        self.flashes.len()
+    }
+}
 
 pub struct SetFlash {
     shape: FlashShape,
@@ -460,7 +523,7 @@ pub fn ricochet(
             zone: HitZone::Head,
             attack: Attack::AmmoMod(Pay::Paid),
         });
-        flashes.0.push(SetFlash {
+        flashes.add(SetFlash {
             shape: FlashShape::Line(head, positions[i] + Vec3::Y * 0.7),
             colour: Family::Lead.colour(),
             left: CAPSTONE_FLASH_SECS,
@@ -478,6 +541,23 @@ const CAPSTONE_FLASH_SECS: f32 = 0.3;
 pub struct FrostPatch {
     at: Vec3,
     left: f32,
+}
+
+impl FrostPatch {
+    /// A patch a client shows for `secs`, which Frosts no one.
+    pub fn fading(at: Vec3, secs: f32) -> Self {
+        Self { at, left: secs }
+    }
+}
+
+/// On a client, the Host's Frost patches fade and go (the Host's own `chill_patches` does it there).
+pub fn fade_patches(mut commands: Commands, mut patches: Query<(Entity, &mut FrostPatch)>, time: Res<Time>) {
+    for (entity, mut patch) in &mut patches {
+        patch.left -= time.delta_secs();
+        if patch.left <= 0.0 {
+            commands.entity(entity).despawn();
+        }
+    }
 }
 
 /// Blade 6, Cleave: a swing also strikes every other Zombie in Knife range within its arc, for
@@ -515,7 +595,8 @@ pub fn cleave(
             Name::new("Cleave trail"),
             FrostPatch { at: feet + ahead * swing.range / 2.0, left: SET_BLADE_6_TRAIL_SECS },
         ));
-        flashes.0.push(SetFlash {
+        flashes.tell_patch(feet + ahead * swing.range / 2.0, SET_BLADE_6_TRAIL_SECS);
+        flashes.add(SetFlash {
             shape: FlashShape::Arc(feet, ahead, swing.range),
             colour: Family::Blade.colour(),
             left: CAPSTONE_FLASH_SECS,
@@ -612,7 +693,7 @@ pub fn scorched(
             tint: None,
             ignites: false,
         });
-        flashes.0.push(SetFlash {
+        flashes.add(SetFlash {
             shape: FlashShape::Disc(kill.at, SET_EMBER_6_PATCH_RADIUS_M),
             colour: Family::Ember.colour(),
             left: SET_EMBER_6_PATCH_SECS,
@@ -638,7 +719,7 @@ pub fn jackpot(
         let at = feet(transform);
         for _ in 0..jackpot.earn(award.amount) {
             drops.write(DropPowerUp { at, power_up: None });
-            flashes.0.push(SetFlash {
+            flashes.add(SetFlash {
                 shape: FlashShape::Burst(at + Vec3::Y * 0.5, 1.2),
                 colour: Family::Gold.colour(),
                 left: CAPSTONE_FLASH_SECS * 2.0,
@@ -733,7 +814,7 @@ pub fn draw_set_flashes(
     }
     let dt = time.delta_secs();
     let elapsed = time.elapsed_secs();
-    flashes.0.retain_mut(|flash| {
+    flashes.flashes.retain_mut(|flash| {
         flash.left -= dt;
         match flash.shape {
             FlashShape::Line(from, to) => {

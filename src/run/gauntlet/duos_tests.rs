@@ -4,6 +4,7 @@
 use super::coop_tests::{gauntlet_players_with, give_stacks, killed};
 use super::duos::*;
 use super::procs::ProcFlashes;
+use super::sets::SetFlashes;
 use super::*;
 use crate::enemies::zombie::headless::Sim;
 use crate::enemies::zombie::{Attack, DamageZombie, Pay, TurnedAllyHit};
@@ -23,6 +24,7 @@ fn players() -> (Sim, Entity, Entity) {
             .add_message::<TurnedAllyExpired>()
             .add_message::<Ignite>()
             .init_resource::<ProcFlashes>()
+            .init_resource::<SetFlashes>()
             .init_resource::<BallLightning>()
             .add_systems(
                 Update,

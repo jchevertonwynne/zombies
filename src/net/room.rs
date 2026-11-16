@@ -578,6 +578,7 @@ impl<L: Link> Joining<L> {
                 | ToPlayer::BackToRoom
                 | ToPlayer::Launched(_)
                 | ToPlayer::Burst(_)
+                | ToPlayer::Fx(_)
                 | ToPlayer::Event(_),
                 _,
             ) => {}

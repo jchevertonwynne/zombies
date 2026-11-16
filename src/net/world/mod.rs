@@ -324,6 +324,11 @@ pub enum WorldEvent {
     Restored { restore: u16 },
     /// To a Player who rode the Teleporter, the aftereffect they arrive with.
     Aftereffect(Aftereffect),
+    /// The Player in `seat` holds the Capstones of these Families (a bitmask in `Family::ALL`
+    /// order): told when it changes and to a Player who comes back.
+    Capstones { seat: Seat, families: u8 },
+    /// A sound the Host made that clients would miss: the cue's code in `Cue::ALL`, and where.
+    Cue { cue: u8, at: Option<[u8; 6]> },
 }
 
 /// What has come in, and what each end remembers of what it has said or been told.
@@ -357,6 +362,10 @@ pub struct Mirror {
     health: HashMap<Seat, f32>,
     /// The Zombie tags last told, by id.
     tags: HashMap<u16, Tag>,
+    /// Until when (in seconds of the Run's clock) each Frosted Zombie's frost was last told, by id.
+    frosts: HashMap<u16, f32>,
+    /// The Capstones each Seat was last told to hold.
+    capstones: HashMap<Seat, u8>,
     /// The Run's count of Elites killed as last told.
     elites_killed: u32,
     /// Each Seat's Points as last told, and the seconds since.
@@ -415,6 +424,8 @@ impl Tell<'_> {
         self.all_but(None, event);
     }
 }
+
+mod cosmetics;
 
 pub fn add(app: &mut App) {
     // What the systems below read and write exists in a Run's app already; saying so again here
@@ -496,6 +507,8 @@ pub fn add(app: &mut App) {
                 catch_up_world,
                 catch_up_player,
                 catch_up_tags.after(tell_tags).after(tell_elites_killed),
+                (cosmetics::tell_frosts, cosmetics::tell_capstones, cosmetics::tell_cues),
+                cosmetics::catch_up_capstones.after(cosmetics::tell_capstones),
             )
                 .after(HostSimulation)
                 .after(hear_requests)
@@ -541,7 +554,7 @@ pub fn add(app: &mut App) {
         )
         .add_systems(
             Update,
-            (hear_tags, hear_elites_killed)
+            (hear_tags, hear_elites_killed, cosmetics::hear_capstones, cosmetics::hear_cues, cosmetics::hear_frosts)
                 .after(release_events)
                 .run_if(resource_exists::<Prediction>)
                 .run_if(resource_exists::<NetIds>)
@@ -2016,6 +2029,10 @@ fn hear_tags(mut heard: MessageReader<Heard>, mut crowd: ResMut<Crowd>) {
     for Heard(event) in heard.read() {
         let WorldEvent::Tags(tags) = event else { continue };
         for &(id, tag) in tags {
+            // A Frosted Zombie is not an Elite: `hear_frosts` shows it.
+            if matches!(tag, Tag::Frosted { .. }) {
+                continue;
+            }
             crowd.tag(id, tag);
         }
     }

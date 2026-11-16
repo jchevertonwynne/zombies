@@ -11,15 +11,15 @@ mod arc;
 mod armory;
 pub mod boon;
 mod commendations;
-mod duos;
+pub(crate) mod duos;
 pub(crate) mod elite;
 pub mod heat;
 pub mod kits;
 mod pact;
-mod procs;
+pub(crate) mod procs;
 pub mod progress;
 mod screen;
-mod sets;
+pub(crate) mod sets;
 mod tools;
 #[cfg(test)]
 pub(crate) use tools::reroll_price_from;
@@ -382,6 +382,7 @@ impl Plugin for GauntletPlugin {
                     (procs::draw_procs, screen::update_proc_bars, screen::update_jackpot_bar),
                     (elite::tint_elites, elite::draw_rally_rings, elite::puppet_fuses.run_if(in_state(Authority::Client))),
                     (sets::show_set_banner, sets::draw_set_flashes, sets::draw_frost_patches),
+                    (sets::fade_patches, duos::fly_shell_views, procs::thaw_puppets).run_if(in_state(Authority::Client)),
                     (duos::announce_duos, duos::show_duo_banner).chain(),
                     commendations::show_banner,
                     record_run_meta,

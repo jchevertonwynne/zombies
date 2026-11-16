@@ -216,7 +216,7 @@ _Avoid_: downed state
 
 **Bleed Out**: A Co-op Last Stand running out of time with no Revive. The Player loses everything but their Points, and the other Players lose some of theirs. They watch a teammate until the next Round, then Respawn.
 
-**Respawn**: Coming back at the start of the next Round after a Bleed Out, next to a teammate, with only the starting Weapon, the Knife and the starting Equipment.
+**Respawn**: Coming back at the start of the next Round after a Bleed Out, next to a teammate, with the Player's own starting Weapon, Knife and Equipment (their Kit's, in a Gauntlet Run).
 
 **Game Over**: The end of a Run. Solo, a Down without Quick Revive triggers it. In Co-op, it comes the moment no connected Player is still up, whatever Last Stand time is left. It shows the Round reached and the Run Record.
 

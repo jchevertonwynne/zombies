@@ -13,6 +13,7 @@ use super::duos::{
 };
 use super::pact::{HeldPacts, OVERCLOCKED};
 use crate::maps::barrier::FlingOutside;
+use crate::net::fx::Fx;
 use crate::modifier::Modifiers;
 use crate::state::InRun;
 use crate::weapons::ammo_mod::fire_radius;
@@ -407,6 +408,29 @@ pub struct Frosted {
     left: f32,
 }
 
+impl Frosted {
+    /// Seconds of frost left.
+    pub fn left(&self) -> f32 {
+        self.left
+    }
+
+    /// The frost a client shows for `secs`, which slows no one.
+    pub fn showing(secs: f32) -> Self {
+        Self { left: secs }
+    }
+}
+
+/// On a client, a Frosted puppet thaws when the Host's word runs out (the Host's own `thaw` does it
+/// there).
+pub fn thaw_puppets(mut commands: Commands, mut frosted: Query<(Entity, &mut Frosted)>, time: Res<Time>) {
+    for (zombie, mut frost) in &mut frosted {
+        frost.left -= time.delta_secs();
+        if frost.left <= 0.0 {
+            commands.entity(zombie).remove::<Frosted>();
+        }
+    }
+}
+
 /// The source Frost's factor goes on a Zombie's `ZombieMoveFactor` under.
 const FROST: Source = Source("Frost");
 /// Frost's pale blue-white.
@@ -417,12 +441,35 @@ const BLAST_COLOUR: Color = Color::srgb(1.0, 0.8, 0.55);
 /// Gauntlet-drawn Proc visuals: Blast spheres, Frost bursts and their accent rings, each with
 /// (where, radius, colour, seconds left, a sphere rather than a ring).
 #[derive(Resource, Default)]
-pub struct ProcFlashes(Vec<(Vec3, f32, Color, f32, bool)>);
+pub struct ProcFlashes {
+    flashes: Vec<(Vec3, f32, Color, f32, bool)>,
+    /// What the Host drew, for it to tell the Players (`crate::net::fx`).
+    pub sent: Vec<Fx>,
+}
 
 impl ProcFlashes {
     /// A Blast's sphere of `radius` at `at`.
     pub fn blast(&mut self, at: Vec3, radius: f32) {
-        self.0.push((at, radius, BLAST_COLOUR, GAUNTLET_PROC_ACCENT_SECS, true));
+        self.push(at, radius, BLAST_COLOUR, GAUNTLET_PROC_ACCENT_SECS, true);
+    }
+
+    /// A sphere or ring of `radius` at `at` for `secs`, which the Players are told of.
+    pub fn push(&mut self, at: Vec3, radius: f32, colour: Color, secs: f32, sphere: bool) {
+        self.sent.push(Fx::Proc { at, radius, colour, secs, sphere });
+        self.flashes.push((at, radius, colour, secs, sphere));
+    }
+
+    /// Shows an effect the Host told of, which is not told on.
+    pub fn hear(&mut self, fx: Fx) {
+        if let Fx::Proc { at, radius, colour, secs, sphere } = fx {
+            self.flashes.push((at, radius, colour, secs, sphere));
+        }
+    }
+
+    /// How many are showing.
+    #[cfg(test)]
+    pub fn showing(&self) -> usize {
+        self.flashes.len()
     }
 }
 
@@ -650,7 +697,7 @@ pub fn cast_procs(
                     flings.write(FlingOutside { zombie });
                 }
                 if let Some(colour) = accent {
-                    flashes.0.push((centre, BOON_ELBOW_ROOM_RADIUS_M, colour, GAUNTLET_PROC_ACCENT_SECS, false));
+                    flashes.push(centre, BOON_ELBOW_ROOM_RADIUS_M, colour, GAUNTLET_PROC_ACCENT_SECS, false);
                 }
             }
             ProcEffect::Knockback => {
@@ -696,10 +743,10 @@ pub fn cast_procs(
                     }
                 }
                 if show {
-                    flashes.0.push((proc.at, proc.size, BLAST_COLOUR, GAUNTLET_PROC_ACCENT_SECS, true));
+                    flashes.push(proc.at, proc.size, BLAST_COLOUR, GAUNTLET_PROC_ACCENT_SECS, true);
                 }
                 if let Some(colour) = accent {
-                    flashes.0.push((proc.at, CAST_ACCENT_RADIUS, colour, GAUNTLET_PROC_ACCENT_SECS, false));
+                    flashes.push(proc.at, CAST_ACCENT_RADIUS, colour, GAUNTLET_PROC_ACCENT_SECS, false);
                 }
             }
             ProcEffect::Frost => {
@@ -710,10 +757,10 @@ pub fn cast_procs(
                     frost(&mut commands, zombie, factor, frosted, proc.size);
                 }
                 if show {
-                    flashes.0.push((proc.at, BOON_FROSTBITE_RADIUS_M, FROST_COLOUR, GAUNTLET_PROC_ACCENT_SECS * 2.0, false));
+                    flashes.push(proc.at, BOON_FROSTBITE_RADIUS_M, FROST_COLOUR, GAUNTLET_PROC_ACCENT_SECS * 2.0, false);
                 }
                 if let Some(colour) = accent {
-                    flashes.0.push((proc.at, CAST_ACCENT_RADIUS, colour, GAUNTLET_PROC_ACCENT_SECS, false));
+                    flashes.push(proc.at, CAST_ACCENT_RADIUS, colour, GAUNTLET_PROC_ACCENT_SECS, false);
                 }
             }
         }
@@ -778,7 +825,7 @@ pub fn draw_procs(
         gizmos.sphere(Isometry3d::from_translation(at + Vec3::Y * 0.9), 0.18, FROST_COLOUR);
     }
     let dt = time.delta_secs();
-    flashes.0.retain_mut(|(at, radius, colour, left, sphere)| {
+    flashes.flashes.retain_mut(|(at, radius, colour, left, sphere)| {
         *left -= dt;
         if *sphere {
             gizmos.sphere(Isometry3d::from_translation(*at), *radius, *colour);

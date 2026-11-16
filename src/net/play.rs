@@ -121,6 +121,7 @@ pub struct PlayPlugin;
 impl Plugin for PlayPlugin {
     fn build(&self, app: &mut App) {
         hits::add(app);
+        super::fx::add(app);
         world::add(app);
         app.add_message::<PlayerLeft>()
             .add_message::<HostSaid>()
@@ -370,7 +371,7 @@ fn pump_client(
                     said.write(HostSaid::BackToRoom);
                     break;
                 }
-                Ok(message @ (ToPlayer::Launched(_) | ToPlayer::Burst(_))) => hits.hear_host(&message),
+                Ok(message @ (ToPlayer::Launched(_) | ToPlayer::Burst(_) | ToPlayer::Fx(_))) => hits.hear_host(&message),
                 Ok(ToPlayer::Event(event)) => mirror.hear_host(event),
                 _ => {}
             },

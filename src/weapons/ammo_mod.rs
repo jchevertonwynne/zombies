@@ -13,6 +13,7 @@ use bevy::prelude::*;
 
 use crate::weapons::arsenal::Burn;
 use crate::audio::PlayCue;
+use crate::net::fx::Fx;
 use crate::audio::cues::Cue;
 use crate::authority::HostSimulation;
 use crate::weapons::burn::{Burning, Ignite};
@@ -537,7 +538,11 @@ struct DelayedHits(Vec<(f32, Entity, Entity, Pay)>);
 
 /// Short-lived lines and bursts showing each Ammo Mod at work.
 #[derive(Resource, Default)]
-struct Flashes(Vec<Flash>);
+pub struct Flashes {
+    flashes: Vec<Flash>,
+    /// What the Host drew, for it to tell the Players (`crate::net::fx`).
+    pub sent: Vec<Fx>,
+}
 
 struct Flash {
     shape: Shape,
@@ -609,7 +614,8 @@ fn load_assets(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut mat
 
 fn reset(mut delayed: ResMut<DelayedHits>, mut flashes: ResMut<Flashes>) {
     delayed.0.clear();
-    flashes.0.clear();
+    flashes.flashes.clear();
+    flashes.sent.clear();
 }
 
 /// Enough damage to kill any Zombie outright.
@@ -1379,34 +1385,42 @@ fn fling(
 }
 
 impl Flashes {
-    fn line(&mut self, from: Vec3, to: Vec3, colour: Color) {
-        self.0.push(Flash {
-            shape: Shape::Line(from, to),
-            colour,
-            life: FLASH_SECS,
-        });
+    pub fn line(&mut self, from: Vec3, to: Vec3, colour: Color) {
+        self.sent.push(Fx::AmmoLine { from, to, colour });
+        self.hear(Fx::AmmoLine { from, to, colour });
     }
 
-    fn burst(&mut self, at: Vec3, radius: f32, colour: Color) {
-        self.0.push(Flash {
-            shape: Shape::Burst(at, radius),
-            colour,
-            life: FLASH_SECS,
-        });
+    pub fn burst(&mut self, at: Vec3, radius: f32, colour: Color) {
+        self.sent.push(Fx::AmmoBurst { at, radius, colour });
+        self.hear(Fx::AmmoBurst { at, radius, colour });
     }
 
-    fn ring(&mut self, at: Vec3, radius: f32, colour: Color, secs: f32) {
-        self.0.push(Flash {
-            shape: Shape::Ring(at, radius),
-            colour,
-            life: secs,
-        });
+    pub fn ring(&mut self, at: Vec3, radius: f32, colour: Color, secs: f32) {
+        self.sent.push(Fx::AmmoRing { at, radius, colour, secs });
+        self.hear(Fx::AmmoRing { at, radius, colour, secs });
+    }
+
+    /// Shows an effect the Host told of, which is not told on.
+    pub fn hear(&mut self, fx: Fx) {
+        let (shape, colour, life) = match fx {
+            Fx::AmmoLine { from, to, colour } => (Shape::Line(from, to), colour, FLASH_SECS),
+            Fx::AmmoBurst { at, radius, colour } => (Shape::Burst(at, radius), colour, FLASH_SECS),
+            Fx::AmmoRing { at, radius, colour, secs } => (Shape::Ring(at, radius), colour, secs),
+            _ => return,
+        };
+        self.flashes.push(Flash { shape, colour, life });
+    }
+
+    /// How many are showing.
+    #[cfg(test)]
+    pub fn showing(&self) -> usize {
+        self.flashes.len()
     }
 }
 
 fn draw_flashes(mut flashes: ResMut<Flashes>, mut gizmos: Gizmos, time: Res<Time>) {
     let dt = time.delta_secs();
-    flashes.0.retain_mut(|flash| {
+    flashes.flashes.retain_mut(|flash| {
         flash.life -= dt;
         match flash.shape {
             Shape::Line(from, to) => {
