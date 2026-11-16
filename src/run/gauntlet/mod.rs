@@ -10,7 +10,7 @@
 pub(crate) mod arc;
 mod armory;
 pub mod boon;
-mod commendations;
+pub(crate) mod commendations;
 pub(crate) mod duos;
 pub(crate) mod elite;
 pub mod heat;
@@ -129,7 +129,7 @@ pub struct PickOffer {
 /// Debug: every Boon and Pact counts as Unlocked, toggled with F9 during a Gauntlet Run. It
 /// changes nothing in `gauntlet.ron`.
 #[derive(Resource, Default)]
-struct UnlockAll(bool);
+pub(crate) struct UnlockAll(bool);
 
 /// The Upgrade Track Ranks switched on as this Run began (0 to 25), for its Run Record.
 #[derive(Resource, Default)]
@@ -390,7 +390,6 @@ impl Plugin for GauntletPlugin {
                             .chain(),
                         track_purchases,
                         kits::spend_first_buys,
-                        (commendations::log_run, commendations::earn_commendations).chain(),
                         blood_money,
                         teddys_tithe,
                         (war_bonds, bounty, butchers_bill, lucky_strike),
@@ -469,6 +468,19 @@ impl Plugin for GauntletPlugin {
                         .chain(),
                     arc::draw_burst_views.run_if(in_state(Authority::Client)),
                 )
+                    .run_if(in_state(GameState::Playing))
+                    .run_if(gauntlet),
+            )
+            // Each machine logs and pays its own Player's Commendations, so these are not
+            // `HostSimulation`; a client infers its Win from the Round first.
+            .add_systems(
+                Update,
+                (
+                    arc::infer_win.run_if(in_state(Authority::Client)),
+                    (commendations::log_run, commendations::earn_commendations).chain(),
+                )
+                    .chain()
+                    .after(arc::clear_boss_rounds)
                     .run_if(in_state(GameState::Playing))
                     .run_if(gauntlet),
             )
