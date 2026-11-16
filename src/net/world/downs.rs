@@ -63,6 +63,26 @@ fn waiting(run: &mut Run, on: usize, seat: u8) -> bool {
 }
 
 #[test]
+fn a_respawned_player_comes_back_with_their_own_kits_loadout() {
+    use crate::run::gauntlet::kits::Kit;
+    let mut run = run(2);
+    let lead = run.player(0, 1);
+    run.world(0).entity_mut(lead).insert(Kit::Lead.starting_loadout());
+    run.give_points(1, 100);
+    run.step(5);
+    knock_down(&mut run, 1);
+    run.step((LAST_STAND_COOP_SECS * FIXED_HZ as f32) as u32 + 35);
+    assert!(waiting(&mut run, 0, 1));
+    run.world(0).write_message(RoundStarted);
+    run.step(10);
+    assert!(!waiting(&mut run, 0, 1));
+    assert_eq!(run.world(0).get::<Loadout>(lead).unwrap().held().id, Kit::Lead.starting_loadout().weapon);
+    // A Player with no Kit's start comes back with Classic's.
+    let usual = run.player(0, 2);
+    assert_eq!(run.world(0).get::<Loadout>(usual).unwrap().held().id, crate::tuning::STARTING_WEAPON);
+}
+
+#[test]
 fn a_down_on_the_host_is_a_last_stand_on_every_game() {
     let mut run = run(2);
     run.give_points(1, 1_000);

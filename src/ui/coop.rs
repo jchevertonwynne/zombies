@@ -227,6 +227,7 @@ pub fn armory_of(file: &GauntletFile) -> Unlocks {
                 on: track.on,
             })
             .collect(),
+        kit: crate::run::gauntlet::kits::chosen_kit(file).id().to_string(),
     }
 }
 

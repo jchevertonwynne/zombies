@@ -471,17 +471,21 @@ pub(crate) fn give_gauntlet_state(
     locals: Query<(), With<LocalPlayer>>,
     seats: Query<&Seat>,
     party: Option<Res<crate::run::party::Party>>,
+    mode: Option<Res<Mode>>,
 ) {
     // Their own Kit helps only this machine's Player; the Host builds each remote Player's Tracks
     // from what their machine brought to the Room.
     let local = locals.contains(add.entity);
-    let tracks = if local {
-        progress.as_ref().map(|file| file.tracks_on_the_wire())
+    let (tracks, kit) = if local {
+        (progress.as_ref().map(|file| file.tracks_on_the_wire()), chosen.map(|chosen| chosen.0))
     } else {
         let seat = seats.get(add.entity).ok();
-        party.as_ref().and_then(|party| party.room()).zip(seat).and_then(|(room, seat)| room.unlocks(seat.0)).map(|brought| brought.tracks.clone())
+        let brought = party.as_ref().and_then(|party| party.room()).zip(seat).and_then(|(room, seat)| room.unlocks(seat.0));
+        (brought.map(|brought| brought.tracks.clone()), brought.and_then(|brought| Kit::from_id(&brought.kit)))
     };
     let tracks = tracks.unwrap_or_default();
+    // Classic has no Kits, whatever a machine brought.
+    let kit = kit.filter(|_| mode.is_none_or(|mode| *mode == Mode::Gauntlet)).unwrap_or_default();
     let track_banishes = progress::track_banishes_of(&tracks);
     let entries = progress::track_entries_of(&tracks);
     // The local save's Unlocks stand in for every Player's until the Room's `Hello` fills a
@@ -492,6 +496,12 @@ pub(crate) fn give_gauntlet_state(
     if !local && !entries.is_empty() {
         commands.entity(add.entity).insert((Modifiers(entries.clone()), Points::starting(&entries)));
     }
+    // A remote Player's body starts, and Respawns, with their own Kit's Loadout, so the Host's copy
+    // of their Weapons is the one their machine gave them. The local body got theirs from the Run.
+    if !local {
+        let start = kit.starting_loadout();
+        commands.entity(add.entity).insert((start, start.loadout(), start.knife(), start.equipment()));
+    }
     commands.entity(add.entity).insert((
         HeldBoons::default(),
         PendingOffer::default(),
@@ -499,7 +509,7 @@ pub(crate) fn give_gauntlet_state(
         Bought::default(),
         // Tight Offers' base is the Run's, so every Player starts with it.
         Banishes::starting_from(heat.map_or(GAUNTLET_BANISHES_START, |heat| heat.starting_banishes()), track_banishes),
-        PlayerKit::new(chosen.filter(|_| local).map_or(Kit::Standard, |chosen| chosen.0)),
+        PlayerKit::new(kit),
         procs::ProcCooldowns::default(),
         sets::SetBonuses::default(),
         sets::Jackpot::default(),
