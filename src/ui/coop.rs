@@ -609,7 +609,8 @@ fn run_actions(
             CoopButton::Focus => {}
             CoopButton::Host => {
                 notice.0.clear();
-                let room = Room::new(&settings.name, armory_of(&file), settings.last_mode);
+                let mut room = Room::new(&settings.name, armory_of(&file), settings.last_mode);
+                room.set_heat(room_heat(&file, settings.last_mode));
                 *session = CoopSession::Host(Box::new(Hosting::new(Box::new(Transport::host()) as Box<dyn Link>, room)));
                 next.set(MainMenuScreen::Room);
             }
@@ -656,7 +657,11 @@ fn run_actions(
                         Mode::Classic => Mode::Gauntlet,
                         Mode::Gauntlet => Mode::Classic,
                     };
-                    hosting.edit(|room| room.set_mode(mode));
+                    let heat = room_heat(&file, mode);
+                    hosting.edit(|room| {
+                        room.set_mode(mode);
+                        room.set_heat(heat);
+                    });
                 }
             }
             CoopButton::CycleMap => {
@@ -791,6 +796,11 @@ fn direct_join(
     );
     *session = CoopSession::Join(Box::new(joining));
     next.set(MainMenuScreen::Room);
+}
+
+/// The Heat a Room is hosted at: the Host's own, in Gauntlet once Heat is unlocked. Classic has none.
+fn room_heat(file: &GauntletFile, mode: Mode) -> u8 {
+    if mode == Mode::Gauntlet { file.run_heat().total() as u8 } else { 0 }
 }
 
 /// Keeps a hosted Room on the lobby's list while it is open and not yet started.

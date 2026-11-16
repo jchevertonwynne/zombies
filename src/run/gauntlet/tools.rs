@@ -9,6 +9,7 @@ use bevy::prelude::*;
 use super::arc::{draw_boss_cards, is_boss_round};
 use super::boon::{BOONS, BoonDef, Family, HeldBoons, Rarity, RunFacts};
 use super::duos::DUOS;
+use super::heat::RunHeat;
 use super::kits::PlayerKit;
 use super::pact::HeldPacts;
 use super::variety::{Boost, draw_boosted, draw_cards_boosted, guarantee_families};
@@ -40,7 +41,12 @@ impl Default for Banishes {
 impl Banishes {
     /// A Run's starting charges: the usual one, plus `track` from the Banish Track's Ranks.
     pub fn starting(track: u32) -> Self {
-        Self { charges: GAUNTLET_BANISHES_START.saturating_add(track), banished: Vec::new() }
+        Self::starting_from(GAUNTLET_BANISHES_START, track)
+    }
+
+    /// A Run's starting charges from a `base` (Tight Offers lowers it) plus `track`.
+    pub fn starting_from(base: u32, track: u32) -> Self {
+        Self { charges: base.saturating_add(track), banished: Vec::new() }
     }
 }
 
@@ -65,8 +71,14 @@ pub struct BanishCard {
 
 /// A Reroll's price when `rerolls` have already been made in this Offer. It doubles each time and
 /// starts over at the next Offer.
+#[cfg(test)]
 pub fn reroll_price(rerolls: u32) -> u64 {
-    GAUNTLET_REROLL_BASE_PRICE.saturating_mul(2u64.saturating_pow(rerolls))
+    reroll_price_from(GAUNTLET_REROLL_BASE_PRICE, rerolls)
+}
+
+/// `reroll_price` from a `base` price (Tight Offers raises it). `Price` never scales it.
+pub fn reroll_price_from(base: u64, rerolls: u32) -> u64 {
+    base.saturating_mul(2u64.saturating_pow(rerolls))
 }
 
 /// Whether `cards` are a Boss Offer's: on a Boss Round, and all Legendary.
@@ -164,6 +176,7 @@ pub fn apply_reroll(
     mut spends: MessageWriter<SpendPoints>,
     mut cues: MessageWriter<PlayCue>,
     mut used: MessageWriter<ToolUsed>,
+    heat: Res<RunHeat>,
 ) {
     // Points already asked for this frame, so two Rerolls can't be paid for with one balance.
     let mut committed: Vec<(Entity, u64)> = Vec::new();
@@ -175,7 +188,7 @@ pub fn apply_reroll(
         if !matches!(offer.choices, Choices::Boons(_)) || offer.picked > 0 {
             continue;
         }
-        let price = reroll_price(offer.rerolls);
+        let price = reroll_price_from(heat.reroll_base_price(), offer.rerolls);
         let owed = committed.iter().filter(|(who, _)| *who == player).map(|(_, owed)| owed).sum::<u64>();
         if points.balance.saturating_sub(owed) < price {
             continue;

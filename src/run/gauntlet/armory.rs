@@ -10,6 +10,7 @@ use bevy::ui_widgets::{Activate, Button};
 use super::boon::{BOONS, Rarity, find as find_boon};
 use super::commendations::{COMMENDATIONS, Group};
 use super::duos::DUOS;
+use super::heat::{Condition, scrip_multiplier};
 use super::pact::{CRIMSON, PACTS};
 use super::progress::{Card, GauntletFile, Refusal, Track};
 use crate::ui::hud::{ROUND_RED, text, with_commas};
@@ -28,6 +29,7 @@ pub enum ArmoryTab {
     Unlocks,
     Upgrades,
     Commendations,
+    Heat,
 }
 
 /// The Armory's last refusal, shown under the Scrip balance until the next purchase.
@@ -45,6 +47,7 @@ pub enum ArmoryButton {
     Unlock(&'static str),
     BuyRank(Track),
     Toggle(Track),
+    Heat(Condition),
 }
 
 pub fn spawn_armory(
@@ -151,6 +154,7 @@ pub fn refresh_armory(
                         ("Unlocks", ArmoryTab::Unlocks),
                         ("Upgrades", ArmoryTab::Upgrades),
                         ("Commendations", ArmoryTab::Commendations),
+                        ("Heat", ArmoryTab::Heat),
                     ] {
                         let color = if each == tab { ROUND_RED } else { Color::WHITE };
                         colored_button(tabs, label, ArmoryButton::Tab(each), 200.0, color);
@@ -160,6 +164,7 @@ pub fn refresh_armory(
                 ArmoryTab::Unlocks => unlocks_tab(board, &file),
                 ArmoryTab::Upgrades => upgrades_tab(board, &file),
                 ArmoryTab::Commendations => commendations_tab(board, &file),
+                ArmoryTab::Heat => heat_tab(board, &file),
             }
         });
 }
@@ -320,6 +325,43 @@ fn commendations_tab(board: &mut ChildSpawnerCommands, file: &GauntletFile) {
         });
 }
 
+/// "●●○" for `degree` of `max` Degrees.
+fn pips(degree: u32, max: u32) -> String {
+    (1..=max).map(|at| if at <= degree { '●' } else { '○' }).collect()
+}
+
+/// Heat, once a Run is Won: a row per Condition with its Degree pips and what the Degree does.
+/// Clicking a row raises its Degree, wrapping back to 0. The header shows the Heat and the Scrip it
+/// pays; before the first Win it just says how to unlock it.
+fn heat_tab(board: &mut ChildSpawnerCommands, file: &GauntletFile) {
+    if !file.has_won {
+        board.spawn(text("Win a Run to unlock Heat", 24.0, HINT_GREY));
+        return;
+    }
+    let run = file.run_heat();
+    board.spawn(text(
+        format!("Heat {} · Scrip ×{:.1}", run.total(), scrip_multiplier(run.total())),
+        26.0,
+        NEW_BEST_GOLD,
+    ));
+    board.spawn(text(
+        "Each Degree is 1 Heat. Click a Condition to raise it; past its top it goes back to 0.",
+        18.0,
+        HINT_GREY,
+    ));
+    for condition in Condition::ALL {
+        let degree = run.degree(condition);
+        board
+            .spawn(Node { align_items: AlignItems::Center, column_gap: px(12.0), ..default() })
+            .with_children(|row| {
+                let colour = if degree > 0 { ROUND_RED } else { Color::WHITE };
+                small_button(row, condition.name(), ArmoryButton::Heat(condition), 220.0, colour);
+                cell(row, pips(degree, condition.max_degree()), 90.0, colour);
+                cell(row, condition.effect(degree), 560.0, if degree > 0 { Color::WHITE } else { HINT_GREY });
+            });
+    }
+}
+
 /// A row per Upgrade Track: its Ranks, its effect now and after the next Rank, the next Rank's
 /// price, and its free on/off toggle.
 fn upgrades_tab(board: &mut ChildSpawnerCommands, file: &GauntletFile) {
@@ -384,6 +426,7 @@ fn refusal_line(refusal: Refusal) -> &'static str {
         Refusal::AlreadyUnlocked => "Already Unlocked.",
         Refusal::TrackFull => "Every Rank is bought.",
         Refusal::Unknown => "Can't be Unlocked.",
+        Refusal::HeatLocked => "Win a Run to unlock Heat.",
     }
 }
 
@@ -411,6 +454,7 @@ pub fn armory_click(
             next.toggle(track);
             Ok(())
         }
+        ArmoryButton::Heat(condition) => next.cycle_heat(condition),
     };
     match result {
         Ok(()) => {

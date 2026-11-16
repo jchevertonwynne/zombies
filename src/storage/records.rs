@@ -53,9 +53,12 @@ pub struct RunRecord {
     /// the Win exists.
     #[serde(default)]
     pub won: bool,
-    /// The Host's Heat, once Heat exists.
+    /// The Host's Heat. `None` for Classic and for a Gauntlet Run at Heat 0.
     #[serde(default)]
     pub heat: Option<u32>,
+    /// The Heat Conditions set, each with its Degree. Empty at Heat 0 and in old Records.
+    #[serde(default)]
+    pub conditions: Vec<RecordExtra>,
     /// The stable ID of the Kit the Run started with. `None` reads as the Standard Kit (every Classic
     /// Run and every Record from before Kits).
     #[serde(default)]
@@ -120,6 +123,13 @@ pub struct RunWon(pub bool);
 /// Classic never sets it.
 #[derive(Resource, Default)]
 pub struct RunKit(pub Option<String>);
+
+/// The Heat the current Run is at, and its Conditions with their Degrees. Classic never sets it.
+#[derive(Resource, Default)]
+pub struct RunHeatRecord {
+    pub heat: Option<u32>,
+    pub conditions: Vec<RecordExtra>,
+}
 
 /// Elites the current Run has killed. Classic never sets it.
 #[derive(Resource, Default)]
@@ -401,6 +411,7 @@ impl Plugin for RecordsPlugin {
             .init_resource::<RunWon>()
             .init_resource::<RunKit>()
             .init_resource::<RunElitesKilled>()
+            .init_resource::<RunHeatRecord>()
             .init_resource::<RunSpecialZombies>()
             .init_resource::<RunPlayers>()
             .init_resource::<RunRecorded>()
@@ -424,8 +435,10 @@ impl Plugin for RecordsPlugin {
                  mut won: ResMut<RunWon>,
                  mut kit: ResMut<RunKit>,
                  mut elites: ResMut<RunElitesKilled>,
+                 mut heat: ResMut<RunHeatRecord>,
                  settings: Res<Settings>| {
                     extras.0.clear();
+                    *heat = RunHeatRecord::default();
                     won.0 = false;
                     kit.0 = None;
                     elites.0 = 0;
@@ -491,7 +504,7 @@ pub fn record_run(
         Res<RunType>,
     ),
     others: Query<(&Seat, &PlayerName, &RunStats, &Points), (With<Player>, Without<LocalPlayer>)>,
-    (extras, won, kit, elites): (Res<RecordExtras>, Res<RunWon>, Res<RunKit>, Res<RunElitesKilled>),
+    (extras, won, kit, elites, heat): (Res<RecordExtras>, Res<RunWon>, Res<RunKit>, Res<RunElitesKilled>, Res<RunHeatRecord>),
     switches: Res<RunSpecialZombies>,
     mut file: ResMut<RecordsFile>,
     dir: Res<SaveDir>,
@@ -523,7 +536,8 @@ pub fn record_run(
         revives: stats.revives,
         teammates,
         won: won.0,
-        heat: None,
+        heat: heat.heat,
+        conditions: heat.conditions.clone(),
         kit: kit.0.clone(),
         elites_killed: elites.0,
         extras: extras.0.iter().cloned().chain(off_extras(&switches.0)).collect(),
@@ -610,6 +624,7 @@ mod tests {
             teammates: Vec::new(),
             won: false,
             heat: None,
+            conditions: Vec::new(),
             kit: None,
             elites_killed: 0,
             extras: Vec::new(),
@@ -637,6 +652,22 @@ mod tests {
 
     /// A Won Run ranks above any Run that wasn't, whatever Round either reached, then Heat
     /// ranks the Won ones, then the Round.
+    /// An old Record has no Conditions, and a Heat Run's survive a save and load.
+    #[test]
+    fn a_records_heat_conditions_round_trip_and_old_records_read_as_none() {
+        let record = RunRecord {
+            heat: Some(5),
+            conditions: vec![RecordExtra { id: "inflation".into(), count: 3 }, RecordExtra { id: "restless".into(), count: 2 }],
+            ..run(10, 1.0)
+        };
+        let text = ron::to_string(&record).unwrap();
+        assert_eq!(ron::from_str::<RunRecord>(&text).unwrap(), record);
+        let old = text.replace("conditions:[(id:\"inflation\",count:3),(id:\"restless\",count:2)],", "");
+        assert_ne!(old, text, "the field was stripped");
+        let old: RunRecord = ron::from_str(&old).unwrap();
+        assert!(old.conditions.is_empty());
+    }
+
     #[test]
     fn won_runs_rank_first_then_by_heat_then_round() {
         let gauntlet = |round, won, heat| RunRecord { mode: Mode::Gauntlet, won, heat, ..run(round, 100.0) };
@@ -901,6 +932,7 @@ mod tests {
             .init_resource::<RunWon>()
             .init_resource::<RunKit>()
             .init_resource::<RunElitesKilled>()
+            .init_resource::<RunHeatRecord>()
             .init_resource::<RunSpecialZombies>()
             .init_resource::<RunPlayers>()
             .init_resource::<RunRecorded>()

@@ -16,6 +16,7 @@ use bevy::picking::hover::Hovered;
 
 use super::boon::{BoonDef, HeldBoons, Rarity, RunFacts, draw, eligible, family_bias, offer_weight};
 use super::duos::duo_pool;
+use super::heat::RunHeat;
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
 use crate::economy::points::BonusPoints;
@@ -203,7 +204,13 @@ pub fn is_arc_source(source: Source) -> bool {
 
 /// The Run arc's stat entries while Round `round` is in `phase`: the Boss Round's smaller Horde,
 /// from the Intermission before it (when the Horde is sized) to its end.
+#[cfg(test)]
 pub fn arc_entries(round: u32, phase: &RoundPhase) -> Vec<Modifier> {
+    arc_entries_with(round, phase, GAUNTLET_BOSS_ROUND_HORDE_FACTOR)
+}
+
+/// `arc_entries` with the Boss Round's Horde factor `horde_factor` (Iron Bosses changes it).
+pub fn arc_entries_with(round: u32, phase: &RoundPhase, horde_factor: f32) -> Vec<Modifier> {
     let next = match phase {
         RoundPhase::Active => round,
         RoundPhase::Intermission(_) => round.saturating_add(1),
@@ -212,7 +219,7 @@ pub fn arc_entries(round: u32, phase: &RoundPhase) -> Vec<Modifier> {
         vec![Modifier {
             stat: Stat::HordeSize,
             source: BOSS_ROUND_SOURCE,
-            effect: Effect::Mult(GAUNTLET_BOSS_ROUND_HORDE_FACTOR),
+            effect: Effect::Mult(horde_factor),
         }]
     } else {
         Vec::new()
@@ -350,6 +357,7 @@ pub fn spawn_boss(
     round: Res<Round>,
     mut spawns: MessageWriter<SpawnZombie>,
     time: Res<Time>,
+    heat: Res<RunHeat>,
 ) {
     let dt = time.delta_secs();
     if let Some(left) = plan.warning.as_mut() {
@@ -372,7 +380,9 @@ pub fn spawn_boss(
         return;
     }
     *waited = 0.0;
-    spawns.write(boss_request(plan.kind.unwrap_or(BossKind::Bloater), plan.round));
+    let mut request = boss_request(plan.kind.unwrap_or(BossKind::Bloater), plan.round);
+    request.health_factor *= heat.boss_health_factor();
+    spawns.write(request);
 }
 
 /// The Heavyweight the Boss request asked for is the Boss: it's named, and its phases tracked.
@@ -926,6 +936,15 @@ mod tests {
         // No living Alpha, whether it's dying or already gone, is what ends the pack.
         app.update();
         assert_eq!(app.world_mut().resource_mut::<Messages<DamageZombie>>().drain().count(), 1);
+    }
+
+    #[test]
+    fn iron_bosses_changes_the_boss_rounds_horde_factor_and_nothing_outside_a_boss_round() {
+        let horde = |round, factor| arc_entries_with(round, &RoundPhase::Active, factor);
+        assert_eq!(horde(10, GAUNTLET_BOSS_ROUND_HORDE_FACTOR)[0].effect, Effect::Mult(0.5));
+        assert_eq!(horde(10, 1.0)[0].effect, Effect::Mult(1.0));
+        assert!(horde(9, 1.0).is_empty());
+        assert_eq!(arc_entries(10, &RoundPhase::Active), horde(10, GAUNTLET_BOSS_ROUND_HORDE_FACTOR));
     }
 
     #[test]

@@ -13,7 +13,8 @@ use super::procs::ProcCooldowns;
 use super::sets::{Jackpot, SetBonuses, tier_tag};
 use crate::tuning::SET_BONUS_TIERS;
 use super::arc::is_boss_round;
-use super::tools::{Banishes, reroll_price};
+use super::heat::RunHeat;
+use super::tools::{Banishes, reroll_price_from};
 use super::{Choices, Offer};
 use crate::players::player::LocalPlayer;
 use crate::maps::map::MapId;
@@ -295,11 +296,12 @@ pub fn update_tools(
     mut rerolls: Query<(&mut Text, &mut TextColor), (With<RerollButton>, Without<BanishButton>)>,
     mut banishes: Query<(&BanishButton, &mut Text, &mut Node), Without<RerollButton>>,
     mut counts: Query<&mut Text, (With<BanishCount>, Without<RerollButton>, Without<BanishButton>)>,
+    heat: Res<RunHeat>,
 ) {
     let Ok((offer, points, banish)) = player.single() else {
         return;
     };
-    let price = reroll_price(offer.rerolls);
+    let price = reroll_price_from(heat.reroll_base_price(), offer.rerolls);
     for (mut label, mut colour) in &mut rerolls {
         label.set_if_neq(Text::new(format!("Reroll: {}", with_commas(price))));
         colour.set_if_neq(TextColor(if points.balance >= price { Color::WHITE } else { GREY }));
