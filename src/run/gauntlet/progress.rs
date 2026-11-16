@@ -227,6 +227,8 @@ pub enum Refusal {
     /// Every Rank on the Track is bought.
     TrackFull,
     TooPoor,
+    /// Heat is unlocked by the first Win.
+    HeatLocked,
 }
 
 /// One Upgrade Track's saved state.

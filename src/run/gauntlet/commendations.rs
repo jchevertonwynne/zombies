@@ -239,8 +239,8 @@ pub fn game_over_line(earned: &RunCommendations) -> Option<String> {
 }
 
 /// Starts a Run's log, with the Elites already killed, and forgets last Run's earnings.
-pub fn begin_run(mut commands: Commands, file: Res<GauntletFile>) {
-    commands.insert_resource(RunLog::new(file.elites_killed));
+pub fn begin_run(mut commands: Commands, file: Res<GauntletFile>, heat: Res<super::heat::RunHeat>) {
+    commands.insert_resource(RunLog { heat: heat.total(), ..RunLog::new(file.elites_killed) });
     commands.insert_resource(RunCommendations::default());
 }
 

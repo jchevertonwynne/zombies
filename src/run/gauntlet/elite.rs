@@ -96,12 +96,41 @@ pub const RALLYING: Source = Source("Rallying");
 
 /// The chance a Zombie spawned in `round` is an Elite: none before the first Round, then a base
 /// chance growing each Round, capped.
+#[cfg(test)]
 pub fn elite_chance(round: u32) -> f64 {
-    if round < GAUNTLET_ELITE_FIRST_ROUND {
+    elite_chance_under(round, &EliteRules::default())
+}
+
+/// What decides who becomes an Elite: the Run's chance factor, its cap, the first Round they
+/// appear in and how many can be alive at once. Heat's Elite Surge changes them; the default is
+/// the base rules.
+#[derive(Resource, Debug, Clone, Copy, PartialEq)]
+pub struct EliteRules {
+    pub chance_factor: f64,
+    pub max_chance: f64,
+    pub first_round: u32,
+    pub max_alive: u32,
+}
+
+impl Default for EliteRules {
+    fn default() -> Self {
+        Self {
+            chance_factor: 1.0,
+            max_chance: GAUNTLET_ELITE_CHANCE_MAX,
+            first_round: GAUNTLET_ELITE_FIRST_ROUND,
+            max_alive: GAUNTLET_ELITE_MAX_ALIVE,
+        }
+    }
+}
+
+/// `elite_chance` under `rules`: the grown chance from the rules' first Round, times their factor,
+/// capped.
+pub fn elite_chance_under(round: u32, rules: &EliteRules) -> f64 {
+    if round < rules.first_round {
         return 0.0;
     }
-    let grown = GAUNTLET_ELITE_CHANCE_BASE + GAUNTLET_ELITE_CHANCE_PER_ROUND * f64::from(round - GAUNTLET_ELITE_FIRST_ROUND);
-    grown.min(GAUNTLET_ELITE_CHANCE_MAX)
+    let grown = GAUNTLET_ELITE_CHANCE_BASE + GAUNTLET_ELITE_CHANCE_PER_ROUND * f64::from(round - rules.first_round);
+    (grown * rules.chance_factor).min(rules.max_chance)
 }
 
 /// Whether a Zombie of `kind` can be an Elite: an ordinary Zombie that the Horde (not a
@@ -113,8 +142,14 @@ pub fn can_be_elite(kind: ZombieKind, requested: bool) -> bool {
 
 /// Whether a spawn becomes an Elite, given a uniform `roll` in [0, 1) and how many Elites are
 /// `alive` already.
+#[cfg(test)]
 pub fn becomes_elite(round: u32, kind: ZombieKind, requested: bool, alive: u32, roll: f64) -> bool {
-    can_be_elite(kind, requested) && alive < GAUNTLET_ELITE_MAX_ALIVE && roll < elite_chance(round)
+    becomes_elite_under(round, kind, requested, alive, roll, &EliteRules::default())
+}
+
+/// `becomes_elite` under `rules`.
+pub fn becomes_elite_under(round: u32, kind: ZombieKind, requested: bool, alive: u32, roll: f64, rules: &EliteRules) -> bool {
+    can_be_elite(kind, requested) && alive < rules.max_alive && roll < elite_chance_under(round, rules)
 }
 
 /// The factor Armoured puts on a Zombie.
@@ -204,13 +239,14 @@ pub fn volatile_blasts(at: Vec3, players: &[Entity]) -> Vec<Explosion> {
 pub fn mark_elites(
     mut commands: Commands,
     mut spawned: MessageReader<ZombieSpawned>,
+    rules: Res<EliteRules>,
     alive: Query<(), (With<Elite>, With<Zombie>, Without<Dying>)>,
     bodies: Query<(&Zombie, &Transform)>,
     mut cues: MessageWriter<PlayCue>,
 ) {
     let mut alive = alive.iter().count() as u32;
     for spawn in spawned.read() {
-        if !becomes_elite(spawn.round, spawn.kind, spawn.requested, alive, rand::random()) {
+        if !becomes_elite_under(spawn.round, spawn.kind, spawn.requested, alive, rand::random(), &rules) {
             continue;
         }
         let Ok((zombie, transform)) = bodies.get(spawn.zombie) else {
@@ -581,6 +617,7 @@ mod tests {
             .add_message::<SpawnZombie>()
             .add_message::<ZombieKilled>()
             .add_message::<BonusPoints>()
+            .init_resource::<EliteRules>()
             .insert_resource(Time::<()>::default());
         app
     }
@@ -826,5 +863,34 @@ mod tests {
         set_up(burn_fuses);
         set_up(elite_points);
         set_up(strip_turned_elites);
+    }
+
+    #[test]
+    fn elite_surge_grows_the_chance_from_its_own_first_round_to_its_own_cap() {
+        let one = EliteRules { chance_factor: 1.5, max_chance: 0.225, first_round: 6, max_alive: 3 };
+        assert_eq!(elite_chance_under(5, &one), 0.0);
+        assert!((elite_chance_under(6, &one) - 0.03).abs() < 1e-12);
+        assert_eq!(elite_chance_under(100, &one), 0.225);
+        let two = EliteRules { chance_factor: 2.0, max_chance: 0.30, first_round: 3, max_alive: 5 };
+        assert_eq!(elite_chance_under(2, &two), 0.0);
+        assert!((elite_chance_under(3, &two) - 0.04).abs() < 1e-12, "Elites from Round 3");
+        assert_eq!(elite_chance_under(100, &two), 0.30);
+    }
+
+    #[test]
+    fn elite_surge_raises_the_alive_cap() {
+        let two = EliteRules { chance_factor: 2.0, max_chance: 0.30, first_round: 3, max_alive: 5 };
+        let normal = ZombieKind::Normal;
+        assert!(becomes_elite_under(10, normal, false, 4, 0.0, &two));
+        assert!(!becomes_elite_under(10, normal, false, 5, 0.0, &two));
+        assert!(!becomes_elite_under(10, normal, false, 3, 0.0, &EliteRules::default()), "the base cap is 3");
+    }
+
+    #[test]
+    fn the_default_elite_rules_are_the_base_rules() {
+        let base = EliteRules::default();
+        for round in [1, 6, 10, 32, 100] {
+            assert_eq!(elite_chance_under(round, &base), elite_chance(round));
+        }
     }
 }

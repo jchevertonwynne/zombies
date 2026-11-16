@@ -37,6 +37,7 @@ pub(super) fn gauntlet_players_with(extra: impl FnOnce(&mut App)) -> (Sim, Entit
             .init_resource::<OfferWait>()
             .init_resource::<super::RunArc>()
             .init_resource::<RoundVariety>()
+            .init_resource::<super::heat::RunHeat>()
             .init_resource::<UnlockAll>()
             .init_resource::<IntermissionHold>()
             .init_resource::<Freeze>()
@@ -774,4 +775,48 @@ fn a_standard_kit_leaves_offers_unbiased_and_unguaranteed() {
     end_round(&mut sim);
     let offer = sim.world_mut().get::<Offer>(local).unwrap();
     assert!(offer.boost.is_none());
+}
+
+#[test]
+fn heat_conditions_put_their_entries_on_every_player_and_nothing_without_heat() {
+    use super::heat::{Condition, RunHeat};
+    let (mut sim, local, teammate) = gauntlet_players();
+    sim.run(2);
+    let price = |sim: &mut Sim, player| {
+        let entries = sim.world_mut().get::<Modifiers>(player).unwrap().0.clone();
+        crate::modifier::resolve(Stat::Price, 100.0, &entries)
+    };
+    assert_eq!((price(&mut sim, local), price(&mut sim, teammate)), (100.0, 100.0), "no Heat is neutral");
+    let mut degrees = RunHeat::default();
+    degrees.0[Condition::Inflation as usize] = 3;
+    sim.world_mut().insert_resource(degrees);
+    sim.run(2);
+    assert!((price(&mut sim, local) - 135.0).abs() < 1e-3);
+    assert!((price(&mut sim, teammate) - 135.0).abs() < 1e-3, "Heat is the Room's, so everyone pays");
+    sim.world_mut().insert_resource(RunHeat::default());
+    sim.run(2);
+    assert_eq!(price(&mut sim, local), 100.0, "and lifting it takes the entries away");
+}
+
+#[test]
+fn tight_offers_raises_every_players_reroll_price_and_trims_their_starting_banishes() {
+    use super::heat::{Condition, RunHeat};
+    let (mut sim, local, teammate) = gauntlet_players_with(|app| {
+        let mut heat = RunHeat::default();
+        heat.0[Condition::TightOffers as usize] = 2;
+        app.insert_resource(heat);
+    });
+    sim.world_mut().resource_mut::<UnlockAll>().0 = true;
+    for player in [local, teammate] {
+        assert_eq!(sim.world_mut().get::<Banishes>(player).unwrap().charges, 0);
+    }
+    end_round(&mut sim);
+    sim.world_mut().get_mut::<Points>(local).unwrap().balance = 1500;
+    sim.send(RerollOffer { player: local });
+    sim.run(2);
+    assert_eq!(sim.world_mut().get::<Offer>(local).unwrap().rerolls, 0, "1,500 can't buy a 2,000 Reroll");
+    sim.world_mut().get_mut::<Points>(local).unwrap().balance = 2000;
+    sim.send(RerollOffer { player: local });
+    sim.run(2);
+    assert_eq!(sim.world_mut().get::<Offer>(local).unwrap().rerolls, 1);
 }

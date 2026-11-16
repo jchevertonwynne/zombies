@@ -13,6 +13,7 @@ pub mod boon;
 mod commendations;
 mod duos;
 mod elite;
+pub mod heat;
 pub mod kits;
 mod pact;
 mod procs;
@@ -47,7 +48,7 @@ use crate::players::player::{LocalPlayer, Player, Seat};
 use crate::players::respawn::{BledOut, Disconnected, SeatDropped};
 use crate::economy::points::BonusPoints;
 use crate::economy::power_up::{DropPowerUp, GivePowerUp, PowerUp, PowerUpTaken};
-use crate::storage::records::{RecordExtra, RecordExtras, RunKit};
+use crate::storage::records::{RecordExtra, RecordExtras, RunHeatRecord, RunKit};
 use crate::run::round::{IntermissionHold, ReservedRounds, Round, RoundEnded, RoundPhase};
 use crate::storage::save;
 use crate::storage::settings::SaveDir;
@@ -70,6 +71,7 @@ use progress::{GauntletFile, rounds_completed, scrip_for_rounds};
 pub use boon::HeldBoons;
 pub use pact::HeldPacts;
 use screen::{OfferCard, SkipButton};
+use heat::RunHeat;
 use kits::{Kit, PlayerKit, chosen_kit};
 use tools::{Banishes, BanishCard, RerollOffer, ToolUsed};
 use variety::{Boost, PickRound, RoundVariety};
@@ -241,6 +243,8 @@ impl Plugin for GauntletPlugin {
             .init_resource::<commendations::RunLog>()
             .init_resource::<commendations::RunCommendations>()
             .init_resource::<ChosenKit>()
+            .init_resource::<RunHeat>()
+            .init_resource::<elite::EliteRules>()
             .add_message::<procs::ProcFired>()
             .add_message::<sets::SetTierReached>()
             .add_message::<duos::DuoTaken>()
@@ -457,7 +461,7 @@ fn give_gauntlet_state(
     add: On<Add<Player>>,
     mut commands: Commands,
     progress: Option<Res<GauntletFile>>,
-    chosen: Option<Res<ChosenKit>>,
+    (chosen, heat): (Option<Res<ChosenKit>>, Option<Res<RunHeat>>),
     locals: Query<(), With<LocalPlayer>>,
 ) {
     // Their own Tracks' Banish charges and their own Kit help only this machine's Player.
@@ -471,7 +475,8 @@ fn give_gauntlet_state(
         PendingOffer::default(),
         PlayerUnlocks(unlocked),
         Bought::default(),
-        Banishes::starting(track_banishes),
+        // Tight Offers' base is the Run's, so every Player starts with it.
+        Banishes::starting_from(heat.map_or(GAUNTLET_BANISHES_START, |heat| heat.starting_banishes()), track_banishes),
         PlayerKit::new(chosen.filter(|_| local).map_or(Kit::Standard, |chosen| chosen.0)),
         procs::ProcCooldowns::default(),
         sets::SetBonuses::default(),
@@ -818,7 +823,7 @@ fn hold_intermission(
 fn apply_entries(
     pacts: Res<HeldPacts>,
     round: Option<Res<Round>>,
-    variety: Res<RoundVariety>,
+    (variety, heat): (Res<RoundVariety>, Res<RunHeat>),
     mut players: Query<(&Seat, &HeldBoons, &sets::SetBonuses, &Loadout, &PlayerKit, &mut Modifiers), With<Player>>,
 ) {
     let ours = |source| {
@@ -828,9 +833,10 @@ fn apply_entries(
             || sets::is_set_source(source)
             || is_arc_source(source)
             || variety::is_twist_source(source)
+            || heat::is_heat_source(source)
     };
     let arc_entries = round.map_or_else(Vec::new, |round| {
-        let mut entries = arc::arc_entries(round.number, &round.phase);
+        let mut entries = arc::arc_entries_with(round.number, &round.phase, heat.boss_horde_factor());
         entries.extend(variety.entries(round.number, &round.phase));
         entries
     });
@@ -841,6 +847,7 @@ fn apply_entries(
         wanted.extend(sets::set_entries(set_bonuses, low));
         wanted.extend(kit.kit.entries(kit.spent));
         wanted.extend(arc_entries.iter().copied());
+        wanted.extend(heat.entries());
         let current: Vec<_> = modifiers
             .0
             .iter()
@@ -1146,6 +1153,7 @@ fn set_run_modifiers(
     mut cap: ResMut<TurnedAllyCap>,
     mut reserved: ResMut<ReservedRounds>,
     (mut start, mut chosen): (ResMut<StartingLoadout>, ResMut<ChosenKit>),
+    (mut heat, mut elites, mut record): (ResMut<RunHeat>, ResMut<elite::EliteRules>, ResMut<RunHeatRecord>),
 ) {
     if *mode == Mode::Gauntlet {
         run.0 = file.track_entries();
@@ -1154,7 +1162,9 @@ fn set_run_modifiers(
         *start = chosen.0.starting_loadout();
         *cap = TurnedAllyCap(Some(GAUNTLET_TURNED_ALLY_CAP));
         reserved.0 = arc::boss_rounds_through(arc::win_round()).collect();
+        *heat = file.run_heat();
     } else {
+        *heat = RunHeat::default();
         run.0.clear();
         ranks.0 = 0;
         chosen.0 = Kit::Standard;
@@ -1162,6 +1172,11 @@ fn set_run_modifiers(
         *cap = TurnedAllyCap(None);
         reserved.0.clear();
     }
+    *elites = heat.elite_rules();
+    *record = RunHeatRecord {
+        heat: Some(heat.total()).filter(|&total| total > 0),
+        conditions: heat.record_conditions(),
+    };
 }
 
 /// The Run ended, at Game Over or on quit: each completed Round pays its number in Scrip, and each
@@ -1170,14 +1185,16 @@ fn set_run_modifiers(
 fn pay_scrip(
     round: Res<Round>,
     arc: Res<RunArc>,
-    variety: Res<RoundVariety>,
+    (variety, heat): (Res<RoundVariety>, Res<RunHeat>),
     (log, earned, chosen): (Res<commendations::RunLog>, Res<commendations::RunCommendations>, Res<ChosenKit>),
     mut file: ResMut<GauntletFile>,
     dir: Res<SaveDir>,
     mut lines: ResMut<GameOverLines>,
 ) {
     let in_intermission = matches!(round.phase, RoundPhase::Intermission(_));
-    let scrip = scrip_for_rounds(rounds_completed(round.number, in_intermission)).saturating_add(arc.act_scrip);
+    // The Run's total (Rounds plus Act bonuses) is multiplied by Heat; Commendation Scrip never is.
+    let total = scrip_for_rounds(rounds_completed(round.number, in_intermission)).saturating_add(arc.act_scrip);
+    let scrip = heat::scaled_scrip(total, heat.total());
     file.pay(scrip);
     file.elites_killed = file.elites_killed.max(log.elites_total());
     store_progress(&file, &dir);
@@ -1185,6 +1202,10 @@ fn pay_scrip(
         lines.0.push("RUN WON".to_string());
     }
     lines.0.push(format!("Kit: {}", chosen.0.name()));
+    if heat.total() > 0 {
+        lines.0.push(heat.banner());
+        lines.0.push(heat::conditions_line(&heat));
+    }
     if let Some(line) = commendations::game_over_line(&earned) {
         lines.0.push(line);
     }

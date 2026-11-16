@@ -8,6 +8,7 @@ use bevy::ui_widgets::{Activate, Button};
 use crate::players::controls::{Action, Binding, Bindings};
 use crate::ui::hud::{ROUND_RED, full_screen, text, with_commas};
 use crate::maps::map::MapId;
+use crate::run::gauntlet::heat::condition_name;
 use crate::run::gauntlet::kits::kit_picker;
 use crate::run::gauntlet::progress::GauntletFile;
 use crate::run::mode::Mode;
@@ -559,6 +560,10 @@ fn refresh_records(
                     }
                     if let Some(heat) = run.heat.filter(|_| !run.won) {
                         board.spawn(text(format!("Heat {heat}"), 16.0, HINT_GREY));
+                    }
+                    if !run.conditions.is_empty() {
+                        let set: Vec<String> = run.conditions.iter().map(|each| format!("{} {}", condition_name(&each.id), each.count)).collect();
+                        board.spawn(text(format!("Conditions: {}", set.join(", ")), 16.0, HINT_GREY));
                     }
                     if let Some(kit) = run.kit.as_deref().filter(|kit| *kit != "standard") {
                         let mut name = kit.to_string();

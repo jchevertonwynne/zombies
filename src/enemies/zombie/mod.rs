@@ -7,7 +7,8 @@ use bevy_transform_interpolation::{TransformEasingSystems, TranslationEasingStat
 use crate::authority::HostSimulation;
 use crate::maps::door::Door;
 use crate::layers::GameLayer;
-use crate::modifier::{Source, Stat, resolve};
+use crate::modifier::{Modifiers, Source, Stat, resolve};
+use crate::players::player::LocalPlayer;
 use crate::maps::barrier::{Barriers, Entering};
 use crate::maps::map::MapId;
 use crate::weapons::ammo_mod::TurnedAlly;
@@ -665,6 +666,12 @@ impl Zombie {
         self.max_health
     }
 
+    /// Scales a fresh Zombie's health and max health by `factor` (the `ZombieHealth` stat).
+    pub fn scale_health(&mut self, factor: f32) {
+        self.health *= factor;
+        self.max_health *= factor;
+    }
+
     /// Switches to Sprinter, as the last Zombie of an early Round does. A Crawler never sprints,
     /// a Hellhound already runs at its own speed, a Napalm only ever walks, and the Sapper keeps
     /// its own pace.
@@ -899,7 +906,8 @@ impl Plugin for ZombiePlugin {
                     apply_damage,
                     clean_up_stuck,
                     heal_zombies,
-                    announce_spawns,
+                    scale_spawn_health,
+                    announce_spawns.after(scale_spawn_health),
                 )
                     .in_set(HostSimulation)
                     .run_if(world_runs),
@@ -1943,6 +1951,26 @@ pub fn apply_damage(
     }
 }
 
+/// Applies the Player's `Stat::ZombieHealth` entries to each Zombie that has just entered play, of
+/// any kind. A requested Heavyweight is a Boss, which only its own rules scale. Neutral at 1.
+fn scale_spawn_health(
+    mut new: Query<(&mut Zombie, Has<Requested>, Has<Heavyweight>), Added<Zombie>>,
+    players: Query<&Modifiers, With<LocalPlayer>>,
+) {
+    let Some(modifiers) = players.iter().next() else {
+        return;
+    };
+    let factor = resolve(Stat::ZombieHealth, 1.0, &modifiers.0);
+    if factor == 1.0 {
+        return;
+    }
+    for (mut zombie, requested, heavyweight) in &mut new {
+        if !(requested && heavyweight) {
+            zombie.scale_health(factor);
+        }
+    }
+}
+
 /// Tells the world of each Zombie that has just entered play.
 fn announce_spawns(
     new: Query<(Entity, &Zombie, Has<Requested>), Added<Zombie>>,
@@ -2587,6 +2615,44 @@ mod tests {
         assert_eq!(told.len(), 2, "each told once");
         assert!(told.contains(&(normal, ZombieKind::Normal, 7, false)));
         assert!(told.contains(&(hound, ZombieKind::Hellhound, 7, true)));
+    }
+
+    fn thick_hide(factor: f32) -> Modifiers {
+        use crate::modifier::{Effect, Modifier};
+        let entry = Modifier { stat: Stat::ZombieHealth, source: Source("Test"), effect: Effect::Mult(factor) };
+        Modifiers(vec![entry])
+    }
+
+    #[test]
+    fn zombie_health_scales_every_new_kind_but_a_boss() {
+        let mut app = App::new();
+        app.add_systems(Update, scale_spawn_health);
+        app.world_mut().spawn((LocalPlayer, thick_hide(1.5)));
+        let normal = app.world_mut().spawn(Zombie::new_for_test(100.0)).id();
+        let hound = app.world_mut().spawn((Zombie::hellhound(100.0, Vec3::ZERO), Requested)).id();
+        let sapper = app.world_mut().spawn(Zombie::special(SpecialKind::Sapper, 100.0, Vec3::ZERO)).id();
+        let boss = app.world_mut().spawn((Zombie::new_for_test(100.0), Requested, Heavyweight::SAPPER)).id();
+        app.update();
+        let health = |app: &App, zombie| {
+            let zombie = app.world().get::<Zombie>(zombie).unwrap();
+            (zombie.health(), zombie.max_health())
+        };
+        assert_eq!(health(&app, normal), (150.0, 150.0));
+        assert_eq!(health(&app, hound), (150.0, 150.0));
+        assert_eq!(health(&app, sapper), (150.0, 150.0), "a Sapper that isn't a Boss is thick too");
+        assert_eq!(health(&app, boss), (100.0, 100.0), "a Boss isn't");
+        app.update();
+        assert_eq!(health(&app, normal), (150.0, 150.0), "once, at spawn");
+    }
+
+    #[test]
+    fn zombie_health_is_neutral_without_entries() {
+        let mut app = App::new();
+        app.add_systems(Update, scale_spawn_health);
+        app.world_mut().spawn((LocalPlayer, Modifiers::default()));
+        let normal = app.world_mut().spawn(Zombie::new_for_test(100.0)).id();
+        app.update();
+        assert_eq!(app.world().get::<Zombie>(normal).unwrap().max_health(), 100.0);
     }
 
     #[test]

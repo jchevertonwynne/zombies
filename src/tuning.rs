@@ -2869,3 +2869,30 @@ pub const WASHED_UP_MIN_MOVE: f32 = 1.0;
 /// metres of reach, in its colour.
 pub const MACHINE_LIGHT_INTENSITY: f32 = 30_000.0;
 pub const MACHINE_LIGHT_RANGE: f32 = 5.0;
+
+// Heat (Appendix B5): one entry per Degree, each Degree worth 1 Heat.
+/// Scrip a Win adds per point of Heat: the Run's total is multiplied by `1 + this × Heat`.
+pub const GAUNTLET_HEAT_SCRIP_PER_POINT: f64 = 0.1;
+/// Inflation: `Price` ×.
+pub const GAUNTLET_HEAT_INFLATION_PRICE_FACTOR: [f32; 3] = [1.10, 1.20, 1.35];
+/// Thick Hide: `ZombieHealth` × on every kind but Bosses.
+pub const GAUNTLET_HEAT_THICK_HIDE_HEALTH_FACTOR: [f32; 3] = [1.10, 1.20, 1.35];
+/// Slow Mend: `HealthRegenDelay` × and `RoundRegen` ×.
+pub const GAUNTLET_HEAT_SLOW_MEND_REGEN_DELAY_FACTOR: [f32; 2] = [2.0, 2.0];
+pub const GAUNTLET_HEAT_SLOW_MEND_ROUND_REGEN: [f32; 2] = [1.0, 0.0];
+/// Restless: `SprinterChance` Flat.
+pub const GAUNTLET_HEAT_RESTLESS_SPRINTER_CHANCE: [f32; 3] = [0.10, 0.20, 0.35];
+/// Lean Pickings: `PowerUpDropChance` × and `MaxAmmoInBag` ×.
+pub const GAUNTLET_HEAT_LEAN_PICKINGS_DROP_FACTOR: [f32; 2] = [0.5, 0.5];
+pub const GAUNTLET_HEAT_LEAN_PICKINGS_MAX_AMMO_IN_BAG: [f32; 2] = [1.0, 0.0];
+/// Elite Surge: the Elite chance ×, its cap, the first Elite Round and the most alive at once.
+pub const GAUNTLET_HEAT_ELITE_SURGE_CHANCE_FACTOR: [f32; 2] = [1.5, 2.0];
+pub const GAUNTLET_HEAT_ELITE_SURGE_MAX: [f32; 2] = [0.225, 0.30];
+pub const GAUNTLET_HEAT_ELITE_SURGE_FIRST_ROUND: [u32; 2] = [6, 3];
+pub const GAUNTLET_HEAT_ELITE_SURGE_MAX_ALIVE: [u32; 2] = [3, 5];
+/// Iron Bosses: a Boss's health × and the Boss Round's Horde factor.
+pub const GAUNTLET_HEAT_IRON_BOSSES_HEALTH_FACTOR: [f32; 3] = [1.25, 1.5, 1.5];
+pub const GAUNTLET_HEAT_IRON_BOSSES_HORDE_FACTOR: [f32; 3] = [0.5, 0.5, 1.0];
+/// Tight Offers: the Reroll's base price and the base starting Banishes.
+pub const GAUNTLET_HEAT_TIGHT_OFFERS_REROLL_BASE_PRICE: [u64; 2] = [2000, 2000];
+pub const GAUNTLET_HEAT_TIGHT_OFFERS_STARTING_BANISHES: [u32; 2] = [1, 0];

@@ -127,6 +127,9 @@ pub enum Stat {
     BoxAmmoModRolls,
     /// The Player's gravity while falling or jumping, in m/s² (base `GRAVITY`).
     PlayerGravity,
+    /// A factor on every new Zombie's health, applied at spawn to every kind (base 1). The base
+    /// Round health is still the number Boss health and splits are worked from.
+    ZombieHealth,
 }
 
 /// Where an entry comes from. Each Perk, Pack-a-Punch, Attachment and so on is its own source:
