@@ -318,6 +318,8 @@ impl Plugin for GauntletPlugin {
                         arc::tag_boss,
                         arc::bloater_bursts,
                         arc::grow_bursts,
+                        arc::pack_howls,
+                        arc::pack_dies_with_alpha,
                         arc::boss_deaths,
                         // Before the Offer is due, so a Win holds it back.
                         arc::clear_boss_rounds.before(schedule_offer),

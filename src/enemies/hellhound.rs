@@ -14,7 +14,8 @@ use crate::authority::HostSimulation;
 use crate::layers::GameLayer;
 use crate::enemies::nav::Route;
 use crate::players::player::{Player, PlayerCamera};
-use crate::run::round::{Round, RoundPhase};
+use crate::enemies::request::{Entry, Requested, RequestedKind, SpawnAt, SpawnZombie, requested_health};
+use crate::run::round::{CarriesOver, Round, RoundPhase};
 use crate::state::{InRun, world_runs};
 use crate::tuning::*;
 use crate::enemies::target::Players;
@@ -199,11 +200,17 @@ pub struct HellhoundPlugin;
 impl Plugin for HellhoundPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<SpawnHellhounds>()
+            .add_message::<SpawnZombie>()
             .add_systems(Startup, load_assets)
             .add_systems(FixedUpdate, return_out_of_bounds.in_set(HostSimulation).run_if(world_runs))
             .add_systems(
                 Update,
-                ((spawn_around, strike).in_set(HostSimulation), flicker.after(strike), pull_in_fog).run_if(world_runs),
+                (
+                    (spawn_around, spawn_requested_hellhounds.run_if(on_message::<SpawnZombie>), strike).in_set(HostSimulation),
+                    flicker.after(strike),
+                    pull_in_fog,
+                )
+                    .run_if(world_runs),
             );
     }
 }
@@ -434,6 +441,47 @@ fn spawn_around(
             let dist = rand::random_range(HELLHOUND_AROUND_MIN_DIST..HELLHOUND_AROUND_MAX_DIST);
             let at = request.around + Vec3::new(angle.cos(), 0.0, angle.sin()) * dist;
             spawn_hellhound(&mut commands, &assets, at, health);
+        }
+    }
+}
+
+/// Each `SpawnZombie` for a Hellhound spawns one outside the Horde, in its lightning strike: at
+/// the point asked for, or at a Hellhound Spawn Point in an Active Zone. A hound never uses a
+/// Barrier, so a bigger one (a Boss) comes in by the same strike. Without `holds_round` it
+/// carries over like the special slot's Zombies.
+pub(crate) fn spawn_requested_hellhounds(
+    mut commands: Commands,
+    mut requests: MessageReader<SpawnZombie>,
+    round: Option<Res<Round>>,
+    mut entry: Entry,
+    assets: HellhoundAssetsParam,
+) {
+    let number = round.map_or(1, |round| round.number);
+    for request in requests.read().filter(|request| request.kind == RequestedKind::Hellhound) {
+        let at = match request.at {
+            SpawnAt::Point(at) => Some(at),
+            SpawnAt::BarrierInActiveZone => entry.hellhound_point(),
+        };
+        let Some(at) = at else {
+            continue;
+        };
+        let health = requested_health(number, request.health_factor);
+        let hound = spawn_hellhound(&mut commands, &assets, at, health);
+        let mut entity = commands.entity(hound);
+        entity.insert(Requested);
+        if request.scale != 1.0 {
+            // Standing on the floor at the bigger size, not sunk into it.
+            let centre = at + Vec3::Y * (HELLHOUND_RADIUS * request.scale + 0.02);
+            entity.insert((
+                Zombie::hellhound(health, centre).scaled(request.scale),
+                Transform::from_translation(centre).with_scale(Vec3::splat(request.scale)),
+            ));
+        }
+        if !request.holds_round {
+            entity.insert(CarriesOver);
+        }
+        if let Some(heavyweight) = request.heavyweight {
+            entity.insert(heavyweight);
         }
     }
 }

@@ -2518,6 +2518,13 @@ pub const GAUNTLET_BLOATER_BURST_AT: [f32; 2] = [0.66, 0.33];
 pub const GAUNTLET_BLOATER_BURST_RADIUS_M: f32 = 6.0;
 pub const GAUNTLET_BLOATER_BURST_SECS: f32 = 1.0;
 pub const GAUNTLET_BLOATER_BURST_DAMAGE: f32 = 50.0;
+/// The Pack Alpha: a Hellhound at this scale, with a Hellhound's speed and bite. Every
+/// `_HOWL_SECS` it howls and calls `_PACK_SIZE` Hellhounds (at the latest Hellhound health tier,
+/// outside the Horde), with at most `_MAX_HOUNDS` of its pack alive. They die Unpaid with it.
+pub const GAUNTLET_PACK_ALPHA_SCALE: f32 = 2.0;
+pub const GAUNTLET_PACK_ALPHA_HOWL_SECS: f32 = 20.0;
+pub const GAUNTLET_PACK_ALPHA_PACK_SIZE: u32 = 4;
+pub const GAUNTLET_PACK_ALPHA_MAX_HOUNDS: u32 = 8;
 
 // Pacts (Appendix B): fixed, held once, never scaled by Round
 /// Distinct Pacts on one Pact Offer, or fewer if fewer are left.

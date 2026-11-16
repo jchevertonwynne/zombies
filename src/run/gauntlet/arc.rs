@@ -8,7 +8,7 @@
 //! own schedules off Boss Rounds, a `HordeSize` entry halves the Boss Round's Horde, the Boss is a
 //! `SpawnZombie` request marked `Heavyweight`, and Classic's messages pay it out.
 
-use std::f32::consts::FRAC_PI_2;
+use std::f32::consts::{FRAC_PI_2, TAU};
 
 use bevy::prelude::*;
 use bevy::ui_widgets::{Activate, Button};
@@ -20,12 +20,13 @@ use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
 use crate::economy::points::BonusPoints;
 use crate::economy::power_up::{DropPowerUp, PowerUp};
+use crate::enemies::hellhound::{Telegraph, hellhound_health};
 use crate::enemies::request::{Requested, RequestedKind, SpawnAt, SpawnProfile, SpawnZombie, Trail};
 use crate::enemies::target::Players;
-use crate::enemies::zombie::{Dying, Heavyweight, Pay, Zombie};
+use crate::enemies::zombie::{Attack, DamageZombie, Dying, Heavyweight, HitZone, Pay, Zombie};
 use crate::modifier::{Effect, Modifier, Source, Stat};
 use crate::players::player::{Player, PlayerHit};
-use crate::run::round::{ReservedRounds, Round, RoundEnded, RoundPhase, RoundStarted};
+use crate::run::round::{ReservedRounds, Round, RoundEnded, RoundPhase, RoundStarted, zombie_health};
 use crate::state::{GameState, InRun, Pause, RunType};
 use crate::storage::records::RunWon;
 use crate::tuning::*;
@@ -101,10 +102,67 @@ pub fn boss_of(round: u32) -> Option<BossKind> {
     })
 }
 
-/// The Boss that actually comes in Boss Round `round`. Until the Pack Alpha and the Warden are
-/// built (slices 4b and 4c), the Bloater stands in for every Act.
+/// The Boss that actually comes in Boss Round `round`. Until the Warden is built (slice 4c), the
+/// Bloater stands in for its Act.
 fn spawned_boss(round: u32) -> Option<BossKind> {
-    boss_of(round).map(|_| BossKind::Bloater)
+    boss_of(round).map(|boss| match boss {
+        BossKind::PackAlpha => BossKind::PackAlpha,
+        BossKind::Bloater | BossKind::Warden => BossKind::Bloater,
+    })
+}
+
+/// The request for `kind`'s Boss in Boss Round `round`: through a window in an Active Zone (a
+/// Hellhound Spawn Point, for a hound), holding the Round open, carrying the Boss Share.
+fn boss_request(kind: BossKind, round: u32) -> SpawnZombie {
+    let (requested, scale, profile) = match kind {
+        BossKind::PackAlpha => (RequestedKind::Hellhound, GAUNTLET_PACK_ALPHA_SCALE, SpawnProfile::default()),
+        // The Bloater, and the Warden's stand-in until slice 4c.
+        BossKind::Bloater | BossKind::Warden => (
+            RequestedKind::Napalm,
+            GAUNTLET_BLOATER_SCALE,
+            SpawnProfile {
+                detonates: false,
+                trail: Some(Trail { every_secs: GAUNTLET_BLOATER_POOL_EVERY_SECS, pool_secs: GAUNTLET_BLOATER_POOL_SECS }),
+            },
+        ),
+    };
+    SpawnZombie {
+        kind: requested,
+        health_factor: boss_health_factor(round),
+        scale,
+        at: SpawnAt::BarrierInActiveZone,
+        holds_round: true,
+        profile,
+        heavyweight: Some(BOSS_SHARE),
+    }
+}
+
+/// How many Hellhounds a howl calls with `alive` of the Alpha's pack still alive: a full pack, but
+/// never past `GAUNTLET_PACK_ALPHA_MAX_HOUNDS` alive.
+pub fn pack_to_call(alive: u32) -> u32 {
+    GAUNTLET_PACK_ALPHA_PACK_SIZE.min(GAUNTLET_PACK_ALPHA_MAX_HOUNDS.saturating_sub(alive))
+}
+
+/// A howl's clock `left` seconds from the next howl, after `dt` seconds: the clock to carry on
+/// with, and whether the Alpha howls now.
+pub fn tick_howl(left: f32, dt: f32) -> (f32, bool) {
+    let left = left - dt;
+    if left <= 0.0 { (left + GAUNTLET_PACK_ALPHA_HOWL_SECS, true) } else { (left, false) }
+}
+
+/// The request for one of the Alpha's pack, struck in at `at`: a Hellhound at the latest Hellhound
+/// health tier (`tier`, the Hellhound Rounds played) in Round `round`, outside the Horde and the
+/// Round's holding, with no Boss Share.
+fn pack_request(round: u32, tier: u32, at: Vec3) -> SpawnZombie {
+    SpawnZombie {
+        kind: RequestedKind::Hellhound,
+        health_factor: hellhound_health(tier) / zombie_health(round) as f32,
+        scale: 1.0,
+        at: SpawnAt::Point(at),
+        holds_round: false,
+        profile: SpawnProfile::default(),
+        heavyweight: None,
+    }
 }
 
 /// A Boss's health in Round `round`, as a factor on the Round's base Zombie health.
@@ -231,6 +289,8 @@ pub struct Boss {
     pub kind: BossKind,
     marks_left: Vec<f32>,
     last_share: f32,
+    /// Seconds to the Pack Alpha's next howl.
+    howl_left: f32,
 }
 
 /// A Bloater's burst: a ring of fire growing from where it burst.
@@ -267,8 +327,8 @@ pub fn plan_boss(
     }
 }
 
-/// Once the warning is over, the Boss is asked for: the Bloater, through a window in an Active
-/// Zone, holding the Round open. Asked again if it doesn't come.
+/// Once the warning is over, the Boss is asked for, through a window in an Active Zone, holding
+/// the Round open. Asked again if it doesn't come.
 pub fn spawn_boss(
     mut plan: ResMut<BossPlan>,
     bosses: Query<(), With<Boss>>,
@@ -297,18 +357,7 @@ pub fn spawn_boss(
         return;
     }
     *waited = 0.0;
-    spawns.write(SpawnZombie {
-        kind: RequestedKind::Napalm,
-        health_factor: boss_health_factor(plan.round),
-        scale: GAUNTLET_BLOATER_SCALE,
-        at: SpawnAt::BarrierInActiveZone,
-        holds_round: true,
-        profile: SpawnProfile {
-            detonates: false,
-            trail: Some(Trail { every_secs: GAUNTLET_BLOATER_POOL_EVERY_SECS, pool_secs: GAUNTLET_BLOATER_POOL_SECS }),
-        },
-        heavyweight: Some(BOSS_SHARE),
-    });
+    spawns.write(boss_request(plan.kind.unwrap_or(BossKind::Bloater), plan.round));
 }
 
 /// The Heavyweight the Boss request asked for is the Boss: it's named, and its phases tracked.
@@ -322,7 +371,10 @@ pub fn tag_boss(
             continue;
         };
         plan.asked = None;
-        commands.entity(entity).insert(Boss { kind, marks_left: kind.phase_marks().to_vec(), last_share: 1.0 });
+        commands.entity(entity).insert(Boss { kind, marks_left: kind.phase_marks().to_vec(),
+            last_share: 1.0,
+            howl_left: GAUNTLET_PACK_ALPHA_HOWL_SECS,
+        });
     }
 }
 
@@ -340,7 +392,7 @@ pub fn bloater_bursts(
         }
         boss.marks_left.retain(|&mark| mark < share);
         if boss.kind == BossKind::Bloater {
-            commands.spawn((InRun, Burst { centre: feet_of(transform), age: 0.0, hit: Vec::new() }));
+            commands.spawn((InRun, Burst { centre: feet_of(transform, zombie), age: 0.0, hit: Vec::new() }));
         }
     }
 }
@@ -398,24 +450,83 @@ pub fn grow_bursts(
     }
 }
 
-/// Where a standing Zombie's feet are, whatever its scale.
-fn feet_of(transform: &Transform) -> Vec3 {
-    transform.translation - Vec3::Y * transform.scale.y * (ZOMBIE_RADIUS + ZOMBIE_CAPSULE_LENGTH / 2.0)
+/// Where a standing Zombie's feet are, whatever its kind and scale.
+fn feet_of(transform: &Transform, zombie: &Zombie) -> Vec3 {
+    transform.translation - Vec3::Y * zombie.half_height()
+}
+
+/// The Pack Alpha howls every `GAUNTLET_PACK_ALPHA_HOWL_SECS`, striking in a pack of Hellhounds
+/// around it, as many as keep its pack to `GAUNTLET_PACK_ALPHA_MAX_HOUNDS` alive.
+pub fn pack_howls(
+    mut bosses: Query<(&mut Boss, &Transform, &Zombie), Without<Dying>>,
+    hounds: Query<&Zombie, (With<Requested>, Without<Heavyweight>, Without<Dying>)>,
+    round: Res<Round>,
+    mut spawns: MessageWriter<SpawnZombie>,
+    mut cues: MessageWriter<PlayCue>,
+    time: Res<Time>,
+) {
+    for (mut boss, transform, zombie) in &mut bosses {
+        if boss.kind != BossKind::PackAlpha {
+            continue;
+        }
+        let (left, howls) = tick_howl(boss.howl_left, time.delta_secs());
+        boss.howl_left = left;
+        if !howls {
+            continue;
+        }
+        let alive = hounds.iter().filter(|hound| hound.is_hellhound()).count() as u32;
+        let calling = pack_to_call(alive);
+        if calling == 0 {
+            continue;
+        }
+        let feet = feet_of(transform, zombie);
+        cues.write(PlayCue::new(Cue::BossHowl, Some(transform.translation)));
+        for i in 0..calling {
+            // Spread evenly round the Alpha, with a little jitter so they don't line up.
+            let angle = TAU * (i as f32 + rand::random_range(0.0..0.5)) / calling as f32;
+            let dist = rand::random_range(HELLHOUND_AROUND_MIN_DIST..HELLHOUND_AROUND_MAX_DIST);
+            let at = feet + Vec3::new(angle.cos(), 0.0, angle.sin()) * dist;
+            spawns.write(pack_request(round.number, round.hellhound_tier(), at));
+        }
+    }
+}
+
+/// With the Pack Alpha dead, its pack dies with it, Unpaid, through `DamageZombie`. A hound still
+/// in its lightning can't be hurt, so it goes the moment its strike is over.
+pub fn pack_dies_with_alpha(
+    bosses: Query<&Boss, Without<Dying>>,
+    pack: Query<(Entity, &Zombie), (With<Requested>, Without<Heavyweight>, Without<Dying>, Without<Telegraph>)>,
+    mut damage: MessageWriter<DamageZombie>,
+) {
+    if bosses.iter().any(|boss| boss.kind == BossKind::PackAlpha) {
+        return;
+    }
+    for (hound, zombie) in &pack {
+        if zombie.is_hellhound() {
+            damage.write(DamageZombie {
+                player: None,
+                zombie: hound,
+                damage: f32::INFINITY,
+                zone: HitZone::Torso,
+                attack: Attack::AmmoMod(Pay::Unpaid),
+            });
+        }
+    }
 }
 
 /// A Boss's death pays every Player its Points and drops a Max Ammo where it fell.
 pub fn boss_deaths(
-    deaths: Query<&Transform, (With<Boss>, Added<Dying>)>,
+    deaths: Query<(&Transform, &Zombie), (With<Boss>, Added<Dying>)>,
     round: Res<Round>,
     players: Query<Entity, With<Player>>,
     mut bonus: MessageWriter<BonusPoints>,
     mut drops: MessageWriter<DropPowerUp>,
 ) {
-    for transform in &deaths {
+    for (transform, zombie) in &deaths {
         for player in &players {
             bonus.write(BonusPoints { player, amount: boss_points(round.number) });
         }
-        let feet = feet_of(transform);
+        let feet = feet_of(transform, zombie);
         drops.write(DropPowerUp { at: feet, power_up: Some(PowerUp::MaxAmmo) });
     }
 }
@@ -680,11 +791,112 @@ mod tests {
     }
 
     #[test]
-    fn the_bloater_stands_in_for_every_boss_until_the_others_are_built() {
-        for round in [10, 20, 30, 40, 50, 60] {
+    fn act_two_comes_the_pack_alpha_and_the_bloater_stands_in_for_the_warden() {
+        for round in [10, 40] {
             assert_eq!(spawned_boss(round), Some(BossKind::Bloater), "round {round}");
         }
+        for round in [20, 50] {
+            assert_eq!(spawned_boss(round), Some(BossKind::PackAlpha), "round {round}");
+        }
+        for round in [30, 60] {
+            assert_eq!(spawned_boss(round), Some(BossKind::Bloater), "the Warden's stand-in, round {round}");
+        }
         assert_eq!(spawned_boss(15), None);
+    }
+
+    #[test]
+    fn the_pack_alpha_is_a_boss_hellhound_that_holds_the_round() {
+        let request = boss_request(BossKind::PackAlpha, 20);
+        assert_eq!(request.kind, RequestedKind::Hellhound);
+        assert_eq!(request.scale, GAUNTLET_PACK_ALPHA_SCALE);
+        assert_eq!(request.health_factor, 40.0, "the Act 2 multiplier on the Round's base health");
+        assert_eq!(request.at, SpawnAt::BarrierInActiveZone);
+        assert!(request.holds_round);
+        assert_eq!(request.heavyweight, Some(BOSS_SHARE));
+        assert_eq!(request.profile, SpawnProfile::default(), "a Hellhound has no Napalm options");
+    }
+
+    #[test]
+    fn the_bloaters_request_is_unchanged() {
+        let request = boss_request(BossKind::Bloater, 10);
+        assert_eq!((request.kind, request.scale, request.health_factor), (RequestedKind::Napalm, GAUNTLET_BLOATER_SCALE, 30.0));
+        assert!(request.holds_round && !request.profile.detonates);
+    }
+
+    #[test]
+    fn a_howl_calls_a_full_pack_but_never_more_than_eight_alive() {
+        let called: Vec<u32> = [0, 1, 4, 5, 6, 8, 9].into_iter().map(pack_to_call).collect();
+        assert_eq!(called, [4, 4, 4, 3, 2, 0, 0]);
+    }
+
+    #[test]
+    fn the_alpha_howls_every_twenty_seconds() {
+        let (mut left, mut howls) = (GAUNTLET_PACK_ALPHA_HOWL_SECS, Vec::new());
+        for second in 1..=60 {
+            let (next, howled) = tick_howl(left, 1.0);
+            left = next;
+            if howled {
+                howls.push(second);
+            }
+        }
+        assert_eq!(howls, [20, 40, 60]);
+        assert_eq!(tick_howl(1.0, 0.5), (0.5, false));
+    }
+
+    #[test]
+    fn the_pack_sits_outside_the_horde_at_the_latest_hellhound_health() {
+        use crate::enemies::request::requested_health;
+        let at = Vec3::new(1.0, 0.0, 2.0);
+        for (round, tier) in [(20, 3), (20, 9), (50, 12)] {
+            let request = pack_request(round, tier, at);
+            assert_eq!(request.kind, RequestedKind::Hellhound);
+            assert!(!request.holds_round, "the pack never holds the Round");
+            assert_eq!(request.heavyweight, None, "no Boss Share");
+            assert_eq!(request.at, SpawnAt::Point(at));
+            let health = requested_health(round, request.health_factor);
+            assert!((health - hellhound_health(tier)).abs() < 0.01, "round {round} tier {tier}: {health}");
+        }
+        assert_eq!(hellhound_health(9), 1600.0, "the latest tier covers every later Round");
+    }
+
+    /// The pack's damage messages once the system has run over `alpha` and a pack of one hound.
+    fn pack_damage(alpha: impl FnOnce(&mut EntityWorldMut)) -> Vec<(Entity, Attack, f32)> {
+        let mut app = App::new();
+        app.add_message::<DamageZombie>().add_systems(Update, pack_dies_with_alpha);
+        let boss = Boss { kind: BossKind::PackAlpha, marks_left: Vec::new(), last_share: 1.0, howl_left: 5.0 };
+        alpha(&mut app.world_mut().spawn(boss));
+        let hound = app.world_mut().spawn((Requested, Zombie::hellhound(100.0, Vec3::ZERO))).id();
+        // A Hellhound of the Horde, and a Heavyweight one, are never the pack.
+        app.world_mut().spawn(Zombie::hellhound(100.0, Vec3::ZERO));
+        app.world_mut().spawn((Requested, BOSS_SHARE, Zombie::hellhound(100.0, Vec3::ZERO)));
+        app.update();
+        let hits: Vec<_> = app.world_mut().resource_mut::<Messages<DamageZombie>>().drain().collect();
+        assert!(hits.iter().all(|hit| hit.zombie == hound && hit.player.is_none()));
+        hits.iter().map(|hit| (hit.zombie, hit.attack, hit.damage)).collect()
+    }
+
+    #[test]
+    fn the_pack_lives_while_the_alpha_does() {
+        assert!(pack_damage(|_| {}).is_empty());
+    }
+
+    #[test]
+    fn the_pack_dies_unpaid_when_the_alpha_dies() {
+        let hits = pack_damage(|alpha| {
+            alpha.insert(Dying::default());
+        });
+        assert_eq!(hits.len(), 1);
+        assert_eq!((hits[0].1, hits[0].2), (Attack::AmmoMod(Pay::Unpaid), f32::INFINITY));
+    }
+
+    #[test]
+    fn a_pack_hound_left_with_no_living_alpha_dies_too() {
+        let mut app = App::new();
+        app.add_message::<DamageZombie>().add_systems(Update, pack_dies_with_alpha);
+        app.world_mut().spawn((Requested, Zombie::hellhound(100.0, Vec3::ZERO)));
+        // No living Alpha, whether it's dying or already gone, is what ends the pack.
+        app.update();
+        assert_eq!(app.world_mut().resource_mut::<Messages<DamageZombie>>().drain().count(), 1);
     }
 
     #[test]
@@ -698,7 +910,7 @@ mod tests {
     /// Boss health is the Round's base Zombie health × the Act's multiplier.
     #[test]
     fn boss_health_comes_from_the_base_round_health() {
-        use crate::enemies::request::requested_health;
+use crate::enemies::request::requested_health;
         assert_eq!(requested_health(10, boss_health_factor(10)), 1045.0 * 30.0);
         assert_eq!(requested_health(30, boss_health_factor(30)), 7000.0 * 50.0);
     }
@@ -745,6 +957,8 @@ mod tests {
         set_up(grow_bursts);
         set_up(bloater_bursts);
         set_up(spawn_boss);
+        set_up(pack_howls);
+        set_up(pack_dies_with_alpha);
         set_up(boss_deaths);
         set_up(clear_boss_rounds);
     }
