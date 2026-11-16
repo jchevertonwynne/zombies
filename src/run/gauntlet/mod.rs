@@ -7,7 +7,7 @@
 //! system here that touches a Run runs only when `Mode == Gauntlet`; the Armory and the save file
 //! live in the menus.
 
-mod arc;
+pub(crate) mod arc;
 mod armory;
 pub mod boon;
 mod commendations;
@@ -75,6 +75,7 @@ use pact::{
 use progress::{GauntletFile, rounds_completed, scrip_for_rounds};
 pub use boon::HeldBoons;
 pub use elite::{Elite, EliteTrait};
+pub use arc::{Boss, BossView, BurstView, boss_of};
 pub use pact::HeldPacts;
 use screen::{OfferCard, SkipButton};
 use heat::RunHeat;
@@ -319,6 +320,7 @@ impl Plugin for GauntletPlugin {
             .init_resource::<crate::audio::RoundStartCue>()
             .add_message::<PickRound>()
             .init_resource::<arc::BossPlan>()
+            .init_resource::<arc::BossView>()
             .init_resource::<armory::ArmoryTab>()
             .init_resource::<armory::ArmoryNote>()
             .add_systems(Startup, load_progress)
@@ -446,7 +448,6 @@ impl Plugin for GauntletPlugin {
                 (
                     (
                         arc::extend_reserved,
-                        arc::plan_boss,
                         arc::spawn_boss.run_if(world_runs),
                         arc::tag_boss,
                         arc::bloater_bursts,
@@ -459,7 +460,14 @@ impl Plugin for GauntletPlugin {
                     )
                         .chain()
                         .in_set(HostSimulation),
-                    arc::update_boss_hud,
+                    (
+                        arc::plan_boss,
+                        arc::count_boss_warning.run_if(world_runs).before(arc::spawn_boss),
+                        arc::fill_boss_view.in_set(HostSimulation),
+                        arc::update_boss_hud,
+                    )
+                        .chain(),
+                    arc::draw_burst_views.run_if(in_state(Authority::Client)),
                 )
                     .run_if(in_state(GameState::Playing))
                     .run_if(gauntlet),
@@ -580,6 +588,7 @@ fn reset(mut commands: Commands) {
     commands.insert_resource(sets::SetFlashes::default());
     commands.insert_resource(RunArc::default());
     commands.insert_resource(arc::BossPlan::default());
+    commands.insert_resource(arc::BossView::default());
     commands.insert_resource(RoundVariety::default());
     commands.insert_resource(crate::audio::RoundStartCue::default());
 }

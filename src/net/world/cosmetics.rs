@@ -16,8 +16,10 @@ use crate::run::gauntlet::sets::SetBonuses;
 /// Frost has to outlast what was last told by more than this for it to be told again.
 const FROST_RETELL_SECS: f32 = 0.5;
 
-/// The cues the Host makes for what only it simulates, and so tells: an Ammo Mod's sound.
-const SHARED_CUES: [Cue; 5] = [
+/// The cues the Host makes for what only it simulates, and so tells: an Ammo Mod's sound, the
+/// Pack Alpha's howl.
+const SHARED_CUES: [Cue; 6] = [
+    Cue::BossHowl,
     Cue::AmmoModBlastFurnace,
     Cue::AmmoModDeadWire,
     Cue::AmmoModFireworks,
@@ -163,6 +165,7 @@ mod tests {
             Fx::Proc { .. } => world.resource::<ProcFlashes>().showing(),
             Fx::Ring { .. } => world.query::<&FrostPatch>().iter(world).count(),
             Fx::Arc { .. } => world.query::<&ShellView>().iter(world).count(),
+            Fx::GrowingRing { .. } => world.query::<&crate::run::gauntlet::BurstView>().iter(world).count(),
             _ => world.resource::<SetFlashes>().showing(),
         }
     }
@@ -231,6 +234,11 @@ mod tests {
     #[test]
     fn a_supply_drop_shell_flies_on_every_client() {
         reaches_every_client(Fx::Arc { from: AT, to: AT + Vec3::new(8.0, 0.0, 0.0) });
+    }
+
+    #[test]
+    fn a_bloaters_burst_ring_shows_on_every_client() {
+        reaches_every_client(Fx::GrowingRing { at: AT, radius: 6.0, secs: 5.0 });
     }
 
     #[test]
@@ -319,9 +327,13 @@ mod tests {
         let before = run.world(1).resource::<Heard>().0.len();
         run.world(0).write_message(PlayCue::new(Cue::AmmoModDeadWire, Some(AT)));
         run.world(0).write_message(PlayCue::new(Cue::EliteSpawn, None));
+        run.world(0).write_message(PlayCue::new(Cue::BossHowl, Some(AT)));
+        run.world(0).write_message(PlayCue::new(Cue::BossWarning, None));
         run.step(5);
         let heard = &run.world(1).resource::<Heard>().0[before..];
         assert!(heard.contains(&Cue::AmmoModDeadWire));
+        assert!(heard.contains(&Cue::BossHowl), "the howl is the Host's alone to tell");
+        assert!(!heard.contains(&Cue::BossWarning), "the warning is inferred from the Round, not told");
         assert!(!heard.contains(&Cue::EliteSpawn));
     }
 }

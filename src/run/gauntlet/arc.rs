@@ -17,6 +17,7 @@ use bevy::picking::hover::Hovered;
 use super::boon::{BoonDef, HeldBoons, Rarity, RunFacts, draw, eligible, family_bias, offer_weight};
 use super::duos::duo_pool;
 use super::heat::RunHeat;
+use super::sets::SetFlashes;
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
 use crate::economy::points::BonusPoints;
@@ -302,6 +303,25 @@ pub struct BossPlan {
     asked: Option<f32>,
 }
 
+/// What the Boss HUD shows: which Boss lives and how much of its health is left. The Host fills it
+/// from the Boss itself (`fill_boss_view`), a client from the Host's `WorldEvent::BossHealth`.
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq)]
+pub struct BossView {
+    /// The Boss that is alive, if one is.
+    pub kind: Option<BossKind>,
+    /// Its health as a share of its maximum, from 0 to 1.
+    pub share: f32,
+}
+
+/// The Host's Boss HUD reads what the Boss is.
+pub fn fill_boss_view(boss: Query<(&Boss, &Zombie), Without<Dying>>, mut view: ResMut<BossView>) {
+    let now = match boss.iter().next() {
+        Some((boss, zombie)) => BossView { kind: Some(boss.kind), share: (zombie.health() / zombie.max_health()).clamp(0.0, 1.0) },
+        None => BossView::default(),
+    };
+    view.set_if_neq(now);
+}
+
 /// Seconds to wait for an asked-for Boss before asking again (there was no window to come in by).
 const BOSS_ASK_AGAIN_SECS: f32 = 2.0;
 
@@ -313,6 +333,13 @@ pub struct Boss {
     last_share: f32,
     /// Seconds to the Pack Alpha's next howl.
     howl_left: f32,
+}
+
+impl Boss {
+    /// The Boss `kind`, at full health and with all its phase marks ahead.
+    pub fn new(kind: BossKind) -> Self {
+        Self { kind, marks_left: kind.phase_marks().to_vec(), last_share: 1.0, howl_left: GAUNTLET_PACK_ALPHA_HOWL_SECS }
+    }
 }
 
 /// A Bloater's burst: a ring of fire growing from where it burst.
@@ -349,6 +376,19 @@ pub fn plan_boss(
     }
 }
 
+/// The Boss's warning counts down on every machine, for its banner; when it is over the Boss is
+/// due, which only the Host acts on (`spawn_boss`).
+pub fn count_boss_warning(mut plan: ResMut<BossPlan>, time: Res<Time>) {
+    let Some(left) = plan.warning.as_mut() else {
+        return;
+    };
+    *left -= time.delta_secs();
+    if *left <= 0.0 {
+        plan.warning = None;
+        plan.asked = Some(BOSS_ASK_AGAIN_SECS);
+    }
+}
+
 /// Once the warning is over, the Boss is asked for, through a window in an Active Zone, holding
 /// the Round open. Asked again if it doesn't come.
 pub fn spawn_boss(
@@ -359,15 +399,6 @@ pub fn spawn_boss(
     time: Res<Time>,
     heat: Res<RunHeat>,
 ) {
-    let dt = time.delta_secs();
-    if let Some(left) = plan.warning.as_mut() {
-        *left -= dt;
-        if *left > 0.0 {
-            return;
-        }
-        plan.warning = None;
-        plan.asked = Some(BOSS_ASK_AGAIN_SECS);
-    }
     let Some(waited) = plan.asked.as_mut() else {
         return;
     };
@@ -375,7 +406,7 @@ pub fn spawn_boss(
         plan.asked = None;
         return;
     }
-    *waited += dt;
+    *waited += time.delta_secs();
     if *waited < BOSS_ASK_AGAIN_SECS || round.phase != RoundPhase::Active {
         return;
     }
@@ -396,10 +427,7 @@ pub fn tag_boss(
             continue;
         };
         plan.asked = None;
-        commands.entity(entity).insert(Boss { kind, marks_left: kind.phase_marks().to_vec(),
-            last_share: 1.0,
-            howl_left: GAUNTLET_PACK_ALPHA_HOWL_SECS,
-        });
+        commands.entity(entity).insert(Boss::new(kind));
     }
 }
 
@@ -407,6 +435,7 @@ pub fn tag_boss(
 pub fn bloater_bursts(
     mut commands: Commands,
     mut bosses: Query<(&mut Boss, &Zombie, &Transform), Without<Dying>>,
+    mut flashes: ResMut<SetFlashes>,
 ) {
     for (mut boss, zombie, transform) in &mut bosses {
         let share = (zombie.health() / zombie.max_health()).max(0.0);
@@ -417,7 +446,9 @@ pub fn bloater_bursts(
         }
         boss.marks_left.retain(|&mark| mark < share);
         if boss.kind == BossKind::Bloater {
-            commands.spawn((InRun, Burst { centre: feet_of(transform, zombie), age: 0.0, hit: Vec::new() }));
+            let centre = feet_of(transform, zombie);
+            commands.spawn((InRun, Burst { centre, age: 0.0, hit: Vec::new() }));
+            flashes.tell_burst_ring(centre);
         }
     }
 }
@@ -466,10 +497,43 @@ pub fn grow_bursts(
                 }
             }
         }
-        let ring = Isometry3d::new(centre + Vec3::Y * 0.1, Quat::from_rotation_x(FRAC_PI_2));
-        gizmos.circle(ring, radius, Color::srgb(1.0, 0.45, 0.1));
-        gizmos.circle(ring, radius * 0.97, Color::srgb(1.0, 0.8, 0.3));
+        draw_burst_ring(&mut gizmos, centre, radius);
         if burst.age >= GAUNTLET_BLOATER_BURST_SECS {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+/// A burst's ring of fire, `radius` wide round `centre`.
+fn draw_burst_ring(gizmos: &mut Gizmos, centre: Vec3, radius: f32) {
+    let ring = Isometry3d::new(centre + Vec3::Y * 0.1, Quat::from_rotation_x(FRAC_PI_2));
+    gizmos.circle(ring, radius, Color::srgb(1.0, 0.45, 0.1));
+    gizmos.circle(ring, radius * 0.97, Color::srgb(1.0, 0.8, 0.3));
+}
+
+/// A Bloater's burst as a client sees it: the ring the Host told of, growing and gone. It hurts no
+/// one; the Host's `Burst` does that.
+#[derive(Component, Debug)]
+pub struct BurstView {
+    centre: Vec3,
+    radius: f32,
+    secs: f32,
+    age: f32,
+}
+
+impl BurstView {
+    pub fn new(centre: Vec3, radius: f32, secs: f32) -> Self {
+        Self { centre, radius, secs, age: 0.0 }
+    }
+}
+
+/// Grows and draws each burst ring the Host told of, and lets it go when it has grown.
+pub fn draw_burst_views(mut commands: Commands, mut views: Query<(Entity, &mut BurstView)>, mut gizmos: Gizmos, time: Res<Time>) {
+    for (entity, mut view) in &mut views {
+        view.age += time.delta_secs();
+        let radius = view.radius * (view.age / view.secs.max(f32::EPSILON)).min(1.0);
+        draw_burst_ring(&mut gizmos, view.centre, radius);
+        if view.age >= view.secs {
             commands.entity(entity).despawn();
         }
     }
@@ -740,9 +804,10 @@ pub fn spawn_boss_hud(mut commands: Commands) {
 }
 
 /// The warning banner shows while the Boss's warning runs; the bar shows while the Boss lives.
+/// It reads only `BossPlan` (set from the Round) and `BossView`, whichever machine it is on.
 pub fn update_boss_hud(
     plan: Res<BossPlan>,
-    boss: Query<(&Boss, &Zombie), Without<Dying>>,
+    view: Res<BossView>,
     mut bar: Single<&mut Visibility, (With<BossBar>, Without<BossWarningBanner>, Without<BossBarMark>)>,
     mut name: Single<&mut Text, (With<BossBarName>, Without<BossWarningBanner>)>,
     mut fill: Single<&mut Node, (With<BossBarFill>, Without<BossBarMark>)>,
@@ -759,17 +824,16 @@ pub fn update_boss_hud(
             banner_visibility.set_if_neq(Visibility::Hidden);
         }
     }
-    let Some((boss, zombie)) = boss.iter().next() else {
+    let Some(kind) = view.kind else {
         bar.set_if_neq(Visibility::Hidden);
         return;
     };
     bar.set_if_neq(Visibility::Inherited);
-    if name.0 != boss.kind.name() {
-        name.0 = boss.kind.name().to_string();
+    if name.0 != kind.name() {
+        name.0 = kind.name().to_string();
     }
-    let share = (zombie.health() / zombie.max_health()).clamp(0.0, 1.0);
-    fill.width = percent(share * 100.0);
-    let phase_marks = boss.kind.phase_marks();
+    fill.width = percent(view.share.clamp(0.0, 1.0) * 100.0);
+    let phase_marks = kind.phase_marks();
     for (&BossBarMark(index), mut node, mut visibility) in &mut marks {
         match phase_marks.get(index) {
             Some(&mark) => {
@@ -992,6 +1056,74 @@ use crate::enemies::request::requested_health;
         assert_eq!(marks_crossed(&marks, 0.2, 0.0), 0);
     }
 
+    fn boss_app() -> App {
+        let mut app = App::new();
+        app.add_message::<RoundStarted>()
+            .add_message::<PlayCue>()
+            .init_resource::<BossPlan>()
+            .init_resource::<Time>()
+            .insert_resource(Round::shown(20, None))
+            .add_systems(Update, (plan_boss, count_boss_warning).chain());
+        app
+    }
+
+    #[test]
+    fn a_boss_rounds_warning_and_name_come_from_the_round_alone_on_any_machine() {
+        let mut app = boss_app();
+        app.world_mut().write_message(RoundStarted);
+        app.update();
+        let plan = app.world().resource::<BossPlan>();
+        assert_eq!((plan.kind, plan.warning.is_some()), (Some(BossKind::PackAlpha), true));
+        assert_eq!(app.world().resource::<Messages<PlayCue>>().iter_current_update_messages().filter(|cue| cue.cue == Cue::BossWarning).count(), 1);
+    }
+
+    #[test]
+    fn a_plain_rounds_start_plans_no_boss_and_no_warning() {
+        let mut app = boss_app();
+        app.insert_resource(Round::shown(7, None));
+        app.world_mut().write_message(RoundStarted);
+        app.update();
+        let plan = app.world().resource::<BossPlan>();
+        assert_eq!((plan.kind, plan.warning), (None, None));
+        assert_eq!(app.world().resource::<Messages<PlayCue>>().len(), 0);
+    }
+
+    #[test]
+    fn the_warning_counts_down_to_asking_for_the_boss() {
+        let mut app = boss_app();
+        app.world_mut().write_message(RoundStarted);
+        app.update();
+        app.world_mut().resource_mut::<BossPlan>().warning = Some(0.0);
+        app.update();
+        let plan = app.world().resource::<BossPlan>();
+        assert_eq!((plan.warning, plan.asked), (None, Some(BOSS_ASK_AGAIN_SECS)));
+    }
+
+    #[test]
+    fn the_boss_view_follows_the_boss_and_empties_when_it_dies() {
+        let mut app = App::new();
+        app.init_resource::<BossView>().add_systems(Update, fill_boss_view);
+        let mut zombie = Zombie::hellhound(100.0, Vec3::ZERO);
+        zombie.scale_health(1.0);
+        let boss = app.world_mut().spawn((Boss::new(BossKind::PackAlpha), zombie)).id();
+        app.update();
+        assert_eq!(*app.world().resource::<BossView>(), BossView { kind: Some(BossKind::PackAlpha), share: 1.0 });
+        app.world_mut().entity_mut(boss).insert(Dying::default());
+        app.update();
+        assert_eq!(*app.world().resource::<BossView>(), BossView::default());
+    }
+
+    #[test]
+    fn a_bloaters_burst_is_told_as_one_growing_ring_for_the_whole_burst() {
+        use crate::net::fx::Fx;
+        let mut flashes = SetFlashes::default();
+        flashes.tell_burst_ring(Vec3::new(1.0, 0.0, 2.0));
+        assert_eq!(
+            flashes.sent,
+            [Fx::GrowingRing { at: Vec3::new(1.0, 0.0, 2.0), radius: GAUNTLET_BLOATER_BURST_RADIUS_M, secs: GAUNTLET_BLOATER_BURST_SECS }]
+        );
+    }
+
     /// Bevy checks a system's queries for clashing access as it's set up, which would otherwise
     /// only show as a panic when a Gauntlet Run starts.
     #[test]
@@ -1005,6 +1137,10 @@ use crate::enemies::request::requested_health;
         set_up(grow_bursts);
         set_up(bloater_bursts);
         set_up(spawn_boss);
+        set_up(count_boss_warning);
+        set_up(plan_boss);
+        set_up(fill_boss_view);
+        set_up(draw_burst_views);
         set_up(pack_howls);
         set_up(pack_dies_with_alpha);
         set_up(boss_deaths);

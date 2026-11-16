@@ -579,6 +579,76 @@ fn each_special_zombie_has_its_own_body_on_the_client() {
     }
 }
 
+/// The Warden's helmet re-forms on a client's Sapper puppet when the Host's does, as it came off.
+#[test]
+fn the_wardens_helmet_re_forms_on_the_client_puppet() {
+    let mut run = Run::new(1, 2, 0.0, 0);
+    run.special(crate::maps::map::PLAYER_START + Vec3::new(8.0, 0.0, 4.0), SpecialKind::Sapper);
+    run.step(IDLE, 120);
+    let helmet = |run: &mut Run, on: usize| {
+        let world = run.apps[on].world_mut();
+        let mut sappers = world.query::<&Sapper>();
+        let sapper = sappers.single(world).unwrap();
+        sapper.helmet_lost()
+    };
+    assert!(!helmet(&mut run, 1), "dressed with its helmet");
+    run.apps[0]
+        .world_mut()
+        .run_system_once(|mut commands: Commands, mut sappers: Query<&mut Sapper>| {
+            sappers.single_mut().unwrap().lose_helmet(&mut commands);
+        })
+        .unwrap();
+    run.step(IDLE, 80);
+    assert!(helmet(&mut run, 1), "off with the Host's");
+    run.apps[0]
+        .world_mut()
+        .run_system_once(|mut commands: Commands, assets: SapperAssetsParam, mut sappers: Query<&mut Sapper>| {
+            sappers.single_mut().unwrap().regain_helmet(&mut commands, &assets);
+        })
+        .unwrap();
+    run.step(IDLE, 80);
+    assert!(!helmet(&mut run, 0));
+    assert!(!helmet(&mut run, 1), "back on");
+}
+
+/// Each Boss is told by the Boss bit, and its puppet is the Boss's size on every client; a Hellhound
+/// is told of by name only for the Pack Alpha, and one that is no Boss stays the usual size.
+#[test]
+fn each_boss_is_its_size_on_every_client_and_the_pack_alpha_is_told_by_name() {
+    use crate::net::state::{is_boss, unpack_special};
+    use crate::net::zombies::Horde;
+    use crate::run::gauntlet::Boss;
+    use crate::run::gauntlet::arc::BossKind;
+    let mut run = Run::new(2, 2, 0.0, 0);
+    let start = crate::maps::map::PLAYER_START;
+    let bloater = run.special(start + Vec3::new(8.0, 0.0, 4.0), SpecialKind::Napalm);
+    let warden = run.special(start + Vec3::new(11.0, 0.0, 4.0), SpecialKind::Sapper);
+    let alpha = run.hellhound(start + Vec3::new(-8.0, 0.0, 4.0));
+    let pup = run.hellhound(start + Vec3::new(-8.0, 0.0, 7.0));
+    for (entity, kind) in [(bloater, BossKind::Bloater), (warden, BossKind::Warden), (alpha, BossKind::PackAlpha)] {
+        run.apps[0].world_mut().entity_mut(entity).insert(Boss::new(kind));
+    }
+    run.step(IDLE, 240);
+    let id = |run: &Run, entity: Entity| run.apps[0].world().resource::<ZombieIds>().id(entity).unwrap();
+    let ids = [bloater, warden, alpha, pup].map(|entity| id(&run, entity));
+    let told: Vec<_> = ids
+        .iter()
+        .map(|&id| run.apps[0].world().resource::<Horde>().specials.iter().find(|s| s.id == id).map(|s| s.body))
+        .collect();
+    assert_eq!(told[2].map(|body| (is_boss(body), unpack_special(body).map(|(body, _)| body))), Some((true, Some(crate::net::state::SpecialBody::Hellhound))));
+    assert!(told[0].is_some_and(is_boss) && told[1].is_some_and(is_boss));
+    assert_eq!(told[3], None, "an ordinary Hellhound is told of by no name");
+    for on in 1..=2 {
+        let world = run.apps[on].world_mut();
+        let mut query = world.query::<(&ZombieId, &Transform, &Zombie)>();
+        let mut scale_of = |id: u16| query.iter(world).find(|(held, ..)| held.0 == id).map(|(_, t, z)| (t.scale.x, z.half_height()));
+        assert_eq!(scale_of(ids[0]).map(|s| s.0), Some(GAUNTLET_BLOATER_SCALE), "machine {on} Bloater");
+        assert_eq!(scale_of(ids[1]).map(|s| s.0), Some(GAUNTLET_WARDEN_SCALE), "machine {on} Warden");
+        assert_eq!(scale_of(ids[2]).map(|s| s.0), Some(GAUNTLET_PACK_ALPHA_SCALE), "machine {on} Pack Alpha");
+        assert_eq!(scale_of(ids[3]).map(|s| s.0), Some(1.0), "machine {on} ordinary hound");
+    }
+}
+
 /// A Hellhound still in its lightning strike on the Host is in it on a client, and out when the
 /// Host has it out.
 #[test]

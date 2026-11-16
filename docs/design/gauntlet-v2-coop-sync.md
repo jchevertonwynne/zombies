@@ -122,6 +122,8 @@ A trait is fixed at spawn and never changes, so it goes once over the reliable s
 
 ### 3.3 Bosses
 
+*Done in #396: `SpecialSight.body` bit 4 (`BOSS_BIT`) and body code 5 (`SpecialBody::Hellhound`), puppet scale and the Warden's `regain_helmet` inferred, `BossPlan` set on every machine from `RoundStarted`, `BossView` filled by the Host from the `Boss` and by clients from `WorldEvent::BossHealth(u8)`, `BossHowl` in the shared cues and `Fx::GrowingRing` for the Bloater's burst. `PROTOCOL` is 8; the worst-case snapshot is unchanged.*
+
 | Gap | Verdict | Bytes |
 |---|---|---|
 | Which puppet is the Boss | **COMPRESS**: `SpecialSight.body` bit 4 = Boss. The Pack Alpha, a hound, gets a specials entry with the new body code 5 (Hellhound). It takes the Boss slot already counted in the specials worst case of 9 (slot 1, Sapper 1, Boss 1, Nova 6). | 0 against the ledger |
