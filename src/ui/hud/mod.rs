@@ -294,6 +294,7 @@ impl Plugin for HudPlugin {
                 Update,
                 (
                     effect_overlays,
+                    fade_crosshair,
                     (round_counter_text, perk_row, stance_icon),
                     (flash_points, points_text, spawn_popups, animate_popups).chain(),
                     (weapon_text, equipment_text),
@@ -363,6 +364,26 @@ fn row(gap: f32) -> Node {
     }
 }
 
+/// One of the two bars of the crosshair.
+#[derive(Component)]
+struct CrosshairBar;
+
+/// How opaque the crosshair is at the hip.
+const CROSSHAIR_ALPHA: f32 = 0.8;
+
+/// How opaque the crosshair is with the sights `aim` (0 hip to 1 aimed) of the way up: it fades
+/// out as they come up, so the sight picture is clear, and is gone once they are.
+fn crosshair_alpha(aim: f32) -> f32 {
+    CROSSHAIR_ALPHA * (1.0 - aim.clamp(0.0, 1.0))
+}
+
+fn fade_crosshair(player: Single<&Loadout, With<LocalPlayer>>, mut bars: Query<&mut BackgroundColor, With<CrosshairBar>>) {
+    let alpha = crosshair_alpha(player.aim);
+    for mut colour in &mut bars {
+        colour.0.set_alpha(alpha);
+    }
+}
+
 fn reset(mut banner: ResMut<Banner>, mut balance: ResMut<LastBalance>, mut flash: ResMut<PointsFlash>) {
     *banner = Banner::default();
     balance.0 = None;
@@ -383,13 +404,14 @@ fn spawn_hud(mut commands: Commands) {
         .with_children(|centre| {
             for (w, h) in [(14.0, 2.0), (2.0, 14.0)] {
                 centre.spawn((
+                    CrosshairBar,
                     Node {
                         position_type: PositionType::Absolute,
                         width: px(w),
                         height: px(h),
                         ..default()
                     },
-                    BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.8)),
+                    BackgroundColor(Color::srgba(1.0, 1.0, 1.0, CROSSHAIR_ALPHA)),
                 ));
             }
         });
@@ -982,6 +1004,18 @@ fn banner_text(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_crosshair_fades_out_as_the_sights_come_up() {
+        assert_eq!(crosshair_alpha(0.0), CROSSHAIR_ALPHA);
+        assert_eq!(crosshair_alpha(1.0), 0.0);
+        let mut last = CROSSHAIR_ALPHA;
+        for i in 1..=10 {
+            let alpha = crosshair_alpha(i as f32 / 10.0);
+            assert!(alpha < last, "still fading at {i}");
+            last = alpha;
+        }
+    }
 
     #[test]
     fn small_numbers_have_no_separator() {

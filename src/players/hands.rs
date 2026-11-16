@@ -125,11 +125,11 @@ fn left_alone(busy: f32) -> f32 {
 }
 
 /// How far the view model moves from the hip when `aim` (0 hip to 1 aimed) of the way up: over to
-/// the middle, raised until the sights (`sight_height` above the model's origin) are at the screen
-/// centre, and a little closer. Zero at the hip.
-pub fn aim_shift(aim: f32, sight_height: f32, busy: f32) -> Vec3 {
+/// the middle, moved until the sights (`sight` across and up from the model's origin) are at the
+/// screen centre, and a little closer. Zero at the hip.
+pub fn aim_shift(aim: f32, sight: Vec2, busy: f32) -> Vec3 {
     let amount = smoothstep(aim) * left_alone(busy);
-    Vec3::new(-HIP_SIDE, HIP_DROP - sight_height, AIM_CLOSER) * amount
+    Vec3::new(-HIP_SIDE - sight.x, HIP_DROP - sight.y, AIM_CLOSER) * amount
 }
 
 /// How much of its kick the Weapon keeps at `aim`: all of it at the hip, less when aimed.
@@ -493,10 +493,10 @@ mod tests {
 
     #[test]
     fn aiming_starts_and_ends_at_the_hip_and_never_jumps() {
-        assert_eq!(aim_shift(0.0, 0.08, 0.0), Vec3::ZERO);
+        assert_eq!(aim_shift(0.0, Vec2::new(0.0, 0.08), 0.0), Vec3::ZERO);
         let mut last = Vec3::ZERO;
         for i in 1..=100 {
-            let shift = aim_shift(i as f32 / 100.0, 0.08, 0.0);
+            let shift = aim_shift(i as f32 / 100.0, Vec2::new(0.0, 0.08), 0.0);
             assert!((shift - last).length() < 0.02, "jumped at {i}");
             last = shift;
         }
@@ -504,18 +504,21 @@ mod tests {
 
     #[test]
     fn aimed_the_sights_are_centred_and_close() {
-        let sights = 0.08;
-        // The view model's origin, aimed: the hip plus the shift.
-        let at = Vec3::new(HIP_SIDE, -HIP_DROP, 0.0) + aim_shift(1.0, sights, 0.0);
-        assert!(at.x.abs() < 1e-5, "under the crosshair");
-        assert!((at.y + sights).abs() < 1e-5, "so the sights are at the centre: {at}");
-        assert!(aim_shift(1.0, sights, 0.0).z > 0.0, "closer");
+        // Sights on the middle line, and ones off it to the right.
+        for sights in [Vec2::new(0.0, 0.08), Vec2::new(0.03, 0.11)] {
+            // The view model's origin, aimed: the hip plus the shift.
+            let at = Vec3::new(HIP_SIDE, -HIP_DROP, 0.0) + aim_shift(1.0, sights, 0.0);
+            assert!((at.x + sights.x).abs() < 1e-5, "so the sights are under the crosshair: {at}");
+            assert!((at.y + sights.y).abs() < 1e-5, "and at the centre: {at}");
+            assert!(aim_shift(1.0, sights, 0.0).z > 0.0, "closer");
+        }
     }
 
     #[test]
     fn aiming_gives_way_to_another_pose() {
-        assert_eq!(aim_shift(1.0, 0.08, 1.0), Vec3::ZERO);
-        assert!(aim_shift(1.0, 0.08, 0.5).length() < aim_shift(1.0, 0.08, 0.0).length());
+        let sights = Vec2::new(0.0, 0.08);
+        assert_eq!(aim_shift(1.0, sights, 1.0), Vec3::ZERO);
+        assert!(aim_shift(1.0, sights, 0.5).length() < aim_shift(1.0, sights, 0.0).length());
     }
 
     #[test]

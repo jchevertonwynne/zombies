@@ -50,6 +50,14 @@ const SHELLS: Color = Color::srgb(0.75, 0.12, 0.08);
 const BRASS: Color = Color::srgb(0.75, 0.6, 0.2);
 const SKIN: Color = Color::srgb(0.82, 0.62, 0.46);
 const SLEEVE: Color = Color::srgb(0.27, 0.31, 0.21);
+/// The red dot glowing inside a Red Dot Sight's hood.
+const RED_DOT: Color = Color::srgb(1.0, 0.12, 0.06);
+/// The blue lens at the front of an ACOG.
+const ACOG_LENS: Color = Color::srgb(0.3, 0.5, 0.75);
+/// How high a sniper's built-in scope sits: its tube's centre, where the eye looks through.
+const SCOPE_CENTRE: f32 = 0.085;
+/// How far above an optic's mount its reticle's centre is: the middle of its hood or tube.
+const OPTIC_CENTRE: f32 = 0.03;
 
 /// A moving part of a model in the hands: its mesh, and where it sits at rest.
 #[derive(Clone)]
@@ -99,6 +107,8 @@ pub struct GunModels {
     bottles: [Handle<Mesh>; 4],
     /// The left hand handling Equipment, by place in `Handheld::ALL`: the fist at the origin.
     handheld: [Handle<Mesh>; 4],
+    /// Where each model's own sights line up, by place in `WEAPONS`: see `Anchors::sight`.
+    sights: Vec<Vec2>,
     pub material: Handle<StandardMaterial>,
 }
 
@@ -126,12 +136,15 @@ impl GunModels {
         self.attachments[id as usize][slot].as_ref()
     }
 
-    /// How far above its origin the eye looks along when it's aimed: a fitted optic's centre, or
-    /// the tops of the iron sights, which stand about as high.
-    pub fn sight_height(&self, id: WeaponId) -> f32 {
-        // Every model marks where an optic sits, and fits every optic there.
-        let receiver = self.attachment(id, Attachment::RedDotSight).map_or(0.05, |optic| optic.rest.translation.y);
-        receiver + 0.03
+    /// Where the eye looks along when `id` is aimed with `fitted` on it, across and up from its
+    /// origin: a fitted optic's reticle centre, or else its own sights (the tip of the front post
+    /// or the middle of a built-in scope).
+    pub fn sight_point(&self, id: WeaponId, fitted: &[Attachment]) -> Vec2 {
+        let optic = fitted.iter().find(|a| matches!(a, Attachment::RedDotSight | Attachment::AcogSight));
+        match optic.and_then(|&optic| self.attachment(id, optic)) {
+            Some(part) => part.rest.translation.xy() + Vec2::Y * OPTIC_CENTRE,
+            None => self.sights[id as usize],
+        }
     }
 
     pub fn left_hand(&self, id: WeaponId) -> Option<&Part> {
@@ -161,9 +174,11 @@ impl FromWorld for GunModels {
         let mut attachments = Vec::new();
         let mut left_hand = Vec::new();
         let mut world_meshes = Vec::new();
+        let mut sight_points = Vec::new();
         for row in &WEAPONS {
             let mut gun = Gun::new(row.class);
             let hands = build(&mut gun, row.id, row.class);
+            sight_points.push(gun.sight());
             let mut add = |(mesh, rest): (Mesh, Transform)| Part { mesh: meshes.add(mesh), rest };
             let swapped = gun.magazine.as_ref().map(|(_, rest)| *rest);
             extended_magazine.push(swapped.map(|rest| add((extended(gun.magazine_size), rest))));
@@ -246,6 +261,7 @@ impl FromWorld for GunModels {
             palm,
             bottles,
             handheld,
+            sights: sight_points,
             material,
         }
     }
@@ -267,6 +283,10 @@ struct Gun {
 struct Anchors {
     /// The top of the receiver, where an optic's base sits.
     optic: Vec3,
+    /// Where its own sights line up, across and up from the origin: the tip of the front post, which
+    /// sits level with the rear notch's rim, or the middle of a built-in scope. Set by whatever
+    /// builds the sights, so it can't drift from them.
+    sight: Option<Vec2>,
     /// The middle of the muzzle's face, and the barrel's width and height there.
     muzzle: Vec3,
     bore: Vec2,
@@ -296,6 +316,7 @@ impl Gun {
         let half = 0.15 * model_length(class);
         Self {
             anchors: Anchors {
+                sight: None,
                 optic: Vec3::new(0.0, 0.05, 0.0),
                 muzzle: Vec3::new(0.0, 0.01, -half),
                 bore: Vec2::splat(0.025),
@@ -329,6 +350,30 @@ impl Gun {
 
     fn mesh(&self) -> Mesh {
         self.mesh.clone().expect("every Weapon has parts")
+    }
+
+    /// Where its sights line up. A Weapon that can't aim has none built, so it gets the height an
+    /// optic's reticle would have.
+    fn sight(&self) -> Vec2 {
+        self.anchors.sight.unwrap_or(self.anchors.optic.xy() + Vec2::Y * OPTIC_CENTRE)
+    }
+
+    /// A front sight: a `size` box centred `at`, whose top is where the sights line up. The first
+    /// one built counts (a dual-wield's second gun has its own, which doesn't).
+    fn front_sight(&mut self, size: Vec3, at: Vec3, colour: Color) -> &mut Self {
+        self.anchors.sight.get_or_insert(Vec2::new(at.x, at.y + size.y / 2.0));
+        self.part(size, at, colour)
+    }
+
+    /// A rear notch at `z` on `x`: a floor from `base` up, and an ear either side of the post's
+    /// gap, rising to `tip`, level with the front sight's top so the post shows inside it.
+    fn rear_notch(&mut self, x: f32, base: f32, tip: f32, z: f32) -> &mut Self {
+        let floor = tip - 0.018;
+        self.part(Vec3::new(0.03, floor - base, 0.012), Vec3::new(x, (base + floor) / 2.0, z), DARK);
+        for side in [-1.0, 1.0] {
+            self.part(Vec3::new(0.008, tip - floor, 0.012), Vec3::new(x + side * 0.0125, (floor + tip) / 2.0, z), DARK);
+        }
+        self
     }
 }
 
@@ -528,14 +573,14 @@ fn fitted(attachment: Attachment, anchors: &Anchors, swaps: bool) -> Option<Mesh
             model.part(Vec3::new(0.03, 0.012, 0.05), Vec3::new(0.0, 0.006, 0.0), DARK);
             // A square hood with the red dot glowing inside it.
             model.part(Vec3::new(0.036, 0.036, 0.028), Vec3::new(0.0, 0.03, 0.0), DARK);
-            model.part(Vec3::new(0.024, 0.024, 0.032), Vec3::new(0.0, 0.03, 0.0), Color::srgb(1.0, 0.12, 0.06));
+            model.part(Vec3::new(0.024, 0.024, 0.032), Vec3::new(0.0, OPTIC_CENTRE, 0.0), RED_DOT);
         }
         Attachment::AcogSight => {
             model.part(Vec3::new(0.03, 0.012, 0.06), Vec3::new(0.0, 0.006, 0.0), DARK);
             model.part(Vec3::new(0.036, 0.036, 0.11), Vec3::new(0.0, 0.03, 0.0), DARK);
             model.part(Vec3::new(0.048, 0.048, 0.035), Vec3::new(0.0, 0.03, -0.06), DARK);
             model.part(Vec3::new(0.042, 0.042, 0.02), Vec3::new(0.0, 0.03, 0.055), DARK);
-            model.part(Vec3::new(0.034, 0.034, 0.004), Vec3::new(0.0, 0.03, -0.079), Color::srgb(0.3, 0.5, 0.75));
+            model.part(Vec3::new(0.034, 0.034, 0.004), Vec3::new(0.0, OPTIC_CENTRE, -0.079), ACOG_LENS);
         }
         Attachment::LongBarrel => {
             model.part(Vec3::new(bore.x * 0.85, bore.y * 0.85, 0.13), Vec3::new(0.0, 0.0, -0.065), DARK);
@@ -583,10 +628,18 @@ fn fitted(attachment: Attachment, anchors: &Anchors, swaps: bool) -> Option<Mesh
     Some(model.mesh())
 }
 
-/// Iron sights: a post at the front and a notch at the back.
-fn sights(gun: &mut Gun, y: f32, front: f32, back: f32) {
-    gun.part(Vec3::new(0.012, 0.03, 0.012), Vec3::new(0.0, y + 0.015, front), DARK);
-    gun.part(Vec3::new(0.03, 0.025, 0.012), Vec3::new(0.0, y + 0.012, back), DARK);
+/// Iron sights standing on `y` at `x`: a post at the front and a notch at the back, the post's
+/// tip level with the notch's rim. Aiming puts the tip at the middle of the screen.
+fn sights(gun: &mut Gun, x: f32, y: f32, front: f32, back: f32) {
+    tall_sights(gun, x, y + 0.03, (y, front), (y, back));
+}
+
+/// Iron sights whose post tip and notch rim reach `tip`, the post standing on `front.0` at
+/// `front.1` and the notch on `back.0` at `back.1`: for a model whose top is higher up.
+fn tall_sights(gun: &mut Gun, x: f32, tip: f32, front: (f32, f32), back: (f32, f32)) {
+    let post = tip - front.0;
+    gun.front_sight(Vec3::new(0.012, post, 0.012), Vec3::new(x, front.0 + post / 2.0, front.1), DARK);
+    gun.rear_notch(x, back.0, tip, back.1);
 }
 
 /// Builds `id`'s model, of `class`, and says where the hands go.
@@ -601,12 +654,13 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
                     gun.part(Vec3::new(0.035, 0.04, 0.16), Vec3::new(x, 0.025, -0.07), STEEL);
                     gun.part(Vec3::new(0.06, 0.065, 0.08), Vec3::new(x, 0.01, 0.04), STEEL);
                     gun.part(Vec3::new(0.04, 0.05, 0.1), Vec3::new(x, 0.0, 0.1), STEEL);
-                    gun.part(Vec3::new(0.012, 0.025, 0.012), Vec3::new(x, 0.055, -0.14), STEEL);
+                    gun.front_sight(Vec3::new(0.012, 0.025, 0.012), Vec3::new(x, 0.055, -0.14), STEEL);
+                    gun.rear_notch(x, 0.025, 0.0675, 0.12);
                 } else {
                     gun.part(Vec3::new(0.055, 0.06, 0.3), Vec3::new(x, 0.02, 0.0), METAL);
                     gun.part(Vec3::new(0.05, 0.04, 0.2), Vec3::new(x, -0.03, -0.04), DARK);
                     gun.part(Vec3::new(0.03, 0.03, 0.02), Vec3::new(x, 0.02, -0.15), DARK);
-                    sights(gun, 0.05, -0.13, 0.13);
+                    sights(gun, x, 0.05, -0.13, 0.13);
                 }
                 gun.part(Vec3::new(0.012, 0.035, 0.06), Vec3::new(x, -0.06, 0.03), DARK);
                 grip(gun, Vec3::new(x, -0.09, 0.1), grips);
@@ -652,6 +706,8 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
             gun.part(Vec3::new(0.07, 0.065, 0.02), Vec3::new(0.0, -0.01, -0.03), STEEL);
             gun.part(Vec3::new(0.012, 0.045, 0.1), Vec3::new(0.0, 0.0, -0.09), STEEL);
             gun.part(Vec3::new(0.012, 0.025, 0.04), Vec3::new(0.0, 0.005, -0.15), STEEL);
+            // A little post on the guard to line up.
+            gun.front_sight(Vec3::new(0.012, 0.02, 0.012), Vec3::new(0.0, 0.0325, -0.03), STEEL);
             Hands {
                 right: Vec3::new(0.0, -0.04, 0.07),
                 left: Vec3::new(-0.05, -0.1, 0.12),
@@ -684,7 +740,7 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
                 gun.part(Vec3::new(0.012, 0.012, 0.13), Vec3::new(x, -0.01, half - 0.07), DARK);
             }
             gun.part(Vec3::new(0.06, 0.08, 0.02), Vec3::new(0.0, -0.02, half - 0.01), DARK);
-            sights(gun, 0.045, -0.15, 0.1);
+            sights(gun, 0.0, 0.045, -0.15, 0.1);
             Hands {
                 right: Vec3::new(0.0, -0.12, 0.09),
                 left: Vec3::new(0.0, -0.06, -0.15),
@@ -698,6 +754,7 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
                     gun.part(Vec3::new(0.04, 0.05, 0.14), Vec3::new(0.0, 0.1, -0.05), DARK);
                     gun.part(Vec3::new(0.02, 0.02, 0.06), Vec3::new(0.0, 0.0, -half + 0.02), DARK);
                     grip(gun, Vec3::new(0.0, -0.12, -0.02), DARK);
+                    tall_sights(gun, 0.0, 0.125, (0.075, -0.3), (0.075, 0.22));
                     gun.anchors.optic = Vec3::new(0.0, 0.125, -0.05);
                     gun.anchors.muzzle = Vec3::new(0.0, 0.0, -half - 0.01);
                     gun.anchors.under = Vec3::new(0.0, -0.075, -0.2);
@@ -724,6 +781,8 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
                     } else {
                         gun.part(Vec3::new(0.04, 0.04, 0.12), Vec3::new(0.0, 0.08, 0.0), DARK);
                     }
+                    let tip = if id == WeaponId::Famas { 0.105 } else { 0.1 };
+                    tall_sights(gun, 0.0, tip, (0.04, -0.22), (0.055, 0.2));
                     return Hands {
                         right: Vec3::new(0.0, -0.13, 0.0),
                         left: Vec3::new(0.0, -0.07, -0.18),
@@ -748,7 +807,7 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
             let curve = if matches!(id, WeaponId::Galil | WeaponId::Commando) { 0.3 } else { 0.12 };
             magazine(gun, -0.05, 0.15, curve, DARK);
             grip(gun, Vec3::new(0.0, -0.1, 0.07), if id == WeaponId::M14 { WOOD } else { DARK });
-            sights(gun, 0.05, -half + 0.06, 0.08);
+            sights(gun, 0.0, 0.05, -half + 0.06, 0.08);
             gun.anchors.under = Vec3::new(0.0, -0.045, -0.24);
             Hands {
                 right: Vec3::new(0.0, -0.13, 0.08),
@@ -764,6 +823,7 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
                 gun.part(Vec3::new(0.06, 0.035, 0.26), Vec3::new(0.0, -0.01, -0.12), WOOD);
                 gun.part(Vec3::new(0.06, 0.08, 0.1), Vec3::new(0.0, 0.0, 0.12), METAL);
                 gun.turned(Vec3::new(0.05, 0.1, 0.2), Vec3::new(0.0, -0.05, 0.25), Quat::from_rotation_x(0.2), WOOD);
+                sights(gun, 0.0, 0.035, -0.33, 0.12);
                 gun.anchors.optic = Vec3::new(0.0, 0.04, 0.12);
                 gun.anchors.muzzle = Vec3::new(0.0, 0.02, -0.34);
                 gun.anchors.bore = Vec2::new(0.064, 0.03);
@@ -798,7 +858,7 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
                     furniture,
                 );
             }
-            sights(gun, 0.045, -half + 0.03, 0.1);
+            sights(gun, 0.0, 0.045, -half + 0.03, 0.1);
             gun.anchors.optic = Vec3::new(0.0, 0.05, 0.06);
             gun.anchors.muzzle = Vec3::new(0.0, 0.025, -0.33);
             gun.anchors.bore = Vec2::splat(0.035);
@@ -815,7 +875,8 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
             gun.part(Vec3::new(0.065, 0.07, 0.22), Vec3::new(0.0, -0.01, -0.22), furniture);
             gun.part(Vec3::new(0.025, 0.025, 0.2), Vec3::new(0.0, 0.01, -half + 0.1), DARK);
             // The scope, with fat bells at each end.
-            gun.part(Vec3::new(0.035, 0.035, 0.22), Vec3::new(0.0, 0.085, 0.0), DARK);
+            gun.part(Vec3::new(0.035, 0.035, 0.22), Vec3::new(0.0, SCOPE_CENTRE, 0.0), DARK);
+            gun.anchors.sight = Some(Vec2::new(0.0, SCOPE_CENTRE));
             gun.part(Vec3::new(0.05, 0.05, 0.05), Vec3::new(0.0, 0.085, -0.12), DARK);
             gun.part(Vec3::new(0.045, 0.045, 0.04), Vec3::new(0.0, 0.085, 0.11), DARK);
             gun.part(Vec3::new(0.02, 0.04, 0.02), Vec3::new(0.0, 0.06, 0.0), DARK);
@@ -857,6 +918,8 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
             // A carry handle on top.
             gun.part(Vec3::new(0.02, 0.05, 0.1), Vec3::new(0.0, 0.09, -0.03), DARK);
             grip(gun, Vec3::new(0.0, -0.12, 0.1), DARK);
+            // Over the carry handle's top.
+            tall_sights(gun, 0.0, 0.115, (0.03, -0.38), (0.06, 0.15));
             // Behind the carry handle.
             gun.anchors.optic = Vec3::new(0.0, 0.06, 0.09);
             gun.anchors.bore = Vec2::splat(0.035);
@@ -872,7 +935,8 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
                 gun.part(Vec3::new(0.09, 0.09, 0.8), Vec3::new(0.0, 0.01, 0.0), OLIVE);
                 gun.part(Vec3::new(0.1, 0.1, 0.04), Vec3::new(0.0, 0.01, -half + 0.03), DARK);
                 gun.part(Vec3::new(0.1, 0.1, 0.04), Vec3::new(0.0, 0.01, half - 0.03), DARK);
-                gun.part(Vec3::new(0.02, 0.05, 0.02), Vec3::new(0.0, 0.08, -0.1), DARK);
+                gun.front_sight(Vec3::new(0.02, 0.05, 0.02), Vec3::new(0.0, 0.08, -0.1), DARK);
+                gun.rear_notch(0.0, 0.055, 0.105, 0.2);
                 gun.part(Vec3::new(0.035, 0.08, 0.04), Vec3::new(0.0, -0.08, 0.06), DARK);
                 return Hands {
                     right: Vec3::new(0.0, -0.12, 0.06),
@@ -885,7 +949,8 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
             gun.part(Vec3::new(0.045, 0.045, 0.4), Vec3::new(0.0, -0.04, -0.17), DARK);
             gun.part(Vec3::new(0.07, 0.06, 0.14), Vec3::new(0.0, -0.04, -0.2), WOOD);
             gun.turned(Vec3::new(0.05, 0.1, 0.24), Vec3::new(0.0, -0.04, half - 0.11), Quat::from_rotation_x(0.15), WOOD);
-            gun.part(Vec3::new(0.012, 0.06, 0.012), Vec3::new(0.0, 0.08, -0.28), DARK);
+            gun.front_sight(Vec3::new(0.012, 0.06, 0.012), Vec3::new(0.0, 0.08, -0.28), DARK);
+            gun.rear_notch(0.0, 0.05, 0.11, 0.12);
             grip(gun, Vec3::new(0.0, -0.1, 0.12), WOOD);
             Hands {
                 right: Vec3::new(0.0, -0.13, 0.13),
@@ -902,7 +967,8 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
                 gun.part(Vec3::new(0.09, 0.09, 0.015), Vec3::new(0.0, 0.01, z), glow);
             }
             gun.part(Vec3::new(0.12, 0.12, 0.02), Vec3::new(0.0, 0.01, -0.18), STEEL);
-            gun.part(Vec3::new(0.02, 0.05, 0.05), Vec3::new(0.0, 0.07, 0.1), red);
+            gun.front_sight(Vec3::new(0.014, 0.04, 0.014), Vec3::new(0.0, 0.075, -0.1), red);
+            gun.rear_notch(0.0, 0.05, 0.095, 0.1);
             grip(gun, Vec3::new(0.0, -0.1, 0.12), DARK);
             Hands {
                 right: Vec3::new(0.0, -0.13, 0.13),
@@ -922,7 +988,7 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
                     gun.part(Vec3::new(0.03, 0.12, 0.04), Vec3::new(x, 0.0, z), STEEL);
                 }
             }
-            gun.part(Vec3::new(0.04, 0.05, 0.2), Vec3::new(0.0, 0.1, 0.03), DARK);
+            tall_sights(gun, 0.0, 0.14, (0.11, -0.22), (0.075, 0.1));
             grip(gun, Vec3::new(0.0, -0.13, 0.12), WOOD);
             gun.part(Vec3::new(0.05, 0.1, 0.05), Vec3::new(0.0, -0.11, -0.1), WOOD);
             Hands {
@@ -944,7 +1010,7 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
                 );
             }
             gun.part(Vec3::new(0.012, 0.012, 0.34), Vec3::new(0.0, 0.035, -0.08), STEEL);
-            gun.part(Vec3::new(0.035, 0.035, 0.14), Vec3::new(0.0, 0.08, 0.02), DARK);
+            tall_sights(gun, 0.0, 0.075, (0.025, -0.22), (0.04, 0.06));
             grip(gun, Vec3::new(0.0, -0.09, 0.1), WOOD);
             Hands {
                 right: Vec3::new(0.0, -0.12, 0.1),
@@ -993,6 +1059,73 @@ mod tests {
             }
             let colours = mesh.attribute(Mesh::ATTRIBUTE_COLOR).expect("coloured per vertex");
             assert_eq!(colours.len(), mesh.count_vertices());
+        }
+    }
+
+    fn positions(mesh: &Mesh) -> Vec<[f32; 3]> {
+        let Some(VertexAttributeValues::Float32x3(positions)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) else {
+            panic!("no positions");
+        };
+        positions.clone()
+    }
+
+    /// The middle of the box that bounds the vertices of `mesh` painted `colour`.
+    fn centre_of(mesh: &Mesh, colour: Color) -> Vec2 {
+        let Some(VertexAttributeValues::Float32x4(colours)) = mesh.attribute(Mesh::ATTRIBUTE_COLOR) else {
+            panic!("not coloured per vertex");
+        };
+        let wanted = LinearRgba::from(colour).to_f32_array();
+        let (mut low, mut high) = (Vec2::splat(f32::MAX), Vec2::splat(f32::MIN));
+        for ([x, y, _], _) in positions(mesh).into_iter().zip(colours).filter(|(_, c)| **c == wanted) {
+            low = low.min(Vec2::new(x, y));
+            high = high.max(Vec2::new(x, y));
+        }
+        assert!(low.x <= high.x, "nothing is painted {colour:?}");
+        (low + high) / 2.0
+    }
+
+    #[test]
+    fn every_weapons_sight_point_is_where_its_sights_are() {
+        for row in &WEAPONS {
+            let mut gun = Gun::new(row.class);
+            build(&mut gun, row.id, row.class);
+            let sight = gun.sight();
+            let points = positions(&gun.mesh());
+            if row.class == WeaponClass::Sniper {
+                // Through a built-in scope: its tube's centre, with the scope's body round it.
+                assert_eq!(sight, Vec2::new(0.0, SCOPE_CENTRE), "{}", row.name);
+                assert!(points.iter().any(|p| p[1] > sight.y + 0.015 && p[0].abs() < 0.03), "{} scope top", row.name);
+                assert!(points.iter().any(|p| p[1] < sight.y - 0.015 && p[0].abs() < 0.03), "{} scope bottom", row.name);
+            } else {
+                // Over the iron sights: the post's tip is a corner of the model at the sight point.
+                let tip = points.iter().filter(|p| (p[1] - sight.y).abs() < 1e-5 && (p[0] - sight.x).abs() <= 0.01);
+                assert!(tip.count() >= 4, "{} has no front post tipping at {sight}", row.name);
+                assert!(gun.anchors.sight.is_some(), "{} never built sights", row.name);
+            }
+        }
+    }
+
+    #[test]
+    fn an_optic_fitted_to_any_weapon_has_its_reticle_at_the_sight_point() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Mesh>()
+            .init_asset::<StandardMaterial>()
+            .init_resource::<GunModels>();
+        let guns = app.world().resource::<GunModels>();
+        let meshes = app.world().resource::<Assets<Mesh>>();
+        for row in &WEAPONS {
+            for (optic, reticle) in [(Attachment::RedDotSight, RED_DOT), (Attachment::AcogSight, ACOG_LENS)] {
+                let Some(part) = guns.attachment(row.id, optic) else {
+                    continue;
+                };
+                let centre = centre_of(meshes.get(&part.mesh).unwrap(), reticle);
+                let sight = guns.sight_point(row.id, &[optic]);
+                let at = part.rest.translation.xy() + centre;
+                assert!((at - sight).length() < 1e-5, "{}'s {}: reticle at {at}, sight point {sight}", row.name, optic.name());
+            }
+            // Without one, the iron sights.
+            assert_eq!(guns.sight_point(row.id, &[Attachment::Grip]), guns.sights[row.id as usize], "{}", row.name);
         }
     }
 

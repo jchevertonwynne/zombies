@@ -1695,7 +1695,7 @@ fn animate_view_model(
     // Aiming and the sprint carry give way to a switch, a Perk, the Knife, Equipment and a Reload;
     // the carry to the sights coming up too.
     let busy = tucked.max((dip * 5.0).min(1.0)).max((reload.turn.angle_between(Quat::IDENTITY) / 0.4).min(1.0));
-    let aim_by = aim_shift(loadout.aim, guns.sight_height(shown_id), busy);
+    let aim_by = aim_shift(loadout.aim, guns.sight_point(shown_id, &fitted), busy);
     let (carry_by, carry_turn) = carry_pose(loadout.carry() * (1.0 - loadout.aim), busy);
     let kick = aimed_kick(model.kick, loadout.aim);
 
