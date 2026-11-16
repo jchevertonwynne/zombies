@@ -182,6 +182,15 @@ pub fn scaled_scrip(total: u64, heat: u32) -> u64 {
 pub struct RunHeat(pub [u32; 8]);
 
 impl RunHeat {
+    /// The Degrees a Host's Room carries, kept within each Condition's top Degree so that a
+    /// bad message can't set one the Run has no row for.
+    pub fn from_room(degrees: [u8; 8]) -> RunHeat {
+        RunHeat(std::array::from_fn(|at| {
+            let condition = Condition::ALL[at];
+            u32::from(degrees[at]).min(condition.max_degree())
+        }))
+    }
+
     pub fn degree(&self, condition: Condition) -> u32 {
         self.0[condition as usize]
     }

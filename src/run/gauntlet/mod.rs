@@ -12,7 +12,7 @@ mod armory;
 pub mod boon;
 mod commendations;
 mod duos;
-mod elite;
+pub(crate) mod elite;
 pub mod heat;
 pub mod kits;
 mod pact;
@@ -21,6 +21,8 @@ pub mod progress;
 mod screen;
 mod sets;
 mod tools;
+#[cfg(test)]
+pub(crate) use tools::reroll_price_from;
 mod variety;
 #[cfg(test)]
 mod coop_tests;
@@ -128,11 +130,11 @@ struct UnlockAll(bool);
 
 /// The Upgrade Track Ranks switched on as this Run began (0 to 25), for its Run Record.
 #[derive(Resource, Default)]
-struct ActiveRanks(u32);
+pub(crate) struct ActiveRanks(u32);
 
 /// The Kit this Run started with (Standard in Classic), fixed as the Run begins.
 #[derive(Resource, Default, Clone, Copy)]
-struct ChosenKit(Kit);
+pub(crate) struct ChosenKit(Kit);
 
 /// The Run Record line holding the active Rank count.
 const RANKS_RECORD_ID: &str = "upgrade_ranks";
@@ -1166,9 +1168,10 @@ fn reset_progress(mut file: ResMut<GauntletFile>) {
 /// the Run caps Turned allies at
 /// `GAUNTLET_TURNED_ALLY_CAP`, and its Boss Rounds are kept clear of Classic's own schedules. A
 /// Classic Run gets no entries, no cap and no reserved Rounds.
-fn set_run_modifiers(
+pub(crate) fn set_run_modifiers(
     mode: Res<Mode>,
     file: Res<GauntletFile>,
+    party: Option<Res<crate::run::party::Party>>,
     mut run: ResMut<RunModifiers>,
     mut ranks: ResMut<ActiveRanks>,
     mut cap: ResMut<TurnedAllyCap>,
@@ -1183,7 +1186,11 @@ fn set_run_modifiers(
         *start = chosen.0.starting_loadout();
         *cap = TurnedAllyCap(Some(GAUNTLET_TURNED_ALLY_CAP));
         reserved.0 = arc::boss_rounds_through(arc::win_round()).collect();
-        *heat = file.run_heat();
+        // In a Room every machine plays the Host's Degrees, not its own save's.
+        *heat = match &party {
+            Some(party) => RunHeat::from_room(party.heat()),
+            None => file.run_heat(),
+        };
     } else {
         *heat = RunHeat::default();
         run.0.clear();
