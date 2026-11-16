@@ -13,6 +13,7 @@ use crate::maps::power::Power;
 use crate::state::GameState;
 
 /// How far a part may stand out of its machine's box.
+#[cfg(test)]
 pub const PROUD: f32 = 0.1;
 
 /// How a part is painted: the Perk's own colour, or a fixed tone.
@@ -54,6 +55,7 @@ pub const STEEL: Material = Material::MetalPlate02;
 const PAINTED: Material = Material::RustyMetal02;
 
 /// The size of a Perk Machine's box.
+#[cfg(test)]
 pub const PERK_BODY: Vec3 = Vec3::new(1.2, 2.2, 0.9);
 
 /// A Perk Machine: one body for every Perk, which differs only by its paint, sign and light. A
@@ -77,6 +79,7 @@ pub fn perk_machine() -> Vec<Piece> {
 }
 
 /// The size of Pack-a-Punch's box.
+#[cfg(test)]
 pub const PUNCH_BODY: Vec3 = Vec3::new(1.6, 1.6, 0.9);
 
 /// Pack-a-Punch: a purple cabinet in steel corner posts on a steel base, a framed glow strip and a
@@ -101,6 +104,7 @@ pub fn pack_a_punch() -> Vec<Piece> {
 }
 
 /// The size of a Mystery Box's body.
+#[cfg(test)]
 pub const CRATE_BODY: Vec3 = Vec3::new(1.6, 0.8, 0.9);
 
 /// The Mystery Box as a wooden crate: weathered planks with steel straps, corner posts, a lid and
@@ -124,9 +128,6 @@ pub fn crate_box() -> Vec<Piece> {
     }
     pieces
 }
-
-/// The size of the Power Switch's box.
-pub const SWITCH_BODY: Vec3 = Vec3::new(0.8, 1.2, 0.3);
 
 /// The Power Switch's hazard header and the dark slot the lever swings over. Its face is its -Z.
 pub fn power_switch() -> Vec<Piece> {

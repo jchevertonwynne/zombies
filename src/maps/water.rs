@@ -229,6 +229,7 @@ pub fn shallow_all_round(layout: &Layout, tide: TideLevel, at: Vec3, radius: f32
 }
 
 /// The Zone of a pool that is Shallow over `feet`, if one is.
+#[cfg(test)]
 pub fn shallow_zone_at(layout: &Layout, tide: TideLevel, feet: Vec3) -> Option<crate::maps::zone::ZoneId> {
     let at = Vec2::new(feet.x, feet.z);
     layout

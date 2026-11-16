@@ -59,6 +59,7 @@ impl TidePhase {
 }
 
 /// The four phases, in the order the Tide turns through them.
+#[cfg(test)]
 pub const TIDE_PHASES: [TidePhase; 4] = [TidePhase::Low, TidePhase::Rising, TidePhase::High, TidePhase::Falling];
 
 /// A set of Tide levels, for a path edge that can only be walked at some of them.
@@ -66,11 +67,14 @@ pub const TIDE_PHASES: [TidePhase; 4] = [TidePhase::Low, TidePhase::Rising, Tide
 pub struct TideMask(pub u8);
 
 impl TideMask {
+    #[cfg(test)]
     pub const LOW: TideMask = TideMask(1);
+    #[cfg(test)]
     pub const MID: TideMask = TideMask(2);
-    pub const HIGH: TideMask = TideMask(4);
+    #[cfg(test)]
     pub const ALL: TideMask = TideMask(7);
 
+    #[cfg(test)]
     pub const fn or(self, other: TideMask) -> TideMask {
         TideMask(self.0 | other.0)
     }
@@ -80,6 +84,7 @@ impl TideMask {
     }
 
     /// The levels in it.
+    #[cfg(test)]
     pub fn levels(self) -> impl Iterator<Item = TideLevel> {
         TideLevel::ALL.into_iter().filter(move |&level| self.contains(level))
     }

@@ -1603,6 +1603,7 @@ pub const SPOT_LAMP_CONE: f32 = 1.45;
 pub const SHADOWED_LAMPS: usize = 2;
 /// Every point of a roofed Zone's floor, clear of the walls, is within about this many metres
 /// across the plan of a lamp in its Zone (#327).
+#[cfg(test)]
 pub const LAMP_REACH: f32 = 6.5;
 /// How much of its Zone's constant-colour light probe a roofed room gets, in cd/m2 (#327).
 pub const INDOOR_PROBE_BRIGHTNESS: f32 = 90.0;
@@ -2704,6 +2705,7 @@ pub const WATER_FOAM_WIDTH: f32 = 0.6;
 /// always lands in the surf.
 pub const WADING_DEEP_CLEARANCE: f32 = 1.5;
 /// How far, at most, a Wading Point is from the path node a risen Zombie sets off from.
+#[cfg(test)]
 pub const WADING_NAV_REACH: f32 = 3.5;
 /// How wide (across) the ring of foam is when it has spread, and how long it takes.
 pub const WADE_FOAM_RING_SIZE: f32 = 1.5;

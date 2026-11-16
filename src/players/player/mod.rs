@@ -617,13 +617,6 @@ fn mark_riding(mut commands: Commands, player: Single<(Entity, &Locomotion, Has<
     }
 }
 
-/// Whether the local Player is out of a Dive's landing recovery, so aiming down sights is clear:
-/// the recovery blocks aiming (with firing and stance changes) until `DIVE_RECOVERY_SECS` after
-/// landing, and no Dive lock applies while Down.
-pub fn not_recovering_from_dive(players: Query<(&Locomotion, Has<LastStand>), With<LocalPlayer>>) -> bool {
-    players.iter().all(|(locomotion, last_stand)| last_stand || !locomotion.recovering_from_dive())
-}
-
 /// Places the camera's `Eye` from the glide: the eye's height above the feet, less the body's half
 /// height. The Down's collapse and rise glide the same eye, toward the prone eye and back.
 pub(crate) fn place_eye(player: Single<&Locomotion, With<LocalPlayer>>, mut eye: Single<&mut Eye, With<PlayerCamera>>) {
