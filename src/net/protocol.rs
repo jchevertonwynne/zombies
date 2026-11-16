@@ -25,7 +25,7 @@ pub type Seat = u8;
 
 /// What version of the wire format this game speaks. The Host refuses a Player on
 /// another, and it is raised whenever the format changes (along with the ALPN).
-pub const PROTOCOL: u32 = 5;
+pub const PROTOCOL: u32 = 6;
 /// The most a datagram may be, in bytes: what the real link is tried with, and under
 /// what it carries. One bigger is not sent at all.
 pub const DATAGRAM: usize = 1000;
