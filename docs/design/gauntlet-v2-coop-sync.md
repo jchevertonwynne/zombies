@@ -76,6 +76,8 @@ Optional reserve if more is needed later. Neither is needed now, and both are in
 
 ### 3.1 Round Choices (Twists and Challenges): SEND (reliable) + INFER
 
+*Done in #402 (the vote and the Twists; `has_round_choices` is still off, and the Challenge events below are not yet sent): `WorldEvent::RoundChoice`/`RoundVotes`/`RoundPicked` and `Request::VoteRound`, `PROTOCOL` is 9, the reward is a per-Player `OwedBoost` component, `GAUNTLET_ROUND_CHOICE_COOP_SECS` is the vote's timeout. The vote settles when every connected Player has voted or the clock runs out. A returning Player is caught up with the choice, the votes and the pick (the picked option stands for both options). Snapshot bytes unchanged.*
+
 The Host still draws the options and owns the result. Clients mirror `RoundVariety` from events, and the existing `draw_fog`, `update_hud`, `show_choice`, `light_panels` and twist stat entries then run on them unchanged. That matters for **Low Gravity**: `PlayerGravity` feeds the client's own movement prediction, so the client must have the entry, or every jump gets corrected.
 
 New reliable events, all 0 snapshot bytes:
