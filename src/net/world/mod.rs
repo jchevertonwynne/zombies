@@ -26,7 +26,7 @@ use super::remote::Remote;
 use super::zombies::{Crowd, Tag, ZombieId};
 use crate::run::gauntlet::Elite;
 use crate::storage::records::RunElitesKilled;
-use crate::weapons::ammo_mod::AmmoMods;
+use crate::weapons::ammo_mod::{AmmoMods, OutsideAllyCap};
 use crate::weapons::arsenal::WeaponId;
 use crate::weapons::attachment::{Attachment, UnderbarrelAmmo};
 use crate::audio::PlayCue;
@@ -1058,14 +1058,22 @@ fn tell_status(
 
 /// Tells everyone of each new Elite's trait, once, in one event a frame, and forgets the Zombies
 /// that have gone. The table stays for `catch_up_tags`.
-fn tell_tags(mut tell: Tell, mut mirror: ResMut<Mirror>, elites: Query<(&ZombieId, &Elite)>) {
+fn tell_tags(
+    mut tell: Tell,
+    mut mirror: ResMut<Mirror>,
+    elites: Query<(&ZombieId, &Elite)>,
+    guards: Query<&ZombieId, With<OutsideAllyCap>>,
+) {
     let mut fresh = Vec::new();
     let mut live = HashSet::new();
-    for (id, elite) in &elites {
-        live.insert(id.0);
-        let tag = Tag::Elite(elite.0.code());
-        if mirror.tags.insert(id.0, tag) != Some(tag) {
-            fresh.push((id.0, tag));
+    let tags = elites
+        .iter()
+        .map(|(id, elite)| (id.0, Tag::Elite(elite.0.code())))
+        .chain(guards.iter().map(|id| (id.0, Tag::Bodyguard)));
+    for (id, tag) in tags {
+        live.insert(id);
+        if mirror.tags.insert(id, tag) != Some(tag) {
+            fresh.push((id, tag));
         }
     }
     if mirror.tags.len() != live.len() {

@@ -99,9 +99,11 @@ pub struct Snapshot {
     pub own: Own,
     /// Every other Player.
     pub players: Vec<Sight>,
-    /// Every Zombie, and then every Hellhound.
+    /// Every Zombie, then every Hellhound, then every Turned ally. Being on a list is what marks
+    /// a creature as that kind.
     pub zombies: Vec<ZombieSight>,
     pub hellhounds: Vec<ZombieSight>,
+    pub allies: Vec<ZombieSight>,
     /// What each Special Zombie among them is, see `SpecialSight`.
     pub specials: Vec<SpecialSight>,
 }
@@ -430,6 +432,7 @@ mod tests {
             players: vec![sight; ROOM_SEATS - 1],
             zombies: vec![],
             hellhounds: vec![],
+            allies: vec![],
             specials: vec![],
         }
     }
@@ -440,11 +443,12 @@ mod tests {
     }
 
     /// A full table at its largest, with a Horde at its largest: `SNAPSHOT_MAX_CREATURES` between
-    /// the Zombies and `hellhounds` Hellhounds.
-    fn worst_horde(hellhounds: usize) -> Snapshot {
+    /// the Zombies, `hellhounds` Hellhounds and `allies` Turned allies.
+    fn worst_horde(hellhounds: usize, allies: usize) -> Snapshot {
         Snapshot {
-            zombies: vec![worst_zombie(); SNAPSHOT_MAX_CREATURES - hellhounds],
+            zombies: vec![worst_zombie(); SNAPSHOT_MAX_CREATURES - hellhounds - allies],
             hellhounds: vec![worst_zombie(); hellhounds],
+            allies: vec![worst_zombie(); allies],
             specials: vec![SpecialSight { id: ZOMBIE_ID_SPAN - 1, body: 255 }; SNAPSHOT_MAX_SPECIALS],
             ..worst_snapshot()
         }
@@ -453,18 +457,18 @@ mod tests {
     #[test]
     fn four_players_and_a_full_horde_fit_in_a_datagram() {
         // However the room is shared: a Zombie Round, a Pack Alpha's, a Hellhound Round, all hounds.
-        for hellhounds in [0, 2, 9, 17, SNAPSHOT_MAX_CREATURES] {
-            let bytes = encode(&worst_horde(hellhounds)).len();
-            assert!(bytes <= SNAPSHOT_MAX_BYTES, "{bytes} B with {hellhounds} Hellhounds");
+        for (hellhounds, allies) in [(0, 0), (2, 3), (9, 7), (17, 0), (0, 7), (SNAPSHOT_MAX_CREATURES, 0), (0, SNAPSHOT_MAX_CREATURES)] {
+            let bytes = encode(&worst_horde(hellhounds, allies)).len();
+            assert!(bytes <= SNAPSHOT_MAX_BYTES, "{bytes} B with {hellhounds} Hellhounds and {allies} allies");
             // 947 B before teammates' Points left (-15 B) and the specials' ids were told as the
-            // 3 B they are (-12 B).
-            assert_eq!(bytes, 920, "the worst case, with {hellhounds} Hellhounds");
+            // 3 B they are (-12 B), then +1 B for the allies list and +70 B for 7 more creatures.
+            assert_eq!(bytes, 991, "the worst case, with {hellhounds} Hellhounds and {allies} allies");
         }
         const { assert!(SNAPSHOT_MAX_BYTES <= DATAGRAM) };
         // The receiver's own Player is about 32 B, and each of the others about 12.
         let one = |players: usize| encode(&Snapshot { players: vec![worst_snapshot().players[0]; players], ..worst_snapshot() }).len();
         assert!(one(1) - one(0) <= 13, "a Player is {} B", one(1) - one(0));
-        let usual = Snapshot { tick: 100_000, used: 99_990, own: Own { points: 5000, ..worst_snapshot().own }, players: vec![worst_snapshot().players[0]], zombies: vec![], hellhounds: vec![], specials: vec![] };
+        let usual = Snapshot { tick: 100_000, used: 99_990, own: Own { points: 5000, ..worst_snapshot().own }, players: vec![worst_snapshot().players[0]], zombies: vec![], hellhounds: vec![], allies: vec![], specials: vec![] };
         assert!(encode(&usual).len() <= 36 + 16 + 4 + 2, "{}", encode(&usual).len());
     }
 
