@@ -26,10 +26,13 @@ use crate::enemies::hellhound::{HellhoundAssetsParam, Telegraph, end_strike, spa
 use crate::enemies::nova::{Burst, NovaAssetsParam, show_gas, spawn_nova_puppet};
 use crate::enemies::sapper::{self, Sapper, SapperAssetsParam};
 use crate::enemies::special::{self, Shrieker, SpecialAssetsParam, SpecialKind};
+use crate::run::gauntlet::boon::Family;
+use crate::weapons::ammo_mod::{AmmoModAssets, TurnedAlly, glow};
+use avian3d::prelude::{Collider, CollisionLayers};
 use crate::tuning::{PUPPET_SNAP_METRES, SNAPSHOT_MAX_CREATURES, SNAPSHOT_MAX_SPECIALS};
 use crate::enemies::zombie::rig::{Activity, Shown, Swing, describe};
 use crate::enemies::zombie::{
-    Dying, KnockedDown, Rising, Stunned, Zombie, ZombieAssetsParam, make_puppet_crawler, spawn_puppet,
+    Dying, HitArea, KnockedDown, Rising, Stunned, Zombie, ZombieAssetsParam, make_puppet_crawler, spawn_puppet,
 };
 
 /// Every Zombie id is below this, so on the wire it is a varint of at most 2 bytes and a
@@ -49,6 +52,8 @@ pub enum Tag {
     Elite(u8),
     /// Frosted for this many more tenths of a second.
     Frosted { tenths: u8 },
+    /// A Turned ally that is a Grit Bodyguard, so it glows Grit red.
+    Bodyguard,
 }
 
 /// Every Zombie and Hellhound that has an id, by id and by entity.
@@ -136,11 +141,53 @@ pub fn dress_elites(
     }
 }
 
+/// A puppet the Host has turned into an ally: it glows, and bullets pass through it.
+#[derive(Component)]
+pub struct PuppetAlly;
+
+/// A puppet ally that is a Bodyguard and already glows Grit red.
+#[derive(Component)]
+pub struct PuppetBodyguard;
+
+/// Gives each puppet that has become a Turned ally the ally's glow and takes its hit areas away,
+/// so a client's shots pass through it and it never reports a hit. A Bodyguard (a tag from the
+/// Host, which may come after the puppet) glows Grit red instead.
+pub fn dress_allies(
+    mut commands: Commands,
+    assets: Option<Res<AmmoModAssets>>,
+    crowd: Res<Crowd>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    fresh: Query<(Entity, &Children), Added<PuppetAlly>>,
+    guards: Query<(Entity, &ZombieId), (With<PuppetAlly>, Without<PuppetBodyguard>)>,
+    hit_areas: Query<(), With<HitArea>>,
+) {
+    for (entity, children) in &fresh {
+        if let Some(assets) = &assets {
+            commands.entity(entity).insert(MeshMaterial3d(assets.ally.clone()));
+        }
+        for child in children.iter() {
+            if hit_areas.contains(child) {
+                commands.entity(child).remove::<(Collider, CollisionLayers)>();
+            }
+        }
+    }
+    if !crowd.has_tags() {
+        return;
+    }
+    for (entity, id) in &guards {
+        if crowd.tag_of(id.0) == Some(Tag::Bodyguard) {
+            let material = materials.add(glow(Family::Grit.colour()));
+            commands.entity(entity).insert((MeshMaterial3d(material), PuppetBodyguard));
+        }
+    }
+}
+
 /// How the Host's Zombies and Hellhounds stand, as each snapshot tells it.
 #[derive(Resource, Default)]
 pub struct Horde {
     pub zombies: Vec<ZombieSight>,
     pub hellhounds: Vec<ZombieSight>,
+    pub allies: Vec<ZombieSight>,
     pub specials: Vec<SpecialSight>,
 }
 
@@ -165,6 +212,7 @@ pub fn describe_horde(
         Option<&Sapper>,
         Has<Burst>,
     )>,
+    allies: Query<(&ZombieId, &Transform, Option<&TurnedAlly>, Option<&Dying>), Without<Zombie>>,
 ) {
     if !clock.tick.is_multiple_of(SNAPSHOT_EVERY) {
         return;
@@ -194,26 +242,53 @@ pub fn describe_horde(
             specials.push((dying.is_some(), SpecialSight { id: id.0, body: pack_special(body, marked) }));
         }
     }
-    (horde.zombies, horde.hellhounds) = fit_horde(walkers, hounds);
+    // A Turned ally keeps its id but is no longer a `Zombie`. One that has expired is still told
+    // of while it falls.
+    let mut friends = Vec::new();
+    for (id, transform, ally, dying) in &allies {
+        let activity = match describe(0, None, None, false, false, false, dying, false) {
+            Activity::Moving => ally
+                .and_then(TurnedAlly::swing_progress)
+                .map_or(Activity::Moving, |progress| Activity::Swinging { progress, arm: Swing::Arm(0) }),
+            other => other,
+        };
+        friends.push((
+            dying.is_some(),
+            ZombieSight {
+                id: id.0,
+                position: pack_position(origin, transform.translation),
+                yaw: pack_yaw(transform.rotation.to_euler(EulerRot::YXZ).0),
+                anim: pack_anim(activity, false),
+            },
+        ));
+    }
+    (horde.zombies, horde.hellhounds, horde.allies) = fit_horde(walkers, hounds, friends);
     specials.sort_by_key(|(dead, sight)| (*dead, sight.id));
     specials.truncate(SNAPSHOT_MAX_SPECIALS);
     horde.specials = specials.into_iter().map(|(_, sight)| sight).collect();
 }
 
-/// The Zombies and Hellhounds a snapshot tells of, each `(dying, sight)`: all of them while they
-/// fit in `SNAPSHOT_MAX_CREATURES` between them, and past that the dying and then the highest ids
-/// left out, whichever list they are in.
-pub fn fit_horde(walkers: Vec<(bool, ZombieSight)>, hounds: Vec<(bool, ZombieSight)>) -> (Vec<ZombieSight>, Vec<ZombieSight>) {
-    let mut all: Vec<(bool, bool, ZombieSight)> = walkers
+/// The Zombies, Hellhounds and Turned allies a snapshot tells of, each `(dying, sight)`: all of
+/// them while they fit in `SNAPSHOT_MAX_CREATURES` between them, and past that the dying and then
+/// the highest ids left out, whichever list they are in.
+pub fn fit_horde(
+    walkers: Vec<(bool, ZombieSight)>,
+    hounds: Vec<(bool, ZombieSight)>,
+    allies: Vec<(bool, ZombieSight)>,
+) -> (Vec<ZombieSight>, Vec<ZombieSight>, Vec<ZombieSight>) {
+    let mut all: Vec<(bool, usize, ZombieSight)> = [walkers, hounds, allies]
         .into_iter()
-        .map(|(dead, sight)| (dead, false, sight))
-        .chain(hounds.into_iter().map(|(dead, sight)| (dead, true, sight)))
+        .enumerate()
+        .flat_map(|(list, sights)| sights.into_iter().map(move |(dead, sight)| (dead, list, sight)))
         .collect();
     all.sort_by_key(|(dead, _, sight)| (*dead, sight.id));
     all.truncate(SNAPSHOT_MAX_CREATURES);
-    let (hounds, walkers): (Vec<_>, Vec<_>) = all.into_iter().partition(|(_, hound, _)| *hound);
-    let sights = |list: Vec<(bool, bool, ZombieSight)>| list.into_iter().map(|(_, _, sight)| sight).collect();
-    (sights(walkers), sights(hounds))
+    let mut lists: [Vec<ZombieSight>; 3] = Default::default();
+    for (_, list, sight) in all {
+        lists[list].push(sight);
+    }
+    let [walkers, hounds, allies] = lists;
+    (walkers, hounds, allies)
 }
 
 /// Where a Zombie or Hellhound was said to be, and what it was doing, at one of the Host's ticks.
@@ -229,6 +304,8 @@ struct Glimpse {
 #[derive(Debug)]
 struct Glimpses {
     hellhound: bool,
+    /// Whether it has been told of among the Turned allies. Once an ally, always one.
+    ally: bool,
     /// What it was last told to be, if a Special Zombie, see `pack_special`; 0 if not.
     special: u8,
     seen: VecDeque<Glimpse>,
@@ -275,9 +352,10 @@ impl Crowd {
 
     /// Takes in what a snapshot says of them.
     pub fn hear(&mut self, snapshot: &Snapshot, origin: Vec3) {
-        for (hellhound, list) in [(false, &snapshot.zombies), (true, &snapshot.hellhounds)] {
+        for (hellhound, ally, list) in [(false, false, &snapshot.zombies), (true, false, &snapshot.hellhounds), (false, true, &snapshot.allies)] {
             for sight in list {
-                let glimpses = self.glimpses.entry(sight.id).or_insert_with(|| Glimpses { hellhound, special: 0, seen: VecDeque::new() });
+                let glimpses = self.glimpses.entry(sight.id).or_insert_with(|| Glimpses { hellhound, ally, special: 0, seen: VecDeque::new() });
+                glimpses.ally |= ally;
                 glimpses.seen.push_back(Glimpse {
                     tick: snapshot.tick,
                     position: sight.position(origin),
@@ -341,7 +419,7 @@ pub fn show_zombies(
     mut ids: ResMut<ZombieIds>,
     time: Res<Time>,
     mut puppets: Query<
-        (&mut Transform, &Zombie, &mut Shown, Has<Dying>, Option<&mut Sapper>, Has<Burst>, Option<&Telegraph>),
+        (&mut Transform, &Zombie, &mut Shown, Has<Dying>, Option<&mut Sapper>, Has<Burst>, Option<&Telegraph>, Has<PuppetAlly>),
         With<Puppet>,
     >,
 ) {
@@ -380,10 +458,16 @@ pub fn show_zombies(
                 entity
             };
             commands.entity(entity).insert((Puppet, ZombieId(id), Shown(activity)));
+            if glimpses.ally {
+                commands.entity(entity).insert(PuppetAlly);
+            }
             ids.insert(id, entity);
             continue;
         };
-        let Ok((mut transform, zombie, mut was, falling, sapper, burst, striking)) = puppets.get_mut(entity) else { continue };
+        let Ok((mut transform, zombie, mut was, falling, sapper, burst, striking, is_ally)) = puppets.get_mut(entity) else { continue };
+        if glimpses.ally && !is_ally {
+            commands.entity(entity).insert(PuppetAlly);
+        }
         if transform.translation != at.position {
             transform.translation = at.position;
         }
@@ -469,6 +553,7 @@ mod tests {
         assert!(!crowd.has_tags());
     }
     use super::*;
+    use crate::net::state::Own;
 
     fn sight(id: u16) -> ZombieSight {
         ZombieSight { id, position: [0; 6], yaw: 0, anim: 0 }
@@ -487,18 +572,65 @@ mod tests {
     fn a_full_gauntlet_horde_and_pack_are_told_in_full() {
         let walkers: Vec<_> = (0..69).map(|id| (false, sight(id))).collect();
         let hounds: Vec<_> = (100..109).map(|id| (false, sight(id))).collect();
-        let (zombies, hellhounds) = fit_horde(walkers, hounds);
-        assert_eq!((zombies.len(), hellhounds.len()), (69, 9));
+        let (zombies, hellhounds, allies) = fit_horde(walkers, hounds, vec![]);
+        assert_eq!((zombies.len(), hellhounds.len(), allies.len()), (69, 9, 0));
     }
 
     #[test]
     fn past_the_room_the_dying_and_then_the_highest_ids_are_left_out() {
-        let walkers: Vec<_> = (0..SNAPSHOT_MAX_CREATURES as u16).map(|id| (false, sight(id * 2))).collect();
+        let walkers: Vec<_> = (0..SNAPSHOT_MAX_CREATURES as u16 - 3).map(|id| (false, sight(id * 2))).collect();
         let hounds = vec![(true, sight(1)), (false, sight(3)), (false, sight(9999))];
-        let (zombies, hellhounds) = fit_horde(walkers, hounds);
-        assert_eq!(zombies.len() + hellhounds.len(), SNAPSHOT_MAX_CREATURES);
+        let allies = vec![(true, sight(5)), (false, sight(7)), (false, sight(9998))];
+        let (zombies, hellhounds, allies) = fit_horde(walkers, hounds, allies);
+        assert_eq!(zombies.len() + hellhounds.len() + allies.len(), SNAPSHOT_MAX_CREATURES);
         assert_eq!(hellhounds.iter().map(|s| s.id).collect::<Vec<_>>(), vec![3], "the dying hound and the highest id go");
-        assert!(!zombies.iter().any(|s| s.id == (SNAPSHOT_MAX_CREATURES as u16 - 1) * 2), "the highest Zombie id goes");
+        assert_eq!(allies.iter().map(|s| s.id).collect::<Vec<_>>(), vec![7, 9998], "the dying ally goes, and the highest id overall (9999) before it");
+        assert_eq!(zombies.len(), SNAPSHOT_MAX_CREATURES - 3, "no Zombie goes: the three over were taken from the others");
+    }
+
+    #[test]
+    fn a_full_gauntlet_horde_with_its_allies_is_told_in_full() {
+        // 78 alive, 3 allies and 4 Bodyguards: the 87 the snapshot is sized for.
+        let walkers: Vec<_> = (0..69).map(|id| (false, sight(id))).collect();
+        let hounds: Vec<_> = (100..109).map(|id| (false, sight(id))).collect();
+        let allies: Vec<_> = (200..207).map(|id| (false, sight(id))).collect();
+        let (zombies, hellhounds, allies) = fit_horde(walkers, hounds, allies);
+        assert_eq!((zombies.len(), hellhounds.len(), allies.len()), (69, 9, 7));
+    }
+
+    #[test]
+    fn a_bodyguard_tag_tints_its_ally_puppet_even_when_it_comes_late() {
+        let mut app = App::new();
+        app.init_resource::<Crowd>().init_resource::<Assets<StandardMaterial>>().add_systems(Update, dress_allies);
+        let puppet = app.world_mut().spawn((PuppetAlly, ZombieId(9))).id();
+        let plain = app.world_mut().spawn((PuppetAlly, ZombieId(10))).id();
+        app.update();
+        assert!(app.world().get::<PuppetBodyguard>(puppet).is_none());
+        app.world_mut().resource_mut::<Crowd>().tag(9, Tag::Bodyguard);
+        app.update();
+        assert!(app.world().get::<PuppetBodyguard>(puppet).is_some());
+        assert!(app.world().get::<PuppetBodyguard>(plain).is_none());
+    }
+
+    #[test]
+    fn an_id_told_among_the_allies_stays_an_ally() {
+        let mut crowd = Crowd::default();
+        let at = |ally: bool| Snapshot {
+            tick: 1,
+            used: 0,
+            own: Own { position: Vec3::ZERO, velocity: Vec3::ZERO, stamina: 0.0, bits: 0, points: 0 },
+            players: vec![],
+            zombies: if ally { vec![] } else { vec![sight(4)] },
+            hellhounds: vec![],
+            allies: if ally { vec![sight(4)] } else { vec![] },
+            specials: vec![],
+        };
+        crowd.hear(&at(false), Vec3::ZERO);
+        assert!(!crowd.glimpses[&4].ally);
+        crowd.hear(&at(true), Vec3::ZERO);
+        assert!(crowd.glimpses[&4].ally, "it moved from the Zombies to the allies");
+        crowd.hear(&at(false), Vec3::ZERO);
+        assert!(crowd.glimpses[&4].ally);
     }
 }
 

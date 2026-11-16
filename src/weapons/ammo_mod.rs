@@ -482,6 +482,11 @@ pub struct TurnedAllyExpired {
 }
 
 impl TurnedAlly {
+    /// How far through its swing it is, from 0 to 1, if it is swinging.
+    pub fn swing_progress(&self) -> Option<f32> {
+        self.wind_up.map(|left| (1.0 - left / ZOMBIE_WIND_UP_SECS).clamp(0.0, 1.0))
+    }
+
     /// The Player whose Weapon or cast turned it, who its kills credit.
     pub fn player(&self) -> Option<Entity> {
         self.player
@@ -560,8 +565,9 @@ enum Shape {
 const FLASH_SECS: f32 = 0.25;
 
 #[derive(Resource)]
-struct AmmoModAssets {
-    ally: Handle<StandardMaterial>,
+pub(crate) struct AmmoModAssets {
+    /// What a Turned ally glows.
+    pub(crate) ally: Handle<StandardMaterial>,
     phantom: Handle<StandardMaterial>,
     gun: Handle<Mesh>,
 }
@@ -596,7 +602,7 @@ impl Plugin for AmmoModPlugin {
 }
 
 /// A glowing ally's or phantom's material in `colour`.
-fn glow(colour: Color) -> StandardMaterial {
+pub(crate) fn glow(colour: Color) -> StandardMaterial {
     StandardMaterial {
         base_color: colour,
         emissive: LinearRgba::from(colour) * 4.0,

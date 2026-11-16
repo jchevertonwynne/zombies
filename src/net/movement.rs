@@ -749,3 +749,51 @@ fn far_maps_show_the_hosts_player_and_zombie_where_they_are() {
         }
     }
 }
+
+/// A Turned ally on the Host (a Zombie that keeps its id but is no longer a `Zombie`) shows on every
+/// client as an ally puppet with no hit areas, so a client's shots pass through it. It stays on
+/// while it falls, and goes with its body.
+#[test]
+fn a_turned_ally_shows_on_every_client_with_no_hit_areas() {
+    use crate::enemies::zombie::HitArea;
+    use crate::net::zombies::PuppetAlly;
+    use crate::weapons::ammo_mod::TurnedAlly;
+    let mut run = Run::new(2, 2, 0.0, 0);
+    let start = crate::maps::map::PLAYER_START;
+    let zombie = run.zombie(start + Vec3::new(8.0, 0.0, 4.0));
+    let other = run.zombie(start + Vec3::new(10.0, 0.0, 4.0));
+    run.step(IDLE, 100);
+    let id = run.apps[0].world().resource::<ZombieIds>().id(zombie).unwrap();
+    let armed = |run: &mut Run, on: usize, id: u16| {
+        let world = run.apps[on].world_mut();
+        let entity = world.resource::<ZombieIds>().entity(id).expect("a puppet");
+        let kids: Vec<Entity> = world.get::<Children>(entity).unwrap().iter().collect();
+        let shootable = kids.iter().filter(|&&kid| world.get::<HitArea>(kid).is_some() && world.get::<Collider>(kid).is_some()).count();
+        (world.get::<PuppetAlly>(entity).is_some(), shootable)
+    };
+    for on in 1..=2 {
+        let (ally, shootable) = armed(&mut run, on, id);
+        assert!(!ally && shootable > 0, "machine {on} starts with a shootable Zombie");
+    }
+    // The Host turns it: it keeps its id and loses `Zombie`.
+    run.apps[0].world_mut().entity_mut(zombie).remove::<Zombie>().insert(TurnedAlly::default());
+    run.step(IDLE, 100);
+    let other_id = run.apps[0].world().resource::<ZombieIds>().id(other).unwrap();
+    for on in 1..=2 {
+        assert_eq!(armed(&mut run, on, id), (true, 0), "machine {on}: an ally nobody can shoot");
+        assert!(!armed(&mut run, on, other_id).0, "machine {on}: the other is no ally");
+        assert_eq!(run.puppets(on).len(), 2, "machine {on}");
+    }
+    // It falls when its time is up, still an ally, and then it is gone.
+    run.apps[0].world_mut().entity_mut(zombie).remove::<TurnedAlly>().insert(Dying::default());
+    run.step(IDLE, 40);
+    for on in 1..=2 {
+        let (_, puppet) = run.puppets(on).into_iter().find(|(held, _)| *held == id).expect("the fallen ally");
+        assert!(puppet.dying, "machine {on}");
+    }
+    run.apps[0].world_mut().entity_mut(zombie).despawn();
+    run.step(IDLE, 60);
+    for on in 1..=2 {
+        assert_eq!(run.puppets(on).len(), 1, "machine {on}");
+    }
+}
