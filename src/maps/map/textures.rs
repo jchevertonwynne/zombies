@@ -330,7 +330,7 @@ pub fn box_uv(world: Vec3, normal: Vec3, tile: f32) -> Vec2 {
     uv / tile
 }
 
-fn attribute<'m>(mesh: &'m Mesh, id: bevy::mesh::MeshVertexAttribute) -> &'m Vec<[f32; 3]> {
+fn attribute(mesh: &Mesh, id: bevy::mesh::MeshVertexAttribute) -> &Vec<[f32; 3]> {
     match mesh.attribute(id) {
         Some(VertexAttributeValues::Float32x3(values)) => values,
         _ => unreachable!("built meshes carry positions and normals"),

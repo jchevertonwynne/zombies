@@ -113,7 +113,8 @@ fn sweep(map: MapId) {
         }
         for d in 0..8 {
             let yaw = d as f32 * TAU / 8.0;
-            for (run_up, jump) in [(0.6, true)] {
+            {
+                let (run_up, jump) = (0.6, true);
                 sim.place(from, yaw);
                 let mut samples = Vec::new();
                 sim.hold(&[KeyCode::KeyW, KeyCode::ShiftLeft]);

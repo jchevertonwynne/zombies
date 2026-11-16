@@ -223,11 +223,10 @@ fn measure(
     }
     let report = report(bench.map, &measure, &conditions);
     println!("{report}");
-    if let Ok(path) = std::env::var("ZOMBIES_BENCH_OUT") {
-        if let Err(error) = std::fs::write(&path, format!("{report}\n")) {
+    if let Ok(path) = std::env::var("ZOMBIES_BENCH_OUT")
+        && let Err(error) = std::fs::write(&path, format!("{report}\n")) {
             eprintln!("couldn't write {path}: {error}");
         }
-    }
     exit.write(AppExit::Success);
 }
 

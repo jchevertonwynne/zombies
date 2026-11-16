@@ -279,12 +279,11 @@ impl Room {
 
     /// A joiner's Armory has changed: they are no longer Ready.
     pub fn set_unlocks(&mut self, peer: Peer, unlocks: Unlocks) {
-        if let Some(member) = self.seat_of(peer).and_then(|at| self.seats[at].as_mut()) {
-            if member.unlocks != unlocks {
+        if let Some(member) = self.seat_of(peer).and_then(|at| self.seats[at].as_mut())
+            && member.unlocks != unlocks {
                 member.unlocks = unlocks;
                 member.ready = peer == HOST;
             }
-        }
     }
 
     /// Frees whoever's Seat this was, if it was anyone's.
@@ -769,10 +768,10 @@ mod tests {
         settle(&hub, &mut host, &mut [&mut ada]);
         ada.ready(true);
         settle(&hub, &mut host, &mut [&mut ada]);
-        assert_eq!(view_of(&ada).seats[1].as_ref().unwrap().ready, true);
+        assert!(view_of(&ada).seats[1].as_ref().unwrap().ready);
         ada.ready(false);
         settle(&hub, &mut host, &mut [&mut ada]);
-        assert_eq!(view_of(&ada).seats[1].as_ref().unwrap().ready, false);
+        assert!(!view_of(&ada).seats[1].as_ref().unwrap().ready);
     }
 
     #[test]
@@ -829,8 +828,8 @@ mod tests {
         settle(&hub, &mut host, &mut [&mut ada, &mut bo]);
         assert_eq!(host.room.unlocks(1), Some(&armory(2)));
         let view = view_of(&bo);
-        assert_eq!(view.seats[1].as_ref().unwrap().ready, false);
-        assert_eq!(view.seats[2].as_ref().unwrap().ready, true);
+        assert!(!view.seats[1].as_ref().unwrap().ready);
+        assert!(view.seats[2].as_ref().unwrap().ready);
     }
 
     #[test]

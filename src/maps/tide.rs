@@ -381,7 +381,7 @@ mod tests {
 
     #[test]
     fn the_bells_and_the_turn_fit_in_the_intermission() {
-        assert!(TIDE_BELL_SECS + TIDE_TURN_SECS < INTERMISSION_SECS);
+        const { assert!(TIDE_BELL_SECS + TIDE_TURN_SECS < INTERMISSION_SECS) };
     }
 
     #[test]

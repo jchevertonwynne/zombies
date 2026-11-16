@@ -599,7 +599,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                 piece(self, size, 0.0, Vec2::ZERO, BARK, mat);
                 // The crown, drawn but not solid, so nothing catches on it: two boxes of leaves
                 // until its alpha cards (crossed, three to a clump) have loaded to replace them.
-                let turn = if nth % 2 == 0 { 1.0 } else { -1.0 };
+                let turn = if nth.is_multiple_of(2) { 1.0 } else { -1.0 };
                 let clumps = [
                     (Vec3::new(2.8, 1.4, 2.6), Vec2::ZERO, size.y - 0.5, LEAVES[nth % 2]),
                     (Vec3::new(1.9, 1.0, 2.1), Vec2::new(0.25 * turn, -0.2), size.y + 0.8, LEAVES[(nth + 1) % 2]),

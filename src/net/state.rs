@@ -40,12 +40,7 @@ impl Step {
     pub fn of(input: &MoveInput) -> Self {
         Step {
             axes: [input.axes.x.round() as i8, input.axes.y.round() as i8],
-            buttons: u8::from(input.jump) * JUMP
-                | u8::from(input.sprint) * SPRINT
-                | u8::from(input.aim) * AIM
-                | u8::from(input.crouch) * CROUCH
-                | u8::from(input.prone) * PRONE
-                | u8::from(input.grab) * GRAB,
+            buttons: (u8::from(input.jump) * JUMP) | (u8::from(input.sprint) * SPRINT) | (u8::from(input.aim) * AIM) | (u8::from(input.crouch) * CROUCH) | (u8::from(input.prone) * PRONE) | (u8::from(input.grab) * GRAB),
             yaw: input.yaw,
             pitch: input.pitch,
         }
@@ -77,7 +72,7 @@ impl Step {
 
     /// The same, with Jump pressed or not as given.
     pub fn with_jump(mut self, jump: bool) -> Self {
-        self.buttons = self.buttons & !JUMP | u8::from(jump) * JUMP;
+        self.buttons = self.buttons & !JUMP | (u8::from(jump) * JUMP);
         self
     }
 }
@@ -137,11 +132,7 @@ impl Own {
             position,
             velocity: locomotion.velocity,
             stamina: locomotion.stamina,
-            bits: u8::from(locomotion.grounded) * GROUNDED
-                | u8::from(locomotion.sprinting) * SPRINTING
-                | u8::from(locomotion.winded) * WINDED
-                | u8::from(locomotion.thrown) * THROWN
-                | u8::from(locomotion.riding) * RIDING
+            bits: (u8::from(locomotion.grounded) * GROUNDED) | (u8::from(locomotion.sprinting) * SPRINTING) | (u8::from(locomotion.winded) * WINDED) | (u8::from(locomotion.thrown) * THROWN) | (u8::from(locomotion.riding) * RIDING)
                 | (stance_bits(locomotion.stance) << STANCE_SHIFT),
             points: points.min(u64::from(u32::MAX)) as u32,
         }
@@ -466,7 +457,7 @@ mod tests {
             let bytes = encode(&worst_horde(hellhounds)).len();
             assert!(bytes <= SNAPSHOT_MAX_BYTES, "{bytes} B with {hellhounds} Hellhounds");
         }
-        assert!(SNAPSHOT_MAX_BYTES <= DATAGRAM);
+        const { assert!(SNAPSHOT_MAX_BYTES <= DATAGRAM) };
         // The receiver's own Player is about 32 B, and each of the others about 15.
         let one = |players: usize| encode(&Snapshot { players: vec![worst_snapshot().players[0]; players], ..worst_snapshot() }).len();
         assert!(one(1) - one(0) <= 18, "a Player is {} B", one(1) - one(0));

@@ -921,10 +921,9 @@ fn flat_loops(
         }
     }
     for (cue, start) in on {
-        if start {
-            if let Some(sound) = sounds.looping(cue, 1.0) {
+        if start
+            && let Some(sound) = sounds.looping(cue, 1.0) {
                 commands.spawn((InRun, FlatLoop { cue, left: None }, sound));
             }
-        }
     }
 }

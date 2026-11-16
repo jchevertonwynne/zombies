@@ -527,8 +527,8 @@ fn body(doing: &Doing) -> Body {
         // Knees bent: the hips down, one thigh forward and one back, the stride shortened. (A
         // Revive kneels already.)
         body.hips_y -= (LEG.y - CROUCH_HIPS_Y) * crouch;
-        for side in 0..2 {
-            body.legs[side] = body.legs[side] * (1.0 - 0.5 * crouch) + CROUCH_LEGS[side] * crouch;
+        for (leg, target) in body.legs.iter_mut().zip(CROUCH_LEGS) {
+            *leg = *leg * (1.0 - 0.5 * crouch) + target * crouch;
         }
         body.lean += 0.15 * crouch;
     }
@@ -546,8 +546,8 @@ fn body(doing: &Doing) -> Body {
         body.aim += PRONE_TILT * prone;
         body.gun.y += PRONE_GUN_LIFT * prone;
         let legs = [0.35 * haul, -0.35 * haul];
-        for side in 0..2 {
-            body.legs[side] = body.legs[side].lerp(legs[side], prone);
+        for (leg, target) in body.legs.iter_mut().zip(legs) {
+            *leg = leg.lerp(target, prone);
         }
         if pose.action == Action::None && !pose.aiming {
             let arms = if flying {
@@ -555,11 +555,8 @@ fn body(doing: &Doing) -> Body {
             } else {
                 [Arm { pitch: 1.35 + 0.4 * haul, yaw: 0.6 }, Arm { pitch: 1.5 - 0.4 * haul, yaw: 0.5 }]
             };
-            for side in 0..2 {
-                body.arms[side] = Arm {
-                    pitch: body.arms[side].pitch.lerp(arms[side].pitch, prone),
-                    yaw: body.arms[side].yaw.lerp(arms[side].yaw, prone),
-                };
+            for (arm, target) in body.arms.iter_mut().zip(arms) {
+                *arm = Arm { pitch: arm.pitch.lerp(target.pitch, prone), yaw: arm.yaw.lerp(target.yaw, prone) };
             }
         }
     }
