@@ -1,7 +1,7 @@
 //! What the datagrams of a Run carry: a Player's input going up, and how things stand coming
 //! down. A snapshot is the full state of everything that changes fast, with no deltas, so a lost
 //! one costs nothing. Players and their Points are in it, and every Zombie and Hellhound, each in
-//! 12 bytes at most.
+//! 10 bytes at most.
 
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
@@ -186,8 +186,8 @@ pub struct Sight {
     pub points: u32,
 }
 
-/// A Zombie or a Hellhound as a snapshot packs them, in at most 12 bytes: its id (a varint of up
-/// to 3), its position, its yaw and what it is doing.
+/// A Zombie or a Hellhound as a snapshot packs them, in at most 10 bytes: its id (a varint of up
+/// to 2, see `ZOMBIE_ID_SPAN`), its position, its yaw and what it is doing.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct ZombieSight {
     /// Which it is, for as long as it lasts (see `ZombieIds`).
@@ -347,7 +347,8 @@ mod tests {
     use super::*;
     use crate::net::protocol::{DATAGRAM, encode};
     use crate::players::teammate::{Action, Pose};
-    use crate::tuning::{ROOM_SEATS, SNAPSHOT_MAX_BYTES, SNAPSHOT_MAX_HELLHOUNDS, SNAPSHOT_MAX_SPECIALS, SNAPSHOT_MAX_ZOMBIES};
+    use crate::net::zombies::ZOMBIE_ID_SPAN;
+    use crate::tuning::{ROOM_SEATS, SNAPSHOT_MAX_BYTES, SNAPSHOT_MAX_CREATURES, SNAPSHOT_MAX_SPECIALS};
 
     #[test]
     fn a_position_is_told_to_a_centimetre() {
@@ -437,14 +438,14 @@ mod tests {
 
     /// A Zombie at its largest: every number as big as it gets.
     fn worst_zombie() -> ZombieSight {
-        ZombieSight { id: u16::MAX, position: [0xff; 6], yaw: 255, anim: 255 }
+        ZombieSight { id: ZOMBIE_ID_SPAN - 1, position: [0xff; 6], yaw: 255, anim: 255 }
     }
 
-    /// A full table at its largest, with a Horde at its largest: 56 Zombies and 2 Hellhounds, or
-    /// as many Hellhounds as may be.
+    /// A full table at its largest, with a Horde at its largest: `SNAPSHOT_MAX_CREATURES` between
+    /// the Zombies and `hellhounds` Hellhounds.
     fn worst_horde(hellhounds: usize) -> Snapshot {
         Snapshot {
-            zombies: vec![worst_zombie(); SNAPSHOT_MAX_ZOMBIES],
+            zombies: vec![worst_zombie(); SNAPSHOT_MAX_CREATURES - hellhounds],
             hellhounds: vec![worst_zombie(); hellhounds],
             specials: vec![SpecialSight { id: u16::MAX, body: 255 }; SNAPSHOT_MAX_SPECIALS],
             ..worst_snapshot()
@@ -453,7 +454,8 @@ mod tests {
 
     #[test]
     fn four_players_and_a_full_horde_fit_in_a_datagram() {
-        for hellhounds in [2, SNAPSHOT_MAX_HELLHOUNDS] {
+        // However the room is shared: a Zombie Round, a Pack Alpha's, a Hellhound Round, all hounds.
+        for hellhounds in [0, 2, 9, 17, SNAPSHOT_MAX_CREATURES] {
             let bytes = encode(&worst_horde(hellhounds)).len();
             assert!(bytes <= SNAPSHOT_MAX_BYTES, "{bytes} B with {hellhounds} Hellhounds");
         }
@@ -466,10 +468,10 @@ mod tests {
     }
 
     #[test]
-    fn a_zombie_is_twelve_bytes_at_most() {
+    fn a_zombie_is_ten_bytes_at_most() {
         let none = encode(&Snapshot { zombies: vec![], ..worst_snapshot() }).len();
         let one = encode(&Snapshot { zombies: vec![worst_zombie()], ..worst_snapshot() }).len();
-        assert!(one - none <= 12, "a Zombie is {} B", one - none);
+        assert!(one - none <= 10, "a Zombie is {} B", one - none);
     }
 
     #[test]

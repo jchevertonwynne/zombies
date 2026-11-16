@@ -2807,13 +2807,16 @@ pub const CORRECTION_EASE_SECS: f32 = 0.05;
 pub const CORRECTION_SNAP_METRES: f32 = 1.0;
 /// The most a snapshot may come to, in bytes: one QUIC datagram.
 pub const SNAPSHOT_MAX_BYTES: usize = 1000;
-/// The most Zombies a snapshot tells of (the Alive Cap's top end of 48 and Overkill's 8), and the
-/// most Hellhounds (`HELLHOUND_ALIVE_PER_PLAYER` for each of 4 Players). Past that the dead and
-/// then the highest ids are left out.
-pub const SNAPSHOT_MAX_ZOMBIES: usize = 56;
-pub const SNAPSHOT_MAX_HELLHOUNDS: usize = 8;
-/// The most Special Zombies a snapshot names: the special slot's one, the Sapper, and the most Nova
-/// Crawlers alive, with room to spare.
+/// The most Zombies and Hellhounds together a snapshot tells of. The worst a Run can have alive
+/// at once is 78: the Alive Cap's top end of 48 with Overkill's 8 and Swarm's 8 (64, every Horde
+/// Zombie, Hellhound, special and Nova Crawler counts toward it), 5 more from Splitter Elites
+/// splitting past it (2 Walkers for each of Elite Surge's 5), and a Pack Alpha with its pack of 8,
+/// who come outside the Horde. Past that the dead and then the highest ids are left out. The
+/// worst case of each Gauntlet system is pinned in `run::gauntlet::snapshot_tests`.
+pub const SNAPSHOT_MAX_CREATURES: usize = 80;
+/// The most Special Zombies a snapshot names: the special slot's one, the Sapper, a Boss (the
+/// Bloater is a Napalm and the Warden a Sapper) and the most Nova Crawlers alive, with room to
+/// spare.
 pub const SNAPSHOT_MAX_SPECIALS: usize = 12;
 /// A Zombie that a snapshot has farther from where the one before had it than this has been
 /// moved, not walked, and is shown there at once.

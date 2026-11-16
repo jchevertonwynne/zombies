@@ -839,14 +839,6 @@ mod tests {
         assert!(world.get::<Elite>(live).is_some());
     }
 
-    /// The Elite-only extras must fit Co-op's fixed snapshot limits (#390): at the biggest Alive
-    /// Cap, the most Elites' Splitter Walkers still fit in the Zombie snapshot list.
-    #[test]
-    fn the_worst_case_of_elites_fits_the_coop_snapshot() {
-        let walkers = ALIVE_CAP_MAX as usize + (GAUNTLET_ELITE_MAX_ALIVE * GAUNTLET_ELITE_SPLITTER_COUNT) as usize;
-        assert!(walkers <= SNAPSHOT_MAX_ZOMBIES, "{walkers} walkers against {SNAPSHOT_MAX_ZOMBIES}");
-    }
-
     #[test]
     fn the_volatile_fuse_system_has_no_clashing_queries() {
         fn set_up<M>(system: impl IntoSystem<(), (), M>) {
