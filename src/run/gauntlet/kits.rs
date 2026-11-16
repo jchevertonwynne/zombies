@@ -22,7 +22,7 @@ use crate::ui::hud::{ROUND_RED, text};
 use crate::ui::menu::{HINT_GREY, MenuButtonLook};
 use crate::weapons::mystery_box::MysteryBox;
 use crate::weapons::pack_a_punch::PackAPunch;
-use crate::weapons::weapon::{Loadout, StartingLoadout};
+use crate::weapons::weapon::StartingLoadout;
 
 /// The seven Kits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -199,6 +199,8 @@ pub struct PlayerKit {
     pub offered: bool,
     /// Mystery Box spins bought, for the Gold Kit's free ones.
     spins: u32,
+    /// Taps on a Pack-a-Punch machine, for the Spark's first.
+    pap_taps: u32,
 }
 
 impl PlayerKit {
@@ -213,22 +215,27 @@ pub fn spend_first_buys(
     mut purchases: MessageReader<Purchased>,
     machines: Query<(), With<PackAPunch>>,
     boxes: Query<(), With<MysteryBox>>,
-    mut players: Query<(&mut PlayerKit, &Loadout), With<Player>>,
+    mut players: Query<&mut PlayerKit, With<Player>>,
 ) {
     // Last frame's buy has been read by now.
-    for (mut kit, _) in &mut players {
+    for mut kit in &mut players {
         if kit.lapsing {
             kit.lapsing = false;
             kit.spent = true;
         }
     }
     for &Purchased { player, buyable } in purchases.read() {
-        let Ok((mut kit, loadout)) = players.get_mut(player) else {
+        let Ok(mut kit) = players.get_mut(player) else {
             continue;
         };
         let first = match kit.kit {
-            // An Upgrade, not a Repack: the Weapon in hand isn't Upgraded yet.
-            Kit::Spark => machines.contains(buyable) && !loadout.held().upgraded,
+            // The Player's first tap on a machine is its Upgrade: a Repack, Ammo Mod or collect
+            // needs an Upgraded Weapon first (a hold is a different message). Counting taps, not
+            // reading the Loadout, keeps this independent of when `use_machine` takes the Weapon.
+            Kit::Spark if machines.contains(buyable) => {
+                kit.pap_taps += 1;
+                kit.pap_taps == 1
+            }
             Kit::Gold if boxes.contains(buyable) => {
                 kit.spins += 1;
                 kit.spins >= KIT_GOLD_FREE_SPINS
@@ -315,6 +322,7 @@ pub fn pick_kit(activate: On<Activate>, buttons: Query<&KitButton>, mut file: Re
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::weapons::weapon::Loadout;
     use crate::modifier::resolve;
     use crate::weapons::arsenal::WeaponId;
     use crate::weapons::equipment::FragLimits;
@@ -442,13 +450,20 @@ mod tests {
     }
 
     #[test]
-    fn a_repack_does_not_count_as_the_first_pack_a_punch() {
+    fn only_the_first_pack_a_punch_tap_lapses_the_discount_whatever_the_loadout_says() {
         let (mut app, player, machine, _) = buying(Kit::Spark);
+        // `use_machine` may already have taken the Weapon, or an Upgraded one may be held.
         app.world_mut().get_mut::<Loadout>(player).unwrap().held_mut().upgraded = true;
         app.world_mut().write_message(Purchased { player, buyable: machine });
         app.update();
         app.update();
-        assert!(!state(&app, player).spent);
+        assert!(state(&app, player).spent, "the first tap is the first buy, not the Loadout's say");
+        let (mut again, player, machine, _) = buying(Kit::Spark);
+        again.world_mut().write_message(Purchased { player, buyable: machine });
+        again.update();
+        again.world_mut().write_message(Purchased { player, buyable: machine });
+        again.update();
+        assert_eq!(state(&again, player).pap_taps, 2);
     }
 
     #[test]

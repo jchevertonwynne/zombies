@@ -44,6 +44,8 @@ pub struct Points {
     pub balance: u64,
     /// Points Earned: everything gained this Run, before spending.
     pub earned: u64,
+    /// Everything spent this Run, whatever it was spent on: lets a rule notice any spend.
+    pub spent: u64,
     /// Whether Double Points is on, doubling every award. The Power-ups own it.
     pub double: bool,
     /// Extra multiples of every award, from the Player's `Stat::PointsRate` entries.
@@ -62,6 +64,7 @@ impl Points {
     /// Takes Points for a purchase. The purchase flow checks affordability first.
     pub fn spend(&mut self, amount: u64) {
         self.balance = self.balance.saturating_sub(amount);
+        self.spent = self.spent.saturating_add(amount);
     }
 
     /// Gives back Points spent, like a Teddy Bear's refund. It isn't earned, so Points Earned

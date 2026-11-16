@@ -603,16 +603,34 @@ fn open_offer(
         let choices = match choices {
             Choices::Boons(cards) => {
                 // The Round Choice is this machine's Player's to make, so its reward is theirs.
+                // Looked at, not taken, until a boosted draw has really made the Offer.
+                let mut earned = Boost::default();
                 if local {
-                    boost = variety.take_reward(true);
+                    earned = variety.reward_for(true);
                 }
                 // The Blade Kit's first Boon Offer holds a Blade card.
-                boost.merge(kits::first_offer_boost(kit.kit, !kit.offered));
-                kit.offered = true;
-                if boost.is_none() {
+                let kit_boost = kits::first_offer_boost(kit.kit, !kit.offered);
+                let first_offer = !kit.offered;
+                let kit_adds_nothing = kit_boost.is_none();
+                earned.merge(kit_boost);
+                if earned.is_none() {
+                    kit.offered = true;
                     Choices::Boons(cards)
                 } else {
-                    Choices::Boons(variety::draw_cards_boosted(round, held, &run, &boost, roll))
+                    let boosted = variety::draw_cards_boosted(round, held, &run, &earned, roll);
+                    if boosted.is_empty() {
+                        // Nothing to draw boosted: the plain Offer stands, and what was earned
+                        // waits for the next one.
+                        kit.offered |= first_offer && kit_adds_nothing;
+                        Choices::Boons(cards)
+                    } else {
+                        if local {
+                            variety.take_reward(true);
+                        }
+                        kit.offered |= first_offer;
+                        boost = earned;
+                        Choices::Boons(boosted)
+                    }
                 }
             }
             pacts => pacts,

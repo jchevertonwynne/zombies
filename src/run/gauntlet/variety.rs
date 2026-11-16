@@ -23,7 +23,7 @@ use super::boon::{BOONS, BoonDef, Family, HeldBoons, RunFacts, draw, offer_pool}
 use super::{Offer, PendingOffer};
 use crate::audio::cues::Cue;
 use crate::audio::{PlayCue, RoundStartCue};
-use crate::economy::buy::{Buyable, HoldBuy, HoldPurchased, Purchased};
+use crate::economy::points::Points;
 use crate::enemies::zombie::{Attack, ZombieKilled};
 use crate::maps::zone::{PlayerZone, ZoneId};
 use crate::modifier::{Effect, Modifier, Source, Stat};
@@ -643,6 +643,11 @@ impl RoundVariety {
 
     /// The reward onto an Offer opening now: all of it for a Boon or Boss Offer, none for a Pact
     /// Offer, which leaves it for the next.
+    pub fn reward_for(&self, boons: bool) -> Boost {
+        if boons { self.reward.clone() } else { Boost::default() }
+    }
+
+    /// Takes the reward `reward_for` showed, once an Offer carries it.
     pub fn take_reward(&mut self, boons: bool) -> Boost {
         if boons { std::mem::take(&mut self.reward) } else { Boost::default() }
     }
@@ -791,10 +796,9 @@ pub fn begin_round(
 pub struct Watched<'w, 's> {
     kills: MessageReader<'w, 's, ZombieKilled>,
     reloads: MessageReader<'w, 's, Reloaded>,
-    purchases: MessageReader<'w, 's, Purchased>,
-    hold_purchases: MessageReader<'w, 's, HoldPurchased>,
-    buyables: Query<'w, 's, &'static Buyable>,
-    holds: Query<'w, 's, &'static HoldBuy>,
+    points: Query<'w, 's, &'static Points, With<LocalPlayer>>,
+    /// The Player's `Points::spent` as last seen, so the Points actually deducted since count.
+    seen_spent: Local<'s, u64>,
 }
 
 /// Feeds the live Challenge the Player's kills, Reloads, purchases, Zone and the clock, and sounds
@@ -811,12 +815,11 @@ pub fn track_challenge(
     let live = variety.chosen.as_ref().is_some_and(|chosen| chosen.live && chosen.round == round.number);
     let kills: Vec<_> = watched.kills.read().copied().collect();
     let reloads = watched.reloads.read().count();
-    let bought: Vec<_> = watched
-        .purchases
-        .read()
-        .filter_map(|purchase| watched.buyables.get(purchase.buyable).ok()?.price)
-        .chain(watched.hold_purchases.read().filter_map(|purchase| watched.holds.get(purchase.buyable).ok()?.price))
-        .collect();
+    // What was really deducted, whatever was bought (a Door, a Repack or Pack-a-Punch price lives on
+    // no `Buyable`) and wherever the Points went.
+    let total = watched.points.single().map_or(*watched.seen_spent, |points| points.spent);
+    let spent = total.saturating_sub(*watched.seen_spent);
+    *watched.seen_spent = total;
     if !live {
         return;
     }
@@ -829,9 +832,7 @@ pub fn track_challenge(
     for _ in 0..reloads {
         broke |= run.reloaded();
     }
-    for price in bought {
-        broke |= run.spent(price);
-    }
+    broke |= run.spent(spent);
     if let Ok(&PlayerZone(zone)) = zone.single() {
         broke |= run.in_zone(zone);
     }
@@ -1425,6 +1426,35 @@ mod tests {
             }),
             ..default()
         }
+    }
+
+    #[test]
+    fn tight_fist_breaks_on_any_points_actually_spent_even_with_no_buyable_to_price() {
+        let mut app = App::new();
+        app.add_message::<ZombieKilled>()
+            .add_message::<Reloaded>()
+            .add_message::<PlayCue>()
+            .init_resource::<Time>()
+            .insert_resource(Round::in_progress(7))
+            .insert_resource(live(7, None, Some(ChallengeKind::TightFist)))
+            .add_systems(Update, track_challenge);
+        let player = app.world_mut().spawn((LocalPlayer, Points { balance: 5000, ..default() })).id();
+        app.update();
+        let standing = |app: &App| app.world().resource::<RoundVariety>().chosen.as_ref().unwrap().challenge.as_ref().unwrap().standing;
+        assert_eq!(standing(&app), Standing::Active);
+        app.world_mut().get_mut::<Points>(player).unwrap().spend(1000);
+        app.update();
+        assert_eq!(standing(&app), Standing::Broken);
+    }
+
+    #[test]
+    fn looking_at_the_reward_leaves_it_to_be_taken_once_an_offer_carries_it() {
+        let mut variety = RoundVariety { reward: reward(true, None), ..default() };
+        assert!(variety.reward_for(true).rarity_bump);
+        assert!(variety.reward_for(false).is_none());
+        assert!(variety.reward_for(true).rarity_bump, "not consumed");
+        assert!(variety.take_reward(true).rarity_bump);
+        assert!(variety.reward_for(true).is_none());
     }
 
     #[test]
