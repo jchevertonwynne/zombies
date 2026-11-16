@@ -50,7 +50,7 @@ use crate::weapons::mystery_box::{MysteryBox, TeddyBear};
 use crate::economy::perk::{Perk, PerkMachine};
 use crate::players::player::{LocalPlayer, Player, Seat};
 use crate::players::respawn::{BledOut, Disconnected, SeatDropped};
-use crate::economy::points::BonusPoints;
+use crate::economy::points::{BonusPoints, Points};
 use crate::economy::power_up::{DropPowerUp, GivePowerUp, PowerUp, PowerUpTaken};
 use crate::storage::records::{RecordExtra, RecordExtras, RunHeatRecord, RunKit};
 use crate::run::round::{IntermissionHold, ReservedRounds, Round, RoundEnded, RoundPhase};
@@ -78,7 +78,8 @@ pub use pact::HeldPacts;
 use screen::{OfferCard, SkipButton};
 use heat::RunHeat;
 use kits::{Kit, PlayerKit, chosen_kit};
-use tools::{Banishes, BanishCard, RerollOffer, ToolUsed};
+pub(crate) use tools::Banishes;
+use tools::{BanishCard, RerollOffer, ToolUsed};
 use variety::{Boost, PickRound, RoundVariety};
 
 /// The Offers a Player is waiting for.
@@ -462,19 +463,35 @@ fn picks_changed(
 
 /// Every new Player starts with no Boons and no Offer coming. Gauntlet's state sits on the Player
 /// from here, so Classic never has to know it.
-fn give_gauntlet_state(
+pub(crate) fn give_gauntlet_state(
     add: On<Add<Player>>,
     mut commands: Commands,
     progress: Option<Res<GauntletFile>>,
     (chosen, heat): (Option<Res<ChosenKit>>, Option<Res<RunHeat>>),
     locals: Query<(), With<LocalPlayer>>,
+    seats: Query<&Seat>,
+    party: Option<Res<crate::run::party::Party>>,
 ) {
-    // Their own Tracks' Banish charges and their own Kit help only this machine's Player.
+    // Their own Kit helps only this machine's Player; the Host builds each remote Player's Tracks
+    // from what their machine brought to the Room.
     let local = locals.contains(add.entity);
-    let track_banishes = progress.as_ref().filter(|_| local).map_or(0, |file| file.track_banishes());
+    let tracks = if local {
+        progress.as_ref().map(|file| file.tracks_on_the_wire())
+    } else {
+        let seat = seats.get(add.entity).ok();
+        party.as_ref().and_then(|party| party.room()).zip(seat).and_then(|(room, seat)| room.unlocks(seat.0)).map(|brought| brought.tracks.clone())
+    };
+    let tracks = tracks.unwrap_or_default();
+    let track_banishes = progress::track_banishes_of(&tracks);
+    let entries = progress::track_entries_of(&tracks);
     // The local save's Unlocks stand in for every Player's until the Room's `Hello` fills a
     // remote one's.
     let unlocked = progress.map_or_else(Vec::new, |file| file.unlocked.clone());
+    // The local Player's entries came with their body, from the Run's modifiers; a remote
+    // Player's, and their starting Points, come from their own Tracks.
+    if !local && !entries.is_empty() {
+        commands.entity(add.entity).insert((Modifiers(entries.clone()), Points::starting(&entries)));
+    }
     commands.entity(add.entity).insert((
         HeldBoons::default(),
         PendingOffer::default(),
