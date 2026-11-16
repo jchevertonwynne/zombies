@@ -39,7 +39,7 @@ use crate::economy::buy::{
 use crate::maps::door::{Door, open};
 use crate::maps::tide::{Tide, TidePhase, TurnState};
 use crate::run::gauntlet::{
-    HeldBoons, HeldPacts, Offer, OfferWire, PickOffer, boons_wire, pacts_wire, show_boons, show_pacts,
+    Banishes, BanishCard, RerollOffer, ToolUsed, HeldBoons, HeldPacts, Offer, OfferWire, PickOffer, boons_wire, pacts_wire, show_boons, show_pacts,
 };
 use crate::players::last_stand::{Down as WentDown, DownOutcome, LastStand};
 use crate::run::leave_run::PlayerLeft;
@@ -103,6 +103,10 @@ pub enum Request {
     Revive { target: Seat },
     /// Their Pause menu is open, or has closed.
     Paused(bool),
+    /// They Reroll their open Boon or Boss Offer.
+    Reroll,
+    /// They Banish this card of their open Boon or Boss Offer.
+    Banish { card: u8 },
     /// They picked this card of their open Offer, or skipped a Pact Offer.
     Pick { card: Option<u8> },
 }
@@ -445,6 +449,9 @@ pub fn add(app: &mut App) {
         .add_message::<PlayCue>()
         .add_message::<PlayerHit>()
         .add_message::<PickOffer>()
+        .add_message::<RerollOffer>()
+        .add_message::<BanishCard>()
+        .add_message::<ToolUsed>()
         .add_message::<PlayerLeft>()
         .add_message::<WentDown>()
         .add_message::<Revived>()
@@ -565,7 +572,7 @@ pub fn add(app: &mut App) {
             Update,
             (
                 forward_requests,
-                forward_picks,
+                (forward_picks, forward_tools),
                 report_switches,
                 report_paused,
                 (run_shown_clocks, show_box_prices).run_if(in_state(Authority::Client)),
@@ -631,6 +638,8 @@ fn hear_requests(
     mut uses: MessageWriter<UseRequest>,
     mut claims: MessageWriter<RefusedByPlayer>,
     mut picks: MessageWriter<PickOffer>,
+    mut rerolls: MessageWriter<RerollOffer>,
+    mut banishes: MessageWriter<BanishCard>,
 ) {
     for (peer, request) in std::mem::take(&mut mirror.requests) {
         let Some(&(_, seat)) = roster.0.iter().find(|(held, _)| *held == peer) else { continue };
@@ -666,6 +675,12 @@ fn hear_requests(
             }
             Request::Pick { card } => {
                 picks.write(PickOffer { player, card: card.map(usize::from) });
+            }
+            Request::Reroll => {
+                rerolls.write(RerollOffer { player });
+            }
+            Request::Banish { card } => {
+                banishes.write(BanishCard { player, card: usize::from(card) });
             }
         }
     }
@@ -1147,9 +1162,13 @@ fn tell_hurts(
 }
 
 /// Each remote Player's own Offer, when it opens, and when it closes.
-fn tell_offers(mut tell: Tell, mut mirror: ResMut<Mirror>, players: Query<(&PlayerSeat, Option<&Offer>, &Remote), With<Player>>) {
-    for (seat, offer, remote) in &players {
-        let now = offer.map(Offer::wire);
+fn tell_offers(
+    mut tell: Tell,
+    mut mirror: ResMut<Mirror>,
+    players: Query<(&PlayerSeat, Option<&Offer>, Option<&Banishes>, &Remote), With<Player>>,
+) {
+    for (seat, offer, banishes, remote) in &players {
+        let now = offer.map(|offer| offer.wire(banishes.map_or(0, |banishes| banishes.charges)));
         let told = mirror.offers.get(&seat.0).cloned().unwrap_or(None);
         if told == now {
             continue;
@@ -1390,6 +1409,7 @@ fn catch_up_player(
             Option<&Offer>,
             &HeldBoons,
             &Points,
+            Option<&Banishes>,
         ),
         With<Player>,
     >,
@@ -1397,7 +1417,7 @@ fn catch_up_player(
 ) {
     for &SeatReturned { seat } in returned.read() {
         let Some(&(peer, _)) = tell.roster.0.iter().find(|&&(_, held)| held == seat.0) else { continue };
-        for (held_seat, perks, drinking, weapon, loadout, equipment, knife, health, offer, boons, points) in &players {
+        for (held_seat, perks, drinking, weapon, loadout, equipment, knife, health, offer, boons, points, banishes) in &players {
             if *held_seat != seat {
                 tell.to(peer, &WorldEvent::Points { seat: held_seat.0, points: wire_points(points.balance) });
             }
@@ -1420,7 +1440,7 @@ fn catch_up_player(
             };
             tell.to(peer, &WorldEvent::Hands { ops: vec![replace], held: loadout.held_slot() as u8, gear });
             tell.to(peer, &WorldEvent::Health { current: health.current, max: health.max });
-            let now = offer.map(Offer::wire);
+            let now = offer.map(|offer| offer.wire(banishes.map_or(0, |banishes| banishes.charges)));
             match &now {
                 Some(wire) => tell.to(peer, &WorldEvent::Offer(wire.clone())),
                 None => tell.to(peer, &WorldEvent::OfferClosed),
@@ -1478,6 +1498,23 @@ fn forward_picks(mut picks: MessageReader<PickOffer>, local: Query<Entity, With<
     for pick in picks.read().filter(|pick| pick.player == local) {
         let card = pick.card.map(|card| card as u8);
         wire.0.send(HOST, encode(&ToHost::Request(Request::Pick { card })));
+    }
+}
+
+/// Sends the Host the Reroll or Banish the `LocalPlayer` asked of their Offer.
+fn forward_tools(
+    mut rerolls: MessageReader<RerollOffer>,
+    mut banishes: MessageReader<BanishCard>,
+    local: Query<Entity, With<LocalPlayer>>,
+    mut wire: ResMut<Wire>,
+) {
+    let Ok(local) = local.single() else { return };
+    for _ in rerolls.read().filter(|request| request.player == local) {
+        wire.0.send(HOST, encode(&ToHost::Request(Request::Reroll)));
+    }
+    for request in banishes.read().filter(|request| request.player == local) {
+        let card = u8::try_from(request.card).unwrap_or(u8::MAX);
+        wire.0.send(HOST, encode(&ToHost::Request(Request::Banish { card })));
     }
 }
 
@@ -2066,19 +2103,38 @@ fn hear_points(mut heard: MessageReader<Heard>, mut players: Query<(&PlayerSeat,
 fn hear_offers(
     mut heard: MessageReader<Heard>,
     mut commands: Commands,
-    local: Query<Entity, With<LocalPlayer>>,
+    mut local: Query<(Entity, Option<&Offer>, Option<&mut Banishes>), With<LocalPlayer>>,
     mut cues: MessageWriter<PlayCue>,
+    mut used: MessageWriter<ToolUsed>,
 ) {
-    let Ok(player) = local.single() else { return };
+    let Ok((player, open, mut banishes)) = local.single_mut() else { return };
+    // The Offer showing, as the Host last told it, and the charges then.
+    let mut showing = open.map(Offer::rerolls);
     for Heard(event) in heard.read() {
         match event {
             WorldEvent::Offer(wire) => {
                 let Some(offer) = Offer::from_wire(wire) else { continue };
-                let cue = if wire.1 { Cue::PactOffer } else { Cue::BoonOffer };
-                cues.write(PlayCue::new(cue, None));
+                // The same Offer coming back with a Reroll made or a charge spent is a tool used.
+                if let Some(rerolls) = showing
+                    && (offer.rerolls() > rerolls || banishes.as_ref().is_some_and(|banishes| u32::from(wire.charges) < banishes.charges))
+                {
+                    used.write(ToolUsed { player });
+                }
+                showing = Some(offer.rerolls());
+                if let Some(banishes) = banishes.as_mut()
+                    && banishes.charges != u32::from(wire.charges)
+                {
+                    banishes.charges = u32::from(wire.charges);
+                }
+                // A Reroll or Banish redraws the cards under a screen already open, with no new cue.
+                if open.is_none() {
+                    let cue = if wire.pacts { Cue::PactOffer } else { Cue::BoonOffer };
+                    cues.write(PlayCue::new(cue, None));
+                }
                 commands.entity(player).insert((offer, Choosing));
             }
             WorldEvent::OfferClosed => {
+                showing = None;
                 commands.entity(player).remove::<(Offer, Choosing)>();
             }
             _ => {}

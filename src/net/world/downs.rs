@@ -5,7 +5,8 @@ use avian3d::prelude::Position;
 
 use super::tests::Run;
 use super::*;
-use crate::run::gauntlet::{HeldBoons, HeldPacts, Offer, PickOffer, apply_pick, sample_boon_ids};
+use crate::run::gauntlet::BanishCard;
+use crate::run::gauntlet::{HeldBoons, HeldPacts, Offer, OfferWire, PickOffer, apply_pick, sample_boon_ids};
 use crate::players::last_stand::{Down as WentDown, LastStandPlugin, go_down};
 use crate::run::leave_run::LeaveRunPlugin;
 use crate::net::protocol::{ToHost, encode};
@@ -39,6 +40,10 @@ fn give_boons(mut commands: Commands, players: Query<Entity, (With<Player>, With
     for player in &players {
         commands.entity(player).insert(HeldBoons::default());
     }
+}
+
+fn boon_wire(cards: Vec<String>) -> OfferWire {
+    OfferWire { round: 3, pacts: false, cards, rerolls: 0, charges: 1, picks: 1, picked: 0 }
 }
 
 fn run(clients: u8) -> Run {
@@ -274,7 +279,7 @@ fn an_offer_goes_to_its_player_alone_and_their_pick_applies_on_the_host() {
     run.step(5);
     let on_host = run.player(0, 1);
     let ids = sample_boon_ids(3);
-    let offer = Offer::from_wire(&(3, false, ids.clone())).unwrap();
+    let offer = Offer::from_wire(&boon_wire(ids.clone())).unwrap();
     run.world(0).entity_mut(on_host).insert((offer, Choosing));
     run.step(10);
     let own = run.player(1, 1);
@@ -305,7 +310,7 @@ fn a_remote_player_with_an_offer_open_is_not_stepped() {
     let mut run = run(1);
     run.step(5);
     let on_host = run.player(0, 1);
-    let offer = Offer::from_wire(&(3, false, sample_boon_ids(3))).unwrap();
+    let offer = Offer::from_wire(&boon_wire(sample_boon_ids(3))).unwrap();
     run.world(0).entity_mut(on_host).insert((offer, Choosing));
     let before = run.world(0).get::<Transform>(on_host).unwrap().translation;
     // The client keeps walking on its own game.
@@ -333,4 +338,38 @@ fn a_joiner_who_leaves_is_gone_from_the_host_and_every_other_game() {
         assert_eq!(seats, [0, 2], "game {on}");
     }
     assert_eq!(run.world(0).resource::<Roster>().0.len(), 1);
+}
+
+#[test]
+fn a_clients_reroll_and_banish_apply_on_the_host_and_come_back_in_the_offer() {
+    use crate::run::gauntlet::{Banishes, RerollOffer};
+    let mut run = Run::with(1, &|app| {
+        coop(app);
+        crate::run::gauntlet::host_offer_tools(app);
+    });
+    run.step(5);
+    let on_host = run.player(0, 1);
+    let own = run.player(1, 1);
+    run.give_points(1, 5000);
+    let ids = sample_boon_ids(3);
+    let offer = Offer::from_wire(&boon_wire(ids.clone())).unwrap();
+    run.world(0).entity_mut(on_host).insert((offer, Choosing));
+    let charges = run.world(0).get::<Banishes>(on_host).unwrap().charges;
+    run.step(10);
+    assert_eq!(run.world(1).get::<Offer>(own).unwrap().rerolls(), 0);
+    assert_eq!(run.world(1).get::<Banishes>(own).unwrap().charges, charges, "the Host's charges");
+
+    // A Reroll on the client: the Host charges 1,000 and the Offer comes back with one made.
+    run.world(1).write_message(RerollOffer { player: own });
+    run.step(10);
+    assert_eq!(run.world(0).get::<Offer>(on_host).unwrap().rerolls(), 1);
+    assert_eq!(run.world(0).get::<crate::economy::points::Points>(on_host).unwrap().balance, 4000);
+    assert_eq!(run.world(1).get::<Offer>(own).unwrap().rerolls(), 1, "the client's price follows");
+
+    // A Banish spends one of the Host's charges and shows on the client.
+    run.world(1).write_message(BanishCard { player: own, card: 0 });
+    run.step(10);
+    assert_eq!(run.world(0).get::<Banishes>(on_host).unwrap().charges, charges - 1);
+    assert_eq!(run.world(1).get::<Banishes>(own).unwrap().charges, charges - 1);
+    assert_eq!(run.world(1).get::<Offer>(own).unwrap().card_ids(), run.world(0).get::<Offer>(on_host).unwrap().card_ids());
 }

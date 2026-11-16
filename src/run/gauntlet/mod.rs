@@ -35,6 +35,7 @@ mod duos_tests;
 
 use bevy::input::common_conditions::input_just_pressed;
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 use bevy::ui_widgets::Activate;
 
 use crate::audio::PlayCue;
@@ -79,7 +80,7 @@ use screen::{OfferCard, SkipButton};
 use heat::RunHeat;
 use kits::{Kit, PlayerKit, chosen_kit};
 pub(crate) use tools::Banishes;
-use tools::{BanishCard, RerollOffer, ToolUsed};
+pub(crate) use tools::{BanishCard, RerollOffer, ToolUsed};
 use variety::{Boost, PickRound, RoundVariety};
 
 /// The Offers a Player is waiting for.
@@ -183,26 +184,60 @@ impl Offer {
 }
 
 /// An open Offer as it goes over the network: the Round it follows, whether its cards are Pacts,
-/// and the stable IDs of its cards in order.
-pub type OfferWire = (u32, bool, Vec<String>);
+/// the stable IDs of its cards in order, the Rerolls made and Banish charges left (so the
+/// Reroll price and Banish buttons read right on a client) and the picks allowed and taken.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct OfferWire {
+    pub round: u32,
+    pub pacts: bool,
+    pub cards: Vec<String>,
+    pub rerolls: u8,
+    pub charges: u8,
+    pub picks: u8,
+    pub picked: u8,
+}
 
 impl Offer {
-    /// This Offer as the Host tells its Player.
-    pub fn wire(&self) -> OfferWire {
-        match &self.choices {
-            Choices::Boons(boons) => (self.round, false, boons.iter().map(|boon| boon.id.to_string()).collect()),
-            Choices::Pacts(pacts) => (self.round, true, pacts.iter().map(|pact| pact.id().to_string()).collect()),
+    /// This Offer as the Host tells its Player, with the Player's Banish `charges`.
+    pub fn wire(&self, charges: u32) -> OfferWire {
+        let (pacts, cards) = match &self.choices {
+            Choices::Boons(boons) => (false, boons.iter().map(|boon| boon.id.to_string()).collect()),
+            Choices::Pacts(pacts) => (true, pacts.iter().map(|pact| pact.id().to_string()).collect()),
+        };
+        let small = |count: u32| u8::try_from(count).unwrap_or(u8::MAX);
+        OfferWire {
+            round: self.round,
+            pacts,
+            cards,
+            rerolls: small(self.rerolls),
+            charges: small(charges),
+            picks: small(self.picks),
+            picked: small(self.picked),
         }
     }
 
     /// The Offer the Host told, or nothing if a card is one this game doesn't know.
-    pub fn from_wire((round, pacts, ids): &OfferWire) -> Option<Self> {
-        let choices = if *pacts {
-            Choices::Pacts(ids.iter().map(|id| PACTS.iter().find(|pact| pact.id() == id)).collect::<Option<_>>()?)
+    pub fn from_wire(wire: &OfferWire) -> Option<Self> {
+        let choices = if wire.pacts {
+            Choices::Pacts(wire.cards.iter().map(|id| PACTS.iter().find(|pact| pact.id() == id)).collect::<Option<_>>()?)
         } else {
-            Choices::Boons(ids.iter().map(|id| boon::find(id)).collect::<Option<_>>()?)
+            Choices::Boons(wire.cards.iter().map(|id| boon::find(id)).collect::<Option<_>>()?)
         };
-        Some(Self::new(choices, *round))
+        let mut offer = Self::new(choices, wire.round);
+        offer.rerolls = u32::from(wire.rerolls);
+        offer.picks = u32::from(wire.picks).max(1);
+        offer.picked = u32::from(wire.picked);
+        Some(offer)
+    }
+
+    /// Rerolls already made in this Offer.
+    pub fn rerolls(&self) -> u32 {
+        self.rerolls
+    }
+
+    /// The cards' stable IDs, in order.
+    pub fn card_ids(&self) -> Vec<String> {
+        self.wire(0).cards
     }
 }
 
@@ -232,6 +267,22 @@ pub fn show_pacts(held: &mut HeldPacts, told: &[(String, u8)]) {
             Some(pact::HeldPact { pact: PACTS.iter().find(|pact| pact.id() == id)?, holder: Seat(*seat) })
         })
         .collect();
+}
+
+/// What the Host needs to run Reroll and Banish for a test of the netcode: the Gauntlet state on
+/// each Player, and the tools themselves.
+#[cfg(test)]
+pub(crate) fn host_offer_tools(app: &mut App) {
+    app.init_resource::<UnlockAll>()
+        .init_resource::<RunHeat>()
+        .add_message::<crate::economy::points::SpendPoints>()
+        .add_message::<RerollOffer>()
+        .add_message::<BanishCard>()
+        .add_message::<ToolUsed>()
+        .add_message::<PlayCue>()
+        .add_observer(give_gauntlet_state)
+        .add_systems(Update, (tools::apply_reroll, tools::apply_banish).chain().in_set(HostSimulation))
+        .add_systems(Update, crate::economy::points::spend);
 }
 
 pub struct GauntletPlugin;

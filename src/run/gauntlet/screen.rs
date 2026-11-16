@@ -269,7 +269,7 @@ pub fn refresh_offer(
         *shown = None;
         return;
     };
-    let (_, _, cards) = offer.wire();
+    let cards = offer.card_ids();
     let last = shown.replace((offer.round, cards.clone()));
     // Only the same Offer's cards changing is a Reroll or Banish; a new Offer builds its own.
     if last.is_none_or(|(round, last)| round != offer.round || last == cards) {

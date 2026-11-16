@@ -130,7 +130,7 @@ fn resolve_rate(mut players: Query<(&Modifiers, &mut Points), With<Player>>) {
 }
 
 /// Spends asked for come out of the Player's balance, unless they can't afford it.
-fn spend(mut spends: MessageReader<SpendPoints>, mut players: Query<&mut Points, With<Player>>) {
+pub(crate) fn spend(mut spends: MessageReader<SpendPoints>, mut players: Query<&mut Points, With<Player>>) {
     for &SpendPoints { player, amount } in spends.read() {
         if let Ok(mut points) = players.get_mut(player)
             && points.balance >= amount
