@@ -146,6 +146,7 @@ fn recipe(cue: Cue) -> Recipe {
         Cue::SetBonusTier6 => Recipe::Synth(chime(&[784.0, 1046.5, 1318.5, 1568.0, 2093.0], 1.6, 3.0)),
         Cue::DuoTaken => Recipe::Synth(duo_taken()),
         Cue::BossWarning => Recipe::Synth(boss_warning()),
+        Cue::BossHowl => Recipe::Synth(boss_howl()),
         Cue::GauntletWin => Recipe::Synth(gauntlet_win()),
         Cue::AmmoModDeadWire => Recipe::Synth(zap_chain()),
         Cue::AmmoModFireworks => Recipe::Synth(pops()),
@@ -1271,6 +1272,24 @@ fn boss_warning() -> Vec<f32> {
         layer(&mut out, at, &blast);
     }
     clamped(out)
+}
+
+/// The Pack Alpha's howl: a long, wavering note that climbs and then sinks away, with a rasp.
+fn boss_howl() -> Vec<f32> {
+    let mut seed = 0x0a1f_a001;
+    let secs = 2.4;
+    let mut phase = 0.0;
+    samples(secs)
+        .map(|t| {
+            let rise = (t / 0.9).min(1.0);
+            let fall = ((t - 1.4) / 1.0).clamp(0.0, 1.0);
+            let freq = (220.0 + 260.0 * rise - 170.0 * fall) * (1.0 + 0.02 * (TAU * 5.0 * t).sin());
+            phase += TAU * freq / SAMPLE_RATE as f32;
+            let swell = (t / 0.25).min(1.0) * (1.0 - fall).max(0.0).powf(0.5);
+            let tone = phase.sin() + 0.5 * (2.0 * phase).sin() + 0.25 * (3.0 * phase).sin();
+            tone * (1.0 + 0.15 * noise(&mut seed)) * swell * 0.3
+        })
+        .collect()
 }
 
 /// The Win: a rising major arpeggio landing on a long, bright chord.

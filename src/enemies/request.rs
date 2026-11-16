@@ -1,19 +1,20 @@
 //! `SpawnZombie`: a request, from anything layered on Classic, for a Zombie of a kind to enter
 //! play outside the Horde (ADR 0007). Classic owns the Zombie it spawns: its health, its entry and
 //! its kind's rules. Each kind's module spawns its own: the special module the Napalm, the Sapper
-//! module the Sapper.
+//! module the Sapper, the hellhound module the Hellhound.
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use crate::audio::cues::Cue;
+use crate::enemies::hellhound::hellhound_spawn_candidates;
 use crate::enemies::sapper::window_candidates;
 use crate::enemies::special::SpecialCue;
 use crate::enemies::target::Players;
 use crate::enemies::zombie::Heavyweight;
 use crate::maps::barrier::Barriers;
 use crate::maps::map::{BarrierId, MapId, SpawnKind, SpawnPoint};
-use crate::maps::zone::ActiveZones;
+use crate::maps::zone::{ActiveZones, ZoneId};
 use crate::run::round::zombie_health;
 
 /// The kinds of Zombie a `SpawnZombie` can ask for.
@@ -21,16 +22,18 @@ use crate::run::round::zombie_health;
 pub enum RequestedKind {
     Napalm,
     Sapper,
+    /// A Hellhound: it comes in a lightning strike, never through a Barrier, and bites as hounds do.
+    Hellhound,
 }
 
 /// Where a requested Zombie enters.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SpawnAt {
     /// Rising out of the ground here, as its kind does.
-    #[allow(dead_code, reason = "for the Pack Alpha's pack and Splitter Walkers, in later slices")]
     Point(Vec3),
     /// Through a window in an Active Zone, the Player's own Zone's first, every Plank ripped off
-    /// at once: the Sapper's entry.
+    /// at once: the Sapper's entry. A Hellhound, which never uses Barriers, comes in at a
+    /// Hellhound Spawn Point in an Active Zone instead, as the Round's own hounds do.
     BarrierInActiveZone,
 }
 
@@ -98,6 +101,24 @@ impl Entry<'_, '_> {
         self.cues.write(SpecialCue { cue, at: Some(at) });
     }
 
+    /// A Hellhound Spawn Point to strike at: one in an Active Zone picked as a Round's hound is,
+    /// or, with none in an Active Zone, any on this Map. `None` if the Map has none.
+    pub fn hellhound_point(&mut self) -> Option<Vec3> {
+        let map = self.map.as_ref().map_or_else(MapId::default, |map| **map);
+        let points = || {
+            self.spawn_points
+                .iter()
+                .filter(|(_, point)| point.kind == SpawnKind::Hellhound && point.zone.map() == map)
+                .map(|(t, point)| (point.zone, t.translation))
+        };
+        let anchors: Vec<Vec3> = self.players.spawn_anchors().iter().map(|spot| spot.centre).collect();
+        let mut candidates = hellhound_spawn_candidates(points(), self.active.0, &anchors);
+        if candidates.is_empty() {
+            candidates = hellhound_spawn_candidates(points(), ZoneId::ALL.into_iter().collect(), &anchors);
+        }
+        (!candidates.is_empty()).then(|| candidates[rand::random_range(0..candidates.len())])
+    }
+
     /// Where `at` puts a Zombie: the point and, through a window, which Barrier it climbs in by.
     /// `None` while there's no window to come through.
     pub fn resolve(&mut self, at: SpawnAt) -> Option<(Vec3, Option<BarrierId>)> {
@@ -156,6 +177,7 @@ mod tests {
         set_up(crate::enemies::special::spawn_requested_napalms);
         set_up(crate::enemies::special::napalm_trails);
         set_up(crate::enemies::sapper::spawn_requested_sappers);
+        set_up(crate::enemies::hellhound::spawn_requested_hellhounds);
     }
 
     #[test]
