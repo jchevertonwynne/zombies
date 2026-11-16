@@ -7,7 +7,7 @@ Design for closing the Co-op parity gaps listed on [#161](https://github.com/jch
 - **COMPRESS**: packed into spare bits, sent at a lower rate, or moved off the snapshot.
 - **DEFER/REJECT**: not done, with the reason.
 
-It ends with the rules that need the user's call and a split into tickets.
+It ends with the rules that were the user's call (now settled) and a split into tickets.
 
 Terms are as in `GLOSSARY.md`. The netcode is as in ADR 0003.
 
@@ -203,9 +203,9 @@ Each machine logs its own Player, the same way each machine pays its own Scrip. 
 
 0 snapshot bytes. Default rule (D6): every Elite killed in the Run counts for every Player, as solo counts every Elite death.
 
-## 4. Decisions that need the user's call
+## 4. Decisions
 
-Defaults are in bold. The tickets assume them.
+**D1-D9 are settled at their defaults (the bold entries below).** The tickets state them as settled, not open.
 
 | # | Question | Default | Why it matters |
 |---|---|---|---|
@@ -225,17 +225,17 @@ All are children of #161. Each is small enough for one agent. The order is the r
 
 | # | Title | Scope | Blocked by |
 |---|---|---|---|
-| T1 | Co-op snapshot: make room for allies | Teammates' Points move to `WorldEvent::Points`, sent on change and at most 8 Hz per Seat. The worst-case test uses specials ids below `ZOMBIE_ID_SPAN`. ADR 0003 gets the new numbers. Raise `PROTOCOL`. | D8 |
-| T2 | Co-op Tags: Elite traits on puppets | `WorldEvent::Tags` and `Tag::Elite`. The Host keeps a live-tag table and replays it on catch-up. The client holds tags by id until the puppet exists. Elite tint and rally rings on puppets, the Volatile fuse ring inferred, `WorldEvent::ElitesKilled`. Two-machine test. | — |
-| T3 | Co-op Heat: the Host's Degrees on every machine | `RoomView.heat: [u8; 8]`. The client sets `RunHeat` from `Start`. The Armory Heat tab is read-only in a Room. A test that the Reroll price and `RunHeatRecord` match the Host's. | — |
-| T4 | Co-op cosmetic channel: Fx and Cue | `ToPlayer::Fx(Vec<Fx>)` with a per-frame cap, and `WorldEvent::Cue`. Ammo Mod flashes (Classic too), Proc flashes, Set flashes, frost patches, Supply Drop arcs, `Capstones` for Storm Aura, `Tag::Frosted`. A two-machine test that each shows on the client. | T2 (for `Tag::Frosted` only) |
-| T5 | Co-op Bosses: identity, scale, helmet and HUD | The boss bit and body code 5 in `SpecialSight`. Puppet scale. The Warden's helmet re-forms on a puppet, tested beside the Sapper test. `BossView`. `plan_boss` and the warning run on clients. `WorldEvent::BossHealth`. The Bloater burst as `Fx`, the howl as `Cue`. | T4 |
-| T6 | Co-op Turned allies | `Snapshot::allies`. `SNAPSHOT_MAX_CREATURES` = 87, counting allies. `fit_horde` over three lists. The ally puppet's look, with no hit areas. `Tag::Bodyguard`. The worst-case test at 87 plus the new ledger. Fixes Classic Co-op too. | T1, T2, D7 |
-| T7 | Co-op Offer tools: Reroll and Banish for every Player | `OfferWire` becomes a struct (`rerolls`, `charges`, `picks`, `picked`). `Request::Reroll` and `Request::Banish`. Client `click_tool` forwards. `ToolUsed` inferred on the client. Two-machine test for price and charges. | T3 (for the right price) |
-| T8 | Co-op Upgrade Tracks for remote Players, the Banish Track included | Apply `Unlocks.tracks` to the remote Player on the Host: Track entries, Banish Track charges. That covers the first #161 comment. | — |
-| T9 | Co-op Kits for remote Players | `Unlocks.kit`. `StartingLoadout` per Player, at spawn and on Respawn. The Host sets the remote `PlayerKit`. A test that a remote Lead Kit Player holds the M14 on both machines. | D4 |
-| T10 | Co-op Commendations on every machine | `log_run`/`earn_commendations` run for each machine's `LocalPlayer`. Client `RunArc.won` from `RoundEnded` at `win_round()`. Uses `ElitesKilled`, inferred `ToolUsed` and the Room Heat. | T2, T3, T7, D6 |
-| T11 | Co-op Round Choice: the vote and the Twists | `RoundChoice`/`RoundVotes`/`RoundPicked` and `Request::VoteRound`. The client mirrors `RoundVariety`, so Fog, the banner and Low Gravity entries work there. A per-Player pending reward. `has_round_choices` stays off until T12. | T7, D1 |
-| T12 | Co-op Challenges, and Round Choices on | `WorldEvent::Challenge`. The Host judges every Player (Full Mag from the pose action). HUD and cues on clients. Turn `has_round_choices` on for Co-op. Update the GLOSSARY's Round Choice entry ("Co-op has none yet"). | T11, D2 |
+| T1 (#392) | Co-op snapshot: make room for allies | Teammates' Points move to `WorldEvent::Points`, sent on change and at most 8 Hz per Seat. The worst-case test uses specials ids below `ZOMBIE_ID_SPAN`. ADR 0003 gets the new numbers. Raise `PROTOCOL`. | D8 |
+| T2 (#393) | Co-op Tags: Elite traits on puppets | `WorldEvent::Tags` and `Tag::Elite`. The Host keeps a live-tag table and replays it on catch-up. The client holds tags by id until the puppet exists. Elite tint and rally rings on puppets, the Volatile fuse ring inferred, `WorldEvent::ElitesKilled`. Two-machine test. | — |
+| T3 (#394) | Co-op Heat: the Host's Degrees on every machine | `RoomView.heat: [u8; 8]`. The client sets `RunHeat` from `Start`. The Armory Heat tab is read-only in a Room. A test that the Reroll price and `RunHeatRecord` match the Host's. | — |
+| T4 (#395) | Co-op cosmetic channel: Fx and Cue | `ToPlayer::Fx(Vec<Fx>)` with a per-frame cap, and `WorldEvent::Cue`. Ammo Mod flashes (Classic too), Proc flashes, Set flashes, frost patches, Supply Drop arcs, `Capstones` for Storm Aura, `Tag::Frosted`. A two-machine test that each shows on the client. | T2 (for `Tag::Frosted` only) |
+| T5 (#396) | Co-op Bosses: identity, scale, helmet and HUD | The boss bit and body code 5 in `SpecialSight`. Puppet scale. The Warden's helmet re-forms on a puppet, tested beside the Sapper test. `BossView`. `plan_boss` and the warning run on clients. `WorldEvent::BossHealth`. The Bloater burst as `Fx`, the howl as `Cue`. | T4 |
+| T6 (#397) | Co-op Turned allies | `Snapshot::allies`. `SNAPSHOT_MAX_CREATURES` = 87, counting allies. `fit_horde` over three lists. The ally puppet's look, with no hit areas. `Tag::Bodyguard`. The worst-case test at 87 plus the new ledger. Fixes Classic Co-op too. | T1, T2, D7 |
+| T7 (#398) | Co-op Offer tools: Reroll and Banish for every Player | `OfferWire` becomes a struct (`rerolls`, `charges`, `picks`, `picked`). `Request::Reroll` and `Request::Banish`. Client `click_tool` forwards. `ToolUsed` inferred on the client. Two-machine test for price and charges. | T3 (for the right price) |
+| T8 (#399) | Co-op Upgrade Tracks for remote Players, the Banish Track included | Apply `Unlocks.tracks` to the remote Player on the Host: Track entries, Banish Track charges. That covers the first #161 comment. | — |
+| T9 (#400) | Co-op Kits for remote Players | `Unlocks.kit`. `StartingLoadout` per Player, at spawn and on Respawn. The Host sets the remote `PlayerKit`. A test that a remote Lead Kit Player holds the M14 on both machines. | D4 |
+| T10 (#401) | Co-op Commendations on every machine | `log_run`/`earn_commendations` run for each machine's `LocalPlayer`. Client `RunArc.won` from `RoundEnded` at `win_round()`. Uses `ElitesKilled`, inferred `ToolUsed` and the Room Heat. | T2, T3, T7, D6 |
+| T11 (#402) | Co-op Round Choice: the vote and the Twists | `RoundChoice`/`RoundVotes`/`RoundPicked` and `Request::VoteRound`. The client mirrors `RoundVariety`, so Fog, the banner and Low Gravity entries work there. A per-Player pending reward. `has_round_choices` stays off until T12. | T7, D1 |
+| T12 (#403) | Co-op Challenges, and Round Choices on | `WorldEvent::Challenge`. The Host judges every Player (Full Mag from the pose action). HUD and cues on clients. Turn `has_round_choices` on for Co-op. Update the GLOSSARY's Round Choice entry ("Co-op has none yet"). | T11, D2 |
 
 Not on this list, because #161's body covers them: Boss health × `BOSS_HEALTH_BY_PLAYERS`, and the per-Player Win choice. The Win needs no new bytes, since each client already infers it (T10).
