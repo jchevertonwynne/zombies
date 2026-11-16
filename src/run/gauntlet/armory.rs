@@ -114,8 +114,13 @@ fn cell(row: &mut ChildSpawnerCommands, value: impl Into<String>, width: f32, co
 }
 
 /// The tab, the note or the progress changed, so the board needs rebuilding.
-pub fn armory_changed(tab: Res<ArmoryTab>, note: Res<ArmoryNote>, file: Res<GauntletFile>) -> bool {
-    tab.is_changed() || note.is_changed() || file.is_changed()
+pub fn armory_changed(
+    tab: Res<ArmoryTab>,
+    note: Res<ArmoryNote>,
+    file: Res<GauntletFile>,
+    session: Res<crate::ui::coop::CoopSession>,
+) -> bool {
+    tab.is_changed() || note.is_changed() || file.is_changed() || session.is_changed()
 }
 
 pub fn refresh_armory(
@@ -124,6 +129,7 @@ pub fn refresh_armory(
     tab: Res<ArmoryTab>,
     note: Res<ArmoryNote>,
     file: Res<GauntletFile>,
+    session: Res<crate::ui::coop::CoopSession>,
 ) {
     let Ok(board) = board.single() else {
         return;
@@ -164,7 +170,7 @@ pub fn refresh_armory(
                 ArmoryTab::Unlocks => unlocks_tab(board, &file),
                 ArmoryTab::Upgrades => upgrades_tab(board, &file),
                 ArmoryTab::Commendations => commendations_tab(board, &file),
-                ArmoryTab::Heat => heat_tab(board, &file),
+                ArmoryTab::Heat => heat_tab(board, &file, heat_lock(&session)),
             }
         });
 }
@@ -330,10 +336,21 @@ fn pips(degree: u32, max: u32) -> String {
     (1..=max).map(|at| if at <= degree { '●' } else { '○' }).collect()
 }
 
+/// Why the Heat tab can't be changed, when this machine is in a Room: the Host's Degrees are the
+/// ones every machine plays.
+fn heat_lock(session: &crate::ui::coop::CoopSession) -> Option<&'static str> {
+    use crate::ui::coop::CoopSession;
+    match session {
+        CoopSession::Off => None,
+        CoopSession::Host(_) => Some("Locked while in a Room: the Room plays your Degrees."),
+        CoopSession::Join(_) => Some("Set by the Host"),
+    }
+}
+
 /// Heat, once a Run is Won: a row per Condition with its Degree pips and what the Degree does.
 /// Clicking a row raises its Degree, wrapping back to 0. The header shows the Heat and the Scrip it
 /// pays; before the first Win it just says how to unlock it.
-fn heat_tab(board: &mut ChildSpawnerCommands, file: &GauntletFile) {
+fn heat_tab(board: &mut ChildSpawnerCommands, file: &GauntletFile, lock: Option<&'static str>) {
     if !file.has_won {
         board.spawn(text("Win a Run to unlock Heat", 24.0, HINT_GREY));
         return;
@@ -345,9 +362,9 @@ fn heat_tab(board: &mut ChildSpawnerCommands, file: &GauntletFile) {
         NEW_BEST_GOLD,
     ));
     board.spawn(text(
-        "Each Degree is 1 Heat. Click a Condition to raise it; past its top it goes back to 0.",
+        lock.unwrap_or("Each Degree is 1 Heat. Click a Condition to raise it; past its top it goes back to 0."),
         18.0,
-        HINT_GREY,
+        if lock.is_some() { ROUND_RED } else { HINT_GREY },
     ));
     for condition in Condition::ALL {
         let degree = run.degree(condition);
@@ -437,6 +454,7 @@ pub fn armory_click(
     mut tab: ResMut<ArmoryTab>,
     mut note: ResMut<ArmoryNote>,
     mut file: ResMut<GauntletFile>,
+    session: Res<crate::ui::coop::CoopSession>,
 ) {
     let Ok(&action) = buttons.get(activate.entity) else {
         return;
@@ -454,7 +472,13 @@ pub fn armory_click(
             next.toggle(track);
             Ok(())
         }
-        ArmoryButton::Heat(condition) => next.cycle_heat(condition),
+        ArmoryButton::Heat(condition) => {
+            if let Some(why) = heat_lock(&session) {
+                note.0 = why.to_string();
+                return;
+            }
+            next.cycle_heat(condition)
+        }
     };
     match result {
         Ok(()) => {

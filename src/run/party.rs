@@ -45,6 +45,8 @@ pub struct Party {
     pub local: Seat,
     mode: Mode,
     map: MapId,
+    /// The Host's Degrees, which every machine's Run takes in place of its own save's.
+    heat: [u8; 8],
     stage: Stage,
     /// The Host's Room, kept for the party's return.
     room: Option<Room>,
@@ -62,13 +64,18 @@ impl Party {
         &self.seats
     }
 
+    /// The Host's Degrees, one per Condition.
+    pub fn heat(&self) -> [u8; 8] {
+        self.heat
+    }
+
     /// This machine's Player wants back in the Room.
     pub fn back_to_room(&mut self) {
         self.back = true;
     }
 
-    fn new(seats: Vec<(Seat, String)>, local: Seat, mode: Mode, map: MapId, room: Option<Room>) -> Self {
-        Party { seats, local, mode, map, stage: Stage::Gathering, room, back: false, over: false, parted: false }
+    fn new(seats: Vec<(Seat, String)>, local: Seat, mode: Mode, map: MapId, heat: [u8; 8], room: Option<Room>) -> Self {
+        Party { seats, local, mode, map, heat, stage: Stage::Gathering, room, back: false, over: false, parted: false }
     }
 
 }
@@ -93,7 +100,7 @@ pub fn start_hosted(
         .map(|(seat, name)| (Seat(seat), name))
         .collect();
     let room_tokens = room.tokens();
-    world.insert_resource(Party::new(seats, Seat(0), room.mode(), room.map(), Some(room)));
+    world.insert_resource(Party::new(seats, Seat(0), room.mode(), room.map(), room.degrees(), Some(room)));
     play::begin_host(world, link, roster);
     world.insert_resource(Held { tokens: room_tokens, away: Vec::new() });
     Ok(())
@@ -107,7 +114,7 @@ pub fn start_joined(world: &mut World, joining: Joining<Box<dyn Link>>, seat: u8
         .enumerate()
         .filter_map(|(at, held)| Some((Seat(at as u8), held.as_ref()?.name.clone())))
         .collect();
-    world.insert_resource(Party::new(seats, Seat(seat), view.mode, view.map, None));
+    world.insert_resource(Party::new(seats, Seat(seat), view.mode, view.map, view.heat, None));
     let (token, hello) = joining.rejoin();
     play::begin_client(world, joining.into_link(), Rejoin::new(token, hello));
 }
@@ -398,6 +405,14 @@ mod tests {
         .init_resource::<BackTo>()
         .init_resource::<GauntletFile>()
         .init_resource::<RunModifiers>()
+        .init_resource::<crate::run::gauntlet::ActiveRanks>()
+        .init_resource::<crate::run::gauntlet::ChosenKit>()
+        .init_resource::<crate::run::gauntlet::heat::RunHeat>()
+        .init_resource::<crate::run::gauntlet::elite::EliteRules>()
+        .init_resource::<crate::storage::records::RunHeatRecord>()
+        .init_resource::<crate::weapons::ammo_mod::TurnedAllyCap>()
+        .init_resource::<crate::run::round::ReservedRounds>()
+        .add_systems(OnExit(GameState::MainMenu), crate::run::gauntlet::set_run_modifiers)
         .init_resource::<crate::weapons::weapon::StartingLoadout>()
         .init_resource::<Mode>()
         .init_resource::<MapId>()
@@ -425,8 +440,14 @@ mod tests {
 
     /// A Host's machine and `joiners` others, in one Room that everyone is Ready in.
     fn room(joiners: usize) -> (Hub, Vec<App>) {
+        room_with(joiners, Mode::Classic, [0; 8])
+    }
+
+    /// `room`, in `mode` with the Host's `heat` set.
+    fn room_with(joiners: usize, mode: Mode, heat: [u8; 8]) -> (Hub, Vec<App>) {
         let hub = Hub::new(1, 0.0);
-        let room = Room::new("Hostess", Unlocks::default(), Mode::Classic);
+        let mut room = Room::new("Hostess", Unlocks::default(), mode);
+        room.set_heat(heat);
         let mut hosting: Hosting<Box<dyn Link>> = Hosting::new(Box::new(hub.host()), room);
         let mut joining: Vec<Joining<Box<dyn Link>>> = (0..joiners)
             .map(|n| Joining::new(Box::new(hub.join()) as Box<dyn Link>, &format!("P{n}"), "", Unlocks::default()))
@@ -624,5 +645,42 @@ mod tests {
             late.poll();
         }
         assert_eq!(late.state, Joined::Refused(crate::net::protocol::Refusal::Started));
+    }
+
+    #[test]
+    fn a_client_plays_the_hosts_heat_and_ignores_its_own_save() {
+        use crate::run::gauntlet::heat::{Condition, RunHeat};
+        use crate::run::gauntlet::reroll_price_from;
+        use crate::storage::records::RunHeatRecord;
+
+        let mut hosts = [0u8; 8];
+        hosts[Condition::TightOffers as usize] = 2;
+        hosts[Condition::Inflation as usize] = 1;
+        let (hub, mut apps) = room_with(2, Mode::Gauntlet, hosts);
+        // A client's own save has another Heat set; in a Room it must not count.
+        let mut own = crate::run::gauntlet::progress::GauntletFile { has_won: true, ..Default::default() };
+        own.cycle_heat(Condition::EliteSurge).unwrap();
+        apps[1].world_mut().insert_resource(own);
+        assert!(start(&mut apps[0]));
+        frames(&hub, &mut apps, 12);
+        assert_in_run(&mut apps);
+
+        let host = *apps[0].world().resource::<RunHeat>();
+        assert_eq!(host.degree(Condition::TightOffers), 2);
+        for (at, app) in apps.iter().enumerate() {
+            let heat = *app.world().resource::<RunHeat>();
+            assert_eq!(heat, host, "machine {at} plays the Host's Degrees");
+            assert_eq!(heat.degree(Condition::EliteSurge), 0, "machine {at} ignores its own save");
+            assert_eq!(
+                reroll_price_from(heat.reroll_base_price(), 1),
+                reroll_price_from(host.reroll_base_price(), 1),
+                "machine {at}'s Reroll price"
+            );
+            let record = app.world().resource::<RunHeatRecord>();
+            let host_record = apps[0].world().resource::<RunHeatRecord>();
+            assert_eq!(record.heat, host_record.heat);
+            assert_eq!(record.heat, Some(3));
+            assert_eq!(record.conditions.len(), host_record.conditions.len());
+        }
     }
 }

@@ -29,7 +29,7 @@ pub struct Room {
     code: String,
     mode: Mode,
     map: MapId,
-    heat: u8,
+    heat: [u8; 8],
     /// Whether the lobby lists the Room, or it is found only by its code.
     listed: bool,
     /// Empty if the Room has none.
@@ -55,7 +55,7 @@ impl Room {
             code: String::new(),
             mode,
             map: MapId::default(),
-            heat: 0,
+            heat: [0; 8],
             listed: true,
             password: String::new(),
             started: false,
@@ -75,7 +75,13 @@ impl Room {
         self.map
     }
 
+    /// The Host's Heat: every Degree is worth 1.
     pub fn heat(&self) -> u8 {
+        self.heat.iter().sum()
+    }
+
+    /// The Host's Degrees, one per Condition.
+    pub fn degrees(&self) -> [u8; 8] {
         self.heat
     }
 
@@ -190,8 +196,7 @@ impl Room {
         }
     }
 
-    #[allow(dead_code, reason = "Heat does not exist yet")]
-    pub fn set_heat(&mut self, heat: u8) {
+    pub fn set_heat(&mut self, heat: [u8; 8]) {
         if self.heat != heat {
             self.heat = heat;
             self.unready();
@@ -781,7 +786,7 @@ mod tests {
             ("mode", |room| room.set_mode(Mode::Gauntlet)),
             ("listing", |room| room.set_listed(false)),
             ("password", |room| room.set_password("x")),
-            ("heat", |room| room.set_heat(3)),
+            ("heat", |room| room.set_heat([3, 0, 0, 0, 0, 0, 0, 0])),
         ];
         for (what, change) in changes {
             let (hub, mut host) = open();

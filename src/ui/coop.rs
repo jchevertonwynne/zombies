@@ -50,12 +50,12 @@ impl CoopSession {
         })
     }
 
-    fn is_off(&self) -> bool {
+    pub(crate) fn is_off(&self) -> bool {
         matches!(self, CoopSession::Off)
     }
 
     /// The Room as this Player sees it, and the Seat they sit in.
-    fn view(&self) -> Option<(RoomView, u8)> {
+    pub(crate) fn view(&self) -> Option<(RoomView, u8)> {
         match self {
             CoopSession::Off => None,
             CoopSession::Host(hosting) => Some((hosting.room.view(), 0)),
@@ -799,8 +799,8 @@ fn direct_join(
 }
 
 /// The Heat a Room is hosted at: the Host's own, in Gauntlet once Heat is unlocked. Classic has none.
-fn room_heat(file: &GauntletFile, mode: Mode) -> u8 {
-    if mode == Mode::Gauntlet { file.run_heat().total() as u8 } else { 0 }
+fn room_heat(file: &GauntletFile, mode: Mode) -> [u8; 8] {
+    if mode == Mode::Gauntlet { file.run_heat().0.map(|degree| degree as u8) } else { [0; 8] }
 }
 
 /// Keeps a hosted Room on the lobby's list while it is open and not yet started.
@@ -1021,7 +1021,7 @@ fn refresh_room(
     let may_start = matches!(&*session, CoopSession::Host(hosting) if hosting.room.can_start());
     let (code, summary, mode_text, map_text, listed_text) = match &current {
         Some((view, _)) => {
-            let mut summary = status_line(view.map, view.mode, view.heat);
+            let mut summary = status_line(view.map, view.mode, view.heat_total());
             if view.locked {
                 summary.push_str("  [locked]");
             }

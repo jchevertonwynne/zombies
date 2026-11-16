@@ -25,7 +25,7 @@ pub type Seat = u8;
 
 /// What version of the wire format this game speaks. The Host refuses a Player on
 /// another, and it is raised whenever the format changes (along with the ALPN).
-pub const PROTOCOL: u32 = 2;
+pub const PROTOCOL: u32 = 3;
 /// The most a datagram may be, in bytes: what the real link is tried with, and under
 /// what it carries. One bigger is not sent at all.
 pub const DATAGRAM: usize = 1000;
@@ -98,12 +98,20 @@ pub struct RoomView {
     pub code: String,
     pub mode: Mode,
     pub map: MapId,
-    /// The Host's Heat. Always 0 until Heat exists.
-    pub heat: u8,
+    /// The Host's Degrees, one per Condition in `Condition::ALL` order. Every machine's Run
+    /// takes these, not its own save's.
+    pub heat: [u8; 8],
     /// Whether the Room has a password.
     pub locked: bool,
     /// Who sits in each Seat, the Host's first.
     pub seats: [Option<SeatView>; ROOM_SEATS],
+}
+
+impl RoomView {
+    /// The Host's Heat: every Degree is worth 1. This is what the lobby lists.
+    pub fn heat_total(&self) -> u8 {
+        self.heat.iter().sum()
+    }
 }
 
 /// One Seat's row in the Room.
