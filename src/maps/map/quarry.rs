@@ -33,7 +33,7 @@ use crate::tuning::*;
 use crate::maps::zone::ZoneId;
 
 use super::build::{Builder, Gap};
-use super::{DOOR_HEIGHT, DOOR_WIDTH, Layout, PARAPET_THICKNESS, Prop, PropKind, RAIL_HEIGHT, RaisedFloor, STOREY, Slope, Sunken, door, palette, prop};
+use super::{DOOR_HEIGHT, DOOR_WIDTH, Infill, Layout, PARAPET_THICKNESS, Prop, PropKind, RAIL_HEIGHT, RaisedFloor, STOREY, Slope, Sunken, door, infill, palette, prop};
 
 /// The first terrace's height, and the second's, and the Headframe's deck.
 const TERRACE_1: f32 = STOREY;
@@ -81,7 +81,7 @@ pub(super) const QUARRY: Layout = Layout {
     special_spawns: &SPECIAL_SPAWNS,
     vents: &VENTS,
     raised_floors: &RAISED_FLOORS,
-    infills: &[],
+    infills: &INFILLS,
     slopes: &SLOPES,
     sunken: &[SUMP],
     water: &[],
@@ -288,6 +288,36 @@ const DOCK_PLATFORM: RaisedFloor = RaisedFloor { zone: ZoneId::LoadingDock, min:
 const SPOIL_HEAP: RaisedFloor = RaisedFloor { zone: ZoneId::QuarryFloor, min: v(9.0, -19.8), max: v(15.0, -15.0), height: 1.2, colour: GRAVEL };
 
 const RAISED_FLOORS: [RaisedFloor; 5] = [INCLINE_LANDING, INCLINE_LANDING_N, INCLINE_TOP, DOCK_PLATFORM, SPOIL_HEAP];
+
+/// The Infills, one to three in each indoor Zone, so no two rooms share a shape. Each keeps clear
+/// of the Doors, windows, Buyables and Spawn Points, and of every path-node edge, and leaves the
+/// loop round each room's island wider than 3 m.
+const INFILLS: [Infill; 12] = {
+    use ZoneId::*;
+    [
+        // The Pump House: a chimney breast in the south-east corner beside the bench, and a switch
+        // cupboard boxed off in the north-west corner.
+        infill(PumpHouse, (6.6, -30.0), (8.0, -28.6)),
+        infill(PumpHouse, (-8.0, -21.8), (-6.8, -20.0)),
+        // The Crusher Shed: a flue breast in the middle of its north wall, and a boxed-off corner
+        // in the north-east.
+        infill(CrusherShed, (-11.0, 14.8), (-9.0, 16.0)),
+        infill(CrusherShed, (-2.2, 14.2), (0.0, 16.0)),
+        // The Winding House: a pier on the south wall, a nib on the north wall between the Door and
+        // the window, and a drive cupboard in the north-east corner.
+        infill(WindingHouse, (12.8, 16.0), (14.4, 17.4)),
+        infill(WindingHouse, (8.2, 27.0), (10.0, 28.0)),
+        infill(WindingHouse, (18.0, 26.0), (20.0, 28.0)),
+        // The Offices: a chimney breast on the north wall, and a cupboard in the south-east corner.
+        infill(Offices, (-16.8, 26.8), (-14.8, 28.0)),
+        infill(Offices, (-1.4, 16.0), (0.0, 17.6)),
+        // The Loading Dock: a corner either side of the platform at its east wall, and a pier on
+        // the south wall past the window.
+        infill(LoadingDock, (32.8, -3.4), (34.0, -2.0)),
+        infill(LoadingDock, (32.8, -20.0), (34.0, -18.6)),
+        infill(LoadingDock, (30.0, -20.0), (31.4, -19.2)),
+    ]
+};
 
 /// The ramps and the stairs between floors.
 const SLOPES: [Slope; 10] = [
