@@ -84,7 +84,7 @@ Pack separate AO, roughness and metal maps into one ORM image first (R, G, B). T
 `assets/`), a `name`, its `source` URL, the `licence` as the source states it, the date `fetched`,
 and an optional `archive` link (a Wayback capture, say) for sources whose terms are per-asset or
 contradictory. `cargo test provenance` fails if any file under `assets/` isn't covered by an entry,
-or if `assets/` grows past its 300 MB budget, and prints the running total.
+or if `assets/` grows past its 512 MB budget, and prints the running total.
 
 The synthesised placeholder sounds from `tools/gen-sounds` are covered by one `audio` entry until
 the Audio lane replaces them. Each real recording gets its own, more specific entry.
