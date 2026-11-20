@@ -18,7 +18,7 @@ use super::door_look::{self, Part, Piece};
 use super::fitting::FittedModel;
 use super::textures::{Material, Shape, Textured, Tint, Veneer, box_uv_mesh};
 use crate::maps::machine_look::PowerGlow;
-use super::{MapId, DOOR_HEIGHT, DOOR_WIDTH, Palette, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, WALL_THICKNESS, WINDOW_WIDTH, materials, palette, prop_variant};
+use super::{MapId, DOOR_HEIGHT, DOOR_WIDTH, Infill, Palette, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, WALL_THICKNESS, WINDOW_WIDTH, materials, palette, prop_variant};
 use crate::maps::generator::{Generator, PlateDisc};
 use crate::maps::jump_pad::JumpPad;
 use crate::maps::zipline::Zipline;
@@ -254,6 +254,23 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let material = materials(Some(raised.zone)).map(|set| set.floor);
         self.block_in(size, Vec3::new(middle.x, (floor + height) / 2.0, middle.y), raised.colour, material);
         self.edging(min, max, height, palette(Some(raised.zone)).trim);
+    }
+
+    /// An Infill: solid from its Zone's floor to the top of its walls, in the Zone's wall colour
+    /// (or wall material), with the Zone's skirting round its foot and its cornice round its top,
+    /// as the walls have. The trim runs on into the walls it stands against, out of sight.
+    pub fn infill(&mut self, infill: &Infill) {
+        let (bottom, top) = infill.span();
+        let (min, max) = (infill.min, infill.max);
+        let middle = (min + max) / 2.0;
+        let size = Vec3::new(max.x - min.x, top - bottom, max.y - min.y);
+        let colours = palette(Some(infill.zone));
+        let material = materials(Some(infill.zone)).map(|set| set.wall);
+        self.block_in(size, Vec3::new(middle.x, (bottom + top) / 2.0, middle.y), colours.wall, material);
+        for (tall, out, up) in [(SKIRTING.x, SKIRTING.y, bottom), (CORNICE.x, CORNICE.y, top - CORNICE.x)] {
+            let band = Vec3::new(size.x + 2.0 * out, tall, size.z + 2.0 * out);
+            self.shape(band, Vec3::new(middle.x, up + tall / 2.0, middle.y), Quat::IDENTITY, colours.trim);
+        }
     }
 
     /// A sunken floor: its floor a shade darker than its Zone's (or in the Zone's floor material),

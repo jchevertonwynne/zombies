@@ -16,8 +16,8 @@ use crate::maps::zone::ZoneId;
 use super::build::{Builder, Gap};
 use super::textures::Material;
 use super::{
-    BarrierId, DOOR_HEIGHT, DOOR_WIDTH, Layout, PARAPET_THICKNESS, Palette, Prop, PropKind, RAIL_HEIGHT, RaisedFloor, STOREY, Slope, Sunken, door, materials, paints, palette,
-    prop, v,
+    BarrierId, DOOR_HEIGHT, DOOR_WIDTH, Infill, Layout, PARAPET_THICKNESS, Palette, Prop, PropKind, RAIL_HEIGHT, RaisedFloor, STOREY, Slope, Sunken, door, materials, paints, palette,
+    infill, prop, v,
 };
 
 /// Where the Player's feet start: the middle of the Start Room, facing the Yard.
@@ -42,6 +42,7 @@ pub(super) const GREYBOX: Layout = Layout {
     special_spawns: &SPECIAL_SPAWNS,
     vents: &VENTS,
     raised_floors: &RAISED_FLOORS,
+    infills: &INFILLS,
     slopes: &SLOPES,
     sunken: &SUNKEN,
     water: &[],
@@ -281,6 +282,45 @@ pub const CONTROL_PLATFORM: RaisedFloor =
 
 /// The Raised Floors.
 const RAISED_FLOORS: [RaisedFloor; 3] = [DAIS, CONTROL_PLATFORM, DOCK];
+
+/// The Infills, one to three in each indoor Zone, so no two rooms share a shape. Each keeps clear
+/// of the Doors, windows, Buyables and Spawn Points, and of every path-node edge.
+const INFILLS: [Infill; 17] = {
+    use ZoneId::*;
+    [
+        // A chimney breast in the middle of the Start Room's north wall, between its windows.
+        infill(StartRoom, (-1.0, 25.2), (1.0, 26.0)),
+        // A stair core boxed off in West Hall's north-east corner, both storeys high.
+        infill(WestHall, (-16.4, 23.6), (-14.0, 26.0)),
+        // East Hall: a pier between the two southern windows, and a vestry cupboard in the north-east
+        // corner behind the last column.
+        infill(EastHall, (25.2, -3.0), (26.0, -1.0)),
+        infill(EastHall, (24.0, 23.5), (26.0, 26.0)),
+        // Two nibs out from the Dining Room's north wall, making a servery alcove round the Box.
+        infill(DiningRoom, (-16.6, -15.0), (-16.0, -14.0)),
+        infill(DiningRoom, (-9.4, -15.0), (-8.8, -14.0)),
+        // A switch cupboard boxed off in the Power Room's north-east corner, over the platform.
+        infill(PowerRoom, (24.5, -15.8), (26.0, -14.0)),
+        // The Passage's dog-leg: a nib out from the west wall at its north end, and one from the
+        // east wall at its south end, with the rubble between.
+        infill(Passage, (-13.5, -29.3), (-12.7, -27.9)),
+        infill(Passage, (-11.3, -38.0), (-10.5, -36.6)),
+        // A buttress at the Tunnel's south end, on the west side.
+        infill(Tunnel, (12.5, -38.0), (13.2, -36.8)),
+        // The Workshop: a boxed-off chimney corner in the south-west, and a pier between the two
+        // south windows.
+        infill(Workshop, (-34.0, -50.0), (-32.4, -48.4)),
+        infill(Workshop, (-22.5, -50.0), (-21.5, -49.3)),
+        // Two flue ducts in the Storeroom's north corners, either side of the Box.
+        infill(Storeroom, (-4.0, -38.8), (-3.2, -38.0)),
+        infill(Storeroom, (3.2, -38.8), (4.0, -38.0)),
+        // The Generator Room: a stair core in the north-west corner, a corner cupboard in the
+        // north-east, and a pier between the two south windows.
+        infill(GeneratorRoom, (4.0, -39.6), (6.2, -38.0)),
+        infill(GeneratorRoom, (32.6, -40.0), (34.0, -38.0)),
+        infill(GeneratorRoom, (21.5, -50.0), (22.5, -49.3)),
+    ]
+};
 
 /// The steps and ramps.
 const SLOPES: [Slope; 8] = [
