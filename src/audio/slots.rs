@@ -129,6 +129,24 @@ pub fn check_slots<'a>(stems: impl IntoIterator<Item = &'a str>, files: &[String
     check
 }
 
+/// Checks slots that may have no files at all: one with none is simply absent (`None`, no error),
+/// while one with a gap or both plain and numbered files is still reported. For the per-floor
+/// footstep slots, which fall back to `footstep`.
+pub fn check_optional_slots<'a>(stems: impl IntoIterator<Item = &'a str>, files: &[String]) -> SlotCheck {
+    let mut check = SlotCheck { found: Vec::new(), errors: Vec::new() };
+    for stem in stems {
+        match variants(stem, files) {
+            Ok(found) => check.found.push(Some(found)),
+            Err(SlotError::Missing { .. }) => check.found.push(None),
+            Err(error) => {
+                check.found.push(None);
+                check.errors.push(error);
+            }
+        }
+    }
+    check
+}
+
 /// Picks which of `count` variants plays next, never `last` again unless it's the only one.
 /// `roll` is uniform in `[0, 1)`.
 pub fn pick_variant(count: usize, last: Option<usize>, roll: f32) -> usize {
@@ -263,6 +281,20 @@ mod tests {
         assert_eq!(
             check.found,
             vec![Some(files(&["hit.ogg"])), Some(files(&["kill_1.ogg", "kill_2.ogg"]))]
+        );
+    }
+
+    #[test]
+    fn an_optional_slot_with_no_files_is_fine_but_a_broken_one_is_not() {
+        let all = files(&["step_a.ogg", "step_b_2.ogg", "step_c.ogg", "step_c_1.ogg"]);
+        let check = check_optional_slots(["step_a", "step_missing", "step_b", "step_c"], &all);
+        assert_eq!(check.found, vec![Some(files(&["step_a.ogg"])), None, None, None]);
+        assert_eq!(
+            check.errors,
+            vec![
+                SlotError::Gap { slot: "step_b".into(), missing: vec![1] },
+                SlotError::Ambiguous { slot: "step_c".into() },
+            ]
         );
     }
 

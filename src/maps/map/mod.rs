@@ -517,6 +517,16 @@ pub fn materials(zone: Option<ZoneId>) -> Option<MaterialSet> {
     Some(MaterialSet { floor, wall, decals, props })
 }
 
+/// What the floor under `feet` on `map` is made of, for footsteps: the floor of the Zone they're in,
+/// or of the Map's outside when they're in none. `None` if neither has a material.
+pub fn floor_family(map: MapId, feet: Vec3) -> Option<crate::audio::cues::FloorFamily> {
+    let floor = match crate::enemies::nav::zone_at(map, feet + Vec3::Y * 0.1) {
+        Some(zone) => materials(Some(zone))?.floor,
+        None => map.layout().outside?.floor,
+    };
+    Some(floor.family())
+}
+
 /// The palette of a Zone, or of the outside for `None`.
 pub fn palette(zone: Option<ZoneId>) -> Palette {
     use ZoneId::*;
@@ -1114,6 +1124,36 @@ pub(crate) mod tests {
         const TWO: &[PropVariant] = &[boxed(WeatheredPlanks), boxed(RustyMetal02)];
         let pick = |nth: usize| TWO[nth % TWO.len()].material;
         assert_eq!((pick(0), pick(1), pick(2)), (WeatheredPlanks, RustyMetal02, WeatheredPlanks));
+    }
+
+    #[test]
+    fn footsteps_follow_the_floor_family_of_the_zone_under_the_feet() {
+        use crate::audio::cues::FloorFamily::*;
+        let underfoot = |zone: ZoneId| {
+            let (lo, hi) = zone.volume();
+            let centre = (lo + hi) / 2.0;
+            floor_family(zone.map(), Vec3::new(centre.x, zone.floor(), centre.z))
+        };
+        assert_eq!(underfoot(ZoneId::StartRoom), Some(Wood));
+        assert_eq!(underfoot(ZoneId::WestHall), Some(Tile));
+        assert_eq!(underfoot(ZoneId::Passage), Some(Brick));
+        assert_eq!(underfoot(ZoneId::Workshop), Some(Concrete));
+        assert_eq!(underfoot(ZoneId::Yard), Some(Cobble));
+        assert_eq!(underfoot(ZoneId::GeneratorRoom), Some(Metal));
+        assert_eq!(underfoot(ZoneId::Market), Some(Cobble));
+        assert_eq!(underfoot(ZoneId::WestEnd), Some(Dirt));
+        // Off the Map's Zones, the ground it calls its outside, if it has one.
+        let away = Vec3::new(500.0, 0.0, 500.0);
+        assert_eq!(floor_family(MapId::Greybox, away), MapId::Greybox.layout().outside.map(|outside| outside.floor.family()));
+    }
+
+    #[test]
+    fn every_zone_on_every_map_has_a_floor_family_underfoot() {
+        for map in MapId::ALL {
+            for &zone in map.layout().zones {
+                assert!(materials(Some(zone)).is_some(), "{zone:?} has no material set");
+            }
+        }
     }
 
     #[test]

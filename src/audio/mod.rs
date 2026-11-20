@@ -43,7 +43,7 @@ use crate::maps::trap::Trap;
 use crate::tuning::{PLAYER_CAPSULE_LENGTH, PLAYER_RADIUS, IDLE_VOCAL_CAP, IDLE_VOCAL_RETRY_SECS, LOW_HEALTH_FRACTION, NAPALM_HEAT_DIST, SHELLSHOCK_MUFFLE_GAIN, SHRIEKER_BLUR_SECS};
 use crate::weapons::weapon::{Loadout, ShotFired};
 use crate::enemies::zombie::{Attack, Dying, Gibbed, Rising, Zombie, ZombieHit, ZombieKilled};
-use cues::{AUDIO_DIR, Cue, Mix};
+use cues::{AUDIO_DIR, Cue, FloorFamily, Mix};
 use mix::BoxPhase;
 
 /// Distance between the Player's ears, in metres, for spatial cues.
@@ -83,12 +83,19 @@ struct Slot {
 #[derive(Resource)]
 struct Sounds {
     slots: Vec<Slot>,
+    /// The footstep slots of each floor family, in `FloorFamily::ALL` order. One with no files
+    /// is absent, and its family steps on `Cue::Footstep`.
+    floors: Vec<Slot>,
     muffled: bool,
 }
 
 /// Each slot's files, found by the startup check, waiting to be loaded. A bad slot has none.
 #[derive(Resource)]
-struct SlotFiles(Vec<Option<Vec<String>>>);
+struct SlotFiles {
+    cues: Vec<Option<Vec<String>>>,
+    /// The optional per-floor footstep slots, in `FloorFamily::ALL` order.
+    floors: Vec<Option<Vec<String>>>,
+}
 
 /// A looping cue, a child of the entity it belongs to, so it stops when that goes.
 #[derive(Component)]
@@ -152,7 +159,16 @@ impl Plugin for AudioPlugin {
                 check.errors.iter().map(ToString::to_string).collect::<Vec<_>>().join("\n  ")
             );
         }
-        app.insert_resource(SlotFiles(check.found));
+        // The per-floor footstep slots are optional: one with no files just falls back to `footstep`.
+        let floors = slots::check_optional_slots(FloorFamily::ALL.iter().map(|family| family.slot()), &files);
+        if !floors.errors.is_empty() {
+            error!(
+                "bad footstep slots in {}, so those floors fall back to `footstep`:\n  {}",
+                dir.display(),
+                floors.errors.iter().map(ToString::to_string).collect::<Vec<_>>().join("\n  ")
+            );
+        }
+        app.insert_resource(SlotFiles { cues: check.found, floors: floors.found });
 
         app.add_message::<PlayCue>()
             .add_systems(Startup, load_sounds)
@@ -184,19 +200,17 @@ impl Plugin for AudioPlugin {
 }
 
 fn load_sounds(mut commands: Commands, files: Res<SlotFiles>, assets: Res<AssetServer>) {
-    let slots = files
-        .0
-        .iter()
-        .map(|variants| Slot {
-            variants: variants
-                .iter()
-                .flatten()
-                .map(|file| assets.load(format!("{AUDIO_DIR}/{file}")))
-                .collect(),
-            last: None,
-        })
-        .collect();
-    commands.insert_resource(Sounds { slots, muffled: false });
+    let load = |variants: &Option<Vec<String>>| Slot {
+        variants: variants
+            .iter()
+            .flatten()
+            .map(|file| assets.load(format!("{AUDIO_DIR}/{file}")))
+            .collect(),
+        last: None,
+    };
+    let slots = files.cues.iter().map(load).collect();
+    let floors = files.floors.iter().map(load).collect();
+    commands.insert_resource(Sounds { slots, floors, muffled: false });
     commands.remove_resource::<SlotFiles>();
 }
 
@@ -218,6 +232,24 @@ impl Sounds {
         let pick = slots::pick_variant(slot.variants.len(), slot.last, rand::random());
         slot.last = Some(pick);
         Some(slot.variants[pick].clone())
+    }
+
+    /// A teammate's footstep on `family`'s floor, heard from `at`: from that family's own slot if
+    /// it has files, from the plain `footstep` slot otherwise (or if the floor is unknown).
+    fn play_footstep(&mut self, commands: &mut Commands, family: Option<FloorFamily>, at: Vec3) {
+        let family = mix::footstep_family(family, |family| !self.floors[family.index()].variants.is_empty());
+        let Some(family) = family else {
+            self.play_from(commands, Cue::Footstep, at, 1.0);
+            return;
+        };
+        let slot = &mut self.floors[family.index()];
+        let pick = slots::pick_variant(slot.variants.len(), slot.last, rand::random());
+        slot.last = Some(pick);
+        let sound = slot.variants[pick].clone();
+        let settings = PlaybackSettings::DESPAWN
+            .with_volume(Volume::Linear(self.gain(Cue::Footstep)))
+            .with_spatial(true);
+        commands.spawn((AudioPlayer::new(sound), settings, Transform::from_translation(at)));
     }
 
     /// A cue's volume: its gain, turned down under a Shellshock's muffle (bar the rings in the
@@ -600,7 +632,12 @@ fn play_teammate_sounds(
                         (Cue::Footstep, Some(map)) if crate::maps::water::wading(map.layout(), tide, feet) => Cue::WadeStep,
                         _ => cue,
                     };
-                    sounds.play_from(&mut commands, cue, from, 1.0);
+                    if cue == Cue::Footstep {
+                        let family = map.as_ref().and_then(|map| crate::maps::map::floor_family(**map, feet));
+                        sounds.play_footstep(&mut commands, family, from);
+                    } else {
+                        sounds.play_from(&mut commands, cue, from, 1.0);
+                    }
                 }
                 Some(_) => {}
                 None => heard.step = 0.0,

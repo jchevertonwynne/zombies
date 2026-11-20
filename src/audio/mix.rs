@@ -14,7 +14,7 @@ use crate::players::teammate::{Action, Pose};
 use crate::tuning::*;
 use crate::enemies::zombie::{SpeedTier, Zombie};
 
-use super::cues::Cue;
+use super::cues::{Cue, FloorFamily};
 
 /// Playback speeds the Weapons of one class take in turn, so no two in a class sound alike.
 const PITCH_STEPS: [f32; 7] = [1.0, 1.08, 0.92, 1.15, 0.86, 1.04, 0.96];
@@ -106,6 +106,12 @@ pub fn movement_cue(pose: &Pose, speed: f32) -> Option<(Cue, f32)> {
     } else {
         Some((Cue::Footstep, TEAMMATE_STEP_SECS))
     }
+}
+
+/// The floor family whose slot a footstep plays from: `family`'s own if it has files (`has_files`),
+/// otherwise `None`, for the plain `footstep` slot.
+pub fn footstep_family(family: Option<FloorFamily>, has_files: impl Fn(FloorFamily) -> bool) -> Option<FloorFamily> {
+    family.filter(|&family| has_files(family))
 }
 
 /// The factor on `cue`'s volume when a teammate makes it: their rustle is heard at
@@ -306,6 +312,16 @@ mod tests {
         assert_eq!(movement_cue(&Pose { stance: Stance::Crouched, ..grounded }, 2.0), Some((Cue::Footstep, walk)));
         assert_eq!(movement_cue(&grounded, 0.0), None);
         assert_eq!(movement_cue(&Pose { airborne: true, ..grounded }, 3.0), None);
+    }
+
+    #[test]
+    fn a_footstep_plays_its_floor_familys_slot_when_it_has_files_and_the_plain_one_otherwise() {
+        let only_wood_and_tile = |family| matches!(family, FloorFamily::Wood | FloorFamily::Tile);
+        assert_eq!(footstep_family(Some(FloorFamily::Wood), only_wood_and_tile), Some(FloorFamily::Wood));
+        assert_eq!(footstep_family(Some(FloorFamily::Tile), only_wood_and_tile), Some(FloorFamily::Tile));
+        assert_eq!(footstep_family(Some(FloorFamily::Metal), only_wood_and_tile), None);
+        assert_eq!(footstep_family(None, only_wood_and_tile), None);
+        assert_eq!(footstep_family(Some(FloorFamily::Wood), |_| false), None);
     }
 
     #[test]
