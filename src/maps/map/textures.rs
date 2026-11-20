@@ -17,6 +17,8 @@ use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamp
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 
+use crate::audio::cues::FloorFamily;
+
 /// A tiling PBR material: a Poly Haven (or other CC0) set under `assets/materials/<dir>/`, as
 /// `color.ktx2`, `normal.ktx2` and `orm.ktx2` (made by `tools/texpack`), and how many metres one
 /// repeat of it covers in the world.
@@ -238,6 +240,30 @@ impl Material {
 
     pub fn tile(self) -> f32 {
         self.def().1
+    }
+
+    /// What it sounds like underfoot, if it's a floor: the family whose footstep slot plays on it.
+    pub fn family(self) -> FloorFamily {
+        use Material::*;
+        match self {
+            DarkWoodenPlanks | WeatheredPlanks | DiagonalParquet | BlackPaintedPlanks | BarkBrown02 => FloorFamily::Wood,
+            FloorTiles06 | TerracottaFloorTiles | CheckeredPavementTiles | OldMosaicFloor | SlateFloor02 | ConcreteTileFacade => {
+                FloorFamily::Tile
+            }
+            WornBrickFloor | BrickWall001 | DarkBrickWall | CastleBrick02Red | WhiteSandstoneBricks03 | ConcreteBlockWall02 => {
+                FloorFamily::Brick
+            }
+            RustyCorrugatedIron | RustyMetal02 | BlueMetalPlate | MetalPlate02 | GreenMetalRust => FloorFamily::Metal,
+            MossyCobblestone | CobblestoneFloor02 | CobblestoneFloor06 | RockWall08 | RockWall05 | DarkRock => FloorFamily::Cobble,
+            MuddyTracks | LeafyGrass | GrassGround | CoastSand04 | SandyGravel02 | GravelGround01 | GrayRocks => FloorFamily::Dirt,
+            DamagedPlaster | WornMossyPlasterwall | PeelingPaintedWall | PlasteredStoneWall | ConcreteFloor02 | FabricPattern07
+            | BrokenWall | AsphaltFloor | ConcreteSlabWall02 | ConcreteWall006 | PaintedConcrete | ConcreteWall007
+            | DamagedConcreteFloor03 | RibbedConcreteWall | SmoothConcreteFloor | ConcreteLayers02 | BrushedConcrete04
+            | ConcreteWall008 | GranularConcrete | RockEmbeddedConcreteWall | HangarConcreteFloor | WornConcreteFloor
+            | ConcreteMoss | CrackedConcrete | WhitePlasterRough01 | WhiteStucco | YellowStoneWall | BeigeWall001 => {
+                FloorFamily::Concrete
+            }
+        }
     }
 
     /// Its three files, as asset paths.

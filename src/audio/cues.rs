@@ -13,6 +13,49 @@ pub enum Folder {
     Announcer,
 }
 
+/// What a floor is made of, as far as footsteps go. A teammate's step plays from the slot
+/// `footstep_<family>` when it has files, and from `footstep` when it has none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FloorFamily {
+    Wood,
+    Tile,
+    Brick,
+    Concrete,
+    Metal,
+    Cobble,
+    Dirt,
+}
+
+impl FloorFamily {
+    pub const ALL: [FloorFamily; 7] = [
+        FloorFamily::Wood,
+        FloorFamily::Tile,
+        FloorFamily::Brick,
+        FloorFamily::Concrete,
+        FloorFamily::Metal,
+        FloorFamily::Cobble,
+        FloorFamily::Dirt,
+    ];
+
+    /// Its slot name: files are `footstep_<family>.ogg` or `footstep_<family>_1.ogg`...
+    pub const fn slot(self) -> &'static str {
+        match self {
+            FloorFamily::Wood => "footstep_wood",
+            FloorFamily::Tile => "footstep_tile",
+            FloorFamily::Brick => "footstep_brick",
+            FloorFamily::Concrete => "footstep_concrete",
+            FloorFamily::Metal => "footstep_metal",
+            FloorFamily::Cobble => "footstep_cobble",
+            FloorFamily::Dirt => "footstep_dirt",
+        }
+    }
+
+    /// Its position in `ALL`.
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+}
+
 /// How a cue is heard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mix {
@@ -97,7 +140,8 @@ cues! {
     SelfRevive => "self_revive", Root, Flat, 0.8;
     MonkeyBomb => "monkey_bomb", Root, Spatial, 0.8;
     ClaymorePlant => "claymore_plant", Root, Flat, 0.6;
-    // Only teammates make footsteps; the Player's own are silent.
+    // Only teammates make footsteps; the Player's own are silent. On a floor whose family has
+    // `footstep_<family>` files they play those instead (see `FloorFamily`).
     Footstep => "footstep", Root, Spatial, 0.4;
     // One rustle for every stance change, both ways; a Dive's landing thuds instead.
     StanceRustle => "stance_rustle", Root, Flat, 0.35;
@@ -337,6 +381,20 @@ mod tests {
         for cue in [Cue::NapalmHeat, Cue::ScreamHit, Cue::FireBurn, Cue::LowHealth, Cue::PowerRestore] {
             assert_eq!(cue.spec().mix, Mix::Flat, "{cue:?}");
         }
+    }
+
+    #[test]
+    fn each_floor_family_has_its_own_footstep_slot() {
+        let mut slots: Vec<_> = FloorFamily::ALL.iter().map(|family| family.slot()).collect();
+        for (i, family) in FloorFamily::ALL.iter().enumerate() {
+            assert_eq!(family.index(), i);
+            assert!(family.slot().starts_with("footstep_"));
+        }
+        slots.sort_unstable();
+        slots.dedup();
+        assert_eq!(slots.len(), FloorFamily::ALL.len());
+        // And none of them is a cue's slot: they're optional.
+        assert!(Cue::ALL.iter().all(|cue| !slots.contains(&cue.spec().name)));
     }
 
     #[test]
