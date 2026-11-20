@@ -679,6 +679,14 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
     },
     {
+      "path": "materials/hessian_230",
+      "name": "Hessian 230",
+      "source": "https://polyhaven.com/a/hessian_230",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 0.268754 m"
+    },
+    {
       "path": "materials/leafy_grass",
       "name": "Leafy Grass",
       "source": "https://polyhaven.com/a/leafy_grass",
@@ -965,6 +973,22 @@
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 0.95 x 2 x 0.6 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "props/crates",
+      "name": "Crate stacks (kitbash of Poly Haven Wooden Crate 02)",
+      "source": "https://polyhaven.com/a/wooden_crate_02",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "2- and 3-high stacks of wooden_crate_02 (1K glTF), each crate decimated to ~325 triangles and stretched to a 0.53 m layer, joined into one mesh by tools/props/kitbash.py. Textures are the model's 1K diffuse, nor_gl and arm via texpack"
+    },
+    {
+      "path": "props/sandbags",
+      "name": "Sandbag courses (kitbash of Poly Haven Cement Bag)",
+      "source": "https://polyhaven.com/a/cement_bag",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "3- and 5-course walls of cement_bag (1K glTF) decimated to ~165 triangles a bag and joined into one mesh by tools/props/kitbash.py. The sack's branded texture is dropped: its UVs are rebuilt as box-projected burlap and it wears materials/hessian_230 (Poly Haven, CC0), tinted khaki"
     },
     {
       "path": "skies/belfast_sunset_puresky",

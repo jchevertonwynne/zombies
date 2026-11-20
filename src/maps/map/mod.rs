@@ -358,6 +358,11 @@ const fn boxed(material: textures::Material) -> PropVariant {
     PropVariant { model: None, material }
 }
 
+/// A kitbashed unit (`tools/props`) and its size as modelled, with the box material it falls back to.
+const fn kitbash(path: &'static str, size: Vec3, material: textures::Material) -> PropVariant {
+    PropVariant { model: Some((path, size)), material }
+}
+
 /// How a kind looks in a Zone whose set doesn't name it: a textured box (a Pillar's is its Zone's
 /// wall, set by `prop_variant`).
 fn default_variants(kind: PropKind) -> &'static [PropVariant] {
@@ -368,14 +373,28 @@ fn default_variants(kind: PropKind) -> &'static [PropVariant] {
     const BROKEN: &[PropVariant] = &[boxed(BrokenWall)];
     const STEEL: &[PropVariant] = &[boxed(RustyMetal02)];
     const BARK: &[PropVariant] = &[boxed(BarkBrown02)];
+    // The kitbashes: stacks of crates (3 high for the tall Props, 2 for the others), courses of
+    // burlap sandbags (5 high, then 3), and the Headstone's box until a scan has been baked.
+    const CRATES: &[PropVariant] = &[
+        kitbash("props/crates/crate_stack_3.gltf", Vec3::new(1.179, 1.59, 1.175), WeatheredPlanks),
+        kitbash("props/crates/crate_stack_2.gltf", Vec3::new(1.179, 1.06, 1.175), WeatheredPlanks),
+    ];
+    // The scan is baked by `tools/props/build_props.py` when a Sketchfab token is at hand.
+    const HEADSTONES: &[PropVariant] = &[kitbash("props/headstone/headstone.gltf", Vec3::new(0.8, 0.9, 0.25), RockWall08)];
+    const SANDBAGS: &[PropVariant] = &[
+        kitbash("props/sandbags/sandbags_5.gltf", Vec3::new(1.027, 1.051, 0.836), Hessian230),
+        kitbash("props/sandbags/sandbags_3.gltf", Vec3::new(1.024, 0.632, 0.834), Hessian230),
+    ];
     match kind {
-        PropKind::Crate | PropKind::Table | PropKind::Bench | PropKind::Counter | PropKind::Shelf => PLANKS,
+        PropKind::Crate => CRATES,
+        PropKind::Table | PropKind::Bench | PropKind::Counter | PropKind::Shelf => PLANKS,
         PropKind::Altar => STONE,
         PropKind::Pillar => PLASTER,
         PropKind::Rubble => BROKEN,
         PropKind::Barrel | PropKind::Machine => STEEL,
         PropKind::Tree => BARK,
-        PropKind::Sandbags | PropKind::Headstone => &[],
+        PropKind::Sandbags => SANDBAGS,
+        PropKind::Headstone => HEADSTONES,
     }
 }
 
@@ -1175,11 +1194,10 @@ pub(crate) mod tests {
         assert_eq!(prop_variant(ZoneId::StartRoom, PropKind::Table, 0, Vec3::ONE).unwrap().material, WeatheredPlanks);
         // A Pillar wears its Zone's wall.
         assert_eq!(prop_variant(ZoneId::Passage, PropKind::Pillar, 3, Vec3::ONE).unwrap().material, BrickWall001);
-        // Every kind but the two still in paint has a look in every Zone, and nth wraps round.
-        for kind in [PropKind::Crate, PropKind::Table, PropKind::Bench, PropKind::Counter, PropKind::Altar, PropKind::Pillar, PropKind::Shelf, PropKind::Rubble, PropKind::Barrel, PropKind::Machine, PropKind::Tree] {
+        // Every kind but none still in paint has a look in every Zone, and nth wraps round.
+        for kind in [PropKind::Crate, PropKind::Sandbags, PropKind::Headstone, PropKind::Table, PropKind::Bench, PropKind::Counter, PropKind::Altar, PropKind::Pillar, PropKind::Shelf, PropKind::Rubble, PropKind::Barrel, PropKind::Machine, PropKind::Tree] {
             assert!(prop_variant(ZoneId::StartRoom, kind, 7, Vec3::ONE).is_some(), "{kind:?}");
         }
-        assert!(prop_variant(ZoneId::StartRoom, PropKind::Sandbags, 0, Vec3::ONE).is_none());
         // With two variants named, nth alternates.
         const TWO: &[PropVariant] = &[boxed(WeatheredPlanks), boxed(RustyMetal02)];
         let pick = |nth: usize| TWO[nth % TWO.len()].material;
@@ -1269,6 +1287,78 @@ pub(crate) mod tests {
                 assert!(materials(Some(zone)).is_some(), "{zone:?} has no material set");
             }
         }
+    }
+
+    #[test]
+    fn crates_and_sandbags_pick_the_stack_that_fits_and_headstones_stay_boxes_without_a_scan() {
+        // Every Crate or Sandbags a Map places that any kitbash fits is given one that fits it.
+        let (mut crates, mut bags) = (0, 0);
+        for map in MapId::ALL {
+            for prop in map.layout().props {
+                if !matches!(prop.kind, PropKind::Crate | PropKind::Sandbags) {
+                    continue;
+                }
+                let pool = default_variants(prop.kind);
+                let fitting = pool.iter().filter(|v| v.model.is_some_and(|(_, unit)| fitting::fit(unit, prop.size).is_some())).count();
+                for nth in 0..3 {
+                    let variant = prop_variant(prop.zone, prop.kind, nth, prop.size).unwrap();
+                    let (_, unit) = variant.model.expect("a kitbash");
+                    if fitting > 0 {
+                        assert!(fitting::fit(unit, prop.size).is_some(), "{map:?} {:?} {:?}", prop.kind, prop.size);
+                    }
+                }
+                if fitting > 0 {
+                    if prop.kind == PropKind::Crate {
+                        crates += 1;
+                    } else {
+                        bags += 1;
+                    }
+                }
+            }
+        }
+        assert!(crates >= 10, "{crates} crates are fitted");
+        assert!(bags >= 3, "{bags} sandbag walls are fitted");
+        // A Headstone's look is its stone box, with its scan's glTF named for when it is baked.
+        let stone = prop_variant(ZoneId::StartRoom, PropKind::Headstone, 0, Vec3::ONE).unwrap();
+        assert_eq!(stone.material, textures::Material::RockWall08);
+    }
+
+    /// The `POSITION` bounds and triangle count of a glTF under `assets/`, and the images it names.
+    fn read_unit(path: &str) -> Option<(Vec3, Vec3, usize, Vec<String>)> {
+        let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets");
+        let text = std::fs::read_to_string(base.join(path)).ok()?;
+        let doc: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let primitive = &doc["meshes"][0]["primitives"][0];
+        let accessor = |i: &serde_json::Value| doc["accessors"][i.as_u64().unwrap() as usize].clone();
+        let position = accessor(&primitive["attributes"]["POSITION"]);
+        let vec = |v: &serde_json::Value| Vec3::new(v[0].as_f64().unwrap() as f32, v[1].as_f64().unwrap() as f32, v[2].as_f64().unwrap() as f32);
+        let tris = accessor(&primitive["indices"])["count"].as_u64().unwrap() as usize / 3;
+        let images = doc["images"].as_array().unwrap().iter().map(|i| i["uri"].as_str().unwrap().to_string()).collect();
+        Some((vec(&position["min"]), vec(&position["max"]), tris, images))
+    }
+
+    #[test]
+    fn every_kitbashed_unit_on_disk_matches_its_declared_size_stands_on_its_foot_and_stays_within_budget() {
+        // Headless runs have no asset files and skip this; with them, the constants in
+        // `default_variants` must be the unit's real size, since the fit relies on them.
+        let mut seen = 0;
+        for kind in [PropKind::Crate, PropKind::Sandbags, PropKind::Headstone] {
+            for variant in default_variants(kind) {
+                let Some((path, unit)) = variant.model else { continue };
+                let Some((lo, hi, tris, images)) = read_unit(path) else { continue };
+                seen += 1;
+                assert!((hi - lo).abs_diff_eq(unit, 0.002), "{path}: modelled {} not declared {unit}", hi - lo);
+                assert!(lo.y.abs() < 1e-3 && (lo.x + hi.x).abs() < 2e-3 && (lo.z + hi.z).abs() < 2e-3, "{path}: not centred on its foot ({lo}, {hi})");
+                assert!(tris <= 2000, "{path}: {tris} triangles");
+                let dir = std::path::Path::new(path).parent().unwrap();
+                for image in images {
+                    assert!(image.ends_with(".ktx2"), "{path}: {image}");
+                    let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets").join(dir).join(&image);
+                    assert!(file.is_file(), "{path}: {image} is missing");
+                }
+            }
+        }
+        eprintln!("{seen} kitbashed units checked");
     }
 
     #[test]

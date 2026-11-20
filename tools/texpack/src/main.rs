@@ -80,7 +80,7 @@ fn parse() -> Result<(Job, PathBuf)> {
 /// A source map as 8-bit RGBA, whatever depth it was stored at.
 fn load(path: &Path, color_space: ColorSpace) -> Result<Image> {
     let source = image::open(path).with_context(|| format!("reading {}", path.display()))?;
-    Ok(image_of(source.to_rgba8(), color_space, AlphaMode::Opaque))
+    Ok(image_of(block_aligned(source.to_rgba8()), color_space, AlphaMode::Opaque))
 }
 
 /// A colour map with an opacity map as its alpha, scaled by `gain` (to make a faint decal read).
@@ -149,6 +149,18 @@ fn lattice(x: i32, y: i32, seed: u32) -> f32 {
     h = h.wrapping_mul(0x5bd1_e995);
     h ^= h >> 15;
     (h & 0xffff) as f32 / 65535.0
+}
+
+/// Resamples an image whose sides aren't multiples of 4 (a photographed swatch that isn't square
+/// comes at 1024 x 1018, say) to the nearest ones, since BC formats need whole 4 x 4 blocks.
+fn block_aligned(rgba: image::RgbaImage) -> image::RgbaImage {
+    let round = |side: u32| ((side + 2) / 4 * 4).max(4);
+    let (width, height) = (round(rgba.width()), round(rgba.height()));
+    if (width, height) == rgba.dimensions() {
+        rgba
+    } else {
+        image::imageops::resize(&rgba, width, height, image::imageops::FilterType::Lanczos3)
+    }
 }
 
 fn image_of(rgba: image::RgbaImage, color_space: ColorSpace, alpha: AlphaMode) -> Image {

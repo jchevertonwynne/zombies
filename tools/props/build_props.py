@@ -1,0 +1,238 @@
+#!/usr/bin/env python3
+"""Builds the kitbashed Prop units (Crate stacks, Sandbag courses, Headstone) as glTF and KTX2.
+
+    python3 tools/props/build_props.py [--blender /path/to/Blender] [--only crate|sandbags|headstone]
+
+What it does, in order:
+
+1. Fetches the CC0 sources into a temporary directory: Poly Haven `wooden_crate_02` and
+   `cement_bag` (1K glTF), and, through `tools/texpack/polyhaven.py`, the burlap `hessian_230`
+   as a material under `assets/materials/`.
+2. Runs `kitbash.py` in headless Blender: each unit comes out as one mesh of at most 2k triangles.
+3. Turns the crate's textures into KTX2 with `texpack`, and points each glTF at its KTX2 files
+   (a plain `uri` to a `.ktx2`, which Bevy loads by extension).
+4. Records every source in `assets/manifest.json`.
+
+Outputs, under `assets/props/`:
+
+    crates/crate_stack_2.gltf, crate_stack_3.gltf (+ .bin) and color/normal/orm.ktx2
+    sandbags/sandbags_3.gltf, sandbags_5.gltf (+ .bin), wearing ../../materials/hessian_230
+    headstone/headstone.gltf (+ .bin) and its own KTX2, only if a scan could be fetched
+
+The Headstone is a Sketchfab CC0 photogrammetry scan decimated to about 1.8k triangles with a
+normal bake. Sketchfab only serves downloads to a signed-in account, so set `SKETCHFAB_TOKEN` (an
+API token) to fetch it; without one the step is skipped and the game keeps the Headstone as its
+textured box. `--headstone-scan <file>` bakes a scan you have already downloaded (glTF, GLB or OBJ),
+recorded under `--headstone-source <page URL>`.
+
+Re-running with the same sources writes the same files. Source downloads are never committed.
+"""
+
+import argparse
+import datetime
+import json
+import os
+import pathlib
+import shutil
+import struct
+import subprocess
+import sys
+import tempfile
+import zlib
+
+HERE = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import fetch  # noqa: E402
+
+ROOT = HERE.parents[1]
+ASSETS = ROOT / "assets"
+MANIFEST = ASSETS / "manifest.json"
+BLENDER_DEFAULT = "/Applications/Blender.app/Contents/MacOS/Blender"
+BURLAP = "hessian_230"
+# A sandbag is a muddy khaki, not fresh burlap.
+SANDBAG_TINT = [0.62, 0.58, 0.46, 1.0]
+HEADSTONE_PAGE = "https://sketchfab.com/3d-models/drumgoon-hill-old-graveyard-headstone-537-ae0f3420458a4ecab0d4bcf3a69eab9c"
+HEADSTONE_UID = "ae0f3420458a4ecab0d4bcf3a69eab9c"
+
+
+def load_manifest():
+    return json.loads(MANIFEST.read_text()) if MANIFEST.exists() else {"assets": []}
+
+
+def record(entry):
+    manifest = load_manifest()
+    manifest["assets"] = [e for e in manifest["assets"] if e["path"] != entry["path"]] + [entry]
+    manifest["assets"].sort(key=lambda e: e["path"])
+    MANIFEST.write_text(json.dumps(manifest, indent=2) + "\n")
+
+
+def today():
+    return datetime.date.today().isoformat()
+
+
+def texpack(color, normal, orm, out):
+    subprocess.run(
+        ["cargo", "run", "--quiet", "--release", "-p", "texpack", "--",
+         "--color", str(color), "--normal", str(normal), "--orm", str(orm), "--out", str(out)],
+        cwd=ROOT, check=True,
+    )
+
+
+def patch_gltf(path, uris, tint=None):
+    """Gives the unit's one material its textures: `uris` is {color, normal, orm} relative to the
+    glTF. The ORM image is both the occlusion and the metallic-roughness texture."""
+    doc = json.loads(path.read_text())
+    doc["images"] = [{"uri": uris[k]} for k in ("color", "normal", "orm")]
+    doc["samplers"] = [{"magFilter": 9729, "minFilter": 9987, "wrapS": 10497, "wrapT": 10497}]
+    doc["textures"] = [{"sampler": 0, "source": i} for i in range(3)]
+    (material,) = doc["materials"]
+    material["doubleSided"] = False
+    pbr = material["pbrMetallicRoughness"]
+    pbr["baseColorTexture"] = {"index": 0}
+    pbr["metallicRoughnessTexture"] = {"index": 2}
+    pbr["metallicFactor"] = 1.0
+    pbr["roughnessFactor"] = 1.0
+    if tint:
+        pbr["baseColorFactor"] = tint
+    material["normalTexture"] = {"index": 1}
+    material["occlusionTexture"] = {"index": 2}
+    path.write_text(json.dumps(doc, indent=1) + "\n")
+
+
+def run_blender(blender, args):
+    result = subprocess.run(
+        [blender, "-b", "--factory-startup", "--python", str(HERE / "kitbash.py"), "--", *map(str, args)],
+        check=True, capture_output=True, text=True,
+    )
+    for line in result.stdout.splitlines():
+        if line.startswith("UNIT "):
+            print(line[5:])
+
+
+def png(path, width, height, rgb):
+    """A flat-colour PNG, stdlib only."""
+    def chunk(tag, data):
+        body = tag + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+    row = b"\x00" + bytes(rgb) * width
+    data = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+    data += chunk(b"IDAT", zlib.compress(row * height)) + chunk(b"IEND", b"")
+    pathlib.Path(path).write_bytes(data)
+
+
+def build_crates(blender, src, work):
+    out = ASSETS / "props" / "crates"
+    shutil.rmtree(out, ignore_errors=True)
+    out.mkdir(parents=True)
+    run_blender(blender, ["--src", src, "--out", out, "--only", "crate"])
+    tex = src / "wooden_crate_02" / "textures"
+    texpack(tex / "wooden_crate_02_diff_1k.jpg", tex / "wooden_crate_02_nor_gl_1k.jpg", tex / "wooden_crate_02_arm_1k.jpg", out)
+    uris = {k: f"{k}.ktx2" for k in ("color", "normal", "orm")}
+    for gltf in sorted(out.glob("*.gltf")):
+        patch_gltf(gltf, uris)
+    record({
+        "path": "props/crates",
+        "name": "Crate stacks (kitbash of Poly Haven Wooden Crate 02)",
+        "source": "https://polyhaven.com/a/wooden_crate_02",
+        "licence": "CC0",
+        "fetched": today(),
+        "notes": "2- and 3-high stacks of wooden_crate_02 (1K glTF), each crate decimated to ~325 triangles and stretched to a 0.53 m layer, joined into one mesh by tools/props/kitbash.py. Textures are the model's 1K diffuse, nor_gl and arm via texpack",
+    })
+
+
+def build_sandbags(blender, src, work):
+    out = ASSETS / "props" / "sandbags"
+    shutil.rmtree(out, ignore_errors=True)
+    out.mkdir(parents=True)
+    if not (ASSETS / "materials" / BURLAP / "color.ktx2").exists():
+        subprocess.run([sys.executable, str(ROOT / "tools" / "texpack" / "polyhaven.py"), BURLAP], cwd=ROOT, check=True)
+    run_blender(blender, ["--src", src, "--out", out, "--only", "sandbags"])
+    uris = {k: f"../../materials/{BURLAP}/{k}.ktx2" for k in ("color", "normal", "orm")}
+    for gltf in sorted(out.glob("*.gltf")):
+        patch_gltf(gltf, uris, SANDBAG_TINT)
+    record({
+        "path": "props/sandbags",
+        "name": "Sandbag courses (kitbash of Poly Haven Cement Bag)",
+        "source": "https://polyhaven.com/a/cement_bag",
+        "licence": "CC0",
+        "fetched": today(),
+        "notes": f"3- and 5-course walls of cement_bag (1K glTF) decimated to ~165 triangles a bag and joined into one mesh by tools/props/kitbash.py. The sack's branded texture is dropped: its UVs are rebuilt as box-projected burlap and it wears materials/{BURLAP} (Poly Haven, CC0), tinted khaki",
+    })
+
+
+def sketchfab_scan(work):
+    """Downloads the Headstone scan with `SKETCHFAB_TOKEN`; None if there is no token or the
+    download fails."""
+    token = os.environ.get("SKETCHFAB_TOKEN")
+    if not token:
+        return None
+    import io
+    import urllib.request
+    import zipfile
+    try:
+        info = fetch.get_json(f"https://api.sketchfab.com/v3/models/{HEADSTONE_UID}")
+        if info.get("license", {}).get("slug") != "cc0":
+            print(f"headstone scan is not CC0 ({info.get('license')}): skipping", file=sys.stderr)
+            return None
+        request = urllib.request.Request(
+            f"https://api.sketchfab.com/v3/models/{HEADSTONE_UID}/download",
+            headers={"Authorization": f"Token {token}", "User-Agent": fetch.USER_AGENT},
+        )
+        with urllib.request.urlopen(request, timeout=120) as response:
+            url = json.load(response)["gltf"]["url"]
+        archive = zipfile.ZipFile(io.BytesIO(fetch.get(url)))
+        directory = pathlib.Path(work) / "headstone_scan"
+        archive.extractall(directory)
+        return next(directory.rglob("*.gltf"))
+    except Exception as err:  # the box is the fallback for any failure
+        print(f"headstone scan not fetched: {err}", file=sys.stderr)
+        return None
+
+
+def build_headstone(blender, work, scan, source):
+    scan = pathlib.Path(scan) if scan else sketchfab_scan(work)
+    if scan is None:
+        print("headstone: no scan, so the Headstone stays its textured box")
+        return
+    out = ASSETS / "props" / "headstone"
+    shutil.rmtree(out, ignore_errors=True)
+    out.mkdir(parents=True)
+    baked = pathlib.Path(work) / "headstone_baked"
+    run_blender(blender, ["--src", work, "--out", out, "--headstone", scan, "--work", baked])
+    orm = baked / "headstone_orm.png"
+    png(orm, 4, 4, (255, 224, 0))  # unoccluded, rough, not metal
+    texpack(baked / "headstone_color.png", baked / "headstone_normal.png", orm, out)
+    patch_gltf(out / "headstone.gltf", {k: f"{k}.ktx2" for k in ("color", "normal", "orm")})
+    record({
+        "path": "props/headstone",
+        "name": "Headstone (decimated Sketchfab scan)",
+        "source": source or HEADSTONE_PAGE,
+        "licence": "CC0 (as stated on the model's Sketchfab page)",
+        "fetched": today(),
+        "notes": "Photogrammetry scan decimated to ~1.8k triangles with a 1K normal and base-colour bake, by tools/props/kitbash.py",
+    })
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--blender", default=os.environ.get("BLENDER", BLENDER_DEFAULT))
+    parser.add_argument("--only", choices=["crate", "sandbags", "headstone"])
+    parser.add_argument("--headstone-scan")
+    parser.add_argument("--headstone-source")
+    args = parser.parse_args()
+    with tempfile.TemporaryDirectory() as tmp:
+        work = pathlib.Path(tmp)
+        src = work / "src"
+        src.mkdir()
+        if args.only in (None, "crate"):
+            fetch.polyhaven_model("wooden_crate_02", src)
+            build_crates(args.blender, src, work)
+        if args.only in (None, "sandbags"):
+            fetch.polyhaven_model("cement_bag", src)
+            build_sandbags(args.blender, src, work)
+        if args.only in (None, "headstone"):
+            build_headstone(args.blender, work, args.headstone_scan, args.headstone_source)
+
+
+if __name__ == "__main__":
+    main()

@@ -159,7 +159,7 @@ pub fn pose(activity: Activity, phase: f32, stride: f32, run: f32, clock: f32) -
             pitch: 0.06 * (clock * 18.0).sin(),
             ..default()
         },
-        Activity::Dying { t } | Activity::Tipped { t } => {
+        Activity::Dying { t, .. } | Activity::Tipped { t } => {
             let t = t.clamp(0.0, 1.0);
             // Legs buckle and stick out, the head lolls and the jaw drops slack.
             HoundPose {
@@ -381,8 +381,8 @@ mod tests {
 
     #[test]
     fn a_dying_hound_sprawls_and_its_jaw_goes_slack() {
-        let start = pose(Activity::Dying { t: 0.0 }, 0.0, 0.0, 0.0, 0.0);
-        let end = pose(Activity::Dying { t: 1.0 }, 0.0, 0.0, 0.0, 0.0);
+        let start = pose(Activity::Dying { t: 0.0, headless: false }, 0.0, 0.0, 0.0, 0.0);
+        let end = pose(Activity::Dying { t: 1.0, headless: false }, 0.0, 0.0, 0.0, 0.0);
         assert_eq!(start.legs, [0.0; 4]);
         assert!(end.legs.iter().all(|l| l.abs() > 1.0));
         assert!(end.jaw > start.jaw && end.tail_raise < 0.0);
@@ -405,7 +405,7 @@ mod tests {
             Activity::KnockedDown,
             Activity::Screaming,
             Activity::Swinging { progress: 0.4, arm: Swing::Both },
-            Activity::Dying { t: 0.5 },
+            Activity::Dying { t: 0.5, headless: false },
             Activity::Tipped { t: 2.0 },
         ];
         for activity in activities {

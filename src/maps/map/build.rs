@@ -565,7 +565,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                 for k in 0..courses {
                     let shift = if k % 2 == 0 { 0.03 } else { -0.03 };
                     let off = if size.x > size.z { Vec2::new(shift, 0.0) } else { Vec2::new(0.0, shift) };
-                    piece(self, Vec3::new(size.x - 0.06, course - 0.02, size.z - 0.04), k as f32 * course, off, SANDBAG[k % 2], None);
+                    piece(self, Vec3::new(size.x - 0.06, course - 0.02, size.z - 0.04), k as f32 * course, off, SANDBAG[k % 2], mat);
                 }
             }
             PropKind::Barrel => {
@@ -628,8 +628,8 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                 let stone = HEADSTONE[nth % 3];
                 let lean = Quat::from_rotation_x(((nth % 5) as f32 - 2.0) * 0.03);
                 let slab = size.y - 0.12;
-                self.shape(Vec3::new(size.x, slab, size.z), at + Vec3::Y * slab / 2.0, lean, stone);
-                self.shape(Vec3::new(size.x * 0.7, 0.12, size.z), at + lean * (Vec3::Y * (slab + 0.06)), lean, stone);
+                self.shape_in(Vec3::new(size.x, slab, size.z), at + Vec3::Y * slab / 2.0, lean, stone, mat);
+                self.shape_in(Vec3::new(size.x * 0.7, 0.12, size.z), at + lean * (Vec3::Y * (slab + 0.06)), lean, stone, mat);
             }
         }
         if let Some((path, unit)) = variant.and_then(|variant| variant.model) {

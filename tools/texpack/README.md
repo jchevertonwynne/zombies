@@ -81,3 +81,8 @@ or if `assets/` grows past its 300 MB budget, and prints the running total.
 
 The synthesised placeholder sounds from `tools/gen-sounds` are covered by one `audio` entry until
 the Audio lane replaces them. Each real recording gets its own, more specific entry.
+
+## Kitbashed Prop units
+
+The Crate stacks, Sandbag courses and Headstone are built by `tools/props/build_props.py`, which
+drives headless Blender and uses `texpack` for their textures. See its docstring.
