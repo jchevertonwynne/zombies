@@ -43,6 +43,7 @@ pub enum Material {
     BrokenWall,
     RustyMetal02,
     BarkBrown02,
+    Hessian230,
     AsphaltFloor,
     ConcreteSlabWall02,
     ConcreteWall006,
@@ -94,7 +95,7 @@ pub enum Material {
 
 impl Material {
     #[cfg(test)]
-    pub const ALL: [Material; 63] = [
+    pub const ALL: [Material; 64] = [
         Material::DarkWoodenPlanks,
         Material::DamagedPlaster,
         Material::FloorTiles06,
@@ -113,6 +114,7 @@ impl Material {
         Material::BrokenWall,
         Material::RustyMetal02,
         Material::BarkBrown02,
+        Material::Hessian230,
         Material::AsphaltFloor,
         Material::ConcreteSlabWall02,
         Material::ConcreteWall006,
@@ -227,6 +229,7 @@ impl Material {
             Material::CastleBrick02Red => ("castle_brick_02_red", 1.5),
             Material::CobblestoneFloor06 => ("cobblestone_floor_06", 2.0),
             Material::BeigeWall001 => ("beige_wall_001", 3.0),
+            Material::Hessian230 => ("hessian_230", 0.2688),
         }
     }
 
@@ -234,6 +237,8 @@ impl Material {
     pub fn tint(self) -> Color {
         match self {
             Material::RustyMetal02 | Material::BrokenWall => Color::srgb(0.62, 0.62, 0.62),
+            // Burlap is a muddy khaki once it's a sandbag.
+            Material::Hessian230 => Color::srgb(0.62, 0.58, 0.46),
             _ => Color::WHITE,
         }
     }
@@ -260,7 +265,7 @@ impl Material {
             | BrokenWall | AsphaltFloor | ConcreteSlabWall02 | ConcreteWall006 | PaintedConcrete | ConcreteWall007
             | DamagedConcreteFloor03 | RibbedConcreteWall | SmoothConcreteFloor | ConcreteLayers02 | BrushedConcrete04
             | ConcreteWall008 | GranularConcrete | RockEmbeddedConcreteWall | HangarConcreteFloor | WornConcreteFloor
-            | ConcreteMoss | CrackedConcrete | WhitePlasterRough01 | WhiteStucco | YellowStoneWall | BeigeWall001 => {
+            | ConcreteMoss | CrackedConcrete | WhitePlasterRough01 | WhiteStucco | YellowStoneWall | BeigeWall001 | Hessian230 => {
                 FloorFamily::Concrete
             }
         }

@@ -1,0 +1,166 @@
+{
+ "asset": {
+  "generator": "Khronos glTF Blender I/O v5.3.43",
+  "version": "2.0"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "name": "Scene",
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "mesh": 0,
+   "name": "sandbags_5"
+  }
+ ],
+ "materials": [
+  {
+   "doubleSided": false,
+   "name": "burlap",
+   "pbrMetallicRoughness": {
+    "baseColorFactor": [
+     0.62,
+     0.58,
+     0.46,
+     1.0
+    ],
+    "metallicFactor": 1.0,
+    "roughnessFactor": 1.0,
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicRoughnessTexture": {
+     "index": 2
+    }
+   },
+   "normalTexture": {
+    "index": 1
+   },
+   "occlusionTexture": {
+    "index": 2
+   }
+  }
+ ],
+ "meshes": [
+  {
+   "name": "sandbags_5",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2
+     },
+     "indices": 3,
+     "material": 0
+    }
+   ]
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 1996,
+   "max": [
+    0.5136228203773499,
+    1.0508307218551636,
+    0.4181303381919861
+   ],
+   "min": [
+    -0.5136228203773499,
+    0,
+    -0.4181303381919861
+   ],
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 1996,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 1996,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5123,
+   "count": 4950,
+   "type": "SCALAR"
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteLength": 23952,
+   "byteOffset": 0,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 23952,
+   "byteOffset": 23952,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 15968,
+   "byteOffset": 47904,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 9900,
+   "byteOffset": 63872,
+   "target": 34963
+  }
+ ],
+ "buffers": [
+  {
+   "byteLength": 73772,
+   "uri": "sandbags_5.bin"
+  }
+ ],
+ "images": [
+  {
+   "uri": "../../materials/hessian_230/color.ktx2"
+  },
+  {
+   "uri": "../../materials/hessian_230/normal.ktx2"
+  },
+  {
+   "uri": "../../materials/hessian_230/orm.ktx2"
+  }
+ ],
+ "samplers": [
+  {
+   "magFilter": 9729,
+   "minFilter": 9987,
+   "wrapS": 10497,
+   "wrapT": 10497
+  }
+ ],
+ "textures": [
+  {
+   "sampler": 0,
+   "source": 0
+  },
+  {
+   "sampler": 0,
+   "source": 1
+  },
+  {
+   "sampler": 0,
+   "source": 2
+  }
+ ]
+}

@@ -43,6 +43,8 @@ const GREYBOX: &[View] = &[
     view("workshop-wall", (-24.0, 0.0, -42.0), (-20.0, -50.0), -0.2, false),
     view("yard", (10.0, 0.0, 11.0), (-8.0, -10.0), 0.05, false),
     view("yard-house", (4.0, 0.0, 2.0), (-4.0, 14.0), 0.1, false),
+    view("yard-crates", (-9.5, 0.0, -4.4), (-13.2, -4.5), -0.12, false),
+    view("yard-sandbags", (-2.0, 0.0, -8.5), (-2.0, -12.5), -0.12, false),
     view("east-hall", (24.0, 0.0, 22.0), (18.0, -10.0), -0.05, false),
     view("east-hall-wall", (16.0, 0.0, 4.0), (26.0, 1.0), -0.15, false),
     view("power-room", (2.0, 0.0, -16.0), (24.0, -22.0), -0.05, false),

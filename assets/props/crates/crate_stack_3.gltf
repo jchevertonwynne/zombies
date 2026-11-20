@@ -1,0 +1,166 @@
+{
+ "asset": {
+  "generator": "Khronos glTF Blender I/O v5.3.43",
+  "version": "2.0"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "name": "Scene",
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "mesh": 0,
+   "name": "crate_stack_3"
+  }
+ ],
+ "materials": [
+  {
+   "doubleSided": false,
+   "name": "crate_wood",
+   "pbrMetallicRoughness": {
+    "baseColorFactor": [
+     0.800000011920929,
+     0.800000011920929,
+     0.800000011920929,
+     1
+    ],
+    "metallicFactor": 1.0,
+    "roughnessFactor": 1.0,
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicRoughnessTexture": {
+     "index": 2
+    }
+   },
+   "normalTexture": {
+    "index": 1
+   },
+   "occlusionTexture": {
+    "index": 2
+   }
+  }
+ ],
+ "meshes": [
+  {
+   "name": "crate_stack_3",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2
+     },
+     "indices": 3,
+     "material": 0
+    }
+   ]
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 2574,
+   "max": [
+    0.5896647572517395,
+    1.5899999141693115,
+    0.587449312210083
+   ],
+   "min": [
+    -0.5896647572517395,
+    0,
+    -0.587449312210083
+   ],
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 2574,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 2574,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5123,
+   "count": 5850,
+   "type": "SCALAR"
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteLength": 30888,
+   "byteOffset": 0,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 30888,
+   "byteOffset": 30888,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 20592,
+   "byteOffset": 61776,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 11700,
+   "byteOffset": 82368,
+   "target": 34963
+  }
+ ],
+ "buffers": [
+  {
+   "byteLength": 94068,
+   "uri": "crate_stack_3.bin"
+  }
+ ],
+ "images": [
+  {
+   "uri": "color.ktx2"
+  },
+  {
+   "uri": "normal.ktx2"
+  },
+  {
+   "uri": "orm.ktx2"
+  }
+ ],
+ "samplers": [
+  {
+   "magFilter": 9729,
+   "minFilter": 9987,
+   "wrapS": 10497,
+   "wrapT": 10497
+  }
+ ],
+ "textures": [
+  {
+   "sampler": 0,
+   "source": 0
+  },
+  {
+   "sampler": 0,
+   "source": 1
+  },
+  {
+   "sampler": 0,
+   "source": 2
+  }
+ ]
+}
