@@ -37,7 +37,7 @@ export BLENDER_USER_RESOURCES="$work/profile"
 "$blender" -b --command extension install-file -r user_default --enable "$work/mpfb.zip"
 
 "$blender" -b --python "$here/build_clips.py" -- --ual1 "$ual1" --ual2 "$ual2" --out "$out/clips.glb"
-for variant in labourer soldier civilian; do
+for variant in labourer soldier civilian napalm shrieker sapper nova; do
   "$blender" -b --python "$here/build_bodies.py" -- --variant "$variant" --ual2 "$ual2" \
     --clothes "$work/assets" --out "$out/$variant.glb"
 done

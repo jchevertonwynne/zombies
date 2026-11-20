@@ -36,7 +36,7 @@ const MAX_GAIT_SPEED: f32 = 8.0;
 /// The pivots of one Zombie's rig, posed by `animate`.
 #[derive(Component, Debug, Clone, Copy)]
 #[require(Gait)]
-pub(super) enum Rig {
+pub(in crate::enemies) enum Rig {
     Standing {
         hips: Entity,
         /// Its head hit area, which carries the head's boxes.
@@ -50,6 +50,9 @@ pub(super) enum Rig {
     Crawling {
         arms: [Entity; 2],
     },
+    /// No boxes to pose: a Nova Crawler's, whose body is a single static mesh. It still has a `Gait`,
+    /// so a skinned body has the Activity, speed and phase to pose from, on the Host and on a client.
+    Bare,
 }
 
 /// How far through its walk cycle a Zombie is, and how fast it's going.
@@ -610,7 +613,7 @@ pub(super) fn animate(
         let speed = (moved / dt).min(MAX_GAIT_SPEED);
         gait.speed = gait.speed.lerp(speed, 1.0 - (-10.0 * dt).exp());
         gait.clock += dt;
-        let crawling = matches!(rig, Rig::Crawling { .. });
+        let crawling = matches!(rig, Rig::Crawling { .. } | Rig::Bare);
         // A full cycle (two steps) covers more ground the faster it goes.
         let cycle = if crawling { 0.7 } else { 1.3 + 0.2 * gait.speed };
         gait.phase = (gait.phase + moved.min(MAX_GAIT_SPEED * dt) / cycle * TAU) % TAU;
@@ -658,6 +661,7 @@ pub(super) fn animate(
                     set(legs[side], &|t| t.rotation = t.rotation.slerp(leg, follow));
                 }
             }
+            Rig::Bare => {}
             Rig::Crawling { arms } => {
                 let limbs = crawl(activity, gait.phase, stride, gait.clock);
                 for side in 0..2 {
@@ -749,6 +753,22 @@ mod tests {
     fn a_crawler_reaches_out_with_one_arm_while_the_other_pulls() {
         let arms = crawl(Activity::Moving, PI / 2.0, 1.0, 0.0);
         assert!(arms[0].pitch > arms[1].pitch + 0.5, "{arms:?}");
+    }
+
+    /// A Nova Crawler has no boxes to pose, but still keeps its `Gait`, so a skinned body (on the Host
+    /// and, from the Activity the Host told, on a client) has something to pose from.
+    #[test]
+    fn a_nova_crawlers_bare_rig_still_follows_what_it_is_told_it_does() {
+        use std::time::Duration;
+        let mut app = App::new();
+        app.init_resource::<Time>().add_systems(Update, animate);
+        let nova = app
+            .world_mut()
+            .spawn((Rig::Bare, Zombie::nova_crawler(10.0, Vec3::ZERO), Transform::default(), Shown(Activity::Stunned)))
+            .id();
+        app.world_mut().resource_mut::<Time>().advance_by(Duration::from_millis(16));
+        app.update();
+        assert_eq!(app.world().get::<Gait>(nova).unwrap().activity(), Activity::Stunned);
     }
 
     #[test]

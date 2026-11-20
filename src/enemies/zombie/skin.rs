@@ -31,14 +31,33 @@ use bevy::gltf::Gltf;
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 
-use super::rig::{Activity, Gait, Pose, Rig, crawl, pose};
+use super::rig::{Activity, Gait, Pose, Rig, Swing, crawl, pose};
 use super::{Zombie, body_half_height};
+use crate::enemies::sapper::Sapper;
+use crate::enemies::special::SpecialKind;
 use crate::net::zombies::{ZombieId, ZombieIds};
 use crate::tuning::{CRAWLER_BODY_LENGTH, CRAWLER_RADIUS};
 
 const CLIPS: &str = "enemies/zombie/clips.glb";
-/// The three bodies' glTFs, by `Look::body`.
-const BODIES: [&str; 3] = ["enemies/zombie/labourer.glb", "enemies/zombie/soldier.glb", "enemies/zombie/civilian.glb"];
+/// The bodies' glTFs, by `Look::body`: the three plain Zombies', then the specials' (Napalm,
+/// Shrieker, Sapper, Nova Crawler). A special's body has parts of its own (a tank, a helmet, a gas
+/// mask) and wears the clothes maps of a plain body.
+const BODIES: [&str; BODY_COUNT] = [
+    "enemies/zombie/labourer.glb",
+    "enemies/zombie/soldier.glb",
+    "enemies/zombie/civilian.glb",
+    "enemies/zombie/napalm.glb",
+    "enemies/zombie/shrieker.glb",
+    "enemies/zombie/sapper.glb",
+    "enemies/zombie/nova.glb",
+];
+/// Which of `MAPS` each body's shirt and trousers are, by `Look::body`.
+const CLOTHES: [[usize; 2]; BODY_COUNT] = [[1, 2], [3, 4], [5, 6], [5, 6], [1, 2], [3, 4], [3, 4]];
+/// The first of the special bodies in `BODIES`, which a Zombie's own kind picks.
+const NAPALM_BODY: usize = 3;
+const SHRIEKER_BODY: usize = 4;
+const SAPPER_BODY: usize = 5;
+const NOVA_BODY: usize = 6;
 /// The colour maps: the skin every body shares, then each body's shirt and trousers.
 const MAPS: [&str; 7] = [
     "enemies/zombie/skin/color.ktx2",
@@ -50,9 +69,11 @@ const MAPS: [&str; 7] = [
     "enemies/zombie/civilian_pants/color.ktx2",
 ];
 
-/// How many bodies there are, and colourways of each.
-const BODY_COUNT: usize = 3;
+/// How many bodies there are (the plain ones, then the specials'), and colourways of each.
+const BODY_COUNT: usize = 7;
 const WAY_COUNT: usize = 2;
+/// How many of them a plain Zombie wears.
+const PLAIN_BODIES: usize = 3;
 
 /// Colour multipliers on the baked maps, by body and colourway: skin, shirt, trousers. They make a
 /// second colourway of each body from the same maps, for no more files.
@@ -63,7 +84,39 @@ const TINTS: [[[[f32; 3]; 3]; WAY_COUNT]; BODY_COUNT] = [
     [[[1.0, 1.0, 1.0]; 3], [[1.1, 1.04, 0.92], [1.5, 1.2, 0.8], [1.5, 1.25, 0.85]]],
     // Civilian: as baked, then a red polo and darker shorts.
     [[[1.0, 1.0, 1.0]; 3], [[1.06, 1.0, 1.0], [1.5, 0.7, 0.65], [0.7, 0.72, 0.8]]],
+    // The specials have one colourway, in both. Napalm: soot-black clothes on scorched skin.
+    [[[0.6, 0.5, 0.45], [0.4, 0.34, 0.3], [0.5, 0.45, 0.4]]; WAY_COUNT],
+    // Shrieker: washed-out, bloodless.
+    [[[1.2, 1.2, 1.3], [1.25, 1.25, 1.3], [1.1, 1.1, 1.15]]; WAY_COUNT],
+    // Sapper: dark, under its armour.
+    [[[0.8, 0.8, 0.8], [0.5, 0.5, 0.45], [0.55, 0.55, 0.5]]; WAY_COUNT],
+    // Nova Crawler: a sickly yellow-green, gassed.
+    [[[0.9, 1.0, 0.75], [1.3, 1.35, 0.6], [1.1, 1.2, 0.6]]; WAY_COUNT],
 ];
+
+/// A special body's gear (a tank, armour, a mask) and its glow (the flame, the canisters, the lenses):
+/// the materials of a body's `...Gear` and `...Glow` parts. A plain body has neither.
+fn gear(body: usize) -> [StandardMaterial; 2] {
+    let metal = |color: Color, metallic: f32, roughness: f32| StandardMaterial {
+        base_color: color,
+        metallic,
+        perceptual_roughness: roughness,
+        ..default()
+    };
+    let glow = |color: Color, emissive: LinearRgba| StandardMaterial { base_color: color, emissive, perceptual_roughness: 0.6, ..default() };
+    match body {
+        // A scorched, rust-red tank, its flame burning at the top.
+        NAPALM_BODY => [
+            metal(Color::srgb(0.32, 0.09, 0.06), 0.6, 0.55),
+            glow(Color::srgb(0.9, 0.35, 0.05), LinearRgba::rgb(7.0, 2.2, 0.15)),
+        ],
+        // Dull armour plate, and a visor's red slit that no part uses yet.
+        SAPPER_BODY => [metal(Color::srgb(0.3, 0.31, 0.33), 0.85, 0.4), glow(Color::srgb(0.5, 0.1, 0.05), LinearRgba::rgb(4.0, 0.4, 0.1))],
+        // A rubber mask and green canisters.
+        NOVA_BODY => [metal(Color::srgb(0.06, 0.08, 0.06), 0.1, 0.55), glow(Color::srgb(0.3, 0.8, 0.2), LinearRgba::rgb(0.6, 3.5, 0.5))],
+        _ => [metal(Color::srgb(0.3, 0.3, 0.3), 0.5, 0.6), glow(Color::srgb(0.5, 0.5, 0.5), LinearRgba::BLACK)],
+    }
+}
 
 const WALK: &str = "Zombie_Walk_Fwd_Loop";
 const IDLE: &str = "Zombie_Idle_Loop";
@@ -104,7 +157,7 @@ impl Plugin for SkinPlugin {
             .add_systems(Startup, load_bodies)
             .add_systems(
                 Update,
-                (prepare_bodies, attach, dress_parts, setup_players, drive_clips, show_parts, hide_boxes, sync_frame).chain(),
+                (prepare_bodies, attach, dress_parts, setup_players, drive_clips, show_parts, hide_boxes, hide_late_boxes, sync_frame).chain(),
             )
             .add_systems(
                 PostUpdate,
@@ -143,8 +196,8 @@ struct Nodes {
 
 struct Ready {
     scenes: [Handle<WorldAsset>; BODY_COUNT],
-    /// Skin, shirt, trousers, for each body and colourway (`body * WAY_COUNT + way`).
-    materials: Vec<[Handle<StandardMaterial>; 3]>,
+    /// Skin, shirt, trousers, gear and glow, for each body and colourway (`body * WAY_COUNT + way`).
+    materials: Vec<[Handle<StandardMaterial>; 5]>,
     graph: Handle<AnimationGraph>,
     nodes: Nodes,
     /// How long `Zombie_Scratch` runs, in seconds.
@@ -230,12 +283,16 @@ fn prepare_bodies(
     };
     let mut made = Vec::new();
     for body in 0..BODY_COUNT {
+        let [metal, glow] = gear(body).map(|material| materials.add(material));
         for way in 0..WAY_COUNT {
             let tint = TINTS[body][way];
+            let [shirt, pants] = CLOTHES[body];
             made.push([
                 materials.add(cloth(&images[0], tint[0])),
-                materials.add(cloth(&images[1 + body * 2], tint[1])),
-                materials.add(cloth(&images[2 + body * 2], tint[2])),
+                materials.add(cloth(&images[shirt], tint[1])),
+                materials.add(cloth(&images[pants], tint[2])),
+                metal.clone(),
+                glow.clone(),
             ]);
         }
     }
@@ -258,7 +315,21 @@ impl Look {
         h ^= h >> 15;
         h = h.wrapping_mul(0x85EB_CA6B);
         h ^= h >> 13;
-        Self { body: h as usize % BODY_COUNT, way: (h >> 8) as usize % WAY_COUNT }
+        Self { body: h as usize % PLAIN_BODIES, way: (h >> 8) as usize % WAY_COUNT }
+    }
+
+    /// The body a Zombie wears: its own if it is a special, else one of the plain bodies by `key`.
+    /// `None` for a Hellhound, which has a body of its own elsewhere.
+    fn of_zombie(zombie: &Zombie, key: u32) -> Option<Self> {
+        let body = match zombie.special_kind() {
+            Some(SpecialKind::Napalm) => NAPALM_BODY,
+            Some(SpecialKind::Shrieker) => SHRIEKER_BODY,
+            Some(SpecialKind::Sapper) => SAPPER_BODY,
+            None if zombie.is_nova_crawler() => NOVA_BODY,
+            None if zombie.is_hellhound() => return None,
+            None => return Some(Self::of(key)),
+        };
+        Some(Self { body, way: 0 })
     }
 
     fn materials(self) -> usize {
@@ -282,6 +353,8 @@ struct SkinRoot {
 enum Part {
     Head,
     Legs,
+    /// The Sapper's helmet, which comes off.
+    Helmet,
     Rest,
 }
 
@@ -294,14 +367,21 @@ impl Part {
             Part::Head
         } else if name.ends_with("LegL") || name.ends_with("LegR") {
             Part::Legs
+        } else if name.ends_with("Helmet") {
+            Part::Helmet
         } else {
             Part::Rest
         }
     }
 
-    /// Which of skin, shirt and trousers it wears, by its material's name (`...Shirt`, `...Pants`).
+    /// Which of skin, shirt, trousers, gear and glow it wears, by its material's name (`...Shirt`,
+    /// `...Pants`, `...Gear`, `...Glow`).
     fn material(name: &str) -> usize {
-        if name.contains("Shirt") {
+        if name.contains("Gear") {
+            3
+        } else if name.contains("Glow") {
+            4
+        } else if name.contains("Shirt") {
             1
         } else if name.contains("Pants") {
             2
@@ -317,13 +397,20 @@ struct SkinPart {
     part: Part,
 }
 
-/// Whether a part shows: the head goes with a headshot kill, and the legs with a gib.
-fn part_shows(part: Part, headless: bool, crawler: bool) -> bool {
+/// Whether a part shows: the head goes with a headshot kill, the legs with a gib (a Nova Crawler
+/// has none to show either), and the helmet with the Sapper's helmet or its head.
+fn part_shows(part: Part, headless: bool, prone: bool, helmet: bool) -> bool {
     match part {
         Part::Head => !headless,
-        Part::Legs => !crawler,
+        Part::Legs => !prone,
+        Part::Helmet => helmet && !headless,
         Part::Rest => true,
     }
+}
+
+/// Whether a Zombie's body lies prone, along its facing: a Crawler's and a Nova Crawler's.
+fn is_prone(zombie: &Zombie) -> bool {
+    zombie.is_crawler() || zombie.is_nova_crawler()
 }
 
 /// Where the model sits on its Zombie: standing with its feet on the floor and its face to -Z, or,
@@ -349,21 +436,19 @@ fn attach(
 ) {
     let State::Ready(ready) = &bodies.0 else { return };
     for (entity, zombie, id) in &zombies {
-        if zombie.is_special() {
-            continue;
-        }
+        // A special's body is its own whatever its id, so it never waits for one.
         let key = match id {
             Some(id) => u32::from(id.0),
-            None if ids.is_some() => continue,
+            None if ids.is_some() && !zombie.is_special() => continue,
             None => entity.index().index(),
         };
-        let look = Look::of(key);
+        let Some(look) = Look::of_zombie(zombie, key) else { continue };
         commands.entity(entity).insert(Skinned);
         commands.spawn((
             Name::new("Zombie body"),
             SkinRoot { zombie: entity, look },
             WorldAssetRoot(ready.scenes[look.body].clone()),
-            skin_transform(zombie.is_crawler()),
+            skin_transform(is_prone(zombie)),
             ChildOf(entity),
         ));
     }
@@ -386,7 +471,7 @@ pub(super) fn despawn_body(mut zombie: EntityWorldMut) {
 fn sync_frame(mut roots: Query<(&SkinRoot, &mut Transform)>, zombies: Query<&Zombie>) {
     for (root, mut transform) in &mut roots {
         let Ok(zombie) = zombies.get(root.zombie) else { continue };
-        let wanted = skin_transform(zombie.is_crawler());
+        let wanted = skin_transform(is_prone(zombie));
         if *transform != wanted {
             *transform = wanted;
         }
@@ -468,6 +553,8 @@ fn want(activity: Activity, speed: f32) -> Option<Want> {
         Activity::Moving if speed < JOG_FROM => Some(Want::Walk((speed / WALK_SPEED).clamp(0.5, 2.5))),
         Activity::Moving if speed < SPRINT_FROM => Some(Want::Jog((speed / JOG_SPEED).clamp(0.6, 1.8))),
         Activity::Moving => Some(Want::Sprint((speed / SPRINT_SPEED).clamp(0.6, 1.8))),
+        // The Sapper's slam, with both arms overhead, is posed by `rig::pose`: no clip does it.
+        Activity::Swinging { arm: Swing::Both, .. } => None,
         Activity::Swinging { progress, .. } => Some(Want::Scratch(progress.clamp(0.0, 1.0))),
         Activity::Dying { .. } => Some(Want::Death),
         Activity::Stunned => Some(Want::Flinch),
@@ -486,7 +573,7 @@ fn drive_clips(
     let nodes = &ready.nodes;
     for (entity, skin, mut player, mut transitions, playing) in &mut players {
         let Ok((zombie, gait)) = zombies.get(skin.zombie) else { continue };
-        if zombie.is_crawler() {
+        if is_prone(zombie) {
             continue;
         }
         let Some(wanted) = want(gait.activity(), gait.speed()) else { continue };
@@ -527,11 +614,12 @@ fn drive_clips(
 }
 
 /// Hides the head after a headshot kill and the legs after a gib.
-fn show_parts(mut parts: Query<(&SkinPart, &mut Visibility)>, zombies: Query<(&Zombie, &Gait)>) {
+fn show_parts(mut parts: Query<(&SkinPart, &mut Visibility)>, zombies: Query<(&Zombie, &Gait, Option<&Sapper>)>) {
     for (part, mut visibility) in &mut parts {
-        let Ok((zombie, gait)) = zombies.get(part.zombie) else { continue };
+        let Ok((zombie, gait, sapper)) = zombies.get(part.zombie) else { continue };
         let headless = matches!(gait.activity(), Activity::Dying { headless: true, .. });
-        let wanted = if part_shows(part.part, headless, zombie.is_crawler()) { Visibility::Inherited } else { Visibility::Hidden };
+        let helmet = sapper.is_some_and(|sapper| !sapper.helmet_lost());
+        let wanted = if part_shows(part.part, headless, is_prone(zombie), helmet) { Visibility::Inherited } else { Visibility::Hidden };
         visibility.set_if_neq(wanted);
     }
 }
@@ -567,10 +655,34 @@ fn hide_boxes(
     }
 }
 
+/// Hides a box that joins a skinned Zombie after it was skinned: the Sapper's helmet and plate, which
+/// are dressed (and a puppet's helmet re-formed) whenever the Sapper's own systems get to it.
+fn hide_late_boxes(
+    mut new: Query<(Entity, &mut Visibility), Added<Mesh3d>>,
+    parents: Query<&ChildOf>,
+    skinned: Query<(), With<Skinned>>,
+    roots: Query<(), With<SkinRoot>>,
+) {
+    for (entity, mut visibility) in &mut new {
+        let mut at = entity;
+        loop {
+            if roots.contains(at) {
+                break;
+            }
+            if skinned.contains(at) {
+                visibility.set_if_neq(Visibility::Hidden);
+                break;
+            }
+            let Ok(parent) = parents.get(at) else { break };
+            at = parent.parent();
+        }
+    }
+}
+
 /// Whether a skinned Zombie dies by its clip, which falls the body over itself: a standing one.
 /// Its root then stays upright, where a box rig's tips over.
 pub(super) fn dies_by_clip(skinned: bool, zombie: Option<&Zombie>) -> bool {
-    skinned && zombie.is_some_and(|zombie| !zombie.is_crawler())
+    skinned && zombie.is_some_and(|zombie| !is_prone(zombie))
 }
 
 /// A node of the body's skeleton, as it stands at rest.
@@ -684,7 +796,7 @@ fn pose_skins(
     for (root, skeleton, transform) in &skins {
         let Ok((zombie, gait)) = zombies.get(root.zombie) else { continue };
         let activity = gait.activity();
-        let crawler = zombie.is_crawler();
+        let crawler = is_prone(zombie);
         if !crawler && want(activity, gait.speed()).is_some() {
             continue;
         }
@@ -811,11 +923,56 @@ mod tests {
 
     #[test]
     fn a_headshot_takes_the_head_and_a_gib_the_legs() {
-        assert!(!part_shows(Part::Head, true, false));
-        assert!(part_shows(Part::Head, false, true));
-        assert!(!part_shows(Part::Legs, false, true));
-        assert!(part_shows(Part::Legs, true, false));
-        assert!(part_shows(Part::Rest, true, true));
+        assert!(!part_shows(Part::Head, true, false, false));
+        assert!(part_shows(Part::Head, false, true, false));
+        assert!(!part_shows(Part::Legs, false, true, false));
+        assert!(part_shows(Part::Legs, true, false, false));
+        assert!(part_shows(Part::Rest, true, true, false));
+    }
+
+    #[test]
+    fn the_sappers_helmet_shows_only_while_it_holds_and_the_head_is_on() {
+        assert!(part_shows(Part::Helmet, false, false, true));
+        assert!(!part_shows(Part::Helmet, false, false, false), "the helmet is lost");
+        assert!(!part_shows(Part::Helmet, true, false, true), "it goes with the head");
+        assert_eq!(Part::of("Sapper_Helmet.ZombieGear"), Part::Helmet);
+        // A mask on a Nova Crawler's head is part of the head, so it goes with it.
+        assert_eq!(Part::of("Nova_MaskHead.ZombieGear"), Part::Head);
+        assert_eq!(Part::of("Nova_LensHead.ZombieGlow"), Part::Head);
+        assert_eq!(Part::of("Sapper_PauldronL.ZombieGear"), Part::Rest);
+    }
+
+    #[test]
+    fn gear_and_glow_have_their_own_materials() {
+        assert_eq!(Part::material("Napalm_Tank.ZombieGear"), 3);
+        assert_eq!(Part::material("Napalm_Tank.001.ZombieGear"), 3);
+        assert_eq!(Part::material("Napalm_Flame.ZombieGlow"), 4);
+        assert_eq!(Part::material("Nova_Canister.ZombieGlow"), 4);
+        assert_eq!(Part::material("Napalm_PantsLegL.ZombiePants"), 2);
+    }
+
+    #[test]
+    fn each_special_wears_its_own_body_and_a_plain_zombie_one_of_three() {
+        let at = Vec3::ZERO;
+        let body = |zombie: Zombie| Look::of_zombie(&zombie, 7).map(|look| look.body);
+        assert_eq!(body(Zombie::special(SpecialKind::Napalm, 100.0, at)), Some(NAPALM_BODY));
+        assert_eq!(body(Zombie::special(SpecialKind::Shrieker, 100.0, at)), Some(SHRIEKER_BODY));
+        assert_eq!(body(Zombie::special(SpecialKind::Sapper, 100.0, at)), Some(SAPPER_BODY));
+        assert_eq!(body(Zombie::nova_crawler(100.0, at)), Some(NOVA_BODY));
+        assert_eq!(body(Zombie::hellhound(100.0, at)), None, "a hound has its own rig");
+        assert!(body(Zombie::new_for_test(100.0)).is_some_and(|body| body < PLAIN_BODIES));
+        // Every special's files are listed, so a missing one leaves the box rig.
+        for special in NAPALM_BODY..=NOVA_BODY {
+            assert!(!files_present(|path| path != BODIES[special]));
+        }
+    }
+
+    #[test]
+    fn a_nova_crawler_lies_prone_like_a_crawler_and_a_special_never_loses_its_legs() {
+        assert!(is_prone(&Zombie::nova_crawler(100.0, Vec3::ZERO)));
+        assert!(!is_prone(&Zombie::new_for_test(100.0)));
+        assert!(dies_by_clip(true, Some(&Zombie::new_for_test(100.0))));
+        assert!(!dies_by_clip(true, Some(&Zombie::nova_crawler(100.0, Vec3::ZERO))));
     }
 
     #[test]
@@ -848,7 +1005,7 @@ mod tests {
 
     #[test]
     fn every_look_comes_up_and_the_same_id_wears_the_same_one() {
-        let mut seen = [[0u32; WAY_COUNT]; BODY_COUNT];
+        let mut seen = [[0u32; WAY_COUNT]; PLAIN_BODIES];
         for id in 0..600u32 {
             let look = Look::of(id);
             assert_eq!(look, Look::of(id), "a look is a function of the id");
@@ -883,6 +1040,8 @@ mod tests {
             Activity::Screaming,
             Activity::KnockedDown,
             Activity::Tipped { t: 0.5 },
+            // The Sapper's two-armed slam.
+            Activity::Swinging { progress: 0.5, arm: Swing::Both },
         ] {
             assert_eq!(want(activity, 0.0), None, "{activity:?}");
         }

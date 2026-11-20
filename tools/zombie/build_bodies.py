@@ -60,6 +60,39 @@ VARIANTS = {
         shirt="namuhekam_male_polo_shirt/namuhekam_male_polo_shirt.mhclo",
         pants="cortu_jeans_shorts/cortu_jeans_shorts.mhclo",
     ),
+    # The specials (see GEAR): each its own build, in clothes whose maps a plain body already uses.
+    # A bulky Napalm in a burnt polo and shorts, under its tank.
+    "napalm": dict(
+        name="Napalm",
+        macro={"gender": 1.0, "age": 0.6, "muscle": 0.5, "weight": 0.9, "proportions": 0.5, "height": 0.5},
+        shirt="namuhekam_male_polo_shirt/namuhekam_male_polo_shirt.mhclo",
+        pants="cortu_jeans_shorts/cortu_jeans_shorts.mhclo",
+        bulk=(1.2, 1.15),
+    ),
+    # A starved, tall Shrieker with arms too long for it, in the labourer's sweater.
+    "shrieker": dict(
+        name="Shrieker",
+        macro={"gender": 1.0, "age": 0.85, "muscle": 0.0, "weight": 0.0, "proportions": 0.5, "height": 0.72},
+        shirt="toigo_fisherman_sweater/toigo_fisherman_sweater.mhclo",
+        pants="toigo_wool_pants/toigo_wool_pants.mhclo",
+        arm_stretch=1.4,
+    ),
+    # A huge Sapper in armour: a helmet, a chest and back plate and pauldrons.
+    "sapper": dict(
+        name="Sapper",
+        macro={"gender": 1.0, "age": 0.5, "muscle": 1.0, "weight": 0.95, "proportions": 0.55, "height": 0.8},
+        shirt="toigo_basic_tucked_t-shirt/toigo_basic_tucked_t-shirt.mhclo",
+        pants="cortu_cargo_pants/cortu_cargo_pants.mhclo",
+        bulk=(1.3, 1.25),
+    ),
+    # A Nova Crawler: a wiry body in a gas mask with canisters on its back, long arms for clawing.
+    "nova": dict(
+        name="Nova",
+        macro={"gender": 1.0, "age": 0.45, "muscle": 0.3, "weight": 0.15, "proportions": 0.5, "height": 0.45},
+        shirt="toigo_basic_tucked_t-shirt/toigo_basic_tucked_t-shirt.mhclo",
+        pants="cortu_cargo_pants/cortu_cargo_pants.mhclo",
+        arm_stretch=1.25,
+    ),
 }
 
 
@@ -238,6 +271,179 @@ def make_material(name, rgb, roughness=0.9):
     return mat
 
 
+# ---- Gear: the parts that give each special its own silhouette ----
+
+# The name of each gear part (after the body's prefix), and whether it glows (ZombieGlow) rather than
+# being plain gear (ZombieGear). A part's name decides what the game does with it: a name ending in
+# `Head` goes with the head, and `Helmet` is the Sapper's, which comes off.
+GEAR_PARTS = {
+    "Tank": False,
+    "Flame": True,
+    "Helmet": False,
+    "Plate": False,
+    "PauldronL": False,
+    "PauldronR": False,
+    "MaskHead": False,
+    "LensHead": True,
+    "Canister": True,
+}
+
+
+def bone_pos(arm, name, tail=False):
+    b = arm.data.bones[name]
+    return arm.matrix_world @ (b.tail_local if tail else b.head_local)
+
+
+def gear_object(arm, name, bone, build):
+    """A mesh `name` made by `build(bmesh)` (in world space), bound wholly to `bone`."""
+    mesh = bpy.data.meshes.new(name)
+    bm = bmesh.new()
+    build(bm)
+    bm.to_mesh(mesh)
+    bm.free()
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    group = obj.vertex_groups.new(name=bone)
+    group.add(list(range(len(mesh.vertices))), 1.0, "REPLACE")
+    obj.parent = arm
+    mod = obj.modifiers.new("Armature", "ARMATURE")
+    mod.object = arm
+    for poly in mesh.polygons:
+        poly.use_smooth = True
+    mesh.uv_layers.new(name="UVMap")
+    return obj
+
+
+def add_cylinder(bm, centre, radius, depth, top=None, segments=14):
+    """A cylinder standing on Z (a cone to `top` radius when given)."""
+    bmesh.ops.create_cone(
+        bm,
+        cap_ends=True,
+        cap_tris=False,
+        segments=segments,
+        radius1=radius,
+        radius2=radius if top is None else top,
+        depth=depth,
+        matrix=Matrix.Translation(centre),
+    )
+
+
+def add_box(bm, centre, size):
+    m = Matrix.Translation(centre) @ Matrix.Diagonal(Vector((size[0], size[1], size[2], 1.0)))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=m)
+
+
+def add_dome(bm, centre, radius, squash=1.0, cut=0.0):
+    """A sphere whose part below `centre.z + cut` is cut away: a dome."""
+    m = Matrix.Translation(centre) @ Matrix.Diagonal(Vector((1.0, 1.0, squash, 1.0)))
+    made = bmesh.ops.create_uvsphere(bm, u_segments=16, v_segments=10, radius=radius, matrix=m)["verts"]
+    doomed = [v for v in made if v.co.z < centre.z + cut - 1e-4]
+    bmesh.ops.delete(bm, geom=doomed, context="VERTS")
+
+
+def torso_back(prefix, z_lo, z_hi, sign):
+    """The Y of the torso's back (sign 1) or front (-1) between two heights, for putting gear on it."""
+    torso = bpy.data.objects[prefix + "Torso"]
+    ys = [v.co.y for v in torso.data.vertices if z_lo <= v.co.z <= z_hi and abs(v.co.x) < 0.2]
+    return max(ys) if sign > 0 else min(ys)
+
+
+def head_box(prefix):
+    lo, hi = world_bounds(bpy.data.objects[prefix + "Head"])
+    return (lo + hi) / 2, (hi.z - lo.z) / 2, lo, hi
+
+
+def napalm_gear(arm, prefix):
+    chest = bone_pos(arm, "spine_02")
+    top = bone_pos(arm, "spine_03", tail=True)
+    back = torso_back(prefix, chest.z, top.z, 1)
+    for x in (-0.11, 0.11):
+        centre = Vector((x, back + 0.08, (chest.z + top.z) / 2 + 0.02))
+
+        def tank(bm, centre=centre):
+            add_cylinder(bm, centre, 0.1, 0.5)
+            add_dome(bm, centre + Vector((0, 0, 0.25)), 0.1, 0.8)
+
+        gear_object(arm, prefix + "Tank" + ("" if x < 0 else ".001"), "spine_03", tank)
+    flame_at = Vector((-0.11, back + 0.08, (chest.z + top.z) / 2 + 0.5))
+    gear_object(arm, prefix + "Flame", "spine_03", lambda bm: add_cylinder(bm, flame_at, 0.08, 0.34, top=0.0, segments=10))
+
+
+def shrieker_gear(arm, prefix):
+    pass
+
+
+def sapper_gear(arm, prefix):
+    chest = bone_pos(arm, "spine_02")
+    top = bone_pos(arm, "spine_03", tail=True)
+    front = torso_back(prefix, chest.z, top.z, -1)
+    back = torso_back(prefix, chest.z, top.z, 1)
+    mid = (chest.z + top.z) / 2
+
+    def plate(bm):
+        add_box(bm, Vector((0, front - 0.03, mid)), (0.4, 0.1, 0.4))
+        add_box(bm, Vector((0, back + 0.03, mid)), (0.4, 0.1, 0.44))
+
+    gear_object(arm, prefix + "Plate", "spine_03", plate)
+    for name, bone, sign in (("PauldronL", "upperarm_l", 1), ("PauldronR", "upperarm_r", -1)):
+        at = bone_pos(arm, bone)
+        centre = Vector((at.x + sign * 0.03, at.y, at.z + 0.04))
+        gear_object(arm, prefix + name, bone, lambda bm, c=centre: add_dome(bm, c, 0.17, 0.7, cut=-0.05))
+    centre, radius, lo, hi = head_box(prefix)
+    dome_at = Vector((centre.x, centre.y, centre.z + radius * 0.1))
+
+    def helmet(bm):
+        add_dome(bm, dome_at, radius * 1.18, 1.0, cut=-radius * 0.15)
+        add_cylinder(bm, Vector((centre.x, centre.y, dome_at.z - radius * 0.15)), radius * 1.3, 0.03)
+
+    gear_object(arm, prefix + "Helmet", "Head", helmet)
+
+
+def nova_gear(arm, prefix):
+    centre, radius, lo, hi = head_box(prefix)
+    face = lo.y  # the face looks along -Y
+    mask_at = Vector((centre.x, face + 0.01, centre.z - radius * 0.35))
+
+    def mask(bm):
+        # A snout, and a strap round the head.
+        bmesh.ops.create_cone(
+            bm, cap_ends=True, segments=12, radius1=radius * 0.55, radius2=radius * 0.3, depth=radius * 0.9,
+            matrix=Matrix.Translation(mask_at + Vector((0, -radius * 0.25, 0))) @ Matrix.Rotation(math.pi / 2, 4, "X"),
+        )
+        add_cylinder(bm, Vector((centre.x, centre.y, centre.z + radius * 0.1)), radius * 0.86, 0.05)
+
+    gear_object(arm, prefix + "MaskHead", "Head", mask)
+
+    def lens(bm):
+        for x in (-0.45, 0.45):
+            bmesh.ops.create_uvsphere(
+                bm, u_segments=8, v_segments=6, radius=radius * 0.22,
+                matrix=Matrix.Translation(Vector((centre.x + x * radius, face + radius * 0.1, centre.z + radius * 0.2))),
+            )
+
+    gear_object(arm, prefix + "LensHead", "Head", lens)
+    chest = bone_pos(arm, "spine_02")
+    top = bone_pos(arm, "spine_03", tail=True)
+    back = torso_back(prefix, chest.z, top.z, 1)
+
+    def canisters(bm):
+        for x in (-0.09, 0.09):
+            add_cylinder(bm, Vector((x, back + 0.1, (chest.z + top.z) / 2)), 0.07, 0.4)
+
+    gear_object(arm, prefix + "Canister", "spine_03", canisters)
+
+
+GEAR = {
+    "labourer": lambda arm, prefix: None,
+    "soldier": lambda arm, prefix: None,
+    "civilian": lambda arm, prefix: None,
+    "napalm": napalm_gear,
+    "shrieker": shrieker_gear,
+    "sapper": sapper_gear,
+    "nova": nova_gear,
+}
+
+
 def main():
     a = args()
     bpy.ops.object.select_all(action="SELECT")
@@ -398,6 +604,34 @@ def main():
         select_only(part)
         bpy.ops.object.modifier_apply(modifier="bend")
 
+    # Arms too long for the skeleton (a Shrieker's, a Nova Crawler's): the mesh is stretched out from
+    # the shoulder, its hands carried along rather than stretched. It still follows the same bones.
+    stretch = variant.get("arm_stretch")
+    if stretch:
+        shoulder_x = arm.data.bones["upperarm_l"].head_local.x
+        wrist_x = arm.data.bones["hand_l"].head_local.x - shoulder_x
+        for part in parts:
+            for v in part.data.vertices:
+                side = 1.0 if v.co.x > 0 else -1.0
+                d = abs(v.co.x) - shoulder_x
+                if d <= 0:
+                    continue
+                v.co.x = side * (shoulder_x + (d * stretch if d < wrist_x else wrist_x * stretch + (d - wrist_x)))
+
+    # Bulk (a Napalm's, the Sapper's): the trunk and legs widened about the body's middle, by how much
+    # each vertex follows the spine, pelvis, thighs and calves, so the arms, hands and head keep their size.
+    bulk = variant.get("bulk")
+    if bulk:
+        girth_bones = ("spine", "pelvis", "thigh", "calf", "clavicle")
+        centre_y = sum(v.co.y for v in human.data.vertices) / len(human.data.vertices)
+        for part in parts:
+            names = {g.index: g.name for g in part.vertex_groups}
+            for v in part.data.vertices:
+                w = sum(g.weight for g in v.groups if names[g.group].startswith(girth_bones))
+                k = min(1.0, w)
+                v.co.x *= 1.0 + (bulk[0] - 1.0) * k
+                v.co.y = centre_y + (v.co.y - centre_y) * (1.0 + (bulk[1] - 1.0) * k)
+
     # Bind the T-posed body to the real rig.
     for part in parts:
         part.parent = arm
@@ -417,15 +651,24 @@ def main():
     cap_cuts(human, natural[id(human)])
     cap_cuts(pants, natural[id(pants)])
 
+    # A special's gear: separate parts, each bound rigidly to a bone.
+    GEAR[a["variant"]](arm, prefix)
+
     # Materials, named for what the game dresses them in.
     skin = make_material("ZombieSkin", (0.55, 0.62, 0.5))
     shirt_m = make_material("ZombieShirt", (0.3, 0.3, 0.28))
     pants_m = make_material("ZombiePants", (0.2, 0.2, 0.22))
+    gear_m = make_material("ZombieGear", (0.3, 0.3, 0.3))
+    glow_m = make_material("ZombieGlow", (1.0, 0.5, 0.1))
     for obj in bpy.data.objects:
         if obj.type != "MESH":
             continue
         obj.data.materials.clear()
-        obj.data.materials.append(skin if "Shirt" not in obj.name and "Pants" not in obj.name else (shirt_m if "Shirt" in obj.name else pants_m))
+        kind = obj.name.split("_", 1)[-1].split(".")[0]
+        if kind in GEAR_PARTS:
+            obj.data.materials.append(glow_m if GEAR_PARTS[kind] else gear_m)
+        else:
+            obj.data.materials.append(skin if "Shirt" not in obj.name and "Pants" not in obj.name else (shirt_m if "Shirt" in obj.name else pants_m))
         select_only(obj)
         bpy.ops.object.shade_smooth()
         flatten_caps(obj)
