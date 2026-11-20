@@ -379,14 +379,18 @@ fn default_variants(kind: PropKind) -> &'static [PropVariant] {
     }
 }
 
-/// The look of Prop number `nth` of `kind` in `zone`: the Zone's set names its variants and `nth`
-/// picks between them, falling back to the kind's default. A Pillar wears its Zone's wall.
-/// `None` for a kind that stays in paint.
-pub fn prop_variant(zone: ZoneId, kind: PropKind, nth: usize) -> Option<PropVariant> {
+/// The look of Prop number `nth` of `kind` in `zone`, whose model would cover `size`: the Zone's
+/// set names its variants and `nth` picks between them (the next one along if its unit model
+/// can't fit `size` and another's can), falling back to the kind's default. A Pillar wears its
+/// Zone's wall. `None` for a kind that stays in paint.
+pub fn prop_variant(zone: ZoneId, kind: PropKind, nth: usize, size: Vec3) -> Option<PropVariant> {
     let set = materials(Some(zone));
     let listed = set.and_then(|set| set.props.iter().find(|(k, _)| *k == kind).map(|(_, variants)| *variants));
     let variants = listed.unwrap_or_else(|| default_variants(kind));
-    let mut variant = *variants.get(nth % variants.len().max(1))?;
+    let count = variants.len().max(1);
+    let fits = |variant: &PropVariant| variant.model.is_none_or(|(_, unit)| fitting::fit(unit, size).is_some());
+    let pick = (0..count).map(|k| (nth + k) % count).find(|&k| variants.get(k).is_some_and(fits)).unwrap_or(nth % count);
+    let mut variant = *variants.get(pick)?;
     if kind == PropKind::Pillar && listed.is_none()
         && let Some(set) = set {
             variant.material = set.wall;
@@ -394,12 +398,66 @@ pub fn prop_variant(zone: ZoneId, kind: PropKind, nth: usize) -> Option<PropVari
     Some(variant)
 }
 
+/// A unit model under `assets/models/<id>/model.gltf`: `length` along the Prop's long axis, then
+/// `height` and `depth`, the size `tools/props/props.py` stands it at. The textured box wears
+/// `fallback` until it loads, and for good if the file is missing or the Prop is no fit for it.
+const fn model(path: &'static str, (length, height, depth): (f32, f32, f32), fallback: textures::Material) -> PropVariant {
+    PropVariant { model: Some((path, Vec3::new(length, height, depth))), material: fallback }
+}
+
+// Poly Haven's unit models (CC0), decimated to about 2k triangles or fewer by `tools/props`.
+const BARREL_03: PropVariant = model("models/barrel_03/model.gltf", (0.66, 0.95, 0.66), textures::Material::RustyMetal02);
+const BARREL_01: PropVariant = model("models/Barrel_01/model.gltf", (0.66, 0.95, 0.66), textures::Material::RustyMetal02);
+const WINE_BARREL: PropVariant = model("models/wine_barrel_01/model.gltf", (0.68, 0.95, 0.68), textures::Material::WeatheredPlanks);
+const PAINTED_TABLE: PropVariant = model("models/painted_wooden_table/model.gltf", (2.5, 0.8, 1.1), textures::Material::WeatheredPlanks);
+const OFFICE_DESK: PropVariant = model("models/metal_office_desk/model.gltf", (2.0, 0.8, 1.0), textures::Material::RustyMetal02);
+const WOODEN_TABLE: PropVariant = model("models/wooden_table_02/model.gltf", (1.1, 0.8, 0.8), textures::Material::WeatheredPlanks);
+const DRAWER: PropVariant = model("models/vintage_wooden_drawer_01/model.gltf", (1.4, 1.0, 0.85), textures::Material::WeatheredPlanks);
+const BOOKSHELF: PropVariant = model("models/wooden_bookshelf_worn/model.gltf", (1.2, 2.3, 0.6), textures::Material::WeatheredPlanks);
+const CABINET: PropVariant = model("models/painted_wooden_cabinet_02/model.gltf", (1.0, 2.3, 0.65), textures::Material::WeatheredPlanks);
+const METAL_RACK: PropVariant = model("models/worn_metal_rack/model.gltf", (0.95, 2.0, 0.6), textures::Material::RustyMetal02);
+
 /// Workbenches, racks and counters are steel in the Workshop.
 const WORKSHOP_PROPS: &[(PropKind, &[PropVariant])] = &[
     (PropKind::Table, &[boxed(textures::Material::RustyMetal02)]),
-    (PropKind::Shelf, &[boxed(textures::Material::RustyMetal02)]),
+    (PropKind::Shelf, &[METAL_RACK]),
     (PropKind::Counter, &[boxed(textures::Material::RustyMetal02)]),
 ];
+
+/// The Prop variants a Zone's set names beyond its default look: which Poly Haven Barrels, Tables,
+/// Counters and Shelves its Props wear, `nth` picking between them. Each is one that fits some Prop
+/// of its kind in the Zone (tested); the rest stay textured boxes.
+fn zone_props(zone: ZoneId) -> &'static [(PropKind, &'static [PropVariant])] {
+    use ZoneId::*;
+    match zone {
+        // The house.
+        StartRoom => &[(PropKind::Counter, &[DRAWER])],
+        WestHall => &[(PropKind::Table, &[PAINTED_TABLE]), (PropKind::Shelf, &[BOOKSHELF, CABINET])],
+        DiningRoom => &[(PropKind::Table, &[PAINTED_TABLE, WOODEN_TABLE])],
+        Yard => &[(PropKind::Barrel, &[WINE_BARREL])],
+        PowerRoom => &[(PropKind::Barrel, &[BARREL_03])],
+        Storeroom => &[(PropKind::Shelf, &[CABINET, METAL_RACK])],
+        GeneratorRoom => &[(PropKind::Table, &[OFFICE_DESK]), (PropKind::Barrel, &[BARREL_03, BARREL_01])],
+        // The Dam.
+        ControlRoom => &[(PropKind::Counter, &[DRAWER]), (PropKind::Shelf, &[BOOKSHELF, CABINET])],
+        SwitchgearRoom => &[(PropKind::Shelf, &[METAL_RACK, CABINET])],
+        SpillwayGatehouse => &[(PropKind::Shelf, &[BOOKSHELF])],
+        // The Quarry.
+        QuarryFloor | Incline => &[(PropKind::Barrel, &[BARREL_03, BARREL_01])],
+        CrusherShed => &[(PropKind::Barrel, &[BARREL_01, BARREL_03]), (PropKind::Shelf, &[METAL_RACK])],
+        // The Village.
+        Inn => &[(PropKind::Counter, &[DRAWER])],
+        Bakery => &[(PropKind::Table, &[PAINTED_TABLE, WOODEN_TABLE])],
+        Schoolhouse => &[(PropKind::Table, &[WOODEN_TABLE])],
+        WestEnd | EastEnd => &[(PropKind::Barrel, &[BARREL_01, WINE_BARREL])],
+        BackLane | ChurchLane => &[(PropKind::Barrel, &[WINE_BARREL])],
+        // The Cove and the Polder.
+        FishMarket | TownSquare => &[(PropKind::Counter, &[DRAWER])],
+        Taverna | KeepersCottage => &[(PropKind::Table, &[WOODEN_TABLE])],
+        LockYard => &[(PropKind::Barrel, &[WINE_BARREL])],
+        _ => &[],
+    }
+}
 
 /// The material set of a Zone, or of the outside for `None`. Neighbouring Zones differ by family
 /// (plaster, tile, brick, tin, stone) more than by colour. Zones without one stay in their palette.
@@ -407,7 +465,8 @@ pub fn materials(zone: Option<ZoneId>) -> Option<MaterialSet> {
     use decals::DecalFamily::*;
     use textures::Material::*;
     use ZoneId::*;
-    let (floor, wall, decals, props): (_, _, _, &'static [(PropKind, &'static [PropVariant])]) = match zone? {
+    let zone = zone?;
+    let (floor, wall, decals, props): (_, _, _, &'static [(PropKind, &'static [PropVariant])]) = match zone {
         // Ruined: bare dark boards and plaster coming off the lath, streaked with damp.
         StartRoom => (DarkWoodenPlanks, DamagedPlaster, Some(Leaks), &[]),
         // Tiled: chequered tiles under damp, mossy plaster.
@@ -514,6 +573,7 @@ pub fn materials(zone: Option<ZoneId>) -> Option<MaterialSet> {
         DykeRoad => (WornConcreteFloor, ConcreteBlockWall02, None, &[]),
         PumpingStation => (HangarConcreteFloor, ConcreteTileFacade, Some(OilStains), &[]),
     };
+    let props = if props.is_empty() { zone_props(zone) } else { props };
     Some(MaterialSet { floor, wall, decals, props })
 }
 
@@ -1101,19 +1161,74 @@ pub(crate) mod tests {
     fn a_zones_set_names_its_prop_variants_and_nth_picks_between_them() {
         use textures::Material::*;
         // The Workshop's tables are steel; elsewhere in the house they are planks.
-        assert_eq!(prop_variant(ZoneId::Workshop, PropKind::Table, 0).unwrap().material, RustyMetal02);
-        assert_eq!(prop_variant(ZoneId::StartRoom, PropKind::Table, 0).unwrap().material, WeatheredPlanks);
+        assert_eq!(prop_variant(ZoneId::Workshop, PropKind::Table, 0, Vec3::ONE).unwrap().material, RustyMetal02);
+        assert_eq!(prop_variant(ZoneId::StartRoom, PropKind::Table, 0, Vec3::ONE).unwrap().material, WeatheredPlanks);
         // A Pillar wears its Zone's wall.
-        assert_eq!(prop_variant(ZoneId::Passage, PropKind::Pillar, 3).unwrap().material, BrickWall001);
+        assert_eq!(prop_variant(ZoneId::Passage, PropKind::Pillar, 3, Vec3::ONE).unwrap().material, BrickWall001);
         // Every kind but the two still in paint has a look in every Zone, and nth wraps round.
         for kind in [PropKind::Crate, PropKind::Table, PropKind::Bench, PropKind::Counter, PropKind::Altar, PropKind::Pillar, PropKind::Shelf, PropKind::Rubble, PropKind::Barrel, PropKind::Machine, PropKind::Tree] {
-            assert!(prop_variant(ZoneId::StartRoom, kind, 7).is_some(), "{kind:?}");
+            assert!(prop_variant(ZoneId::StartRoom, kind, 7, Vec3::ONE).is_some(), "{kind:?}");
         }
-        assert!(prop_variant(ZoneId::StartRoom, PropKind::Sandbags, 0).is_none());
+        assert!(prop_variant(ZoneId::StartRoom, PropKind::Sandbags, 0, Vec3::ONE).is_none());
         // With two variants named, nth alternates.
         const TWO: &[PropVariant] = &[boxed(WeatheredPlanks), boxed(RustyMetal02)];
         let pick = |nth: usize| TWO[nth % TWO.len()].material;
         assert_eq!((pick(0), pick(1), pick(2)), (WeatheredPlanks, RustyMetal02, WeatheredPlanks));
+    }
+
+    /// Every Poly Haven variant a Zone's set names (a model under `models/`) is some Prop's look:
+    /// its unit fits at least one Prop of its kind in that Zone, on some Map. And when its file is
+    /// there, it holds at most about 2k triangles.
+    #[test]
+    fn every_named_prop_model_fits_a_prop_of_its_kind_in_its_zone() {
+        let mut checked = 0;
+        for zone in ZoneId::ALL {
+            let Some(set) = materials(Some(zone)) else { continue };
+            for (kind, variants) in set.props {
+                for (path, unit) in variants.iter().filter_map(|variant| variant.model) {
+                    assert!(path.starts_with("models/") && path.ends_with("/model.gltf"), "{path}");
+                    let mut props = MapId::ALL.iter().flat_map(|map| map.layout().props.iter()).filter(|prop| prop.zone == zone && prop.kind == *kind);
+                    let covered = |prop: &Prop| if *kind == PropKind::Counter { Vec3::new(prop.size.x, prop.size.y - 0.05, prop.size.z) } else { prop.size };
+                    assert!(props.any(|prop| fitting::fit(unit, covered(prop)).is_some()), "{path} fits no {kind:?} in {zone:?}");
+                    checked += 1;
+                    if let Ok(text) = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets").join(path)) {
+                        let gltf: serde_json::Value = serde_json::from_str(&text).unwrap();
+                        let indices = gltf["meshes"][0]["primitives"][0]["indices"].as_u64().unwrap() as usize;
+                        let triangles = gltf["accessors"][indices]["count"].as_u64().unwrap() / 3;
+                        assert!(triangles <= 2100, "{path}: {triangles} triangles");
+                    }
+                }
+            }
+        }
+        assert!(checked >= 20, "only {checked} model variants named");
+    }
+
+    /// Each of the ten Poly Haven models is named by some Zone's set.
+    #[test]
+    fn every_poly_haven_prop_model_belongs_to_a_zone() {
+        let mut named = Vec::new();
+        for zone in ZoneId::ALL {
+            if let Some(set) = materials(Some(zone)) {
+                for (_, variants) in set.props {
+                    named.extend(variants.iter().filter_map(|variant| variant.model.map(|(path, _)| path)));
+                }
+            }
+        }
+        for id in ["barrel_03", "Barrel_01", "wine_barrel_01", "painted_wooden_table", "metal_office_desk", "wooden_table_02", "vintage_wooden_drawer_01", "wooden_bookshelf_worn", "painted_wooden_cabinet_02", "worn_metal_rack"] {
+            assert!(named.contains(&format!("models/{id}/model.gltf").as_str()), "{id} is in no Zone's set");
+        }
+    }
+
+    #[test]
+    fn a_prop_takes_the_next_variant_whose_model_fits_it() {
+        // The West Hall lists a bookshelf and a cabinet: a 1 m x 2.3 m x 0.65 m Prop fits the cabinet
+        // whichever `nth` asks.
+        let size = Vec3::new(1.0, 2.3, 0.65);
+        for nth in 0..4 {
+            assert_eq!(prop_variant(ZoneId::WestHall, PropKind::Shelf, nth, size).unwrap(), CABINET, "{nth}");
+        }
+        // Nothing fits a tiny Shelf, so `nth` picks as before and the box stays.
+        assert_eq!(prop_variant(ZoneId::WestHall, PropKind::Shelf, 1, Vec3::splat(0.3)).unwrap(), CABINET);
     }
 
     #[test]

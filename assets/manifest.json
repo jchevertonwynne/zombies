@@ -561,6 +561,86 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
     },
     {
+      "path": "models/Barrel_01",
+      "name": "Barrel_01",
+      "source": "https://polyhaven.com/a/Barrel_01",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 0.66 x 0.95 x 0.66 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "models/barrel_03",
+      "name": "Barrel 03",
+      "source": "https://polyhaven.com/a/barrel_03",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "1K glTF decimated by tools/props to 1473 triangles, unit 0.66 x 0.95 x 0.66 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "models/metal_office_desk",
+      "name": "Metal Office Desk",
+      "source": "https://polyhaven.com/a/metal_office_desk",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 2 x 0.8 x 1 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "models/painted_wooden_cabinet_02",
+      "name": "Painted Wooden Cabinet 02",
+      "source": "https://polyhaven.com/a/painted_wooden_cabinet_02",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "1K glTF decimated by tools/props to 966 triangles, unit 1 x 2.3 x 0.65 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "models/painted_wooden_table",
+      "name": "Painted Wooden Table",
+      "source": "https://polyhaven.com/a/painted_wooden_table",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "1K glTF decimated by tools/props to 600 triangles, unit 2.5 x 0.8 x 1.1 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "models/vintage_wooden_drawer_01",
+      "name": "Vintage Wooden Drawer 01",
+      "source": "https://polyhaven.com/a/vintage_wooden_drawer_01",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "1K glTF decimated by tools/props to 1939 triangles, unit 1.4 x 1 x 0.85 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "models/wine_barrel_01",
+      "name": "Wine Barrel 01",
+      "source": "https://polyhaven.com/a/wine_barrel_01",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 0.68 x 0.95 x 0.68 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "models/wooden_bookshelf_worn",
+      "name": "Wooden Bookshelf Worn",
+      "source": "https://polyhaven.com/a/wooden_bookshelf_worn",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "1K glTF decimated by tools/props to 1938 triangles, unit 1.2 x 2.3 x 0.6 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "models/wooden_table_02",
+      "name": "Wooden Table 02",
+      "source": "https://polyhaven.com/a/wooden_table_02",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "1K glTF decimated by tools/props to 196 triangles, unit 1.1 x 0.8 x 0.8 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "models/worn_metal_rack",
+      "name": "Worn Metal Rack",
+      "source": "https://polyhaven.com/a/worn_metal_rack",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 0.95 x 2 x 0.6 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
       "path": "skies/belfast_sunset_puresky",
       "name": "Poly Haven Belfast Sunset (Pure Sky)",
       "source": "https://polyhaven.com/a/belfast_sunset_puresky",

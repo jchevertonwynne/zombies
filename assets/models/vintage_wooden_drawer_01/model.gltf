@@ -1,0 +1,159 @@
+{
+ "asset": {
+  "generator": "Khronos glTF Blender I/O v5.3.43",
+  "version": "2.0"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "name": "Scene",
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "mesh": 0,
+   "name": "vintage_wooden_drawer_01_body"
+  }
+ ],
+ "meshes": [
+  {
+   "name": "Cube.120",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2
+     },
+     "indices": 3,
+     "material": 0
+    }
+   ]
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 2758,
+   "max": [
+    0.699999988079071,
+    1,
+    0.42500001192092896
+   ],
+   "min": [
+    -0.699999988079071,
+    0,
+    -0.42500001192092896
+   ],
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 2758,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 2758,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5123,
+   "count": 5817,
+   "type": "SCALAR"
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteLength": 33096,
+   "byteOffset": 0,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 33096,
+   "byteOffset": 33096,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 22064,
+   "byteOffset": 66192,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 11634,
+   "byteOffset": 88256,
+   "target": 34963
+  }
+ ],
+ "buffers": [
+  {
+   "byteLength": 99892,
+   "uri": "model.bin"
+  }
+ ],
+ "images": [
+  {
+   "uri": "color.ktx2"
+  },
+  {
+   "uri": "normal.ktx2"
+  },
+  {
+   "uri": "orm.ktx2"
+  }
+ ],
+ "samplers": [
+  {
+   "magFilter": 9729,
+   "minFilter": 9987,
+   "wrapS": 10497,
+   "wrapT": 10497
+  }
+ ],
+ "textures": [
+  {
+   "source": 0,
+   "sampler": 0
+  },
+  {
+   "source": 1,
+   "sampler": 0
+  },
+  {
+   "source": 2,
+   "sampler": 0
+  }
+ ],
+ "materials": [
+  {
+   "name": "vintage_wooden_drawer_01",
+   "pbrMetallicRoughness": {
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicRoughnessTexture": {
+     "index": 2
+    },
+    "metallicFactor": 1.0,
+    "roughnessFactor": 1.0
+   },
+   "normalTexture": {
+    "index": 1
+   },
+   "occlusionTexture": {
+    "index": 2
+   }
+  }
+ ]
+}
