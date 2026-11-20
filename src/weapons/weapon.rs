@@ -1632,10 +1632,10 @@ fn ballistic_in_hand(loadout: &Loadout) -> Option<bool> {
 }
 
 fn animate_view_model(
-    mut view_model: Single<(&mut ViewModel, &mut Transform, &mut Mesh3d)>,
+    mut view_model: Single<(&mut ViewModel, &mut Transform, &mut Mesh3d, &mut MeshMaterial3d<StandardMaterial>)>,
     mut glint: Single<(&mut Glint, &mut Transform, &mut Visibility), Without<ViewModel>>,
     mut parts: Query<
-        (&ViewPart, &mut Transform, Option<&mut Mesh3d>, &mut Visibility),
+        (&ViewPart, &mut Transform, Option<&mut Mesh3d>, Option<&mut MeshMaterial3d<StandardMaterial>>, &mut Visibility),
         (Without<ViewModel>, Without<Glint>),
     >,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -1645,7 +1645,7 @@ fn animate_view_model(
     ammo_buy: Res<AmmoBuy>,
     time: Res<Time>,
 ) {
-    let (ref mut model, ref mut transform, ref mut mesh) = *view_model;
+    let (ref mut model, ref mut transform, ref mut mesh, ref mut paint) = *view_model;
     let (loadout, modifiers, knife, drinking, equipment, handling, riding) = *player;
     model.kick = (model.kick - time.delta_secs() * 8.0).max(0.0);
 
@@ -1681,6 +1681,11 @@ fn animate_view_model(
     let gun = guns.view(shown_id);
     if mesh.0 != gun {
         mesh.0 = gun;
+    }
+    // An Upgraded Weapon wears the camo.
+    let gun_paint = guns.material_for(shown.is_some());
+    if paint.0 != gun_paint {
+        paint.0 = gun_paint.clone();
     }
     // The Attachments on show belong to the Weapon in hand, not one being put away.
     let fitted = if shown_id == loadout.held().id { shown_attachments(loadout.held()) } else { Vec::new() };
@@ -1752,7 +1757,7 @@ fn animate_view_model(
         * carry_turn
         * reload.turn;
 
-    for (part, mut part_transform, part_mesh, mut visibility) in &mut parts {
+    for (part, mut part_transform, part_mesh, part_paint, mut visibility) in &mut parts {
         let (shown_mesh, placed) = match part {
             ViewPart::Stretch => {
                 part_transform.scale = Vec3::new(1.0, 1.0, length);
@@ -1780,6 +1785,13 @@ fn animate_view_model(
                     && part_mesh.0 != shown_mesh
                 {
                     part_mesh.0 = shown_mesh;
+                }
+                // The magazine is the gun's metal: camo on an Upgraded Weapon.
+                if let Some(mut part_paint) = part_paint
+                    && *part == ViewPart::Magazine
+                    && part_paint.0 != gun_paint
+                {
+                    part_paint.0 = gun_paint.clone();
                 }
                 *part_transform = placed;
                 visibility.set_if_neq(Visibility::Inherited);

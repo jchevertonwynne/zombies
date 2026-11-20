@@ -1128,6 +1128,14 @@
       "fetched": "2026-11-20",
       "archive": "https://opengameart.org/content/particle-pack-80-sprites",
       "notes": "dirt_03.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); a muzzle flash or impact sprite in src/weapons/muzzle.rs"
+    },
+    {
+      "path": "weapons/atlas",
+      "name": "Weapon atlas",
+      "source": "tools/texpack/weapon_atlas.py, from https://polyhaven.com/a/metal_plate, https://polyhaven.com/a/metal_plate_02, https://polyhaven.com/a/wood_table_worn, https://polyhaven.com/a/green_metal_rust, https://polyhaven.com/a/hessian_230, https://polyhaven.com/a/brown_leather, https://polyhaven.com/a/poly_wool_herringbone",
+      "licence": "CC0 (Poly Haven sets, recoloured and cropped; the camo is made in this repo)",
+      "fetched": "2026-11-20",
+      "notes": "1K atlas of the gun finishes, gloves and sleeves, plus the shared purple camo; layout in src/weapons/atlas.rs"
     }
   ]
 }

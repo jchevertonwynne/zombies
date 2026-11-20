@@ -381,18 +381,22 @@ pub fn shown_attachments(copy: &WeaponCopy) -> Vec<Attachment> {
 /// it's put away. Magazines aren't here: they replace the Weapon's own (see `GunModels`).
 fn show_attachments(
     player: Single<&Loadout, With<LocalPlayer>>,
-    mut models: Query<(&AttachmentModel, &mut Mesh3d, &mut Transform, &mut Visibility)>,
+    mut models: Query<(&AttachmentModel, &mut Mesh3d, &mut MeshMaterial3d<StandardMaterial>, &mut Transform, &mut Visibility)>,
     guns: Res<GunModels>,
 ) {
     let held = player.held();
     let putting_away = player.swap.as_ref().is_some_and(|swap| swap.elapsed < swap.drop_secs);
     let shown = shown_attachments(held);
-    for (model, mut mesh, mut transform, mut visibility) in &mut models {
+    for (model, mut mesh, mut paint, mut transform, mut visibility) in &mut models {
         let part = guns.attachment(held.id, model.0).filter(|_| !putting_away && shown.contains(&model.0));
         match part {
             Some(part) => {
                 if mesh.0 != part.mesh {
                     mesh.0 = part.mesh.clone();
+                }
+                // Attachments only come on an Upgraded Weapon, so they wear its camo.
+                if paint.0 != guns.upgraded_material {
+                    paint.0 = guns.upgraded_material.clone();
                 }
                 if *transform != part.rest {
                     *transform = part.rest;

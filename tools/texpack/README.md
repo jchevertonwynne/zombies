@@ -62,6 +62,13 @@ Use a 2K `.hdr` from Poly Haven. `--yaw` turns the sky about the up axis, and th
 direction of its brightest pixel (the sun), so the sun can be lined up with the Layout's `sun`.
 `--size` sets the face size (default 512). Add the entry to the manifest by hand.
 
+## The weapon atlas
+
+`python3 tools/texpack/weapon_atlas.py` (needs Pillow and NumPy) fetches the Poly Haven sets behind the gun finishes,
+packs them into one 1K image, runs `texpack` on it and writes `assets/weapons/atlas/` and its manifest entry. The
+layout (a top half for a Weapon as it comes, a bottom half with the purple camo for an Upgraded one) is in
+`src/weapons/atlas.rs`.
+
 ## Any other set
 
 ```

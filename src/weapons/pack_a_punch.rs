@@ -648,6 +648,8 @@ fn show_machine(
                 let Some((id, slide, stage)) = on_show else { continue };
                 transform.translation = TRAY_IN.lerp(TRAY_OUT, slide);
                 let (want_mesh, want_material) = match stage {
+                    // With the atlas worn the Upgraded Weapon shows its camo; without it, flat purple.
+                    Stage::Ready if guns.textured => (guns.world(id), guns.upgraded_material.clone()),
                     Stage::Ready => (guns.world(id), tray.upgraded.clone()),
                     _ => (guns.world(id), guns.material.clone()),
                 };

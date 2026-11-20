@@ -17,10 +17,14 @@
 //! replaces the magazine itself, so it comes out in a Reload; a Weapon with no magazine to swap
 //! (shells, a cylinder) carries spare rounds on its side instead.
 
+use bevy::math::Affine2;
+use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 
 use crate::weapons::arsenal::{WeaponClass, WeaponId};
+use crate::weapons::atlas::{Finish, Paint, UPGRADED_SHIFT, jitter};
 use crate::weapons::attachment::Attachment;
+use crate::weapons::weapon::UPGRADED_PURPLE;
 use crate::economy::perk::Perk;
 use crate::tuning::WEAPONS;
 
@@ -39,17 +43,17 @@ pub fn model_length(class: WeaponClass) -> f32 {
 /// How much bigger a Weapon shows floating over the Mystery Box than in the Player's hands.
 pub const WORLD_SCALE: f32 = 1.5;
 
-const METAL: Color = Color::srgb(0.2, 0.2, 0.22);
-const DARK: Color = Color::srgb(0.08, 0.08, 0.09);
-const STEEL: Color = Color::srgb(0.55, 0.56, 0.6);
-const WOOD: Color = Color::srgb(0.45, 0.27, 0.12);
-const OLIVE: Color = Color::srgb(0.3, 0.34, 0.2);
+const METAL: Paint = Paint::new(Finish::Gunmetal, Color::srgb(0.2, 0.2, 0.22));
+const DARK: Paint = Paint::new(Finish::BluedSteel, Color::srgb(0.08, 0.08, 0.09));
+const STEEL: Paint = Paint::new(Finish::Gunmetal, Color::srgb(0.55, 0.56, 0.6));
+const WOOD: Paint = Paint::new(Finish::Wood, Color::srgb(0.45, 0.27, 0.12));
+const OLIVE: Paint = Paint::new(Finish::OlivePaint, Color::srgb(0.3, 0.34, 0.2));
 const RUST: Color = Color::srgb(0.6, 0.15, 0.05);
-const TAPE: Color = Color::srgb(0.7, 0.62, 0.38);
+const TAPE: Paint = Paint::new(Finish::Tape, Color::srgb(0.7, 0.62, 0.38));
 const SHELLS: Color = Color::srgb(0.75, 0.12, 0.08);
-const BRASS: Color = Color::srgb(0.75, 0.6, 0.2);
-const SKIN: Color = Color::srgb(0.82, 0.62, 0.46);
-const SLEEVE: Color = Color::srgb(0.27, 0.31, 0.21);
+const BRASS: Paint = Paint::new(Finish::Brass, Color::srgb(0.75, 0.6, 0.2));
+const SKIN: Paint = Paint::new(Finish::Glove, Color::srgb(0.82, 0.62, 0.46));
+const SLEEVE: Paint = Paint::new(Finish::Sleeve, Color::srgb(0.27, 0.31, 0.21));
 /// The red dot glowing inside a Red Dot Sight's hood.
 const RED_DOT: Color = Color::srgb(1.0, 0.12, 0.06);
 /// The blue lens at the front of an ACOG.
@@ -109,10 +113,22 @@ pub struct GunModels {
     handheld: [Handle<Mesh>; 4],
     /// Where each model's own sights line up, by place in `WEAPONS`: see `Anchors::sight`.
     sights: Vec<Vec2>,
+    /// What every model is drawn in: one material, the vertex colours carrying each part's colour
+    /// until the weapon atlas has loaded (see `WeaponAtlasPlugin`), and the atlas after it.
     pub material: Handle<StandardMaterial>,
+    /// The same for an Upgraded Weapon: its metal and wood in the atlas's camo, with a faint glow.
+    /// Looks just like `material` until the atlas has loaded.
+    pub upgraded_material: Handle<StandardMaterial>,
+    /// Whether the atlas has loaded and every model wears it.
+    pub textured: bool,
 }
 
 impl GunModels {
+    /// What a model is drawn in: `upgraded_material` for an Upgraded Weapon.
+    pub fn material_for(&self, upgraded: bool) -> Handle<StandardMaterial> {
+        if upgraded { self.upgraded_material.clone() } else { self.material.clone() }
+    }
+
     pub fn view(&self, id: WeaponId) -> Handle<Mesh> {
         self.view[id as usize].clone()
     }
@@ -241,13 +257,16 @@ impl FromWorld for GunModels {
         };
         let bottles = Perk::ALL.map(|perk| meshes.add(bottle(perk)));
         let handheld = Handheld::ALL.map(|held| meshes.add(handheld(held)));
-        let material = world.resource_mut::<Assets<StandardMaterial>>().add(StandardMaterial {
+        let plain = StandardMaterial {
             // The vertex colours carry every part's colour.
             base_color: Color::WHITE,
             perceptual_roughness: 0.6,
             metallic: 0.15,
             ..default()
-        });
+        };
+        let mut materials = world.resource_mut::<Assets<StandardMaterial>>();
+        let material = materials.add(plain.clone());
+        let upgraded_material = materials.add(plain);
         Self {
             view,
             magazine,
@@ -263,6 +282,8 @@ impl FromWorld for GunModels {
             handheld,
             sights: sight_points,
             material,
+            upgraded_material,
+            textured: false,
         }
     }
 }
@@ -327,19 +348,43 @@ impl Gun {
         }
     }
 
-    /// A `size` box centred `at`, in `colour`.
-    fn part(&mut self, size: Vec3, at: Vec3, colour: Color) -> &mut Self {
-        self.turned(size, at, Quat::IDENTITY, colour)
+    /// A `size` box centred `at`, in `paint`.
+    fn part(&mut self, size: Vec3, at: Vec3, paint: impl Into<Paint>) -> &mut Self {
+        self.turned(size, at, Quat::IDENTITY, paint)
     }
 
-    /// A `size` box centred `at`, turned by `rotation`, in `colour`.
-    fn turned(&mut self, size: Vec3, at: Vec3, rotation: Quat, colour: Color) -> &mut Self {
-        let mut part = Mesh::from(Cuboid::from_size(size)).transformed_by(Transform {
+    /// A `size` box centred `at`, turned by `rotation`, in `paint`: its vertex colours the paint's
+    /// own colour, and its UVs in its finish's tile of the weapon atlas.
+    fn turned(&mut self, size: Vec3, at: Vec3, rotation: Quat, paint: impl Into<Paint>) -> &mut Self {
+        let paint = paint.into();
+        let mut part = Mesh::from(Cuboid::from_size(size));
+        let uvs: Vec<[f32; 2]> = match (part.attribute(Mesh::ATTRIBUTE_NORMAL), part.attribute(Mesh::ATTRIBUTE_UV_0)) {
+            (Some(VertexAttributeValues::Float32x3(normals)), Some(VertexAttributeValues::Float32x2(corners))) => normals
+                .iter()
+                .zip(corners)
+                .map(|(n, corner)| {
+                    // The face's width and height in metres, along the UV's own axes.
+                    let face = if n[0] != 0.0 {
+                        Vec2::new(size.z, size.y)
+                    } else if n[1] != 0.0 {
+                        Vec2::new(size.x, size.z)
+                    } else {
+                        Vec2::new(size.x, size.y)
+                    };
+                    let salt = (n[0] * 1.0 + n[1] * 2.0 + n[2] * 3.0).abs();
+                    let patch = Vec2::new(jitter(at, salt), jitter(at, salt + 7.0));
+                    paint.finish.place(Vec2::from(*corner), face, patch).to_array()
+                })
+                .collect(),
+            _ => unreachable!("a cuboid carries normals and UVs"),
+        };
+        part.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+        let mut part = part.with_generated_tangents().expect("a cuboid has everything tangents need").transformed_by(Transform {
             translation: at,
             rotation,
             ..default()
         });
-        let colour = LinearRgba::from(colour).to_f32_array();
+        let colour = LinearRgba::from(paint.colour).to_f32_array();
         part.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![colour; part.count_vertices()]);
         match &mut self.mesh {
             Some(mesh) => mesh.merge(&part).expect("every part is a triangle-list box"),
@@ -360,7 +405,7 @@ impl Gun {
 
     /// A front sight: a `size` box centred `at`, whose top is where the sights line up. The first
     /// one built counts (a dual-wield's second gun has its own, which doesn't).
-    fn front_sight(&mut self, size: Vec3, at: Vec3, colour: Color) -> &mut Self {
+    fn front_sight(&mut self, size: Vec3, at: Vec3, colour: impl Into<Paint>) -> &mut Self {
         self.anchors.sight.get_or_insert(Vec2::new(at.x, at.y + size.y / 2.0));
         self.part(size, at, colour)
     }
@@ -396,7 +441,7 @@ fn hand(gun: &mut Gun, at: Vec3, side: f32) {
 struct BottleLook {
     glass: Color,
     label: Color,
-    cap: Color,
+    cap: Paint,
     body: Vec2,
     neck: Vec2,
     mark: fn(&mut Gun, Vec3),
@@ -408,7 +453,7 @@ fn bottle_look(perk: Perk) -> BottleLook {
         Perk::Juggernog => BottleLook {
             glass: Color::srgb(0.5, 0.04, 0.04),
             label: Color::srgb(0.85, 0.82, 0.75),
-            cap: Color::srgb(0.75, 0.6, 0.2),
+            cap: BRASS,
             body: Vec2::new(0.075, 0.17),
             neck: Vec2::new(0.032, 0.08),
             mark: |gun, front| {
@@ -432,7 +477,7 @@ fn bottle_look(perk: Perk) -> BottleLook {
         Perk::DoubleTap => BottleLook {
             glass: Color::srgb(0.35, 0.18, 0.05),
             label: Color::srgb(0.95, 0.55, 0.1),
-            cap: Color::srgb(0.6, 0.1, 0.05),
+            cap: Color::srgb(0.6, 0.1, 0.05).into(),
             body: Vec2::new(0.068, 0.12),
             neck: Vec2::new(0.03, 0.05),
             mark: |gun, front| {
@@ -445,7 +490,7 @@ fn bottle_look(perk: Perk) -> BottleLook {
         Perk::QuickRevive => BottleLook {
             glass: Color::srgb(0.3, 0.6, 0.9),
             label: Color::srgb(0.92, 0.95, 1.0),
-            cap: Color::srgb(0.92, 0.95, 1.0),
+            cap: Color::srgb(0.92, 0.95, 1.0).into(),
             body: Vec2::new(0.085, 0.11),
             neck: Vec2::new(0.034, 0.045),
             mark: |gun, front| {
@@ -521,18 +566,18 @@ fn bottle(perk: Perk) -> Mesh {
 }
 
 /// A pistol's grip, angled back: `at` is its middle.
-fn grip(gun: &mut Gun, at: Vec3, colour: Color) {
+fn grip(gun: &mut Gun, at: Vec3, colour: impl Into<Paint>) {
     gun.turned(Vec3::new(0.045, 0.12, 0.06), at, Quat::from_rotation_x(-0.25), colour);
 }
 
 /// A magazine hanging under the receiver at `z`, `length` long, curving forward by `curve`.
-fn magazine(gun: &mut Gun, z: f32, length: f32, curve: f32, colour: Color) {
+fn magazine(gun: &mut Gun, z: f32, length: f32, curve: f32, colour: impl Into<Paint> + Copy) {
     let rest = Transform::from_xyz(0.0, -0.04, z).with_rotation(Quat::from_rotation_x(curve));
     detachable(gun, Vec3::new(0.035, length, 0.06), rest, colour);
 }
 
 /// The magazine: a `size` box hanging down from `rest`, where it meets the gun.
-fn detachable(gun: &mut Gun, size: Vec3, rest: Transform, colour: Color) {
+fn detachable(gun: &mut Gun, size: Vec3, rest: Transform, colour: impl Into<Paint>) {
     let mut magazine = Gun::default();
     magazine.part(size, Vec3::new(0.0, -size.y / 2.0, 0.0), colour);
     gun.magazine = Some((magazine.mesh(), rest));
@@ -1020,6 +1065,119 @@ fn build(gun: &mut Gun, id: WeaponId, class: WeaponClass) -> Hands {
     }
 }
 
+impl GunModels {
+    /// Every mesh in it.
+    fn all_meshes(&self) -> Vec<Handle<Mesh>> {
+        let mut all: Vec<Handle<Mesh>> = Vec::new();
+        all.extend(self.view.iter().cloned());
+        all.extend(self.world.iter().cloned());
+        all.extend([self.knife.clone(), self.bowie.clone(), self.palm.clone()]);
+        all.extend(self.bottles.iter().cloned());
+        all.extend(self.handheld.iter().cloned());
+        let parts = self.magazine.iter().chain(&self.left_hand).chain(&self.extended_magazine).chain(&self.dual_magazine);
+        all.extend(parts.flatten().map(|part| part.mesh.clone()));
+        all.extend(self.attachments.iter().flat_map(|row| row.iter().flatten()).map(|part| part.mesh.clone()));
+        all
+    }
+}
+
+/// Where the weapon atlas's three maps are under `assets/`.
+const ATLAS_FILES: [&str; 3] = ["weapons/atlas/color.ktx2", "weapons/atlas/normal.ktx2", "weapons/atlas/orm.ktx2"];
+/// How much of the camo's purple an Upgraded Weapon glows: faint, so it still reads as a gun.
+const CAMO_GLOW: f32 = 0.5;
+
+/// Takes a mesh's vertex colours off every vertex in a textured finish, so the atlas shows as it
+/// is and not tinted by the flat palette. Plain parts keep their colour.
+fn whiten(mesh: &mut Mesh) {
+    let Some(VertexAttributeValues::Float32x2(uvs)) = mesh.attribute(Mesh::ATTRIBUTE_UV_0) else {
+        return;
+    };
+    let textured: Vec<bool> = uvs.iter().map(|&uv| Finish::at(Vec2::from(uv)).is_some_and(|finish| finish != Finish::Plain)).collect();
+    if let Some(VertexAttributeValues::Float32x4(colours)) = mesh.attribute_mut(Mesh::ATTRIBUTE_COLOR) {
+        for (colour, textured) in colours.iter_mut().zip(textured) {
+            if textured {
+                *colour = [1.0; 4];
+            }
+        }
+    }
+}
+
+/// How far the weapon atlas has got.
+#[derive(Default)]
+enum Atlas {
+    #[default]
+    Unasked,
+    Loading([Handle<Image>; 3]),
+    /// Worn, or given up on for good: the models stay in their vertex colours.
+    Settled,
+}
+
+/// Loads the weapon atlas in the real game and, once all three maps have loaded, dresses every
+/// model in it. With a map missing or failed the models keep today's vertex colours; headless runs
+/// never add this plugin, so never load.
+pub struct WeaponAtlasPlugin;
+
+impl Plugin for WeaponAtlasPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Update, dress_guns.run_if(resource_exists::<GunModels>));
+    }
+}
+
+fn dress_guns(
+    mut atlas: Local<Atlas>,
+    asset_server: Res<AssetServer>,
+    mut guns: ResMut<GunModels>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    use crate::maps::map::textures::{Dress, Load, dress, load_of, on_disk};
+    match &*atlas {
+        Atlas::Settled => {}
+        Atlas::Unasked => {
+            *atlas = if ATLAS_FILES.iter().all(|file| on_disk(file)) {
+                Atlas::Loading(ATLAS_FILES.map(|file| asset_server.load(file)))
+            } else {
+                debug!("weapon atlas files missing, the guns stay in their vertex colours");
+                Atlas::Settled
+            };
+        }
+        Atlas::Loading(images) => {
+            let loads: [Load; 3] = images.each_ref().map(|image| load_of(&asset_server, image));
+            match dress(true, &loads) {
+                Dress::Wait => {}
+                Dress::Palette => *atlas = Atlas::Settled,
+                Dress::Textured => {
+                    let [color, normal, orm] = images.clone();
+                    for (handle, upgraded) in [(guns.material.clone(), false), (guns.upgraded_material.clone(), true)] {
+                        let Some(mut material) = materials.get_mut(&handle) else { continue };
+                        material.base_color_texture = Some(color.clone());
+                        material.normal_map_texture = Some(normal.clone());
+                        material.metallic_roughness_texture = Some(orm.clone());
+                        material.occlusion_texture = Some(orm.clone());
+                        // The ORM map's green and blue are the roughness and metal, as they are.
+                        material.perceptual_roughness = 1.0;
+                        material.metallic = 1.0;
+                        if upgraded {
+                            // The lower half of the atlas: the same finishes with metal and wood in camo.
+                            material.uv_transform = Affine2::from_translation(UPGRADED_SHIFT);
+                            material.emissive_texture = Some(color.clone());
+                            material.emissive = LinearRgba::from(UPGRADED_PURPLE) * CAMO_GLOW;
+                        }
+                    }
+                    for handle in guns.all_meshes() {
+                        if let Some(mut mesh) = meshes.get_mut(&handle) {
+                            whiten(&mut mesh);
+                        }
+                    }
+                    guns.textured = true;
+                    debug!("weapon atlas worn by every model");
+                    *atlas = Atlas::Settled;
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use bevy::mesh::VertexAttributeValues;
@@ -1060,6 +1218,56 @@ mod tests {
             let colours = mesh.attribute(Mesh::ATTRIBUTE_COLOR).expect("coloured per vertex");
             assert_eq!(colours.len(), mesh.count_vertices());
         }
+    }
+
+    fn uvs(mesh: &Mesh) -> Vec<[f32; 2]> {
+        let Some(VertexAttributeValues::Float32x2(uvs)) = mesh.attribute(Mesh::ATTRIBUTE_UV_0) else {
+            panic!("no UVs");
+        };
+        uvs.clone()
+    }
+
+    #[test]
+    fn every_part_of_every_model_has_uvs_in_a_finish_tile_and_tangents() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Mesh>()
+            .init_asset::<StandardMaterial>()
+            .init_resource::<GunModels>();
+        let guns = app.world().resource::<GunModels>();
+        let meshes = app.world().resource::<Assets<Mesh>>();
+        let all = guns.all_meshes();
+        assert!(all.len() > WEAPONS.len() * 2);
+        for handle in all {
+            let mesh = meshes.get(&handle).unwrap();
+            assert!(mesh.attribute(Mesh::ATTRIBUTE_TANGENT).is_some());
+            for uv in uvs(mesh) {
+                let finish = Finish::at(Vec2::from(uv)).unwrap_or_else(|| panic!("{uv:?} is in no finish's tile"));
+                let (min, max) = finish.inner();
+                assert!(Vec2::from(uv).cmpge(min - 1e-5).all() && Vec2::from(uv).cmple(max + 1e-5).all());
+            }
+        }
+    }
+
+    #[test]
+    fn whitening_clears_textured_finishes_and_keeps_plain_colours() {
+        let mut gun = Gun::default();
+        gun.part(Vec3::splat(0.1), Vec3::ZERO, WOOD).part(Vec3::splat(0.1), Vec3::X, RED_DOT);
+        let mut mesh = gun.mesh();
+        whiten(&mut mesh);
+        let Some(VertexAttributeValues::Float32x4(colours)) = mesh.attribute(Mesh::ATTRIBUTE_COLOR) else { panic!() };
+        let red = LinearRgba::from(RED_DOT).to_f32_array();
+        assert!(colours[..24].iter().all(|c| *c == [1.0; 4]));
+        assert!(colours[24..].iter().all(|c| *c == red));
+    }
+
+    #[test]
+    fn the_pieces_of_a_model_keep_the_palette_colours_before_the_atlas_loads() {
+        let mut gun = Gun::default();
+        gun.part(Vec3::splat(0.1), Vec3::ZERO, SKIN);
+        let mesh = gun.mesh();
+        let Some(VertexAttributeValues::Float32x4(colours)) = mesh.attribute(Mesh::ATTRIBUTE_COLOR) else { panic!() };
+        assert_eq!(colours[0], LinearRgba::from(Color::srgb(0.82, 0.62, 0.46)).to_f32_array());
     }
 
     fn positions(mesh: &Mesh) -> Vec<[f32; 3]> {
