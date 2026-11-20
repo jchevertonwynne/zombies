@@ -38,6 +38,8 @@ const TABLE_WOOD: Color = Color::srgb(0.3, 0.19, 0.11);
 const BENCH_WOOD: Color = Color::srgb(0.34, 0.22, 0.13);
 const COUNTER_WOOD: Color = Color::srgb(0.32, 0.2, 0.12);
 const COUNTER_TOP: Color = Color::srgb(0.2, 0.13, 0.08);
+/// How thick a Counter's top slab is. A unit model stands under it.
+const COUNTER_SLAB: f32 = 0.05;
 const ALTAR_STONE: Color = Color::srgb(0.58, 0.56, 0.5);
 const PILLAR_STONE: Color = Color::srgb(0.52, 0.5, 0.45);
 const SHELF_WOOD: Color = Color::srgb(0.26, 0.19, 0.13);
@@ -478,8 +480,11 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         };
         let solid = self.bare(collider, middle, Quat::IDENTITY);
         self.drawn.clear();
-        let variant = prop_variant(zone, kind, nth);
+        // What a unit model covers: all of the Prop, but a Counter's top slab, which stays code-built.
+        let covered = if kind == PropKind::Counter { Vec3::new(size.x, size.y - COUNTER_SLAB, size.z) } else { size };
+        let variant = prop_variant(zone, kind, nth, covered);
         let mat = variant.map(|variant| variant.material);
+        let mut kept = None;
         let flat = Quat::IDENTITY;
         // A box `size` across whose bottom is `up` above the Prop's foot, `off` along the floor.
         let piece = |this: &mut Self, size: Vec3, up: f32, off: Vec2, colour: Color, material: Option<Material>| {
@@ -512,8 +517,8 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                 piece(self, Vec3::new(size.x - 0.2, 0.12, size.z - 0.2), size.y - top - 0.14, Vec2::ZERO, darker(wood), mat);
             }
             PropKind::Counter => {
-                piece(self, Vec3::new(size.x - 0.08, size.y - 0.05, size.z - 0.08), 0.0, Vec2::ZERO, COUNTER_WOOD, mat);
-                piece(self, Vec3::new(size.x, 0.05, size.z), size.y - 0.05, Vec2::ZERO, COUNTER_TOP, None);
+                piece(self, Vec3::new(size.x - 0.08, size.y - COUNTER_SLAB, size.z - 0.08), 0.0, Vec2::ZERO, COUNTER_WOOD, mat);
+                kept = Some(piece(self, Vec3::new(size.x, COUNTER_SLAB, size.z), size.y - COUNTER_SLAB, Vec2::ZERO, COUNTER_TOP, None));
             }
             PropKind::Altar => {
                 piece(self, size, 0.0, Vec2::ZERO, ALTAR_STONE, mat);
@@ -628,8 +633,9 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
             }
         }
         if let Some((path, unit)) = variant.and_then(|variant| variant.model) {
-            let pieces = std::mem::take(&mut self.drawn);
-            self.commands.entity(solid).insert(FittedModel { path, unit, at, size, pieces });
+            let mut pieces = std::mem::take(&mut self.drawn);
+            pieces.retain(|piece| Some(*piece) != kept);
+            self.commands.entity(solid).insert(FittedModel { path, unit, at, size: covered, pieces });
         }
     }
 
