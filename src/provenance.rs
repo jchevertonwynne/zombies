@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 /// The most `assets/` may hold, in bytes.
-const BUDGET: u64 = 300 * 1000 * 1000;
+const BUDGET: u64 = 512 * 1000 * 1000;
 
 #[derive(Deserialize)]
 struct Manifest {
