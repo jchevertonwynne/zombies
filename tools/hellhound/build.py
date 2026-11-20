@@ -2,7 +2,7 @@
 """Build the Hellhound asset end to end: the parts in headless Blender, a CC0 hide set as KTX2 with
 `texpack`, the two joined, and the manifest entries written.
 
-    python3 tools/hellhound/build.py [--blender blender] [--hide leather_red_02]
+    python3 tools/hellhound/build.py [--blender blender] [--hide brown_leather]
 
 Needs Blender on the PATH (or `--blender`), Rust (for `texpack`), and the network (Poly Haven).
 Writes under `assets/models/hellhound/`:
@@ -32,7 +32,7 @@ MANIFEST = ROOT / "assets" / "manifest.json"
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--blender", default="blender")
-    parser.add_argument("--hide", default="leather_red_02", help="Poly Haven texture id for the hide")
+    parser.add_argument("--hide", default="brown_leather", help="Poly Haven texture id for the hide")
     args = parser.parse_args()
     if shutil.which(args.blender) is None:
         sys.exit(f"{args.blender}: not found. Install Blender (4.x) or pass --blender <path>")

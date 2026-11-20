@@ -1944,6 +1944,14 @@
       "licence": "CC0 (Poly Haven sets, recoloured and cropped; the camo is made in this repo)",
       "fetched": "2026-11-20",
       "notes": "1K atlas of the gun finishes, gloves and sleeves, plus the shared purple camo; layout in src/weapons/atlas.rs"
+    },
+    {
+      "path": "models/hellhound",
+      "name": "Hellhound, rigid parts",
+      "source": "tools/hellhound/build.py",
+      "licence": "CC0 (made in this repo); hide texture CC0 from Poly Haven brown_leather",
+      "fetched": "2026-11-20",
+      "notes": "Our own Blender model (tools/hellhound/build_hellhound.py), hide from https://polyhaven.com/a/brown_leather as KTX2 via texpack"
     }
   ]
 }

@@ -244,12 +244,15 @@ pub(super) fn animate(
 pub(super) fn request_model(
     mut commands: Commands,
     asset_server: Option<Res<AssetServer>>,
+    scenes: Option<Res<Assets<WorldAsset>>>,
     hounds: Query<Entity, (Added<HoundRig>, Without<HoundModel>)>,
 ) {
     if hounds.is_empty() {
         return;
     }
-    let Some(asset_server) = asset_server.filter(|_| on_disk(MODEL_PATH)) else {
+    // Scenes only load where the scene asset type is registered: headless and test apps have an
+    // `AssetServer` but no scenes, and loading one there panics.
+    let Some(asset_server) = asset_server.filter(|_| scenes.is_some() && on_disk(MODEL_PATH)) else {
         for hound in &hounds {
             commands.entity(hound).insert(Settled);
         }
