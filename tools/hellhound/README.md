@@ -4,7 +4,7 @@ Builds the Hellhound's model: rigid parts (Torso, Head, Jaw, Tail, four legs, tw
 
 ```
 python3 tools/hellhound/build.py            # Blender on the PATH, Rust, and the network
-python3 tools/hellhound/build.py --hide leather_red_02 --blender /Applications/Blender.app/Contents/MacOS/Blender
+python3 tools/hellhound/build.py --hide brown_leather --blender /Applications/Blender.app/Contents/MacOS/Blender
 ```
 
 It writes `assets/models/hellhound/` (`hellhound.gltf`, `hellhound.bin`, and the hide's `color`, `normal` and `orm` KTX2) and one manifest entry for the directory.
