@@ -9,6 +9,30 @@
       "notes": "Placeholders until the Audio lane replaces them; a more specific entry covers each real recording"
     },
     {
+      "path": "audio/crawl_drag_1.ogg",
+      "name": "Freesound 578493, Dragging a body across a concrete floor 2 (PostProdDog)",
+      "source": "https://freesound.org/people/PostProdDog/sounds/578493/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/crawler_drag_1.ogg",
+      "name": "Freesound 578493, Dragging a body across a concrete floor 2 (PostProdDog)",
+      "source": "https://freesound.org/people/PostProdDog/sounds/578493/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/crawler_vocal_1.ogg",
+      "name": "Freesound 555417, Zombie Growl 5 (tonsil5)",
+      "source": "https://freesound.org/people/tonsil5/sounds/555417/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
       "path": "audio/empty_click_1.ogg",
       "name": "Freesound 674568, 9mm Handgun Being Dry Fired (ser%C3%B8ut%C5%8Dnin--depriv%C9%99d)",
       "source": "https://freesound.org/people/ser%C3%B8ut%C5%8Dnin--depriv%C9%99d/sounds/674568/",
@@ -185,6 +209,38 @@
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
+      "path": "audio/hound_bite_1.ogg",
+      "name": "Freesound 341090, Dog snarl (strongbot)",
+      "source": "https://freesound.org/people/strongbot/sounds/341090/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/hound_death_1.ogg",
+      "name": "Freesound 439535, Angry Dog (CmdRobot)",
+      "source": "https://freesound.org/people/CmdRobot/sounds/439535/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/hound_idle_1.ogg",
+      "name": "Freesound 829986, Low dog growl (randbsoundbites)",
+      "source": "https://freesound.org/people/randbsoundbites/sounds/829986/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/hound_spawn_1.ogg",
+      "name": "Freesound 619045, Large Dog Aggressive Bark (mrrap4food)",
+      "source": "https://freesound.org/people/mrrap4food/sounds/619045/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
       "path": "audio/kill_1.ogg",
       "name": "Freesound 539535, melon-chop-take1 (gagglepod)",
       "source": "https://freesound.org/people/gagglepod/sounds/539535/",
@@ -217,6 +273,54 @@
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
+      "path": "audio/napalm_explode_1.ogg",
+      "name": "Freesound 431174, Fireball Explosion (Blankened)",
+      "source": "https://freesound.org/people/Blankened/sounds/431174/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/napalm_rise_1.ogg",
+      "name": "Freesound 186932, fire_explosion (ReadeOnly)",
+      "source": "https://freesound.org/people/ReadeOnly/sounds/186932/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/napalm_windup_1.ogg",
+      "name": "Freesound 244926, fire-whoosh (hnhnh)",
+      "source": "https://freesound.org/people/hnhnh/sounds/244926/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/nova_gas_1.ogg",
+      "name": "Freesound 551429, Gas Grenade (Themiwa100)",
+      "source": "https://freesound.org/people/Themiwa100/sounds/551429/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/nova_vent_1.ogg",
+      "name": "Freesound 575261, Gas hiss 09 (TRP)",
+      "source": "https://freesound.org/people/TRP/sounds/575261/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/nova_vocal_1.ogg",
+      "name": "Freesound 754438, Zombie Groan 0 (OwNathan)",
+      "source": "https://freesound.org/people/OwNathan/sounds/754438/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
       "path": "audio/plank_rebuild_1.ogg",
       "name": "Freesound 707525, Hammer hitting nail (LiezelDippenaar)",
       "source": "https://freesound.org/people/LiezelDippenaar/sounds/707525/",
@@ -236,6 +340,30 @@
       "path": "audio/reload_1.ogg",
       "name": "Freesound 686661, reload-gun (DeltaCode)",
       "source": "https://freesound.org/people/DeltaCode/sounds/686661/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/sapper_slam_1.ogg",
+      "name": "Freesound 879268, Heavy Slam Impact (Qvantor)",
+      "source": "https://freesound.org/people/Qvantor/sounds/879268/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/shrieker_death_1.ogg",
+      "name": "Freesound 398802, Monster Scream Death (DangAdv64)",
+      "source": "https://freesound.org/people/DangAdv64/sounds/398802/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/shrieker_scream_1.ogg",
+      "name": "Freesound 416053, Monster scream 4 (giddster)",
+      "source": "https://freesound.org/people/giddster/sounds/416053/",
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
@@ -1031,6 +1159,33 @@
       "notes": "2K HDR as a 512px BC6H cubemap via texpack --sky ; diffuse.ktx2 and specular.ktx2 are its prefiltered irradiance and GGX chain from the same run (the Village's sky lights its streets; the Dam's lights nothing)"
     },
     {
+      "path": "sprites/dirt_01",
+      "name": "Kenney Particle Pack dirt_01",
+      "source": "https://kenney.nl/assets/particle-pack",
+      "licence": "CC0 (Creative Commons Zero, as stated in the pack's License.txt)",
+      "fetched": "2026-11-20",
+      "archive": "https://opengameart.org/content/particle-pack-80-sprites",
+      "notes": "dirt_01.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); a muzzle flash or impact sprite in src/weapons/muzzle.rs"
+    },
+    {
+      "path": "sprites/dirt_02",
+      "name": "Kenney Particle Pack dirt_02",
+      "source": "https://kenney.nl/assets/particle-pack",
+      "licence": "CC0 (Creative Commons Zero, as stated in the pack's License.txt)",
+      "fetched": "2026-11-20",
+      "archive": "https://opengameart.org/content/particle-pack-80-sprites",
+      "notes": "dirt_02.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); a muzzle flash or impact sprite in src/weapons/muzzle.rs"
+    },
+    {
+      "path": "sprites/dirt_03",
+      "name": "Kenney Particle Pack dirt_03",
+      "source": "https://kenney.nl/assets/particle-pack",
+      "licence": "CC0 (Creative Commons Zero, as stated in the pack's License.txt)",
+      "fetched": "2026-11-20",
+      "archive": "https://opengameart.org/content/particle-pack-80-sprites",
+      "notes": "dirt_03.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); a muzzle flash or impact sprite in src/weapons/muzzle.rs"
+    },
+    {
       "path": "sprites/muzzle_01",
       "name": "Kenney Particle Pack muzzle_01",
       "source": "https://kenney.nl/assets/particle-pack",
@@ -1101,33 +1256,6 @@
       "fetched": "2026-11-20",
       "archive": "https://opengameart.org/content/particle-pack-80-sprites",
       "notes": "smoke_04.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); a muzzle flash or impact sprite in src/weapons/muzzle.rs"
-    },
-    {
-      "path": "sprites/dirt_01",
-      "name": "Kenney Particle Pack dirt_01",
-      "source": "https://kenney.nl/assets/particle-pack",
-      "licence": "CC0 (Creative Commons Zero, as stated in the pack's License.txt)",
-      "fetched": "2026-11-20",
-      "archive": "https://opengameart.org/content/particle-pack-80-sprites",
-      "notes": "dirt_01.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); a muzzle flash or impact sprite in src/weapons/muzzle.rs"
-    },
-    {
-      "path": "sprites/dirt_02",
-      "name": "Kenney Particle Pack dirt_02",
-      "source": "https://kenney.nl/assets/particle-pack",
-      "licence": "CC0 (Creative Commons Zero, as stated in the pack's License.txt)",
-      "fetched": "2026-11-20",
-      "archive": "https://opengameart.org/content/particle-pack-80-sprites",
-      "notes": "dirt_02.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); a muzzle flash or impact sprite in src/weapons/muzzle.rs"
-    },
-    {
-      "path": "sprites/dirt_03",
-      "name": "Kenney Particle Pack dirt_03",
-      "source": "https://kenney.nl/assets/particle-pack",
-      "licence": "CC0 (Creative Commons Zero, as stated in the pack's License.txt)",
-      "fetched": "2026-11-20",
-      "archive": "https://opengameart.org/content/particle-pack-80-sprites",
-      "notes": "dirt_03.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); a muzzle flash or impact sprite in src/weapons/muzzle.rs"
     },
     {
       "path": "weapons/atlas",
