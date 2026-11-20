@@ -1161,34 +1161,89 @@
       "notes": "Procedural"
     },
     {
-      "path": "enemies/walker/pants/color.ktx2",
-      "name": "Walker soiled trousers map",
-      "source": "tools/walker/make_textures.py from toigo_wool_pants' Pants_wool.png (https://files2.makehumancommunity.org/asset_packs/pants01/), soiled procedurally, via texpack",
-      "licence": "CC0 (the clothes' .mhclo states CC0)",
-      "fetched": "2026-11-20"
-    },
-    {
-      "path": "enemies/walker/shirt/color.ktx2",
-      "name": "Walker stained sweater map",
-      "source": "tools/walker/make_textures.py from toigo_fisherman_sweater's shirt-knit.png (https://files2.makehumancommunity.org/asset_packs/shirts01/), stained procedurally, via texpack",
-      "licence": "CC0 (the clothes' .mhclo states CC0)",
-      "fetched": "2026-11-20"
-    },
-    {
-      "path": "enemies/walker/skin/color.ktx2",
-      "name": "Walker decayed skin map",
-      "source": "tools/walker/make_textures.py from the MakeHuman skin pack skins01, 'blindsaypatten_uniform_skin_texture' (https://files2.makehumancommunity.org/asset_packs/skins01/), mottled procedurally, via texpack --color --opacity",
-      "licence": "CC0 (skins01_cc0 pack; its skins01.json states CC0)",
-      "fetched": "2026-11-20"
-    },
-    {
-      "path": "enemies/walker/walker.glb",
-      "name": "The Walker: MakeHuman body, UAL skeleton, UAL2 zombie clips",
-      "source": "tools/walker/build_walker.py from MakeHuman (MPFB 2.0.18 basemesh, https://extensions.blender.org/add-ons/mpfb/), the official CC0 MakeHuman clothes toigo_fisherman_sweater (https://files2.makehumancommunity.org/asset_packs/shirts01/) and toigo_wool_pants (https://files2.makehumancommunity.org/asset_packs/pants01/), and Quaternius' Universal Animation Library 2 (https://opengameart.org/content/universal-animation-library-2): its skeleton, mannequin skin weights and the Zombie_Walk_Fwd_Loop and Zombie_Idle_Loop clips",
+      "path": "enemies/zombie/civilian.glb",
+      "name": "The Civilian: MakeHuman body, UAL skeleton",
+      "source": "tools/zombie/build_bodies.py --variant civilian from MakeHuman (MPFB 2.0.18 basemesh, https://extensions.blender.org/add-ons/mpfb/), the official CC0 MakeHuman clothes namuhekam_male_polo_shirt (a shirts pack, see tools/zombie/build.sh) and cortu_jeans_shorts (a pants pack), and Quaternius' Universal Animation Library 2 (https://opengameart.org/content/universal-animation-library-2): its skeleton, mannequin skin weights and Zombie_Idle_Loop",
       "licence": "CC0 (MakeHuman exports and official assets; the clothes' .mhclo files state CC0; UAL2's OpenGameArt page and License.txt state CC0 1.0)",
       "fetched": "2026-11-20",
       "archive": "http://web.archive.org/web/20260124011129/https://opengameart.org/sites/default/files/universal_animation_library_2standard.zip",
-      "notes": "UAL2 is used from the OpenGameArt copy, captured 2026-01-24, before Quaternius' 2026-08-28 licence change. Animation, skeleton and weights only: no Quaternius mesh is in the glTF. Textures are not embedded; the game dresses the parts from enemies/walker/{skin,shirt,pants}"
+      "notes": "UAL2 is used from the OpenGameArt copy, captured 2026-01-24, before Quaternius' 2026-08-28 licence change. Skeleton and weights only: no Quaternius mesh is in the glTF. The neck and thigh stumps are capped. Textures are not embedded; the game dresses the parts from enemies/zombie/"
+    },
+    {
+      "path": "enemies/zombie/civilian_pants/color.ktx2",
+      "name": "Civilian jean shorts map",
+      "source": "tools/zombie/make_textures.py from cortu_jeans_shorts' jean_shorts_diff.png (https://files2.makehumancommunity.org/asset_packs/pants01/), soiled procedurally, half size, via texpack",
+      "licence": "CC0 (the clothes' .mhclo states CC0)",
+      "fetched": "2026-11-20"
+    },
+    {
+      "path": "enemies/zombie/civilian_shirt/color.ktx2",
+      "name": "Civilian polo shirt map",
+      "source": "tools/zombie/make_textures.py from namuhekam_male_polo_shirt's Polo_Base_Color.png (https://files2.makehumancommunity.org/asset_packs/shirts01/), stained procedurally, half size, via texpack",
+      "licence": "CC0 (the clothes' .mhclo states CC0)",
+      "fetched": "2026-11-20"
+    },
+    {
+      "path": "enemies/zombie/clips.glb",
+      "name": "Zombie clips: UAL2 idle, walk and scratch; UAL1 jog, sprint, death and hit, retargeted onto UAL2's skeleton",
+      "source": "tools/zombie/build_clips.py from Quaternius' Universal Animation Library 2 (https://opengameart.org/content/universal-animation-library-2: Zombie_Idle_Loop, Zombie_Walk_Fwd_Loop, Zombie_Scratch) and Universal Animation Library, the OpenGameArt mirror (https://opengameart.org/content/universal-animation-library, zip https://opengameart.org/sites/default/files/universal_animation_librarystandard.zip: Jog_Fwd_Loop, Sprint_Loop, Death01, Hit_Chest)",
+      "licence": "CC0 (both OpenGameArt pages and their License.txt state CC0 1.0)",
+      "fetched": "2026-11-20",
+      "archive": "UAL1: http://web.archive.org/web/20250812080840/https://opengameart.org/sites/default/files/universal_animation_librarystandard.zip ; UAL2: http://web.archive.org/web/20260124011129/https://opengameart.org/sites/default/files/universal_animation_library_2standard.zip",
+      "notes": "Both are used from their OpenGameArt copies, captured before Quaternius' 2026-08-28 licence change (UAL1 on 2025-08-12, UAL2 on 2026-01-24). Animation only: no Quaternius mesh is in the glTF. UAL1's clips are retargeted by world-space rotation onto UAL2's skeleton"
+    },
+    {
+      "path": "enemies/zombie/labourer.glb",
+      "name": "The Labourer: MakeHuman body, UAL skeleton",
+      "source": "tools/zombie/build_bodies.py --variant labourer from MakeHuman (MPFB 2.0.18 basemesh, https://extensions.blender.org/add-ons/mpfb/), the official CC0 MakeHuman clothes toigo_fisherman_sweater (a shirts pack, see tools/zombie/build.sh) and toigo_wool_pants (a pants pack), and Quaternius' Universal Animation Library 2 (https://opengameart.org/content/universal-animation-library-2): its skeleton, mannequin skin weights and Zombie_Idle_Loop",
+      "licence": "CC0 (MakeHuman exports and official assets; the clothes' .mhclo files state CC0; UAL2's OpenGameArt page and License.txt state CC0 1.0)",
+      "fetched": "2026-11-20",
+      "archive": "http://web.archive.org/web/20260124011129/https://opengameart.org/sites/default/files/universal_animation_library_2standard.zip",
+      "notes": "UAL2 is used from the OpenGameArt copy, captured 2026-01-24, before Quaternius' 2026-08-28 licence change. Skeleton and weights only: no Quaternius mesh is in the glTF. The neck and thigh stumps are capped. Textures are not embedded; the game dresses the parts from enemies/zombie/"
+    },
+    {
+      "path": "enemies/zombie/labourer_pants/color.ktx2",
+      "name": "Labourer soiled trousers map",
+      "source": "tools/zombie/make_textures.py from toigo_wool_pants' Pants_wool.png (https://files2.makehumancommunity.org/asset_packs/pants01/), soiled procedurally, via texpack",
+      "licence": "CC0 (the clothes' .mhclo states CC0)",
+      "fetched": "2026-11-20"
+    },
+    {
+      "path": "enemies/zombie/labourer_shirt/color.ktx2",
+      "name": "Labourer stained sweater map",
+      "source": "tools/zombie/make_textures.py from toigo_fisherman_sweater's shirt-knit.png (https://files2.makehumancommunity.org/asset_packs/shirts01/), stained procedurally, via texpack",
+      "licence": "CC0 (the clothes' .mhclo states CC0)",
+      "fetched": "2026-11-20"
+    },
+    {
+      "path": "enemies/zombie/skin/color.ktx2",
+      "name": "Zombie decayed skin map (shared by every body)",
+      "source": "tools/zombie/make_textures.py from the MakeHuman skin pack skins01, 'blindsaypatten_uniform_skin_texture' (https://files2.makehumancommunity.org/asset_packs/skins01/), mottled procedurally, via texpack --color --opacity",
+      "licence": "CC0 (the clothes' .mhclo states CC0)",
+      "fetched": "2026-11-20"
+    },
+    {
+      "path": "enemies/zombie/soldier.glb",
+      "name": "The Soldier: MakeHuman body, UAL skeleton",
+      "source": "tools/zombie/build_bodies.py --variant soldier from MakeHuman (MPFB 2.0.18 basemesh, https://extensions.blender.org/add-ons/mpfb/), the official CC0 MakeHuman clothes toigo_basic_tucked_t-shirt (a shirts pack, see tools/zombie/build.sh) and cortu_cargo_pants (a pants pack), and Quaternius' Universal Animation Library 2 (https://opengameart.org/content/universal-animation-library-2): its skeleton, mannequin skin weights and Zombie_Idle_Loop",
+      "licence": "CC0 (MakeHuman exports and official assets; the clothes' .mhclo files state CC0; UAL2's OpenGameArt page and License.txt state CC0 1.0)",
+      "fetched": "2026-11-20",
+      "archive": "http://web.archive.org/web/20260124011129/https://opengameart.org/sites/default/files/universal_animation_library_2standard.zip",
+      "notes": "UAL2 is used from the OpenGameArt copy, captured 2026-01-24, before Quaternius' 2026-08-28 licence change. Skeleton and weights only: no Quaternius mesh is in the glTF. The neck and thigh stumps are capped. Textures are not embedded; the game dresses the parts from enemies/zombie/"
+    },
+    {
+      "path": "enemies/zombie/soldier_pants/color.ktx2",
+      "name": "Soldier cargo trousers map",
+      "source": "tools/zombie/make_textures.py from cortu_cargo_pants' cargo_pants_diff.png (https://files2.makehumancommunity.org/asset_packs/pants01/), tinted and soiled procedurally, half size, via texpack",
+      "licence": "CC0 (the clothes' .mhclo states CC0)",
+      "fetched": "2026-11-20"
+    },
+    {
+      "path": "enemies/zombie/soldier_shirt/color.ktx2",
+      "name": "Soldier drab tee map",
+      "source": "tools/zombie/make_textures.py from toigo_basic_tucked_t-shirt's T-shirt_basic.png (https://files2.makehumancommunity.org/asset_packs/shirts01/), tinted and stained procedurally, half size, via texpack",
+      "licence": "CC0 (the clothes' .mhclo states CC0)",
+      "fetched": "2026-11-20"
     },
     {
       "path": "materials/asphalt_floor",

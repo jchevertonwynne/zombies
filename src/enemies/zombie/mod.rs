@@ -2013,19 +2013,22 @@ fn rolls_over(zombie: Option<&Zombie>) -> bool {
 }
 
 /// A killed Zombie tips backwards about its local X axis, or rolls onto its side, turning a little
-/// every frame (in `FrameTurnSystems`), then disappears. `sink` lowers it onto the floor.
+/// every frame (in `FrameTurnSystems`), then disappears. `sink` lowers it onto the floor. A
+/// skinned body falls by its death clip instead, so its Zombie stays upright.
 fn fall_over(
     mut commands: Commands,
-    mut dying: Query<(Entity, &mut Dying, &mut Transform, Option<&Zombie>)>,
+    mut dying: Query<(Entity, &mut Dying, &mut Transform, Option<&Zombie>, Has<skin::Skinned>)>,
     time: Res<Time>,
 ) {
-    for (entity, mut dying, mut transform, zombie) in &mut dying {
+    for (entity, mut dying, mut transform, zombie, skinned) in &mut dying {
         let before = (dying.elapsed / ZOMBIE_FALL_SECS).min(1.0);
         dying.elapsed += time.delta_secs();
         let after = (dying.elapsed / ZOMBIE_FALL_SECS).min(1.0);
 
         let step = (after - before) * FRAC_PI_2;
-        if step > 0.0 && rolls_over(zombie) {
+        if skin::dies_by_clip(skinned, zombie) {
+            // The clip falls it over.
+        } else if step > 0.0 && rolls_over(zombie) {
             transform.rotate_local_z(step);
         } else if step > 0.0 {
             transform.rotate_local_x(step);
@@ -2039,12 +2042,12 @@ fn fall_over(
 
 /// A body tipping backwards sinks as it falls, so it lies on the floor. In the physics step, in
 /// time with `fall_over`.
-fn sink(mut dying: Query<(&mut Dying, &mut Transform, Option<&Zombie>)>, time: Res<Time>) {
-    for (mut dying, mut transform, zombie) in &mut dying {
+fn sink(mut dying: Query<(&mut Dying, &mut Transform, Option<&Zombie>, Has<skin::Skinned>)>, time: Res<Time>) {
+    for (mut dying, mut transform, zombie, skinned) in &mut dying {
         let before = (dying.sunk / ZOMBIE_FALL_SECS).min(1.0);
         dying.sunk += time.delta_secs();
         let after = (dying.sunk / ZOMBIE_FALL_SECS).min(1.0);
-        if after > before && !rolls_over(zombie) {
+        if after > before && !rolls_over(zombie) && !skin::dies_by_clip(skinned, zombie) {
             transform.translation.y -= (after - before) * (body_half_height() - ZOMBIE_RADIUS);
         }
     }
