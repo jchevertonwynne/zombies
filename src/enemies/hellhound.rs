@@ -23,6 +23,7 @@ use crate::enemies::zombie::{Dying, HitArea, HitZone, Zombie};
 use crate::maps::map::{MapId, SpawnKind, SpawnPoint};
 use crate::maps::zone::{ActiveZones, ZoneId, ZoneSet};
 use bevy_transform_interpolation::TranslationEasingState;
+use super::hellhound_rig::{self as rig, BoxPiece, HoundRig, Part};
 
 /// When the Hellhound Rounds fall: the first in `HELLHOUND_FIRST_ROUNDS`, then one every
 /// `HELLHOUND_ROUND_GAPS` Rounds after the last.
@@ -179,14 +180,14 @@ pub struct SpawnHellhounds {
 }
 
 #[derive(Resource)]
-struct HellhoundAssets {
+pub(super) struct HellhoundAssets {
     body: Handle<Mesh>,
     head: Handle<Mesh>,
     leg: Handle<Mesh>,
     eye: Handle<Mesh>,
     bolt: Handle<Mesh>,
     hide: Handle<StandardMaterial>,
-    eyes: Handle<StandardMaterial>,
+    pub(super) eyes: Handle<StandardMaterial>,
     lightning: Handle<StandardMaterial>,
 }
 
@@ -208,6 +209,7 @@ impl Plugin for HellhoundPlugin {
         app.add_message::<SpawnHellhounds>()
             .add_message::<SpawnZombie>()
             .add_systems(Startup, load_assets)
+            .add_systems(Update, (rig::request_model, rig::put_on_model, rig::animate).chain().run_if(world_runs))
             .add_systems(FixedUpdate, return_out_of_bounds.in_set(HostSimulation).run_if(world_runs))
             .add_systems(
                 Update,
@@ -233,7 +235,8 @@ fn load_assets(
                 .rotated_by(Quat::from_rotation_x(FRAC_PI_2)),
         ),
         head: meshes.add(Sphere::new(HEAD_RADIUS)),
-        leg: meshes.add(Cuboid::from_size(LEG_SIZE)),
+        // Hanging from its top, which is the hip it pivots on.
+        leg: meshes.add(Mesh::from(Cuboid::from_size(LEG_SIZE)).translated_by(Vec3::NEG_Y * LEG_SIZE.y / 2.0)),
         eye: meshes.add(Sphere::new(0.03)),
         bolt: meshes.add(Cylinder::new(0.08, BOLT_HEIGHT)),
         hide: materials.add(StandardMaterial {
@@ -359,7 +362,8 @@ pub fn end_strike(commands: &mut Commands, hound: Entity, telegraph: &Telegraph)
 
 /// A hound's body, centred at `centre`.
 fn spawn_body(commands: &mut Commands, assets: &HellhoundAssets, centre: Vec3, health: f32) -> Entity {
-    commands
+    let mut rig_parts = None;
+    let hound = commands
         .spawn((
             InRun,
             Name::new("Hellhound"),
@@ -394,38 +398,69 @@ fn spawn_body(commands: &mut Commands, assets: &HellhoundAssets, centre: Vec3, h
                 Collider::cuboid(NECK_SIZE.x, NECK_SIZE.y, NECK_SIZE.z),
                 hit_layers,
             ));
-            hound
-                .spawn((
-                    HitArea(HitZone::Head),
-                    Mesh3d(assets.head.clone()),
-                    MeshMaterial3d(assets.hide.clone()),
-                    Transform::from_xyz(0.0, body_y + 0.2, front - NECK_SIZE.z - HEAD_RADIUS * 0.8),
-                    Collider::sphere(HEAD_RADIUS),
-                    hit_layers,
-                ))
-                .with_children(|head| {
-                    for x in [-0.06, 0.06] {
-                        head.spawn((
-                            Mesh3d(assets.eye.clone()),
-                            MeshMaterial3d(assets.eyes.clone()),
-                            Transform::from_xyz(x, 0.04, -HEAD_RADIUS * 0.9),
-                        ));
-                    }
-                });
-            // Four legs down to the floor.
+            // The head's hit area stays put; the head you see rides a pivot at the neck's base,
+            // which nods and lunges.
+            let head_at = Vec3::new(0.0, body_y + 0.2, front - NECK_SIZE.z - HEAD_RADIUS * 0.8);
+            hound.spawn((
+                HitArea(HitZone::Head),
+                Transform::from_translation(head_at),
+                Collider::sphere(HEAD_RADIUS),
+                hit_layers,
+            ));
+            let neck_base = Vec3::new(0.0, body_y + 0.05, front);
+            let head_pivot = Transform::from_translation(neck_base);
+            let head = hound
+                .spawn((head_pivot, Visibility::default()))
+                .with_children(|pivot| {
+                    pivot
+                        .spawn((
+                            BoxPiece,
+                            Mesh3d(assets.head.clone()),
+                            MeshMaterial3d(assets.hide.clone()),
+                            Transform::from_translation(head_at - neck_base),
+                        ))
+                        .with_children(|head| {
+                            for x in [-0.06, 0.06] {
+                                head.spawn((
+                                    Mesh3d(assets.eye.clone()),
+                                    MeshMaterial3d(assets.eyes.clone()),
+                                    Transform::from_xyz(x, 0.04, -HEAD_RADIUS * 0.9),
+                                ));
+                            }
+                        });
+                })
+                .id();
+            // Four legs down to the floor: hit areas where the legs were, and a visual pivoting at
+            // each hip.
+            let hip_y = -HELLHOUND_RADIUS + LEG_SIZE.y;
             let leg_y = -HELLHOUND_RADIUS + LEG_SIZE.y / 2.0;
+            let mut legs = Vec::new();
             for (x, z) in [(-0.13, -0.3), (0.13, -0.3), (-0.13, 0.3), (0.13, 0.3)] {
                 hound.spawn((
                     HitArea(HitZone::Limb),
-                    Mesh3d(assets.leg.clone()),
-                    MeshMaterial3d(assets.hide.clone()),
                     Transform::from_xyz(x, leg_y, z),
                     Collider::cuboid(LEG_SIZE.x, LEG_SIZE.y, LEG_SIZE.z),
                     hit_layers,
                 ));
+                let rest = Transform::from_xyz(x, hip_y, z);
+                let leg = hound
+                    .spawn((BoxPiece, Mesh3d(assets.leg.clone()), MeshMaterial3d(assets.hide.clone()), rest))
+                    .id();
+                legs.push(Part { entity: leg, rest });
             }
+            rig_parts = Some(HoundRig {
+                legs: [legs[0], legs[1], legs[2], legs[3]],
+                head: Part { entity: head, rest: head_pivot },
+                jaw: None,
+                tail: None,
+                torso: None,
+            });
         })
-        .id()
+        .id();
+    if let Some(rig_parts) = rig_parts {
+        commands.entity(hound).insert(rig_parts);
+    }
+    hound
 }
 
 /// Hounds called in around a point land in a ring around it, each in its own strike.
@@ -751,5 +786,32 @@ mod tests {
             assert!(on_a_point(there), "{fps} fps: moved to {there}");
             assert!(!MapId::Greybox.layout().out_of_bounds(crate::maps::water::TideLevel::Low, there));
         }
+    }
+
+    /// The rig only moves what you see: the hit areas stay exactly where they were spawned, while
+    /// a hound crouching in its lightning strike bends its legs.
+    #[test]
+    fn the_rig_poses_the_legs_and_never_moves_a_hit_area() {
+        use bevy::ecs::system::RunSystemOnce;
+        use crate::enemies::hellhound_rig::HoundRig;
+        use crate::enemies::zombie::headless::Sim;
+        let mut sim = Sim::new(60.0, |app| {
+            app.add_plugins(HellhoundPlugin).insert_resource(ActiveZones(ZoneId::ALL.into_iter().collect()));
+        });
+        let world = sim.world_mut();
+        let hound = world
+            .run_system_once(|mut commands: Commands, assets: HellhoundAssetsParam| spawn_hellhound(&mut commands, &assets, Vec3::new(0.0, 0.0, 5.0), 100.0))
+            .unwrap();
+        let hit_areas = |world: &mut World| -> Vec<Transform> {
+            world.query::<(&HitArea, &Transform)>().iter(world).map(|(_, t)| *t).collect()
+        };
+        let before = hit_areas(sim.world_mut());
+        assert_eq!(before.len(), 7, "torso, neck, head and four limbs");
+        sim.run(sim.frames(0.5));
+        let rig = *sim.world_mut().get::<HoundRig>(hound).expect("a hound has a rig");
+        let leg = sim.world_mut().get::<Transform>(rig.legs[0].entity).unwrap().rotation;
+        assert!(leg.angle_between(rig.legs[0].rest.rotation) > 0.3, "crouched in its strike");
+        sim.run(sim.frames(HELLHOUND_TELEGRAPH_SECS + 0.5));
+        assert_eq!(hit_areas(sim.world_mut()), before, "hit areas never move");
     }
 }
