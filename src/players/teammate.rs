@@ -807,6 +807,7 @@ fn animate(
     mut players: Query<(&mut Rig, &Pose, &Shots, &HeldWeapon, &MoveInput, &Transform, Has<AwaitingRespawn>)>,
     mut parts: Query<(&mut Transform, &mut Visibility), Without<Rig>>,
     mut meshes: Query<&mut Mesh3d>,
+    mut paints: Query<&mut MeshMaterial3d<StandardMaterial>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     guns: Res<GunModels>,
     time: Res<Time>,
@@ -946,13 +947,18 @@ fn animate(
             if let Ok(mut mesh) = meshes.get_mut(rig.gun_model) {
                 mesh.0 = guns.world(held.id);
             }
+            // An Upgraded Weapon wears the camo here too: `glint` is only Some when it's Upgraded.
+            let upgraded = held.glint.is_some();
+            if let Ok(mut paint) = paints.get_mut(rig.gun_model) {
+                paint.0 = guns.material_for(upgraded);
+            }
             set(rig.stretch, &|t, _| t.scale = Vec3::new(1.0, 1.0, length));
             commands.entity(rig.fitted).despawn_related::<Children>();
             for &attachment in &held.attachments {
                 if let Some(part) = guns.attachment(held.id, attachment) {
                     commands.spawn((
                         Mesh3d(part.mesh.clone()),
-                        MeshMaterial3d(guns.material.clone()),
+                        MeshMaterial3d(guns.upgraded_material.clone()),
                         part.rest,
                         ChildOf(rig.fitted),
                     ));

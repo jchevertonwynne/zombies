@@ -483,7 +483,7 @@ fn load_tiling(asset_server: &AssetServer, path: String) -> Handle<Image> {
         .load(path)
 }
 
-pub(super) fn load_of(asset_server: &AssetServer, image: &Handle<Image>) -> Load {
+pub(crate) fn load_of(asset_server: &AssetServer, image: &Handle<Image>) -> Load {
     match asset_server.load_state(image) {
         LoadState::Failed(_) => Load::Failed,
         LoadState::Loaded if asset_server.is_loaded_with_dependencies(image) => Load::Loaded,

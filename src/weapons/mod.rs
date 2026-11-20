@@ -2,6 +2,7 @@
 
 pub mod ammo_mod;
 pub mod arsenal;
+pub mod atlas;
 pub mod attachment;
 pub mod burn;
 pub mod combat;

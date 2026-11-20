@@ -156,6 +156,8 @@ _Avoid_: surf spawn, water Riser
 **Material Set**: What a Zone's floor and walls are made of (planks and damaged plaster, say), and the decals they wear, such as leak streaks or oil stains. Neighbouring Zones differ by family of material more than by colour. Trim stays in the Zone's paint, and a Zone without a Material Set, or whose files are missing, is drawn in its flat palette.
 _Avoid_: theme, skin
 
+**Finish**: What a part of a Weapon's model is made of: gunmetal, blued steel, worn wood, olive paint, brass, tape, leather glove, olive wool sleeve, or plain. Each part carries one, and its UVs point at that Finish's tile in the shared weapon atlas. An Upgraded Weapon's metal and wood show the purple camo instead. With the atlas missing, every part keeps its flat vertex colour.
+
 **Look**: How a Map is lit and graded: its sun, ambient, sky and fog colour, and how strong its lamps are. The Greybox is at dusk.
 _Avoid_: time of day, lighting preset
 
