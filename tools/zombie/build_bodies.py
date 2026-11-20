@@ -1,25 +1,27 @@
-"""Builds the Walker: a MakeHuman body in official CC0 clothes, skinned to the Universal
-Animation Library (UAL) skeleton, with UAL2's Zombie walk and idle clips, as one glTF.
+"""Builds a Zombie body: a MakeHuman body in official CC0 clothes, skinned to the Universal
+Animation Library (UAL2) skeleton, as a glTF with no clips but the idle (the rest are in the clips
+glTF `build_clips.py` makes, which fit any body because the rig is UAL2's own armature).
 
-Run it in headless Blender with MPFB enabled (see tools/walker/README.md, and `build.sh`, which
+Run it in headless Blender with MPFB enabled (see tools/zombie/README.md, and `build.sh`, which
 sets all of that up):
 
-    blender -b --python tools/walker/build_walker.py -- \
-        --ual2 UAL2_Standard.glb --clothes <dir holding clothes/> --out walker.glb
+    blender -b --python tools/zombie/build_bodies.py -- --variant labourer \
+        --ual2 UAL2_Standard.glb --clothes <dir holding clothes/> --out labourer.glb
 
 What it makes
 -------------
-* A MakeHuman basemesh (MPFB), male, a little gaunt, with the sweater and wool trousers of the
-  official CC0 asset packs fitted to it.
+* A MakeHuman basemesh (MPFB), male, shaped by the variant (`labourer`, `soldier`, `civilian`),
+  with its shirt and trousers of the official CC0 asset packs fitted to it.
 * The body brought into the UAL rig's rest pose (a T pose) and skinned to that rig, with weights
-  copied from UAL's own mannequin. The rig is UAL2's armature itself, so its clips need no
-  retargeting: they already name these bones.
-* The mesh split into parts the game can hide: `Walker_Head`, `Walker_LegL`, `Walker_LegR` and
-  their trouser legs, and the rest (`Walker_Torso`, `Walker_Shirt`, `Walker_Pants`).
-* UAL2's `Zombie_Walk_Fwd_Loop` and `Zombie_Idle_Loop` as the only clips.
+  copied from UAL's own mannequin.
+* The mesh split into parts the game can hide: `<Name>_Head`, `<Name>_LegL`, `<Name>_LegR` and
+  their trouser legs, and the rest (`<Name>_Torso`, `<Name>_Shirt`, `<Name>_Pants`). The cuts the
+  split leaves in the torso and the trousers (the neck and the thighs) are capped with faces whose
+  UVs sit on a dark-red patch in the corner of each colour map, so a beheaded or gibbed body is
+  closed, not hollow.
 
-Textures are not in the glTF: the game dresses each part by material name (WalkerSkin,
-WalkerShirt, WalkerPants) in KTX2 made by `make_textures.py`.
+Textures are not in the glTF: the game dresses each part by name (Skin, Shirt, Pants) in KTX2 made
+by `make_textures.py`.
 """
 
 import math
@@ -30,9 +32,35 @@ import bmesh
 import bpy
 from mathutils import Matrix, Vector
 
-CLIPS = ("Zombie_Walk_Fwd_Loop", "Zombie_Idle_Loop")
-SWEATER = "toigo_fisherman_sweater/toigo_fisherman_sweater.mhclo"
-TROUSERS = "toigo_wool_pants/toigo_wool_pants.mhclo"
+CLIPS = ("Zombie_Idle_Loop",)
+
+# Where the cap faces' UVs go: the corner of every colour map, painted dark red by make_textures.py.
+PATCH = 0.01
+
+# Each body: its build (MakeHuman macros), and the shirt and trousers it wears (.mhclo under clothes/).
+VARIANTS = {
+    # A gaunt, tall labourer in a fisherman sweater and wool trousers.
+    "labourer": dict(
+        name="Labourer",
+        macro={"gender": 1.0, "age": 0.62, "muscle": 0.4, "weight": 0.3, "proportions": 0.5, "height": 0.55},
+        shirt="toigo_fisherman_sweater/toigo_fisherman_sweater.mhclo",
+        pants="toigo_wool_pants/toigo_wool_pants.mhclo",
+    ),
+    # A broad soldier: a tucked tee and cargo trousers.
+    "soldier": dict(
+        name="Soldier",
+        macro={"gender": 1.0, "age": 0.5, "muscle": 0.8, "weight": 0.55, "proportions": 0.55, "height": 0.62},
+        shirt="toigo_basic_tucked_t-shirt/toigo_basic_tucked_t-shirt.mhclo",
+        pants="cortu_cargo_pants/cortu_cargo_pants.mhclo",
+    ),
+    # A heavy-set civilian: a polo shirt and jean shorts.
+    "civilian": dict(
+        name="Civilian",
+        macro={"gender": 1.0, "age": 0.72, "muscle": 0.3, "weight": 0.8, "proportions": 0.45, "height": 0.42},
+        shirt="namuhekam_male_polo_shirt/namuhekam_male_polo_shirt.mhclo",
+        pants="cortu_jeans_shorts/cortu_jeans_shorts.mhclo",
+    ),
+}
 
 
 def args():
@@ -143,6 +171,64 @@ def skin_class(bones):
     return leg_class(bones)
 
 
+def key_of(vertex):
+    """A vertex's place, rounded, so a vertex split from its twin is still found."""
+    return tuple(round(c, 4) for c in vertex.co)
+
+
+def boundary_keys(obj):
+    """The edges of `obj` that lie on its open boundary, as pairs of places."""
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    edges = set()
+    for edge in bm.edges:
+        if len(edge.link_faces) == 1:
+            edges.add(tuple(sorted((key_of(edge.verts[0]), key_of(edge.verts[1])))))
+    bm.free()
+    return edges
+
+
+def cap_cuts(obj, natural):
+    """Closes the cuts a split left in `obj`: the boundary edges it didn't have before it was split
+    (the neck of the torso, the thighs of the trousers). Each loop becomes triangles whose UVs sit on
+    the dark-red patch in the colour maps' corner."""
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    uv = bm.loops.layers.uv.verify()
+    cuts = []
+    for edge in bm.edges:
+        if len(edge.link_faces) != 1:
+            continue
+        pair = tuple(sorted((key_of(edge.verts[0]), key_of(edge.verts[1]))))
+        if pair not in natural:
+            cuts.append(edge)
+    if cuts:
+        before = set(bm.faces)
+        bmesh.ops.edgeloop_fill(bm, edges=cuts)
+        made = [f for f in bm.faces if f not in before]
+        tri = bmesh.ops.triangulate(bm, faces=made, quad_method="BEAUTY", ngon_method="BEAUTY")["faces"]
+        centre = sum((v.co for v in bm.verts), Vector()) / len(bm.verts)
+        for face in tri:
+            if face.normal.dot(face.calc_center_median() - centre) < 0:
+                face.normal_flip()
+            for loop in face.loops:
+                loop[uv].uv = (PATCH, PATCH)
+    print("CAPPED", obj.name, len(cuts), "cut edges")
+    bm.to_mesh(obj.data)
+    bm.free()
+
+
+def flatten_caps(obj):
+    """Shades the cap faces flat, so the red patch doesn't smear onto the body around them."""
+    mesh = obj.data
+    if not mesh.uv_layers:
+        return
+    layer = mesh.uv_layers.active.data
+    for poly in mesh.polygons:
+        if all(layer[i].uv[0] < PATCH * 2 and layer[i].uv[1] < PATCH * 2 for i in poly.loop_indices):
+            poly.use_smooth = False
+
+
 def make_material(name, rgb, roughness=0.9):
     mat = bpy.data.materials.new(name)
     mat.use_nodes = True
@@ -184,16 +270,18 @@ def main():
     from bl_ext.user_default.mpfb.services.humanservice import HumanService
     from bl_ext.user_default.mpfb.services.targetservice import TargetService
 
+    variant = VARIANTS[a["variant"]]
+    prefix = variant["name"] + "_"
     macro = TargetService.get_default_macro_info_dict()
-    macro.update({"gender": 1.0, "age": 0.62, "muscle": 0.4, "weight": 0.3, "proportions": 0.5, "height": 0.55})
+    macro.update(variant["macro"])
     human = HumanService.create_human(
         mask_helpers=False, detailed_helpers=False, extra_vertex_groups=False, feet_on_ground=True, scale=0.1, macro_detail_dict=macro
     )
-    human.name = "Walker_Torso"
+    human.name = prefix + "Torso"
     select_only(human)
     bpy.ops.object.shape_key_remove(all=True, apply_mix=True)
     clothes = []
-    for rel in (SWEATER, TROUSERS):
+    for rel in (variant["shirt"], variant["pants"]):
         path = os.path.join(a["clothes"], "clothes", rel)
         item = HumanService.add_mhclo_asset(
             path,
@@ -208,8 +296,8 @@ def main():
         )
         clothes.append(item)
     shirt, pants = clothes
-    shirt.name = "Walker_Shirt"
-    pants.name = "Walker_Pants"
+    shirt.name = prefix + "Shirt"
+    pants.name = prefix + "Pants"
 
     # Drop the basemesh's helper geometry: the skin is the `body` group.
     select_only(human)
@@ -322,21 +410,25 @@ def main():
     for pb in arm.pose.bones:
         pb.matrix_basis = Matrix()
 
-    # The parts the game can hide.
-    skin_parts = parts_of(human, "Walker_", skin_class)
-    pants_parts = parts_of(pants, "Walker_Pants", leg_class)
+    # The parts the game can hide, and the cut faces they leave capped.
+    natural = {id(human): boundary_keys(human), id(pants): boundary_keys(pants)}
+    parts_of(human, prefix, skin_class)
+    parts_of(pants, prefix + "Pants", leg_class)
+    cap_cuts(human, natural[id(human)])
+    cap_cuts(pants, natural[id(pants)])
 
     # Materials, named for what the game dresses them in.
-    skin = make_material("WalkerSkin", (0.55, 0.62, 0.5))
-    shirt_m = make_material("WalkerShirt", (0.3, 0.3, 0.28))
-    pants_m = make_material("WalkerPants", (0.2, 0.2, 0.22))
+    skin = make_material("ZombieSkin", (0.55, 0.62, 0.5))
+    shirt_m = make_material("ZombieShirt", (0.3, 0.3, 0.28))
+    pants_m = make_material("ZombiePants", (0.2, 0.2, 0.22))
     for obj in bpy.data.objects:
         if obj.type != "MESH":
             continue
         obj.data.materials.clear()
-        obj.data.materials.append(skin if obj.name.startswith("Walker_") and "Shirt" not in obj.name and "Pants" not in obj.name else (shirt_m if "Shirt" in obj.name else pants_m))
+        obj.data.materials.append(skin if "Shirt" not in obj.name and "Pants" not in obj.name else (shirt_m if "Shirt" in obj.name else pants_m))
         select_only(obj)
         bpy.ops.object.shade_smooth()
+        flatten_caps(obj)
 
     for obj in bpy.data.objects:
         print("PART", obj.name, obj.type, len(obj.data.vertices) if obj.type == "MESH" else "")

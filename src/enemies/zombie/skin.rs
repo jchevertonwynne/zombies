@@ -1,46 +1,95 @@
-//! The Walker's skinned body: a MakeHuman man in sweater and trousers on the UAL skeleton
-//! (`assets/enemies/walker/walker.glb`, made by `tools/walker`). It stands in for the box rig of a
-//! plain Zombie, and only once the glTF and its textures are on disk and have loaded: with the
-//! asset missing, failed, or in headless runs (which never add this plugin), the box rig stays.
+//! The Zombies' skinned bodies: MakeHuman men in shirt and trousers on the UAL skeleton
+//! (`assets/enemies/zombie/`, made by `tools/zombie`), three bodies (labourer, soldier, civilian)
+//! in two colourways each. They stand in for the box rig of a plain Zombie, and only once every file
+//! is on disk and has loaded: with an asset missing, failed, or in headless runs (which never add
+//! this plugin), the box rig stays.
 //!
 //! Purely visual, like the box rig: the hit areas, colliders and Headshot rules are untouched, and
-//! the skin reads only what the box rig already works out (`Gait`), which on a client is told by
-//! the Host's `Activity`. So a puppet animates the way the Host's Zombie does.
+//! the skin reads only what the box rig already works out (`Gait`), which on a client is told by the
+//! Host's `Activity`. So a puppet animates the way the Host's Zombie does, and its body and
+//! colourway come from the Zombie's wire id, so every machine shows the same one.
 //!
-//! Hybrid animation: walking and standing about play UAL2's `Zombie_Walk_Fwd_Loop` and
-//! `Zombie_Idle_Loop`. Every other `Activity` (and a Crawler) is posed procedurally from
-//! `rig::pose` and `rig::crawl`, written onto the same bones after the clip has played (see
-//! `procedural`).
+//! Hybrid animation, as the Spec maps it. Clips drive standing about (`Zombie_Idle_Loop`), walking,
+//! jogging and sprinting by the Zombie's speed (`Zombie_Walk_Fwd_Loop`, UAL1's `Jog_Fwd_Loop` and
+//! `Sprint_Loop`), a swing (`Zombie_Scratch`, scrubbed by the swing's progress so the hit lands with
+//! the blow), a stun (UAL1's `Hit_Chest`) and death (UAL1's `Death01`). Every other `Activity`
+//! (a Plank's tear and yank, a vault, rising, a scream, a knockdown, a Swing Bridge's tip) and a
+//! Crawler always are posed procedurally from `rig::pose` and `rig::crawl`, written onto the same
+//! bones after the clips have run (see `procedural`).
 //!
 //! The head and each leg are separate parts: a headless kill hides the head and the legs gib away.
+//! The glTF caps the neck and thigh stumps, so what is left is closed.
 
 use std::f32::consts::{FRAC_PI_2, PI};
 use std::time::Duration;
 
 use bevy::animation::graph::{AnimationGraph, AnimationGraphHandle, AnimationNodeIndex};
-use bevy::animation::{AnimationPlayer, transition::AnimationTransitions};
+use bevy::animation::{AnimationClip, AnimationPlayer, transition::AnimationTransitions};
 use bevy::app::AnimationSystems;
 use bevy::asset::io::file::FileAssetReader;
 use bevy::gltf::Gltf;
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 
-use super::rig::{Activity, Gait, Limb, Pose, Rig, crawl, pose};
+use super::rig::{Activity, Gait, Pose, Rig, crawl, pose};
 use super::{Zombie, body_half_height};
+use crate::net::zombies::{ZombieId, ZombieIds};
 use crate::tuning::{CRAWLER_BODY_LENGTH, CRAWLER_RADIUS};
 
-const GLB: &str = "enemies/walker/walker.glb";
-const MAPS: [&str; 3] = ["enemies/walker/skin/color.ktx2", "enemies/walker/shirt/color.ktx2", "enemies/walker/pants/color.ktx2"];
+const CLIPS: &str = "enemies/zombie/clips.glb";
+/// The three bodies' glTFs, by `Look::body`.
+const BODIES: [&str; 3] = ["enemies/zombie/labourer.glb", "enemies/zombie/soldier.glb", "enemies/zombie/civilian.glb"];
+/// The colour maps: the skin every body shares, then each body's shirt and trousers.
+const MAPS: [&str; 7] = [
+    "enemies/zombie/skin/color.ktx2",
+    "enemies/zombie/labourer_shirt/color.ktx2",
+    "enemies/zombie/labourer_pants/color.ktx2",
+    "enemies/zombie/soldier_shirt/color.ktx2",
+    "enemies/zombie/soldier_pants/color.ktx2",
+    "enemies/zombie/civilian_shirt/color.ktx2",
+    "enemies/zombie/civilian_pants/color.ktx2",
+];
+
+/// How many bodies there are, and colourways of each.
+const BODY_COUNT: usize = 3;
+const WAY_COUNT: usize = 2;
+
+/// Colour multipliers on the baked maps, by body and colourway: skin, shirt, trousers. They make a
+/// second colourway of each body from the same maps, for no more files.
+const TINTS: [[[[f32; 3]; 3]; WAY_COUNT]; BODY_COUNT] = [
+    // Labourer: as baked, then a paler man in a bluer sweater.
+    [[[1.0, 1.0, 1.0]; 3], [[1.1, 1.1, 1.16], [0.8, 0.9, 1.15], [0.92, 0.88, 0.82]]],
+    // Soldier: olive drab, then desert sand.
+    [[[1.0, 1.0, 1.0]; 3], [[1.1, 1.04, 0.92], [1.5, 1.2, 0.8], [1.5, 1.25, 0.85]]],
+    // Civilian: as baked, then a red polo and darker shorts.
+    [[[1.0, 1.0, 1.0]; 3], [[1.06, 1.0, 1.0], [1.5, 0.7, 0.65], [0.7, 0.72, 0.8]]],
+];
+
 const WALK: &str = "Zombie_Walk_Fwd_Loop";
 const IDLE: &str = "Zombie_Idle_Loop";
+const JOG: &str = "Jog_Fwd_Loop";
+const SPRINT: &str = "Sprint_Loop";
+const SCRATCH: &str = "Zombie_Scratch";
+const DEATH: &str = "Death01";
+const HIT: &str = "Hit_Chest";
 
 /// How much bigger the model is drawn than modelled (1.75 m), so its head tops the head hit area.
 const SKIN_SCALE: f32 = 1.03;
-/// How fast the walk clip goes at 1x: the ground speed it is authored for.
-const WALK_SPEED: f32 = 0.9;
-/// Under this speed (metres a second) a Zombie stands about rather than walks.
+/// The ground speed (metres a second) each locomotion clip is authored for, from how fast the
+/// planted feet slide in them (`build_clips.py` prints it as `FOOT SPEED`): the clip plays at the
+/// Zombie's speed over this.
+const WALK_SPEED: f32 = 1.0;
+const JOG_SPEED: f32 = 3.6;
+const SPRINT_SPEED: f32 = 5.0;
+/// Under this speed (metres a second) a Zombie stands about rather than walks, and from these it
+/// jogs and sprints (the Speed Tiers' speeds fall between them).
 const STANDING_SPEED: f32 = 0.25;
-/// How long the walk and idle blend into each other.
+const JOG_FROM: f32 = 2.5;
+const SPRINT_FROM: f32 = 4.5;
+/// Where in `Zombie_Scratch` the blow lands, as a share of the clip: a swing's progress runs the
+/// clip up to there.
+const SCRATCH_LANDS: f32 = 15.0 / 43.0;
+/// How long the walk, jog and idle blend into each other.
 const BLEND: Duration = Duration::from_millis(250);
 /// How far the middle of a prone body is above the floor, and how long a prone model's head
 /// reaches from its hips: it lies along the facing.
@@ -51,11 +100,11 @@ pub struct SkinPlugin;
 
 impl Plugin for SkinPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Walker>()
-            .add_systems(Startup, load_walker)
+        app.init_resource::<Bodies>()
+            .add_systems(Startup, load_bodies)
             .add_systems(
                 Update,
-                (prepare_walker, attach, dress_parts, setup_players, drive_clips, show_parts, hide_boxes, sync_frame).chain(),
+                (prepare_bodies, attach, dress_parts, setup_players, drive_clips, show_parts, hide_boxes, sync_frame).chain(),
             )
             .add_systems(
                 PostUpdate,
@@ -64,9 +113,9 @@ impl Plugin for SkinPlugin {
     }
 }
 
-/// What the Walker's files have come to.
+/// What the bodies' files have come to.
 #[derive(Resource, Default)]
-struct Walker(State);
+struct Bodies(State);
 
 #[derive(Default)]
 enum State {
@@ -74,19 +123,32 @@ enum State {
     #[default]
     Absent,
     Loading {
-        gltf: Handle<Gltf>,
-        images: [Handle<Image>; 3],
+        clips: Handle<Gltf>,
+        bodies: [Handle<Gltf>; BODY_COUNT],
+        images: [Handle<Image>; MAPS.len()],
     },
     Ready(Ready),
 }
 
-struct Ready {
-    scene: Handle<WorldAsset>,
-    /// Skin, sweater, trousers.
-    materials: [Handle<StandardMaterial>; 3],
-    graph: Handle<AnimationGraph>,
-    walk: AnimationNodeIndex,
+/// The clip nodes of the graph.
+struct Nodes {
     idle: AnimationNodeIndex,
+    walk: AnimationNodeIndex,
+    jog: AnimationNodeIndex,
+    sprint: AnimationNodeIndex,
+    scratch: AnimationNodeIndex,
+    death: AnimationNodeIndex,
+    hit: AnimationNodeIndex,
+}
+
+struct Ready {
+    scenes: [Handle<WorldAsset>; BODY_COUNT],
+    /// Skin, shirt, trousers, for each body and colourway (`body * WAY_COUNT + way`).
+    materials: Vec<[Handle<StandardMaterial>; 3]>,
+    graph: Handle<AnimationGraph>,
+    nodes: Nodes,
+    /// How long `Zombie_Scratch` runs, in seconds.
+    scratch_secs: f32,
 }
 
 /// Whether `path` (under `assets/`) is on disk.
@@ -94,65 +156,125 @@ fn on_disk(path: &str) -> bool {
     FileAssetReader::get_base_path().join("assets").join(path).is_file()
 }
 
-/// Whether the Walker's files are all on disk.
+/// Whether every file is on disk.
 fn files_present(present: impl Fn(&str) -> bool) -> bool {
-    present(GLB) && MAPS.iter().all(|map| present(map))
+    present(CLIPS) && BODIES.iter().all(|body| present(body)) && MAPS.iter().all(|map| present(map))
 }
 
-fn load_walker(mut walker: ResMut<Walker>, asset_server: Res<AssetServer>) {
+fn load_bodies(mut bodies: ResMut<Bodies>, asset_server: Res<AssetServer>) {
     if !files_present(on_disk) {
-        debug!("the Walker's files are missing, staying boxes");
+        debug!("the Zombie bodies' files are missing, staying boxes");
         return;
     }
-    walker.0 = State::Loading { gltf: asset_server.load(GLB), images: MAPS.map(|map| asset_server.load(map)) };
+    bodies.0 = State::Loading {
+        clips: asset_server.load(CLIPS),
+        bodies: BODIES.map(|body| asset_server.load(body)),
+        images: MAPS.map(|map| asset_server.load(map)),
+    };
 }
 
-/// Builds the Walker's materials and clip graph once everything has loaded.
-fn prepare_walker(
-    mut walker: ResMut<Walker>,
+/// Builds the materials and clip graph once everything has loaded.
+fn prepare_bodies(
+    mut state: ResMut<Bodies>,
     asset_server: Res<AssetServer>,
     gltfs: Res<Assets<Gltf>>,
+    animations: Res<Assets<AnimationClip>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
 ) {
-    let State::Loading { gltf, images } = &walker.0 else { return };
+    let State::Loading { clips, bodies, images } = &state.0 else { return };
     let failed = |id: bevy::asset::UntypedAssetId| matches!(asset_server.load_state(id), bevy::asset::LoadState::Failed(_));
-    if failed(gltf.id().untyped()) || images.iter().any(|image| failed(image.id().untyped())) {
-        warn!("the Walker failed to load, staying boxes");
-        walker.0 = State::Absent;
+    if failed(clips.id().untyped()) || bodies.iter().any(|body| failed(body.id().untyped())) || images.iter().any(|image| failed(image.id().untyped())) {
+        warn!("a Zombie body failed to load, staying boxes");
+        state.0 = State::Absent;
         return;
     }
-    let loaded = asset_server.is_loaded_with_dependencies(gltf) && images.iter().all(|image| asset_server.is_loaded_with_dependencies(image));
+    let loaded = asset_server.is_loaded_with_dependencies(clips)
+        && bodies.iter().all(|body| asset_server.is_loaded_with_dependencies(body))
+        && images.iter().all(|image| asset_server.is_loaded_with_dependencies(image));
     if !loaded {
         return;
     }
-    let Some(file) = gltfs.get(gltf) else { return };
-    let (Some(scene), Some(walk), Some(idle)) = (file.scenes.first(), file.named_animations.get(WALK), file.named_animations.get(IDLE)) else {
-        warn!("the Walker's glTF has no scene or clips, staying boxes");
-        walker.0 = State::Absent;
+    let Some(clips) = gltfs.get(clips) else { return };
+    let clip = |name: &str| clips.named_animations.get(name).cloned();
+    let (Some(idle), Some(walk), Some(jog), Some(sprint), Some(scratch), Some(death), Some(hit)) =
+        (clip(IDLE), clip(WALK), clip(JOG), clip(SPRINT), clip(SCRATCH), clip(DEATH), clip(HIT))
+    else {
+        warn!("the Zombie clips file lacks a clip, staying boxes");
+        state.0 = State::Absent;
         return;
     };
+    let scenes: Vec<Option<Handle<WorldAsset>>> = bodies.iter().map(|body| gltfs.get(body).and_then(|file| file.scenes.first().cloned())).collect();
+    let Some(scenes) = scenes.into_iter().collect::<Option<Vec<_>>>().and_then(|scenes| <[Handle<WorldAsset>; BODY_COUNT]>::try_from(scenes).ok()) else {
+        warn!("a Zombie body's glTF has no scene, staying boxes");
+        state.0 = State::Absent;
+        return;
+    };
+    let scratch_secs = animations.get(&scratch).map_or(1.8, AnimationClip::duration);
     let mut graph = AnimationGraph::new();
-    let walk = graph.add_clip(walk.clone(), 1.0, graph.root);
-    let idle = graph.add_clip(idle.clone(), 1.0, graph.root);
-    let cloth = |image: &Handle<Image>| StandardMaterial {
+    let nodes = Nodes {
+        idle: graph.add_clip(idle, 1.0, graph.root),
+        walk: graph.add_clip(walk, 1.0, graph.root),
+        jog: graph.add_clip(jog, 1.0, graph.root),
+        sprint: graph.add_clip(sprint, 1.0, graph.root),
+        scratch: graph.add_clip(scratch, 1.0, graph.root),
+        death: graph.add_clip(death, 1.0, graph.root),
+        hit: graph.add_clip(hit, 1.0, graph.root),
+    };
+    let cloth = |image: &Handle<Image>, tint: [f32; 3]| StandardMaterial {
+        base_color: Color::linear_rgb(tint[0], tint[1], tint[2]),
         base_color_texture: Some(image.clone()),
         perceptual_roughness: 0.92,
         reflectance: 0.2,
         ..default()
     };
-    let materials = [0, 1, 2].map(|i| materials.add(cloth(&images[i])));
-    walker.0 = State::Ready(Ready { scene: scene.clone(), materials, graph: graphs.add(graph), walk, idle });
+    let mut made = Vec::new();
+    for body in 0..BODY_COUNT {
+        for way in 0..WAY_COUNT {
+            let tint = TINTS[body][way];
+            made.push([
+                materials.add(cloth(&images[0], tint[0])),
+                materials.add(cloth(&images[1 + body * 2], tint[1])),
+                materials.add(cloth(&images[2 + body * 2], tint[2])),
+            ]);
+        }
+    }
+    state.0 = State::Ready(Ready { scenes, materials: made, graph: graphs.add(graph), nodes, scratch_secs });
 }
 
-/// A Zombie that wears the Walker's body.
+/// Which body and colourway a Zombie wears.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Look {
+    pub body: usize,
+    pub way: usize,
+}
+
+impl Look {
+    /// From a number every machine agrees on (the Zombie's wire id): the same Zombie wears the
+    /// same body on the Host and on every client.
+    pub fn of(key: u32) -> Self {
+        // A cheap integer hash, so consecutive ids don't wear consecutive bodies.
+        let mut h = key.wrapping_mul(0x9E37_79B1);
+        h ^= h >> 15;
+        h = h.wrapping_mul(0x85EB_CA6B);
+        h ^= h >> 13;
+        Self { body: h as usize % BODY_COUNT, way: (h >> 8) as usize % WAY_COUNT }
+    }
+
+    fn materials(self) -> usize {
+        self.body * WAY_COUNT + self.way
+    }
+}
+
+/// A Zombie that wears a skinned body.
 #[derive(Component)]
-struct Skinned;
+pub(super) struct Skinned;
 
 /// The scene root of a Zombie's skinned body.
 #[derive(Component)]
 struct SkinRoot {
     zombie: Entity,
+    look: Look,
 }
 
 /// Which part of the body a mesh is.
@@ -164,8 +286,10 @@ enum Part {
 }
 
 impl Part {
-    /// From the node's name in the glTF: `Walker_Head`, `Walker_LegL`, `Walker_PantsLegR`...
+    /// From a mesh's name in the glTF, which is its mesh then its material (`Soldier_Head.ZombieSkin`,
+    /// `Labourer_PantsLegR.ZombiePants`...).
     fn of(name: &str) -> Self {
+        let name = name.split('.').next().unwrap_or(name);
         if name.ends_with("Head") {
             Part::Head
         } else if name.ends_with("LegL") || name.ends_with("LegR") {
@@ -175,7 +299,7 @@ impl Part {
         }
     }
 
-    /// Which of skin, sweater and trousers it wears.
+    /// Which of skin, shirt and trousers it wears, by its material's name (`...Shirt`, `...Pants`).
     fn material(name: &str) -> usize {
         if name.contains("Shirt") {
             1
@@ -215,18 +339,30 @@ fn skin_transform(crawler: bool) -> Transform {
         .with_scale(Vec3::splat(SKIN_SCALE))
 }
 
-/// Puts the Walker on each plain Zombie once it's ready.
-fn attach(mut commands: Commands, walker: Res<Walker>, zombies: Query<(Entity, &Zombie), (With<Rig>, Without<Skinned>)>) {
-    let State::Ready(ready) = &walker.0 else { return };
-    for (entity, zombie) in &zombies {
+/// Puts a body on each plain Zombie once it's ready. Its look comes from its wire id, so on a
+/// Host in a co-op room it waits for the id to be given.
+fn attach(
+    mut commands: Commands,
+    bodies: Res<Bodies>,
+    ids: Option<Res<ZombieIds>>,
+    zombies: Query<(Entity, &Zombie, Option<&ZombieId>), (With<Rig>, Without<Skinned>)>,
+) {
+    let State::Ready(ready) = &bodies.0 else { return };
+    for (entity, zombie, id) in &zombies {
         if zombie.is_special() {
             continue;
         }
+        let key = match id {
+            Some(id) => u32::from(id.0),
+            None if ids.is_some() => continue,
+            None => entity.index().index(),
+        };
+        let look = Look::of(key);
         commands.entity(entity).insert(Skinned);
         commands.spawn((
-            Name::new("Walker"),
-            SkinRoot { zombie: entity },
-            WorldAssetRoot(ready.scene.clone()),
+            Name::new("Zombie body"),
+            SkinRoot { zombie: entity, look },
+            WorldAssetRoot(ready.scenes[look.body].clone()),
             skin_transform(zombie.is_crawler()),
             ChildOf(entity),
         ));
@@ -269,16 +405,17 @@ fn skin_root_of(mut at: Entity, parents: &Query<&ChildOf>, roots: &Query<&SkinRo
 /// Dresses each mesh of a new body in its material, and notes which part it is.
 fn dress_parts(
     mut commands: Commands,
-    walker: Res<Walker>,
+    bodies: Res<Bodies>,
     meshes: Query<(Entity, &Name), Added<Mesh3d>>,
     parents: Query<&ChildOf>,
     roots: Query<&SkinRoot>,
 ) {
-    let State::Ready(ready) = &walker.0 else { return };
+    let State::Ready(ready) = &bodies.0 else { return };
     for (entity, name) in &meshes {
-        let Some((_, zombie)) = skin_root_of(entity, &parents, &roots) else { continue };
+        let Some((root, zombie)) = skin_root_of(entity, &parents, &roots) else { continue };
+        let Ok(root) = roots.get(root) else { continue };
         commands.entity(entity).insert((
-            MeshMaterial3d(ready.materials[Part::material(name)].clone()),
+            MeshMaterial3d(ready.materials[root.look.materials()][Part::material(name)].clone()),
             SkinPart { zombie, part: Part::of(name) },
         ));
     }
@@ -296,36 +433,95 @@ struct SkinPlayer {
 /// Gives each new body's animation player the clip graph.
 fn setup_players(
     mut commands: Commands,
-    walker: Res<Walker>,
+    bodies: Res<Bodies>,
     players: Query<Entity, Added<AnimationPlayer>>,
     parents: Query<&ChildOf>,
     roots: Query<&SkinRoot>,
 ) {
-    let State::Ready(ready) = &walker.0 else { return };
+    let State::Ready(ready) = &bodies.0 else { return };
     for entity in &players {
         let Some((_, zombie)) = skin_root_of(entity, &parents, &roots) else { continue };
         commands.entity(entity).insert((AnimationGraphHandle(ready.graph.clone()), AnimationTransitions::new(), SkinPlayer { zombie }));
     }
 }
 
-/// Plays the walk while the Zombie moves, at the pace it moves, and the idle while it stands.
+/// What a clip-driven Zombie plays.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Want {
+    Idle,
+    /// A locomotion clip at this multiple of its authored pace.
+    Walk(f32),
+    Jog(f32),
+    Sprint(f32),
+    /// The swing's scratch, scrubbed to `progress` of the way to landing.
+    Scratch(f32),
+    /// Death, played through from where it began.
+    Death,
+    Flinch,
+}
+
+/// Which clip (if any) drives a Zombie doing `activity` at `speed`. Everything else (and every
+/// Crawler) is posed procedurally.
+fn want(activity: Activity, speed: f32) -> Option<Want> {
+    match activity {
+        Activity::Moving if speed <= STANDING_SPEED => Some(Want::Idle),
+        Activity::Moving if speed < JOG_FROM => Some(Want::Walk((speed / WALK_SPEED).clamp(0.5, 2.5))),
+        Activity::Moving if speed < SPRINT_FROM => Some(Want::Jog((speed / JOG_SPEED).clamp(0.6, 1.8))),
+        Activity::Moving => Some(Want::Sprint((speed / SPRINT_SPEED).clamp(0.6, 1.8))),
+        Activity::Swinging { progress, .. } => Some(Want::Scratch(progress.clamp(0.0, 1.0))),
+        Activity::Dying { .. } => Some(Want::Death),
+        Activity::Stunned => Some(Want::Flinch),
+        _ => None,
+    }
+}
+
+/// Plays the clip each standing Zombie's `Activity` calls for. A Crawler plays none.
 fn drive_clips(
     mut commands: Commands,
-    walker: Res<Walker>,
+    bodies: Res<Bodies>,
     mut players: Query<(Entity, &SkinPlayer, &mut AnimationPlayer, &mut AnimationTransitions, Option<&Playing>)>,
-    zombies: Query<&Gait>,
+    zombies: Query<(&Zombie, &Gait)>,
 ) {
-    let State::Ready(ready) = &walker.0 else { return };
+    let State::Ready(ready) = &bodies.0 else { return };
+    let nodes = &ready.nodes;
     for (entity, skin, mut player, mut transitions, playing) in &mut players {
-        let Ok(gait) = zombies.get(skin.zombie) else { continue };
-        let walking = gait.speed() > STANDING_SPEED;
-        let clip = if walking { ready.walk } else { ready.idle };
-        if playing.is_none_or(|playing| playing.0 != clip) {
-            transitions.play(&mut player, clip, if playing.is_some() { BLEND } else { Duration::ZERO }).repeat();
-            commands.entity(entity).insert(Playing(clip));
+        let Ok((zombie, gait)) = zombies.get(skin.zombie) else { continue };
+        if zombie.is_crawler() {
+            continue;
         }
-        if walking && let Some(active) = player.animation_mut(clip) {
-            active.set_speed((gait.speed() / WALK_SPEED).clamp(0.4, 3.5));
+        let Some(wanted) = want(gait.activity(), gait.speed()) else { continue };
+        let (node, pace, repeat) = match wanted {
+            Want::Idle => (nodes.idle, 1.0, true),
+            Want::Walk(pace) => (nodes.walk, pace, true),
+            Want::Jog(pace) => (nodes.jog, pace, true),
+            Want::Sprint(pace) => (nodes.sprint, pace, true),
+            // Scrubbed by hand, so frozen between seeks.
+            Want::Scratch(_) => (nodes.scratch, 0.0, true),
+            Want::Death => (nodes.death, 1.0, false),
+            Want::Flinch => (nodes.hit, 0.6, true),
+        };
+        if playing.is_none_or(|playing| playing.0 != node) {
+            let blend = match wanted {
+                Want::Death | Want::Scratch(_) => Duration::from_millis(80),
+                _ if playing.is_some() => BLEND,
+                _ => Duration::ZERO,
+            };
+            let active = transitions.play(&mut player, node, blend);
+            if repeat {
+                active.repeat();
+            }
+            commands.entity(entity).insert(Playing(node));
+        }
+        if let Some(active) = player.animation_mut(node) {
+            match wanted {
+                Want::Scratch(progress) => {
+                    active.set_speed(0.0).seek_to(progress * SCRATCH_LANDS * ready.scratch_secs);
+                }
+                Want::Death => {}
+                _ => {
+                    active.set_speed(pace);
+                }
+            }
         }
     }
 }
@@ -369,6 +565,12 @@ fn hide_boxes(
             }
         }
     }
+}
+
+/// Whether a skinned Zombie dies by its clip, which falls the body over itself: a standing one.
+/// Its root then stays upright, where a box rig's tips over.
+pub(super) fn dies_by_clip(skinned: bool, zombie: Option<&Zombie>) -> bool {
+    skinned && zombie.is_some_and(|zombie| !zombie.is_crawler())
 }
 
 /// A node of the body's skeleton, as it stands at rest.
@@ -473,8 +675,7 @@ pub fn procedural(joints: &[Joint], frame: Quat, pose: &Pose) -> Vec<Quat> {
     local
 }
 
-/// Poses each body that isn't playing a clip: every `Activity` but walking and standing about,
-/// and a Crawler always.
+/// Poses each body that isn't playing a clip (see `want`), and a Crawler always.
 fn pose_skins(
     skins: Query<(&SkinRoot, &Skeleton, &Transform)>,
     zombies: Query<(&Zombie, &Gait)>,
@@ -484,7 +685,7 @@ fn pose_skins(
         let Ok((zombie, gait)) = zombies.get(root.zombie) else { continue };
         let activity = gait.activity();
         let crawler = zombie.is_crawler();
-        if activity == Activity::Moving && !crawler {
+        if !crawler && want(activity, gait.speed()).is_some() {
             continue;
         }
         let stride = (gait.speed() / 1.2).min(1.0);
@@ -507,6 +708,7 @@ fn pose_skins(
 
 #[cfg(test)]
 mod tests {
+    use super::super::rig::Limb;
     use super::*;
 
     /// A tiny T-pose skeleton in the body's space (+Y up, facing +Z, its left at +X): a root, a
@@ -618,13 +820,21 @@ mod tests {
 
     #[test]
     fn parts_and_materials_come_from_node_names() {
-        assert_eq!(Part::of("Walker_Head"), Part::Head);
-        assert_eq!(Part::of("Walker_LegR"), Part::Legs);
-        assert_eq!(Part::of("Walker_PantsLegL"), Part::Legs);
-        assert_eq!(Part::of("Walker_Shirt"), Part::Rest);
-        assert_eq!(Part::material("Walker_Torso"), 0);
-        assert_eq!(Part::material("Walker_Shirt"), 1);
-        assert_eq!(Part::material("Walker_PantsLegL"), 2);
+        assert_eq!(Part::of("Soldier_Head"), Part::Head);
+        assert_eq!(Part::of("Labourer_LegR"), Part::Legs);
+        assert_eq!(Part::of("Civilian_PantsLegL"), Part::Legs);
+        assert_eq!(Part::of("Soldier_Shirt"), Part::Rest);
+        assert_eq!(Part::material("Labourer_Torso"), 0);
+        assert_eq!(Part::material("Soldier_Shirt"), 1);
+        assert_eq!(Part::material("Civilian_PantsLegL"), 2);
+        assert_eq!(Part::material("Civilian_Pants"), 2);
+        // As the glTF loader names them: the mesh, then its material.
+        assert_eq!(Part::of("Soldier_Head.ZombieSkin"), Part::Head);
+        assert_eq!(Part::of("Civilian_PantsLegR.ZombiePants"), Part::Legs);
+        assert_eq!(Part::of("base.ZombieSkin"), Part::Rest);
+        assert_eq!(Part::material("sweater_fisherman.ZombieShirt"), 1);
+        assert_eq!(Part::material("cargo_pants.ZombiePants"), 2);
+        assert_eq!(Part::material("Soldier_LegL.ZombieSkin"), 0);
     }
 
     #[test]
@@ -632,6 +842,57 @@ mod tests {
         assert!(files_present(|_| true));
         assert!(!files_present(|_| false));
         assert!(!files_present(|path| path != MAPS[1]));
-        assert!(!files_present(|path| path != GLB));
+        assert!(!files_present(|path| path != BODIES[2]));
+        assert!(!files_present(|path| path != CLIPS));
+    }
+
+    #[test]
+    fn every_look_comes_up_and_the_same_id_wears_the_same_one() {
+        let mut seen = [[0u32; WAY_COUNT]; BODY_COUNT];
+        for id in 0..600u32 {
+            let look = Look::of(id);
+            assert_eq!(look, Look::of(id), "a look is a function of the id");
+            seen[look.body][look.way] += 1;
+        }
+        for body in seen {
+            for count in body {
+                assert!(count > 50, "every body and colourway is worn, evenly enough: {seen:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_clip_follows_what_the_zombie_does() {
+        let standing = want(Activity::Moving, 0.0);
+        assert_eq!(standing, Some(Want::Idle));
+        assert!(matches!(want(Activity::Moving, 1.5), Some(Want::Walk(_))));
+        assert!(matches!(want(Activity::Moving, 3.5), Some(Want::Jog(_))));
+        assert!(matches!(want(Activity::Moving, 5.5), Some(Want::Sprint(_))));
+        let swing = Activity::Swinging { progress: 0.4, arm: super::super::rig::Swing::Arm(0) };
+        assert_eq!(want(swing, 0.0), Some(Want::Scratch(0.4)));
+        assert_eq!(want(Activity::Dying { t: 0.2, headless: false }, 0.0), Some(Want::Death));
+        assert_eq!(want(Activity::Stunned, 0.0), Some(Want::Flinch));
+    }
+
+    #[test]
+    fn what_has_no_clip_is_posed_procedurally() {
+        for activity in [
+            Activity::Tearing { cycle: 0.5 },
+            Activity::Vaulting { variant: 1 },
+            Activity::Rising,
+            Activity::Screaming,
+            Activity::KnockedDown,
+            Activity::Tipped { t: 0.5 },
+        ] {
+            assert_eq!(want(activity, 0.0), None, "{activity:?}");
+        }
+    }
+
+    #[test]
+    fn the_pace_matches_the_zombies_speed() {
+        let Some(Want::Walk(pace)) = want(Activity::Moving, WALK_SPEED * 1.5) else { panic!() };
+        assert!((pace - 1.5).abs() < 1e-4);
+        let Some(Want::Jog(pace)) = want(Activity::Moving, JOG_SPEED) else { panic!() };
+        assert!((pace - 1.0).abs() < 1e-4);
     }
 }
