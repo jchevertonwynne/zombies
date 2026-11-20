@@ -49,12 +49,28 @@
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
+      "path": "audio/boon_offer.ogg",
+      "name": "boon_offer, composed for this project",
+      "source": "tools/audio/compose.py",
+      "licence": "CC0 (composed for this project)",
+      "fetched": "2026-11-20",
+      "notes": "Boon offer: a soft string swell on F major seven, a celesta climbing through it. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
+    },
+    {
       "path": "audio/boss_howl_1.ogg",
       "name": "Freesound 489901, Freesound - Scary Monster Roar #2 (NicknameLarry)",
       "source": "https://freesound.org/people/NicknameLarry/sounds/489901/",
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/boss_warning.ogg",
+      "name": "boss_warning, composed for this project",
+      "source": "tools/audio/compose.py",
+      "licence": "CC0 (composed for this project)",
+      "fetched": "2026-11-20",
+      "notes": "Boss warning: three low tritone brass hits on the drum, then a climbing brass call over string tremolo. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
     },
     {
       "path": "audio/box_move_1.ogg",
@@ -66,19 +82,19 @@
     },
     {
       "path": "audio/box_spin_1.ogg",
-      "name": "Freesound 195355, Music Box (jmggs), three plucked notes",
-      "source": "https://freesound.org/people/jmggs@hotmail.com/sounds/195355/",
-      "licence": "CC0",
+      "name": "box_spin, composed for this project",
+      "source": "tools/audio/compose.py",
+      "licence": "CC0 (composed for this project)",
       "fetched": "2026-11-20",
-      "notes": "Trimmed, normalised to -26 LUFS (foley), mono, OGG q4, via tools/audio/process.py"
+      "notes": "The Box spin tune: a music-box waltz in D minor, two bars, ending as the spin does (2.85 s). An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
     },
     {
       "path": "audio/box_teddy_1.ogg",
-      "name": "Freesound 879799, Freesound - Music Box Chime (Qvantor)",
-      "source": "https://freesound.org/people/Qvantor/sounds/879799/",
-      "licence": "CC0",
+      "name": "box_teddy, composed for this project",
+      "source": "tools/audio/compose.py",
+      "licence": "CC0 (composed for this project)",
       "fetched": "2026-11-20",
-      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+      "notes": "The Teddy: a music box winding down on a falling minor line, the tape dragging to a stop. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
     },
     {
       "path": "audio/bridge_bell_1.ogg",
@@ -121,12 +137,36 @@
       "notes": "Trimmed, normalised to -20 LUFS (ui), stereo, OGG q4, via tools/audio/process.py"
     },
     {
+      "path": "audio/challenge_breach.ogg",
+      "name": "challenge_breach, composed for this project",
+      "source": "tools/audio/compose.py",
+      "licence": "CC0 (composed for this project)",
+      "fetched": "2026-11-20",
+      "notes": "Challenge broken: muted low brass falling a minor second Eb to D, over a low D. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
+    },
+    {
+      "path": "audio/challenge_met.ogg",
+      "name": "challenge_met, composed for this project",
+      "source": "tools/audio/compose.py",
+      "licence": "CC0 (composed for this project)",
+      "fetched": "2026-11-20",
+      "notes": "Challenge met: a brass fourth up, A to D, with a bell on the D. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
+    },
+    {
       "path": "audio/claymore_plant_1.ogg",
       "name": "Freesound 51169, Freesound - Telephone Placed In Dock Beep.wav (RutgerMuller)",
       "source": "https://freesound.org/people/RutgerMuller/sounds/51169/",
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/commendation.ogg",
+      "name": "commendation, composed for this project",
+      "source": "tools/audio/compose.py",
+      "licence": "CC0 (composed for this project)",
+      "fetched": "2026-11-20",
+      "notes": "Commendation: a short bugle-style call on a D major arpeggio, with a bell. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
     },
     {
       "path": "audio/crawl_drag_1.ogg",
@@ -191,6 +231,14 @@
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/duo_taken.ogg",
+      "name": "duo_taken, composed for this project",
+      "source": "tools/audio/compose.py",
+      "licence": "CC0 (composed for this project)",
+      "fetched": "2026-11-20",
+      "notes": "Duo taken: two horns from either side meeting on one chord, F major over D. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
     },
     {
       "path": "audio/elite_spawn_1.ogg",
@@ -345,6 +393,22 @@
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
+      "path": "audio/game_over.ogg",
+      "name": "game_over, composed for this project",
+      "source": "tools/audio/compose.py",
+      "licence": "CC0 (composed for this project)",
+      "fetched": "2026-11-20",
+      "notes": "Game Over: a low string lament D-C-Bb-A over a D pedal, horns on the last D minor chord, the tape running down. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
+    },
+    {
+      "path": "audio/gauntlet_win.ogg",
+      "name": "gauntlet_win, composed for this project",
+      "source": "tools/audio/compose.py",
+      "licence": "CC0 (composed for this project)",
+      "fetched": "2026-11-20",
+      "notes": "Gauntlet win: a snare roll, a bugle-like brass call on A, then a worn D major (the Picardy turn) with timpani. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
+    },
+    {
       "path": "audio/generator_held_1.ogg",
       "name": "Freesound 842647, Freesound - Generator whirring (yahsay)",
       "source": "https://freesound.org/people/yahsay/sounds/842647/",
@@ -439,6 +503,14 @@
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/hellhound_round_start.ogg",
+      "name": "hellhound_round_start, composed for this project",
+      "source": "tools/audio/compose.py",
+      "licence": "CC0 (composed for this project)",
+      "fetched": "2026-11-20",
+      "notes": "Hellhound Round start: a timpani roll and cymbal swell into a tritone brass stab, strings grinding on a minor second, a growl beneath. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
     },
     {
       "path": "audio/helmet_off_1.ogg",
@@ -641,6 +713,14 @@
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
+      "path": "audio/pact_offer.ogg",
+      "name": "pact_offer, composed for this project",
+      "source": "tools/audio/compose.py",
+      "licence": "CC0 (composed for this project)",
+      "fetched": "2026-11-20",
+      "notes": "Pact offer: low strings swelling on D, A and Eb, muted brass on Ab, a dull bell out of tune. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
+    },
+    {
       "path": "audio/pap_process_1.ogg",
       "name": "Freesound 871231, Short Machine Sound 7 (qubodup)",
       "source": "https://freesound.org/people/qubodup/sounds/871231/",
@@ -671,6 +751,38 @@
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Trimmed, normalised to -26 LUFS (foley), stereo, OGG q4, via tools/audio/process.py"
+    },
+    {
+      "path": "audio/perk_jingle_double_tap.ogg",
+      "name": "perk_jingle_double_tap, composed for this project",
+      "source": "tools/audio/compose.py",
+      "licence": "CC0 (composed for this project)",
+      "fetched": "2026-11-20",
+      "notes": "Double Tap: a field-drum march in Bb minor, the brass hammering a two-note tap, 124 bpm. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (radio-speaker band), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
+    },
+    {
+      "path": "audio/perk_jingle_juggernog.ogg",
+      "name": "perk_jingle_juggernog, composed for this project",
+      "source": "tools/audio/compose.py",
+      "licence": "CC0 (composed for this project)",
+      "fetched": "2026-11-20",
+      "notes": "Juggernog: a heavy oompah march in D minor, tuba and brass, 107 bpm. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (radio-speaker band), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
+    },
+    {
+      "path": "audio/perk_jingle_quick_revive.ogg",
+      "name": "perk_jingle_quick_revive, composed for this project",
+      "source": "tools/audio/compose.py",
+      "licence": "CC0 (composed for this project)",
+      "fetched": "2026-11-20",
+      "notes": "Quick Revive: a gentle waltz in F, celesta over strings and a soft upright. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (radio-speaker band), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
+    },
+    {
+      "path": "audio/perk_jingle_speed_cola.ogg",
+      "name": "perk_jingle_speed_cola, composed for this project",
+      "source": "tools/audio/compose.py",
+      "licence": "CC0 (composed for this project)",
+      "fetched": "2026-11-20",
+      "notes": "Speed Cola: a quick swing on an upright piano and muted trumpet in G minor, 168 bpm. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (radio-speaker band), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
     },
     {
       "path": "audio/perk_machine_leave_1.ogg",
@@ -785,6 +897,22 @@
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
+      "path": "audio/round_end.ogg",
+      "name": "round_end, composed for this project",
+      "source": "tools/audio/compose.py",
+      "licence": "CC0 (composed for this project)",
+      "fetched": "2026-11-20",
+      "notes": "Round end: a falling brass line A-G-F-E to D over an open fifth, timpani dying away. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
+    },
+    {
+      "path": "audio/round_start.ogg",
+      "name": "round_start, composed for this project",
+      "source": "tools/audio/compose.py",
+      "licence": "CC0 (composed for this project)",
+      "fetched": "2026-11-20",
+      "notes": "Round start: a pickup and a held D minor brass stab with a b6 lean, over low strings and timpani. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
+    },
+    {
       "path": "audio/sapper_death_1.ogg",
       "name": "Freesound 185366, Freesound - Monster.wav (anwul)",
       "source": "https://freesound.org/people/anwul/sounds/185366/",
@@ -871,6 +999,30 @@
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/set_bonus_tier_four.ogg",
+      "name": "set_bonus_tier_four, composed for this project",
+      "source": "tools/audio/compose.py",
+      "licence": "CC0 (composed for this project)",
+      "fetched": "2026-11-20",
+      "notes": "Set Bonus tier four: two brass stabs rising D5th to F5th, celesta above. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
+    },
+    {
+      "path": "audio/set_bonus_tier_six.ogg",
+      "name": "set_bonus_tier_six, composed for this project",
+      "source": "tools/audio/compose.py",
+      "licence": "CC0 (composed for this project)",
+      "fetched": "2026-11-20",
+      "notes": "Set Bonus tier six: three rising stabs D, F, A into a held A major chord with timpani and celesta. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
+    },
+    {
+      "path": "audio/set_bonus_tier_two.ogg",
+      "name": "set_bonus_tier_two, composed for this project",
+      "source": "tools/audio/compose.py",
+      "licence": "CC0 (composed for this project)",
+      "fetched": "2026-11-20",
+      "notes": "Set Bonus tier two: one short brass fifth on D with a celesta D. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
     },
     {
       "path": "audio/shellshock_1.ogg",
@@ -999,6 +1151,14 @@
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Trimmed, normalised to -26 LUFS (foley), mono, OGG q4, via tools/audio/process.py"
+    },
+    {
+      "path": "audio/twist_round_start.ogg",
+      "name": "twist_round_start, composed for this project",
+      "source": "tools/audio/compose.py",
+      "licence": "CC0 (composed for this project)",
+      "fetched": "2026-11-20",
+      "notes": "Twist Round start: strings sliding up a tritone in tremolo, into a diminished brass stab. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
     },
     {
       "path": "audio/wade_step_1.ogg",
@@ -1810,6 +1970,14 @@
       "notes": "1K glTF decimated by tools/props to 1473 triangles, unit 0.66 x 0.95 x 0.66 m (length, height, depth); textures as KTX2 via texpack"
     },
     {
+      "path": "models/hellhound",
+      "name": "Hellhound, rigid parts",
+      "source": "tools/hellhound/build.py",
+      "licence": "CC0 (made in this repo); hide texture CC0 from Poly Haven brown_leather",
+      "fetched": "2026-11-20",
+      "notes": "Our own Blender model (tools/hellhound/build_hellhound.py), hide from https://polyhaven.com/a/brown_leather as KTX2 via texpack"
+    },
+    {
       "path": "models/metal_office_desk",
       "name": "Metal Office Desk",
       "source": "https://polyhaven.com/a/metal_office_desk",
@@ -2035,14 +2203,6 @@
       "licence": "CC0 (Poly Haven sets, recoloured and cropped; the camo is made in this repo)",
       "fetched": "2026-11-20",
       "notes": "1K atlas of the gun finishes, gloves and sleeves, plus the shared purple camo; layout in src/weapons/atlas.rs"
-    },
-    {
-      "path": "models/hellhound",
-      "name": "Hellhound, rigid parts",
-      "source": "tools/hellhound/build.py",
-      "licence": "CC0 (made in this repo); hide texture CC0 from Poly Haven brown_leather",
-      "fetched": "2026-11-20",
-      "notes": "Our own Blender model (tools/hellhound/build_hellhound.py), hide from https://polyhaven.com/a/brown_leather as KTX2 via texpack"
     }
   ]
 }
