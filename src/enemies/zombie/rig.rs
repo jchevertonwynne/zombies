@@ -62,6 +62,28 @@ pub(super) struct Gait {
     /// Whether it was swinging last frame, and which arm swings (0 left, 1 right). Swings take turns.
     swinging: bool,
     arm: usize,
+    /// What it was doing as of the last frame, for a skinned body to pose from.
+    activity: Option<Activity>,
+}
+
+impl Gait {
+    pub(super) fn activity(&self) -> Activity {
+        self.activity.unwrap_or(Activity::Moving)
+    }
+
+    /// Radians through the walk cycle.
+    pub(super) fn phase(&self) -> f32 {
+        self.phase
+    }
+
+    /// How fast it is going, in metres a second.
+    pub(super) fn speed(&self) -> f32 {
+        self.speed
+    }
+
+    pub(super) fn clock(&self) -> f32 {
+        self.clock
+    }
 }
 
 /// A rig box dressed in the Zombie's outfit: its root's material, which the Specials and Turned
@@ -88,8 +110,9 @@ pub enum Activity {
     Screaming,
     Stunned,
     KnockedDown,
-    /// Falling dead, `t` of the way (0 to 1) down.
-    Dying { t: f32 },
+    /// Falling dead, `t` of the way (0 to 1) down. `headless` when a shot to the head killed it, so a
+    /// skinned body shows no head.
+    Dying { t: f32, headless: bool },
     /// Tipped off a Swing Bridge into the canal, `t` of the way (0 to 1) to the splash.
     Tipped { t: f32 },
 }
@@ -112,7 +135,7 @@ pub struct Limb {
 }
 
 impl Limb {
-    const fn pitch(pitch: f32) -> Self {
+    pub(super) const fn pitch(pitch: f32) -> Self {
         Self { pitch, splay: 0.0, yaw: 0.0 }
     }
 
@@ -129,7 +152,7 @@ impl Limb {
     }
 
     /// Its rotation on `side` (0 left, 1 right).
-    fn rotation(self, side: usize) -> Quat {
+    pub(super) fn rotation(self, side: usize) -> Quat {
         let mirror = if side == 0 { -1.0 } else { 1.0 };
         Quat::from_euler(EulerRot::YZX, self.yaw * mirror, self.splay * mirror, self.pitch)
     }
@@ -319,7 +342,7 @@ pub fn pose(activity: Activity, phase: f32, stride: f32, run: f32, clock: f32) -
                 ..default()
             }
         }
-        Activity::Dying { t } => {
+        Activity::Dying { t, .. } => {
             // Arms flung up over its head as it goes over backwards.
             let t = smoothstep(t);
             Pose {
@@ -352,7 +375,7 @@ pub fn crawl(activity: Activity, phase: f32, stride: f32, clock: f32) -> [Limb; 
             arms[side] = Limb::new(1.45 + 0.9 * wind - 1.1 * strike, 0.3, 0.3 * strike);
             arms
         }
-        Activity::Dying { t } | Activity::Tipped { t } => [Limb::new(1.45, 0.2, 0.0).lerp(Limb::new(1.0, 0.8, 0.0), t); 2],
+        Activity::Dying { t, .. } | Activity::Tipped { t } => [Limb::new(1.45, 0.2, 0.0).lerp(Limb::new(1.0, 0.8, 0.0), t); 2],
         _ => [drag(0), drag(1)],
     }
 }
@@ -527,7 +550,7 @@ pub fn describe(
         if dying.killed_by() == Some(crate::enemies::zombie::Attack::Swing) {
             return Activity::Tipped { t: (dying.elapsed / crate::tuning::TIPPED_FALL_SECS).min(1.0) };
         }
-        return Activity::Dying { t: (dying.elapsed / ZOMBIE_FALL_SECS).min(1.0) };
+        return Activity::Dying { t: (dying.elapsed / ZOMBIE_FALL_SECS).min(1.0), headless: dying.headless() };
     }
     if down {
         return Activity::KnockedDown;
@@ -595,6 +618,7 @@ pub(super) fn animate(
         let run = ((gait.speed - 2.5) / 2.5).clamp(0.0, 1.0);
         let screaming = shrieker.is_some_and(Shrieker::screaming);
         let activity = activity(&mut gait, shown.map(|shown| shown.0), zombie, entering, rising, stunned, down, dying, screaming);
+        gait.activity = Some(activity);
 
         let mut set = |part: Entity, f: &dyn Fn(&mut Transform)| {
             if let Ok(mut transform) = parts.get_mut(part) {
@@ -716,8 +740,8 @@ mod tests {
 
     #[test]
     fn a_dying_zombie_throws_its_arms_up() {
-        let start = pose(Activity::Dying { t: 0.0 }, 0.0, 0.0, 0.0, 0.0);
-        let end = pose(Activity::Dying { t: 1.0 }, 0.0, 0.0, 0.0, 0.0);
+        let start = pose(Activity::Dying { t: 0.0, headless: false }, 0.0, 0.0, 0.0, 0.0);
+        let end = pose(Activity::Dying { t: 1.0, headless: false }, 0.0, 0.0, 0.0, 0.0);
         assert!(end.arms[0].pitch > start.arms[0].pitch + 1.0);
     }
 

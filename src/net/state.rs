@@ -280,7 +280,8 @@ pub fn pack_anim(activity: Activity, crawler: bool) -> u8 {
         Activity::Screaming => (5, 0.0),
         Activity::Stunned => (6, 0.0),
         Activity::KnockedDown => (7, 0.0),
-        Activity::Dying { t } => (8, t),
+        Activity::Dying { t, headless: false } => (8, t),
+        Activity::Dying { t, headless: true } => (10, t),
         Activity::Tipped { t } => (9, t),
     };
     let eighths = (progress.clamp(0.0, 1.0) * 7.0).round() as u8;
@@ -299,7 +300,8 @@ pub fn unpack_anim(byte: u8) -> (Activity, bool) {
         5 => Activity::Screaming,
         6 => Activity::Stunned,
         7 => Activity::KnockedDown,
-        8 => Activity::Dying { t: progress },
+        8 => Activity::Dying { t: progress, headless: false },
+        10 => Activity::Dying { t: progress, headless: true },
         9 => Activity::Tipped { t: progress },
         _ => Activity::Moving,
     };
@@ -508,7 +510,8 @@ mod tests {
             Activity::Screaming,
             Activity::Stunned,
             Activity::KnockedDown,
-            Activity::Dying { t: 0.25 },
+            Activity::Dying { t: 0.25, headless: false },
+            Activity::Dying { t: 0.5, headless: true },
         ];
         for activity in all {
             for crawler in [false, true] {
@@ -517,7 +520,12 @@ mod tests {
                 match (activity, back) {
                     (Activity::Swinging { progress: a, .. }, Activity::Swinging { progress: b, .. })
                     | (Activity::Tearing { cycle: a }, Activity::Tearing { cycle: b })
-                    | (Activity::Dying { t: a }, Activity::Dying { t: b }) => assert!((a - b).abs() < 0.08, "{a} for {b}"),
+                    | (Activity::Dying { t: a, .. }, Activity::Dying { t: b, .. }) => {
+                        assert!((a - b).abs() < 0.08, "{a} for {b}");
+                        if let (Activity::Dying { headless: x, .. }, Activity::Dying { headless: y, .. }) = (activity, back) {
+                            assert_eq!(x, y);
+                        }
+                    }
                     _ => assert_eq!(activity, back),
                 }
             }
