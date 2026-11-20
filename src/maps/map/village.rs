@@ -60,6 +60,7 @@ pub(super) const VILLAGE: Layout = Layout {
     special_spawns: &SPECIAL_SPAWNS,
     vents: &VENTS,
     raised_floors: &[CHANCEL],
+    infills: &[],
     slopes: &SLOPES,
     sunken: &[],
     water: &[],

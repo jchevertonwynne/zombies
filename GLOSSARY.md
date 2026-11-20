@@ -176,6 +176,9 @@ _Avoid_: clutter, cover, obstacle
 **Raised Floor**: Part of a Zone's floor built up above the rest, such as a dais, a stage or a dock, reached by steps or a ramp.
 _Avoid_: stage, dais (for the general term)
 
+**Infill**: A solid block of the building standing inside a Zone against its walls or in a corner, floor to ceiling, such as a chimney breast, a boxed-off stair core or cupboard, a pier between windows, or a nib that makes an alcove. It wears the room's walls, skirting and cornice, so it reads as part of the building rather than a Prop. The Zone stays a box; an Infill only makes part of it solid.
+_Avoid_: pillar (a Prop), wall chunk, blocker
+
 **Ledge**: An edge where one floor stops above another, too high to step up: the side of a Raised Floor or a sunken floor, the Balcony's drop, or the edge of a Terrace, one of the Incline's landings or the Headframe's deck. Zombies only ever drop off a Ledge; the Player can also scramble back up a low one.
 
 **Out of Bounds**: Anywhere outside the Map's playable space: past the edge of its plan, in Deep Water, or fallen well below its lowest floor. A Player Out of Bounds goes Down and is put back where a teammate can reach them. A Zombie Out of Bounds goes back into the Horde, and a special is moved to a fresh spawn point.

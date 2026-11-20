@@ -70,6 +70,12 @@ const GREYBOX: &[View] = &[
     view("trap-switch", (-17.8, 0.0, -10.8), (-17.8, -14.0), -0.1, false),
     view("teleporter-pad", (-28.0, 0.0, -41.0), (-28.0, -44.5), -0.4, false),
     view("mainframe", (-10.5, 0.0, 21.5), (-10.5, 25.4), -0.1, false),
+    // The Infills that the room views above leave behind the camera.
+    view("infill-west-hall-stair-core", (-21.0, 0.0, 16.0), (-15.0, 25.0), -0.05, false),
+    view("infill-east-hall-vestry", (19.0, 0.0, 15.0), (25.0, 25.0), -0.05, false),
+    view("infill-power-room-cupboard", (14.0, 0.0, -21.0), (25.0, -14.5), -0.05, false),
+    view("infill-storeroom-ducts", (0.0, 0.0, -46.5), (0.0, -38.0), -0.08, false),
+    view("infill-generator-room-core", (11.0, 0.0, -47.0), (4.5, -38.5), -0.05, false),
     view("route-1-start-to-west-hall", (-4.0, 0.0, 20.0), (-26.0, 20.0), 0.0, true),
     view("route-2-west-hall-to-dining", (-20.0, 0.0, 0.0), (-20.0, -24.0), 0.0, true),
     view("route-3-dining-to-passage", (-12.0, 0.0, -15.0), (-12.0, -36.0), -0.05, true),

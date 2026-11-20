@@ -140,6 +140,10 @@ pub struct Layout {
     /// it. Each opens `NOVA_VENT_HEIGHT` up, at the top of a one-way path-node edge to that spot.
     pub vents: &'static [(ZoneId, Vec3)],
     pub raised_floors: &'static [RaisedFloor],
+    /// The Infills: solid blocks of the building standing inside a Zone against its walls or in
+    /// its corners (a chimney breast, a boxed-off corner, a pier between windows), so no room is a
+    /// bare box. Empty on a Map that has had no pass of them yet.
+    pub infills: &'static [Infill],
     /// The steps and ramps.
     pub slopes: &'static [Slope],
     pub sunken: &'static [Sunken],
@@ -785,6 +789,31 @@ pub struct RaisedFloor {
     pub colour: Color,
 }
 
+/// An Infill: a solid block of the building inside `zone`, covering `min`..`max` (x, z) from the
+/// Zone's floor to the top of its walls. It stands against the Zone's walls or in a corner, out to
+/// a wall's middle line where it meets one, and wears the Zone's walls, skirting and cornice, so
+/// it reads as part of the room and not as a Prop. The Zone itself stays a box (`ZoneId::volume`):
+/// an Infill only makes part of it solid.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Infill {
+    pub zone: ZoneId,
+    pub min: Vec2,
+    pub max: Vec2,
+}
+
+impl Infill {
+    /// Its foot, on its Zone's floor, and its top, at the top of the Zone's walls (where an
+    /// indoor Zone's ceiling is).
+    pub fn span(&self) -> (f32, f32) {
+        let (_, hi) = self.zone.volume();
+        (self.zone.floor(), (hi.y / STOREY).ceil() * STOREY)
+    }
+}
+
+const fn infill(zone: ZoneId, min: (f32, f32), max: (f32, f32)) -> Infill {
+    Infill { zone, min: Vec2::new(min.0, min.1), max: Vec2::new(max.0, max.1) }
+}
+
 /// A flight of steps or a ramp between two floors. The middle of its foot is `foot`, on the lower
 /// floor, and it climbs `rise` over `run` towards `up` (along x or z), `width` across. Either way
 /// it's solid as a smooth ramp, so nothing trips on a step.
@@ -933,6 +962,9 @@ pub fn spawn_map(
     // Raised and sunken floors, and the steps and ramps between floors.
     for raised in layout.raised_floors {
         b.raised_floor(raised);
+    }
+    for infill in layout.infills {
+        b.infill(infill);
     }
     for sunken in layout.sunken {
         b.sunken(sunken);
@@ -2000,6 +2032,10 @@ pub(crate) mod tests {
             let name = format!("the steps or ramp at {}", slope.foot);
             all.push((name, slope.zone, (a.min(b) - across, a.max(b) + across), (slope.foot.y, slope.foot.y + slope.rise), Box::new(|_| false)));
         }
+        for infill in layout.infills {
+            let name = format!("the Infill at {}..{} in {}", infill.min, infill.max, infill.zone.name());
+            all.push((name, infill.zone, (infill.min, infill.max), infill.span(), Box::new(|_| false)));
+        }
         for sunken in layout.sunken {
             // A sea bed lies beyond its Zone, under the sea, not in the way of anything in it.
             if sunken.max.y <= sunken.zone.volume().0.z || sunken.min.y >= sunken.zone.volume().1.z {
@@ -2111,6 +2147,85 @@ pub(crate) mod tests {
                     assert!(!beside(prop, *door) || gap >= 1.8, "the {:?} at {} is {gap:.2} m from the Door at {door}", prop.kind, prop.at);
                 }
             }
+        }
+    }
+
+    /// Every Infill on every Map stands inside its Zone, clear of every Door and lamp, and no
+    /// path-node edge crosses it or passes within a Zombie's width of it. (What's fixed to the
+    /// walls and floors, and every Spawn Point, is kept clear of it with the Props, in
+    /// `nothing_on_the_floor_crowds_anything_fixed_to_the_map`.)
+    #[test]
+    fn every_infill_stands_in_its_zone_clear_of_the_doors_lamps_and_path_edges() {
+        use bevy::ecs::system::RunSystemOnce;
+        for map in MapId::ALL {
+            let layout = map.layout();
+            if layout.infills.is_empty() {
+                continue;
+            }
+            let mut sim = Sim::on(map, 60.0, |_| {});
+            let doors: Vec<Vec3> = sim
+                .world_mut()
+                .run_system_once(|doors: Query<&Transform, With<crate::maps::door::Door>>| doors.iter().map(|t| t.translation).collect::<Vec<_>>())
+                .unwrap();
+            let node = |name: &str| {
+                let &(_, x, y, z) = layout.nav_nodes.iter().find(|(n, ..)| *n == name).unwrap();
+                Vec3::new(x, y, z)
+            };
+            let mut bad = Vec::new();
+            for infill in layout.infills {
+                let what = format!("the Infill at {}..{} in {}", infill.min, infill.max, infill.zone.name());
+                let (lo, hi) = infill.zone.volume();
+                let (min, max) = (infill.min, infill.max);
+                if infill.zone.map() != map || !min.cmplt(max).all() || min.x < lo.x || min.y < lo.z || max.x > hi.x || max.y > hi.z {
+                    bad.push(format!("{what} isn't inside its Zone"));
+                }
+                let (bottom, top) = infill.span();
+                let level = |y: f32| y > bottom - 0.5 && y < top;
+                for door in doors.iter().filter(|door| level(door.y)) {
+                    let gap = off(min, max, *door);
+                    if gap < 1.8 {
+                        bad.push(format!("{what} is {gap:.2} m from the Door at {door}"));
+                    }
+                }
+                for (_, lamp) in layout.lamps.iter().filter(|(_, lamp)| level(lamp.y)) {
+                    if off(min, max, *lamp) < 0.3 {
+                        bad.push(format!("{what} swallows the lamp at {lamp}"));
+                    }
+                }
+                for &(a, b, _) in layout.nav_edges {
+                    let (from, to) = (node(a), node(b));
+                    let crossed = (0..=40).map(|k| from.lerp(to, k as f32 / 40.0)).any(|at| level(at.y) && off(min, max, at) < ZOMBIE_RADIUS);
+                    if crossed {
+                        bad.push(format!("{what} stands on the edge {a} -> {b}"));
+                    }
+                }
+            }
+            assert!(bad.is_empty(), "on the {}: {bad:#?}", map.name());
+        }
+    }
+
+    /// Every indoor Zone of the Greybox has one to three Infills, and no two rooms come out the
+    /// same shape: no two have the same set of Infill sizes.
+    #[test]
+    fn every_indoor_greybox_zone_has_one_to_three_infills_and_no_two_share_a_shape() {
+        let layout = MapId::Greybox.layout();
+        let mut shapes: Vec<(ZoneId, Vec<(i32, i32)>)> = Vec::new();
+        for &zone in layout.zones.iter().filter(|&&zone| layout.indoor(zone)) {
+            let mut sizes: Vec<(i32, i32)> = layout
+                .infills
+                .iter()
+                .filter(|infill| infill.zone == zone)
+                .map(|infill| {
+                    let size = ((infill.max - infill.min) * 10.0).round();
+                    (size.x as i32, size.y as i32)
+                })
+                .collect();
+            assert!((1..=3).contains(&sizes.len()), "{} has {} Infills", zone.name(), sizes.len());
+            sizes.sort();
+            if let Some((other, _)) = shapes.iter().find(|(_, other)| *other == sizes) {
+                panic!("{} and {} share a shape", zone.name(), other.name());
+            }
+            shapes.push((zone, sizes));
         }
     }
 

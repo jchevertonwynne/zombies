@@ -81,6 +81,7 @@ pub(super) const QUARRY: Layout = Layout {
     special_spawns: &SPECIAL_SPAWNS,
     vents: &VENTS,
     raised_floors: &RAISED_FLOORS,
+    infills: &[],
     slopes: &SLOPES,
     sunken: &[SUMP],
     water: &[],
