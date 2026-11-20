@@ -1230,7 +1230,7 @@ pub fn view_muzzle_depth(class: crate::weapons::arsenal::WeaponClass) -> f32 {
 }
 
 /// Resolves a collider hit to the Zombie it belongs to, and the hit zone.
-fn zombie_for(hit: Entity, hit_areas: &Query<(&HitArea, &ChildOf)>) -> Option<(Entity, HitZone)> {
+pub(crate) fn zombie_for(hit: Entity, hit_areas: &Query<(&HitArea, &ChildOf)>) -> Option<(Entity, HitZone)> {
     hit_areas.get(hit).ok().map(|(area, parent)| (parent.parent(), area.0))
 }
 

@@ -1029,6 +1029,105 @@
       "licence": "CC0",
       "fetched": "2026-11-15",
       "notes": "2K HDR as a 512px BC6H cubemap via texpack --sky ; diffuse.ktx2 and specular.ktx2 are its prefiltered irradiance and GGX chain from the same run (the Village's sky lights its streets; the Dam's lights nothing)"
+    },
+    {
+      "path": "sprites/muzzle_01",
+      "name": "Kenney Particle Pack muzzle_01",
+      "source": "https://kenney.nl/assets/particle-pack",
+      "licence": "CC0 (Creative Commons Zero, as stated in the pack's License.txt)",
+      "fetched": "2026-11-20",
+      "archive": "https://opengameart.org/content/particle-pack-80-sprites",
+      "notes": "muzzle_01.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); a muzzle flash or impact sprite in src/weapons/muzzle.rs"
+    },
+    {
+      "path": "sprites/muzzle_02",
+      "name": "Kenney Particle Pack muzzle_02",
+      "source": "https://kenney.nl/assets/particle-pack",
+      "licence": "CC0 (Creative Commons Zero, as stated in the pack's License.txt)",
+      "fetched": "2026-11-20",
+      "archive": "https://opengameart.org/content/particle-pack-80-sprites",
+      "notes": "muzzle_02.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); a muzzle flash or impact sprite in src/weapons/muzzle.rs"
+    },
+    {
+      "path": "sprites/muzzle_03",
+      "name": "Kenney Particle Pack muzzle_03",
+      "source": "https://kenney.nl/assets/particle-pack",
+      "licence": "CC0 (Creative Commons Zero, as stated in the pack's License.txt)",
+      "fetched": "2026-11-20",
+      "archive": "https://opengameart.org/content/particle-pack-80-sprites",
+      "notes": "muzzle_03.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); a muzzle flash or impact sprite in src/weapons/muzzle.rs"
+    },
+    {
+      "path": "sprites/muzzle_04",
+      "name": "Kenney Particle Pack muzzle_04",
+      "source": "https://kenney.nl/assets/particle-pack",
+      "licence": "CC0 (Creative Commons Zero, as stated in the pack's License.txt)",
+      "fetched": "2026-11-20",
+      "archive": "https://opengameart.org/content/particle-pack-80-sprites",
+      "notes": "muzzle_04.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); a muzzle flash or impact sprite in src/weapons/muzzle.rs"
+    },
+    {
+      "path": "sprites/muzzle_05",
+      "name": "Kenney Particle Pack muzzle_05",
+      "source": "https://kenney.nl/assets/particle-pack",
+      "licence": "CC0 (Creative Commons Zero, as stated in the pack's License.txt)",
+      "fetched": "2026-11-20",
+      "archive": "https://opengameart.org/content/particle-pack-80-sprites",
+      "notes": "muzzle_05.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); a muzzle flash or impact sprite in src/weapons/muzzle.rs"
+    },
+    {
+      "path": "sprites/smoke_02",
+      "name": "Kenney Particle Pack smoke_02",
+      "source": "https://kenney.nl/assets/particle-pack",
+      "licence": "CC0 (Creative Commons Zero, as stated in the pack's License.txt)",
+      "fetched": "2026-11-20",
+      "archive": "https://opengameart.org/content/particle-pack-80-sprites",
+      "notes": "smoke_02.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); a muzzle flash or impact sprite in src/weapons/muzzle.rs"
+    },
+    {
+      "path": "sprites/smoke_03",
+      "name": "Kenney Particle Pack smoke_03",
+      "source": "https://kenney.nl/assets/particle-pack",
+      "licence": "CC0 (Creative Commons Zero, as stated in the pack's License.txt)",
+      "fetched": "2026-11-20",
+      "archive": "https://opengameart.org/content/particle-pack-80-sprites",
+      "notes": "smoke_03.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); a muzzle flash or impact sprite in src/weapons/muzzle.rs"
+    },
+    {
+      "path": "sprites/smoke_04",
+      "name": "Kenney Particle Pack smoke_04",
+      "source": "https://kenney.nl/assets/particle-pack",
+      "licence": "CC0 (Creative Commons Zero, as stated in the pack's License.txt)",
+      "fetched": "2026-11-20",
+      "archive": "https://opengameart.org/content/particle-pack-80-sprites",
+      "notes": "smoke_04.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); a muzzle flash or impact sprite in src/weapons/muzzle.rs"
+    },
+    {
+      "path": "sprites/dirt_01",
+      "name": "Kenney Particle Pack dirt_01",
+      "source": "https://kenney.nl/assets/particle-pack",
+      "licence": "CC0 (Creative Commons Zero, as stated in the pack's License.txt)",
+      "fetched": "2026-11-20",
+      "archive": "https://opengameart.org/content/particle-pack-80-sprites",
+      "notes": "dirt_01.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); a muzzle flash or impact sprite in src/weapons/muzzle.rs"
+    },
+    {
+      "path": "sprites/dirt_02",
+      "name": "Kenney Particle Pack dirt_02",
+      "source": "https://kenney.nl/assets/particle-pack",
+      "licence": "CC0 (Creative Commons Zero, as stated in the pack's License.txt)",
+      "fetched": "2026-11-20",
+      "archive": "https://opengameart.org/content/particle-pack-80-sprites",
+      "notes": "dirt_02.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); a muzzle flash or impact sprite in src/weapons/muzzle.rs"
+    },
+    {
+      "path": "sprites/dirt_03",
+      "name": "Kenney Particle Pack dirt_03",
+      "source": "https://kenney.nl/assets/particle-pack",
+      "licence": "CC0 (Creative Commons Zero, as stated in the pack's License.txt)",
+      "fetched": "2026-11-20",
+      "archive": "https://opengameart.org/content/particle-pack-80-sprites",
+      "notes": "dirt_03.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); a muzzle flash or impact sprite in src/weapons/muzzle.rs"
     }
   ]
 }

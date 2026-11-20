@@ -2732,6 +2732,12 @@ pub const TRACER_SECS: f32 = 0.05;
 pub const TRACER_WIDTH: f32 = 0.012;
 /// How far a teammate's tracer reaches along their aim, in metres. Theirs has no impact to end at.
 pub const TEAMMATE_TRACER_LENGTH: f32 = 14.0;
+/// With sprites loaded, a flash card is this much longer than it is wide, and an impact sprite is
+/// this many times the edge of the cube it replaces.
+pub const MUZZLE_FLASH_CARD_ASPECT: f32 = 1.6;
+pub const IMPACT_SPRITE_SCALE: f32 = 3.0;
+/// How bright a flash sprite is drawn (it is added to the scene, so above 1 blooms).
+pub const MUZZLE_FLASH_SPRITE_GAIN: f32 = 2.5;
 
 // Co-op: teammate footsteps
 /// Seconds between a walking teammate's footsteps, and a sprinting one's.
