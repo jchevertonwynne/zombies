@@ -68,6 +68,7 @@ fn main() {
             ),
             (
                 enemies::zombie::ZombiePlugin,
+                enemies::zombie::skin::SkinPlugin,
                 enemies::hellhound::HellhoundPlugin,
                 enemies::nova::NovaPlugin,
                 enemies::special::SpecialPlugin,

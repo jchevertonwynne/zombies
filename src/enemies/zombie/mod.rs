@@ -826,6 +826,8 @@ pub struct Dying {
     killed_by: Option<Attack>,
     /// The Player whose attack killed it.
     killer: Option<Entity>,
+    /// A hit to the head killed it.
+    headless: bool,
 }
 
 impl Dying {
@@ -837,6 +839,11 @@ impl Dying {
     /// The Player whose attack killed it, if one did.
     pub fn killer(&self) -> Option<Entity> {
         self.killer
+    }
+
+    /// Whether a hit to the head killed it.
+    pub fn headless(&self) -> bool {
+        self.headless
     }
 }
 
@@ -1821,7 +1828,7 @@ fn give_crawler_body(commands: &mut Commands, assets: &ZombieAssets, entity: Ent
     commands
         .entity(entity)
         .insert((Mesh3d(assets.crawler_body.clone()), Collider::sphere(CRAWLER_RADIUS)))
-        .despawn_children()
+        .queue(skin::despawn_body)
         .with_children(|crawler| body = Some(spawn_crawler_parts(crawler, assets, entity)));
     if let Some(body) = body {
         commands.entity(entity).insert(body);
@@ -1945,6 +1952,7 @@ pub fn apply_damage(
             .insert(Dying {
                 killed_by: Some(request.attack),
                 killer: request.player,
+                headless: request.zone == HitZone::Head,
                 ..default()
             })
             .remove::<(Collider, CollisionLayers)>();
@@ -2043,6 +2051,7 @@ fn sink(mut dying: Query<(&mut Dying, &mut Transform, Option<&Zombie>)>, time: R
 }
 
 pub mod rig;
+pub mod skin;
 
 #[cfg(test)]
 pub mod headless;
