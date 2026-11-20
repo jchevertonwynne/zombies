@@ -244,7 +244,7 @@ impl Material {
 
     /// What it sounds like underfoot, if it's a floor: the family whose footstep slot plays on it.
     pub fn family(self) -> FloorFamily {
-        use Material::*;
+        use self::Material::*;
         match self {
             DarkWoodenPlanks | WeatheredPlanks | DiagonalParquet | BlackPaintedPlanks | BarkBrown02 => FloorFamily::Wood,
             FloorTiles06 | TerracottaFloorTiles | CheckeredPavementTiles | OldMosaicFloor | SlateFloor02 | ConcreteTileFacade => {
