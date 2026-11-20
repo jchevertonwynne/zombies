@@ -2204,11 +2204,17 @@ pub(crate) mod tests {
         }
     }
 
-    /// Every indoor Zone of the Greybox has one to three Infills, and no two rooms come out the
-    /// same shape: no two have the same set of Infill sizes.
+    /// Every indoor Zone of the Greybox and the Quarry has one to three Infills, and no two rooms
+    /// of a Map come out the same shape: no two have the same set of Infill sizes.
     #[test]
     fn every_indoor_greybox_zone_has_one_to_three_infills_and_no_two_share_a_shape() {
-        let layout = MapId::Greybox.layout();
+        for map in [MapId::Greybox, MapId::Quarry] {
+            every_indoor_zone_has_one_to_three_infills_and_no_two_share_a_shape(map);
+        }
+    }
+
+    fn every_indoor_zone_has_one_to_three_infills_and_no_two_share_a_shape(map: MapId) {
+        let layout = map.layout();
         let mut shapes: Vec<(ZoneId, Vec<(i32, i32)>)> = Vec::new();
         for &zone in layout.zones.iter().filter(|&&zone| layout.indoor(zone)) {
             let mut sizes: Vec<(i32, i32)> = layout

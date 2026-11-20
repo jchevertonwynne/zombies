@@ -104,6 +104,13 @@ const QUARRY: &[View] = &[
     view("jump-pad", (6.0, 0.0, -9.0), (6.0, -3.0), -0.35, false),
     view("loading-dock", (22.0, 0.0, -4.0), (30.0, -18.0), -0.05, false),
     view("loading-dock-wagons", (22.0, 0.0, -18.0), (28.0, -4.0), -0.05, false),
+    // The Infills that the room views above leave behind the camera.
+    view("infill-pump-house-corners", (0.0, 0.0, -22.5), (0.0, -30.0), -0.05, false),
+    view("infill-crusher-shed-breast", (-10.0, T1, 4.0), (-10.0, 16.0), -0.05, false),
+    view("infill-winding-house-pier", (12.0, T2, 24.0), (13.6, 16.0), -0.05, false),
+    view("infill-winding-house-corner", (12.0, T2, 18.5), (19.0, 27.0), -0.05, false),
+    view("infill-offices-breast", (-8.0, T2, 19.0), (-15.8, 28.0), -0.05, false),
+    view("infill-loading-dock-corners", (28.0, 0.0, -11.0), (34.0, -3.0), -0.05, false),
 ];
 
 /// The Dam: a view of each of its 12 Zones, then a Generator's plate from off it and from on it,
