@@ -21,6 +21,7 @@ use crate::run::round::zombie_health;
 use crate::players::shellshock::Shellshock;
 use crate::state::{InRun, world_runs};
 use crate::tuning::*;
+use crate::enemies::zombie::rig::Rig;
 use crate::enemies::zombie::{Attack, DamageZombie, Dying, HitArea, HitZone, Rising, Zombie};
 
 /// Whether a normal spawn becomes a Nova Crawler: only with them switched `on` in Settings and
@@ -206,6 +207,7 @@ fn spawn_body(commands: &mut Commands, assets: &NovaAssets, centre: Vec3, health
         InRun,
         Name::new("Nova Crawler"),
         Zombie::nova_crawler(health, centre),
+        Rig::Bare,
         Route::default(),
         Mesh3d(assets.body.clone()),
         MeshMaterial3d(assets.skin.clone()),

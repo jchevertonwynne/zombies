@@ -1216,6 +1216,42 @@
       "fetched": "2026-11-20"
     },
     {
+      "path": "enemies/zombie/napalm.glb",
+      "name": "The Napalm Zombie: a bulky MakeHuman body under twin fuel tanks, UAL skeleton",
+      "source": "tools/zombie/build_bodies.py --variant napalm from MakeHuman (MPFB 2.0.18 basemesh, https://extensions.blender.org/add-ons/mpfb/), the official CC0 MakeHuman clothes namuhekam_male_polo_shirt (a shirts pack, see tools/zombie/build.sh) and cortu_jeans_shorts (a pants pack), gear (two tanks and a flame) built in the script, and Quaternius' Universal Animation Library 2 (https://opengameart.org/content/universal-animation-library-2): its skeleton, mannequin skin weights and Zombie_Idle_Loop",
+      "licence": "CC0 (MakeHuman exports and official assets; the clothes' .mhclo files state CC0; UAL2's OpenGameArt page and License.txt state CC0 1.0)",
+      "fetched": "2026-11-20",
+      "archive": "http://web.archive.org/web/20260124011129/https://opengameart.org/sites/default/files/universal_animation_library_2standard.zip",
+      "notes": "UAL2 is used from the OpenGameArt copy, captured 2026-01-24, before Quaternius' 2026-08-28 licence change. Skeleton and weights only: no Quaternius mesh is in the glTF. Textures are not embedded; the game dresses the parts from enemies/zombie/ (the clothes maps are the civilian's, tinted, and the gear is flat materials made in the game)"
+    },
+    {
+      "path": "enemies/zombie/nova.glb",
+      "name": "The Nova Crawler: a wiry MakeHuman body in a gas mask with canisters on its back, UAL skeleton",
+      "source": "tools/zombie/build_bodies.py --variant nova from MakeHuman (MPFB 2.0.18 basemesh, https://extensions.blender.org/add-ons/mpfb/), the official CC0 MakeHuman clothes toigo_basic_tucked_t-shirt (a shirts pack, see tools/zombie/build.sh) and cortu_cargo_pants (a pants pack), gear (a mask, two lenses and two canisters) built in the script, and Quaternius' Universal Animation Library 2 (https://opengameart.org/content/universal-animation-library-2): its skeleton, mannequin skin weights and Zombie_Idle_Loop",
+      "licence": "CC0 (MakeHuman exports and official assets; the clothes' .mhclo files state CC0; UAL2's OpenGameArt page and License.txt state CC0 1.0)",
+      "fetched": "2026-11-20",
+      "archive": "http://web.archive.org/web/20260124011129/https://opengameart.org/sites/default/files/universal_animation_library_2standard.zip",
+      "notes": "UAL2 is used from the OpenGameArt copy, captured 2026-01-24, before Quaternius' 2026-08-28 licence change. Skeleton and weights only: no Quaternius mesh is in the glTF. The arms are stretched in the mesh only. Textures are not embedded; the game dresses the parts from enemies/zombie/ (the clothes maps are the soldier's, tinted, and the gear is flat materials made in the game)"
+    },
+    {
+      "path": "enemies/zombie/sapper.glb",
+      "name": "The Sapper: a huge MakeHuman body in a helmet, chest and back plates and pauldrons, UAL skeleton",
+      "source": "tools/zombie/build_bodies.py --variant sapper from MakeHuman (MPFB 2.0.18 basemesh, https://extensions.blender.org/add-ons/mpfb/), the official CC0 MakeHuman clothes toigo_basic_tucked_t-shirt (a shirts pack, see tools/zombie/build.sh) and cortu_cargo_pants (a pants pack), armour built in the script, and Quaternius' Universal Animation Library 2 (https://opengameart.org/content/universal-animation-library-2): its skeleton, mannequin skin weights and Zombie_Idle_Loop",
+      "licence": "CC0 (MakeHuman exports and official assets; the clothes' .mhclo files state CC0; UAL2's OpenGameArt page and License.txt state CC0 1.0)",
+      "fetched": "2026-11-20",
+      "archive": "http://web.archive.org/web/20260124011129/https://opengameart.org/sites/default/files/universal_animation_library_2standard.zip",
+      "notes": "UAL2 is used from the OpenGameArt copy, captured 2026-01-24, before Quaternius' 2026-08-28 licence change. Skeleton and weights only: no Quaternius mesh is in the glTF. The helmet is its own part, which the game hides when the Sapper loses it. Textures are not embedded; the game dresses the parts from enemies/zombie/ (the clothes maps are the soldier's, tinted, and the armour is a flat material made in the game)"
+    },
+    {
+      "path": "enemies/zombie/shrieker.glb",
+      "name": "The Shrieker: a starved, long-armed MakeHuman body, UAL skeleton",
+      "source": "tools/zombie/build_bodies.py --variant shrieker from MakeHuman (MPFB 2.0.18 basemesh, https://extensions.blender.org/add-ons/mpfb/), the official CC0 MakeHuman clothes toigo_fisherman_sweater (a shirts pack, see tools/zombie/build.sh) and toigo_wool_pants (a pants pack), and Quaternius' Universal Animation Library 2 (https://opengameart.org/content/universal-animation-library-2): its skeleton, mannequin skin weights and Zombie_Idle_Loop",
+      "licence": "CC0 (MakeHuman exports and official assets; the clothes' .mhclo files state CC0; UAL2's OpenGameArt page and License.txt state CC0 1.0)",
+      "fetched": "2026-11-20",
+      "archive": "http://web.archive.org/web/20260124011129/https://opengameart.org/sites/default/files/universal_animation_library_2standard.zip",
+      "notes": "UAL2 is used from the OpenGameArt copy, captured 2026-01-24, before Quaternius' 2026-08-28 licence change. Skeleton and weights only: no Quaternius mesh is in the glTF. The arms are stretched 1.4x in the mesh only, so every clip fits. Textures are not embedded; the game dresses the parts from enemies/zombie/ (the clothes maps are the labourer's, tinted)"
+    },
+    {
       "path": "enemies/zombie/skin/color.ktx2",
       "name": "Zombie decayed skin map (shared by every body)",
       "source": "tools/zombie/make_textures.py from the MakeHuman skin pack skins01, 'blindsaypatten_uniform_skin_texture' (https://files2.makehumancommunity.org/asset_packs/skins01/), mottled procedurally, via texpack --color --opacity",

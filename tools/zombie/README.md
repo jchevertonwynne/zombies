@@ -12,6 +12,15 @@ throwaway Blender profile (`BLENDER_USER_RESOURCES`), so your own Blender is lef
   leaves (the neck, the thighs) are capped, with UVs on a dark-red patch in the corner of each map.
   The rig is UAL2's own armature, so every clip fits every body. No Quaternius mesh is used, only its
   skeleton, weights and clips.
+- The same script makes the four specials' bodies (`--variant napalm|shrieker|sapper|nova`), each its
+  own build in clothes whose maps a plain body already uses (so no new texture), and each with its
+  own silhouette from gear built in Blender and bound rigidly to one bone: the Napalm's twin fuel
+  tanks and the flame burning above them; the Shrieker's starved build and arms stretched 1.4x
+  (the mesh only, so every clip still fits); the Sapper's bulk, helmet, chest and back plates and
+  pauldrons; the Nova Crawler's gas mask and lenses (parts of the head, so they go with it) and the
+  canisters on its back. A gear part's name says what the game does with it (`...Head` goes with the
+  head, `...Helmet` is the Sapper's and comes off, `...Tank`, `...Plate`, `...Pauldron` and
+  `...Canister` stay), and its material (`ZombieGear` or `ZombieGlow`) is made in the game.
 - `build_clips.py`: the one clips glTF, a bare skeleton. UAL2's `Zombie_Idle_Loop`,
   `Zombie_Walk_Fwd_Loop` and `Zombie_Scratch` as they are; UAL1's (the OpenGameArt mirror, a
   different `DEF-*` skeleton) `Jog_Fwd_Loop`, `Sprint_Loop`, `Death01` and `Hit_Chest` retargeted by
