@@ -9,25 +9,49 @@
       "notes": "Placeholders until the Audio lane replaces them; a more specific entry covers each real recording"
     },
     {
-      "path": "audio/crawl_drag_1.ogg",
-      "name": "Freesound 578493, Dragging a body across a concrete floor 2 (PostProdDog)",
-      "source": "https://freesound.org/people/PostProdDog/sounds/578493/",
+      "path": "audio/ammo_mod_blast_furnace_1.ogg",
+      "name": "Freesound 761330, Freesound - Magic Fire Spell Movement (TheLittleCrow)",
+      "source": "https://freesound.org/people/TheLittleCrow/sounds/761330/",
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
-      "path": "audio/crawler_drag_1.ogg",
-      "name": "Freesound 578493, Dragging a body across a concrete floor 2 (PostProdDog)",
-      "source": "https://freesound.org/people/PostProdDog/sounds/578493/",
+      "path": "audio/ammo_mod_dead_wire_1.ogg",
+      "name": "Freesound 582631, Freesound - Long Crackle 04.wav (ironcross32)",
+      "source": "https://freesound.org/people/ironcross32/sounds/582631/",
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
-      "path": "audio/crawler_vocal_1.ogg",
-      "name": "Freesound 555417, Zombie Growl 5 (tonsil5)",
-      "source": "https://freesound.org/people/tonsil5/sounds/555417/",
+      "path": "audio/ammo_mod_fireworks_1.ogg",
+      "name": "Freesound 212683, Freesound - Firework Explosion 3 (deleted_user_3544904)",
+      "source": "https://freesound.org/people/deleted_user_3544904/sounds/212683/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/ammo_mod_thunder_wall_1.ogg",
+      "name": "Freesound 200990, Freesound - rayjensen - thunder-crack 41k 16bit mono.wav (rayjensen)",
+      "source": "https://freesound.org/people/rayjensen/sounds/200990/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/ammo_mod_turned_1.ogg",
+      "name": "Freesound 455206, Freesound - Magic Spell 01.wav (LilMati)",
+      "source": "https://freesound.org/people/LilMati/sounds/455206/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/boss_howl_1.ogg",
+      "name": "Freesound 489901, Freesound - Scary Monster Roar #2 (NicknameLarry)",
+      "source": "https://freesound.org/people/NicknameLarry/sounds/489901/",
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
@@ -49,6 +73,38 @@
       "notes": "Trimmed, normalised to -26 LUFS (foley), mono, OGG q4, via tools/audio/process.py"
     },
     {
+      "path": "audio/box_teddy_1.ogg",
+      "name": "Freesound 879799, Freesound - Music Box Chime (Qvantor)",
+      "source": "https://freesound.org/people/Qvantor/sounds/879799/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/bridge_bell_1.ogg",
+      "name": "Freesound 168709, Freesound - Bell Ring (qubodup)",
+      "source": "https://freesound.org/people/qubodup/sounds/168709/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/bridge_clunk_1.ogg",
+      "name": "Freesound 399449, Freesound - cemeterygate16.aif (celadon_noise)",
+      "source": "https://freesound.org/people/celadon_noise/sounds/399449/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/bridge_grind_1.ogg",
+      "name": "Freesound 813062, Freesound - Sound Design Elements-Robot mechanism-003 (AudioPapkin)",
+      "source": "https://freesound.org/people/AudioPapkin/sounds/813062/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
       "path": "audio/buy_1.ogg",
       "name": "Freesound 878619, Purchase Ka-Ching (Qvantor)",
       "source": "https://freesound.org/people/Qvantor/sounds/878619/",
@@ -65,6 +121,62 @@
       "notes": "Trimmed, normalised to -20 LUFS (ui), stereo, OGG q4, via tools/audio/process.py"
     },
     {
+      "path": "audio/claymore_plant_1.ogg",
+      "name": "Freesound 51169, Freesound - Telephone Placed In Dock Beep.wav (RutgerMuller)",
+      "source": "https://freesound.org/people/RutgerMuller/sounds/51169/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/crawl_drag_1.ogg",
+      "name": "Freesound 578493, Dragging a body across a concrete floor 2 (PostProdDog)",
+      "source": "https://freesound.org/people/PostProdDog/sounds/578493/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/crawler_drag_1.ogg",
+      "name": "Freesound 578493, Dragging a body across a concrete floor 2 (PostProdDog)",
+      "source": "https://freesound.org/people/PostProdDog/sounds/578493/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/crawler_gib_1.ogg",
+      "name": "Freesound 641046, Freesound - Gore Impact - \"LOT OF HEART\" (magnuswaker)",
+      "source": "https://freesound.org/people/magnuswaker/sounds/641046/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/crawler_gib_2.ogg",
+      "name": "Freesound 414296, Freesound - goreSplat.wav (ThefitzyG)",
+      "source": "https://freesound.org/people/ThefitzyG/sounds/414296/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/crawler_vocal_1.ogg",
+      "name": "Freesound 555417, Zombie Growl 5 (tonsil5)",
+      "source": "https://freesound.org/people/tonsil5/sounds/555417/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/dive_land_1.ogg",
+      "name": "Freesound 673424, Freesound - Falling body hits the floor (courtneyeck)",
+      "source": "https://freesound.org/people/courtneyeck/sounds/673424/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
       "path": "audio/door_open_1.ogg",
       "name": "Freesound 830452, Door creak (Ixwolf)",
       "source": "https://freesound.org/people/Ixwolf/sounds/830452/",
@@ -73,9 +185,81 @@
       "notes": "Trimmed, normalised to -26 LUFS (foley), mono, OGG q4, via tools/audio/process.py"
     },
     {
+      "path": "audio/down_1.ogg",
+      "name": "Freesound 346694, Freesound - Body fall_02.wav (deleted_user_2104797)",
+      "source": "https://freesound.org/people/deleted_user_2104797/sounds/346694/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/elite_spawn_1.ogg",
+      "name": "Freesound 262431, Freesound - Monster Growl 1.wav (jackieAZ)",
+      "source": "https://freesound.org/people/jackieAZ/sounds/262431/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
       "path": "audio/empty_click_1.ogg",
       "name": "Freesound 674568, 9mm Handgun Being Dry Fired (ser%C3%B8ut%C5%8Dnin--depriv%C9%99d)",
       "source": "https://freesound.org/people/ser%C3%B8ut%C5%8Dnin--depriv%C9%99d/sounds/674568/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/explosion_1.ogg",
+      "name": "Freesound 482993, Freesound - large explosion 1 (V-ktor)",
+      "source": "https://freesound.org/people/V-ktor/sounds/482993/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/explosion_2.ogg",
+      "name": "Freesound 336011, Freesound - Sharp Explosion 4 (of 5) (Rudmer_Rotteveel)",
+      "source": "https://freesound.org/people/Rudmer_Rotteveel/sounds/336011/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/fire_burn_1.ogg",
+      "name": "Freesound 158476, Freesound - fire burning.mp3 (SoundCollectah)",
+      "source": "https://freesound.org/people/SoundCollectah/sounds/158476/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/fire_pool_1.ogg",
+      "name": "Freesound 650574, Freesound - fire crackling loop.wav (soundofsong)",
+      "source": "https://freesound.org/people/soundofsong/sounds/650574/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/fire_sale_1.ogg",
+      "name": "Freesound 215557, Freesound - DIN Alarm European.MP3 (Fizzlecube)",
+      "source": "https://freesound.org/people/Fizzlecube/sounds/215557/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/flamethrower_1.ogg",
+      "name": "Freesound 459884, Freesound - Flamethrower (LilMati)",
+      "source": "https://freesound.org/people/LilMati/sounds/459884/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/footstep_1.ogg",
+      "name": "Freesound 166509, Freesound - concrete footstep 1 (Yoyodaman234)",
+      "source": "https://freesound.org/people/Yoyodaman234/sounds/166509/",
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
@@ -161,6 +345,22 @@
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
+      "path": "audio/generator_held_1.ogg",
+      "name": "Freesound 842647, Freesound - Generator whirring (yahsay)",
+      "source": "https://freesound.org/people/yahsay/sounds/842647/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/generator_lost_1.ogg",
+      "name": "Freesound 852408, Freesound - the engine finally stalled (monosfera)",
+      "source": "https://freesound.org/people/monosfera/sounds/852408/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
       "path": "audio/gunshot_launcher_1.ogg",
       "name": "Freesound 162402, M203 Grenade Launcher 1 (qubodup)",
       "source": "https://freesound.org/people/qubodup/sounds/162402/",
@@ -241,6 +441,14 @@
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
+      "path": "audio/helmet_off_1.ogg",
+      "name": "Freesound 550295, Freesound - Helmet drop Impact (adr1911)",
+      "source": "https://freesound.org/people/adr1911/sounds/550295/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
       "path": "audio/hit_1.ogg",
       "name": "Freesound 868718, BodyHit_5 (BenParamoreAudio)",
       "source": "https://freesound.org/people/BenParamoreAudio/sounds/868718/",
@@ -313,9 +521,49 @@
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
+      "path": "audio/low_health_1.ogg",
+      "name": "Freesound 332819, Freesound - heartbeat-80bpm-limited.wav (loudernoises)",
+      "source": "https://freesound.org/people/loudernoises/sounds/332819/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/mainframe_link_1.ogg",
+      "name": "Freesound 431901, Freesound - SciFi, Beeping Technology 02.wav (LilMati)",
+      "source": "https://freesound.org/people/LilMati/sounds/431901/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/monkey_bomb_1.ogg",
+      "name": "Freesound 336609, Freesound - music box - wind up 06.wav (Anthousai)",
+      "source": "https://freesound.org/people/Anthousai/sounds/336609/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
       "path": "audio/napalm_explode_1.ogg",
       "name": "Freesound 431174, Fireball Explosion (Blankened)",
       "source": "https://freesound.org/people/Blankened/sounds/431174/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/napalm_heat_1.ogg",
+      "name": "Freesound 363091, Freesound - Fire Crackle with Roaring Chimney (TheWoodlandNomad)",
+      "source": "https://freesound.org/people/TheWoodlandNomad/sounds/363091/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/napalm_idle_1.ogg",
+      "name": "Freesound 444393, Freesound - Fire Crackle.wav (MootMcnoodles)",
+      "source": "https://freesound.org/people/MootMcnoodles/sounds/444393/",
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
@@ -332,6 +580,22 @@
       "path": "audio/napalm_windup_1.ogg",
       "name": "Freesound 244926, fire-whoosh (hnhnh)",
       "source": "https://freesound.org/people/hnhnh/sounds/244926/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/nova_attack_1.ogg",
+      "name": "Freesound 807383, Freesound - Monster screech (Elth2010)",
+      "source": "https://freesound.org/people/Elth2010/sounds/807383/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/nova_burst_1.ogg",
+      "name": "Freesound 698400, Freesound - Dry Controlled Explosion (ninoing)",
+      "source": "https://freesound.org/people/ninoing/sounds/698400/",
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
@@ -361,6 +625,22 @@
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
+      "path": "audio/nuke_blast_1.ogg",
+      "name": "Freesound 149966, Freesound - Muffled Distant Explosion (NenadSimic)",
+      "source": "https://freesound.org/people/NenadSimic/sounds/149966/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/offer_pick_1.ogg",
+      "name": "Freesound 583079, Freesound - File Select (metallic wet, hollow) (Breviceps)",
+      "source": "https://freesound.org/people/Breviceps/sounds/583079/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
       "path": "audio/pap_process_1.ogg",
       "name": "Freesound 871231, Short Machine Sound 7 (qubodup)",
       "source": "https://freesound.org/people/qubodup/sounds/871231/",
@@ -369,12 +649,36 @@
       "notes": "Trimmed, normalised to -26 LUFS (foley), mono, OGG q4, via tools/audio/process.py"
     },
     {
+      "path": "audio/pap_ready_1.ogg",
+      "name": "Freesound 868291, Freesound - typewriter_bell.wav (Mihacappy)",
+      "source": "https://freesound.org/people/Mihacappy/sounds/868291/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/pap_shot_layer_1.ogg",
+      "name": "Freesound 187119, Freesound - unfa's Laser Weapon Sounds (unfa)",
+      "source": "https://freesound.org/people/unfa/sounds/187119/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
       "path": "audio/perk_drink_1.ogg",
       "name": "Freesound 534336, Drink_Gulp (Defaultv)",
       "source": "https://freesound.org/people/Defaultv/sounds/534336/",
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Trimmed, normalised to -26 LUFS (foley), stereo, OGG q4, via tools/audio/process.py"
+    },
+    {
+      "path": "audio/perk_machine_leave_1.ogg",
+      "name": "Freesound 208111, Freesound - Poof of Smoke (Planman)",
+      "source": "https://freesound.org/people/Planman/sounds/208111/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
       "path": "audio/plank_rebuild_1.ogg",
@@ -388,6 +692,22 @@
       "path": "audio/plank_tear_1.ogg",
       "name": "Freesound 569694, Wood Break Planks Multiple 9 (Sheyvan)",
       "source": "https://freesound.org/people/Sheyvan/sounds/569694/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/player_hurt_1.ogg",
+      "name": "Freesound 413186, Freesound - male_hurt9.ogg (micahlg)",
+      "source": "https://freesound.org/people/micahlg/sounds/413186/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/player_hurt_2.ogg",
+      "name": "Freesound 547209, Freesound - Voice_AdultMale_PainGrunts_09.wav (MrFossy)",
+      "source": "https://freesound.org/people/MrFossy/sounds/547209/",
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
@@ -409,9 +729,81 @@
       "notes": "Trimmed, normalised to -26 LUFS (foley), stereo, OGG q4, via tools/audio/process.py"
     },
     {
+      "path": "audio/power_restore_1.ogg",
+      "name": "Freesound 740268, Freesound - switch on power surge outlet 1 (FOSSarts)",
+      "source": "https://freesound.org/people/FOSSarts/sounds/740268/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/powerup_hum_1.ogg",
+      "name": "Freesound 632344, Freesound - Shimmer (adh.dreaming)",
+      "source": "https://freesound.org/people/adh.dreaming/sounds/632344/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/powerup_pickup_1.ogg",
+      "name": "Freesound 735168, Freesound - Item Pickup Chime (Irolan)",
+      "source": "https://freesound.org/people/Irolan/sounds/735168/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/proc_blast_1.ogg",
+      "name": "Freesound 156498, Freesound - Small Far Explosion (unfa)",
+      "source": "https://freesound.org/people/unfa/sounds/156498/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/proc_frost_1.ogg",
+      "name": "Freesound 263926, Freesound - Ice 3 (JarredGibb)",
+      "source": "https://freesound.org/people/JarredGibb/sounds/263926/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/ray_gun_1.ogg",
+      "name": "Freesound 635426, Freesound - Futuristic shot #3 (BloodPixelHero)",
+      "source": "https://freesound.org/people/BloodPixelHero/sounds/635426/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
       "path": "audio/reload_1.ogg",
       "name": "Freesound 686661, reload-gun (DeltaCode)",
       "source": "https://freesound.org/people/DeltaCode/sounds/686661/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/sapper_death_1.ogg",
+      "name": "Freesound 185366, Freesound - Monster.wav (anwul)",
+      "source": "https://freesound.org/people/anwul/sounds/185366/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/sapper_idle_1.ogg",
+      "name": "Freesound 844096, Freesound - heavy_breathing_beast (perspektywa_tn)",
+      "source": "https://freesound.org/people/perspektywa_tn/sounds/844096/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/sapper_sabotage_1.ogg",
+      "name": "Freesound 593463, Freesound - Grinding Metal (georgesavic)",
+      "source": "https://freesound.org/people/georgesavic/sounds/593463/",
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
@@ -425,9 +817,89 @@
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
+      "path": "audio/sapper_smash_1.ogg",
+      "name": "Freesound 512246, Freesound - Crash (NeoSpica)",
+      "source": "https://freesound.org/people/NeoSpica/sounds/512246/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/sapper_step_1.ogg",
+      "name": "Freesound 813056, Freesound - Big robot footstep (AudioPapkin)",
+      "source": "https://freesound.org/people/AudioPapkin/sounds/813056/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/sapper_stun_1.ogg",
+      "name": "Freesound 264779, Freesound - Civilian Stun Gun 1/10s zap (AnthonyChan0)",
+      "source": "https://freesound.org/people/AnthonyChan0/sounds/264779/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/sapper_windup_1.ogg",
+      "name": "Freesound 546400, Freesound - Angry Creature (szegvari)",
+      "source": "https://freesound.org/people/szegvari/sounds/546400/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/scream_hit_1.ogg",
+      "name": "Freesound 840311, Freesound - Loud High Pitched Metal Screech (Robo9418)",
+      "source": "https://freesound.org/people/Robo9418/sounds/840311/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/scream_pop_1.ogg",
+      "name": "Freesound 471204, Freesound - poof.wav (AuDRoger)",
+      "source": "https://freesound.org/people/AuDRoger/sounds/471204/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/self_revive_1.ogg",
+      "name": "Freesound 338197, Freesound - Inhale / Gasp (ceoux)",
+      "source": "https://freesound.org/people/ceoux/sounds/338197/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/shellshock_1.ogg",
+      "name": "Freesound 377206, Freesound - tinnitus.mp3 (tnturner)",
+      "source": "https://freesound.org/people/tnturner/sounds/377206/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
       "path": "audio/shrieker_death_1.ogg",
       "name": "Freesound 398802, Monster Scream Death (DangAdv64)",
       "source": "https://freesound.org/people/DangAdv64/sounds/398802/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/shrieker_idle_1.ogg",
+      "name": "Freesound 614511, Freesound - Synthetic Moan (secondbody)",
+      "source": "https://freesound.org/people/secondbody/sounds/614511/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/shrieker_rise_1.ogg",
+      "name": "Freesound 507451, Freesound - Ghost Kid sigh, less verb (HorrorAudio)",
+      "source": "https://freesound.org/people/HorrorAudio/sounds/507451/",
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
@@ -441,12 +913,108 @@
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
+      "path": "audio/shrieker_windup_1.ogg",
+      "name": "Freesound 83971, Freesound - girlscreamgoup.mp3 (theredshore)",
+      "source": "https://freesound.org/people/theredshore/sounds/83971/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/splash_1.ogg",
+      "name": "Freesound 398032, Freesound - Splash (swordofkings128)",
+      "source": "https://freesound.org/people/swordofkings128/sounds/398032/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/stance_rustle_1.ogg",
+      "name": "Freesound 641387, Freesound - Clothing Ruffle 04.wav (WhiteFire43)",
+      "source": "https://freesound.org/people/WhiteFire43/sounds/641387/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/teleporter_arrive_1.ogg",
+      "name": "Freesound 735062, Freesound - Fast Warp In (GammaGool)",
+      "source": "https://freesound.org/people/GammaGool/sounds/735062/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/teleporter_charge_1.ogg",
+      "name": "Freesound 375925, Freesound - Machine Charge.wav (Glitchedtones)",
+      "source": "https://freesound.org/people/Glitchedtones/sounds/375925/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/teleporter_fire_1.ogg",
+      "name": "Freesound 441225, Freesound - Teleport (LilMati)",
+      "source": "https://freesound.org/people/LilMati/sounds/441225/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/thundergun_1.ogg",
+      "name": "Freesound 862332, Freesound - explosion (11belowstudio)",
+      "source": "https://freesound.org/people/11belowstudio/sounds/862332/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/tide_bell_1.ogg",
+      "name": "Freesound 426642, Freesound - church bell ringing field recording with tascam dr-70d & Rode NTG4+ (Garuda1982)",
+      "source": "https://freesound.org/people/Garuda1982/sounds/426642/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/tide_rush_1.ogg",
+      "name": "Freesound 523022, Freesound - Rushing River Loop (ThanksForTheInspiration)",
+      "source": "https://freesound.org/people/ThanksForTheInspiration/sounds/523022/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/trap_active_1.ogg",
+      "name": "Freesound 531421, Freesound - Electric Zap Loop (Resaural)",
+      "source": "https://freesound.org/people/Resaural/sounds/531421/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
       "path": "audio/trap_kill_1.ogg",
       "name": "Freesound 853286, Tesla Tower Zap (el_boss)",
       "source": "https://freesound.org/people/el_boss/sounds/853286/",
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Trimmed, normalised to -26 LUFS (foley), mono, OGG q4, via tools/audio/process.py"
+    },
+    {
+      "path": "audio/wade_step_1.ogg",
+      "name": "Freesound 861369, Freesound - Splashing Footsteps Shallow Water (ChristopherJngs)",
+      "source": "https://freesound.org/people/ChristopherJngs/sounds/861369/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/washed_up_1.ogg",
+      "name": "Freesound 157835, Freesound - Guy retching water and gasping for air.wav (Tonsofpaperbrokenpen)",
+      "source": "https://freesound.org/people/Tonsofpaperbrokenpen/sounds/157835/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
       "path": "audio/weapon_swap_1.ogg",
@@ -460,6 +1028,22 @@
       "path": "audio/weapon_swap_2.ogg",
       "name": "Freesound 879839, .22_Cal_Semi_Auto_Chambering/Cocking (KBro935)",
       "source": "https://freesound.org/people/KBro935/sounds/879839/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/zipline_land_1.ogg",
+      "name": "Freesound 536766, Freesound - Thud.ogg (egomassive)",
+      "source": "https://freesound.org/people/egomassive/sounds/536766/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/zipline_ride_1.ogg",
+      "name": "Freesound 170614, Freesound - Pulley Sounds (Sassaby)",
+      "source": "https://freesound.org/people/Sassaby/sounds/170614/",
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
@@ -489,9 +1073,25 @@
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
+      "path": "audio/zombie_riser_1.ogg",
+      "name": "Freesound 849840, Freesound - shoveling-dirt (JeffPearson)",
+      "source": "https://freesound.org/people/JeffPearson/sounds/849840/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
       "path": "audio/zombie_sprinter_idle_1.ogg",
       "name": "Freesound 204821, Zombie Growl 01 (Ezcah)",
       "source": "https://freesound.org/people/Ezcah/sounds/204821/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/zombie_wade_1.ogg",
+      "name": "Freesound 679410, Freesound - Coming up from underwater (adviseme333)",
+      "source": "https://freesound.org/people/adviseme333/sounds/679410/",
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
