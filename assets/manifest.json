@@ -33,6 +33,46 @@
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
+      "path": "audio/box_move_1.ogg",
+      "name": "Freesound 715784, Magic Whoosh (DustyWind)",
+      "source": "https://freesound.org/people/DustyWind/sounds/715784/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Trimmed, normalised to -26 LUFS (foley), mono, OGG q4, via tools/audio/process.py"
+    },
+    {
+      "path": "audio/box_spin_1.ogg",
+      "name": "Freesound 195355, Music Box (jmggs), three plucked notes",
+      "source": "https://freesound.org/people/jmggs@hotmail.com/sounds/195355/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Trimmed, normalised to -26 LUFS (foley), mono, OGG q4, via tools/audio/process.py"
+    },
+    {
+      "path": "audio/buy_1.ogg",
+      "name": "Freesound 878619, Purchase Ka-Ching (Qvantor)",
+      "source": "https://freesound.org/people/Qvantor/sounds/878619/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Trimmed, normalised to -20 LUFS (ui), stereo, OGG q4, via tools/audio/process.py"
+    },
+    {
+      "path": "audio/cant_afford_1.ogg",
+      "name": "Freesound 493163, Buzzer sounds Wrong answer / Error (Breviceps), first buzz",
+      "source": "https://freesound.org/people/Breviceps/sounds/493163/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Trimmed, normalised to -20 LUFS (ui), stereo, OGG q4, via tools/audio/process.py"
+    },
+    {
+      "path": "audio/door_open_1.ogg",
+      "name": "Freesound 830452, Door creak (Ixwolf)",
+      "source": "https://freesound.org/people/Ixwolf/sounds/830452/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Trimmed, normalised to -26 LUFS (foley), mono, OGG q4, via tools/audio/process.py"
+    },
+    {
       "path": "audio/empty_click_1.ogg",
       "name": "Freesound 674568, 9mm Handgun Being Dry Fired (ser%C3%B8ut%C5%8Dnin--depriv%C9%99d)",
       "source": "https://freesound.org/people/ser%C3%B8ut%C5%8Dnin--depriv%C9%99d/sounds/674568/",
@@ -321,6 +361,22 @@
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
+      "path": "audio/pap_process_1.ogg",
+      "name": "Freesound 871231, Short Machine Sound 7 (qubodup)",
+      "source": "https://freesound.org/people/qubodup/sounds/871231/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Trimmed, normalised to -26 LUFS (foley), mono, OGG q4, via tools/audio/process.py"
+    },
+    {
+      "path": "audio/perk_drink_1.ogg",
+      "name": "Freesound 534336, Drink_Gulp (Defaultv)",
+      "source": "https://freesound.org/people/Defaultv/sounds/534336/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Trimmed, normalised to -26 LUFS (foley), stereo, OGG q4, via tools/audio/process.py"
+    },
+    {
       "path": "audio/plank_rebuild_1.ogg",
       "name": "Freesound 707525, Hammer hitting nail (LiezelDippenaar)",
       "source": "https://freesound.org/people/LiezelDippenaar/sounds/707525/",
@@ -335,6 +391,22 @@
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/power_down_1.ogg",
+      "name": "Freesound 348250, power-down-03 (newagesoup)",
+      "source": "https://freesound.org/people/newagesoup/sounds/348250/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Trimmed, normalised to -26 LUFS (foley), mono, OGG q4, via tools/audio/process.py"
+    },
+    {
+      "path": "audio/power_on_1.ogg",
+      "name": "Freesound 278205, Switch Flip #1 (IanStarGem)",
+      "source": "https://freesound.org/people/IanStarGem/sounds/278205/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Trimmed, normalised to -26 LUFS (foley), stereo, OGG q4, via tools/audio/process.py"
     },
     {
       "path": "audio/reload_1.ogg",
@@ -367,6 +439,14 @@
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/trap_kill_1.ogg",
+      "name": "Freesound 853286, Tesla Tower Zap (el_boss)",
+      "source": "https://freesound.org/people/el_boss/sounds/853286/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Trimmed, normalised to -26 LUFS (foley), mono, OGG q4, via tools/audio/process.py"
     },
     {
       "path": "audio/weapon_swap_1.ogg",
