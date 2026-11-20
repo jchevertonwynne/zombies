@@ -9,6 +9,302 @@
       "notes": "Placeholders until the Audio lane replaces them; a more specific entry covers each real recording"
     },
     {
+      "path": "audio/empty_click_1.ogg",
+      "name": "Freesound 674568, 9mm Handgun Being Dry Fired (ser%C3%B8ut%C5%8Dnin--depriv%C9%99d)",
+      "source": "https://freesound.org/people/ser%C3%B8ut%C5%8Dnin--depriv%C9%99d/sounds/674568/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/footstep_brick_1.ogg",
+      "name": "Freesound 149306, DeLisa Foley gritty footsteps 01 (pushkin)",
+      "source": "https://freesound.org/people/pushkin/sounds/149306/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/footstep_brick_2.ogg",
+      "name": "Freesound 149306, DeLisa Foley gritty footsteps 01 (pushkin)",
+      "source": "https://freesound.org/people/pushkin/sounds/149306/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/footstep_cobble_1.ogg",
+      "name": "Freesound 390764, FX_005_footstep_stone_l (d00121058)",
+      "source": "https://freesound.org/people/d00121058/sounds/390764/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/footstep_concrete_1.ogg",
+      "name": "Freesound 166509, concrete footstep 1 (Yoyodaman234)",
+      "source": "https://freesound.org/people/Yoyodaman234/sounds/166509/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/footstep_dirt_1.ogg",
+      "name": "Freesound 223153, dirt/gravel footstep 4 (Yoyodaman234)",
+      "source": "https://freesound.org/people/Yoyodaman234/sounds/223153/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/footstep_dirt_2.ogg",
+      "name": "Freesound 353799, Footsteps_6_Dirt_shoe (monte32)",
+      "source": "https://freesound.org/people/monte32/sounds/353799/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/footstep_metal_1.ogg",
+      "name": "Freesound 421151, Footstep_Metal_Crouch_5 (GiocoSound)",
+      "source": "https://freesound.org/people/GiocoSound/sounds/421151/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/footstep_metal_2.ogg",
+      "name": "Freesound 398554, footstep_metal (raceynovel)",
+      "source": "https://freesound.org/people/raceynovel/sounds/398554/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/footstep_tile_1.ogg",
+      "name": "Freesound 390762, FX_007_footstep_tile_l (d00121058)",
+      "source": "https://freesound.org/people/d00121058/sounds/390762/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/footstep_wood_1.ogg",
+      "name": "Freesound 421153, Footstep_Wood_Toe_1 (GiocoSound)",
+      "source": "https://freesound.org/people/GiocoSound/sounds/421153/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/gunshot_launcher_1.ogg",
+      "name": "Freesound 162402, M203 Grenade Launcher 1 (qubodup)",
+      "source": "https://freesound.org/people/qubodup/sounds/162402/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/gunshot_lmg_1.ogg",
+      "name": "Freesound 834247, short burst from a light machine gun (barryshamir)",
+      "source": "https://freesound.org/people/barryshamir/sounds/834247/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/gunshot_pistol_1.ogg",
+      "name": "Freesound 163456, Pistol Shot (LeMudCrab)",
+      "source": "https://freesound.org/people/LeMudCrab/sounds/163456/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/gunshot_pistol_2.ogg",
+      "name": "Freesound 253736, Pistol Shot (Kodack)",
+      "source": "https://freesound.org/people/Kodack/sounds/253736/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/gunshot_rifle_1.ogg",
+      "name": "Freesound 433858, Rifle Gun Shot 01 (LilMati)",
+      "source": "https://freesound.org/people/LilMati/sounds/433858/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/gunshot_shotgun_1.ogg",
+      "name": "Freesound 163455, Shotgun Shot (LeMudCrab)",
+      "source": "https://freesound.org/people/LeMudCrab/sounds/163455/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/gunshot_shotgun_2.ogg",
+      "name": "Freesound 405504, Shotgun Shot 01 (LilMati)",
+      "source": "https://freesound.org/people/LilMati/sounds/405504/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/gunshot_smg_1.ogg",
+      "name": "Freesound 418431, FNP90 burst (CraftyIndividual)",
+      "source": "https://freesound.org/people/CraftyIndividual/sounds/418431/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/gunshot_sniper_1.ogg",
+      "name": "Freesound 816113, FPS Sniper Shot Alt (qubodup)",
+      "source": "https://freesound.org/people/qubodup/sounds/816113/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/headshot_1.ogg",
+      "name": "Freesound 511194, Headshot (Pablobd)",
+      "source": "https://freesound.org/people/Pablobd/sounds/511194/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/hit_1.ogg",
+      "name": "Freesound 868718, BodyHit_5 (BenParamoreAudio)",
+      "source": "https://freesound.org/people/BenParamoreAudio/sounds/868718/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/kill_1.ogg",
+      "name": "Freesound 539535, melon-chop-take1 (gagglepod)",
+      "source": "https://freesound.org/people/gagglepod/sounds/539535/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/knife_hit_1.ogg",
+      "name": "Freesound 411742, Knife Stab Pull (neilsher)",
+      "source": "https://freesound.org/people/neilsher/sounds/411742/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/knife_hit_2.ogg",
+      "name": "Freesound 870740, Knife Stabs into Foam Block (CHallSmith)",
+      "source": "https://freesound.org/people/CHallSmith/sounds/870740/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/knife_swing_1.ogg",
+      "name": "Freesound 389690, Small Knife Whoosh (Shamewap)",
+      "source": "https://freesound.org/people/Shamewap/sounds/389690/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/plank_rebuild_1.ogg",
+      "name": "Freesound 707525, Hammer hitting nail (LiezelDippenaar)",
+      "source": "https://freesound.org/people/LiezelDippenaar/sounds/707525/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/plank_tear_1.ogg",
+      "name": "Freesound 569694, Wood Break Planks Multiple 9 (Sheyvan)",
+      "source": "https://freesound.org/people/Sheyvan/sounds/569694/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/reload_1.ogg",
+      "name": "Freesound 686661, reload-gun (DeltaCode)",
+      "source": "https://freesound.org/people/DeltaCode/sounds/686661/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/weapon_swap_1.ogg",
+      "name": "Freesound 879839, .22_Cal_Semi_Auto_Chambering/Cocking (KBro935)",
+      "source": "https://freesound.org/people/KBro935/sounds/879839/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/weapon_swap_2.ogg",
+      "name": "Freesound 879839, .22_Cal_Semi_Auto_Chambering/Cocking (KBro935)",
+      "source": "https://freesound.org/people/KBro935/sounds/879839/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/zombie_attack_1.ogg",
+      "name": "Freesound 213509, Zombie Attack (soykevin)",
+      "source": "https://freesound.org/people/soykevin/sounds/213509/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/zombie_death_1.ogg",
+      "name": "Freesound 555412, Zombie Death 1 (tonsil5)",
+      "source": "https://freesound.org/people/tonsil5/sounds/555412/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/zombie_jogger_idle_1.ogg",
+      "name": "Freesound 555417, Zombie Growl 5 (tonsil5)",
+      "source": "https://freesound.org/people/tonsil5/sounds/555417/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/zombie_sprinter_idle_1.ogg",
+      "name": "Freesound 204821, Zombie Growl 01 (Ezcah)",
+      "source": "https://freesound.org/people/Ezcah/sounds/204821/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/zombie_walker_idle_1.ogg",
+      "name": "Freesound 754438, Zombie Groan 0 (OwNathan)",
+      "source": "https://freesound.org/people/OwNathan/sounds/754438/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/zombie_walker_idle_2.ogg",
+      "name": "Freesound 754441, Zombie Groan 3 (OwNathan)",
+      "source": "https://freesound.org/people/OwNathan/sounds/754441/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
       "path": "decals/foliage",
       "name": "Leaf-cluster card (procedural)",
       "source": "tools/texpack/foliage.py",
@@ -55,6 +351,36 @@
       "licence": "CC0 (made in this repo)",
       "fetched": "2026-11-14",
       "notes": "Procedural"
+    },
+    {
+      "path": "enemies/walker/pants/color.ktx2",
+      "name": "Walker soiled trousers map",
+      "source": "tools/walker/make_textures.py from toigo_wool_pants' Pants_wool.png (https://files2.makehumancommunity.org/asset_packs/pants01/), soiled procedurally, via texpack",
+      "licence": "CC0 (the clothes' .mhclo states CC0)",
+      "fetched": "2026-11-20"
+    },
+    {
+      "path": "enemies/walker/shirt/color.ktx2",
+      "name": "Walker stained sweater map",
+      "source": "tools/walker/make_textures.py from toigo_fisherman_sweater's shirt-knit.png (https://files2.makehumancommunity.org/asset_packs/shirts01/), stained procedurally, via texpack",
+      "licence": "CC0 (the clothes' .mhclo states CC0)",
+      "fetched": "2026-11-20"
+    },
+    {
+      "path": "enemies/walker/skin/color.ktx2",
+      "name": "Walker decayed skin map",
+      "source": "tools/walker/make_textures.py from the MakeHuman skin pack skins01, 'blindsaypatten_uniform_skin_texture' (https://files2.makehumancommunity.org/asset_packs/skins01/), mottled procedurally, via texpack --color --opacity",
+      "licence": "CC0 (skins01_cc0 pack; its skins01.json states CC0)",
+      "fetched": "2026-11-20"
+    },
+    {
+      "path": "enemies/walker/walker.glb",
+      "name": "The Walker: MakeHuman body, UAL skeleton, UAL2 zombie clips",
+      "source": "tools/walker/build_walker.py from MakeHuman (MPFB 2.0.18 basemesh, https://extensions.blender.org/add-ons/mpfb/), the official CC0 MakeHuman clothes toigo_fisherman_sweater (https://files2.makehumancommunity.org/asset_packs/shirts01/) and toigo_wool_pants (https://files2.makehumancommunity.org/asset_packs/pants01/), and Quaternius' Universal Animation Library 2 (https://opengameart.org/content/universal-animation-library-2): its skeleton, mannequin skin weights and the Zombie_Walk_Fwd_Loop and Zombie_Idle_Loop clips",
+      "licence": "CC0 (MakeHuman exports and official assets; the clothes' .mhclo files state CC0; UAL2's OpenGameArt page and License.txt state CC0 1.0)",
+      "fetched": "2026-11-20",
+      "archive": "http://web.archive.org/web/20260124011129/https://opengameart.org/sites/default/files/universal_animation_library_2standard.zip",
+      "notes": "UAL2 is used from the OpenGameArt copy, captured 2026-01-24, before Quaternius' 2026-08-28 licence change. Animation, skeleton and weights only: no Quaternius mesh is in the glTF. Textures are not embedded; the game dresses the parts from enemies/walker/{skin,shirt,pants}"
     },
     {
       "path": "materials/asphalt_floor",
@@ -679,36 +1005,6 @@
       "licence": "CC0",
       "fetched": "2026-11-15",
       "notes": "2K HDR as a 512px BC6H cubemap via texpack --sky ; diffuse.ktx2 and specular.ktx2 are its prefiltered irradiance and GGX chain from the same run (the Village's sky lights its streets; the Dam's lights nothing)"
-    },
-    {
-      "path": "enemies/walker/walker.glb",
-      "name": "The Walker: MakeHuman body, UAL skeleton, UAL2 zombie clips",
-      "source": "tools/walker/build_walker.py from MakeHuman (MPFB 2.0.18 basemesh, https://extensions.blender.org/add-ons/mpfb/), the official CC0 MakeHuman clothes toigo_fisherman_sweater (https://files2.makehumancommunity.org/asset_packs/shirts01/) and toigo_wool_pants (https://files2.makehumancommunity.org/asset_packs/pants01/), and Quaternius' Universal Animation Library 2 (https://opengameart.org/content/universal-animation-library-2): its skeleton, mannequin skin weights and the Zombie_Walk_Fwd_Loop and Zombie_Idle_Loop clips",
-      "licence": "CC0 (MakeHuman exports and official assets; the clothes' .mhclo files state CC0; UAL2's OpenGameArt page and License.txt state CC0 1.0)",
-      "fetched": "2026-11-20",
-      "archive": "http://web.archive.org/web/20260124011129/https://opengameart.org/sites/default/files/universal_animation_library_2standard.zip",
-      "notes": "UAL2 is used from the OpenGameArt copy, captured 2026-01-24, before Quaternius' 2026-08-28 licence change. Animation, skeleton and weights only: no Quaternius mesh is in the glTF. Textures are not embedded; the game dresses the parts from enemies/walker/{skin,shirt,pants}"
-    },
-    {
-      "path": "enemies/walker/skin/color.ktx2",
-      "name": "Walker decayed skin map",
-      "source": "tools/walker/make_textures.py from the MakeHuman skin pack skins01, 'blindsaypatten_uniform_skin_texture' (https://files2.makehumancommunity.org/asset_packs/skins01/), mottled procedurally, via texpack --color --opacity",
-      "licence": "CC0 (skins01_cc0 pack; its skins01.json states CC0)",
-      "fetched": "2026-11-20"
-    },
-    {
-      "path": "enemies/walker/shirt/color.ktx2",
-      "name": "Walker stained sweater map",
-      "source": "tools/walker/make_textures.py from toigo_fisherman_sweater's shirt-knit.png (https://files2.makehumancommunity.org/asset_packs/shirts01/), stained procedurally, via texpack",
-      "licence": "CC0 (the clothes' .mhclo states CC0)",
-      "fetched": "2026-11-20"
-    },
-    {
-      "path": "enemies/walker/pants/color.ktx2",
-      "name": "Walker soiled trousers map",
-      "source": "tools/walker/make_textures.py from toigo_wool_pants' Pants_wool.png (https://files2.makehumancommunity.org/asset_packs/pants01/), soiled procedurally, via texpack",
-      "licence": "CC0 (the clothes' .mhclo states CC0)",
-      "fetched": "2026-11-20"
     }
   ]
 }
