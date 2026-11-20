@@ -23,7 +23,7 @@ use crate::tuning::*;
 use crate::weapons::arsenal::WeaponId;
 
 use super::build::{Builder, Gap};
-use super::{DOOR_HEIGHT, Layout, Prop, PropKind, RaisedFloor, STOREY, Slope, door, palette, prop};
+use super::{DOOR_HEIGHT, Infill, Layout, Prop, PropKind, RaisedFloor, STOREY, Slope, door, infill, palette, prop};
 
 /// The first of the Village's windows in `WINDOWS`, after the Greybox's and the Quarry's.
 const W0: u8 = (super::greybox::WINDOWS.len() + super::quarry::WINDOWS.len()) as u8;
@@ -60,7 +60,7 @@ pub(super) const VILLAGE: Layout = Layout {
     special_spawns: &SPECIAL_SPAWNS,
     vents: &VENTS,
     raised_floors: &[CHANCEL],
-    infills: &[],
+    infills: &INFILLS,
     slopes: &SLOPES,
     sunken: &[],
     water: &[],
@@ -336,6 +336,35 @@ const CHANCEL_STONE: Color = Color::srgb(0.38, 0.35, 0.33);
 /// The Church's chancel: a dais across its east end, Pack-a-Punch at its south end and the altar
 /// against the east wall, up a flight of steps from the aisle.
 const CHANCEL: RaisedFloor = RaisedFloor { zone: ZoneId::Church, min: v(66.0, 8.0), max: v(71.8, 20.0), height: 0.45, colour: CHANCEL_STONE };
+
+/// The Infills, one to three in each building, so no two share a shape. Each keeps clear of the
+/// Doors, windows, Buyables and Spawn Points, and of every path-node edge.
+const INFILLS: [Infill; 14] = {
+    use ZoneId::*;
+    [
+        // The Inn: a chimney breast in the north-west corner, behind the bar, and a cupboard in the
+        // south-east corner.
+        infill(Inn, (-8.0, 21.0), (-6.6, 22.0)),
+        infill(Inn, (6.4, 6.0), (8.0, 7.4)),
+        // The Bakery: a chimney in the south-west corner and a flue in the north-west.
+        infill(Bakery, (-24.0, 6.0), (-22.2, 7.6)),
+        infill(Bakery, (-24.0, 20.8), (-22.8, 22.0)),
+        // The Smithy: the forge chimney in the south-west corner and a quench-room nook in the south-east.
+        infill(Smithy, (-40.0, 6.0), (-38.6, 7.4)),
+        infill(Smithy, (-25.8, 6.0), (-24.0, 7.2)),
+        // The Schoolhouse: a stove in the north-west corner, a pier on the north wall and a cupboard in the south-east.
+        infill(Schoolhouse, (24.0, 21.0), (25.2, 22.0)),
+        infill(Schoolhouse, (27.5, 21.0), (28.5, 22.0)),
+        infill(Schoolhouse, (38.6, 6.0), (40.0, 7.4)),
+        // The Mill: a grain bin in the south-west, the loft stair on the north wall, and the wheel chute in the south-east.
+        infill(Mill, (-72.0, 6.0), (-70.0, 8.0)),
+        infill(Mill, (-68.5, 20.6), (-66.5, 22.0)),
+        infill(Mill, (-53.6, 6.0), (-52.0, 7.6)),
+        // The Church: a vestry in the north-west corner and a buttress in the south-west.
+        infill(Church, (52.0, 20.0), (54.2, 22.0)),
+        infill(Church, (52.0, 6.0), (53.6, 7.8)),
+    ]
+};
 
 const SLOPES: [Slope; 1] = [Slope {
     zone: ZoneId::Church,

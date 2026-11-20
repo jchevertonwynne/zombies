@@ -148,6 +148,11 @@ const VILLAGE: &[View] = &[
     view("graveyard", (44.0, 0.0, 32.0), (66.0, 50.0), 0.0, false),
     view("sky", (0.0, 0.0, -4.0), (6.0, -16.0), 0.6, false),
     view("lamp-row", (-30.0, 0.0, 0.0), (40.0, 0.0), 0.05, false),
+    // The Infills that the building views above leave behind the camera.
+    view("infill-inn-chimney", (2.0, 0.0, 12.0), (-7.3, 21.5), -0.05, false),
+    view("infill-mill-loft-stair", (-60.0, 0.0, 12.0), (-67.5, 21.3), -0.05, false),
+    view("infill-church-vestry", (60.0, 0.0, 12.0), (53.0, 21.0), -0.05, false),
+    view("infill-schoolhouse-stove", (31.0, 0.0, 12.0), (24.6, 21.5), -0.05, false),
 ];
 
 const COVE: &[View] = &[
