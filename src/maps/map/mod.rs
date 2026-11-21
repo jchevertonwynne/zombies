@@ -2229,6 +2229,31 @@ pub(crate) mod tests {
         }
     }
 
+    /// Every indoor Zone of the Dam has one to three Infills, and no two rooms come out the same
+    /// shape.
+    #[test]
+    fn every_indoor_dam_zone_has_one_to_three_infills_and_no_two_share_a_shape() {
+        let layout = MapId::Dam.layout();
+        let mut shapes: Vec<(ZoneId, Vec<(i32, i32)>)> = Vec::new();
+        for &zone in layout.zones.iter().filter(|&&zone| layout.indoor(zone)) {
+            let mut sizes: Vec<(i32, i32)> = layout
+                .infills
+                .iter()
+                .filter(|infill| infill.zone == zone)
+                .map(|infill| {
+                    let size = ((infill.max - infill.min) * 10.0).round();
+                    (size.x as i32, size.y as i32)
+                })
+                .collect();
+            assert!((1..=3).contains(&sizes.len()), "{} has {} Infills", zone.name(), sizes.len());
+            sizes.sort();
+            if let Some((other, _)) = shapes.iter().find(|(_, other)| *other == sizes) {
+                panic!("{} and {} share a shape", zone.name(), other.name());
+            }
+            shapes.push((zone, sizes));
+        }
+    }
+
     /// Nothing a Player can get on top of lifts them out of a Zombie's reach. A Prop is climbed
     /// onto from the floor it stands on if it's no taller than a running jump clambers, or from
     /// another such Prop close beside it; every one that can be must be low enough over its floor,

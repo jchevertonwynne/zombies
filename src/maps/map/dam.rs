@@ -30,7 +30,7 @@ use crate::weapons::arsenal::WeaponId;
 
 use super::build::{Builder, Gap};
 use super::textures::Material;
-use super::{Layout, Prop, PropKind, RaisedFloor, STOREY, Slope, door, materials, palette, prop};
+use super::{Infill, Layout, Prop, PropKind, RaisedFloor, STOREY, Slope, door, infill, materials, palette, prop};
 
 /// The three levels: the foot, the gallery a storey up, and the crest.
 const FOOT: f32 = 0.0;
@@ -125,7 +125,7 @@ pub(super) const DAM: Layout = Layout {
     special_spawns: &SPECIAL_SPAWNS,
     vents: &[],
     raised_floors: &RAISED_FLOORS,
-    infills: &[],
+    infills: &INFILLS,
     slopes: &SLOPES,
     sunken: &[],
     water: &[],
@@ -295,6 +295,59 @@ const LAMPS: [(ZoneId, Vec3); 52] = [
     (ZoneId::DrainageGallery, at(28.8, CREST - 0.5, -59.0)),
     (ZoneId::DrainageGallery, at(40.2, CREST - 0.5, -59.0)),
 ];
+
+/// The Infills, one to three in each indoor Zone, so no two rooms share a shape. Each keeps clear
+/// of the Doors, windows, Buyables, Generators and Spawn Points, and of every path-node edge, and
+/// none comes more than 1.6 m out of a wall, so the Training loops stay wide.
+const INFILLS: [Infill; 27] = {
+    use ZoneId::*;
+    [
+        // The Tower Head: a hoist-motor cupboard in the south-west corner, and a stop-log nib out
+        // of the east wall beside the Door.
+        infill(TowerHead, (-46.0, 18.0), (-44.4, 19.6)),
+        infill(TowerHead, (-30.9, 29.8), (-30.0, 32.0)),
+        // The Gatehouse: a gate-control cupboard in the north-east corner, and a pier in the
+        // north wall by the winch.
+        infill(SpillwayGatehouse, (44.0, 30.2), (46.0, 32.0)),
+        infill(SpillwayGatehouse, (41.0, 31.2), (42.4, 32.0)),
+        // A cable riser against the Gate Shaft's top landing.
+        infill(GateShaft, (-38.9, 16.4), (-38.0, 18.0)),
+        // The Intake Gallery: a pier in the north wall, a nib between the window and the Generator
+        // down the west side, and a buttress further along the east side.
+        infill(IntakeGallery, (-31.0, 1.0), (-29.6, 2.0)),
+        infill(IntakeGallery, (-44.0, -40.5), (-42.8, -38.0)),
+        infill(IntakeGallery, (-39.6, -35.0), (-38.0, -33.4)),
+        // The Spillway Gallery: a pier in the north wall past the Box, a nib out of the south wall,
+        // and a buttress on the east side's corner.
+        infill(SpillwayGallery, (30.0, 1.0), (32.2, 2.0)),
+        infill(SpillwayGallery, (19.0, -4.0), (20.4, -3.0)),
+        infill(SpillwayGallery, (43.0, -8.0), (44.0, -6.0)),
+        // The Control Room: piers in its west wall, and a nib in the south wall.
+        infill(ControlRoom, (-10.0, 3.0), (-9.1, 4.6)),
+        infill(ControlRoom, (4.6, -6.0), (6.0, -5.2)),
+        infill(ControlRoom, (-10.0, -5.0), (-9.1, -3.6)),
+        // The Penstock Tunnel: a nib by the foot of the stairs, and a cupboard on the top landing.
+        infill(PenstockTunnel, (-3.0, -26.5), (-2.2, -24.9)),
+        infill(PenstockTunnel, (2.2, -8.2), (3.0, -6.4)),
+        // The Turbine Hall: a bearing housing in the south-west corner, and piers in the north
+        // and south walls.
+        infill(TurbineHall, (-10.0, -56.0), (-8.6, -54.4)),
+        infill(TurbineHall, (4.0, -29.2), (6.0, -28.0)),
+        infill(TurbineHall, (-5.0, -56.0), (-3.2, -55.0)),
+        // The Switchgear Room: a transformer cupboard in the north-west corner, a nib out of the
+        // south wall and a pier in the east wall.
+        infill(SwitchgearRoom, (10.0, -41.6), (11.6, -40.0)),
+        infill(SwitchgearRoom, (22.4, -52.0), (24.4, -51.0)),
+        infill(SwitchgearRoom, (25.2, -51.0), (26.0, -49.4)),
+        // The Spillway Stair: a nib at the foot, and a pier on the east wall.
+        infill(SpillwayStair, (38.0, -55.0), (39.0, -53.0)),
+        infill(SpillwayStair, (43.0, -47.0), (44.0, -45.5)),
+        // The Drainage Gallery: three nibs along the toe, so it doesn't run as one straight pipe.
+        infill(DrainageGallery, (-3.0, -62.0), (-1.4, -60.8)),
+        infill(DrainageGallery, (28.0, -57.2), (30.2, -56.0)),
+        infill(DrainageGallery, (33.0, -62.0), (34.4, -60.6)),
+    ]
+};
 
 /// Concrete, for the stairs and landings; steel plate, for the turbine deck; and dark terrazzo,
 /// for the Control Room's dais.

@@ -127,6 +127,17 @@ const DAM: &[View] = &[
     view("gallery-light", (-39.0, 4.0, -10.0), (-39.0, -30.0), -0.05, false),
     view("gate-trap-switch", (-38.8, 4.0, -1.5), (-38.8, 2.0), -0.1, false),
     view("spillway-plate-off", (35.0, 4.0, -26.0), (40.5, -26.0), -0.35, false),
+    // The Infills that the room views above leave behind the camera.
+    view("infill-tower-head-cupboard", (-36.0, 8.0, 22.0), (-45.0, 31.0), -0.05, false),
+    view("infill-gatehouse-cupboard", (38.0, 8.0, 22.0), (45.0, 31.0), -0.05, false),
+    view("infill-intake-gallery-nibs", (-41.0, 4.0, -28.0), (-41.0, -40.0), -0.05, false),
+    view("infill-spillway-gallery-piers", (24.0, 4.0, -1.0), (31.0, 2.0), -0.05, false),
+    view("infill-control-room-piers", (-5.0, 4.0, -4.5), (-9.5, 4.0), -0.05, false),
+    view("infill-penstock-nib", (0.0, 0.0, -20.0), (-2.6, -25.7), -0.05, false),
+    view("infill-turbine-hall-housing", (6.0, 0.0, -33.0), (-9.0, -55.0), -0.05, false),
+    view("infill-switchgear-nibs", (13.0, 0.0, -48.0), (23.4, -51.5), -0.05, false),
+    view("infill-spillway-stair-nibs", (41.0, 0.0, -50.0), (38.5, -54.5), -0.05, false),
+    view("infill-drainage-gallery-nibs", (-8.0, 0.0, -59.0), (-2.0, -61.4), -0.05, false),
 ];
 
 /// The Village: a view of each of its 14 Zones, then the Market's cross and a lane from end to end.
