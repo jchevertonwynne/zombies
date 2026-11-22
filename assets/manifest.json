@@ -442,19 +442,11 @@
     },
     {
       "path": "audio/gunshot_pistol_1.ogg",
-      "name": "Freesound 163456, Pistol Shot (LeMudCrab)",
-      "source": "https://freesound.org/people/LeMudCrab/sounds/163456/",
-      "licence": "CC0",
-      "fetched": "2026-11-20",
-      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
-    },
-    {
-      "path": "audio/gunshot_pistol_2.ogg",
       "name": "Freesound 253736, Pistol Shot (Kodack)",
       "source": "https://freesound.org/people/Kodack/sounds/253736/",
       "licence": "CC0",
       "fetched": "2026-11-20",
-      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+      "notes": "Freesound HQ preview (mp3), cut to 0.18 s with a 40 ms fade-out so shots stay distinct when spammed (#422), normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
       "path": "audio/gunshot_rifle_1.ogg",
