@@ -748,6 +748,58 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_client_without_a_win_plays_the_hosts_heat() {
+        use crate::run::gauntlet::heat::{Condition, RunHeat};
+        use crate::storage::records::RunHeatRecord;
+
+        let mut hosts = [0u8; 8];
+        hosts[Condition::TightOffers as usize] = 2;
+        hosts[Condition::Inflation as usize] = 1;
+        let (hub, mut apps) = room_with(2, Mode::Gauntlet, hosts);
+        let own = crate::run::gauntlet::progress::GauntletFile::default();
+        assert!(!own.has_won);
+        apps[1].world_mut().insert_resource(own);
+        assert!(start(&mut apps[0]));
+        frames(&hub, &mut apps, 12);
+        assert_in_run(&mut apps);
+
+        let host = *apps[0].world().resource::<RunHeat>();
+        assert_eq!(host.degree(Condition::TightOffers), 2);
+        let host_record = apps[0].world().resource::<RunHeatRecord>().clone();
+        assert_eq!(host_record.heat, Some(3));
+        let client = apps[1].world();
+        assert_eq!(*client.resource::<RunHeat>(), host, "the client plays the Host's Degrees");
+        let record = client.resource::<RunHeatRecord>();
+        assert_eq!(record.heat, host_record.heat);
+        assert_eq!(record.conditions.len(), host_record.conditions.len());
+    }
+
+    #[test]
+    fn a_client_in_a_room_cannot_change_heat_with_or_without_a_win() {
+        use crate::run::gauntlet::armory::{ArmoryButton, ArmoryNote, ArmoryTab, armory_click};
+        use crate::run::gauntlet::heat::Condition;
+        use crate::run::gauntlet::progress::GauntletFile;
+
+        for has_won in [false, true] {
+            let (_hub, mut apps) = room_with(1, Mode::Gauntlet, [0; 8]);
+            // The client's session in a bare App, so only the Armory's observer hears the click.
+            let session = apps[1].world_mut().remove_resource::<CoopSession>().expect("a client session");
+            assert!(matches!(session, CoopSession::Join(_)));
+            let mut app = App::new();
+            app.insert_resource(session);
+            let before = GauntletFile { has_won, ..Default::default() };
+            app.insert_resource(before.clone());
+            app.init_resource::<ArmoryTab>();
+            app.init_resource::<ArmoryNote>();
+            app.add_observer(armory_click);
+            let button = app.world_mut().spawn(ArmoryButton::Heat(Condition::Inflation)).id();
+            app.world_mut().trigger(bevy::ui_widgets::Activate { entity: button });
+            let after = app.world().resource::<GauntletFile>();
+            assert_eq!(after.run_heat(), before.run_heat(), "has_won {has_won}: Heat unchanged");
+        }
+    }
+
     /// A Player's Banish charges and Track entries, on the machine that holds their body.
     fn banish_and_speed(app: &mut App, seat: u8) -> (u32, usize) {
         use crate::modifier::Modifiers;

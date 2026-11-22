@@ -8,7 +8,7 @@
 //! live in the menus.
 
 pub(crate) mod arc;
-mod armory;
+pub(crate) mod armory;
 pub mod boon;
 pub(crate) mod commendations;
 pub(crate) mod duos;

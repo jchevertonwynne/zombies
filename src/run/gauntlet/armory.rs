@@ -352,7 +352,11 @@ fn heat_lock(session: &crate::ui::coop::CoopSession) -> Option<&'static str> {
 /// pays; before the first Win it just says how to unlock it.
 fn heat_tab(board: &mut ChildSpawnerCommands, file: &GauntletFile, lock: Option<&'static str>) {
     if !file.has_won {
-        board.spawn(text("Win a Run to unlock Heat", 24.0, HINT_GREY));
+        // In a Room the Host's Heat is played whatever this save says; don't promise an unlock here.
+        board.spawn(match lock {
+            Some(why) => text(why, 24.0, ROUND_RED),
+            None => text("Win a Run to unlock Heat", 24.0, HINT_GREY),
+        });
         return;
     }
     let run = file.run_heat();
