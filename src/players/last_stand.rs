@@ -10,7 +10,7 @@ use crate::authority::HostSimulation;
 use crate::economy::buy::buy;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve_count};
 use crate::economy::perk::{Drinking, Perk, Perks, drink, kept_on_down};
-use crate::players::player::{Health, Player, take_hits};
+use crate::players::player::{Health, Invincible, Player, take_hits};
 use crate::economy::points::Points;
 use crate::players::respawn::{AwaitingRespawn, BledOut};
 use crate::players::revive::Reviving;
@@ -211,25 +211,28 @@ pub fn go_down(
 }
 
 /// The end of a Last Stand: 100 Health, the old Weapons back, no Points taken. A Co-op one that
-/// runs out is a Bleed Out instead (see `crate::players::respawn`).
+/// runs out is a Bleed Out instead (see `crate::players::respawn`). An Invincible Player doesn't
+/// stay Down: they get up at once, a Co-op one with full Health and the Points the Down took back.
 pub(crate) fn self_revive(
     mut commands: Commands,
-    mut players: Query<(Entity, &mut LastStand, &mut Loadout, &mut Health), With<Player>>,
+    mut players: Query<(Entity, &mut LastStand, &mut Loadout, &mut Health, &mut Points, Has<Invincible>), With<Player>>,
     mut revived: MessageWriter<SelfRevived>,
     mut bled_out: MessageWriter<BledOut>,
     time: Res<Time>,
 ) {
-    for (entity, mut stand, mut loadout, mut health) in &mut players {
-        if !stand.advance(time.delta_secs()) {
+    for (entity, mut stand, mut loadout, mut health, mut points, invincible) in &mut players {
+        let up = stand.advance(time.delta_secs());
+        if !up && !invincible {
             continue;
         }
         // A Co-op Last Stand ends in a Revive or a Bleed Out, never a Self-Revive.
-        if stand.is_coop() {
+        if stand.is_coop() && !invincible {
             bled_out.write(BledOut { player: entity });
             continue;
         }
         stand.self_revive(&mut loadout);
-        health.current = SELF_REVIVE_HEALTH.min(health.max);
+        health.current = if stand.is_coop() { health.max } else { SELF_REVIVE_HEALTH.min(health.max) };
+        points.refund(stand.take_cost());
         commands.entity(entity).remove::<LastStand>();
         revived.write(SelfRevived);
     }

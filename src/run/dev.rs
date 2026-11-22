@@ -1,7 +1,8 @@
 //! Developer mode: a layer on Classic for testing, silent until a Cheat is used (ADR 0010).
 //!
-//! It reaches Classic only through neutral messages (`BonusPoints` for the one Cheat so far, and
-//! `TaintRun`), and never writes a component a layer rewrites. Solo it is always allowed. In Co-op
+//! It reaches Classic only through neutral seams (`BonusPoints`, `TaintRun`, the `Invincible`
+//! marker and stat entries for `Stat::Price` and `Stat::AmmoSpent`), and never writes a component
+//! a layer rewrites. Solo it is always allowed. In Co-op
 //! the Host sets it in the Room to Off, On (every Player) or Host only, and can change it during
 //! the Run. Every Cheat is a request the Host judges: one the setting forbids is dropped without a
 //! word, and one that goes through taints the Run (`TaintRun`), which the Host tells to everyone.
@@ -13,11 +14,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::authority::HostSimulation;
 use crate::economy::points::BonusPoints;
-use crate::players::player::{Player, Seat};
+use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat};
+use crate::players::player::{Invincible, LocalPlayer, Player, Seat};
 use crate::players::respawn::Disconnected;
 use crate::run::party::Party;
 use crate::state::{GameState, RunType};
 use crate::storage::records::TaintRun;
+use crate::weapons::equipment::Equipment;
+use crate::weapons::weapon::Loadout;
 
 /// The Points the Points Cheat gives.
 pub const CHEAT_POINTS: u64 = 10_000;
@@ -68,17 +72,34 @@ impl DevMode {
 pub enum Cheat {
     /// One-shot: `CHEAT_POINTS` Points.
     Points,
+    /// Toggle: nothing hurts or Downs the Player.
+    Invincible,
+    /// Toggle: every purchase is free; kills still pay.
+    FreePurchases,
+    /// Toggle: Magazines never empty and Reserve Ammo never drops, Equipment included.
+    InfiniteAmmo,
 }
 
 impl Cheat {
-    pub const ALL: [Cheat; 1] = [Cheat::Points];
+    pub const ALL: [Cheat; 4] = [Cheat::Points, Cheat::Invincible, Cheat::FreePurchases, Cheat::InfiniteAmmo];
 
     pub fn label(self) -> &'static str {
         match self {
             Cheat::Points => "+10,000 Points",
+            Cheat::Invincible => "Invincibility",
+            Cheat::FreePurchases => "Free purchases",
+            Cheat::InfiniteAmmo => "Infinite ammo",
         }
     }
+
+    /// Whether it stays on for the Player until they switch it off, as against acting at once.
+    pub fn is_toggle(self) -> bool {
+        !matches!(self, Cheat::Points)
+    }
 }
+
+/// The source of the stat entries the toggles put on a Player.
+pub const CHEAT_SOURCE: Source = Source("Cheats");
 
 /// The Run's Developer mode setting, as this machine has it. Solo it is `On`; in Co-op it is the
 /// Room's, and the Host's word changes it.
@@ -87,11 +108,72 @@ pub struct DevAccess(pub DevMode);
 
 /// What a Player has switched on or done with the Cheats, kept on their Player (so by Seat, and
 /// through a Rejoin) and gone when the Host sets Developer mode to Off. A Player who has used none
-/// has no `Cheats`. The Host's.
+/// has no `Cheats`. The Host's; a client has the toggles of its own Player as the Host tells it, so
+/// it can resolve the stats that are its own (ammo) and show the panel.
 #[derive(Component, Default, Debug, Clone, PartialEq, Eq)]
 pub struct Cheats {
     /// How many Points the Points Cheat has given them.
     pub points_given: u64,
+    pub invincible: bool,
+    pub free_purchases: bool,
+    pub infinite_ammo: bool,
+}
+
+impl Cheats {
+    const INVINCIBLE: u8 = 1;
+    const FREE_PURCHASES: u8 = 2;
+    const INFINITE_AMMO: u8 = 4;
+
+    /// Whether this toggle is on. A one-shot never is.
+    pub fn on(&self, cheat: Cheat) -> bool {
+        match cheat {
+            Cheat::Points => false,
+            Cheat::Invincible => self.invincible,
+            Cheat::FreePurchases => self.free_purchases,
+            Cheat::InfiniteAmmo => self.infinite_ammo,
+        }
+    }
+
+    fn flip(&mut self, cheat: Cheat) {
+        match cheat {
+            Cheat::Points => {}
+            Cheat::Invincible => self.invincible = !self.invincible,
+            Cheat::FreePurchases => self.free_purchases = !self.free_purchases,
+            Cheat::InfiniteAmmo => self.infinite_ammo = !self.infinite_ammo,
+        }
+    }
+
+    /// The toggles as the Host tells them to their Player.
+    pub fn toggles(cheats: Option<&Cheats>) -> u8 {
+        cheats.map_or(0, |cheats| {
+            (u8::from(cheats.invincible) * Self::INVINCIBLE)
+                | (u8::from(cheats.free_purchases) * Self::FREE_PURCHASES)
+                | (u8::from(cheats.infinite_ammo) * Self::INFINITE_AMMO)
+        })
+    }
+
+    /// The toggles a Host told, as the Player's `Cheats`; none on means none held.
+    pub fn from_toggles(toggles: u8) -> Option<Cheats> {
+        (toggles != 0).then_some(Cheats {
+            points_given: 0,
+            invincible: toggles & Self::INVINCIBLE != 0,
+            free_purchases: toggles & Self::FREE_PURCHASES != 0,
+            infinite_ammo: toggles & Self::INFINITE_AMMO != 0,
+        })
+    }
+
+    /// The stat entries the toggles put on the Player.
+    fn entries(&self) -> Vec<Modifier> {
+        let entry = |stat, effect| Modifier { stat, source: CHEAT_SOURCE, effect };
+        let mut entries = Vec::new();
+        if self.free_purchases {
+            entries.push(entry(Stat::Price, Effect::Mult(0.0)));
+        }
+        if self.infinite_ammo {
+            entries.push(entry(Stat::AmmoSpent, Effect::Mult(0.0)));
+        }
+        entries
+    }
 }
 
 /// A Player asks for a Cheat. The Host (or solo) judges it; a client's is sent to the Host.
@@ -119,7 +201,9 @@ impl Plugin for DevPlugin {
                     .chain()
                     .in_set(HostSimulation)
                     .run_if(in_state(GameState::Playing)),
-            );
+            )
+            // On every machine: each resolves the Cheats' effects that are its own.
+            .add_systems(Update, (sync_cheat_effects, top_up_ammo).chain().run_if(in_state(GameState::Playing)));
     }
 }
 
@@ -154,7 +238,7 @@ fn set_dev_mode(
 }
 
 /// Judges each request: from a Player the setting allows it does the Cheat and taints the Run;
-/// otherwise it is dropped silently.
+/// otherwise it is dropped silently. A toggle's request flips it.
 fn apply_cheats(
     mut commands: Commands,
     mut requests: MessageReader<CheatRequest>,
@@ -164,24 +248,78 @@ fn apply_cheats(
     mut bonus: MessageWriter<BonusPoints>,
     mut taint: MessageWriter<TaintRun>,
 ) {
+    // Cheats a Player has just got their first of, which the world doesn't have yet.
+    let mut fresh: Vec<(Entity, Cheats)> = Vec::new();
     for &CheatRequest { player, cheat } in requests.read() {
         let Ok((seat, away)) = players.get(player) else { continue };
         if away || !access.0.allows(seat.0 == 0) {
             continue;
         }
         taint.write(TaintRun);
-        match cheat {
-            Cheat::Points => {
-                bonus.write(BonusPoints { player, amount: CHEAT_POINTS });
-                match cheats.get_mut(player) {
-                    Ok(mut held) => held.points_given += CHEAT_POINTS,
-                    Err(_) => {
-                        commands.entity(player).insert(Cheats { points_given: CHEAT_POINTS });
-                    }
+        if cheat == Cheat::Points {
+            bonus.write(BonusPoints { player, amount: CHEAT_POINTS });
+        }
+        let held = match cheats.get_mut(player) {
+            Ok(held) => held.into_inner(),
+            Err(_) => match fresh.iter().position(|(who, _)| *who == player) {
+                Some(at) => &mut fresh[at].1,
+                None => {
+                    fresh.push((player, Cheats::default()));
+                    &mut fresh.last_mut().expect("just pushed").1
                 }
-            }
+            },
+        };
+        match cheat {
+            Cheat::Points => held.points_given += CHEAT_POINTS,
+            toggle => held.flip(toggle),
         }
     }
+    for (player, held) in fresh {
+        commands.entity(player).insert(held);
+    }
+}
+
+/// Keeps what the toggles do to a Player as their `Cheats` say, on this machine: the `Invincible`
+/// marker, and the stat entries (free purchases, free ammo). Without `Cheats` they are all off.
+/// Each machine does it for the Players it has the `Cheats` of: the Host for everyone (it judges
+/// harm and Price), a client for its own Player (it resolves its ammo, and its prompts' prices).
+fn sync_cheat_effects(
+    mut commands: Commands,
+    mut players: Query<(Entity, Option<&Cheats>, &mut Modifiers, Has<Invincible>), With<Player>>,
+) {
+    for (player, cheats, mut modifiers, invincible) in &mut players {
+        let wanted = cheats.map(Cheats::entries).unwrap_or_default();
+        let current: Vec<Modifier> = modifiers.0.iter().filter(|entry| entry.source == CHEAT_SOURCE).copied().collect();
+        if current != wanted {
+            modifiers.0.retain(|entry| entry.source != CHEAT_SOURCE);
+            modifiers.0.extend(wanted);
+        }
+        let want_invincible = cheats.is_some_and(|cheats| cheats.invincible);
+        if want_invincible && !invincible {
+            commands.entity(player).insert(Invincible);
+        } else if !want_invincible && invincible {
+            commands.entity(player).remove::<Invincible>();
+        }
+    }
+}
+
+/// Switching Infinite ammo on fills this machine's Player's Weapons and Equipment, which are its
+/// own to resolve, so no Magazine starts the toggle empty.
+fn top_up_ammo(
+    mut was_on: Local<bool>,
+    mut local: Query<(Option<&Cheats>, &Modifiers, &mut Loadout, &mut Equipment), With<LocalPlayer>>,
+) {
+    let Ok((cheats, modifiers, mut loadout, mut equipment)) = local.single_mut() else { return };
+    let on = cheats.is_some_and(|cheats| cheats.infinite_ammo);
+    if on && !*was_on {
+        for slot in 0..loadout.slot_count() {
+            if loadout.slot(slot).is_some() {
+                loadout.refill(slot, &modifiers.0);
+            }
+        }
+        equipment.max_ammo();
+    }
+    *was_on = on;
 }
 
 #[cfg(test)]
@@ -201,7 +339,7 @@ mod tests {
             .add_message::<SetDevMode>()
             .insert_resource(run_type)
             .insert_resource(DevAccess(access))
-            .add_systems(Update, (set_dev_mode, apply_cheats).chain())
+            .add_systems(Update, (set_dev_mode, apply_cheats, sync_cheat_effects).chain())
             .add_systems(Update, |mut asked: MessageReader<TaintRun>, mut tainted: ResMut<RunTainted>| {
                 if asked.read().count() > 0 {
                     tainted.0 = true;
@@ -218,7 +356,7 @@ mod tests {
     }
 
     fn player(app: &mut App, seat: u8) -> Entity {
-        app.world_mut().spawn((Player, Seat(seat), Points::default())).id()
+        app.world_mut().spawn((Player, Seat(seat), Points::default(), Modifiers::default())).id()
     }
 
     fn balance(app: &App, player: Entity) -> u64 {
@@ -291,6 +429,87 @@ mod tests {
             assert!(app.world().get::<Cheats>(asker).is_none());
         }
         assert!(app.world().resource::<RunTainted>().0);
+    }
+
+    fn ask_for(app: &mut App, player: Entity, cheat: Cheat) {
+        app.world_mut().write_message(CheatRequest { player, cheat });
+        app.update();
+        app.update();
+    }
+
+    fn entries_of(app: &App, player: Entity) -> Vec<Modifier> {
+        app.world().get::<Modifiers>(player).unwrap().0.iter().filter(|entry| entry.source == CHEAT_SOURCE).copied().collect()
+    }
+
+    #[test]
+    fn a_toggle_flips_with_each_request_and_the_stat_entries_and_marker_follow() {
+        let mut app = app(DevMode::On, RunType::Solo);
+        let host = player(&mut app, 0);
+        ask_for(&mut app, host, Cheat::Invincible);
+        ask_for(&mut app, host, Cheat::FreePurchases);
+        ask_for(&mut app, host, Cheat::InfiniteAmmo);
+        assert!(app.world().resource::<RunTainted>().0, "a toggle taints the Run too");
+        assert!(app.world().get::<Invincible>(host).is_some());
+        let entries = entries_of(&app, host);
+        assert!(entries.iter().any(|entry| entry.stat == Stat::Price && entry.effect == Effect::Mult(0.0)));
+        assert!(entries.iter().any(|entry| entry.stat == Stat::AmmoSpent && entry.effect == Effect::Mult(0.0)));
+        assert_eq!(Cheats::toggles(app.world().get::<Cheats>(host)), 7);
+        assert_eq!(balance(&app, host), 0, "a toggle gives no Points");
+
+        ask_for(&mut app, host, Cheat::Invincible);
+        ask_for(&mut app, host, Cheat::FreePurchases);
+        assert!(app.world().get::<Invincible>(host).is_none());
+        assert_eq!(entries_of(&app, host).len(), 1, "only the ammo entry is left");
+        assert_eq!(Cheats::toggles(app.world().get::<Cheats>(host)), 4);
+    }
+
+    #[test]
+    fn two_toggles_in_one_frame_are_both_kept() {
+        let mut app = app(DevMode::On, RunType::Solo);
+        let host = player(&mut app, 0);
+        app.world_mut().write_message(CheatRequest { player: host, cheat: Cheat::Invincible });
+        app.world_mut().write_message(CheatRequest { player: host, cheat: Cheat::InfiniteAmmo });
+        app.update();
+        app.update();
+        assert_eq!(Cheats::toggles(app.world().get::<Cheats>(host)), 5);
+    }
+
+    #[test]
+    fn the_stat_entries_ride_on_a_stat_other_layers_do_not_rewrite_and_survive_theirs() {
+        use crate::modifier::resolve;
+        let mut app = app(DevMode::On, RunType::Solo);
+        let host = player(&mut app, 0);
+        ask_for(&mut app, host, Cheat::FreePurchases);
+        // A layer's own entries come and go; Gold Rush and Inflation can't make a price above 0.
+        let pact = Modifier { stat: Stat::Price, source: Source("Gold Rush"), effect: Effect::Mult(1.25) };
+        app.world_mut().get_mut::<Modifiers>(host).unwrap().0.push(pact);
+        app.update();
+        let entries = &app.world().get::<Modifiers>(host).unwrap().0;
+        assert_eq!(resolve(Stat::Price, 1000.0, entries), 0.0);
+        assert_eq!(crate::economy::buy::charged(Some(1000), entries), Some(0));
+    }
+
+    #[test]
+    fn off_takes_the_toggles_and_their_effects_away() {
+        let mut app = app(DevMode::On, RunType::Coop);
+        let guest = player(&mut app, 1);
+        ask_for(&mut app, guest, Cheat::Invincible);
+        ask_for(&mut app, guest, Cheat::FreePurchases);
+        app.world_mut().write_message(SetDevMode(DevMode::Off));
+        app.update();
+        app.update();
+        assert!(app.world().get::<Cheats>(guest).is_none());
+        assert!(app.world().get::<Invincible>(guest).is_none());
+        assert!(entries_of(&app, guest).is_empty());
+    }
+
+    #[test]
+    fn toggles_survive_the_wire_form() {
+        let held = Cheats { invincible: true, infinite_ammo: true, ..default() };
+        let told = Cheats::from_toggles(Cheats::toggles(Some(&held)));
+        assert_eq!(told, Some(held));
+        assert_eq!(Cheats::from_toggles(0), None);
+        assert_eq!(Cheats::toggles(None), 0);
     }
 
     #[test]

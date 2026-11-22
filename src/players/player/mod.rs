@@ -1345,13 +1345,13 @@ fn probes_for_ground(was_grounded: bool, jumped: bool, vertical_speed: f32) -> b
 /// Last Stand module handles.
 pub fn take_hits(
     mut hits: MessageReader<PlayerHit>,
-    mut players: Query<(&mut Health, Option<&mut DownGuard>, Has<LastStand>, Has<AwaitingRespawn>), With<Player>>,
+    mut players: Query<(&mut Health, Option<&mut DownGuard>, Has<LastStand>, Has<AwaitingRespawn>, Has<Invincible>), With<Player>>,
 ) {
     for hit in hits.read() {
-        let Ok((mut health, guard, last_stand, awaiting)) = players.get_mut(hit.player) else {
+        let Ok((mut health, guard, last_stand, awaiting, invincible)) = players.get_mut(hit.player) else {
             continue;
         };
-        if last_stand || awaiting {
+        if last_stand || awaiting || invincible {
             continue;
         }
         let charges = guard.as_ref().map_or(0, |guard| guard.charges);
@@ -1363,6 +1363,13 @@ pub fn take_hits(
         health.since_hit = 0.0;
     }
 }
+
+/// The Player can't be hurt or Downed: `take_hits` lets every hit pass them by, and being Out of
+/// Bounds only puts them back (see `crate::players::out_of_bounds`). One in Last Stand gets up.
+/// Classic never adds one; anything layered on it may (ADR 0007). It is its own marker, not a
+/// `DownGuard`, which a layer rewrites.
+#[derive(Component, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Invincible;
 
 /// Charges that each turn a hit that would Down the Player into one that leaves them on 1 Health.
 /// Classic never adds one; anything layered on it may (ADR 0007).
@@ -1491,6 +1498,21 @@ mod tests {
         app.world_mut().write_message(hit());
         app.update();
         assert!(app.world().get::<Health>(player).unwrap().current <= 0.0, "the next one Downs");
+    }
+
+    #[test]
+    fn an_invincible_player_takes_no_hit_and_a_down_guard_is_not_what_protects_them() {
+        let mut app = App::new();
+        app.add_message::<PlayerHit>().add_systems(Update, take_hits);
+        let player = app.world_mut().spawn((Player, health(30.0, 100.0), Invincible)).id();
+        app.world_mut().write_message(PlayerHit { player, damage: 500.0, from: None });
+        app.update();
+        assert_eq!(app.world().get::<Health>(player).unwrap().current, 30.0);
+        // A layer rewriting the guard leaves the marker alone.
+        app.world_mut().entity_mut(player).insert(DownGuard { charges: 0 });
+        app.world_mut().write_message(PlayerHit { player, damage: 500.0, from: None });
+        app.update();
+        assert_eq!(app.world().get::<Health>(player).unwrap().current, 30.0);
     }
 
     #[test]

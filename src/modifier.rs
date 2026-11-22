@@ -130,6 +130,9 @@ pub enum Stat {
     /// A factor on every new Zombie's health, applied at spawn to every kind (base 1). The base
     /// Round health is still the number Boss health and splits are worked from.
     ZombieHealth,
+    /// A factor on the ammo each shot and each thrown piece of Equipment uses (base 1; 0 uses
+    /// none, so Magazines never empty and Reserve Ammo never drops).
+    AmmoSpent,
 }
 
 /// Where an entry comes from. Each Perk, Pack-a-Punch, Attachment and so on is its own source:
@@ -205,6 +208,11 @@ pub fn resolve_count<'a>(
 ) -> u32 {
     // The small nudge keeps float noise (12.000001) from rounding up a whole bullet.
     (resolve(stat, base as f32, entries) - 1e-4).ceil().max(0.0) as u32
+}
+
+/// Whether the Player's entries make firing and throwing cost nothing (`Stat::AmmoSpent` at 0).
+pub fn ammo_is_free(player: &[Modifier]) -> bool {
+    resolve(Stat::AmmoSpent, 1.0, player) <= 0.0
 }
 
 /// A resolved amount of Points, such as a price or an award, rounded to the nearest whole Point.

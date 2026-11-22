@@ -49,7 +49,7 @@ use crate::maps::map::BarrierId;
 use crate::weapons::mystery_box::{BoxState, MysteryBox, Prize};
 use crate::weapons::pack_a_punch::PackAPunch;
 use crate::economy::perk::{Drinking, Perk, PerkMachine, Perks};
-use crate::players::player::{Health, LocalPlayer, Locomotion, Player, PlayerHit, PlayerName, Seat as PlayerSeat, StanceKeys};
+use crate::players::player::{Health, Invincible, LocalPlayer, Locomotion, Player, PlayerHit, PlayerName, Seat as PlayerSeat, StanceKeys};
 use crate::players::respawn::{AwaitingRespawn, Disconnected, Respawned, SeatReturned};
 use crate::ui::hud::damage_indicator::DamageIndicators;
 use crate::ui::hud::overlay::Overlays;
@@ -312,6 +312,9 @@ pub enum WorldEvent {
     Tainted,
     /// Who may use Cheats now: told when the Host changes it, and to a Player who comes back.
     DevMode(DevMode),
+    /// To one Player, the Cheat toggles they have on (`Cheats::toggles`): told when they change,
+    /// and to a Player who comes back.
+    Cheats(u8),
     /// To one Player, how much Health they have of how much.
     Health { current: f32, max: f32 },
     /// To one Player, a hit has come from here: their damage indicator.
@@ -471,6 +474,7 @@ impl Tell<'_> {
 }
 
 mod bosses;
+mod cheats;
 mod choice;
 mod cosmetics;
 
@@ -630,6 +634,7 @@ pub fn add(app: &mut App) {
                 .run_if(in_state(GameState::Playing))
                 .run_if(world_runs),
         );
+    cheats::add(app);
 }
 
 /// Machines that can be used or told about.
@@ -1234,7 +1239,7 @@ fn tell_health(mut tell: Tell, mut mirror: ResMut<Mirror>, players: Query<(&Play
 fn tell_hurts(
     mut tell: Tell,
     mut hits: MessageReader<PlayerHit>,
-    remotes: Query<&Remote, (Without<LastStand>, Without<AwaitingRespawn>)>,
+    remotes: Query<&Remote, (Without<LastStand>, Without<AwaitingRespawn>, Without<Invincible>)>,
 ) {
     for hit in hits.read() {
         if let Some(from) = hit.from
