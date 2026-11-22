@@ -17,6 +17,7 @@ use crate::ui::menu::{
     BackTo, HINT_GREY, MENU_BACKGROUND, MenuButtonLook, NEW_BEST_GOLD, button, colored_button,
     screen,
 };
+use crate::run::dev::DevMode;
 use crate::run::mode::Mode;
 use crate::net::lobby::{Listed, Listing, LobbyClient, Status, read_status_line, status_line};
 use crate::net::link::Link;
@@ -130,6 +131,8 @@ enum CoopButton {
     ToggleMode,
     CycleMap,
     ToggleListed,
+    /// Steps Developer mode: Off, On, Host only.
+    CycleDev,
     SetPassword,
     Ready,
     /// The Host begins the Run.
@@ -151,6 +154,7 @@ enum RoomLabel {
     Mode,
     Map,
     Listed,
+    Dev,
     Ready,
     Start,
     Lobby,
@@ -338,6 +342,7 @@ fn spawn_room(mut commands: Commands, session: Res<CoopSession>) {
                 label_button(row, RoomLabel::Mode, "Mode", CoopButton::ToggleMode, 260.0);
                 label_button(row, RoomLabel::Map, "Map", CoopButton::CycleMap, 260.0);
                 label_button(row, RoomLabel::Listed, "Listed", CoopButton::ToggleListed, 260.0);
+                label_button(row, RoomLabel::Dev, "Developer mode", CoopButton::CycleDev, 320.0);
             });
             room.spawn(Node {
                 column_gap: px(12.0),
@@ -676,6 +681,12 @@ fn run_actions(
                 if let CoopSession::Host(hosting) = &mut *session {
                     let listed = !hosting.room.is_listed();
                     hosting.edit(|room| room.set_listed(listed));
+                }
+            }
+            CoopButton::CycleDev => {
+                if let CoopSession::Host(hosting) = &mut *session {
+                    let dev = hosting.room.dev().next();
+                    hosting.edit(|room| room.set_dev(dev));
                 }
             }
             CoopButton::SetPassword => {
@@ -1020,11 +1031,14 @@ fn refresh_room(
     }
     let ready = session.is_ready();
     let may_start = matches!(&*session, CoopSession::Host(hosting) if hosting.room.can_start());
-    let (code, summary, mode_text, map_text, listed_text) = match &current {
+    let (code, summary, mode_text, map_text, listed_text, dev_text) = match &current {
         Some((view, _)) => {
             let mut summary = status_line(view.map, view.mode, view.heat_total());
             if view.locked {
                 summary.push_str("  [locked]");
+            }
+            if view.dev != DevMode::Off {
+                summary.push_str(&format!("  [Developer mode: {}]", view.dev.label()));
             }
             (
                 view.code.clone(),
@@ -1035,9 +1049,10 @@ fn refresh_room(
                     CoopSession::Host(hosting) if hosting.room.is_listed() => "Listed".to_string(),
                     _ => "Unlisted".to_string(),
                 },
+                format!("Developer mode: {}", view.dev.label()),
             )
         }
-        None => (String::new(), "Joining...".into(), "Mode".into(), "Map".into(), "Listed".into()),
+        None => (String::new(), "Joining...".into(), "Mode".into(), "Map".into(), "Listed".into(), "Developer mode".into()),
     };
     let lobby_note = if host && lobby.code().is_none() {
         match &lobby.trouble {
@@ -1055,6 +1070,7 @@ fn refresh_room(
             RoomLabel::Mode => mode_text.clone(),
             RoomLabel::Map => map_text.clone(),
             RoomLabel::Listed => listed_text.clone(),
+            RoomLabel::Dev => dev_text.clone(),
             RoomLabel::Ready => if ready { "Ready" } else { "Not Ready" }.to_string(),
             RoomLabel::Start if may_start => "Start".to_string(),
             RoomLabel::Start => format!("Start (needs {ROOM_MIN_PLAYERS}+ Players, all Ready)"),
