@@ -11,7 +11,7 @@ Rules the answers are measured against:
 
 ## Short answer
 
-Seven of the nine cheats are reachable today through an existing message, stat entry or component. Only four need a new seam, and one of those (noclip) also needs a wire change.
+Infinite Points, infinite ammo, kill all and granting a Power-up work through existing seams today. Invincibility, Round jump, granting a Weapon, Boon, Pact or Kit, opening every Door, Round-hold off and noclip each need a new Classic-neutral seam, and spawning a Zombie needs more `RequestedKind` variants. Noclip also changes the wire.
 
 | Cheat | Existing seam to use | New seam needed | Where it runs in Co-op |
 |---|---|---|---|
