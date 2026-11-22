@@ -6,7 +6,6 @@
 //! The Host's Developer mode choice for a Co-op Run in progress is a row of the Pause menu
 //! (`DevModeButton`), since under Off there is no panel to put it in.
 
-use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
 use bevy::window::{CursorGrabMode, CursorOptions};
@@ -18,7 +17,7 @@ use crate::run::mode::Mode;
 use crate::ui::hud::overlay::{Overlay, Overlays};
 use crate::state::{Choosing, GameState, PanelOpen, Pause};
 use crate::ui::hud::{text, ROUND_RED};
-use crate::ui::menu::{HINT_GREY, button, colored_button};
+use crate::ui::menu::{HINT_GREY, Scrollable, button, colored_button};
 
 /// The panel on screen, and what it was built for.
 #[derive(Component)]
@@ -41,9 +40,9 @@ struct PanelTab(Option<GrantKind>);
 #[derive(Component, Clone, Copy)]
 struct TabButton(Option<GrantKind>);
 
-/// The scrolling grid of a grant tab's buttons.
-#[derive(Component)]
-struct CheatGrid;
+/// How far the panel is scrolled, kept across rebuilds so a toggle doesn't jump it back to the top.
+#[derive(Resource, Default)]
+struct PanelScroll(f32);
 
 const TAB_WIDTH: f32 = 126.0;
 const GRANT_WIDTH: f32 = 200.0;
@@ -86,6 +85,7 @@ impl Plugin for CheatPanelPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SpawnElite>()
             .init_resource::<PanelTab>()
+            .init_resource::<PanelScroll>()
             .add_observer(press_tab)
             .add_observer(press_cheat)
             .add_observer(press_elite_tick)
@@ -93,7 +93,7 @@ impl Plugin for CheatPanelPlugin {
             .add_observer(press_dev_mode)
             .add_systems(
                 Update,
-                (toggle_panel, sync_panel, scroll_grid).chain().run_if(in_state(GameState::Playing)),
+                (toggle_panel, sync_panel, keep_scroll).chain().run_if(in_state(GameState::Playing)),
             )
             .add_systems(Update, refresh_dev_mode_label.run_if(resource_changed::<DevAccess>));
     }
@@ -129,6 +129,7 @@ fn sync_panel(
     pause: Res<State<Pause>>,
     elite: Res<SpawnElite>,
     tab: Res<PanelTab>,
+    scroll: Res<PanelScroll>,
     mode: Option<Res<Mode>>,
     local: Query<(Entity, Has<PanelOpen>, Has<Choosing>, Option<&Cheats>), With<LocalPlayer>>,
     panels: Query<(Entity, &CheatPanel)>,
@@ -146,7 +147,7 @@ fn sync_panel(
     let gauntlet = mode.is_some_and(|mode| *mode == Mode::Gauntlet);
     match (want, shown) {
         (true, None) => {
-            spawn_panel(&mut commands, access.0, host, cheats, elite.0, gauntlet, tab.0);
+            spawn_panel(&mut commands, access.0, host, cheats, elite.0, gauntlet, tab.0, scroll.0);
             set_cursor(&mut cursor, true);
         }
         (true, Some((panel, shown)))
@@ -158,7 +159,7 @@ fn sync_panel(
                 || shown.tab != tab.0 =>
         {
             commands.entity(panel).despawn();
-            spawn_panel(&mut commands, access.0, host, cheats, elite.0, gauntlet, tab.0);
+            spawn_panel(&mut commands, access.0, host, cheats, elite.0, gauntlet, tab.0, scroll.0);
         }
         (false, Some((panel, _))) => {
             commands.entity(panel).despawn();
@@ -196,19 +197,25 @@ fn spawn_panel(
     elite: bool,
     gauntlet: bool,
     tab: Option<GrantKind>,
+    scroll: f32,
 ) {
     let mode = if gauntlet { Mode::Gauntlet } else { Mode::Classic };
     let grid_width = GRANT_COLUMNS * GRANT_WIDTH + (GRANT_COLUMNS - 1.0) * GRID_GAP;
     let allowed = dev.allows(host);
     commands
         .spawn((
+            Scrollable,
+            ScrollPosition(Vec2::new(0.0, scroll)),
             CheatPanel { dev, host, toggles: Cheats::toggles(cheats), elite, gauntlet, tab },
             DespawnOnExit(GameState::Playing),
             GlobalZIndex(12),
             Node {
                 position_type: PositionType::Absolute,
                 right: px(24.0),
-                top: px(24.0),
+                top: vh(2.0),
+                // Never taller than the window: it scrolls instead.
+                max_height: vh(96.0),
+                overflow: Overflow::scroll_y(),
                 flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Center,
                 row_gap: px(10.0),
@@ -270,12 +277,8 @@ fn spawn_panel(
                 Some(kind) => {
                     panel
                         .spawn((
-                            CheatGrid,
-                            ScrollPosition::default(),
                             Node {
                                 width: px(grid_width),
-                                max_height: px(480.0),
-                                overflow: Overflow::scroll_y(),
                                 flex_wrap: FlexWrap::Wrap,
                                 column_gap: px(GRID_GAP),
                                 row_gap: px(GRID_GAP),
@@ -306,19 +309,10 @@ fn press_tab(activate: On<Activate>, tabs: Query<&TabButton>, mut tab: ResMut<Pa
     }
 }
 
-/// The mouse wheel scrolls a grant tab's grid of buttons.
-fn scroll_grid(mut wheel: MessageReader<MouseWheel>, mut grids: Query<&mut ScrollPosition, With<CheatGrid>>) {
-    let moved: f32 = wheel
-        .read()
-        .map(|event| match event.unit {
-            MouseScrollUnit::Line => event.y * 40.0,
-            MouseScrollUnit::Pixel => event.y,
-        })
-        .sum();
-    if moved != 0.0 {
-        for mut position in &mut grids {
-            position.y = (position.y - moved).max(0.0);
-        }
+/// Remembers where the open panel is scrolled to, for the next rebuild.
+fn keep_scroll(panels: Query<&ScrollPosition, With<CheatPanel>>, mut scroll: ResMut<PanelScroll>) {
+    if let Ok(position) = panels.single() {
+        scroll.0 = position.y;
     }
 }
 
@@ -335,15 +329,16 @@ fn dead_button(parent: &mut ChildSpawnerCommands, label: &str, width: f32) {
     parent
         .spawn((
             Node {
-                width: px(width),
+                min_width: px(width),
                 height: px(48.0),
+                padding: UiRect::horizontal(px(14.0)),
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
                 ..default()
             },
             BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.6)),
         ))
-        .with_child(text(label, 22.0, Color::srgb(0.4, 0.4, 0.4)));
+        .with_child((text(label, 22.0, Color::srgb(0.4, 0.4, 0.4)), TextLayout::default().with_no_wrap()));
 }
 
 /// The Elite tick was pressed.

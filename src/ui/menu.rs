@@ -208,6 +208,7 @@ impl Plugin for MenuPlugin {
             .init_resource::<Rebinding>()
             .init_resource::<BackTo>()
             .add_message::<ResetGauntletProgress>()
+            .add_systems(Update, scroll_on_wheel)
             .add_systems(
                 OnEnter(GameState::Playing),
                 |mut lines: ResMut<GameOverLines>| lines.0.clear(),
@@ -277,6 +278,30 @@ pub fn screen(
         .id()
 }
 
+/// A node the mouse wheel scrolls (it needs `overflow: scroll_y` and a `ScrollPosition`).
+#[derive(Component)]
+pub struct Scrollable;
+
+/// The wheel scrolls every `Scrollable`.
+pub fn scroll_on_wheel(
+    mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
+    mut scrollables: Query<&mut ScrollPosition, With<Scrollable>>,
+) {
+    use bevy::input::mouse::MouseScrollUnit;
+    let moved: f32 = wheel
+        .read()
+        .map(|event| match event.unit {
+            MouseScrollUnit::Line => event.y * 40.0,
+            MouseScrollUnit::Pixel => event.y,
+        })
+        .sum();
+    if moved != 0.0 {
+        for mut position in &mut scrollables {
+            position.y = (position.y - moved).max(0.0);
+        }
+    }
+}
+
 pub fn button(parent: &mut ChildSpawnerCommands, label: &str, action: impl Bundle, width: f32) {
     colored_button(parent, label, action, width, Color::WHITE);
 }
@@ -296,15 +321,17 @@ pub fn colored_button(
             MenuButtonLook,
             action,
             Node {
-                width: px(width),
+                // `width` is the least: a longer label widens the button instead of wrapping out of it.
+                min_width: px(width),
                 height: px(48.0),
+                padding: UiRect::horizontal(px(14.0)),
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
                 ..default()
             },
             BackgroundColor(BUTTON_IDLE),
         ))
-        .with_child(text(label, 26.0, color));
+        .with_child((text(label, 26.0, color), TextLayout::default().with_no_wrap()));
 }
 
 fn spawn_main_menu(mut commands: Commands) {
@@ -381,7 +408,12 @@ fn mode_board(board: &mut ChildSpawnerCommands, highlighted: Mode, map: MapId, f
     board
         .spawn(Node {
             column_gap: px(16.0),
+            row_gap: px(10.0),
             margin: UiRect::top(px(10.0)),
+            // Wraps onto more rows when the Maps don't fit the window, so each stays reachable.
+            flex_wrap: FlexWrap::Wrap,
+            justify_content: JustifyContent::Center,
+            max_width: percent(100.0),
             ..default()
         })
         .with_children(|row| {
@@ -420,10 +452,16 @@ fn spawn_records(mut commands: Commands, mode: Res<Mode>, mut tab: ResMut<Record
         records.spawn(text("RECORDS", 48.0, Color::WHITE));
         records.spawn((
             RecordsBoard,
+            Scrollable,
+            ScrollPosition::default(),
             Node {
                 flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Center,
                 row_gap: px(6.0),
+                // Scrolls when the table is taller than the window leaves room for.
+                max_height: vh(70.0),
+                max_width: percent(100.0),
+                overflow: Overflow::scroll_y(),
                 ..default()
             },
         ));
@@ -805,11 +843,19 @@ fn settings_screen(
         ));
         // The general Settings on the left, the Special Zombies group on the right.
         screen
-            .spawn(Node {
-                column_gap: px(48.0),
-                align_items: AlignItems::FlexStart,
-                ..default()
-            })
+            .spawn((
+                Scrollable,
+                ScrollPosition::default(),
+                Node {
+                    column_gap: px(48.0),
+                    align_items: AlignItems::FlexStart,
+                    // Scrolls when the rows are taller than the window leaves room for.
+                    max_height: vh(55.0),
+                    max_width: percent(100.0),
+                    overflow: Overflow::scroll_y(),
+                    ..default()
+                },
+            ))
             .with_children(|columns| {
                 settings_column(columns, settings, None, &Setting::ALL);
                 settings_column(
@@ -956,10 +1002,18 @@ fn spawn_controls_page(commands: &mut Commands, settings_screen: Entity, binding
                         ..default()
                     },
                 ));
-                page.spawn(Node {
-                    column_gap: px(48.0),
-                    ..default()
-                })
+                page.spawn((
+                    Scrollable,
+                    ScrollPosition::default(),
+                    Node {
+                        column_gap: px(48.0),
+                        // Scrolls when the bindings are taller than the window leaves room for.
+                        max_height: vh(66.0),
+                        max_width: percent(100.0),
+                        overflow: Overflow::scroll_y(),
+                        ..default()
+                    },
+                ))
                 .with_children(|columns| {
                     let (left, right) = Action::ALL.split_at(Action::ALL.len().div_ceil(2));
                     for actions in [left, right] {
