@@ -127,6 +127,32 @@ pub struct PickOffer {
     pub card: Option<usize>,
 }
 
+/// Request to give a Player a Boon (one more Stack if held), with no Offer. Gauntlet only; a Run of
+/// any other Mode ignores it. Developer mode sends it.
+#[derive(Message, Clone, Copy)]
+pub struct GrantBoon {
+    pub player: Entity,
+    pub boon: &'static boon::BoonDef,
+}
+
+/// Request to give a Player a Pact, with no Offer: they hold its upside, as if they had picked it.
+/// One already held stays held. Gauntlet only. Developer mode sends it.
+#[derive(Message, Clone, Copy)]
+pub struct GrantPact {
+    pub player: Entity,
+    pub pact: &'static pact::PactDef,
+}
+
+/// Every Boon and Duo, in a fixed order, so a Cheat can name one by its place in it.
+pub fn boon_catalog() -> impl Iterator<Item = &'static boon::BoonDef> {
+    boon::BOONS.iter().chain(duos::DUOS)
+}
+
+/// Every Pact, in a fixed order.
+pub fn pact_catalog() -> &'static [pact::PactDef] {
+    PACTS
+}
+
 /// Debug: every Boon and Pact counts as Unlocked, toggled with F9 during a Gauntlet Run. It
 /// changes nothing in `gauntlet.ron`.
 #[derive(Resource, Default)]
@@ -295,6 +321,8 @@ impl Plugin for GauntletPlugin {
             .init_resource::<Gifts>()
             .init_resource::<OfferWait>()
             .add_message::<PickOffer>()
+            .add_message::<GrantBoon>()
+            .add_message::<GrantPact>()
             .add_message::<RerollOffer>()
             .add_message::<BanishCard>()
             .add_message::<ToolUsed>()
@@ -385,6 +413,7 @@ impl Plugin for GauntletPlugin {
                             (withdraw_dropped, withdraw_offer).chain(),
                             (tools::apply_reroll, tools::apply_banish),
                             apply_pick,
+                            apply_grants,
                             variety::light_choice,
                             variety::apply_pick,
                             variety::count_votes,
@@ -907,6 +936,25 @@ pub(crate) fn apply_pick(
             continue;
         }
         commands.entity(player).remove::<(Offer, Choosing)>();
+    }
+}
+
+/// Boons and Pacts asked for with no Offer are taken as a pick would take them.
+pub(crate) fn apply_grants(
+    mut boons: MessageReader<GrantBoon>,
+    mut pacts_asked: MessageReader<GrantPact>,
+    mut players: Query<(&Seat, &mut HeldBoons), With<Player>>,
+    mut pacts: ResMut<HeldPacts>,
+) {
+    for &GrantBoon { player, boon } in boons.read() {
+        if let Ok((_, mut held)) = players.get_mut(player) {
+            held.add(boon);
+        }
+    }
+    for &GrantPact { player, pact } in pacts_asked.read() {
+        if let Ok((&seat, _)) = players.get(player) {
+            pacts.add(pact, seat);
+        }
     }
 }
 

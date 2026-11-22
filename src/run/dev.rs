@@ -1,6 +1,7 @@
 //! Developer mode: a layer on Classic for testing, silent until a Cheat is used (ADR 0010).
 //!
-//! It reaches Classic only through neutral seams (`BonusPoints`, `TaintRun`, the `Invincible`
+//! It reaches Classic only through neutral seams (`BonusPoints`, `GivePowerUp`, `GiveWeapon`,
+//! `GivePerk`, the Gauntlet layer's `GrantBoon` and `GrantPact`, `TaintRun`, the `Invincible`
 //! marker and stat entries for `Stat::Price` and `Stat::AmmoSpent`), and never writes a component
 //! a layer rewrites. Solo it is always allowed. In Co-op
 //! the Host sets it in the Room to Off, On (every Player) or Host only, and can change it during
@@ -9,15 +10,23 @@
 //!
 //! The Cheat Panel that sends the requests is in `ui::cheat_panel`; the wire is in `net::world`.
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 pub mod oneshots;
 
 use crate::authority::HostSimulation;
+use crate::economy::perk::{GivePerk, Perk};
 use crate::economy::points::BonusPoints;
+use crate::economy::power_up::{GivePowerUp, PowerUp};
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat};
+use crate::players::last_stand::LastStand;
 use crate::players::player::{Invincible, LocalPlayer, Noclip, Player, Seat};
+use crate::run::gauntlet::{GrantBoon, GrantPact, boon_catalog, pact_catalog};
+use crate::run::mode::Mode;
+use crate::weapons::arsenal::WeaponId;
+use crate::weapons::weapon::GiveWeapon;
 use crate::players::respawn::Disconnected;
 use crate::run::party::Party;
 use crate::state::{GameState, RunType};
@@ -95,6 +104,56 @@ pub enum Cheat {
     OpenAllDoors,
     /// One-shot: the Power comes on and every Generator is Claimed.
     PowerOn,
+    /// One-shot grant: the Power-up, applied at once.
+    PowerUp(PowerUp),
+    /// One-shot grant: the Weapon, Pack-a-Punched or not, in place of the one in hand if full.
+    Weapon(WeaponId, bool),
+    /// One-shot grant: the Perk, held at once.
+    Perk(Perk),
+    /// One-shot grant, Gauntlet only: a Boon, by its place in `boon_catalog` (one more Stack if held).
+    Boon(u16),
+    /// One-shot grant, Gauntlet only: a Pact, by its place in `pact_catalog`.
+    Pact(u8),
+}
+
+/// The grants the Cheat Panel groups under one tab each.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum GrantKind {
+    #[default]
+    PowerUps,
+    Weapons,
+    PackedWeapons,
+    Perks,
+    Boons,
+    Pacts,
+}
+
+impl GrantKind {
+    pub const ALL: [GrantKind; 6] =
+        [GrantKind::PowerUps, GrantKind::Weapons, GrantKind::PackedWeapons, GrantKind::Perks, GrantKind::Boons, GrantKind::Pacts];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            GrantKind::PowerUps => "Power-ups",
+            GrantKind::Weapons => "Weapons",
+            GrantKind::PackedWeapons => "Pack-a-Punched",
+            GrantKind::Perks => "Perks",
+            GrantKind::Boons => "Boons",
+            GrantKind::Pacts => "Pacts",
+        }
+    }
+
+    /// Every Cheat of this kind.
+    pub fn cheats(self) -> Vec<Cheat> {
+        match self {
+            GrantKind::PowerUps => PowerUp::ALL.map(Cheat::PowerUp).to_vec(),
+            GrantKind::Weapons => WeaponId::ALL.map(|id| Cheat::Weapon(id, false)).to_vec(),
+            GrantKind::PackedWeapons => WeaponId::ALL.map(|id| Cheat::Weapon(id, true)).to_vec(),
+            GrantKind::Perks => Perk::ALL.map(Cheat::Perk).to_vec(),
+            GrantKind::Boons => (0..boon_catalog().count() as u16).map(Cheat::Boon).collect(),
+            GrantKind::Pacts => (0..pact_catalog().len() as u8).map(Cheat::Pact).collect(),
+        }
+    }
 }
 
 impl Cheat {
@@ -129,6 +188,22 @@ impl Cheat {
             Cheat::Spawn(spawn) => spawn.label(),
             Cheat::OpenAllDoors => "Open all Doors",
             Cheat::PowerOn => "Power on",
+            Cheat::PowerUp(power_up) => power_up.name(),
+            Cheat::Weapon(id, false) => id.stats().name,
+            Cheat::Weapon(id, true) => id.upgraded().name,
+            Cheat::Perk(perk) => perk.name(),
+            Cheat::Boon(index) => boon_catalog().nth(index.into()).map_or("?", |boon| boon.name),
+            Cheat::Pact(index) => pact_catalog().get(usize::from(index)).map_or("?", |pact| pact.name()),
+        }
+    }
+
+    /// Whether the Run's Mode has anything for it to act on: a Boon or Pact needs the Gauntlet,
+    /// and a place in the catalogue.
+    pub fn available(self, mode: Mode) -> bool {
+        match self {
+            Cheat::Boon(index) => mode == Mode::Gauntlet && usize::from(index) < boon_catalog().count(),
+            Cheat::Pact(index) => mode == Mode::Gauntlet && usize::from(index) < pact_catalog().len(),
+            _ => true,
         }
     }
 
@@ -136,6 +211,45 @@ impl Cheat {
     pub fn is_toggle(self) -> bool {
         matches!(self, Cheat::Invincible | Cheat::FreePurchases | Cheat::InfiniteAmmo | Cheat::Noclip)
     }
+}
+
+/// The writers for the grants, so `apply_cheats` stays short.
+#[derive(SystemParam)]
+struct Grants<'w> {
+    power_ups: MessageWriter<'w, GivePowerUp>,
+    weapons: MessageWriter<'w, GiveWeapon>,
+    perks: MessageWriter<'w, GivePerk>,
+    boons: MessageWriter<'w, GrantBoon>,
+    pacts: MessageWriter<'w, GrantPact>,
+}
+
+impl Grants<'_> {
+    /// Sends the grant `cheat` is, if it is one.
+    fn give(&mut self, player: Entity, cheat: Cheat) {
+        match cheat {
+            Cheat::PowerUp(power_up) => {
+                self.power_ups.write(GivePowerUp(power_up, Some(player)));
+            }
+            Cheat::Weapon(id, upgraded) => {
+                self.weapons.write(GiveWeapon { player, id, upgraded });
+            }
+            Cheat::Perk(perk) => {
+                self.perks.write(GivePerk { player, perk });
+            }
+            Cheat::Boon(index) => {
+                if let Some(boon) = boon_catalog().nth(index.into()) {
+                    self.boons.write(GrantBoon { player, boon });
+                }
+            }
+            Cheat::Pact(index) => {
+                if let Some(pact) = pact_catalog().get(usize::from(index)) {
+                    self.pacts.write(GrantPact { player, pact });
+                }
+            }
+            _ => {}
+        }
+    }
+
 }
 
 /// The source of the stat entries the toggles put on a Player.
@@ -169,21 +283,21 @@ impl Cheats {
     /// Whether this toggle is on. A one-shot never is.
     pub fn on(&self, cheat: Cheat) -> bool {
         match cheat {
-            Cheat::Points | Cheat::RoundJump(_) | Cheat::KillAll | Cheat::Spawn(_) | Cheat::OpenAllDoors | Cheat::PowerOn => false,
             Cheat::Invincible => self.invincible,
             Cheat::FreePurchases => self.free_purchases,
             Cheat::InfiniteAmmo => self.infinite_ammo,
             Cheat::Noclip => self.noclip,
+            _ => false,
         }
     }
 
     fn flip(&mut self, cheat: Cheat) {
         match cheat {
-            Cheat::Points | Cheat::RoundJump(_) | Cheat::KillAll | Cheat::Spawn(_) | Cheat::OpenAllDoors | Cheat::PowerOn => {}
             Cheat::Invincible => self.invincible = !self.invincible,
             Cheat::FreePurchases => self.free_purchases = !self.free_purchases,
             Cheat::InfiniteAmmo => self.infinite_ammo = !self.infinite_ammo,
             Cheat::Noclip => self.noclip = !self.noclip,
+            _ => {}
         }
     }
 
@@ -291,17 +405,24 @@ fn apply_cheats(
     mut commands: Commands,
     mut requests: MessageReader<CheatRequest>,
     access: Res<DevAccess>,
-    players: Query<(&Seat, Has<Disconnected>), With<Player>>,
+    players: Query<(&Seat, Has<Disconnected>, Has<LastStand>), With<Player>>,
+    mode: Option<Res<Mode>>,
     mut cheats: Query<&mut Cheats>,
     mut bonus: MessageWriter<BonusPoints>,
+    mut grants: Grants,
     mut taint: MessageWriter<TaintRun>,
     mut world: WorldCheats,
 ) {
+    let mode = mode.map_or(Mode::Classic, |mode| *mode);
     // Cheats a Player has just got their first of, which the world doesn't have yet.
     let mut fresh: Vec<(Entity, Cheats)> = Vec::new();
     for &CheatRequest { player, cheat } in requests.read() {
-        let Ok((seat, away)) = players.get(player) else { continue };
-        if away || !access.0.allows(seat.0 == 0) {
+        let Ok((seat, away, down)) = players.get(player) else { continue };
+        if away || !access.0.allows(seat.0 == 0) || !cheat.available(mode) {
+            continue;
+        }
+        // A Player in Last Stand has no hands to take a Weapon or a Perk into.
+        if down && matches!(cheat, Cheat::Weapon(..) | Cheat::Perk(_)) {
             continue;
         }
         // The one-shots on the Round, Zombies, Doors and Power: the Run is Tainted only when one
@@ -313,6 +434,10 @@ fn apply_cheats(
             continue;
         }
         taint.write(TaintRun);
+        if matches!(cheat, Cheat::PowerUp(_) | Cheat::Weapon(..) | Cheat::Perk(_) | Cheat::Boon(_) | Cheat::Pact(_)) {
+            grants.give(player, cheat);
+            continue;
+        }
         if cheat == Cheat::Points {
             bonus.write(BonusPoints { player, amount: CHEAT_POINTS });
         }
@@ -427,6 +552,11 @@ mod tests {
         oneshots::add_messages(&mut app);
         app.add_plugins(MinimalPlugins)
             .add_message::<BonusPoints>()
+            .add_message::<GivePowerUp>()
+            .add_message::<GiveWeapon>()
+            .add_message::<GivePerk>()
+            .add_message::<GrantBoon>()
+            .add_message::<GrantPact>()
             .add_systems(Update, pay.after(apply_cheats))
             .init_resource::<RunTainted>()
             .add_message::<TaintRun>()
@@ -605,6 +735,37 @@ mod tests {
         assert_eq!(told, Some(held));
         assert_eq!(Cheats::from_toggles(0), None);
         assert_eq!(Cheats::toggles(None), 0);
+    }
+
+    #[test]
+    fn every_grant_has_a_name_and_the_gauntlet_ones_wait_for_the_gauntlet() {
+        for kind in GrantKind::ALL {
+            let cheats = kind.cheats();
+            assert!(!cheats.is_empty(), "{kind:?}");
+            for cheat in cheats {
+                assert!(!cheat.label().is_empty() && cheat.label() != "?", "{kind:?} {cheat:?}");
+                let gauntlet_only = matches!(kind, GrantKind::Boons | GrantKind::Pacts);
+                assert!(cheat.available(Mode::Gauntlet));
+                assert_eq!(cheat.available(Mode::Classic), !gauntlet_only, "{cheat:?}");
+            }
+        }
+        assert!(!Cheat::Boon(u16::MAX).available(Mode::Gauntlet), "no such Boon");
+        assert!(!Cheat::Pact(u8::MAX).available(Mode::Gauntlet), "no such Pact");
+    }
+
+    #[test]
+    fn a_weapon_in_last_stand_is_dropped_but_a_power_up_is_not() {
+        let mut app = app(DevMode::On, RunType::Solo);
+        let host = player(&mut app, 0);
+        app.world_mut().entity_mut(host).insert(LastStand::begin(&mut crate::weapons::weapon::Loadout::new(WeaponId::M1911)));
+        app.world_mut().write_message(CheatRequest { player: host, cheat: Cheat::Weapon(WeaponId::RayGun, false) });
+        app.update();
+        app.update();
+        assert!(!app.world().resource::<RunTainted>().0);
+        app.world_mut().write_message(CheatRequest { player: host, cheat: Cheat::PowerUp(PowerUp::MaxAmmo) });
+        app.update();
+        app.update();
+        assert!(app.world().resource::<RunTainted>().0);
     }
 
     #[test]

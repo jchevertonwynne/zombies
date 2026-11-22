@@ -40,6 +40,38 @@ pub enum WeaponId {
 }
 
 impl WeaponId {
+    /// Every Weapon, in table order.
+    pub const ALL: [WeaponId; 28] = [
+        WeaponId::M1911,
+        WeaponId::Olympia,
+        WeaponId::M14,
+        WeaponId::Mp40,
+        WeaponId::TrenchGun,
+        WeaponId::Ak74u,
+        WeaponId::Cz75,
+        WeaponId::Cz75DualWield,
+        WeaponId::Python,
+        WeaponId::Spectre,
+        WeaponId::G11,
+        WeaponId::Famas,
+        WeaponId::Aug,
+        WeaponId::Commando,
+        WeaponId::Galil,
+        WeaponId::FnFal,
+        WeaponId::Hs10,
+        WeaponId::Spas12,
+        WeaponId::Dragunov,
+        WeaponId::L96a1,
+        WeaponId::Rpk,
+        WeaponId::Hk21,
+        WeaponId::M72Law,
+        WeaponId::ChinaLake,
+        WeaponId::RayGun,
+        WeaponId::Thundergun,
+        WeaponId::Crossbow,
+        WeaponId::BallisticKnife,
+    ];
+
     pub fn stats(self) -> &'static WeaponStats {
         let row = &WEAPONS[self as usize];
         debug_assert_eq!(row.id, self, "the Weapon table is out of order");

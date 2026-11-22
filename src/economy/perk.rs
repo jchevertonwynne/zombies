@@ -207,6 +207,14 @@ pub fn machine_prompt(perk: Perk, power_on: bool, owned: bool, drinking: bool, r
     }
 }
 
+/// Request to give a Player a Perk at once, with no machine and no drink. One they hold stays held
+/// once.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct GivePerk {
+    pub player: Entity,
+    pub perk: Perk,
+}
+
 /// The Perks the Player holds, in the order they were bought. A Down takes them all.
 #[derive(Component, Default)]
 pub struct Perks(pub Vec<Perk>);
@@ -355,8 +363,10 @@ pub struct PerkPlugin;
 
 impl Plugin for PerkPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(GameState::Playing), spawn_machines)
+        app.add_message::<GivePerk>()
+            .add_systems(OnEnter(GameState::Playing), spawn_machines)
             .add_systems(Update, give_perks)
+            .add_systems(Update, hand_over_perks.in_set(HostSimulation).run_if(world_runs))
             .add_systems(
                 Update,
                 (
@@ -444,6 +454,18 @@ fn spawn_machines(
 fn give_perks(mut commands: Commands, players: Query<Entity, Added<Player>>) {
     for player in &players {
         commands.entity(player).insert(Perks::default());
+    }
+}
+
+/// Perks asked for are held now, with their entries.
+pub(crate) fn hand_over_perks(mut gifts: MessageReader<GivePerk>, mut players: Query<(&mut Perks, &mut Modifiers), With<Player>>) {
+    for &GivePerk { player, perk } in gifts.read() {
+        if let Ok((mut perks, mut modifiers)) = players.get_mut(player)
+            && !perks.has(perk)
+        {
+            perks.0.push(perk);
+            modifiers.0.extend_from_slice(perk.modifiers());
+        }
     }
 }
 
