@@ -26,7 +26,7 @@ pub type Seat = u8;
 
 /// What version of the wire format this game speaks. The Host refuses a Player on
 /// another, and it is raised whenever the format changes (along with the ALPN).
-pub const PROTOCOL: u32 = 17;
+pub const PROTOCOL: u32 = 18;
 /// The most a datagram may be, in bytes: what the real link is tried with, and under
 /// what it carries. One bigger is not sent at all.
 pub const DATAGRAM: usize = 1000;
@@ -184,8 +184,9 @@ pub enum ToPlayer {
     Closed,
     /// The Host has started the Run, with the Room as it stood.
     Start(RoomView),
-    /// Every Player is down: the Run is over.
-    RunOver,
+    /// The Run is over: every Player is down, or the Host ended it. `won` is whether it reached its
+    /// Win, which every Player keeps.
+    RunOver { won: bool },
     /// How each Player did, said just before `RunOver`.
     Scoreboard(Vec<Score>),
     /// The Host is back in the Room, and the party with it.

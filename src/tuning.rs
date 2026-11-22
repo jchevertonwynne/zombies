@@ -2297,6 +2297,9 @@ pub const BOON_OFFER_INPUT_LOCKOUT_SECS: f32 = 0.5;
 /// In Co-op the Intermission waits this long at most for every Player's pick, then the next Round
 /// starts with any Offer still open.
 pub const BOON_OFFER_COOP_TIMEOUT_SECS: f32 = 30.0;
+/// In Co-op each Player's Win screen stays open this long at most, and the Boss Offer and the next
+/// Round wait this long at most for every Player's choice. No choice counts as Keep going.
+pub const GAUNTLET_WIN_COOP_TIMEOUT_SECS: f32 = BOON_OFFER_COOP_TIMEOUT_SECS;
 /// A Reroll's price in Points when none has been made in the Offer; each Reroll already made in
 /// the Offer doubles it. Paid through `SpendPoints`, so `Price` never scales it.
 pub const GAUNTLET_REROLL_BASE_PRICE: u64 = 1000;

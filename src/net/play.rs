@@ -108,8 +108,9 @@ pub struct Scoreboard(pub Vec<Score>);
 pub enum HostSaid {
     /// The Host will not take this Player back into their Seat.
     Refused(Refusal),
-    /// Every Player is down.
-    RunOver,
+    /// The Run is over: every Player is down, or the Host ended it. `won` is whether it reached its
+    /// Win.
+    RunOver { won: bool },
     /// The Host has left: the Run and the Room are over.
     Closed,
     /// The Host is back in the Room.
@@ -364,8 +365,8 @@ fn pump_client(
                     said.write(HostSaid::Refused(why));
                 }
                 Ok(ToPlayer::Scoreboard(rows)) => scoreboard.0 = rows,
-                Ok(ToPlayer::RunOver) => {
-                    said.write(HostSaid::RunOver);
+                Ok(ToPlayer::RunOver { won }) => {
+                    said.write(HostSaid::RunOver { won });
                 }
                 Ok(ToPlayer::Closed) => {
                     said.write(HostSaid::Closed);

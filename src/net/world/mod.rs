@@ -26,6 +26,7 @@ use super::remote::Remote;
 use super::zombies::{Crowd, Tag, ZombieId};
 use crate::run::dev::{Cheat, CheatRequest, DevAccess, DevMode};
 use crate::run::gauntlet::Elite;
+use crate::run::gauntlet::win::WinChoice;
 use crate::storage::records::{RunElitesKilled, RunTainted};
 use crate::weapons::ammo_mod::{AmmoMods, OutsideAllyCap};
 use crate::weapons::arsenal::WeaponId;
@@ -114,6 +115,9 @@ pub enum Request {
     VoteRound { option: u8 },
     /// They ask for a Cheat. The Host drops it, silently, unless Developer mode allows it them.
     Cheat(Cheat),
+    /// They chose on their Win screen: End the Run (`end`), which gives up their Seat for good, or
+    /// Keep going.
+    WinChoice { end: bool },
 }
 
 /// A Weapon copy on the wire: all of it that its holder's game can't work out for itself.
@@ -477,6 +481,7 @@ mod bosses;
 mod cheats;
 mod choice;
 mod cosmetics;
+mod win;
 
 pub fn add(app: &mut App) {
     // What the systems below read and write exists in a Run's app already; saying so again here
@@ -503,6 +508,7 @@ pub fn add(app: &mut App) {
         .add_message::<ToolUsed>()
         .add_message::<crate::run::gauntlet::VoteRound>()
         .add_message::<PlayerLeft>()
+        .add_message::<WinChoice>()
         .add_message::<WentDown>()
         .add_message::<Revived>()
         .add_message::<Respawned>()
@@ -635,6 +641,7 @@ pub fn add(app: &mut App) {
                 .run_if(world_runs),
         );
     cheats::add(app);
+    win::add(app);
 }
 
 /// Machines that can be used or told about.
@@ -695,6 +702,7 @@ fn hear_requests(
     mut banishes: MessageWriter<BanishCard>,
     mut votes: MessageWriter<crate::run::gauntlet::VoteRound>,
     mut cheats: MessageWriter<CheatRequest>,
+    mut wins: MessageWriter<WinChoice>,
 ) {
     for (peer, request) in std::mem::take(&mut mirror.requests) {
         let Some(&(_, seat)) = roster.0.iter().find(|(held, _)| *held == peer) else { continue };
@@ -742,6 +750,9 @@ fn hear_requests(
             }
             Request::Cheat(cheat) => {
                 cheats.write(CheatRequest { player, cheat });
+            }
+            Request::WinChoice { end } => {
+                wins.write(WinChoice { seat: PlayerSeat(seat), end });
             }
         }
     }

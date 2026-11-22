@@ -18,6 +18,7 @@ use super::boon::{BoonDef, HeldBoons, Rarity, RunFacts, draw, eligible, family_b
 use super::duos::duo_pool;
 use super::heat::RunHeat;
 use super::sets::SetFlashes;
+use super::win::WinChoice;
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
 use crate::economy::points::BonusPoints;
@@ -27,7 +28,7 @@ use crate::enemies::request::{Requested, RequestedKind, SpawnAt, SpawnProfile, S
 use crate::enemies::target::Players;
 use crate::enemies::zombie::{Attack, DamageZombie, Dying, Heavyweight, HitZone, Pay, Zombie};
 use crate::modifier::{Effect, Modifier, Source, Stat};
-use crate::players::player::{Player, PlayerHit};
+use crate::players::player::{LocalPlayer, Player, PlayerHit, Seat};
 use crate::run::round::{ReservedRounds, Round, RoundEnded, RoundPhase, RoundStarted, zombie_health};
 use crate::state::{GameState, InRun, Pause, RunType};
 use crate::storage::records::RunWon;
@@ -689,8 +690,9 @@ pub fn boss_deaths(
     }
 }
 
-/// A cleared Boss Round adds its Act's Scrip. Clearing the last Act's is the Win: solo the world
-/// freezes for the Player's choice; in Co-op the Run carries on into Endless.
+/// A cleared Boss Round adds its Act's Scrip. Clearing the last Act's is the Win, and the Win
+/// screen opens for the Player's choice: solo over the world frozen for it, in Co-op over the world
+/// running on (`super::win`).
 pub fn clear_boss_rounds(
     mut ended: MessageReader<RoundEnded>,
     round: Res<Round>,
@@ -706,16 +708,17 @@ pub fn clear_boss_rounds(
     if round.number == win_round() && !arc.won {
         arc.won = true;
         won.0 = true;
+        arc.choosing = true;
+        // Co-op's screen plays it as it opens, on every machine.
         if !run_type.is_coop() {
-            arc.choosing = true;
             cues.write(PlayCue::new(Cue::GauntletWin, None));
         }
     }
 }
 
 /// A client's own Act bonus and Win: the Host's `RoundEnded` on a Boss Round is the cleared Boss
-/// Round, so the client banks the Act's Scrip and, at `win_round()`, sets `RunArc.won`, as
-/// `clear_boss_rounds` does for the Host. Co-op has no Win screen.
+/// Round, so the client banks the Act's Scrip and, at `win_round()`, sets `RunArc.won` and opens
+/// its own Win screen, as `clear_boss_rounds` does for the Host.
 pub fn infer_win(mut ended: MessageReader<RoundEnded>, round: Res<Round>, mut arc: ResMut<RunArc>, mut won: ResMut<RunWon>) {
     if ended.read().count() == 0 || !is_boss_round(round.number) {
         return;
@@ -724,6 +727,7 @@ pub fn infer_win(mut ended: MessageReader<RoundEnded>, round: Res<Round>, mut ar
     if round.number == win_round() && !arc.won {
         arc.won = true;
         won.0 = true;
+        arc.choosing = true;
     }
 }
 
@@ -738,13 +742,24 @@ pub struct KeepGoingButton;
 const WIN_GOLD: Color = Color::srgb(1.0, 0.82, 0.3);
 const BUTTON_IDLE: Color = Color::srgba(0.07, 0.07, 0.09, 0.95);
 
+/// The Win screen's root.
+#[derive(Component)]
+pub struct WinScreen;
+
 /// The Win screen, over the world frozen for it, whenever the world freezes while it waits.
 pub fn spawn_win_screen(mut commands: Commands, arc: Res<RunArc>) {
     if !arc.choosing {
         return;
     }
-    commands
-        .spawn((
+    win_screen(&mut commands).insert(DespawnOnExit(Pause::Frozen));
+}
+
+/// The Win screen's overlay and its two buttons: solo over a frozen world (`spawn_win_screen`), in
+/// Co-op over a running one (`super::win`).
+pub fn win_screen<'a>(commands: &'a mut Commands) -> EntityCommands<'a> {
+    let mut root = commands.spawn(WinScreen);
+    root
+        .insert((
             Node {
                 flex_direction: FlexDirection::Column,
                 justify_content: JustifyContent::Center,
@@ -754,7 +769,6 @@ pub fn spawn_win_screen(mut commands: Commands, arc: Res<RunArc>) {
             },
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.78)),
             GlobalZIndex(21),
-            DespawnOnExit(Pause::Frozen),
         ))
         .with_children(|root| {
             root.spawn(text(format!("ROUND {} CLEARED", win_round()), 22.0, Color::srgb(0.65, 0.65, 0.65)));
@@ -782,27 +796,33 @@ pub fn spawn_win_screen(mut commands: Commands, arc: Res<RunArc>) {
             });
             root.spawn(text("Keep going into Endless: a Boss every tenth Round. The Run stays a Win.", 18.0, Color::srgb(0.65, 0.65, 0.65)));
         });
+    root
 }
 
 /// End the Run ends it as a Win, to Game Over; Keep going lets the Boss Offer and Endless follow.
+/// Either is said as a `WinChoice`, for Co-op's Host to hear (`super::win`).
 pub fn click_win(
     activate: On<Activate>,
     ends: Query<(), With<EndRunButton>>,
     keeps: Query<(), With<KeepGoingButton>>,
+    local: Query<&Seat, With<LocalPlayer>>,
     mut arc: ResMut<RunArc>,
     mut next: ResMut<NextState<GameState>>,
     mut cues: MessageWriter<PlayCue>,
+    mut chosen: MessageWriter<WinChoice>,
 ) {
     if !arc.choosing {
         return;
     }
-    if ends.contains(activate.entity) {
-        arc.choosing = false;
-        cues.write(PlayCue::new(Cue::OfferPick, None));
+    let end = ends.contains(activate.entity);
+    if !end && !keeps.contains(activate.entity) {
+        return;
+    }
+    arc.choosing = false;
+    cues.write(PlayCue::new(Cue::OfferPick, None));
+    chosen.write(WinChoice { seat: local.single().copied().unwrap_or(Seat(0)), end });
+    if end {
         next.set(GameState::GameOver);
-    } else if keeps.contains(activate.entity) {
-        arc.choosing = false;
-        cues.write(PlayCue::new(Cue::OfferPick, None));
     }
 }
 

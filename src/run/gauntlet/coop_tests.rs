@@ -36,6 +36,7 @@ pub(super) fn gauntlet_players_with(extra: impl FnOnce(&mut App)) -> (Sim, Entit
             .init_resource::<Gifts>()
             .init_resource::<OfferWait>()
             .init_resource::<super::RunArc>()
+            .init_resource::<super::win::WinWait>()
             .init_resource::<RoundVariety>()
             .init_resource::<super::heat::RunHeat>()
             .init_resource::<UnlockAll>()
@@ -824,4 +825,61 @@ fn tight_offers_raises_every_players_reroll_price_and_trims_their_starting_banis
     sim.send(RerollOffer { player: local });
     sim.run(2);
     assert_eq!(sim.world_mut().get::<Offer>(local).unwrap().rerolls, 1);
+}
+
+/// Two Players at the Win in Co-op: the Round that ends the last Act, with the arc's clearing of it
+/// and the Host's wait for every Win choice running.
+fn at_the_win() -> (Sim, Entity, Entity) {
+    let (mut sim, local, teammate) = gauntlet_players_with(|app| {
+        app.init_resource::<crate::storage::records::RunWon>()
+            .add_message::<super::win::WinChoice>()
+            .add_message::<crate::run::leave_run::PlayerLeft>()
+            .add_systems(
+                Update,
+                (arc::clear_boss_rounds, super::win::await_win_choices, super::win::settle_win_choices)
+                    .chain()
+                    .before(open_offer)
+                    .before(hold_intermission)
+                    .in_set(HostSimulation),
+            );
+    });
+    sim.world_mut().insert_resource(Round::in_progress(arc::win_round()));
+    end_round(&mut sim);
+    (sim, local, teammate)
+}
+
+fn choose_win(sim: &mut Sim, seat: u8) {
+    sim.send(super::win::WinChoice { seat: Seat(seat), end: false });
+    sim.run(2);
+}
+
+#[test]
+fn the_boss_offer_and_the_next_round_wait_for_every_players_win_choice() {
+    let (mut sim, local, teammate) = at_the_win();
+    assert!(sim.world_mut().resource::<RunArc>().won);
+    assert!(!has_offer(&mut sim, local) && !has_offer(&mut sim, teammate), "the Win screen goes first");
+    assert!(holding_intermission(&mut sim));
+    assert!(!sim.world_mut().resource::<Freeze>().0, "Co-op never freezes for the Win");
+    choose_win(&mut sim, 0);
+    sim.run(sim.frames(BOON_OFFER_DELAY_SECS + 0.5));
+    assert!(!has_offer(&mut sim, local), "the teammate is still to choose");
+    assert!(holding_intermission(&mut sim));
+    choose_win(&mut sim, 1);
+    sim.run(sim.frames(BOON_OFFER_DELAY_SECS + 0.5));
+    assert!(has_offer(&mut sim, local) && has_offer(&mut sim, teammate));
+    // The Offers' own wait starts now, in full.
+    sim.run(sim.frames(BOON_OFFER_COOP_TIMEOUT_SECS - 5.0));
+    assert!(holding_intermission(&mut sim));
+}
+
+#[test]
+fn no_win_choice_within_thirty_seconds_counts_as_keep_going() {
+    let (mut sim, local, teammate) = at_the_win();
+    sim.run(sim.frames(GAUNTLET_WIN_COOP_TIMEOUT_SECS - 4.0));
+    assert!(!has_offer(&mut sim, local), "still inside the 30 s");
+    assert!(holding_intermission(&mut sim));
+    sim.run(sim.frames(2.0 + BOON_OFFER_DELAY_SECS + 0.5));
+    assert!(!sim.world_mut().resource::<super::win::WinWait>().holds(), "the wait is never longer than 30 s");
+    assert!(has_offer(&mut sim, local) && has_offer(&mut sim, teammate), "the Boss Offer follows, as for Keep going");
+    assert!(sim.world_mut().resource::<RunArc>().won, "and the Run stays a Win");
 }

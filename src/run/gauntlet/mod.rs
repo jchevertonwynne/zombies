@@ -24,6 +24,7 @@ mod tools;
 #[cfg(test)]
 pub(crate) use tools::reroll_price_from;
 pub(crate) mod variety;
+pub(crate) mod win;
 #[cfg(test)]
 mod coop_tests;
 #[cfg(test)]
@@ -345,6 +346,9 @@ impl Plugin for GauntletPlugin {
             .init_resource::<RunModifiers>()
             .init_resource::<TurnedAllyCap>()
             .init_resource::<RunArc>()
+            .init_resource::<win::WinWait>()
+            .init_resource::<win::WinClock>()
+            .add_message::<win::WinChoice>()
             .init_resource::<RoundVariety>()
             .init_resource::<crate::audio::RoundStartCue>()
             .add_message::<PickRound>()
@@ -496,6 +500,17 @@ impl Plugin for GauntletPlugin {
                     )
                         .chain()
                         .in_set(HostSimulation),
+                    // A Co-op Win holds the Offers back until every Player has chosen.
+                    (win::await_win_choices.after(arc::clear_boss_rounds), win::settle_win_choices)
+                        .chain()
+                        .before(open_offer)
+                        .before(hold_intermission)
+                        .in_set(HostSimulation),
+                    (win::open_win_screen, win::close_win_screen)
+                        .chain()
+                        .after(arc::clear_boss_rounds)
+                        .after(arc::infer_win)
+                        .run_if(coop),
                     (
                         arc::plan_boss,
                         arc::count_boss_warning.run_if(world_runs).before(arc::spawn_boss),
@@ -635,6 +650,8 @@ fn reset(mut commands: Commands) {
     commands.insert_resource(duos::BallLightning::default());
     commands.insert_resource(sets::SetFlashes::default());
     commands.insert_resource(RunArc::default());
+    commands.insert_resource(win::WinWait::default());
+    commands.insert_resource(win::WinClock::default());
     commands.insert_resource(arc::BossPlan::default());
     commands.insert_resource(arc::BossView::default());
     commands.insert_resource(RoundVariety::default());
@@ -667,7 +684,8 @@ fn schedule_offer(
 /// from their own Unlocks and Boons. After a Pact Round it's a Pact Offer, unless no Pact is left
 /// to offer, and never one a teammate holds or has on their Offer; after a Boss Round it's a Boss
 /// Offer, unless there's no Legendary to offer. With no eligible Boon there's no Offer. An Offer
-/// still open from an earlier Round holds the next one back, and so does the Win screen.
+/// still open from an earlier Round holds the next one back, and so does the Win screen (in Co-op,
+/// every Player's, up to `GAUNTLET_WIN_COOP_TIMEOUT_SECS`).
 fn open_offer(
     mut commands: Commands,
     mut players: Query<(
@@ -689,9 +707,11 @@ fn open_offer(
     run_type: Res<RunType>,
     time: Res<Time>,
     arc: Res<RunArc>,
+    win_wait: Res<win::WinWait>,
     mut cues: MessageWriter<PlayCue>,
 ) {
-    if arc.choosing {
+    // In Co-op the Host's own screen is one of the choices the wait is for.
+    if (arc.choosing && !run_type.is_coop()) || win_wait.holds() {
         return;
     }
     // Pacts on a Player's open Offer are spoken for, so two Offers drawn together never share one.
@@ -958,11 +978,13 @@ pub(crate) fn apply_grants(
 
 /// Keeps the Intermission from starting while Offers are due or open. Solo that is until the pick,
 /// with the world frozen for it; in Co-op the world runs and the wait ends after
-/// `BOON_OFFER_COOP_TIMEOUT_SECS`, leaving any Offer still open.
+/// `BOON_OFFER_COOP_TIMEOUT_SECS`, leaving any Offer still open. A Co-op Win holds it first, while
+/// any Player is still to choose (`win::WinWait`), and the Offers' wait starts once that is over.
 fn hold_intermission(
     players: Query<(&PendingOffer, Has<Offer>), With<Player>>,
     run_type: Res<RunType>,
     arc: Res<RunArc>,
+    win_wait: Res<win::WinWait>,
     variety: Res<RoundVariety>,
     time: Res<Time>,
     mut wait: ResMut<OfferWait>,
@@ -975,7 +997,10 @@ fn hold_intermission(
         || players
             .iter()
             .any(|(pending, open)| pending.left.is_some() || open);
-    let (held, frozen) = if run_type.is_coop() {
+    let (held, frozen) = if run_type.is_coop() && win_wait.holds() {
+        wait.0 = BOON_OFFER_COOP_TIMEOUT_SECS;
+        (true, false)
+    } else if run_type.is_coop() {
         wait.0 = (wait.0 - time.delta_secs()).max(0.0);
         // The vote has its own clock, so the Intermission waits for it however the Offers went.
         let offers = players.iter().any(|(pending, open)| pending.left.is_some() || open);

@@ -22,6 +22,9 @@ use crate::net::play::{self, Held, HostSaid, PlayPlugin, Roster, Scoreboard, Wir
 use crate::net::protocol::{HOST, Peer, RoomView, Score, ToHost, ToPlayer, encode};
 use crate::net::room::{Hosting, Joining, Room};
 use crate::run::gauntlet::PlayerUnlocks;
+use crate::run::gauntlet::arc::RunArc;
+use crate::run::gauntlet::win::WinChoice;
+use crate::storage::records::RunWon;
 use crate::players::player::{Player, PlayerName, Seat};
 use crate::economy::points::Points;
 use crate::run::stats::RunStats;
@@ -59,6 +62,9 @@ pub struct Party {
     over: bool,
     /// The other end has already been told, or has said it has gone.
     parted: bool,
+    /// This joiner ended the Run at the Win and gave up their Seat while the rest play on, so
+    /// there is no Room to go back to.
+    ended_alone: bool,
 }
 
 impl Party {
@@ -90,13 +96,19 @@ impl Party {
         }
     }
 
+    /// Whether there is a Room for this machine's Player to go back to: not for a joiner who ended
+    /// the Run at the Win on their own.
+    pub fn can_go_back(&self) -> bool {
+        !self.ended_alone
+    }
+
     /// This machine's Player wants back in the Room.
     pub fn back_to_room(&mut self) {
         self.back = true;
     }
 
     fn new(seats: Vec<(Seat, String)>, local: Seat, mode: Mode, map: MapId, heat: [u8; 8], dev: DevMode, room: Option<Room>) -> Self {
-        Party { seats, local, mode, map, heat, dev, stage: Stage::Gathering, room, back: false, over: false, parted: false }
+        Party { seats, local, mode, map, heat, dev, stage: Stage::Gathering, room, back: false, over: false, parted: false, ended_alone: false }
     }
 
 }
@@ -171,14 +183,16 @@ fn launch(
     }
 }
 
-/// Game Over: the Host tells every Player how each did and that the Run is over, and keeps the
-/// scoreboard itself.
+/// Game Over: the Host tells every Player how each did and that the Run is over, and whether it
+/// reached its Win (so the Host's End the Run is a Win for everyone), and keeps the scoreboard
+/// itself.
 fn run_over(
     party: Option<ResMut<Party>>,
     roster: Option<Res<Roster>>,
     wire: Option<ResMut<Wire>>,
     players: Query<(&Seat, &PlayerName, &RunStats, &Points), With<Player>>,
     mut scoreboard: ResMut<Scoreboard>,
+    won: Option<Res<RunWon>>,
 ) {
     let Some(mut party) = party else { return };
     party.over = true;
@@ -197,7 +211,7 @@ fn run_over(
         rows.sort_by_key(|row| row.seat);
         for &(peer, _) in &roster.0 {
             wire.0.send(peer, encode(&ToPlayer::Scoreboard(rows.clone())));
-            wire.0.send(peer, encode(&ToPlayer::RunOver));
+            wire.0.send(peer, encode(&ToPlayer::RunOver { won: won.as_ref().is_some_and(|won| won.0) }));
         }
         scoreboard.0 = rows;
     }
@@ -218,13 +232,15 @@ fn remote_unlocks(
     }
 }
 
-/// What the Host said, as a client hears it.
+/// What the Host said, as a client hears it. A Run over that reached its Win is this Player's Win
+/// too, saved with their Record.
 fn hear_host(
     mut said: MessageReader<HostSaid>,
     party: Option<ResMut<Party>>,
     state: Res<State<GameState>>,
     mut next: ResMut<NextState<GameState>>,
     mut notice: ResMut<Notice>,
+    (mut run_won, mut arc): (Option<ResMut<RunWon>>, Option<ResMut<RunArc>>),
 ) {
     let Some(mut party) = party else {
         said.clear();
@@ -232,7 +248,15 @@ fn hear_host(
     };
     for said in said.read() {
         match said {
-            HostSaid::RunOver => {
+            &HostSaid::RunOver { won } => {
+                if won {
+                    if let Some(run_won) = run_won.as_mut() {
+                        run_won.0 = true;
+                    }
+                    if let Some(arc) = arc.as_mut() {
+                        arc.won = true;
+                    }
+                }
                 if *state.get() == GameState::Playing {
                     next.set(GameState::GameOver);
                 }
@@ -249,6 +273,17 @@ fn hear_host(
                 next.set(GameState::MainMenu);
             }
         }
+    }
+}
+
+/// A joiner who ends the Run at the Win has no Room to go back to: the rest play on without them.
+fn end_alone(mut chosen: MessageReader<WinChoice>, party: Option<ResMut<Party>>) {
+    let Some(mut party) = party else {
+        chosen.clear();
+        return;
+    };
+    if party.room.is_none() && chosen.read().any(|choice| choice.end) {
+        party.ended_alone = true;
     }
 }
 
@@ -368,7 +403,7 @@ impl Plugin for PartyPlugin {
                 Update,
                 (
                     launch.run_if(launching),
-                    (hear_host, free_seat, remote_unlocks),
+                    (hear_host, free_seat, remote_unlocks, end_alone),
                     back_to_room.run_if(wants_back),
                 )
                     .chain(),
@@ -813,5 +848,173 @@ mod tests {
         // And each client's own Player matches what the Host holds for them.
         assert_eq!(banish_and_speed(&mut apps[1], 1), (base + 2 * per_rank, 1));
         assert_eq!(banish_and_speed(&mut apps[2], 2), (base, 0));
+    }
+
+    /// A Gauntlet Room of the Host and `joiners` others, each machine with the Win's systems: the
+    /// arc's clearing of the last Act, a client's inferring it, and Co-op's Win screen and wait.
+    /// The Run starts in the Round whose clearing is the Win.
+    fn win_room(joiners: usize) -> (Hub, Vec<App>) {
+        use crate::authority::HostSimulation;
+        use crate::run::gauntlet::{arc, win};
+        let (hub, mut apps) = room_with(joiners, Mode::Gauntlet, [0; 8]);
+        for app in &mut apps {
+            app.insert_resource(crate::run::round::Round::in_progress(arc::win_round()))
+                .init_resource::<RunArc>()
+                .init_resource::<RunWon>()
+                .init_resource::<win::WinWait>()
+                .init_resource::<win::WinClock>()
+                .add_message::<WinChoice>()
+                .add_message::<crate::audio::PlayCue>()
+                .add_message::<crate::run::round::RoundEnded>()
+                .add_message::<crate::storage::records::SaveRecord>()
+                .add_observer(arc::click_win)
+                .add_systems(
+                    Update,
+                    (
+                        arc::clear_boss_rounds.in_set(HostSimulation),
+                        arc::infer_win.run_if(in_state(Authority::Client)),
+                        (win::await_win_choices, win::settle_win_choices).chain().in_set(HostSimulation),
+                        (win::open_win_screen, win::close_win_screen).chain(),
+                    )
+                        .chain()
+                        .run_if(in_state(GameState::Playing)),
+                );
+        }
+        assert!(start(&mut apps[0]));
+        frames(&hub, &mut apps, 12);
+        assert_in_run(&mut apps);
+        // The Map's machines, so a client has a world to hear the Host's words in.
+        for app in &mut apps {
+            bevy::ecs::system::RunSystemOnce::run_system_once(app.world_mut(), crate::maps::map::spawn_map).unwrap();
+        }
+        frames(&hub, &mut apps, 6);
+        (hub, apps)
+    }
+
+    /// The Host clears the last Act's Boss Round: the Win, on every machine.
+    fn reach_the_win(hub: &Hub, apps: &mut [App]) {
+        use crate::run::round::{Round, RoundEnded, RoundPhase};
+        let world = apps[0].world_mut();
+        world.write_message(RoundEnded);
+        world.resource_mut::<Round>().phase = RoundPhase::Intermission(INTERMISSION_SECS);
+        frames(hub, apps, 12);
+    }
+
+    fn win_screens(app: &mut App) -> usize {
+        let world = app.world_mut();
+        world.query_filtered::<(), With<crate::run::gauntlet::arc::WinScreen>>().iter(world).count()
+    }
+
+    /// The Player on `app` presses a Win screen button.
+    fn press<B: Component>(app: &mut App) {
+        let world = app.world_mut();
+        let button = world.query_filtered::<Entity, With<B>>().single(world).expect("the Win screen's button");
+        world.trigger(bevy::ui_widgets::Activate { entity: button });
+    }
+
+    fn waiting_on(app: &App) -> Vec<u8> {
+        let mut seats: Vec<u8> =
+            app.world().resource::<crate::run::gauntlet::win::WinWait>().waiting().iter().map(|seat| seat.0).collect();
+        seats.sort_unstable();
+        seats
+    }
+
+    #[test]
+    fn every_player_gets_the_win_screen_at_the_win_with_no_freeze() {
+        let (hub, mut apps) = win_room(1);
+        reach_the_win(&hub, &mut apps);
+        for (at, app) in apps.iter_mut().enumerate() {
+            assert_eq!(win_screens(app), 1, "machine {at}");
+            assert!(app.world().resource::<RunArc>().choosing, "machine {at}");
+            assert!(app.world().resource::<RunWon>().0, "machine {at}");
+            let pause = *app.world().resource::<State<crate::state::Pause>>().get();
+            assert_ne!(pause, crate::state::Pause::Frozen, "machine {at}");
+        }
+        assert_eq!(waiting_on(&apps[0]), [0, 1]);
+    }
+
+    #[test]
+    fn a_client_who_ends_the_run_at_the_win_keeps_it_and_gives_up_their_seat() {
+        use crate::run::gauntlet::arc::EndRunButton;
+        let (hub, mut apps) = win_room(2);
+        reach_the_win(&hub, &mut apps);
+        press::<EndRunButton>(&mut apps[1]);
+        frames(&hub, &mut apps, 12);
+
+        // Their Win is theirs to save, at Game Over, with no Room to go back to.
+        assert_eq!(state(&apps[1]), GameState::GameOver);
+        assert!(apps[1].world().resource::<RunWon>().0);
+        assert!(!apps[1].world().resource::<Party>().can_go_back());
+        // The rest play on without them, and the Host waits only for those still here.
+        for at in [0, 2] {
+            assert_eq!(state(&apps[at]), GameState::Playing, "machine {at}");
+            assert_eq!(seats_and_local(&mut apps[at]).0, [0, 2], "machine {at}");
+        }
+        assert_eq!(waiting_on(&apps[0]), [0, 2]);
+        // Their Seat is given up for good: not held for Rejoin, and gone from the Room.
+        let host = apps[0].world();
+        assert!(host.resource::<Roster>().0.iter().all(|&(_, seat)| seat != 1));
+        assert!(host.resource::<Held>().away.is_empty());
+        assert_eq!(host.resource::<Party>().room().expect("the Host's Room").players(), 2);
+    }
+
+    #[test]
+    fn a_clients_keep_going_reaches_the_host_and_they_play_on() {
+        use crate::run::gauntlet::arc::KeepGoingButton;
+        let (hub, mut apps) = win_room(1);
+        reach_the_win(&hub, &mut apps);
+        press::<KeepGoingButton>(&mut apps[1]);
+        frames(&hub, &mut apps, 12);
+        assert_eq!(win_screens(&mut apps[1]), 0);
+        assert_eq!(state(&apps[1]), GameState::Playing);
+        assert_eq!(waiting_on(&apps[0]), [0], "the Host is still to choose");
+        assert_eq!(seats_and_local(&mut apps[0]).0, [0, 1]);
+        press::<KeepGoingButton>(&mut apps[0]);
+        frames(&hub, &mut apps, 2);
+        assert!(waiting_on(&apps[0]).is_empty());
+        for app in &apps {
+            assert!(app.world().resource::<RunWon>().0, "the Run stays a Win");
+        }
+    }
+
+    #[test]
+    fn the_hosts_end_the_run_ends_it_for_everyone_as_a_win() {
+        use crate::run::gauntlet::arc::EndRunButton;
+        let (hub, mut apps) = win_room(2);
+        reach_the_win(&hub, &mut apps);
+        // A client that has lost track of the Win (back from a dropped link) has it from the Host.
+        apps[2].world_mut().resource_mut::<RunWon>().0 = false;
+        apps[2].world_mut().resource_mut::<RunArc>().won = false;
+        press::<EndRunButton>(&mut apps[0]);
+        frames(&hub, &mut apps, 12);
+        for (at, app) in apps.iter_mut().enumerate() {
+            assert_eq!(state(app), GameState::GameOver, "machine {at}");
+            assert!(app.world().resource::<RunWon>().0, "machine {at} keeps the Win");
+            assert!(app.world().resource::<RunArc>().won, "machine {at}");
+            assert_eq!(win_screens(app), 0, "machine {at}");
+            assert!(app.world().resource::<Party>().can_go_back(), "machine {at}");
+        }
+        assert_ne!(apps[1].world().resource::<Notice>().0, "Host ended the Run");
+    }
+
+    #[test]
+    fn no_choice_at_the_win_within_thirty_seconds_is_keep_going_on_every_machine() {
+        let (hub, mut apps) = win_room(1);
+        reach_the_win(&hub, &mut apps);
+        let secs = |secs: f32| (secs * FIXED_HZ as f32) as usize;
+        frames(&hub, &mut apps, secs(GAUNTLET_WIN_COOP_TIMEOUT_SECS - 2.0));
+        assert_eq!(waiting_on(&apps[0]), [0, 1], "still inside the 30 s");
+        for app in &mut apps {
+            assert_eq!(win_screens(app), 1);
+        }
+        frames(&hub, &mut apps, secs(3.0));
+        assert!(waiting_on(&apps[0]).is_empty(), "the Host waits no longer");
+        for (at, app) in apps.iter_mut().enumerate() {
+            assert_eq!(win_screens(app), 0, "machine {at}'s screen closed");
+            assert!(!app.world().resource::<RunArc>().choosing, "machine {at}");
+            assert_eq!(state(app), GameState::Playing, "machine {at} keeps going");
+            assert!(app.world().resource::<RunWon>().0, "machine {at}'s Run stays a Win");
+        }
+        assert_eq!(seats_and_local(&mut apps[0]).0, [0, 1]);
     }
 }

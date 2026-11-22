@@ -343,7 +343,7 @@ _Avoid_: roguelite mode
 
 **Elite Trait**: What marks an Elite, each with its own tint: Armoured (body hits soaked until half its health is gone), Splitter (two Walkers on death), Volatile (a fused blast that hurts only the Player), Regenerating (heals after a quiet spell) or Rallying (Zombies near it move faster).
 
-**Win**: Clearing the Boss Round that ends the third Act. The Player then chooses to end the Run or keep going into Endless; a Run that has reached its Win stays a Win whatever happens after. In Co-op each Player chooses for themselves: one who ends the Run leaves with the Win, the others keep going, and the Host ending it ends it for everyone.
+**Win**: Clearing the Boss Round that ends the third Act. The Player then chooses to end the Run or keep going into Endless; a Run that has reached its Win stays a Win whatever happens after. In Co-op each Player chooses for themselves, on their own Win screen over the running world, within 30 seconds (no choice is keeping going): one who ends the Run leaves with the Win and gives up their Seat, the others keep going, and the Host ending it ends it for everyone, every Player keeping the Win.
 
 **Endless**: The Rounds a Gauntlet Run plays after its Win, when the Player keeps going. Endless keeps the Act rhythm, with a Boss Round every tenth Round and a Pact Offer between, but has no Acts and no further Win.
 
