@@ -37,6 +37,11 @@ impl Power {
     }
 }
 
+/// Turn the Power on now, as if the Power Switch had been thrown, and Claim every Generator the
+/// Map has. The Host judges it.
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SwitchPowerOn;
+
 /// What Powers the Map's machines right now, from the Power Switch's `Power` and the Generators,
 /// as `Supply` reads them. On a Map with Generators they decide everything and `Power` counts for
 /// nothing; otherwise it's the Power being on.
@@ -206,6 +211,7 @@ pub struct PowerPlugin;
 impl Plugin for PowerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Power>()
+            .add_message::<SwitchPowerOn>()
             .add_systems(
                 OnEnter(GameState::Playing),
                 (
@@ -216,7 +222,7 @@ impl Plugin for PowerPlugin {
             .add_systems(
                 Update,
                 // Every machine swings the lever; the Host's bought use starts it.
-                (use_switch.in_set(HostSimulation), flip_switch).chain().run_if(world_runs),
+                (use_switch.in_set(HostSimulation), switch_power_on.in_set(HostSimulation), flip_switch).chain().run_if(world_runs),
             );
     }
 }
@@ -294,6 +300,30 @@ fn use_switch(
         if let Ok(mut switch) = switches.get_mut(buyable) {
             switch.start();
             commands.entity(buyable).remove::<Buyable>();
+        }
+    }
+}
+
+/// A `SwitchPowerOn` puts the Power on at once, throws the Power Switch for the show, and holds
+/// every Generator.
+fn switch_power_on(
+    mut commands: Commands,
+    mut asked: MessageReader<SwitchPowerOn>,
+    mut power: ResMut<Power>,
+    generators: Option<ResMut<Generators>>,
+    mut switches: Query<(Entity, &mut PowerSwitch)>,
+) {
+    if asked.read().count() == 0 {
+        return;
+    }
+    power.switch_on();
+    for (entity, mut switch) in &mut switches {
+        switch.start();
+        commands.entity(entity).remove::<Buyable>();
+    }
+    if let Some(mut generators) = generators {
+        for index in 0..generators.states().len() {
+            generators.hold(index);
         }
     }
 }

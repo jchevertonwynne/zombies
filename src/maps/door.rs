@@ -62,14 +62,20 @@ pub fn opening_offset(elapsed: f32) -> Option<Vec3> {
     }
 }
 
+/// Open every Door in the Map now, free, whatever it waits for: the Zones they join follow. The
+/// Host judges it.
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OpenAllDoors;
+
 pub struct DoorPlugin;
 
 impl Plugin for DoorPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.add_message::<OpenAllDoors>().add_systems(
             Update,
             (
                 price_doors,
+                open_every_door.in_set(HostSimulation),
                 open_bought_doors.in_set(HostSimulation),
                 open_power_doors.in_set(HostSimulation),
                 open_linked_doors.in_set(HostSimulation),
@@ -89,6 +95,22 @@ fn price_doors(mut doors: Query<(&Door, &mut Buyable)>) {
         }
         if buyable.prompt.is_empty() {
             buyable.prompt = "Press F to open Door".into();
+        }
+    }
+}
+
+/// An `OpenAllDoors` opens every Door still shut.
+fn open_every_door(
+    mut commands: Commands,
+    mut asked: MessageReader<OpenAllDoors>,
+    mut doors: Query<(Entity, &mut Door, &Transform)>,
+) {
+    if asked.read().count() == 0 {
+        return;
+    }
+    for (entity, mut door, transform) in &mut doors {
+        if !door.open {
+            open(&mut commands, entity, &mut door, transform);
         }
     }
 }

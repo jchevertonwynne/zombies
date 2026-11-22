@@ -373,7 +373,7 @@ impl Plugin for SpecialPlugin {
             .add_systems(
                 Update,
                 (
-                    (plan_special, spawn_special, spawn_requested_napalms, napalm_trails).chain().in_set(HostSimulation),
+                    (plan_special, spawn_special, spawn_requested_napalms, spawn_requested_shriekers, napalm_trails).chain().in_set(HostSimulation),
                     (detonate, shriek, special_deaths, death_screams, fire_pools, pool_burns).in_set(HostSimulation),
                     heat_tint,
                     shake_view,
@@ -604,7 +604,7 @@ pub(crate) fn spawn_requested_napalms(
                     trail: profile.trail.map(|trail| (trail, trail.every_secs)),
                     ..Napalm::new()
                 },
-                Requested,
+                Requested::of(request),
                 SpecialWatch(StuckWatch::new(at)),
                 MeshMaterial3d(assets.napalm.clone()),
             ))
@@ -625,6 +625,42 @@ pub(crate) fn spawn_requested_napalms(
                 entry.cue(Cue::NapalmRise, at);
             }
         }
+    }
+}
+
+/// Each `SpawnZombie` for a Shrieker spawns one outside the Horde, rising from its point as the
+/// special slot's does, and never part of the slot. Without `holds_round` it carries over.
+pub(crate) fn spawn_requested_shriekers(
+    mut commands: Commands,
+    mut requests: MessageReader<SpawnZombie>,
+    round: Option<Res<Round>>,
+    mut entry: Entry,
+    zombie_assets: ZombieAssetsParam,
+    assets: Res<SpecialAssets>,
+) {
+    let number = round.map_or(1, |round| round.number);
+    for request in requests.read().filter(|request| request.kind == RequestedKind::Shrieker) {
+        let Some((at, _)) = entry.resolve(request.at) else {
+            continue;
+        };
+        let health = requested_health(number, request.health_factor);
+        let zombie = spawn_zombie(&mut commands, &zombie_assets, at, health, SpeedTier::Sprinter, Some(SpecialKind::Shrieker.rise_secs()));
+        let mut entity = commands.entity(zombie);
+        entity.insert((
+            Name::new("Shrieker"),
+            Zombie::special(SpecialKind::Shrieker, health, at),
+            Shrieker { cooldown: 0.0, wind_up: None, idle_in: rand::random_range(SHRIEKER_IDLE_SECS) },
+            Requested::of(request),
+            SpecialWatch(StuckWatch::new(at)),
+            MeshMaterial3d(assets.shrieker.clone()),
+        ));
+        if !request.holds_round {
+            entity.insert(CarriesOver);
+        }
+        if let Some(heavyweight) = request.heavyweight {
+            entity.insert(heavyweight);
+        }
+        entry.cue(Cue::ShriekerRise, at);
     }
 }
 

@@ -7,12 +7,23 @@ use super::*;
 use crate::economy::points::PointsPlugin;
 use crate::net::away::{Reach, Rejoin};
 use crate::players::player::Noclip;
+use crate::enemies::request::{RequestedKind, SpawnAt, SpawnZombie};
+use crate::maps::power::Power;
+use crate::run::dev::oneshots::{RoundJump, Spawn, Spawnable};
 use crate::run::dev::{CHEAT_POINTS, Cheat, Cheats, DevPlugin, SetDevMode};
+use crate::run::gauntlet::arc::SummonBoss;
+use crate::run::mode::Mode;
+use crate::run::round::{BeginRound, ReservedRounds, begin_requested_round};
+use crate::storage::settings::Settings;
 use crate::storage::records::{RunTainted, TaintRun};
 
 fn with_dev(app: &mut App) {
     coop(app);
     app.add_plugins((PointsPlugin, DevPlugin))
+        .init_resource::<Settings>()
+        .init_resource::<ReservedRounds>()
+        .init_resource::<Asked>()
+        .add_systems(Update, (begin_requested_round, note_asked).in_set(HostSimulation))
         .init_resource::<RunTainted>()
         .add_message::<TaintRun>()
         .add_systems(Update, |mut asked: MessageReader<TaintRun>, mut tainted: ResMut<RunTainted>| {
@@ -20,6 +31,25 @@ fn with_dev(app: &mut App) {
                 tainted.0 = true;
             }
         });
+}
+
+/// The Zombies and Bosses the Host was asked for.
+#[derive(Resource, Default)]
+struct Asked {
+    spawns: Vec<SpawnZombie>,
+    bosses: Vec<SummonBoss>,
+    rounds: Vec<u32>,
+}
+
+fn note_asked(
+    mut asked: ResMut<Asked>,
+    mut spawns: MessageReader<SpawnZombie>,
+    mut bosses: MessageReader<SummonBoss>,
+    mut rounds: MessageReader<BeginRound>,
+) {
+    asked.spawns.extend(spawns.read().copied());
+    asked.bosses.extend(bosses.read().copied());
+    asked.rounds.extend(rounds.read().map(|round| round.0));
 }
 
 /// A Co-op Run of the Host and `clients`, with Developer mode set to `dev` on every machine.
@@ -34,9 +64,17 @@ fn run(clients: u8, dev: DevMode) -> Run {
 }
 
 fn ask(run: &mut Run, on: usize) {
+    ask_for(run, on, Cheat::Points);
+}
+
+fn ask_for(run: &mut Run, on: usize, cheat: Cheat) {
     let player = run.player(on, on as u8);
-    run.world(on).write_message(CheatRequest { player, cheat: Cheat::Points });
+    run.world(on).write_message(CheatRequest { player, cheat });
     run.step(20);
+}
+
+fn round_number(run: &mut Run, on: usize) -> u32 {
+    run.world(on).resource::<Round>().number
 }
 
 fn tainted(run: &mut Run, on: usize) -> bool {
@@ -319,4 +357,91 @@ fn noclip_is_kept_by_seat_across_a_rejoin() {
     run.step(30);
     // The Rejoiner's game is new: told they were flying, they fly again.
     assert!(flying(&mut run, 1), "the Rejoiner stopped flying");
+}
+
+#[test]
+fn a_clients_round_jump_moves_every_games_round_and_taints() {
+    let mut run = run(2, DevMode::On);
+    ask_for(&mut run, 1, Cheat::RoundJump(RoundJump::Forward5));
+    for on in 0..3 {
+        assert_eq!(round_number(&mut run, on), 8, "game {on}");
+        assert!(tainted(&mut run, on), "game {on}");
+    }
+    ask_for(&mut run, 2, Cheat::RoundJump(RoundJump::Back5));
+    for on in 0..3 {
+        assert_eq!(round_number(&mut run, on), 3, "back, game {on}");
+    }
+    ask_for(&mut run, 1, Cheat::RoundJump(RoundJump::NextTenth));
+    assert_eq!(round_number(&mut run, 0), 10);
+}
+
+#[test]
+fn a_jump_nowhere_is_no_cheat_and_taints_nothing() {
+    let mut run = run(1, DevMode::On);
+    run.world(0).resource_mut::<Round>().number = 1;
+    run.step(5);
+    ask_for(&mut run, 1, Cheat::RoundJump(RoundJump::Back));
+    assert!(run.world(0).resource::<Asked>().rounds.is_empty());
+    for on in 0..2 {
+        assert!(!tainted(&mut run, on), "game {on}");
+    }
+}
+
+#[test]
+fn a_clients_open_all_doors_and_power_on_reach_every_game() {
+    let mut run = run(2, DevMode::On);
+    for on in 0..3 {
+        assert!(!run.world(on).resource::<Power>().is_on());
+    }
+    ask_for(&mut run, 1, Cheat::OpenAllDoors);
+    ask_for(&mut run, 2, Cheat::PowerOn);
+    run.step(60);
+    for on in 0..3 {
+        let world = run.world(on);
+        let doors: Vec<bool> = world.query::<&Door>().iter(world).map(|door| door.open).collect();
+        assert!(!doors.is_empty() && doors.iter().all(|&open| open), "game {on}: {doors:?}");
+        assert!(world.resource::<Power>().is_on(), "game {on}");
+        assert!(tainted(&mut run, on));
+    }
+}
+
+#[test]
+fn a_clients_spawn_is_asked_of_classic_ahead_of_them_outside_the_horde() {
+    let mut run = run(1, DevMode::On);
+    ask_for(&mut run, 1, Cheat::Spawn(Spawn { kind: Spawnable::Sprinter, elite: true }));
+    let asked = &run.world(0).resource::<Asked>().spawns;
+    assert_eq!(asked.len(), 1);
+    let request = asked[0];
+    assert_eq!(request.kind, RequestedKind::Sprinter);
+    assert!(request.outside_cap && !request.holds_round);
+    assert_eq!(request.tag, None, "the Elite tick is Gauntlet's: in Classic it does nothing");
+    assert!(matches!(request.at, SpawnAt::Point(_)));
+    assert!(tainted(&mut run, 0));
+}
+
+#[test]
+fn a_boss_is_gauntlets_and_dropped_in_classic_but_summoned_in_gauntlet() {
+    let mut run = run(1, DevMode::On);
+    ask_for(&mut run, 1, Cheat::Spawn(Spawn { kind: Spawnable::Warden, elite: false }));
+    assert!(run.world(0).resource::<Asked>().bosses.is_empty());
+    assert!(!tainted(&mut run, 0), "a request Classic can't meet taints nothing");
+    for on in 0..2 {
+        run.world(on).insert_resource(Mode::Gauntlet);
+    }
+    ask_for(&mut run, 1, Cheat::Spawn(Spawn { kind: Spawnable::Warden, elite: true }));
+    assert_eq!(run.world(0).resource::<Asked>().bosses.len(), 1);
+    ask_for(&mut run, 1, Cheat::Spawn(Spawn { kind: Spawnable::Walker, elite: true }));
+    assert_eq!(run.world(0).resource::<Asked>().spawns[0].tag, Some(crate::run::gauntlet::elite::ELITE_TAG));
+    assert!(tainted(&mut run, 1));
+}
+
+#[test]
+fn the_world_one_shots_obey_the_setting_too() {
+    for cheat in [Cheat::KillAll, Cheat::OpenAllDoors, Cheat::PowerOn, Cheat::RoundJump(RoundJump::Forward)] {
+        let mut run = run(1, DevMode::HostOnly);
+        ask_for(&mut run, 1, cheat);
+        assert!(!tainted(&mut run, 0), "{cheat:?}");
+        assert_eq!(round_number(&mut run, 0), 3);
+        assert!(!run.world(0).resource::<Power>().is_on());
+    }
 }

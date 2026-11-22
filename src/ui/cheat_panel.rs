@@ -13,6 +13,7 @@ use bevy::window::{CursorGrabMode, CursorOptions};
 use crate::authority::Authority;
 use crate::players::player::LocalPlayer;
 use crate::run::dev::{Cheat, CheatRequest, Cheats, DevAccess, DevMode, SetDevMode};
+use crate::run::mode::Mode;
 use crate::state::{Choosing, GameState, PanelOpen, Pause};
 use crate::ui::hud::{text, ROUND_RED};
 use crate::ui::menu::{HINT_GREY, button};
@@ -24,7 +25,17 @@ struct CheatPanel {
     host: bool,
     /// The Player's toggles, as `Cheats::toggles` has them, so the buttons show them.
     toggles: u8,
+    elite: bool,
+    gauntlet: bool,
 }
+
+/// The panel's Elite tick: the Spawn buttons ask for an Elite while it is on. Gauntlet's.
+#[derive(Resource, Default)]
+struct SpawnElite(bool);
+
+/// The Elite tick's button.
+#[derive(Component)]
+struct EliteTick;
 
 /// A Cheat button: pressing it asks for the Cheat.
 #[derive(Component, Clone, Copy)]
@@ -47,7 +58,9 @@ pub struct CheatPanelPlugin;
 
 impl Plugin for CheatPanelPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(press_cheat)
+        app.init_resource::<SpawnElite>()
+            .add_observer(press_cheat)
+            .add_observer(press_elite_tick)
             .add_observer(press_dev_mode)
             .add_systems(
                 Update,
@@ -85,6 +98,8 @@ fn sync_panel(
     access: Res<DevAccess>,
     authority: Res<State<Authority>>,
     pause: Res<State<Pause>>,
+    elite: Res<SpawnElite>,
+    mode: Option<Res<Mode>>,
     local: Query<(Entity, Has<PanelOpen>, Has<Choosing>, Option<&Cheats>), With<LocalPlayer>>,
     panels: Query<(Entity, &CheatPanel)>,
     mut cursor: Query<&mut CursorOptions>,
@@ -98,14 +113,21 @@ fn sync_panel(
     }
     let host = *authority.get() == Authority::Host;
     let shown = panels.iter().next();
+    let gauntlet = mode.is_some_and(|mode| *mode == Mode::Gauntlet);
     match (want, shown) {
         (true, None) => {
-            spawn_panel(&mut commands, access.0, host, cheats);
+            spawn_panel(&mut commands, access.0, host, cheats, elite.0, gauntlet);
             set_cursor(&mut cursor, true);
         }
-        (true, Some((panel, shown))) if shown.dev != access.0 || shown.host != host || shown.toggles != toggles => {
+        (true, Some((panel, shown)))
+            if shown.dev != access.0
+                || shown.host != host
+                || shown.toggles != toggles
+                || shown.elite != elite.0
+                || shown.gauntlet != gauntlet =>
+        {
             commands.entity(panel).despawn();
-            spawn_panel(&mut commands, access.0, host, cheats);
+            spawn_panel(&mut commands, access.0, host, cheats, elite.0, gauntlet);
         }
         (false, Some((panel, _))) => {
             commands.entity(panel).despawn();
@@ -135,11 +157,11 @@ fn cheat_label(cheat: Cheat, cheats: Option<&Cheats>) -> String {
     }
 }
 
-fn spawn_panel(commands: &mut Commands, dev: DevMode, host: bool, cheats: Option<&Cheats>) {
+fn spawn_panel(commands: &mut Commands, dev: DevMode, host: bool, cheats: Option<&Cheats>, elite: bool, gauntlet: bool) {
     let allowed = dev.allows(host);
     commands
         .spawn((
-            CheatPanel { dev, host, toggles: Cheats::toggles(cheats) },
+            CheatPanel { dev, host, toggles: Cheats::toggles(cheats), elite, gauntlet },
             DespawnOnExit(GameState::Playing),
             GlobalZIndex(12),
             Node {
@@ -159,26 +181,65 @@ fn spawn_panel(commands: &mut Commands, dev: DevMode, host: bool, cheats: Option
             if !allowed {
                 panel.spawn(text("Host only", 22.0, ROUND_RED));
             }
-            for cheat in Cheat::ALL {
-                if allowed {
-                    button(panel, &cheat_label(cheat, cheats), CheatButton(cheat), 260.0);
-                } else {
-                    panel
-                        .spawn((
-                            Node {
-                                width: px(260.0),
-                                height: px(48.0),
-                                justify_content: JustifyContent::Center,
-                                align_items: AlignItems::Center,
-                                ..default()
-                            },
-                            BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.6)),
-                        ))
-                        .with_child(text(&cheat_label(cheat, cheats), 26.0, Color::srgb(0.4, 0.4, 0.4)));
-                }
+            for cheat in Cheat::ALL.into_iter().chain(Cheat::WORLD) {
+                cheat_button(panel, &cheat_label(cheat, cheats), cheat, allowed, 260.0);
+            }
+            panel.spawn(text("Spawn ahead", 22.0, Color::WHITE));
+            panel
+                .spawn(Node {
+                    width: px(400.0),
+                    flex_wrap: FlexWrap::Wrap,
+                    justify_content: JustifyContent::Center,
+                    column_gap: px(6.0),
+                    row_gap: px(6.0),
+                    ..default()
+                })
+                .with_children(|grid| {
+                    for cheat in Cheat::spawns() {
+                        // The Bosses are Gauntlet's.
+                        let here = gauntlet || !matches!(cheat, Cheat::Spawn(spawn) if spawn.kind.gauntlet_only());
+                        cheat_button(grid, cheat.label(), cheat, allowed && here, 126.0);
+                    }
+                });
+            let label = if elite { "Elite: on" } else { "Elite: off" };
+            if allowed && gauntlet {
+                button(panel, label, EliteTick, 260.0);
+            } else {
+                dead_button(panel, label, 260.0);
             }
             panel.spawn(text("` to close", 18.0, HINT_GREY));
         });
+}
+
+/// A Cheat's button, or a greyed one that does nothing when `enabled` is false.
+fn cheat_button(parent: &mut ChildSpawnerCommands, label: &str, cheat: Cheat, enabled: bool, width: f32) {
+    if enabled {
+        button(parent, label, CheatButton(cheat), width);
+    } else {
+        dead_button(parent, label, width);
+    }
+}
+
+fn dead_button(parent: &mut ChildSpawnerCommands, label: &str, width: f32) {
+    parent
+        .spawn((
+            Node {
+                width: px(width),
+                height: px(48.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.6)),
+        ))
+        .with_child(text(label, 22.0, Color::srgb(0.4, 0.4, 0.4)));
+}
+
+/// The Elite tick was pressed.
+fn press_elite_tick(activate: On<Activate>, ticks: Query<(), With<EliteTick>>, mut elite: ResMut<SpawnElite>) {
+    if ticks.contains(activate.entity) {
+        elite.0 = !elite.0;
+    }
 }
 
 /// A Cheat button was pressed: the `LocalPlayer` asks for it. The Host judges it (solo, this
@@ -187,9 +248,13 @@ fn press_cheat(
     activate: On<Activate>,
     buttons: Query<&CheatButton>,
     local: Query<Entity, With<LocalPlayer>>,
+    elite: Res<SpawnElite>,
     mut requests: MessageWriter<CheatRequest>,
 ) {
-    let (Ok(&CheatButton(cheat)), Ok(player)) = (buttons.get(activate.entity), local.single()) else { return };
+    let (Ok(&CheatButton(mut cheat)), Ok(player)) = (buttons.get(activate.entity), local.single()) else { return };
+    if let Cheat::Spawn(spawn) = &mut cheat {
+        spawn.elite = elite.0;
+    }
     requests.write(CheatRequest { player, cheat });
 }
 

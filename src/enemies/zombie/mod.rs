@@ -889,6 +889,7 @@ impl Plugin for ZombiePlugin {
             .add_message::<Gibbed>()
             .add_message::<TurnedAllyHit>()
             .add_message::<ZombieSpawned>()
+            .add_message::<KillAllZombies>()
             .add_message::<HealZombie>()
             .add_systems(Startup, load_assets)
             .configure_sets(
@@ -915,6 +916,7 @@ impl Plugin for ZombiePlugin {
                     stun,
                     // First, so a Zombie killed in the same frame dies as the Crawler it became.
                     become_crawler.before(apply_damage),
+                    kill_all.before(apply_damage),
                     apply_damage,
                     clean_up_stuck,
                     heal_zombies,
@@ -1864,6 +1866,36 @@ pub fn make_puppet_crawler(commands: &mut Commands, assets: &ZombieAssetsParam, 
     give_crawler_body(commands, &assets.0, entity);
 }
 
+/// Kill every Zombie, Hellhound and Boss in play now, each an Unpaid Kill: it counts toward the
+/// Round and the Run Record and pays no Points, and drops nothing. The Horde still to spawn is not
+/// touched, so it still comes. Not the Nuke: no Power-up, no bonus, no announcer. The Host judges it.
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KillAllZombies;
+
+/// The damage a `KillAllZombies` deals: finite, so a `Heavyweight`, which shrugs off an infinite
+/// one-blow kill (see `heavyweight_damage`), dies of it too.
+const KILL_ALL_DAMAGE: f32 = 1.0e30;
+
+/// Each `KillAllZombies` hits every Zombie still alive for more than it could have, as an Unpaid Kill.
+fn kill_all(
+    mut requests: MessageReader<KillAllZombies>,
+    zombies: Query<Entity, (With<Zombie>, Without<Dying>)>,
+    mut damage: MessageWriter<DamageZombie>,
+) {
+    if requests.read().count() == 0 {
+        return;
+    }
+    for zombie in &zombies {
+        damage.write(DamageZombie {
+            player: None,
+            zombie,
+            damage: KILL_ALL_DAMAGE,
+            zone: HitZone::Torso,
+            attack: Attack::Nuke,
+        });
+    }
+}
+
 /// A hound in its lightning strike can't be hurt. Insta-Kill only doubles a Napalm's or a
 /// `Heavyweight`'s damage, and a `Heavyweight` shrugs off one-blow kills (see `heavyweight_damage`). A Nova
 /// Crawler's death is also told to the Nova module, which decides whether it bursts.
@@ -2620,11 +2652,33 @@ mod tests {
     }
 
     #[test]
+    fn kill_all_kills_every_zombie_in_play_unpaid_even_a_heavyweight() {
+        use crate::enemies::zombie::headless::Sim;
+        #[derive(Resource, Default)]
+        struct Kills(Vec<(Attack, Pay)>);
+        let mut sim = Sim::new(60.0, |app| {
+            app.init_resource::<Kills>().add_systems(Update, |mut kills: ResMut<Kills>, mut heard: MessageReader<ZombieKilled>| {
+                kills.0.extend(heard.read().map(|kill| (kill.attack, kill.pay)));
+            });
+        });
+        let walker = sim.spawn(Vec3::new(10.0, 0.0, 10.0), None);
+        let heavy = sim.spawn(Vec3::new(12.0, 0.0, 10.0), None);
+        sim.world_mut().entity_mut(heavy).insert(Heavyweight::SAPPER);
+        sim.run(3);
+        sim.send(KillAllZombies);
+        sim.run(3);
+        for zombie in [walker, heavy] {
+            assert!(sim.world_mut().get::<Dying>(zombie).is_some(), "{zombie:?} is dying");
+        }
+        assert_eq!(sim.world_mut().resource::<Kills>().0, [(Attack::Nuke, Pay::Unpaid), (Attack::Nuke, Pay::Unpaid)]);
+    }
+
+    #[test]
     fn a_new_zombie_is_announced_once_with_its_kind_and_whether_it_was_requested() {
         let mut app = App::new();
         app.add_message::<ZombieSpawned>().insert_resource(Round::in_progress(7)).add_systems(Update, announce_spawns);
         let normal = app.world_mut().spawn(Zombie::new_for_test(100.0)).id();
-        let hound = app.world_mut().spawn((Zombie::hellhound(100.0, Vec3::ZERO), Requested)).id();
+        let hound = app.world_mut().spawn((Zombie::hellhound(100.0, Vec3::ZERO), Requested::default())).id();
         app.update();
         app.update();
         let told: Vec<_> = app.world_mut().resource_mut::<Messages<ZombieSpawned>>().drain().map(|s| (s.zombie, s.kind, s.round, s.requested)).collect();
@@ -2645,9 +2699,9 @@ mod tests {
         app.add_systems(Update, scale_spawn_health);
         app.world_mut().spawn((LocalPlayer, thick_hide(1.5)));
         let normal = app.world_mut().spawn(Zombie::new_for_test(100.0)).id();
-        let hound = app.world_mut().spawn((Zombie::hellhound(100.0, Vec3::ZERO), Requested)).id();
+        let hound = app.world_mut().spawn((Zombie::hellhound(100.0, Vec3::ZERO), Requested::default())).id();
         let sapper = app.world_mut().spawn(Zombie::special(SpecialKind::Sapper, 100.0, Vec3::ZERO)).id();
-        let boss = app.world_mut().spawn((Zombie::new_for_test(100.0), Requested, Heavyweight::SAPPER)).id();
+        let boss = app.world_mut().spawn((Zombie::new_for_test(100.0), Requested::default(), Heavyweight::SAPPER)).id();
         app.update();
         let health = |app: &App, zombie| {
             let zombie = app.world().get::<Zombie>(zombie).unwrap();

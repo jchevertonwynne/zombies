@@ -12,6 +12,8 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
+pub mod oneshots;
+
 use crate::authority::HostSimulation;
 use crate::economy::points::BonusPoints;
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat};
@@ -22,6 +24,8 @@ use crate::state::{GameState, RunType};
 use crate::storage::records::TaintRun;
 use crate::weapons::equipment::Equipment;
 use crate::weapons::weapon::Loadout;
+
+use oneshots::{RoundJump, Spawn, Spawnable, WorldCheats};
 
 /// The Points the Points Cheat gives.
 pub const CHEAT_POINTS: u64 = 10_000;
@@ -81,10 +85,37 @@ pub enum Cheat {
     /// Toggle: free flight, no gravity and no map collision. Predicted on the Player's own machine
     /// (a `Step` bit the Host replays), so the Host's word is only that it taints the Run.
     Noclip,
+    /// One-shot: begin another Round now, forwards or back, the Horde in play removed.
+    RoundJump(RoundJump),
+    /// One-shot: every Zombie, Hellhound and Boss in play dies, Unpaid.
+    KillAll,
+    /// One-shot: a Zombie of a kind comes up about ten metres ahead of the Player.
+    Spawn(Spawn),
+    /// One-shot: every Door opens, free.
+    OpenAllDoors,
+    /// One-shot: the Power comes on and every Generator is Claimed.
+    PowerOn,
 }
 
 impl Cheat {
     pub const ALL: [Cheat; 5] = [Cheat::Points, Cheat::Invincible, Cheat::FreePurchases, Cheat::InfiniteAmmo, Cheat::Noclip];
+
+    /// The one-shots on the Round, Doors and Power that the panel lists after the rest.
+    pub const WORLD: [Cheat; 8] = [
+        Cheat::RoundJump(RoundJump::Back5),
+        Cheat::RoundJump(RoundJump::Back),
+        Cheat::RoundJump(RoundJump::Forward),
+        Cheat::RoundJump(RoundJump::Forward5),
+        Cheat::RoundJump(RoundJump::NextTenth),
+        Cheat::KillAll,
+        Cheat::OpenAllDoors,
+        Cheat::PowerOn,
+    ];
+
+    /// One Spawn button per kind: the panel puts the Elite tick on at the press.
+    pub fn spawns() -> impl Iterator<Item = Cheat> {
+        Spawnable::ALL.into_iter().map(|kind| Cheat::Spawn(Spawn { kind, elite: false }))
+    }
 
     pub fn label(self) -> &'static str {
         match self {
@@ -93,12 +124,17 @@ impl Cheat {
             Cheat::FreePurchases => "Free purchases",
             Cheat::InfiniteAmmo => "Infinite ammo",
             Cheat::Noclip => "Noclip",
+            Cheat::RoundJump(jump) => jump.label(),
+            Cheat::KillAll => "Kill all",
+            Cheat::Spawn(spawn) => spawn.label(),
+            Cheat::OpenAllDoors => "Open all Doors",
+            Cheat::PowerOn => "Power on",
         }
     }
 
     /// Whether it stays on for the Player until they switch it off, as against acting at once.
     pub fn is_toggle(self) -> bool {
-        !matches!(self, Cheat::Points)
+        matches!(self, Cheat::Invincible | Cheat::FreePurchases | Cheat::InfiniteAmmo | Cheat::Noclip)
     }
 }
 
@@ -143,7 +179,7 @@ impl Cheats {
 
     fn flip(&mut self, cheat: Cheat) {
         match cheat {
-            Cheat::Points => {}
+            Cheat::Points | Cheat::RoundJump(_) | Cheat::KillAll | Cheat::Spawn(_) | Cheat::OpenAllDoors | Cheat::PowerOn => {}
             Cheat::Invincible => self.invincible = !self.invincible,
             Cheat::FreePurchases => self.free_purchases = !self.free_purchases,
             Cheat::InfiniteAmmo => self.infinite_ammo = !self.infinite_ammo,
@@ -201,6 +237,7 @@ pub struct DevPlugin;
 
 impl Plugin for DevPlugin {
     fn build(&self, app: &mut App) {
+        oneshots::add_messages(app);
         app.init_resource::<DevAccess>()
             .add_message::<CheatRequest>()
             .add_message::<SetDevMode>()
@@ -258,12 +295,21 @@ fn apply_cheats(
     mut cheats: Query<&mut Cheats>,
     mut bonus: MessageWriter<BonusPoints>,
     mut taint: MessageWriter<TaintRun>,
+    mut world: WorldCheats,
 ) {
     // Cheats a Player has just got their first of, which the world doesn't have yet.
     let mut fresh: Vec<(Entity, Cheats)> = Vec::new();
     for &CheatRequest { player, cheat } in requests.read() {
         let Ok((seat, away)) = players.get(player) else { continue };
         if away || !access.0.allows(seat.0 == 0) {
+            continue;
+        }
+        // The one-shots on the Round, Zombies, Doors and Power: the Run is Tainted only when one
+        // was really done.
+        if let Some(done) = world.apply(player, cheat) {
+            if done {
+                taint.write(TaintRun);
+            }
             continue;
         }
         taint.write(TaintRun);
@@ -378,6 +424,7 @@ mod tests {
 
     fn app(access: DevMode, run_type: RunType) -> App {
         let mut app = App::new();
+        oneshots::add_messages(&mut app);
         app.add_plugins(MinimalPlugins)
             .add_message::<BonusPoints>()
             .add_systems(Update, pay.after(apply_cheats))

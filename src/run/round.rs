@@ -17,6 +17,7 @@ use crate::maps::power::Power;
 use crate::economy::power_up::{DropPowerUp, PowerUp};
 use crate::storage::settings::Settings;
 use crate::state::{GameState, world_runs};
+use crate::enemies::request::Requested;
 use crate::enemies::target::Players;
 use crate::tuning::*;
 use crate::enemies::zombie::{Dying, SpeedTier, Zombie, ZombieAssetsParam, ZombieCleanedUp, ZombieKilled, spawn_zombie};
@@ -291,6 +292,12 @@ pub struct RoundStarted;
 #[derive(Message)]
 pub struct RoundEnded;
 
+/// Begin Round `number` now, forwards or back: the live Horde is removed with no kills, Points or
+/// drops, the Round starts at once and any Intermission is skipped. Nothing is said of the Round it
+/// leaves, so nothing waits on its end (`RoundEnded`). The Host judges it.
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BeginRound(pub u32);
+
 /// Held by anything layered on the Round that needs the Intermission to wait before counting
 /// down. While held, the Intermission stays at its full length.
 #[derive(Resource, Default)]
@@ -302,6 +309,7 @@ impl Plugin for RoundPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<RoundStarted>()
             .add_message::<RoundEnded>()
+            .add_message::<BeginRound>()
             .init_resource::<IntermissionHold>()
             .init_resource::<ReservedRounds>()
             .add_systems(
@@ -310,7 +318,7 @@ impl Plugin for RoundPlugin {
             )
             .add_systems(
                 Update,
-                (requeue_cleaned_up, spawn_horde, last_zombie_sprints, end_round, run_intermission)
+                (begin_requested_round, requeue_cleaned_up, spawn_horde, last_zombie_sprints, end_round, run_intermission)
                     .chain()
                     .in_set(HostSimulation)
                     .run_if(world_runs),
@@ -333,6 +341,43 @@ fn start_first_round(
     started.write(RoundStarted);
 }
 
+/// A `BeginRound` clears every Zombie in play away (no kill, no Points, no drop, and none back into
+/// the Horde) and begins its Round at once, as the last one of several if there are several. The
+/// Round is announced with `RoundStarted` and never `RoundEnded`, so a Round it skips past offers
+/// nothing. A Round already under way is not begun again.
+pub(crate) fn begin_requested_round(
+    mut commands: Commands,
+    mut requests: MessageReader<BeginRound>,
+    round: Option<ResMut<Round>>,
+    zombies: Query<Entity, With<Zombie>>,
+    players: Query<&Modifiers, With<Player>>,
+    settings: Res<Settings>,
+    reserved: Res<ReservedRounds>,
+    mut started: MessageWriter<RoundStarted>,
+) {
+    let Some(&BeginRound(number)) = requests.read().last() else { return };
+    let Some(mut round) = round else { return };
+    let number = number.max(1);
+    if number == round.number && round.phase == RoundPhase::Active {
+        return;
+    }
+    for zombie in &zombies {
+        commands.entity(zombie).despawn();
+    }
+    let entries: Vec<Modifier> = players.iter().flat_map(|modifiers| modifiers.0.iter().copied()).collect();
+    let mut schedule = round.schedule;
+    schedule.skip_to(number, || rand::random_range(HELLHOUND_ROUND_GAPS));
+    *round = Round::begin_in(
+        number,
+        schedule,
+        &entries,
+        settings.special_zombies.hellhounds,
+        players.iter().count() as u32,
+        &reserved,
+    );
+    started.write(RoundStarted);
+}
+
 /// A cleaned-up Zombie goes back into the Horde's left-to-spawn count; its replacement rolls a
 /// fresh Speed Tier when it spawns.
 pub(crate) fn requeue_cleaned_up(mut round: ResMut<Round>, mut cleaned: MessageReader<ZombieCleanedUp>) {
@@ -348,7 +393,7 @@ pub(crate) fn requeue_cleaned_up(mut round: ResMut<Round>, mut cleaned: MessageR
 fn spawn_horde(
     mut commands: Commands,
     mut round: ResMut<Round>,
-    alive: Query<&Zombie, Without<Dying>>,
+    in_play: Query<(&Zombie, Option<&Requested>), Without<Dying>>,
     spawn_points: Query<(&Transform, &SpawnPoint)>,
     modifiers: Single<&Modifiers, With<LocalPlayer>>,
     players: Players,
@@ -366,12 +411,14 @@ fn spawn_horde(
         return;
     }
     round.spawn_timer -= time.delta_secs();
+    // What counts toward the Alive Cap: not a requested Zombie that asked to stay outside it.
+    let alive = || in_play.iter().filter(|(_, requested)| !requested.is_some_and(|requested| requested.outside_cap)).map(|(zombie, _)| zombie);
     let cap = if round.hellhound.is_some() {
         hellhound_alive_cap(players.up_count())
     } else {
         resolve_count(Stat::AliveCap, round.alive_cap(), &modifiers.0)
     };
-    if round.spawn_timer > 0.0 || alive.iter().count() as u32 >= cap {
+    if round.spawn_timer > 0.0 || alive().count() as u32 >= cap {
         return;
     }
 
@@ -402,7 +449,7 @@ fn spawn_horde(
     }
 
     // Mixed hounds: a few normal spawns are hounds instead, at the latest tier's health.
-    let hounds_alive = alive.iter().filter(|zombie| zombie.is_hellhound()).count() as u32;
+    let hounds_alive = alive().filter(|zombie| zombie.is_hellhound()).count() as u32;
     if hounds_alive < HELLHOUND_MIXED_MAX_ALIVE && rand::random_bool(mixed_hound_chance(round.number, on.hellhounds)) {
         let points = hound_points();
         if !points.is_empty() {
@@ -415,7 +462,7 @@ fn spawn_horde(
     }
 
     // Nova Crawlers: after Power, a few normal spawns drop from Vents (or rise in the Yard) instead.
-    let novas_alive = alive.iter().filter(|zombie| zombie.is_nova_crawler()).count() as u32;
+    let novas_alive = alive().filter(|zombie| zombie.is_nova_crawler()).count() as u32;
     if spawns_nova_crawler(on.nova_crawlers, power.is_on(), round.hellhound.is_some(), novas_alive, rand::random()) {
         let points = spawn_candidates(
             spawn_points
@@ -623,6 +670,56 @@ impl Round {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn begin_app(round: Round) -> App {
+        let mut app = App::new();
+        app.add_message::<BeginRound>()
+            .add_message::<RoundStarted>()
+            .insert_resource(round)
+            .init_resource::<ReservedRounds>()
+            .insert_resource(Settings::default())
+            .add_systems(Update, begin_requested_round);
+        app
+    }
+
+    #[test]
+    fn a_requested_round_clears_the_zombies_away_and_begins_at_once_forwards_or_back() {
+        for (from, to) in [(5, 12), (12, 3)] {
+            let mut app = begin_app(Round::in_progress(from));
+            let zombies: Vec<_> = (0..3).map(|_| app.world_mut().spawn(Zombie::new_for_test(100.0)).id()).collect();
+            app.world_mut().resource_mut::<Round>().phase = RoundPhase::Intermission(4.0);
+            app.world_mut().write_message(BeginRound(to));
+            app.update();
+            let round = app.world().resource::<Round>();
+            assert_eq!((round.number, round.phase.clone()), (to, RoundPhase::Active), "{from} to {to}");
+            assert!(round.horde() > 0, "its Horde is still to come");
+            assert!(zombies.iter().all(|&zombie| app.world().get_entity(zombie).is_err()), "the live Horde is gone");
+            assert_eq!(app.world_mut().resource_mut::<Messages<RoundStarted>>().drain().count(), 1);
+        }
+    }
+
+    #[test]
+    fn a_requested_round_is_never_a_round_ended_and_is_not_begun_over_itself() {
+        let mut app = begin_app(Round::in_progress(5));
+        app.add_message::<RoundEnded>();
+        app.world_mut().write_message(BeginRound(5));
+        app.update();
+        assert_eq!(app.world_mut().resource_mut::<Messages<RoundStarted>>().drain().count(), 0, "already under way");
+        app.world_mut().write_message(BeginRound(0));
+        app.update();
+        assert_eq!(app.world().resource::<Round>().number, 1, "never before Round 1");
+        assert_eq!(app.world_mut().resource_mut::<Messages<RoundEnded>>().drain().count(), 0);
+    }
+
+    #[test]
+    fn a_jump_forward_skips_the_hellhound_rounds_it_passes() {
+        let mut schedule = HellhoundSchedule::new(5);
+        schedule.skip_to(30, || 4);
+        assert!(schedule.played() >= 6, "{}", schedule.played());
+        let mut back = HellhoundSchedule::new(25);
+        back.skip_to(3, || 4);
+        assert_eq!(back.played(), 0, "going back changes nothing");
+    }
 
     #[test]
     fn zombies_spawn_only_in_active_zones() {

@@ -14,7 +14,7 @@ use bevy::prelude::*;
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
 use crate::economy::points::{BonusPoints, kill_points};
-use crate::enemies::request::{RequestedKind, SpawnAt, SpawnProfile, SpawnZombie};
+use crate::enemies::request::{Requested, RequestedKind, SpawnAt, SpawnProfile, SpawnZombie};
 use crate::enemies::target::Players;
 use crate::enemies::zombie::{
     DamageTakenFactor, DamageZombie, DropChanceFactor, Dying, HealZombie, HitZone, Zombie, ZombieKilled, ZombieKind,
@@ -218,6 +218,8 @@ pub fn split_requests(round: u32, max_health: f32, at: Vec3) -> Vec<SpawnZombie>
                 holds_round: true,
                 profile: SpawnProfile::default(),
                 heavyweight: None,
+                tag: None,
+                outside_cap: false,
             }
         })
         .collect()
@@ -263,20 +265,44 @@ pub fn mark_elites(
             continue;
         };
         alive += 1;
-        let elite = EliteTrait::from_roll(rand::random());
-        let mut entity = commands.entity(spawn.zombie);
-        entity.insert((Elite(elite), DropChanceFactor(GAUNTLET_ELITE_DROP_FACTOR)));
-        match elite {
-            EliteTrait::Armoured => {
-                entity.insert((ARMOUR, Armour::default()));
-            }
-            EliteTrait::Regenerating => {
-                entity.insert(Regen { since_hit: 0.0, last: zombie.health() });
-            }
-            EliteTrait::Splitter | EliteTrait::Volatile | EliteTrait::Rallying => {}
-        }
-        cues.write(PlayCue::new(Cue::EliteSpawn, Some(transform.translation)));
+        make_elite(&mut commands, spawn.zombie, zombie, transform.translation, EliteTrait::from_roll(rand::random()), &mut cues);
     }
+}
+
+/// What a `SpawnZombie`'s `tag` says to make an Elite of the ordinary Zombie it spawns, whatever the
+/// Round's chance and cap. Nothing in Classic reads it.
+pub const ELITE_TAG: u32 = 0x454C_4954;
+
+/// Makes an Elite of each ordinary Zombie requested with the `ELITE_TAG`, with a trait drawn at
+/// random: past the Round's chance and the cap on Elites alive, which a request overrides. A
+/// requested Zombie of any other kind is left as it is.
+pub fn mark_requested_elites(
+    mut commands: Commands,
+    new: Query<(Entity, &Zombie, &Transform, &Requested), (Added<Requested>, Without<Elite>)>,
+    mut cues: MessageWriter<PlayCue>,
+) {
+    for (entity, zombie, transform, requested) in &new {
+        if requested.tag != Some(ELITE_TAG) || ZombieKind::of(zombie) != ZombieKind::Normal {
+            continue;
+        }
+        make_elite(&mut commands, entity, zombie, transform.translation, EliteTrait::from_roll(rand::random()), &mut cues);
+    }
+}
+
+/// Gives `zombie` the Elite Trait `elite`, with its seam components, and cues its spawn at `at`.
+fn make_elite(commands: &mut Commands, entity: Entity, zombie: &Zombie, at: Vec3, elite: EliteTrait, cues: &mut MessageWriter<PlayCue>) {
+    let mut entity = commands.entity(entity);
+    entity.insert((Elite(elite), DropChanceFactor(GAUNTLET_ELITE_DROP_FACTOR)));
+    match elite {
+        EliteTrait::Armoured => {
+            entity.insert((ARMOUR, Armour::default()));
+        }
+        EliteTrait::Regenerating => {
+            entity.insert(Regen { since_hit: 0.0, last: zombie.health() });
+        }
+        EliteTrait::Splitter | EliteTrait::Volatile | EliteTrait::Rallying => {}
+    }
+    cues.write(PlayCue::new(Cue::EliteSpawn, Some(at)));
 }
 
 /// Dresses each new Elite in its trait's emissive tint, on its body's material (the rig's parts
