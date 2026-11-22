@@ -1,0 +1,113 @@
+# Builds, packages and publishes a Windows release when a `v*` tag is pushed.
+# `v0.3.0` releases build id `0.3.0`: the tag is the only version source (Cargo.toml stays put).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the version from the tag
+        run: |
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          if (-not $version) { throw "Tag '$env:GITHUB_REF_NAME' has no version after the v" }
+          "VERSION=$version" >> $env:GITHUB_ENV
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The tests are headless: they need no window or GPU.
+      - name: Test
+        run: cargo test --locked
+
+      # The build id baked into the game (and compared in the Co-op handshake) comes from this.
+      - name: Build
+        env:
+          ZOMBIES_BUILD: ${{ env.VERSION }}
+        run: cargo build --release --locked
+
+      - name: Package
+        run: |
+          $dist = Join-Path $PWD 'dist'
+          New-Item -ItemType Directory -Force $dist | Out-Null
+
+          # Code zip: the exe and the licences. It unzips next to the assets folder.
+          $stage = Join-Path $PWD 'stage-game'
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          Copy-Item target/release/zombies.exe, LICENSE-MIT, LICENSE-APACHE, README.md $stage
+          $gameZip = "zombies-$env:VERSION-windows.zip"
+          Compress-Archive -Path "$stage/*" -DestinationPath (Join-Path $dist $gameZip)
+
+          # Assets hash: SHA-256 over every file's relative path and content hash, in a fixed
+          # order, so it only changes when the assets do (not with zip timestamps).
+          $root = (Resolve-Path assets).Path
+          $entries = Get-ChildItem assets -Recurse -File | ForEach-Object {
+            [pscustomobject]@{
+              Rel  = $_.FullName.Substring($root.Length + 1).Replace('\', '/')
+              Hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            }
+          }
+          $lines = $entries | Sort-Object { $_.Rel } -CaseSensitive | ForEach-Object { "$($_.Rel) $($_.Hash)" }
+          $bytes = [System.Text.Encoding]::UTF8.GetBytes(($lines -join "`n") + "`n")
+          $assetsHash = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::HashData($bytes)).Replace('-', '').ToLower()
+          $assetsZip = "assets-$assetsHash.zip"
+          Compress-Archive -Path assets -DestinationPath (Join-Path $dist $assetsZip)
+
+          $sha = { param($name) (Get-FileHash (Join-Path $dist $name) -Algorithm SHA256).Hash.ToLower() }
+          $release = [ordered]@{
+            build      = $env:VERSION
+            assetsHash = $assetsHash
+            game       = [ordered]@{ file = $gameZip; sha256 = (& $sha $gameZip) }
+            assets     = [ordered]@{ file = $assetsZip; sha256 = (& $sha $assetsZip); hash = $assetsHash }
+          }
+          $release | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $dist 'release.json') -Encoding utf8
+          Get-Content (Join-Path $dist 'release.json')
+
+      # Unzip both into a fresh folder, as a player would, and start the game from there with a
+      # scratch user folder. It must stay up (a crash or missing assets ends it early) and log no
+      # missing asset.
+      - name: Verify the packaged game starts
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'unzipped'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Get-ChildItem dist -Filter *.zip | ForEach-Object { Expand-Archive $_.FullName -DestinationPath $dir }
+          if (-not (Test-Path "$dir/zombies.exe")) { throw 'zombies.exe is not in the code zip' }
+          if (-not (Test-Path "$dir/assets/manifest.json")) { throw 'assets/ is not in the assets zip' }
+
+          $scratch = Join-Path $env:RUNNER_TEMP 'appdata'
+          New-Item -ItemType Directory -Force $scratch | Out-Null
+          $env:APPDATA = $scratch
+          $env:HOME = $scratch
+          $env:RUST_LOG = 'warn'
+          $out = Join-Path $env:RUNNER_TEMP 'game.out.log'
+          $err = Join-Path $env:RUNNER_TEMP 'game.err.log'
+          $game = Start-Process "$dir/zombies.exe" -WorkingDirectory $dir -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+          Start-Sleep -Seconds 30
+          $alive = -not $game.HasExited
+          if ($alive) { Stop-Process -Id $game.Id -Force }
+          $log = (Get-Content $out, $err -ErrorAction SilentlyContinue) -join "`n"
+          Write-Host $log
+          if (-not $alive) { throw "The game exited early with code $($game.ExitCode)" }
+          if ($log -match 'Path not found|Could not load asset') { throw 'The game could not find its assets' }
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $files = Get-ChildItem dist -File | ForEach-Object FullName
+          gh release create $env:GITHUB_REF_NAME --title $env:VERSION --generate-notes @files
