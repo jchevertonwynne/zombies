@@ -1054,6 +1054,16 @@ pub struct RefillMagazine {
     pub bullets: u32,
 }
 
+/// Request to hand a Player a Weapon, as a Mystery Box or a wall does: into an empty slot, or in
+/// place of the Weapon in hand if they are full, in its Pack-a-Punch form if `upgraded`. The
+/// Host edits its copy of the Player's `Loadout`, so a Co-op client's Weapons follow by `Hands`.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct GiveWeapon {
+    pub player: Entity,
+    pub id: WeaponId,
+    pub upgraded: bool,
+}
+
 /// Ammo Mods a Player's hits roll as well as the held Weapon's own, sharing each Ammo Mod's
 /// cooldown. Classic never adds one; anything layered on it may (ADR 0007).
 #[derive(Component, Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -1139,6 +1149,8 @@ impl Plugin for WeaponPlugin {
             .add_message::<KnifeSwung>()
             .add_message::<ResetKnifeCooldown>()
             .add_message::<RefillMagazine>()
+            .add_message::<GiveWeapon>()
+            .add_systems(Update, give_weapons.in_set(HostSimulation).run_if(world_runs))
             .add_systems(Update, (reset_knives.before(knife), refill_magazines.before(fire)).run_if(world_runs))
             .init_resource::<GunModels>()
             .add_systems(Update, spawn_view_model)
@@ -1313,6 +1325,16 @@ fn reset_knives(mut resets: MessageReader<ResetKnifeCooldown>, mut knives: Query
     for reset in resets.read() {
         if let Ok(mut knife) = knives.get_mut(reset.player) {
             knife.reset();
+        }
+    }
+}
+
+/// Weapons asked for are handed over.
+pub(crate) fn give_weapons(mut gifts: MessageReader<GiveWeapon>, mut players: Query<&mut Loadout, With<Player>>) {
+    for &GiveWeapon { player, id, upgraded } in gifts.read() {
+        if let Ok(mut loadout) = players.get_mut(player) {
+            let copy = WeaponCopy::new(id);
+            loadout.give_copy(if upgraded { copy.upgrade() } else { copy });
         }
     }
 }

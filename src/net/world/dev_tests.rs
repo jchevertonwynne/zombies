@@ -15,7 +15,21 @@ use crate::run::gauntlet::arc::SummonBoss;
 use crate::run::mode::Mode;
 use crate::run::round::{BeginRound, ReservedRounds, begin_requested_round};
 use crate::storage::settings::Settings;
+use crate::economy::perk::{GivePerk, Perk, Perks, hand_over_perks};
+use crate::economy::power_up::{GivePowerUp, PowerUp};
+use crate::modifier::{Modifiers, Source};
+use crate::run::gauntlet::{GrantBoon, GrantPact, HeldBoons, HeldPacts, apply_grants, boon_catalog, pact_catalog};
 use crate::storage::records::{RunTainted, TaintRun};
+use crate::weapons::arsenal::WeaponId;
+use crate::weapons::weapon::{GiveWeapon, Loadout, give_weapons};
+
+/// The Power-ups given, as a Run has them (the pickup itself is Classic's own).
+#[derive(Resource, Default)]
+struct PowerUpsGiven(Vec<(PowerUp, Option<Entity>)>);
+
+fn note_power_ups(mut given: MessageReader<GivePowerUp>, mut seen: ResMut<PowerUpsGiven>) {
+    seen.0.extend(given.read().map(|&GivePowerUp(power_up, taker)| (power_up, taker)));
+}
 
 fn with_dev(app: &mut App) {
     coop(app);
@@ -24,6 +38,13 @@ fn with_dev(app: &mut App) {
         .init_resource::<ReservedRounds>()
         .init_resource::<Asked>()
         .add_systems(Update, (begin_requested_round, note_asked).in_set(HostSimulation))
+        .init_resource::<PowerUpsGiven>()
+        .add_message::<GivePowerUp>()
+        .add_message::<GiveWeapon>()
+        .add_message::<GivePerk>()
+        .add_message::<GrantBoon>()
+        .add_message::<GrantPact>()
+        .add_systems(Update, (give_weapons, hand_over_perks, apply_grants, note_power_ups).in_set(HostSimulation))
         .init_resource::<RunTainted>()
         .add_message::<TaintRun>()
         .add_systems(Update, |mut asked: MessageReader<TaintRun>, mut tainted: ResMut<RunTainted>| {
@@ -54,7 +75,15 @@ fn note_asked(
 
 /// A Co-op Run of the Host and `clients`, with Developer mode set to `dev` on every machine.
 fn run(clients: u8, dev: DevMode) -> Run {
-    let mut run = Run::with(clients, &with_dev);
+    run_in(clients, dev, Mode::Classic)
+}
+
+/// The same under `mode`.
+fn run_in(clients: u8, dev: DevMode, mode: Mode) -> Run {
+    let mut run = Run::with(clients, &|app| {
+        with_dev(app);
+        app.insert_resource(mode);
+    });
     run.step(5);
     for on in 0..=usize::from(clients) {
         run.world(on).resource_mut::<DevAccess>().0 = dev;
@@ -388,6 +417,106 @@ fn a_jump_nowhere_is_no_cheat_and_taints_nothing() {
 }
 
 #[test]
+fn a_clients_weapon_grant_reaches_its_game_and_the_hosts_copy_alike() {
+    let mut run = run(2, DevMode::On);
+    ask_for(&mut run, 1, Cheat::Weapon(WeaponId::RayGun, true));
+    let host_copy = run.player(0, 1);
+    let own = run.player(1, 1);
+    for (on, player) in [(0, host_copy), (1, own)] {
+        let loadout = run.world(on).get::<Loadout>(player).unwrap();
+        let copy = loadout.slot_of(WeaponId::RayGun).map(|slot| loadout.slot(slot).unwrap());
+        assert!(copy.is_some_and(|copy| copy.upgraded), "game {on} lacks the Pack-a-Punched Weapon");
+    }
+    let held = |run: &mut Run, on, player| {
+        let loadout = run.world(on).get::<Loadout>(player).unwrap();
+        (loadout.held_slot(), loadout.weapons().map(|weapon| (weapon.id, weapon.upgraded)).collect::<Vec<_>>())
+    };
+    assert_eq!(held(&mut run, 0, host_copy), held(&mut run, 1, own), "the client's Weapons match the Host's");
+    assert!(tainted(&mut run, 2), "and everyone hears the Run is Tainted");
+}
+
+#[test]
+fn a_weapon_grant_to_a_full_hand_replaces_the_one_held_on_both_machines() {
+    let mut run = run(1, DevMode::On);
+    for id in [WeaponId::Ak74u, WeaponId::M14, WeaponId::Galil, WeaponId::Hk21] {
+        ask_for(&mut run, 1, Cheat::Weapon(id, false));
+    }
+    let host_copy = run.player(0, 1);
+    let own = run.player(1, 1);
+    let ids = |run: &mut Run, on, player| {
+        let loadout = run.world(on).get::<Loadout>(player).unwrap();
+        (loadout.held().id, loadout.weapons().map(|weapon| weapon.id).collect::<Vec<_>>())
+    };
+    let (held, all) = ids(&mut run, 1, own);
+    assert_eq!(held, WeaponId::Hk21, "the newest is in hand");
+    assert_eq!((held, all.clone()), ids(&mut run, 0, host_copy));
+    assert!(all.len() <= 3, "no more slots than a Player has: {all:?}");
+}
+
+#[test]
+fn a_perk_grant_is_held_at_once_by_every_game_and_gives_its_entries() {
+    let mut run = run(2, DevMode::On);
+    ask_for(&mut run, 1, Cheat::Perk(Perk::Juggernog));
+    ask_for(&mut run, 1, Cheat::Perk(Perk::Juggernog));
+    for on in 0..3 {
+        let player = run.player(on, 1);
+        let perks = run.world(on).get::<Perks>(player).unwrap();
+        assert_eq!(perks.0, [Perk::Juggernog], "game {on}");
+    }
+    let host_copy = run.player(0, 1);
+    let entries = run
+        .world(0)
+        .get::<Modifiers>(host_copy)
+        .unwrap()
+        .0
+        .iter()
+        .filter(|entry| entry.source == Source("Juggernog"))
+        .count();
+    assert_eq!(entries, Perk::Juggernog.modifiers().len(), "held once, with its entries once");
+}
+
+#[test]
+fn a_power_up_grant_goes_to_the_asker() {
+    let mut run = run(1, DevMode::On);
+    ask_for(&mut run, 1, Cheat::PowerUp(PowerUp::Nuke));
+    let asker = run.player(0, 1);
+    assert_eq!(run.world(0).resource::<PowerUpsGiven>().0, [(PowerUp::Nuke, Some(asker))]);
+}
+
+#[test]
+fn boons_and_pacts_are_granted_in_the_gauntlet_and_reach_the_clients() {
+    let mut run = run_in(2, DevMode::On, Mode::Gauntlet);
+    let boon = 3;
+    ask_for(&mut run, 1, Cheat::Boon(boon));
+    ask_for(&mut run, 1, Cheat::Boon(boon));
+    ask_for(&mut run, 2, Cheat::Pact(1));
+    let id = boon_catalog().nth(boon.into()).unwrap().id;
+    let own = run.player(1, 1);
+    assert_eq!(run.world(1).get::<HeldBoons>(own).unwrap().stacks(id), 2, "a second grant is a second Stack");
+    let host_copy = run.player(0, 1);
+    assert_eq!(run.world(0).get::<HeldBoons>(host_copy).unwrap().stacks(id), 2);
+    let pact = pact_catalog()[1].id();
+    for on in 0..3 {
+        let held = run.world(on).resource::<HeldPacts>();
+        assert_eq!(held.holder(pact), Some(crate::players::player::Seat(2)), "game {on} sees who holds the Pact");
+    }
+    assert!(tainted(&mut run, 0));
+}
+
+#[test]
+fn boons_and_pacts_are_refused_in_classic_without_a_taint() {
+    let mut run = run_in(1, DevMode::On, Mode::Classic);
+    ask_for(&mut run, 1, Cheat::Boon(0));
+    ask_for(&mut run, 1, Cheat::Pact(0));
+    let host_copy = run.player(0, 1);
+    assert!(run.world(0).get::<HeldBoons>(host_copy).unwrap().0.is_empty());
+    assert!(run.world(0).resource::<HeldPacts>().0.is_empty());
+    for on in 0..2 {
+        assert!(!tainted(&mut run, on), "game {on}");
+    }
+}
+
+#[test]
 fn a_clients_open_all_doors_and_power_on_reach_every_game() {
     let mut run = run(2, DevMode::On);
     for on in 0..3 {
@@ -444,4 +573,15 @@ fn the_world_one_shots_obey_the_setting_too() {
         assert_eq!(round_number(&mut run, 0), 3);
         assert!(!run.world(0).resource::<Power>().is_on());
     }
+}
+
+#[test]
+fn a_grant_the_setting_forbids_is_dropped() {
+    let mut run = run(1, DevMode::HostOnly);
+    ask_for(&mut run, 1, Cheat::Weapon(WeaponId::RayGun, false));
+    ask_for(&mut run, 1, Cheat::Perk(Perk::Juggernog));
+    let own = run.player(1, 1);
+    assert!(run.world(1).get::<Loadout>(own).unwrap().slot_of(WeaponId::RayGun).is_none());
+    assert!(run.world(1).get::<Perks>(own).unwrap().0.is_empty());
+    assert!(!tainted(&mut run, 0));
 }

@@ -6,17 +6,18 @@
 //! The Host's Developer mode choice for a Co-op Run in progress is a row of the Pause menu
 //! (`DevModeButton`), since under Off there is no panel to put it in.
 
+use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
 use bevy::window::{CursorGrabMode, CursorOptions};
 
 use crate::authority::Authority;
 use crate::players::player::LocalPlayer;
-use crate::run::dev::{Cheat, CheatRequest, Cheats, DevAccess, DevMode, SetDevMode};
+use crate::run::dev::{Cheat, CheatRequest, Cheats, DevAccess, DevMode, GrantKind, SetDevMode};
 use crate::run::mode::Mode;
 use crate::state::{Choosing, GameState, PanelOpen, Pause};
 use crate::ui::hud::{text, ROUND_RED};
-use crate::ui::menu::{HINT_GREY, button};
+use crate::ui::menu::{HINT_GREY, button, colored_button};
 
 /// The panel on screen, and what it was built for.
 #[derive(Component)]
@@ -27,7 +28,26 @@ struct CheatPanel {
     toggles: u8,
     elite: bool,
     gauntlet: bool,
+    tab: Option<GrantKind>,
 }
+
+/// The tab the panel shows: the general Cheats (`None`) or one kind of grant. Kept while the panel
+/// is closed.
+#[derive(Resource, Default)]
+struct PanelTab(Option<GrantKind>);
+
+/// A tab button: pressing it shows that tab.
+#[derive(Component, Clone, Copy)]
+struct TabButton(Option<GrantKind>);
+
+/// The scrolling grid of a grant tab's buttons.
+#[derive(Component)]
+struct CheatGrid;
+
+const TAB_WIDTH: f32 = 126.0;
+const GRANT_WIDTH: f32 = 200.0;
+const GRANT_COLUMNS: f32 = 3.0;
+const GRID_GAP: f32 = 6.0;
 
 /// The panel's Elite tick: the Spawn buttons ask for an Elite while it is on. Gauntlet's.
 #[derive(Resource, Default)]
@@ -59,12 +79,14 @@ pub struct CheatPanelPlugin;
 impl Plugin for CheatPanelPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SpawnElite>()
+            .init_resource::<PanelTab>()
+            .add_observer(press_tab)
             .add_observer(press_cheat)
             .add_observer(press_elite_tick)
             .add_observer(press_dev_mode)
             .add_systems(
                 Update,
-                (toggle_panel, sync_panel).chain().run_if(in_state(GameState::Playing)),
+                (toggle_panel, sync_panel, scroll_grid).chain().run_if(in_state(GameState::Playing)),
             )
             .add_systems(Update, refresh_dev_mode_label.run_if(resource_changed::<DevAccess>));
     }
@@ -99,6 +121,7 @@ fn sync_panel(
     authority: Res<State<Authority>>,
     pause: Res<State<Pause>>,
     elite: Res<SpawnElite>,
+    tab: Res<PanelTab>,
     mode: Option<Res<Mode>>,
     local: Query<(Entity, Has<PanelOpen>, Has<Choosing>, Option<&Cheats>), With<LocalPlayer>>,
     panels: Query<(Entity, &CheatPanel)>,
@@ -116,7 +139,7 @@ fn sync_panel(
     let gauntlet = mode.is_some_and(|mode| *mode == Mode::Gauntlet);
     match (want, shown) {
         (true, None) => {
-            spawn_panel(&mut commands, access.0, host, cheats, elite.0, gauntlet);
+            spawn_panel(&mut commands, access.0, host, cheats, elite.0, gauntlet, tab.0);
             set_cursor(&mut cursor, true);
         }
         (true, Some((panel, shown)))
@@ -124,10 +147,11 @@ fn sync_panel(
                 || shown.host != host
                 || shown.toggles != toggles
                 || shown.elite != elite.0
-                || shown.gauntlet != gauntlet =>
+                || shown.gauntlet != gauntlet
+                || shown.tab != tab.0 =>
         {
             commands.entity(panel).despawn();
-            spawn_panel(&mut commands, access.0, host, cheats, elite.0, gauntlet);
+            spawn_panel(&mut commands, access.0, host, cheats, elite.0, gauntlet, tab.0);
         }
         (false, Some((panel, _))) => {
             commands.entity(panel).despawn();
@@ -157,11 +181,21 @@ fn cheat_label(cheat: Cheat, cheats: Option<&Cheats>) -> String {
     }
 }
 
-fn spawn_panel(commands: &mut Commands, dev: DevMode, host: bool, cheats: Option<&Cheats>, elite: bool, gauntlet: bool) {
+fn spawn_panel(
+    commands: &mut Commands,
+    dev: DevMode,
+    host: bool,
+    cheats: Option<&Cheats>,
+    elite: bool,
+    gauntlet: bool,
+    tab: Option<GrantKind>,
+) {
+    let mode = if gauntlet { Mode::Gauntlet } else { Mode::Classic };
+    let grid_width = GRANT_COLUMNS * GRANT_WIDTH + (GRANT_COLUMNS - 1.0) * GRID_GAP;
     let allowed = dev.allows(host);
     commands
         .spawn((
-            CheatPanel { dev, host, toggles: Cheats::toggles(cheats), elite, gauntlet },
+            CheatPanel { dev, host, toggles: Cheats::toggles(cheats), elite, gauntlet, tab },
             DespawnOnExit(GameState::Playing),
             GlobalZIndex(12),
             Node {
@@ -181,34 +215,101 @@ fn spawn_panel(commands: &mut Commands, dev: DevMode, host: bool, cheats: Option
             if !allowed {
                 panel.spawn(text("Host only", 22.0, ROUND_RED));
             }
-            for cheat in Cheat::ALL.into_iter().chain(Cheat::WORLD) {
-                cheat_button(panel, &cheat_label(cheat, cheats), cheat, allowed, 260.0);
-            }
-            panel.spawn(text("Spawn ahead", 22.0, Color::WHITE));
             panel
                 .spawn(Node {
-                    width: px(400.0),
+                    width: px(grid_width),
                     flex_wrap: FlexWrap::Wrap,
                     justify_content: JustifyContent::Center,
-                    column_gap: px(6.0),
-                    row_gap: px(6.0),
+                    column_gap: px(GRID_GAP),
+                    row_gap: px(GRID_GAP),
                     ..default()
                 })
-                .with_children(|grid| {
-                    for cheat in Cheat::spawns() {
-                        // The Bosses are Gauntlet's.
-                        let here = gauntlet || !matches!(cheat, Cheat::Spawn(spawn) if spawn.kind.gauntlet_only());
-                        cheat_button(grid, cheat.label(), cheat, allowed && here, 126.0);
+                .with_children(|tabs| {
+                    let named = std::iter::once((None, "Cheats")).chain(GrantKind::ALL.into_iter().map(|kind| (Some(kind), kind.label())));
+                    for (kind, label) in named {
+                        let colour = if kind == tab { ROUND_RED } else { Color::WHITE };
+                        colored_button(tabs, label, TabButton(kind), TAB_WIDTH, colour);
                     }
                 });
-            let label = if elite { "Elite: on" } else { "Elite: off" };
-            if allowed && gauntlet {
-                button(panel, label, EliteTick, 260.0);
-            } else {
-                dead_button(panel, label, 260.0);
+            match tab {
+                None => {
+                for cheat in Cheat::ALL.into_iter().chain(Cheat::WORLD) {
+                    cheat_button(panel, &cheat_label(cheat, cheats), cheat, allowed, 260.0);
+                }
+                panel.spawn(text("Spawn ahead", 22.0, Color::WHITE));
+                panel
+                    .spawn(Node {
+                        width: px(400.0),
+                        flex_wrap: FlexWrap::Wrap,
+                        justify_content: JustifyContent::Center,
+                        column_gap: px(6.0),
+                        row_gap: px(6.0),
+                        ..default()
+                    })
+                    .with_children(|grid| {
+                        for cheat in Cheat::spawns() {
+                            // The Bosses are Gauntlet's.
+                            let here = gauntlet || !matches!(cheat, Cheat::Spawn(spawn) if spawn.kind.gauntlet_only());
+                            cheat_button(grid, cheat.label(), cheat, allowed && here, 126.0);
+                        }
+                    });
+                let label = if elite { "Elite: on" } else { "Elite: off" };
+                if allowed && gauntlet {
+                    button(panel, label, EliteTick, 260.0);
+                } else {
+                    dead_button(panel, label, 260.0);
+                }
+                }
+                Some(kind) => {
+                    panel
+                        .spawn((
+                            CheatGrid,
+                            ScrollPosition::default(),
+                            Node {
+                                width: px(grid_width),
+                                max_height: px(480.0),
+                                overflow: Overflow::scroll_y(),
+                                flex_wrap: FlexWrap::Wrap,
+                                column_gap: px(GRID_GAP),
+                                row_gap: px(GRID_GAP),
+                                ..default()
+                            },
+                        ))
+                        .with_children(|grid| {
+                            for cheat in kind.cheats() {
+                                cheat_button(grid, cheat.label(), cheat, allowed && cheat.available(mode), GRANT_WIDTH);
+                            }
+                        });
+                    if matches!(kind, GrantKind::Boons | GrantKind::Pacts) && !gauntlet {
+                        panel.spawn(text("Gauntlet only", 22.0, ROUND_RED));
+                    }
+                }
             }
             panel.spawn(text("` to close", 18.0, HINT_GREY));
         });
+}
+
+/// A tab button was pressed: show that tab.
+fn press_tab(activate: On<Activate>, tabs: Query<&TabButton>, mut tab: ResMut<PanelTab>) {
+    if let Ok(&TabButton(kind)) = tabs.get(activate.entity) {
+        tab.0 = kind;
+    }
+}
+
+/// The mouse wheel scrolls a grant tab's grid of buttons.
+fn scroll_grid(mut wheel: MessageReader<MouseWheel>, mut grids: Query<&mut ScrollPosition, With<CheatGrid>>) {
+    let moved: f32 = wheel
+        .read()
+        .map(|event| match event.unit {
+            MouseScrollUnit::Line => event.y * 40.0,
+            MouseScrollUnit::Pixel => event.y,
+        })
+        .sum();
+    if moved != 0.0 {
+        for mut position in &mut grids {
+            position.y = (position.y - moved).max(0.0);
+        }
+    }
 }
 
 /// A Cheat's button, or a greyed one that does nothing when `enabled` is false.
