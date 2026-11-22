@@ -25,7 +25,7 @@ use crate::enemies::zombie::{Dying, Zombie};
 use crate::players::player::{LocalPlayer, Seat};
 use crate::run::round::{Round, RoundEnded, RoundStarted};
 use crate::state::InRun;
-use crate::storage::records::RunElitesKilled;
+use crate::storage::records::{RunElitesKilled, RunTainted};
 use crate::tuning::*;
 use crate::ui::hud::text;
 
@@ -267,6 +267,7 @@ pub fn log_run(
     mut file: ResMut<GauntletFile>,
     mut killed: ResMut<RunElitesKilled>,
     authority: Option<Res<State<Authority>>>,
+    tainted: Res<RunTainted>,
 ) {
     let (player, held, seat) = *local;
     // Only a rise marks the log changed, so `earn_commendations` sleeps through the quiet frames.
@@ -309,7 +310,7 @@ pub fn log_run(
             used_tools: log.used_tools,
         });
         // The first Win is what unlocks Heat.
-        if !file.has_won {
+        if !file.has_won && !tainted.0 {
             file.has_won = true;
         }
     }
@@ -327,9 +328,10 @@ pub fn earn_commendations(
     mut earned: ResMut<RunCommendations>,
     mut announce: MessageWriter<CommendationEarned>,
     unlock_all: Res<UnlockAll>,
+    tainted: Res<RunTainted>,
 ) {
-    // The debug key's Run isn't a real one.
-    if unlock_all.0 || !log.is_changed() {
+    // The debug key's Run and a Tainted Run aren't real ones.
+    if unlock_all.0 || tainted.0 || !log.is_changed() {
         return;
     }
     for commendation in newly_met(&log, &file) {
@@ -596,6 +598,7 @@ mod tests {
             .init_resource::<RunArc>()
             .init_resource::<ActiveRanks>()
             .init_resource::<UnlockAll>()
+            .init_resource::<RunTainted>()
             .insert_resource(Round::in_progress(round))
             .add_systems(Update, (log_run, earn_commendations).chain());
         let player = app.world_mut().spawn((LocalPlayer, Seat(0), HeldBoons::default())).id();
@@ -675,6 +678,22 @@ mod tests {
             held(&["hollow_points", "marksmans_eye", "full_belt", "stripper_clips"]);
         app.update();
         assert!(earned(&app).is_empty());
+    }
+
+    #[test]
+    fn a_tainted_run_earns_no_commendation_and_does_not_set_has_won() {
+        let (mut app, player) = running(win_round());
+        app.world_mut().resource_mut::<RunTainted>().0 = true;
+        app.world_mut().resource_mut::<RunArc>().won = true;
+        *app.world_mut().get_mut::<HeldBoons>(player).unwrap() =
+            held(&["hollow_points", "marksmans_eye", "full_belt", "stripper_clips"]);
+        app.update();
+        app.update();
+        let file = app.world().resource::<GauntletFile>();
+        assert!(file.commendations.is_empty());
+        assert_eq!(file.scrip, 0);
+        assert!(!file.has_won);
+        assert!(app.world().resource::<RunCommendations>().0.is_empty());
     }
 
     /// A client's Run: the same systems, with the Host's word for Elites and the Win.

@@ -217,3 +217,22 @@ fn a_returning_player_is_told_the_live_tags_and_the_elites_killed() {
     assert_eq!(super::tests::elites_on(&mut run, 1), host);
     assert_eq!(run.world(1).resource::<RunElitesKilled>().0, 4);
 }
+
+#[test]
+fn a_returning_player_is_told_the_run_is_tainted() {
+    use crate::storage::records::RunTainted;
+    let mut run = Run::with(2, &|app| {
+        coop(app);
+        app.init_resource::<RunTainted>();
+    });
+    run.step(10);
+    run.cut(1);
+    run.step(2);
+    run.world(0).resource_mut::<RunTainted>().0 = true;
+    run.step(40);
+    assert_eq!(reach(&mut run, 1), Reach::Up);
+    run.world(0).write_message(RoundStarted);
+    run.step(30);
+    assert!(run.world(1).resource::<RunTainted>().0, "the Rejoiner writes nothing");
+    assert!(run.world(2).resource::<RunTainted>().0, "the other client too");
+}

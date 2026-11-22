@@ -1321,7 +1321,12 @@ fn pay_scrip(
     mut file: ResMut<GauntletFile>,
     dir: Res<SaveDir>,
     mut lines: ResMut<GameOverLines>,
+    tainted: Res<crate::storage::records::RunTainted>,
 ) {
+    // A Tainted Run pays nothing and says nothing of it.
+    if tainted.0 {
+        return;
+    }
     let in_intermission = matches!(round.phase, RoundPhase::Intermission(_));
     // The Run's total (Rounds plus Act bonuses) is multiplied by Heat; Commendation Scrip never is.
     let total = scrip_for_rounds(rounds_completed(round.number, in_intermission)).saturating_add(arc.act_scrip);
@@ -1355,4 +1360,44 @@ fn pay_scrip(
 #[cfg(test)]
 pub fn sample_boon_ids(count: usize) -> Vec<String> {
     BOONS.iter().take(count).map(|boon| boon.id.to_string()).collect()
+}
+
+#[cfg(test)]
+mod taint_tests {
+    use super::*;
+    use crate::storage::records::RunTainted;
+
+    fn ended(tainted: bool) -> App {
+        let mut app = App::new();
+        app.init_resource::<RunArc>()
+            .init_resource::<RoundVariety>()
+            .init_resource::<heat::RunHeat>()
+            .insert_resource(commendations::RunLog::new(0))
+            .init_resource::<commendations::RunCommendations>()
+            .init_resource::<ChosenKit>()
+            .init_resource::<GauntletFile>()
+            .insert_resource(SaveDir(None))
+            .init_resource::<GameOverLines>()
+            .insert_resource(RunTainted(tainted))
+            .insert_resource(Round::in_progress(6))
+            .add_systems(Update, pay_scrip);
+        app.update();
+        app
+    }
+
+    #[test]
+    fn a_normal_run_pays_scrip() {
+        let app = ended(false);
+        assert!(app.world().resource::<GauntletFile>().scrip > 0);
+        assert!(!app.world().resource::<GameOverLines>().0.is_empty());
+    }
+
+    #[test]
+    fn a_tainted_run_pays_no_scrip() {
+        let app = ended(true);
+        let file = app.world().resource::<GauntletFile>();
+        assert_eq!(file.scrip, 0);
+        assert_eq!(file.elites_killed, 0);
+        assert!(app.world().resource::<GameOverLines>().0.is_empty());
+    }
 }

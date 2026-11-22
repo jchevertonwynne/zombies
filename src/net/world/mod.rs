@@ -25,7 +25,7 @@ use super::protocol::{HOST, Peer, Seat, ToHost, ToPlayer, encode};
 use super::remote::Remote;
 use super::zombies::{Crowd, Tag, ZombieId};
 use crate::run::gauntlet::Elite;
-use crate::storage::records::RunElitesKilled;
+use crate::storage::records::{RunElitesKilled, RunTainted};
 use crate::weapons::ammo_mod::{AmmoMods, OutsideAllyCap};
 use crate::weapons::arsenal::WeaponId;
 use crate::weapons::attachment::{Attachment, UnderbarrelAmmo};
@@ -304,6 +304,9 @@ pub enum WorldEvent {
     /// How many Elites the Run has killed so far, told when it changes and to a Player who comes
     /// back: every Elite death counts for every Player.
     ElitesKilled(u32),
+    /// The Run is Tainted (a Cheat was used): told once, and to a Player who comes back. Every
+    /// Player's Run then writes nothing.
+    Tainted,
     /// To one Player, how much Health they have of how much.
     Health { current: f32, max: f32 },
     /// To one Player, a hit has come from here: their damage indicator.
@@ -390,6 +393,8 @@ pub struct Mirror {
     capstones: HashMap<Seat, u8>,
     /// The Run's count of Elites killed as last told.
     elites_killed: u32,
+    /// Whether the Run's taint has been told.
+    tainted: bool,
     /// The Boss's health as last told (0 for none), and when.
     boss_health: u8,
     boss_told: Option<f32>,
@@ -523,7 +528,7 @@ pub fn add(app: &mut App) {
                 tell_perks,
                 tell_held,
                 tell_status,
-                (tell_health, tell_points, tell_tags, tell_elites_killed),
+                (tell_health, tell_points, tell_tags, tell_elites_killed, tell_taint),
                 tell_hurts,
                 tell_offers,
                 tell_gauntlet,
@@ -545,7 +550,7 @@ pub fn add(app: &mut App) {
                 tell_aftereffect,
                 catch_up_world,
                 catch_up_player,
-                catch_up_tags.after(tell_tags).after(tell_elites_killed),
+                catch_up_tags.after(tell_tags).after(tell_elites_killed).after(tell_taint),
                 (cosmetics::tell_frosts, cosmetics::tell_capstones, cosmetics::tell_cues, bosses::tell_boss_health, choice::tell_choice, choice::tell_challenge),
                 bosses::catch_up_boss.after(bosses::tell_boss_health),
                 choice::catch_up_choice.after(choice::tell_choice).after(catch_up_world),
@@ -595,7 +600,7 @@ pub fn add(app: &mut App) {
         )
         .add_systems(
             Update,
-            (hear_tags, hear_elites_killed, cosmetics::hear_capstones, cosmetics::hear_cues, cosmetics::hear_frosts, bosses::hear_boss_health, choice::hear_choice.run_if(resource_exists::<crate::run::gauntlet::RoundVariety>))
+            (hear_tags, hear_elites_killed, hear_taint, cosmetics::hear_capstones, cosmetics::hear_cues, cosmetics::hear_frosts, bosses::hear_boss_health, choice::hear_choice.run_if(resource_exists::<crate::run::gauntlet::RoundVariety>))
                 .after(release_events)
                 .run_if(resource_exists::<Prediction>)
                 .run_if(resource_exists::<NetIds>)
@@ -1132,6 +1137,14 @@ fn tell_elites_killed(mut tell: Tell, mut mirror: ResMut<Mirror>, killed: Option
     }
 }
 
+/// Tells everyone the Run is Tainted, once, the moment the Host's Run is.
+fn tell_taint(mut tell: Tell, mut mirror: ResMut<Mirror>, tainted: Option<Res<RunTainted>>) {
+    if !mirror.tainted && tainted.is_some_and(|tainted| tainted.0) {
+        mirror.tainted = true;
+        tell.all(&WorldEvent::Tainted);
+    }
+}
+
 /// Brings a Player who has come back up to date on the live tags and the Elites killed.
 fn catch_up_tags(mut tell: Tell, mut returned: MessageReader<SeatReturned>, mirror: Res<Mirror>) {
     for &SeatReturned { seat } in returned.read() {
@@ -1143,6 +1156,9 @@ fn catch_up_tags(mut tell: Tell, mut returned: MessageReader<SeatReturned>, mirr
         }
         if mirror.elites_killed > 0 {
             tell.to(peer, &WorldEvent::ElitesKilled(mirror.elites_killed));
+        }
+        if mirror.tainted {
+            tell.to(peer, &WorldEvent::Tainted);
         }
     }
 }
@@ -2130,6 +2146,14 @@ fn hear_elites_killed(mut heard: MessageReader<Heard>, killed: Option<ResMut<Run
         {
             killed.0 = count;
         }
+    }
+}
+
+/// The Run is Tainted, by the Host's word: this machine writes nothing either.
+fn hear_taint(mut heard: MessageReader<Heard>, tainted: Option<ResMut<RunTainted>>) {
+    let Some(mut tainted) = tainted else { return };
+    if heard.read().any(|Heard(event)| matches!(event, WorldEvent::Tainted)) && !tainted.0 {
+        tainted.0 = true;
     }
 }
 

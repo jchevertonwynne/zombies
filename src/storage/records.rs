@@ -102,6 +102,17 @@ impl Default for RunPlayers {
 #[derive(Resource, Default)]
 pub struct RunRecorded(pub bool);
 
+/// Whether the current Run is Tainted: a Cheat was used in it. One-way within a Run (only
+/// `TaintRun` sets it, and nothing clears it but entering Playing). A Tainted Run writes no Run
+/// Record, Records, Lifetime Stats, Commendation, Scrip or first-Win flag. Classic never sets it
+/// itself; a layer asks with `TaintRun`, and in Co-op the Host's word reaches every machine.
+#[derive(Resource, Default, Debug, PartialEq, Eq)]
+pub struct RunTainted(pub bool);
+
+/// Taints the current Run. Sent on the Host (or solo); a client hears the Host's taint instead.
+#[derive(Message)]
+pub struct TaintRun;
+
 /// Saves this Player's Record now, if the Run's isn't saved yet. For a Run that ends for them
 /// without leaving `Playing`: the Rejoin screen's "leave" writes it.
 #[derive(Message)]
@@ -415,7 +426,11 @@ impl Plugin for RecordsPlugin {
             .init_resource::<RunSpecialZombies>()
             .init_resource::<RunPlayers>()
             .init_resource::<RunRecorded>()
+            .init_resource::<RunTainted>()
+            .add_message::<TaintRun>()
             .add_message::<SaveRecord>()
+            .add_systems(OnEnter(GameState::Playing), |mut tainted: ResMut<RunTainted>| tainted.0 = false)
+            .add_systems(Update, take_taint.run_if(on_message::<TaintRun>))
             // After the Players are spawned, so the count is the Players the Run starts with.
             .add_systems(
                 OnEnter(GameState::Playing),
@@ -485,6 +500,13 @@ fn load_records(mut commands: Commands, dir: Res<SaveDir>) {
     commands.insert_resource(file);
 }
 
+/// A `TaintRun` marks the Run, for good.
+fn take_taint(mut asked: MessageReader<TaintRun>, mut tainted: ResMut<RunTainted>) {
+    if asked.read().count() > 0 && !tainted.0 {
+        tainted.0 = true;
+    }
+}
+
 /// A switch turned off mid-Run (from Pause) marks the Run as played without that type.
 fn track_switches(settings: Res<Settings>, mut run: ResMut<RunSpecialZombies>) {
     run.0 = run.0.and(settings.special_zombies);
@@ -508,6 +530,7 @@ pub fn record_run(
     switches: Res<RunSpecialZombies>,
     mut file: ResMut<RecordsFile>,
     dir: Res<SaveDir>,
+    tainted: Res<RunTainted>,
 ) {
     if std::mem::replace(&mut recorded.0, true) {
         return;
@@ -542,9 +565,15 @@ pub fn record_run(
         elites_killed: elites.0,
         extras: extras.0.iter().cloned().chain(off_extras(&switches.0)).collect(),
     };
-    let rank = file.add(record.clone());
-    // Stored straight away as well as on change, so it lands even if the app is exiting.
-    store(&file, &dir);
+    // A Tainted Run is shown on Game Over but writes nothing.
+    let rank = if tainted.0 {
+        None
+    } else {
+        let rank = file.add(record.clone());
+        // Stored straight away as well as on change, so it lands even if the app is exiting.
+        store(&file, &dir);
+        rank
+    };
     commands.insert_resource(LastRun { record, rank });
 }
 
@@ -936,6 +965,7 @@ mod tests {
             .init_resource::<RunSpecialZombies>()
             .init_resource::<RunPlayers>()
             .init_resource::<RunRecorded>()
+            .init_resource::<RunTainted>()
             .init_resource::<Scoreboard>()
             .init_resource::<RunType>()
             .add_systems(Update, record_run);
@@ -943,6 +973,39 @@ mod tests {
         app.update();
         app.update();
         assert_eq!(app.world().resource::<RecordsFile>().lifetime.runs, 1);
+    }
+
+    #[test]
+    fn a_tainted_run_writes_no_record_but_still_shows_its_round() {
+        let mut app = App::new();
+        app.insert_resource(RecordsFile::default())
+            .insert_resource(SaveDir(None))
+            .insert_resource(MapId::Greybox)
+            .insert_resource(Mode::Classic)
+            .init_resource::<RecordExtras>()
+            .init_resource::<RunWon>()
+            .init_resource::<RunKit>()
+            .init_resource::<RunElitesKilled>()
+            .init_resource::<RunHeatRecord>()
+            .init_resource::<RunSpecialZombies>()
+            .init_resource::<RunPlayers>()
+            .init_resource::<RunRecorded>()
+            .init_resource::<Scoreboard>()
+            .init_resource::<RunType>()
+            .init_resource::<RunTainted>()
+            .add_message::<TaintRun>()
+            .insert_resource(Round::in_progress(7))
+            .add_systems(Update, (take_taint, record_run).chain());
+        app.world_mut().spawn((LocalPlayer, Player, RunStats::default(), Points::default()));
+        app.world_mut().write_message(TaintRun);
+        app.update();
+        assert!(app.world().resource::<RunTainted>().0);
+        let file = app.world().resource::<RecordsFile>();
+        assert_eq!(file.lifetime.runs, 0);
+        assert!(file.records.runs.is_empty());
+        let last = app.world().resource::<LastRun>();
+        assert_eq!(last.record.round, 7);
+        assert_eq!(last.rank, None);
     }
 
     #[test]
