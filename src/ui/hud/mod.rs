@@ -9,6 +9,7 @@
 pub mod coop;
 pub mod damage_indicator;
 pub mod generators;
+pub mod info;
 pub mod overlay;
 
 use bevy::prelude::*;
@@ -284,7 +285,7 @@ pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((OverlayPlugin, DamageIndicatorPlugin, generators::GeneratorHudPlugin))
+        app.add_plugins((OverlayPlugin, DamageIndicatorPlugin, generators::GeneratorHudPlugin, info::InfoPlugin))
             .init_resource::<PointsFlash>()
             .init_resource::<LastBalance>()
             .init_resource::<Banner>()

@@ -39,10 +39,12 @@ pub enum Action {
     MonkeyBomb,
     Claymore,
     Underbarrel,
+    /// The Info key: held, it shows the Info Screen.
+    Info,
 }
 
 impl Action {
-    pub const ALL: [Action; 21] = [
+    pub const ALL: [Action; 22] = [
         Action::Forward,
         Action::Back,
         Action::Left,
@@ -64,6 +66,7 @@ impl Action {
         Action::MonkeyBomb,
         Action::Claymore,
         Action::Underbarrel,
+        Action::Info,
     ];
 
     pub fn label(self) -> &'static str {
@@ -89,6 +92,7 @@ impl Action {
             Action::MonkeyBomb => "Monkey Bomb",
             Action::Claymore => "Claymore",
             Action::Underbarrel => "Underbarrel",
+            Action::Info => "Info",
         }
     }
 
@@ -116,6 +120,7 @@ impl Action {
             Action::MonkeyBomb => "monkey_bomb",
             Action::Claymore => "claymore",
             Action::Underbarrel => "underbarrel",
+            Action::Info => "info",
         }
     }
 
@@ -143,6 +148,7 @@ impl Action {
             Action::MonkeyBomb => Key(KeyCode::Digit4),
             Action::Claymore => Key(KeyCode::Digit5),
             Action::Underbarrel => Key(KeyCode::KeyX),
+            Action::Info => Key(KeyCode::Tab),
         }
     }
 }
