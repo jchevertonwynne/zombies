@@ -1,5 +1,20 @@
-# Builds, packages and publishes a Windows release when a `v*` tag is pushed.
-# `v0.3.0` releases build id `0.3.0`: the tag is the only version source (Cargo.toml stays put).
+# The Windows release: on a `v*` tag, test, build, package, check the package starts, and publish
+# a GitHub Release with three files:
+#
+# - `zombies-<version>-windows.zip`: `zombies.exe` with the licences and README, at the zip's root.
+# - `assets-<hash>.zip`: the `assets/` folder. `<hash>` is the first 16 hex digits of the assets
+#   hash, so a release whose assets didn't change carries a zip of the same name.
+# - `release.json`: the build id, both file names, the SHA-256 of each zip, and the full assets hash.
+#
+# Unzipping both into one folder gives a working game: Bevy finds `assets/` beside the exe.
+#
+# The assets hash is the SHA-256 of one line per file under `assets/`, sorted by path (ordinal):
+# `<SHA-256 of the file, lowercase hex>  <path relative to assets/, with />` and a `\n`.
+#
+# The version comes only from the tag (`v0.3.0` gives `0.3.0`); Cargo.toml's version stays put.
+# It reaches the build as `ZOMBIES_BUILD`, the build id the Co-op handshake compares (see
+# src/net/protocol.rs). The tag is only ever read from the environment, never spliced into a script.
+
 name: Release
 
 on:
@@ -9,105 +24,116 @@ on:
 permissions:
   contents: write
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
-  release:
+  windows:
     runs-on: windows-latest
+    timeout-minutes: 120
     defaults:
       run:
         shell: pwsh
+    env:
+      CARGO_TERM_COLOR: always
+      # The repo's .cargo/config.toml defaults to the mingw target for WSL; CI builds with MSVC.
+      TARGET: x86_64-pc-windows-msvc
+      # The C runtime is linked in, so the exe runs on a clean Windows without the VC++ redistributable.
+      # With an explicit --target these flags reach only the game, not build scripts or proc macros.
+      RUSTFLAGS: -C target-feature=+crt-static
     steps:
       - uses: actions/checkout@v4
 
-      - name: Read the version from the tag
+      - name: Version from the tag
         run: |
-          $version = $env:GITHUB_REF_NAME -replace '^v', ''
-          if (-not $version) { throw "Tag '$env:GITHUB_REF_NAME' has no version after the v" }
-          "VERSION=$version" >> $env:GITHUB_ENV
+          $version = if ($env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME -match '^v([0-9A-Za-z.+-]+)$') { $Matches[1] }
+            elseif ($env:GITHUB_REF_TYPE -eq "tag") { throw "Tag '$env:GITHUB_REF_NAME' isn't v<version>" }
+            else { "dev" }
+          "ZOMBIES_BUILD=$version" >> $env:GITHUB_ENV
+          Write-Host "Build id: $version"
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ env.TARGET }}
 
-      # The tests are headless: they need no window or GPU.
+      # Release profile, so the tests and the build share their compiled dependencies.
       - name: Test
-        run: cargo test --locked
+        run: cargo test --release --locked --workspace --target $env:TARGET
 
-      # The build id baked into the game (and compared in the Co-op handshake) comes from this.
       - name: Build
-        env:
-          ZOMBIES_BUILD: ${{ env.VERSION }}
-        run: cargo build --release --locked
+        run: cargo build --release --locked --bin zombies --target $env:TARGET
 
       - name: Package
+        id: package
         run: |
-          $dist = Join-Path $PWD 'dist'
-          New-Item -ItemType Directory -Force $dist | Out-Null
+          $version = $env:ZOMBIES_BUILD
+          $dist = New-Item -ItemType Directory -Force dist
+          $stage = New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\game"
+          Copy-Item "target\$env:TARGET\release\zombies.exe", LICENSE-MIT, LICENSE-APACHE, README.md $stage
 
-          # Code zip: the exe and the licences. It unzips next to the assets folder.
-          $stage = Join-Path $PWD 'stage-game'
-          New-Item -ItemType Directory -Force $stage | Out-Null
-          Copy-Item target/release/zombies.exe, LICENSE-MIT, LICENSE-APACHE, README.md $stage
-          $gameZip = "zombies-$env:VERSION-windows.zip"
-          Compress-Archive -Path "$stage/*" -DestinationPath (Join-Path $dist $gameZip)
-
-          # Assets hash: SHA-256 over every file's relative path and content hash, in a fixed
-          # order, so it only changes when the assets do (not with zip timestamps).
+          # The assets hash, as described at the top of this file.
           $root = (Resolve-Path assets).Path
-          $entries = Get-ChildItem assets -Recurse -File | ForEach-Object {
-            [pscustomobject]@{
-              Rel  = $_.FullName.Substring($root.Length + 1).Replace('\', '/')
-              Hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
-            }
+          $files = [string[]](Get-ChildItem -Recurse -File -Force assets | ForEach-Object {
+            $_.FullName.Substring($root.Length + 1).Replace('\', '/')
+          })
+          [Array]::Sort($files, [StringComparer]::Ordinal)
+          $lines = foreach ($file in $files) {
+            $hash = (Get-FileHash -Algorithm SHA256 (Join-Path $root $file)).Hash.ToLowerInvariant()
+            "$hash  $file`n"
           }
-          $lines = $entries | Sort-Object { $_.Rel } -CaseSensitive | ForEach-Object { "$($_.Rel) $($_.Hash)" }
-          $bytes = [System.Text.Encoding]::UTF8.GetBytes(($lines -join "`n") + "`n")
-          $assetsHash = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::HashData($bytes)).Replace('-', '').ToLower()
-          $assetsZip = "assets-$assetsHash.zip"
-          Compress-Archive -Path assets -DestinationPath (Join-Path $dist $assetsZip)
+          $sha = [Security.Cryptography.SHA256]::Create()
+          $assetsHash = -join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes(-join $lines)) | ForEach-Object { $_.ToString("x2") })
+          Write-Host "Assets: $($files.Count) files, hash $assetsHash"
 
-          $sha = { param($name) (Get-FileHash (Join-Path $dist $name) -Algorithm SHA256).Hash.ToLower() }
-          $release = [ordered]@{
-            build      = $env:VERSION
-            assetsHash = $assetsHash
-            game       = [ordered]@{ file = $gameZip; sha256 = (& $sha $gameZip) }
-            assets     = [ordered]@{ file = $assetsZip; sha256 = (& $sha $assetsZip); hash = $assetsHash }
-          }
-          $release | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $dist 'release.json') -Encoding utf8
-          Get-Content (Join-Path $dist 'release.json')
+          $gameZip = "zombies-$version-windows.zip"
+          $assetsZip = "assets-$($assetsHash.Substring(0, 16)).zip"
+          7z a -tzip -bd "$dist\$gameZip" "$stage\*" | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "zipping the game failed" }
+          7z a -tzip -bd "$dist\$assetsZip" assets | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "zipping the assets failed" }
 
-      # Unzip both into a fresh folder, as a player would, and start the game from there with a
-      # scratch user folder. It must stay up (a crash or missing assets ends it early) and log no
-      # missing asset.
-      - name: Verify the packaged game starts
+          $sum = { param($name) (Get-FileHash -Algorithm SHA256 "$dist\$name").Hash.ToLowerInvariant() }
+          [ordered]@{
+            build_id = $version
+            game = [ordered]@{ file = $gameZip; sha256 = (& $sum $gameZip) }
+            assets = [ordered]@{ file = $assetsZip; sha256 = (& $sum $assetsZip); hash = $assetsHash }
+          } | ConvertTo-Json | Set-Content -Encoding utf8NoBOM "$dist\release.json"
+          Get-Content "$dist\release.json"
+          Get-ChildItem $dist | Format-Table Name, Length
+
+      # Unzip both into a fresh folder and run the game's smoke check from there (see src/smoke.rs):
+      # it starts the game and loads a file of each kind from each asset folder, then quits.
+      # The runner has no GPU, so wgpu renders on WARP, Direct3D 12's software adapter.
+      - name: Check the package starts
         run: |
-          $dir = Join-Path $env:RUNNER_TEMP 'unzipped'
-          New-Item -ItemType Directory -Force $dir | Out-Null
-          Get-ChildItem dist -Filter *.zip | ForEach-Object { Expand-Archive $_.FullName -DestinationPath $dir }
-          if (-not (Test-Path "$dir/zombies.exe")) { throw 'zombies.exe is not in the code zip' }
-          if (-not (Test-Path "$dir/assets/manifest.json")) { throw 'assets/ is not in the assets zip' }
+          $release = Get-Content dist\release.json | ConvertFrom-Json
+          $install = "$env:RUNNER_TEMP\install"
+          Expand-Archive "dist\$($release.game.file)" $install
+          Expand-Archive "dist\$($release.assets.file)" $install
+          $env:ZOMBIES_SMOKE = "1"
+          $env:WGPU_BACKEND = "dx12"
+          $env:WGPU_FORCE_FALLBACK_ADAPTER = "1"
+          # Somewhere else to save, and no hint of the checkout, so only the exe's own folder can supply assets.
+          $env:APPDATA = New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\appdata"
+          Remove-Item Env:CARGO_MANIFEST_DIR, Env:BEVY_ASSET_ROOT -ErrorAction Ignore
+          $log = "$env:RUNNER_TEMP\smoke.log"
+          $game = Start-Process "$install\zombies.exe" -WorkingDirectory $env:RUNNER_TEMP -PassThru -NoNewWindow `
+            -RedirectStandardOutput $log -RedirectStandardError "$log.err"
+          $null = $game.Handle
+          if (-not $game.WaitForExit(300000)) { $game.Kill(); Get-Content $log, "$log.err"; throw "the smoke check didn't finish in 5 minutes" }
+          Get-Content $log
+          if ($game.ExitCode -ne 0) { Get-Content "$log.err" | Select-Object -Last 50; throw "the smoke check failed (exit $($game.ExitCode))" }
+          if (-not (Select-String -Quiet -Path $log -Pattern '^smoke: ok')) { throw "the smoke check didn't report success" }
+          if (-not (Select-String -Quiet -SimpleMatch -Path $log -Pattern "smoke: build $env:ZOMBIES_BUILD,")) { throw "the game doesn't carry build id $env:ZOMBIES_BUILD" }
 
-          $scratch = Join-Path $env:RUNNER_TEMP 'appdata'
-          New-Item -ItemType Directory -Force $scratch | Out-Null
-          $env:APPDATA = $scratch
-          $env:HOME = $scratch
-          $env:RUST_LOG = 'warn'
-          $out = Join-Path $env:RUNNER_TEMP 'game.out.log'
-          $err = Join-Path $env:RUNNER_TEMP 'game.err.log'
-          $game = Start-Process "$dir/zombies.exe" -WorkingDirectory $dir -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
-          Start-Sleep -Seconds 30
-          $alive = -not $game.HasExited
-          if ($alive) { Stop-Process -Id $game.Id -Force }
-          $log = (Get-Content $out, $err -ErrorAction SilentlyContinue) -join "`n"
-          Write-Host $log
-          if (-not $alive) { throw "The game exited early with code $($game.ExitCode)" }
-          if ($log -match 'Path not found|Could not load asset') { throw 'The game could not find its assets' }
-
-      - name: Publish the release
+      - name: Publish
+        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $files = Get-ChildItem dist -File | ForEach-Object FullName
-          gh release create $env:GITHUB_REF_NAME --title $env:VERSION --generate-notes @files
+          $release = Get-Content dist\release.json | ConvertFrom-Json
+          gh release create $env:GITHUB_REF_NAME `
+            "dist\$($release.game.file)" "dist\$($release.assets.file)" dist\release.json `
+            --title "Zombies $env:ZOMBIES_BUILD" --generate-notes
+          if ($LASTEXITCODE -ne 0) { throw "creating the release failed" }

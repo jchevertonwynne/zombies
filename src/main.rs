@@ -15,6 +15,7 @@ mod players;
 #[cfg(test)]
 mod provenance;
 mod run;
+mod smoke;
 mod state;
 mod storage;
 mod tour;
@@ -25,7 +26,7 @@ mod weapons;
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
-fn main() {
+fn main() -> AppExit {
     let mut app = App::new();
     app
         .add_plugins((
@@ -124,5 +125,8 @@ fn main() {
     if let Some(tour) = tour::Tour::from_env() {
         app.add_plugins(tour::TourPlugin(tour));
     }
-    app.run();
+    if let Some(smoke) = smoke::SmokePlugin::from_env() {
+        app.add_plugins(smoke);
+    }
+    app.run()
 }
