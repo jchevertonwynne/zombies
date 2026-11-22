@@ -730,10 +730,13 @@ fn corrections_grinding_along_zombies_are_eased_out() {
 fn a_walk_through_shallow_water_replays_to_the_same_place() {
     use crate::maps::map::MapId;
     let mut run = Run::on(MapId::Cove, 1, 3, 0.0, 0, &|_| {});
+    // The Seats are on the dry sand above the surf, so walk south into it first.
+    run.step(&|_, _| MoveInput { axes: Vec2::Y, yaw: 0.0, ..default() }, 90);
+    run.step(&|_, _| MoveInput::default(), 30);
     let start = run.at(0, 1);
     assert!(
         crate::maps::water::wading(MapId::Cove.layout(), Default::default(), start - Vec3::Y * Stance::Standing.half_height()),
-        "the Seat isn't in the surf"
+        "the Player isn't in the surf at {start}"
     );
     let east = -std::f32::consts::FRAC_PI_2;
     let mut worst = 0.0f32;

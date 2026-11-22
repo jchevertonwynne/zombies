@@ -79,8 +79,8 @@ pub(super) const COVE: Layout = Layout {
         use ZoneId::*;
         [Strand, SeaCave, Shingle, Boathouse, Washhouse, LowerLane, FishMarket, Taverna, Chapel, Piazza, UpperLane, Pensione, Lighthouse, LighthouseYard, KeepersCottage, Battery]
     },
-    // Along the sea wall of the Strand, in a row facing Quick Revive.
-    seats: [at(-5.5, SHORE, -8.0), at(-2.5, SHORE, -8.0), at(0.5, SHORE, -8.0), at(3.5, SHORE, -8.0)],
+    // Along the Strand, on the dry sand above the surf, in a row facing Quick Revive.
+    seats: [at(-5.5, SHORE, -5.0), at(-2.5, SHORE, -5.0), at(0.5, SHORE, -5.0), at(3.5, SHORE, -5.0)],
     wall_weapons: &WALL_WEAPONS,
     windows: &WINDOWS,
     risers: &[],
@@ -197,10 +197,10 @@ pub(super) const WINDOWS: [(ZoneId, Vec3, Vec2); 27] = [
 const HELLHOUND_SPAWNS: [(ZoneId, Vec3); 19] = [
     (ZoneId::Strand, at(-8.0, SHORE, 0.0)),
     (ZoneId::Strand, at(10.0, SHORE, 0.0)),
-    (ZoneId::SeaCave, at(-47.5, SHORE, 0.0)),
-    (ZoneId::Shingle, at(-30.0, SHORE, 0.0)),
+    (ZoneId::SeaCave, at(-47.5, SHORE, 1.0)),
+    (ZoneId::Shingle, at(-30.0, SHORE, 2.5)),
     (ZoneId::Boathouse, at(24.0, SHORE, 0.0)),
-    (ZoneId::Washhouse, at(-50.0, LOWER, 12.0)),
+    (ZoneId::Washhouse, at(-50.0, LOWER, 8.0)),
     (ZoneId::LowerLane, at(-28.0, LOWER, 11.5)),
     (ZoneId::FishMarket, at(-5.0, LOWER, 10.5)),
     (ZoneId::Taverna, at(13.0, LOWER, 12.5)),
@@ -295,25 +295,42 @@ const RAISED_FLOORS: [RaisedFloor; 8] = [SHELF, SEAWARD, GUNS, LIGHT_LANDING, GA
 /// How high the sea wall's parapet is between its windows: too high to jump onto.
 const PARAPET: f32 = 1.6;
 
-/// How deep the water over a floor is: a film of ankle-deep surf, so the water never stands up out
-/// of the ground beside it (a pool's bed is the floor built there, and every fixture stands on it).
+/// How deep the surf and the other shallow pools are: an ankle-deep film. Each pool's bed is
+/// recessed this far into the floor of its Zone, so its surface lies exactly level with the
+/// floor round it and never stands up out of it.
 pub(super) const FILM: f32 = 0.1;
-/// The surface of the surf and the sea, a `FILM` over the beach at y 0.
-const SURF: f32 = SHORE + FILM;
-/// The sea's bed, 2.9 m under the beach: 3 m of water.
-const SEA_BED: f32 = SHORE - 2.9;
+/// The surface of the surf and the sea: level with the beach at y 0.
+const SURF: f32 = SHORE;
+/// The surf's bed, recessed a `FILM` under the beach.
+const SURF_BED: f32 = SHORE - FILM;
+/// The sea's bed, 3 m under the beach: 3 m of water.
+const SEA_BED: f32 = SHORE - 3.0;
 
 /// The sea bed, a rimless Sunken floor in each Shore Zone along the south edge, out past the sea
 /// wall to the plan's edge.
 const SEA_BEDS: [Sunken; 4] = [
-    Sunken { zone: ZoneId::SeaCave, min: v(-56.0, -24.0), max: v(-44.0, -14.0), depth: 2.9, rim: false },
-    Sunken { zone: ZoneId::Shingle, min: v(-44.0, -24.0), max: v(-22.0, -14.0), depth: 2.9, rim: false },
-    Sunken { zone: ZoneId::Strand, min: v(-22.0, -24.0), max: v(20.0, -14.0), depth: 2.9, rim: false },
-    Sunken { zone: ZoneId::Boathouse, min: v(20.0, -24.0), max: v(34.0, -14.0), depth: 2.9, rim: false },
+    Sunken { zone: ZoneId::SeaCave, min: v(-56.0, -24.0), max: v(-44.0, -14.0), depth: 3.0, rim: false },
+    Sunken { zone: ZoneId::Shingle, min: v(-44.0, -24.0), max: v(-22.0, -14.0), depth: 3.0, rim: false },
+    Sunken { zone: ZoneId::Strand, min: v(-22.0, -24.0), max: v(20.0, -14.0), depth: 3.0, rim: false },
+    Sunken { zone: ZoneId::Boathouse, min: v(20.0, -24.0), max: v(34.0, -14.0), depth: 3.0, rim: false },
 ];
 
-/// Every sunken floor: the stairwells and the sea bed.
-const SUNKEN: [Sunken; 11] = concat(WELLS, SEA_BEDS);
+/// The recess under each shallow pool, a `FILM` deep: the bed that lets its surface sit level with
+/// the floor. Only the floor under the water is lowered; every Seat, Prop and perk machine stands
+/// on the unrecessed floor, out of the pools (a test pins that).
+const SHALLOW_BEDS: [Sunken; 12] = {
+    let mut out = [SEA_BEDS[0]; 12];
+    let mut i = 0;
+    while i < 12 {
+        let pool = SHALLOW_POOLS[i];
+        out[i] = Sunken { zone: pool.zone, min: pool.min, max: pool.max, depth: FILM, rim: false };
+        i += 1;
+    }
+    out
+};
+
+/// Every sunken floor: the stairwells, the sea bed and the shallow pools' beds.
+const SUNKEN: [Sunken; 23] = concat(concat::<_, 7, 4, 11>(WELLS, SEA_BEDS), SHALLOW_BEDS);
 
 /// A pool of `zone` across `min`..`max`, its surface at `level` over a bed at `bed`.
 const fn pool(zone: ZoneId, min: Vec2, max: Vec2, level: f32, bed: f32) -> Pool {
@@ -327,18 +344,23 @@ const fn sea(zone: ZoneId, x0: f32, z0: f32, x1: f32, z1: f32) -> Pool {
     pool(zone, v(x0, z0), v(x1, z1), SURF, SEA_BED)
 }
 
-/// A pool of shallow water over the beach: a `FILM` deep.
+/// A pool of shallow water over the beach: a `FILM` deep, in a bed recessed under it.
 const fn shallow(zone: ZoneId, x0: f32, z0: f32, x1: f32, z1: f32) -> Pool {
-    pool(zone, v(x0, z0), v(x1, z1), SURF, SHORE)
+    pool(zone, v(x0, z0), v(x1, z1), SURF, SURF_BED)
 }
 
 /// The pools. Shallow: the Strand's surf, the Shingle's surf and two rock pools, the Sea Cave's
 /// tidal pool round its shelf, the Boathouse's slipway and the Washhouse's basin. Deep: the sea,
 /// at the same level as the surf it meets, so the surface never steps.
-const POOLS: [Pool; 22] = {
+const POOLS: [Pool; 24] = concat(SHALLOW_POOLS, SEA_POOLS);
+
+const SHALLOW_POOLS: [Pool; 12] = {
     use ZoneId::*;
     [
-        shallow(Strand, -22.0, -14.0, 20.0, -7.0),
+        // The Strand's surf, round a dry plinth of beach at the sea wall where Quick Revive stands.
+        shallow(Strand, -22.0, -14.0, -2.4, -7.0),
+        shallow(Strand, 0.4, -14.0, 20.0, -7.0),
+        shallow(Strand, -2.4, -12.0, 0.4, -7.0),
         shallow(Shingle, -44.0, -14.0, -22.0, -9.0),
         shallow(Shingle, -39.0, -6.0, -34.0, -2.0),
         shallow(Shingle, -31.0, -3.0, -26.0, 1.0),
@@ -347,8 +369,14 @@ const POOLS: [Pool; 22] = {
         shallow(SeaCave, -56.0, -11.0, -53.5, -1.0),
         shallow(SeaCave, -47.0, -11.0, -44.0, -1.0),
         shallow(SeaCave, -53.5, -1.8, -47.0, 0.0),
-        pool(Boathouse, v(22.5, -14.0), v(33.5, -8.0), SHORE + FILM, SHORE),
-        pool(Washhouse, v(-53.5, 11.0), v(-46.5, 19.0), LOWER + FILM, LOWER),
+        pool(Boathouse, v(22.5, -14.0), v(33.5, -8.0), SHORE, SURF_BED),
+        pool(Washhouse, v(-53.5, 11.0), v(-46.5, 19.0), LOWER, LOWER - FILM),
+    ]
+};
+
+const SEA_POOLS: [Pool; 12] = {
+    use ZoneId::*;
+    [
         // The sea: the far band, then the gaps between the window pockets.
         sea(SeaCave, -56.0, -24.0, -44.0, -18.0),
         sea(Shingle, -44.0, -24.0, -22.0, -18.0),
@@ -370,14 +398,14 @@ const POOLS: [Pool; 22] = {
 /// `WADING_DEEP_CLEARANCE` from the sea and from dry sand; on the Strand's 7 m band and the
 /// Shingle's 5 m one that leaves as much surf as there is between it and the beach.
 const WADING_POINTS: [(ZoneId, Vec3); 8] = [
-    (ZoneId::Strand, at(-17.0, SHORE, -12.4)),
-    (ZoneId::Strand, at(-6.0, SHORE, -12.4)),
-    (ZoneId::Strand, at(3.0, SHORE, -12.4)),
-    (ZoneId::Strand, at(13.0, SHORE, -12.4)),
-    (ZoneId::Shingle, at(-40.0, SHORE, -11.5)),
-    (ZoneId::Shingle, at(-27.0, SHORE, -11.5)),
-    (ZoneId::Boathouse, at(27.0, SHORE, -11.5)),
-    (ZoneId::SeaCave, at(-47.5, SHORE, -12.5)),
+    (ZoneId::Strand, at(-17.0, SURF_BED, -12.4)),
+    (ZoneId::Strand, at(-6.0, SURF_BED, -12.4)),
+    (ZoneId::Strand, at(3.0, SURF_BED, -12.4)),
+    (ZoneId::Strand, at(13.0, SURF_BED, -12.4)),
+    (ZoneId::Shingle, at(-40.0, SURF_BED, -11.5)),
+    (ZoneId::Shingle, at(-27.0, SURF_BED, -11.5)),
+    (ZoneId::Boathouse, at(27.0, SURF_BED, -11.5)),
+    (ZoneId::SeaCave, at(-47.5, SURF_BED, -12.5)),
 ];
 
 /// The stairwells: each flight's well in the floor of the Zone at its top, a storey deep.
@@ -429,10 +457,10 @@ const PROPS: &[Prop] = {
     use ZoneId::*;
     &[
         // The Strand: upturned fishing boats and net-drying frames along the sea wall and the ends.
-        p(Counter, Strand, -18.0, SHORE, -9.0, (4.0, 1.4, 1.8)),
-        p(Counter, Strand, 14.0, SHORE, -8.5, (4.0, 1.4, 1.8)),
+        p(Counter, Strand, -18.0, SHORE, -5.9, (4.0, 1.4, 1.8)),
+        p(Counter, Strand, 15.5, SHORE, -5.9, (4.0, 1.4, 1.8)),
         p(Shelf, Strand, -21.5, SHORE, 1.5, (0.4, 2.2, 3.0)),
-        p(Shelf, Strand, 19.6, SHORE, -9.0, (0.4, 2.2, 3.0)),
+        p(Shelf, Strand, 19.6, SHORE, 0.5, (0.4, 2.2, 3.0)),
         // The Shingle: rock outcrops and a lobster pot.
         p(Rubble, Shingle, -38.0, SHORE, -8.0, (1.6, 1.5, 1.6)),
         p(Rubble, Shingle, -28.0, SHORE, -8.0, (1.6, 1.5, 1.6)),
@@ -683,13 +711,13 @@ const NODES: &[(&str, f32, f32, f32)] = &[
     // The Sea Cave, round the Pack-a-Punch's shelf
     ("sc_nw", -53.5, SHORE, 3.5),
     ("sc_ne", -47.0, SHORE, 3.5),
-    ("sc_step", -50.25, SHORE, -0.5),
+    ("sc_step", -50.25, SURF_BED, -0.5),
     ("sc_shelf", -50.25, SHORE + 0.6, -5.5),
     ("sc_shelf2", -50.25, SHORE + 0.6, -8.5),
-    ("sc_w", -55.2, SHORE, -6.0),
-    ("sc_sw", -55.0, SHORE, -12.6),
-    ("sc_se", -46.0, SHORE, -12.6),
-    ("sc_e", -45.6, SHORE, -4.0),
+    ("sc_w", -55.2, SURF_BED, -6.0),
+    ("sc_sw", -55.0, SURF_BED, -12.6),
+    ("sc_se", -46.0, SURF_BED, -12.6),
+    ("sc_e", -45.6, SURF_BED, -4.0),
     // The Shingle
     ("sh_w", -42.5, SHORE, -4.0),
     ("sh_c", -33.0, SHORE, -4.0),
@@ -697,10 +725,10 @@ const NODES: &[(&str, f32, f32, f32)] = &[
     ("sh_nw", -40.0, SHORE, 3.0),
     ("sh_n", -33.0, SHORE, 4.4),
     ("sh_ne", -27.0, SHORE, 3.0),
-    ("w0_in", -34.0, SHORE, -12.4),
+    ("w0_in", -34.0, SURF_BED, -12.4),
     ("w0_out", -34.0, SHORE, -16.0),
-    ("sh_sw", -40.0, SHORE, -11.0),
-    ("sh_se", -27.0, SHORE, -11.0),
+    ("sh_sw", -40.0, SURF_BED, -11.0),
+    ("sh_se", -27.0, SURF_BED, -11.0),
     // The Strand
     ("st_w", -20.5, SHORE, -4.0),
     ("st_a", -12.0, SHORE, -4.0),
@@ -713,11 +741,11 @@ const NODES: &[(&str, f32, f32, f32)] = &[
     ("st_nm", 0.0, SHORE, 3.0),
     ("st_nc", 7.0, SHORE, 3.0),
     ("st_ne", 14.0, SHORE, 3.0),
-    ("w1_in", -14.0, SHORE, -12.4),
+    ("w1_in", -14.0, SURF_BED, -12.4),
     ("w1_out", -14.0, SHORE, -16.0),
-    ("st_s1", -6.0, SHORE, -11.0),
-    ("st_s2", 3.0, SHORE, -11.0),
-    ("w2_in", 10.0, SHORE, -12.4),
+    ("st_s1", -6.0, SURF_BED, -11.0),
+    ("st_s2", 3.0, SURF_BED, -11.0),
+    ("w2_in", 10.0, SURF_BED, -12.4),
     ("w2_out", 10.0, SHORE, -16.0),
     // The Boathouse
     ("bo_w", 21.8, SHORE, -4.0),
@@ -726,10 +754,10 @@ const NODES: &[(&str, f32, f32, f32)] = &[
     ("bo_n", 27.0, SHORE, 4.4),
     ("bo_nw", 23.0, SHORE, 2.0),
     ("bo_ne", 31.0, SHORE, 2.0),
-    ("w3_in", 27.0, SHORE, -12.4),
+    ("w3_in", 27.0, SURF_BED, -12.4),
     ("w3_out", 27.0, SHORE, -16.0),
-    ("bo_sw", 23.0, SHORE, -10.0),
-    ("bo_se", 31.5, SHORE, -10.0),
+    ("bo_sw", 23.0, SURF_BED, -10.0),
+    ("bo_se", 31.5, SURF_BED, -10.0),
     // The Washhouse
     ("wa_sw", -52.5, LOWER, 9.5),
     ("wa_se", -47.0, LOWER, 9.5),
