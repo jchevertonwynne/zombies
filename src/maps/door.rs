@@ -231,6 +231,71 @@ mod tests {
         assert!(open && prompt.is_none(), "both Links open the Gazebo and take its Prompt away");
     }
 
+    /// Whether `entity` is drawn: nothing from it up to the root is hidden.
+    fn shown(world: &World, mut entity: Entity) -> bool {
+        loop {
+            if world.get::<Visibility>(entity).is_some_and(|visibility| *visibility == Visibility::Hidden) {
+                return false;
+            }
+            match world.get::<ChildOf>(entity) {
+                Some(parent) => entity = parent.parent(),
+                None => return true,
+            }
+        }
+    }
+
+    /// Once every Door is open and out of sight, no drawn piece without a collider is left across
+    /// a doorway, on any Map.
+    #[test]
+    fn nothing_drawn_without_a_collider_fills_an_open_doorway() {
+        use crate::enemies::zombie::headless::Sim;
+        use crate::maps::map::MapId;
+        for map in MapId::ALL {
+            let mut sim = Sim::on(map, 60.0, |app| {
+                app.add_message::<Purchased>().init_resource::<Power>().init_resource::<Teleporter>().add_plugins(DoorPlugin);
+            });
+            let doors: Vec<Vec3> = {
+                let world = sim.world_mut();
+                world.query::<(&Door, &Transform)>().iter(world).map(|(_, transform)| transform.translation).collect()
+            };
+            sim.send(OpenAllDoors);
+            sim.run(120);
+            let world = sim.world_mut();
+            let mut bad = Vec::new();
+            let mut query = world.query::<(Entity, &Mesh3d, &GlobalTransform, Option<&Collider>)>();
+            let meshes = world.resource::<Assets<Mesh>>();
+            for (entity, mesh, global, collider) in query.iter(world) {
+                if collider.is_some() || !shown(world, entity) {
+                    continue;
+                }
+                let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) = meshes.get(&mesh.0).and_then(|mesh| mesh.attribute(Mesh::ATTRIBUTE_POSITION)) else { continue };
+                let matrix = global.affine();
+                let corners: Vec<Vec3> = positions.iter().map(|p| matrix.transform_point3(Vec3::from(*p))).collect();
+                let order: Vec<usize> = match meshes.get(&mesh.0).and_then(Mesh::indices) {
+                    Some(indices) => indices.iter().collect(),
+                    None => (0..corners.len()).collect(),
+                };
+                for triangle in order.as_chunks::<3>().0 {
+                    let [a, b, c] = [corners[triangle[0]], corners[triangle[1]], corners[triangle[2]]];
+                    let (lo, hi) = (a.min(b).min(c) - Vec3::splat(0.005), a.max(b).max(c) + Vec3::splat(0.005));
+                    // A flat sheet is a floor or water, which a Door stands on and in.
+                    if hi.y - lo.y < 0.02 {
+                        continue;
+                    }
+                    for door in &doors {
+                        for up in [-1.0f32, 0.0, 1.0] {
+                            let p = *door + Vec3::Y * up;
+                            if p.cmpgt(lo).all() && p.cmplt(hi).all() {
+                                bad.push(format!("{entity} {lo}..{hi} over the doorway at {door}"));
+                            }
+                        }
+                    }
+                }
+            }
+            assert!(bad.is_empty(), "{}: {bad:#?}", map.name());
+        }
+    }
+
     #[test]
     fn a_door_shakes_in_place_then_sinks_and_is_gone() {
         let shaking = opening_offset(DOOR_SHAKE_SECS / 2.0).unwrap();

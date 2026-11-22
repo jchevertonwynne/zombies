@@ -964,7 +964,7 @@ mod tests {
             }
         }
         // The foam goes on the surface.
-        assert_eq!(surface_at(cove, TideLevel::Low, surf), Some(0.5));
+        assert_eq!(surface_at(cove, TideLevel::Low, surf), Some(0.1));
         assert_eq!(surface_at(cove, TideLevel::Low, sand), None);
     }
 

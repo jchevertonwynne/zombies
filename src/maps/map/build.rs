@@ -284,14 +284,21 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let size = Vec3::new(max.x - min.x, 0.2, max.y - min.y);
         let material = materials(Some(sunken.zone)).map(|set| set.floor);
         self.block_in(size, Vec3::new(middle.x, top - depth - 0.1, middle.y), darker(colours.floor), material);
-        // Thin facings on its four sides, just inside the hole.
+        // Thin facings on its sides, just inside the hole. A side on its Zone's own edge has a
+        // wall (and a Door, for a flight's foot) standing there, so it gets none: a facing in a
+        // doorway would stay drawn, with nothing solid, once the Door had opened.
         let facing = 0.02;
-        for (centre, size) in [
-            (Vec2::new(middle.x, min.y + facing / 2.0), Vec2::new(max.x - min.x, facing)),
-            (Vec2::new(middle.x, max.y - facing / 2.0), Vec2::new(max.x - min.x, facing)),
-            (Vec2::new(min.x + facing / 2.0, middle.y), Vec2::new(facing, max.y - min.y)),
-            (Vec2::new(max.x - facing / 2.0, middle.y), Vec2::new(facing, max.y - min.y)),
+        let (zone_min, zone_max) = sunken.zone.volume();
+        let on_edge = |side: f32, edge: f32| (side - edge).abs() < 0.05;
+        for (centre, size, skip) in [
+            (Vec2::new(middle.x, min.y + facing / 2.0), Vec2::new(max.x - min.x, facing), on_edge(min.y, zone_min.z)),
+            (Vec2::new(middle.x, max.y - facing / 2.0), Vec2::new(max.x - min.x, facing), on_edge(max.y, zone_max.z)),
+            (Vec2::new(min.x + facing / 2.0, middle.y), Vec2::new(facing, max.y - min.y), on_edge(min.x, zone_min.x)),
+            (Vec2::new(max.x - facing / 2.0, middle.y), Vec2::new(facing, max.y - min.y), on_edge(max.x, zone_max.x)),
         ] {
+            if skip {
+                continue;
+            }
             self.shape(Vec3::new(size.x, depth, size.y), Vec3::new(centre.x, top - depth / 2.0, centre.y), Quat::IDENTITY, colours.trim);
         }
         if sunken.rim {

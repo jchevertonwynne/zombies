@@ -1559,7 +1559,7 @@ pub(crate) mod tests {
     }
 
     /// Pools that touch share a level (so the surface never steps), and the Cove's are all
-    /// 0.4-0.6 m deep but for the sea, 3 m.
+    /// a film deep but for the sea, 3 m.
     #[test]
     fn pools_that_touch_share_a_level_and_the_coves_depths_are_as_authored() {
         for map in MapId::ALL {
@@ -1580,7 +1580,7 @@ pub(crate) mod tests {
             match pool.kind(cove.canals, TideLevel::Low) {
                 Some(Wading::Shallow) => {
                     shallow += 1;
-                    assert!((0.4 - 1e-4..=0.6 + 1e-4).contains(&depth), "a pool in {} is {depth} m deep", pool.zone.name());
+                    assert!((depth - cove::FILM).abs() < 1e-4, "a pool in {} is {depth} m deep", pool.zone.name());
                 }
                 Some(Wading::Deep) => {
                     sea += 1;
