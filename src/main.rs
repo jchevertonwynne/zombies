@@ -43,6 +43,8 @@ fn main() {
             authority::AuthorityPlugin,
             run::leave_run::LeaveRunPlugin,
             run::party::PartyPlugin,
+            run::dev::DevPlugin,
+            ui::cheat_panel::CheatPanelPlugin,
             storage::settings::SettingsPlugin,
             ui::menu::MenuPlugin,
             ui::coop::CoopPlugin,

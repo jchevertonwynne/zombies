@@ -10,6 +10,7 @@ use super::protocol::{
     clean_name, decode, encode,
 };
 use crate::maps::map::MapId;
+use crate::run::dev::DevMode;
 use crate::run::mode::Mode;
 use crate::tuning::*;
 
@@ -30,6 +31,8 @@ pub struct Room {
     mode: Mode,
     map: MapId,
     heat: [u8; 8],
+    /// Who may use Cheats in the Run.
+    dev: DevMode,
     /// Whether the lobby lists the Room, or it is found only by its code.
     listed: bool,
     /// Empty if the Room has none.
@@ -56,6 +59,7 @@ impl Room {
             mode,
             map: MapId::default(),
             heat: [0; 8],
+            dev: DevMode::Off,
             listed: true,
             password: String::new(),
             started: false,
@@ -83,6 +87,10 @@ impl Room {
     /// The Host's Degrees, one per Condition.
     pub fn degrees(&self) -> [u8; 8] {
         self.heat
+    }
+
+    pub fn dev(&self) -> DevMode {
+        self.dev
     }
 
     pub fn is_listed(&self) -> bool {
@@ -203,6 +211,13 @@ impl Room {
         }
     }
 
+    pub fn set_dev(&mut self, dev: DevMode) {
+        if self.dev != dev {
+            self.dev = dev;
+            self.unready();
+        }
+    }
+
     pub fn set_listed(&mut self, listed: bool) {
         if self.listed != listed {
             self.listed = listed;
@@ -316,6 +331,7 @@ impl Room {
             mode: self.mode,
             map: self.map,
             heat: self.heat,
+            dev: self.dev,
             locked: self.has_password(),
             seats: std::array::from_fn(|at| {
                 self.seats[at].as_ref().map(|member| SeatView {

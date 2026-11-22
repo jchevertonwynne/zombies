@@ -24,6 +24,7 @@ use super::play::{Prediction, Roster, Wire};
 use super::protocol::{HOST, Peer, Seat, ToHost, ToPlayer, encode};
 use super::remote::Remote;
 use super::zombies::{Crowd, Tag, ZombieId};
+use crate::run::dev::{Cheat, CheatRequest, DevAccess, DevMode};
 use crate::run::gauntlet::Elite;
 use crate::storage::records::{RunElitesKilled, RunTainted};
 use crate::weapons::ammo_mod::{AmmoMods, OutsideAllyCap};
@@ -111,6 +112,8 @@ pub enum Request {
     Pick { card: Option<u8> },
     /// They vote for this option of the Round Choice: 0 the safe one, 1 the Twist one.
     VoteRound { option: u8 },
+    /// They ask for a Cheat. The Host drops it, silently, unless Developer mode allows it them.
+    Cheat(Cheat),
 }
 
 /// A Weapon copy on the wire: all of it that its holder's game can't work out for itself.
@@ -307,6 +310,8 @@ pub enum WorldEvent {
     /// The Run is Tainted (a Cheat was used): told once, and to a Player who comes back. Every
     /// Player's Run then writes nothing.
     Tainted,
+    /// Who may use Cheats now: told when the Host changes it, and to a Player who comes back.
+    DevMode(DevMode),
     /// To one Player, how much Health they have of how much.
     Health { current: f32, max: f32 },
     /// To one Player, a hit has come from here: their damage indicator.
@@ -395,6 +400,8 @@ pub struct Mirror {
     elites_killed: u32,
     /// Whether the Run's taint has been told.
     tainted: bool,
+    /// The Developer mode setting as last told.
+    dev: DevMode,
     /// The Boss's health as last told (0 for none), and when.
     boss_health: u8,
     boss_told: Option<f32>,
@@ -485,6 +492,8 @@ pub fn add(app: &mut App) {
         .add_message::<PlayCue>()
         .add_message::<PlayerHit>()
         .add_message::<PickOffer>()
+        .add_message::<CheatRequest>()
+        .init_resource::<DevAccess>()
         .add_message::<RerollOffer>()
         .add_message::<BanishCard>()
         .add_message::<ToolUsed>()
@@ -528,7 +537,7 @@ pub fn add(app: &mut App) {
                 tell_perks,
                 tell_held,
                 tell_status,
-                (tell_health, tell_points, tell_tags, tell_elites_killed, tell_taint),
+                (tell_health, tell_points, tell_tags, tell_elites_killed, tell_taint, tell_dev),
                 tell_hurts,
                 tell_offers,
                 tell_gauntlet,
@@ -550,7 +559,7 @@ pub fn add(app: &mut App) {
                 tell_aftereffect,
                 catch_up_world,
                 catch_up_player,
-                catch_up_tags.after(tell_tags).after(tell_elites_killed).after(tell_taint),
+                catch_up_tags.after(tell_tags).after(tell_elites_killed).after(tell_taint).after(tell_dev),
                 (cosmetics::tell_frosts, cosmetics::tell_capstones, cosmetics::tell_cues, bosses::tell_boss_health, choice::tell_choice, choice::tell_challenge),
                 bosses::catch_up_boss.after(bosses::tell_boss_health),
                 choice::catch_up_choice.after(choice::tell_choice).after(catch_up_world),
@@ -600,7 +609,7 @@ pub fn add(app: &mut App) {
         )
         .add_systems(
             Update,
-            (hear_tags, hear_elites_killed, hear_taint, cosmetics::hear_capstones, cosmetics::hear_cues, cosmetics::hear_frosts, bosses::hear_boss_health, choice::hear_choice.run_if(resource_exists::<crate::run::gauntlet::RoundVariety>))
+            (hear_tags, hear_elites_killed, hear_taint, hear_dev, cosmetics::hear_capstones, cosmetics::hear_cues, cosmetics::hear_frosts, bosses::hear_boss_health, choice::hear_choice.run_if(resource_exists::<crate::run::gauntlet::RoundVariety>))
                 .after(release_events)
                 .run_if(resource_exists::<Prediction>)
                 .run_if(resource_exists::<NetIds>)
@@ -611,7 +620,7 @@ pub fn add(app: &mut App) {
             Update,
             (
                 forward_requests,
-                (forward_picks, forward_tools, choice::forward_votes.run_if(resource_exists::<crate::run::gauntlet::RoundVariety>)),
+                (forward_picks, forward_tools, forward_cheats, choice::forward_votes.run_if(resource_exists::<crate::run::gauntlet::RoundVariety>)),
                 report_switches,
                 report_paused,
                 (run_shown_clocks, show_box_prices).run_if(in_state(Authority::Client)),
@@ -680,6 +689,7 @@ fn hear_requests(
     mut rerolls: MessageWriter<RerollOffer>,
     mut banishes: MessageWriter<BanishCard>,
     mut votes: MessageWriter<crate::run::gauntlet::VoteRound>,
+    mut cheats: MessageWriter<CheatRequest>,
 ) {
     for (peer, request) in std::mem::take(&mut mirror.requests) {
         let Some(&(_, seat)) = roster.0.iter().find(|(held, _)| *held == peer) else { continue };
@@ -724,6 +734,9 @@ fn hear_requests(
             }
             Request::VoteRound { option } => {
                 votes.write(crate::run::gauntlet::VoteRound { seat, option: usize::from(option) });
+            }
+            Request::Cheat(cheat) => {
+                cheats.write(CheatRequest { player, cheat });
             }
         }
     }
@@ -1145,6 +1158,14 @@ fn tell_taint(mut tell: Tell, mut mirror: ResMut<Mirror>, tainted: Option<Res<Ru
     }
 }
 
+/// Tells everyone who may use Cheats, whenever the Host's setting differs from what was told.
+fn tell_dev(mut tell: Tell, mut mirror: ResMut<Mirror>, access: Res<DevAccess>) {
+    if mirror.dev != access.0 {
+        mirror.dev = access.0;
+        tell.all(&WorldEvent::DevMode(access.0));
+    }
+}
+
 /// Brings a Player who has come back up to date on the live tags and the Elites killed.
 fn catch_up_tags(mut tell: Tell, mut returned: MessageReader<SeatReturned>, mirror: Res<Mirror>) {
     for &SeatReturned { seat } in returned.read() {
@@ -1160,6 +1181,7 @@ fn catch_up_tags(mut tell: Tell, mut returned: MessageReader<SeatReturned>, mirr
         if mirror.tainted {
             tell.to(peer, &WorldEvent::Tainted);
         }
+        tell.to(peer, &WorldEvent::DevMode(mirror.dev));
     }
 }
 
@@ -1551,6 +1573,14 @@ fn forward_requests(
             _ => continue,
         };
         wire.0.send(HOST, encode(&ToHost::Request(message)));
+    }
+}
+
+/// Sends the Host a Cheat the `LocalPlayer` asked for. The Host judges it.
+fn forward_cheats(mut requests: MessageReader<CheatRequest>, local: Query<Entity, With<LocalPlayer>>, mut wire: ResMut<Wire>) {
+    let Ok(local) = local.single() else { return };
+    for request in requests.read().filter(|request| request.player == local) {
+        wire.0.send(HOST, encode(&ToHost::Request(Request::Cheat(request.cheat))));
     }
 }
 
@@ -2157,6 +2187,17 @@ fn hear_taint(mut heard: MessageReader<Heard>, tainted: Option<ResMut<RunTainted
     }
 }
 
+/// Who may use Cheats, by the Host's word.
+fn hear_dev(mut heard: MessageReader<Heard>, mut access: ResMut<DevAccess>) {
+    for Heard(event) in heard.read() {
+        if let WorldEvent::DevMode(dev) = event
+            && access.0 != *dev
+        {
+            access.0 = *dev;
+        }
+    }
+}
+
 /// Each teammate's Points, by the Host's word. The `LocalPlayer`'s own come in `Own`.
 fn hear_points(mut heard: MessageReader<Heard>, mut players: Query<(&PlayerSeat, &mut Points), (With<Player>, Without<LocalPlayer>)>) {
     for Heard(event) in heard.read() {
@@ -2377,6 +2418,8 @@ fn show_box_prices(active: Res<ActivePowerUps>, mut boxes: Query<&mut MysteryBox
     }
 }
 
+#[cfg(test)]
+mod dev_tests;
 #[cfg(test)]
 mod downs;
 #[cfg(test)]

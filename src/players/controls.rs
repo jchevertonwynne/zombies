@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::storage::settings::Settings;
 use crate::players::player::LocalPlayer;
-use crate::state::{Choosing, Pause};
+use crate::state::{Choosing, PanelOpen, Pause};
 
 /// Something the Player does with a key or mouse button.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -353,7 +353,7 @@ pub struct Controls<'w, 's> {
     settings: Res<'w, Settings>,
     keys: Res<'w, ButtonInput<KeyCode>>,
     mouse: Res<'w, ButtonInput<MouseButton>>,
-    choosing: Query<'w, 's, (), (With<LocalPlayer>, With<Choosing>)>,
+    choosing: Query<'w, 's, (), (With<LocalPlayer>, Or<(With<Choosing>, With<PanelOpen>)>)>,
 }
 
 impl Controls<'_, '_> {

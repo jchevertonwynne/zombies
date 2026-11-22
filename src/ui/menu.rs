@@ -736,7 +736,12 @@ fn play_again_key(input: Res<ButtonInput<KeyCode>>, mut next: ResMut<NextState<G
     }
 }
 
-fn spawn_pause_menu(mut commands: Commands, run_type: Res<RunType>) {
+fn spawn_pause_menu(
+    mut commands: Commands,
+    run_type: Res<RunType>,
+    authority: Res<State<Authority>>,
+    access: Res<crate::run::dev::DevAccess>,
+) {
     let menu = screen(&mut commands, DIM_BACKGROUND, |menu| {
         menu.spawn((
             text("PAUSED", 64.0, Color::WHITE),
@@ -747,6 +752,10 @@ fn spawn_pause_menu(mut commands: Commands, run_type: Res<RunType>) {
         ));
         button(menu, "Resume", MenuButton::Resume, 320.0);
         button(menu, "Settings", MenuButton::Settings, 320.0);
+        // The Host's choice of who may use Cheats, for the rest of the Co-op Run.
+        if run_type.is_coop() && *authority.get() == Authority::Host {
+            crate::ui::cheat_panel::dev_mode_button(menu, access.0);
+        }
         if run_type.is_coop() {
             button(menu, "Leave Run", MenuButton::LeaveRun, 320.0);
         } else {

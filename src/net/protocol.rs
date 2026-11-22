@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use super::hits::{Burst, Hit, Launched, Throw};
 use super::world::{Request, WorldEvent};
 use crate::maps::map::MapId;
+use crate::run::dev::DevMode;
 use crate::run::mode::Mode;
 use crate::tuning::{PLAYER_NAME_MAX_CHARS, ROOM_SEATS};
 
@@ -25,7 +26,7 @@ pub type Seat = u8;
 
 /// What version of the wire format this game speaks. The Host refuses a Player on
 /// another, and it is raised whenever the format changes (along with the ALPN).
-pub const PROTOCOL: u32 = 11;
+pub const PROTOCOL: u32 = 12;
 /// The most a datagram may be, in bytes: what the real link is tried with, and under
 /// what it carries. One bigger is not sent at all.
 pub const DATAGRAM: usize = 1000;
@@ -103,6 +104,8 @@ pub struct RoomView {
     /// The Host's Degrees, one per Condition in `Condition::ALL` order. Every machine's Run
     /// takes these, not its own save's.
     pub heat: [u8; 8],
+    /// Who may use Cheats in the Run.
+    pub dev: DevMode,
     /// Whether the Room has a password.
     pub locked: bool,
     /// Who sits in each Seat, the Host's first.

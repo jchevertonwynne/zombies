@@ -7,7 +7,7 @@ We chose this over lockstep or a dedicated server because co-op is 2–4 friends
 ## Transport
 
 - `link.rs`, `transport.rs`, the postcard codec and the test `Hub` are **copied** from [blockracers](https://github.com/jchevertonwynne/blockracers) `src/net/` into `src/net/`, not shared as a crate. The two repos are on different Bevy versions, and the code is about 800 lines that rarely change.
-- iroh, dialled by `EndpointId`, with one reliable stream per Player and QUIC datagrams for the rest. The ALPN is `zombies/2`, raised whenever the wire format breaks. `Hello` carries the protocol version, and the host refuses a mismatch with a reason.
+- iroh, dialled by `EndpointId`, with one reliable stream per Player and QUIC datagrams for the rest. The ALPN is `zombies/3`, raised whenever the wire format breaks. `Hello` carries the protocol version, and the host refuses a mismatch with a reason.
 - **Solo has no network path.** Today's game is the host's simulation, and Co-op adds a net plugin to it. Solo adds nothing: no plugin and no loopback.
 
 ## Ticks and datagrams

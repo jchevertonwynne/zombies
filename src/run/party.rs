@@ -14,6 +14,7 @@ use crate::ui::coop::{CoopSession, Notice, armory_of};
 use crate::run::gauntlet::progress::GauntletFile;
 use crate::run::leave_run::PlayerLeft;
 use crate::maps::map::MapId;
+use crate::run::dev::DevMode;
 use crate::run::mode::Mode;
 use crate::net::link::Link;
 use crate::net::away::{AwayPlugin, Rejoin};
@@ -47,6 +48,8 @@ pub struct Party {
     map: MapId,
     /// The Host's Degrees, which every machine's Run takes in place of its own save's.
     heat: [u8; 8],
+    /// Who may use Cheats: the Room's setting when the Run began, and as the Host has set it since.
+    dev: DevMode,
     stage: Stage,
     /// The Host's Room, kept for the party's return.
     room: Option<Room>,
@@ -74,13 +77,26 @@ impl Party {
         self.heat
     }
 
+    /// Who may use Cheats.
+    pub fn dev(&self) -> DevMode {
+        self.dev
+    }
+
+    /// The Host sets who may use Cheats during the Run: the Room it comes back to keeps it.
+    pub fn set_dev(&mut self, dev: DevMode) {
+        self.dev = dev;
+        if let Some(room) = self.room.as_mut() {
+            room.set_dev(dev);
+        }
+    }
+
     /// This machine's Player wants back in the Room.
     pub fn back_to_room(&mut self) {
         self.back = true;
     }
 
-    fn new(seats: Vec<(Seat, String)>, local: Seat, mode: Mode, map: MapId, heat: [u8; 8], room: Option<Room>) -> Self {
-        Party { seats, local, mode, map, heat, stage: Stage::Gathering, room, back: false, over: false, parted: false }
+    fn new(seats: Vec<(Seat, String)>, local: Seat, mode: Mode, map: MapId, heat: [u8; 8], dev: DevMode, room: Option<Room>) -> Self {
+        Party { seats, local, mode, map, heat, dev, stage: Stage::Gathering, room, back: false, over: false, parted: false }
     }
 
 }
@@ -105,7 +121,7 @@ pub fn start_hosted(
         .map(|(seat, name)| (Seat(seat), name))
         .collect();
     let room_tokens = room.tokens();
-    world.insert_resource(Party::new(seats, Seat(0), room.mode(), room.map(), room.degrees(), Some(room)));
+    world.insert_resource(Party::new(seats, Seat(0), room.mode(), room.map(), room.degrees(), room.dev(), Some(room)));
     play::begin_host(world, link, roster);
     world.insert_resource(Held { tokens: room_tokens, away: Vec::new() });
     Ok(())
@@ -119,7 +135,7 @@ pub fn start_joined(world: &mut World, joining: Joining<Box<dyn Link>>, seat: u8
         .enumerate()
         .filter_map(|(at, held)| Some((Seat(at as u8), held.as_ref()?.name.clone())))
         .collect();
-    world.insert_resource(Party::new(seats, Seat(seat), view.mode, view.map, view.heat, None));
+    world.insert_resource(Party::new(seats, Seat(seat), view.mode, view.map, view.heat, view.dev, None));
     let (token, hello) = joining.rejoin();
     play::begin_client(world, joining.into_link(), Rejoin::new(token, hello));
 }

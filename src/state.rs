@@ -81,6 +81,11 @@ pub struct Paused;
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct Choosing;
 
+/// The `LocalPlayer` has the Cheat Panel open. Like the Pause menu it stops their input, but the
+/// world runs on (solo too) and nothing is told to the network: it is this machine's alone.
+#[derive(Component, Debug, Clone, Copy, Default)]
+pub struct PanelOpen;
+
 /// Everything spawned for a Run. Despawned when leaving Game Over or returning to the Main Menu,
 /// so the next Run starts clean.
 #[derive(Component, Default)]
@@ -117,7 +122,7 @@ fn runs(pause: Pause, coop: bool) -> bool {
 
 /// Whether this machine's own Player takes input: only while nothing is open over the Run. In
 /// Co-op that is what Pause and an open Offer stop; the world keeps running (see [`world_runs`]).
-pub fn input_runs(pause: Option<Res<State<Pause>>>, choosing: Query<(), (With<LocalPlayer>, With<Choosing>)>) -> bool {
+pub fn input_runs(pause: Option<Res<State<Pause>>>, choosing: Query<(), (With<LocalPlayer>, Or<(With<Choosing>, With<PanelOpen>)>)>) -> bool {
     pause.is_some_and(|pause| *pause.get() == Pause::Running) && choosing.is_empty()
 }
 
