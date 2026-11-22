@@ -295,18 +295,21 @@ const RAISED_FLOORS: [RaisedFloor; 8] = [SHELF, SEAWARD, GUNS, LIGHT_LANDING, GA
 /// How high the sea wall's parapet is between its windows: too high to jump onto.
 const PARAPET: f32 = 1.6;
 
-/// The surface of the surf and the sea, over the beach at y 0.
-const SURF: f32 = SHORE + 0.5;
-/// The sea's bed, 2.5 m under the beach: 3 m of water.
-const SEA_BED: f32 = SHORE - 2.5;
+/// How deep the water over a floor is: a film of ankle-deep surf, so the water never stands up out
+/// of the ground beside it (a pool's bed is the floor built there, and every fixture stands on it).
+pub(super) const FILM: f32 = 0.1;
+/// The surface of the surf and the sea, a `FILM` over the beach at y 0.
+const SURF: f32 = SHORE + FILM;
+/// The sea's bed, 2.9 m under the beach: 3 m of water.
+const SEA_BED: f32 = SHORE - 2.9;
 
 /// The sea bed, a rimless Sunken floor in each Shore Zone along the south edge, out past the sea
 /// wall to the plan's edge.
 const SEA_BEDS: [Sunken; 4] = [
-    Sunken { zone: ZoneId::SeaCave, min: v(-56.0, -24.0), max: v(-44.0, -14.0), depth: 2.5, rim: false },
-    Sunken { zone: ZoneId::Shingle, min: v(-44.0, -24.0), max: v(-22.0, -14.0), depth: 2.5, rim: false },
-    Sunken { zone: ZoneId::Strand, min: v(-22.0, -24.0), max: v(20.0, -14.0), depth: 2.5, rim: false },
-    Sunken { zone: ZoneId::Boathouse, min: v(20.0, -24.0), max: v(34.0, -14.0), depth: 2.5, rim: false },
+    Sunken { zone: ZoneId::SeaCave, min: v(-56.0, -24.0), max: v(-44.0, -14.0), depth: 2.9, rim: false },
+    Sunken { zone: ZoneId::Shingle, min: v(-44.0, -24.0), max: v(-22.0, -14.0), depth: 2.9, rim: false },
+    Sunken { zone: ZoneId::Strand, min: v(-22.0, -24.0), max: v(20.0, -14.0), depth: 2.9, rim: false },
+    Sunken { zone: ZoneId::Boathouse, min: v(20.0, -24.0), max: v(34.0, -14.0), depth: 2.9, rim: false },
 ];
 
 /// Every sunken floor: the stairwells and the sea bed.
@@ -324,7 +327,7 @@ const fn sea(zone: ZoneId, x0: f32, z0: f32, x1: f32, z1: f32) -> Pool {
     pool(zone, v(x0, z0), v(x1, z1), SURF, SEA_BED)
 }
 
-/// A pool of shallow water over the beach: 0.5 m deep.
+/// A pool of shallow water over the beach: a `FILM` deep.
 const fn shallow(zone: ZoneId, x0: f32, z0: f32, x1: f32, z1: f32) -> Pool {
     pool(zone, v(x0, z0), v(x1, z1), SURF, SHORE)
 }
@@ -344,8 +347,8 @@ const POOLS: [Pool; 22] = {
         shallow(SeaCave, -56.0, -11.0, -53.5, -1.0),
         shallow(SeaCave, -47.0, -11.0, -44.0, -1.0),
         shallow(SeaCave, -53.5, -1.8, -47.0, 0.0),
-        pool(Boathouse, v(22.5, -14.0), v(33.5, -8.0), SHORE + 0.4, SHORE),
-        pool(Washhouse, v(-53.5, 11.0), v(-46.5, 19.0), LOWER + 0.6, LOWER),
+        pool(Boathouse, v(22.5, -14.0), v(33.5, -8.0), SHORE + FILM, SHORE),
+        pool(Washhouse, v(-53.5, 11.0), v(-46.5, 19.0), LOWER + FILM, LOWER),
         // The sea: the far band, then the gaps between the window pockets.
         sea(SeaCave, -56.0, -24.0, -44.0, -18.0),
         sea(Shingle, -44.0, -24.0, -22.0, -18.0),
