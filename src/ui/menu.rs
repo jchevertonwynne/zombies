@@ -348,6 +348,13 @@ fn spawn_main_menu(mut commands: Commands) {
         button(menu, "Records", MenuButton::Records, 280.0);
         button(menu, "Settings", MenuButton::Settings, 280.0);
         button(menu, "Quit", MenuButton::Quit, 280.0);
+        menu.spawn((
+            text(format!("Build {}", crate::net::protocol::BUILD), 20.0, HINT_GREY),
+            Node {
+                margin: UiRect::top(px(24.0)),
+                ..default()
+            },
+        ));
     });
     commands
         .entity(menu)

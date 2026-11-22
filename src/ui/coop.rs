@@ -764,7 +764,7 @@ pub(crate) fn pump_session(
             }
             let (message, back, keep_target) = match &joining.state {
                 Joined::Refused(why) => (
-                    why.reason().to_string(),
+                    why.reason(),
                     MainMenuScreen::Join,
                     *why == Refusal::WrongPassword,
                 ),

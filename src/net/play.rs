@@ -19,7 +19,7 @@ use bevy_transform_interpolation::{TransformEasingSystems, TranslationEasingStat
 use super::away::{self, Rejoin};
 use super::hits::{self, Hits};
 use super::link::{Event, Link};
-use super::protocol::{HOST, PROTOCOL, Peer, Refusal, Score, Seat, ToHost, ToPlayer, decode, encode, token};
+use super::protocol::{BUILD, HOST, PROTOCOL, Peer, Refusal, Score, Seat, ToHost, ToPlayer, decode, encode, token};
 use super::remote::{Next, Remote};
 use super::world::{self, Mirror, NetIds};
 use super::state::{
@@ -104,7 +104,7 @@ pub struct Puppet;
 pub struct Scoreboard(pub Vec<Score>);
 
 /// What the Host said over the reliable stream that the Run reacts to, as a client hears it.
-#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Message, Debug, Clone, PartialEq, Eq)]
 pub enum HostSaid {
     /// The Host will not take this Player back into their Seat.
     Refused(Refusal),
@@ -307,8 +307,8 @@ fn pump_host(
                     (Ok(ToHost::Request(request)), Some(_)) => mirror.hear_player(peer, request),
                     // A Player coming back by the token the Host gave takes their Seat again. The
                     // Room has no Seat for anyone else who comes after the Run has begun.
-                    (Ok(ToHost::Hello { version, back, .. }), None) => match held.seat_of(back) {
-                        Some(seat) if version == PROTOCOL => {
+                    (Ok(ToHost::Hello { version, build, back, .. }), None) => match held.seat_of(back) {
+                        Some(seat) if version == PROTOCOL && build == BUILD => {
                             // Their old link may not have been found broken yet.
                             if let Some(at) = roster.0.iter().position(|&(_, taken)| taken == seat) {
                                 let (old, _) = roster.0.remove(at);
@@ -322,7 +322,13 @@ fn pump_host(
                             returned.write(SeatReturned { seat: PlayerSeat(seat) });
                         }
                         _ => {
-                            let why = if back.is_some() && version == PROTOCOL { Refusal::NoSeat } else { Refusal::Started };
+                            let why = if build != BUILD {
+                                Refusal::Build(BUILD.into())
+                            } else if back.is_some() && version == PROTOCOL {
+                                Refusal::NoSeat
+                            } else {
+                                Refusal::Started
+                            };
                             wire.0.send(peer, encode(&ToPlayer::Refused(why)));
                             wire.0.close(peer);
                         }
