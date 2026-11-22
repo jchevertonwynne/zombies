@@ -304,8 +304,8 @@ pub struct MoveInput {
     pub crouch: bool,
     /// The Player wants the Prone Stance.
     pub prone: bool,
-    /// The Player flies: no gravity and no collision with the Map. Jump goes up, Crouch down and
-    /// Sprint faster. It is the step's own flag, with a meaning outside any layer; the Host ignores
+    /// The Player flies: no gravity and no collision with the Map. Forward and back follow the look
+    /// (pitch too), Jump goes up, Crouch down and Sprint faster. It is the step's own flag, with a meaning outside any layer; the Host ignores
     /// it for a Player who may not (see `net::play::drive_remotes`).
     pub noclip: bool,
     /// Which way the Player faces, in radians about +Y (0 faces -Z).
@@ -993,11 +993,13 @@ pub(crate) fn move_player(
 }
 
 /// One tick of flight: the body goes where the wish and Jump or Crouch say at a steady pace, through
-/// walls, with no gravity and no stance change. Whatever else the body was doing is over.
+/// walls, with no gravity and no stance change. Forward and back follow the look, pitch included. Whatever else the body was doing is over.
 fn fly(position: &mut Vec3, locomotion: &mut Locomotion, input: &MoveInput, rotation: Quat, dt: f32) {
     let wish = input.axes.normalize_or_zero();
     let up = f32::from(input.jump) - f32::from(input.crouch || input.prone);
-    let direction = rotation * Vec3::new(wish.x, 0.0, -wish.y) + Vec3::Y * up;
+    // Forward and back follow the look, so looking up while moving forward climbs; strafing stays level.
+    let (sin, cos) = input.pitch.sin_cos();
+    let direction = rotation * Vec3::new(wish.x, wish.y * sin, -wish.y * cos) + Vec3::Y * up;
     let speed = NOCLIP_SPEED * if input.sprint { NOCLIP_SPRINT_MULT } else { 1.0 };
     locomotion.velocity = direction.clamp_length_max(1.0) * speed;
     *position += locomotion.velocity * dt;
@@ -1495,6 +1497,34 @@ mod tests {
             max,
             since_hit: 0.0,
         }
+    }
+
+    fn flown(input: MoveInput) -> Vec3 {
+        let mut position = Vec3::ZERO;
+        fly(&mut position, &mut Locomotion::default(), &input, Quat::from_rotation_y(input.yaw), 1.0);
+        position
+    }
+
+    #[test]
+    fn noclip_forward_follows_the_look_up_and_down() {
+        let forward = MoveInput { axes: Vec2::Y, noclip: true, ..default() };
+        let level = flown(forward);
+        assert!(level.y.abs() < 1e-4 && level.z < -7.9, "{level}");
+        let up = flown(MoveInput { pitch: 0.5, ..forward });
+        assert!(up.y > 3.0 && up.z < 0.0, "{up}");
+        let down = flown(MoveInput { pitch: -0.5, ..forward });
+        assert!((down.y + up.y).abs() < 1e-4, "{down}");
+        let back = flown(MoveInput { axes: -Vec2::Y, pitch: 0.5, ..forward });
+        assert!(back.y < -3.0, "back goes the other way: {back}");
+        assert!((up.length() - NOCLIP_SPEED).abs() < 1e-3, "the pace is the same looking any way");
+    }
+
+    #[test]
+    fn noclip_strafing_stays_level_and_the_vertical_keys_still_work() {
+        let side = flown(MoveInput { axes: Vec2::X, pitch: 0.8, noclip: true, ..default() });
+        assert!(side.y.abs() < 1e-4 && side.x > 7.9, "{side}");
+        let rise = flown(MoveInput { jump: true, pitch: 0.8, noclip: true, ..default() });
+        assert!(rise.y > 7.9 && rise.x.abs() < 1e-4, "{rise}");
     }
 
     #[test]
