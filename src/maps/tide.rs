@@ -302,6 +302,7 @@ fn washed_up_feedback(
     mut overlays: Option<ResMut<crate::ui::hud::overlay::Overlays>>,
     mut cues: MessageWriter<PlayCue>,
     time: Res<Time>,
+    map: Option<Res<MapId>>,
 ) {
     if tide.phase != last.1 {
         last.1 = tide.phase;
@@ -310,8 +311,14 @@ fn washed_up_feedback(
     last.2 = (last.2 - time.delta_secs()).max(0.0);
     let Ok(transform) = player.single() else { return };
     let now = transform.translation;
+    // A Player who stood in Deep Water a frame ago and has been moved was Washed Up out of it by
+    // hand, with no Turn to blame.
+    let was_in_deep = |was: Vec3| {
+        let feet = was - Vec3::Y * (PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0);
+        map.as_ref().is_some_and(|map| crate::maps::water::water_at(map.layout(), tide.level(), feet) == Some(crate::maps::water::Wading::Deep))
+    };
     if let Some(was) = last.0
-        && last.2 > 0.0
+        && (last.2 > 0.0 || was_in_deep(was))
         && was.distance(now) > WASHED_UP_MIN_MOVE
     {
         last.2 = 0.0;
@@ -704,6 +711,63 @@ mod tests {
             assert!(feet.distance(channel) > 1.0, "not moved from {channel}");
             assert_eq!(world.get::<Health>(player).unwrap().current, health, "no damage");
             assert_eq!(world.get::<LastStand>(player).is_some(), down, "Last Stand untouched");
+        }
+    }
+
+    /// A Player who ends up in Deep Water by hand (the Tide already at Mid, no landing) is Washed
+    /// Up to dry ground at once: no Down, no damage, a Last Stand kept.
+    #[test]
+    fn a_player_in_deep_water_is_washed_up_not_downed() {
+        use crate::players::last_stand::LastStand;
+        use crate::players::out_of_bounds::OutOfBoundsPlugin;
+        use crate::players::player::{Health, Player};
+        for down in [false, true] {
+            let mut sim = Sim::on(MapId::Polder, 60.0, |app| {
+                app.add_plugins((TidePlugin, OutOfBoundsPlugin))
+                    .insert_resource(Round::in_progress(1))
+                    .insert_resource(crate::maps::zone::ActiveZones(ZoneId::ALL.into_iter().collect()));
+            });
+            let layout = MapId::Polder.layout();
+            let half = crate::tuning::PLAYER_RADIUS + crate::tuning::PLAYER_CAPSULE_LENGTH / 2.0;
+            let channel = Vec3::new(-47.0, -2.2, -6.0);
+            sim.world_mut().insert_resource(Tide { phase: TidePhase::Rising, turn: TurnState::Still });
+            let player = {
+                let world = sim.world_mut();
+                let player = world.query_filtered::<Entity, With<Player>>().single(world).unwrap();
+                world.entity_mut(player).insert(Health { current: 100.0, max: 100.0, since_hit: 0.0 });
+                if down {
+                    world.entity_mut(player).insert(LastStand::shown(30.0, false));
+                }
+                world.get_mut::<Transform>(player).unwrap().translation = channel + Vec3::Y * half;
+                player
+            };
+            sim.run(3);
+            let world = sim.world_mut();
+            let feet = world.get::<Transform>(player).unwrap().translation - Vec3::Y * half;
+            assert!(!layout.out_of_bounds(TideLevel::Mid, feet), "left at {feet}");
+            assert!(feet.distance(channel) > 1.0, "not moved from {channel}");
+            assert_eq!(world.get::<Health>(player).unwrap().current, 100.0, "no Down, no damage");
+            assert_eq!(world.get::<LastStand>(player).is_some(), down, "Last Stand untouched");
+        }
+    }
+
+    /// Where a Player Out of Bounds is put back, and so where a Quick Revive stands them up, is
+    /// never Deep Water at any Tide level, wherever they last stood.
+    #[test]
+    fn the_put_back_node_is_never_deep_at_any_tide_level() {
+        use crate::players::out_of_bounds::put_back_node;
+        let layout = MapId::Polder.layout();
+        let graph = NavGraph::new(MapId::Polder);
+        let mut froms: Vec<Vec3> = layout.wading.iter().map(|&(_, feet)| feet).collect();
+        froms.push(Vec3::new(-47.0, -2.2, -6.0));
+        for &pool in layout.water {
+            froms.push(Vec3::new((pool.min.x + pool.max.x) / 2.0, pool.bed, (pool.min.y + pool.max.y) / 2.0));
+        }
+        for from in froms {
+            let to = put_back_node(&graph, layout, from);
+            for level in TideLevel::ALL {
+                assert_ne!(water_at(layout, level, to), Some(Wading::Deep), "from {from} to {to} at {level:?}");
+            }
         }
     }
 

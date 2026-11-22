@@ -325,6 +325,37 @@ fn foam(layout: &Layout, tide: TideLevel, of: Option<CanalId>) -> Vec<Rect> {
             }
         }
     }
+    strips.extend(bank_foam(layout, tide, &wanted));
+    strips
+}
+
+/// The foam along the sides of each Deep pool `wanted` picks that meet dry ground, a strip as wide
+/// as `WATER_FOAM_WIDTH` inside the pool: the line that says "Deep from here" before a Player
+/// reaches it. Not along a side that runs into other water (Deep, or Shallow, which has its own
+/// foam), or the plan's edge (the open sea to the horizon).
+fn bank_foam(layout: &Layout, tide: TideLevel, wanted: &dyn Fn(&Pool) -> bool) -> Vec<Rect> {
+    let canals = layout.canals;
+    let (plan_min, plan_max) = layout.plan;
+    let mut strips = Vec::new();
+    for pool in layout.water.iter().filter(|pool| wanted(pool) && pool.kind(canals, tide) == Some(Wading::Deep)) {
+        let y = pool.surface(canals, tide) + FOAM_LIFT;
+        let width = WATER_FOAM_WIDTH;
+        let (min, max) = (pool.min, pool.max);
+        let mid = (min + max) / 2.0;
+        // (strip, a point just outside that side, whether the side is the plan's edge)
+        let sides = [
+            ((min, Vec2::new(max.x, min.y + width)), Vec2::new(mid.x, min.y - 0.1), min.y <= plan_min.y + 0.01),
+            ((Vec2::new(min.x, max.y - width), max), Vec2::new(mid.x, max.y + 0.1), max.y >= plan_max.y - 0.01),
+            ((min, Vec2::new(min.x + width, max.y)), Vec2::new(min.x - 0.1, mid.y), min.x <= plan_min.x + 0.01),
+            ((Vec2::new(max.x - width, min.y), max), Vec2::new(max.x + 0.1, mid.y), max.x >= plan_max.x - 0.01),
+        ];
+        for ((from, to), beyond, plan_edge) in sides {
+            if plan_edge || layout.water.iter().any(|other| other != pool && other.covers(beyond) && other.kind(canals, tide).is_some()) {
+                continue;
+            }
+            strips.push((from, to, y));
+        }
+    }
     strips
 }
 

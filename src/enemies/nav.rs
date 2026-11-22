@@ -224,8 +224,18 @@ impl NavGraph {
 
     /// The node nearest `feet` that's inside a Zone, as `nearest` ranks them: never a Vent or a
     /// node outside a window. Where a Player Out of Bounds is put back, so a teammate can reach them.
+    #[cfg(test)]
     pub fn nearest_in_zone(&self, feet: Vec3) -> usize {
-        self.ranked(feet).find(|&i| self.nodes[i].zone.is_some()).expect("the graph has nodes in Zones")
+        self.nearest_in_zone_where(feet, |_| true)
+    }
+
+    /// `nearest_in_zone`, but only among nodes `fit` accepts (a put-back that mustn't be in Deep
+    /// Water at any Tide level). Falls back to the plain nearest if none is fit.
+    pub fn nearest_in_zone_where(&self, feet: Vec3, fit: impl Fn(&Node) -> bool) -> usize {
+        self.ranked(feet)
+            .find(|&i| self.nodes[i].zone.is_some() && fit(&self.nodes[i]))
+            .or_else(|| self.ranked(feet).find(|&i| self.nodes[i].zone.is_some()))
+            .expect("the graph has nodes in Zones")
     }
 
     /// The nearest of the closest few nodes to `feet`, as `nearest` ranks them, that `reachable`

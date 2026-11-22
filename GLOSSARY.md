@@ -181,13 +181,13 @@ _Avoid_: pillar (a Prop), wall chunk, blocker
 
 **Ledge**: An edge where one floor stops above another, too high to step up: the side of a Raised Floor or a sunken floor, the Balcony's drop, or the edge of a Terrace, one of the Incline's landings or the Headframe's deck. Zombies only ever drop off a Ledge; the Player can also scramble back up a low one.
 
-**Out of Bounds**: Anywhere outside the Map's playable space: past the edge of its plan, in Deep Water, or fallen well below its lowest floor. A Player Out of Bounds goes Down and is put back where a teammate can reach them. A Zombie Out of Bounds goes back into the Horde, and a special is moved to a fresh spawn point.
+**Out of Bounds**: Anywhere outside the Map's playable space: past the edge of its plan, in Deep Water, or fallen well below its lowest floor. A Player past the plan or below the floor goes Down and is put back where a teammate can reach them. A Player in Deep Water is only Washed Up. A Zombie Out of Bounds goes back into the Horde, and a special is moved to a fresh spawn point.
 _Avoid_: OOB, the void, kill plane
 
 **Shallow Water**: Water that isn't moving, less than about waist deep, such as the Cove's surf. Players and Zombies wade through it more slowly, and a Player can't go Prone in it.
 _Avoid_: puddle, wading water
 
-**Deep Water**: Water that isn't moving, at least waist deep, such as the sea off the Cove's beach. On the Polder, the Tide decides which water is Deep. It stops Players and Zombies like a wall, and anything that ends up in it anyway is Out of Bounds. Nobody swims and nobody drowns.
+**Deep Water**: Water that isn't moving, at least waist deep, such as the sea off the Cove's beach. On the Polder, the Tide decides which water is Deep. It stops Players and Zombies like a wall, and anything that ends up in it anyway is Out of Bounds (a Player is Washed Up from it, never Downed). Its banks are lined with foam so it reads before you reach it. Nobody swims and nobody drowns.
 _Avoid_: the sea (for the general term), swimming water
 
 **Tide**: The water level of a Map's Canals, which turns one phase each Intermission, through Low, Rising, High and Falling and back to Low. A Run always starts at Low. Only the Polder has one.
@@ -205,7 +205,7 @@ _Avoid_: water level, flood
 
 **Ford**: A stretch of a Canal with a berm along each wall and a channel between, where the water is shallow enough to wade at some phases of the Tide.
 
-**Washed Up**: Moved by the Tide to the nearest ground a Player can stand on, with no harm and no Down: a Player in water that turns Deep when the Tide lands, or on a Lock Gate's top or in its sweep as it starts to Swing (to the nearer landing of the Rest they were on).
+**Washed Up**: Moved by the Tide to the nearest ground a Player can stand on, with no harm and no Down: a Player in Deep Water, whether the Tide just turned it Deep or they ended up in it any other way, or on a Lock Gate's top or in its sweep as it starts to Swing (to the nearer landing of the Rest they were on).
 
 **Run**: One game, from Round 1 until Game Over or quitting.
 _Avoid_: game, match
