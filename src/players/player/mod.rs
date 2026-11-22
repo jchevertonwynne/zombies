@@ -304,11 +304,20 @@ pub struct MoveInput {
     pub crouch: bool,
     /// The Player wants the Prone Stance.
     pub prone: bool,
+    /// The Player flies: no gravity and no collision with the Map. Jump goes up, Crouch down and
+    /// Sprint faster. It is the step's own flag, with a meaning outside any layer; the Host ignores
+    /// it for a Player who may not (see `net::play::drive_remotes`).
+    pub noclip: bool,
     /// Which way the Player faces, in radians about +Y (0 faces -Z).
     pub yaw: f32,
     /// How far the Player looks up (positive) or down, in radians.
     pub pitch: f32,
 }
+
+/// The Player has flight on: their `MoveInput` asks for noclip. Whoever turns it on (Developer mode
+/// does) inserts it on the `LocalPlayer`; the Host honours the step's bit only where it allows.
+#[derive(Component, Debug, Clone, Copy, Default)]
+pub struct Noclip;
 
 #[derive(Component, Clone)]
 pub struct Locomotion {
@@ -350,9 +359,20 @@ pub struct Locomotion {
     /// reads Standing all the while; the step lays the body down when a Down starts and rises it
     /// when the Down ends.
     pub(crate) down: bool,
+    /// Flying: the last step was a noclip one (see `MoveInput::noclip`).
+    pub(crate) flying: bool,
+    /// The step that ended a flight has run and nothing has put the body back on the Map since:
+    /// `catch_out_of_bounds` clears it, and moves the Player to their last legal spot, with no
+    /// Down, if they came down Out of Bounds.
+    pub(crate) left_flight: bool,
 }
 
 impl Locomotion {
+    /// Whether the body is flying through the Map (a noclip step).
+    pub fn flying(&self) -> bool {
+        self.flying
+    }
+
     pub fn grounded(&self) -> bool {
         self.grounded
     }
@@ -505,6 +525,8 @@ impl Default for Locomotion {
             diving: false,
             since_dive_landing: f32::INFINITY,
             down: false,
+            flying: false,
+            left_flight: false,
         }
     }
 }
@@ -905,11 +927,11 @@ fn teleport_player(
 pub(crate) fn fill_move_input(
     controls: Controls,
     settings: Res<Settings>,
-    player: Single<(&Transform, &mut MoveInput, &mut StanceKeys, &Locomotion, Has<LastStand>), With<LocalPlayer>>,
+    player: Single<(&Transform, &mut MoveInput, &mut StanceKeys, &Locomotion, Has<LastStand>, Has<Noclip>), With<LocalPlayer>>,
     camera: Single<&Transform, (With<PlayerCamera>, Without<LocalPlayer>)>,
     zipline: Option<Res<ZiplineFocus>>,
 ) {
-    let (transform, mut input, mut keys, locomotion, last_stand) = player.into_inner();
+    let (transform, mut input, mut keys, locomotion, last_stand, noclip) = player.into_inner();
     let forward = controls.pressed(Action::Forward) as i8 - controls.pressed(Action::Back) as i8;
     let right = controls.pressed(Action::Right) as i8 - controls.pressed(Action::Left) as i8;
     let jump = keys.resolve(
@@ -931,6 +953,7 @@ pub(crate) fn fill_move_input(
         aim: controls.pressed(Action::Aim),
         crouch: keys.target == Stance::Crouched,
         prone: keys.target == Stance::Prone,
+        noclip,
         yaw,
         pitch,
     };
@@ -986,6 +1009,23 @@ pub(crate) fn move_player(
     }
 }
 
+/// One tick of flight: the body goes where the wish and Jump or Crouch say at a steady pace, through
+/// walls, with no gravity and no stance change. Whatever else the body was doing is over.
+fn fly(position: &mut Vec3, locomotion: &mut Locomotion, input: &MoveInput, rotation: Quat, dt: f32) {
+    let wish = input.axes.normalize_or_zero();
+    let up = f32::from(input.jump) - f32::from(input.crouch || input.prone);
+    let direction = rotation * Vec3::new(wish.x, 0.0, -wish.y) + Vec3::Y * up;
+    let speed = NOCLIP_SPEED * if input.sprint { NOCLIP_SPRINT_MULT } else { 1.0 };
+    locomotion.velocity = direction.clamp_length_max(1.0) * speed;
+    *position += locomotion.velocity * dt;
+    locomotion.flying = true;
+    locomotion.grounded = false;
+    locomotion.sprinting = false;
+    locomotion.diving = false;
+    locomotion.thrown = false;
+    locomotion.riding = false;
+}
+
 /// One tick of a Player's movement: advances `position` and `Locomotion` by `delta` under
 /// `input`. It reads no keyboard and no clock, so given the same start, input and world it
 /// reaches the same place every time, which is what lets a client replay inputs through it.
@@ -1032,6 +1072,16 @@ pub fn step_move(
             *position = line.from + Vec3::Y * Stance::Standing.half_height();
             changed = Some(Stance::Standing);
         }
+    }
+    if input.noclip {
+        fly(position, locomotion, input, rotation, dt);
+        return changed;
+    }
+    if locomotion.flying {
+        // Down from a flight: nothing of its speed is carried, and the body is back on the Map.
+        locomotion.flying = false;
+        locomotion.left_flight = true;
+        locomotion.velocity = Vec3::ZERO;
     }
     if locomotion.riding {
         ride(position, locomotion, ziplines, dt);

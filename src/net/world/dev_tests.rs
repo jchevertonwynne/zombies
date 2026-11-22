@@ -6,6 +6,7 @@ use super::tests::Run;
 use super::*;
 use crate::economy::points::PointsPlugin;
 use crate::net::away::{Reach, Rejoin};
+use crate::players::player::Noclip;
 use crate::run::dev::{CHEAT_POINTS, Cheat, Cheats, DevPlugin, SetDevMode};
 use crate::storage::records::{RunTainted, TaintRun};
 
@@ -259,4 +260,63 @@ fn a_rejoiner_is_told_the_toggles_the_host_kept_for_their_seat() {
     let guest = run.player(0, 1);
     assert_eq!(Cheats::toggles(run.world(0).get::<Cheats>(guest)), 5, "kept by Seat");
     assert_eq!(toggles_of(&mut run, 1, 1), 5, "and told again");
+}
+
+fn noclip(run: &mut Run, on: usize) {
+    let player = run.player(on, on as u8);
+    run.world(on).write_message(CheatRequest { player, cheat: Cheat::Noclip });
+    run.step(20);
+}
+
+fn flying(run: &mut Run, on: usize) -> bool {
+    let player = run.player(on, on as u8);
+    run.world(on).get::<Noclip>(player).is_some()
+}
+
+#[test]
+fn a_noclip_request_flies_the_askers_own_player_and_taints_everyone() {
+    let mut run = run(2, DevMode::On);
+    assert!(!flying(&mut run, 1));
+    noclip(&mut run, 1);
+    assert!(flying(&mut run, 1), "predicted on the client at once");
+    assert!(!flying(&mut run, 2) && !flying(&mut run, 0), "it is the Player's own");
+    for on in 0..3 {
+        assert!(tainted(&mut run, on), "game {on}");
+    }
+    noclip(&mut run, 1);
+    assert!(!flying(&mut run, 1), "a second request lands them");
+}
+
+#[test]
+fn noclip_is_refused_where_the_setting_forbids_and_ends_when_it_does() {
+    for (dev, on) in [(DevMode::Off, 1), (DevMode::HostOnly, 1), (DevMode::Off, 0)] {
+        let mut run = run(1, dev);
+        noclip(&mut run, on);
+        assert!(!flying(&mut run, on), "{dev:?} game {on}");
+        assert!(!tainted(&mut run, on));
+    }
+    let mut run = run(1, DevMode::On);
+    noclip(&mut run, 1);
+    assert!(flying(&mut run, 1));
+    run.world(0).write_message(SetDevMode(DevMode::HostOnly));
+    run.step(20);
+    assert!(!flying(&mut run, 1), "the Host took flight away");
+}
+
+#[test]
+fn noclip_is_kept_by_seat_across_a_rejoin() {
+    let mut run = run(2, DevMode::On);
+    noclip(&mut run, 1);
+    assert!(flying(&mut run, 1));
+    // Their game is lost: the new one has neither flight nor toggles until the Host tells it.
+    let player = run.player(1, 1);
+    run.world(1).entity_mut(player).remove::<(Cheats, Noclip)>();
+    run.cut(1);
+    run.step(2);
+    run.world(0).write_message(SetDevMode(DevMode::On));
+    run.step(40);
+    run.world(0).write_message(RoundStarted);
+    run.step(30);
+    // The Rejoiner's game is new: told they were flying, they fly again.
+    assert!(flying(&mut run, 1), "the Rejoiner stopped flying");
 }

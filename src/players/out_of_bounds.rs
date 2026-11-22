@@ -58,10 +58,11 @@ pub fn note_footing(mut players: Query<(&Transform, Option<&Locomotion>, &mut Fo
 /// A Player Out of Bounds goes Down at once, whatever their Health, the same Down as from damage
 /// (`go_down` judges it next), and is moved to the in-Zone path node nearest where they last
 /// stood. One already in Last Stand, or Invincible, is only moved back. A rider waiting in the Teleporter's
-/// holding space is not Out of Bounds.
+/// holding space is not Out of Bounds. A flying Player (noclip) is never Down for it, and one who
+/// comes down from a flight Out of Bounds is only put back, with no Down.
 pub fn catch_out_of_bounds(
     mut players: Query<
-        (Entity, &Transform, Option<&Locomotion>, &Footing, &mut Health, Has<LastStand>, Has<Invincible>),
+        (Entity, &Transform, Option<&mut Locomotion>, &Footing, &mut Health, Has<LastStand>, Has<Invincible>),
         (With<Player>, Without<AwaitingRespawn>),
     >,
     map: Res<MapId>,
@@ -71,12 +72,16 @@ pub fn catch_out_of_bounds(
 ) {
     let layout = map.layout();
     let tide = tide.map_or_else(TideLevel::default, |tide| tide.level());
-    for (player, transform, locomotion, footing, mut health, last_stand, invincible) in &mut players {
-        let feet = feet_of(transform, locomotion);
+    for (player, transform, mut locomotion, footing, mut health, last_stand, invincible) in &mut players {
+        if locomotion.as_deref().is_some_and(Locomotion::flying) {
+            continue;
+        }
+        let landed = locomotion.as_deref_mut().is_some_and(|locomotion| std::mem::take(&mut locomotion.left_flight));
+        let feet = feet_of(transform, locomotion.as_deref());
         if !layout.out_of_bounds(tide, feet) || in_holding_space(feet) {
             continue;
         }
-        if !last_stand && !invincible {
+        if !last_stand && !invincible && !landed {
             health.current = 0.0;
             health.since_hit = 0.0;
         }
@@ -129,6 +134,10 @@ pub fn washed_up(
     let layout = map.layout();
     let Some(graph) = graph.filter(|graph| graph.map == *map) else { return };
     for (player, mut transform, locomotion) in &mut players {
+        // A flying Player (noclip) is nobody's to wash up.
+        if locomotion.is_some_and(Locomotion::flying) {
+            continue;
+        }
         let feet = feet_of(&transform, locomotion);
         let airborne = locomotion.is_some_and(|locomotion| !locomotion.grounded);
         let caught = if airborne { swamped(layout, level, feet) } else { water_at(layout, level, feet) == Some(Wading::Deep) };

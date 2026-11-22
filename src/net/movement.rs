@@ -867,3 +867,43 @@ fn a_turned_ally_shows_on_every_client_with_no_hit_areas() {
         assert_eq!(run.puppets(on).len(), 1, "machine {on}");
     }
 }
+
+/// Noclip rides the buffered Steps: the Host, which allows it, flies the Player up to exactly where
+/// their game has them, with no correction, and they come down together once the bit stops. A Host
+/// that does not allow it ignores the bit, and the Player never leaves the floor. Returns the Run,
+/// the highest the Host had the Player and the worst correction.
+fn flight(dev: crate::run::dev::DevMode) -> (Run, f32, f32) {
+    let mut run = Run::with(1, 3, 0.0, 0, &|app| {
+        app.insert_resource(crate::run::dev::DevAccess(dev));
+    });
+    let floor = run.at(0, 1).y;
+    let up = |seat: u8, tick: u32| match (seat, tick) {
+        (1, 30..90) => MoveInput { noclip: true, jump: true, ..default() },
+        _ => MoveInput::default(),
+    };
+    let (mut worst, mut highest) = (0.0f32, 0.0f32);
+    for _ in 0..250 {
+        run.step(&up, 1);
+        worst = worst.max(run.corrected(1));
+        highest = highest.max(run.at(0, 1).y - floor);
+    }
+    (run, highest, worst)
+}
+
+#[test]
+fn noclip_flies_the_same_on_both_without_correction() {
+    let (mut run, highest, worst) = flight(crate::run::dev::DevMode::On);
+    assert!(highest > 3.0, "the Host only had them {highest} m up");
+    assert!(worst < 0.05, "put right by {worst} m");
+    assert!(run.at(1, 1).distance(run.at(0, 1)) < 0.05);
+    assert!(!run.locomotion(0, 1).flying(), "the flight ends with the bit");
+}
+
+#[test]
+fn a_host_that_does_not_allow_noclip_ignores_the_bit() {
+    for dev in [crate::run::dev::DevMode::Off, crate::run::dev::DevMode::HostOnly] {
+        let (mut run, highest, _) = flight(dev);
+        assert!(highest < 1.5, "{dev:?}: flew {highest} m up");
+        assert!(run.at(1, 1).distance(run.at(0, 1)) < 0.05, "{dev:?}");
+    }
+}

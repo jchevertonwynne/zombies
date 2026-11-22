@@ -30,7 +30,9 @@ use super::zombies::{
 };
 use crate::authority::Authority;
 use crate::players::last_stand::LastStand;
+use crate::run::dev::DevAccess;
 use crate::run::leave_run::PlayerLeft;
+use crate::storage::records::TaintRun;
 use crate::economy::perk::Drinking;
 use crate::players::respawn::{Disconnected, SeatDropped, SeatReturned};
 use crate::players::player::{
@@ -124,6 +126,8 @@ impl Plugin for PlayPlugin {
         super::fx::add(app);
         world::add(app);
         app.add_message::<PlayerLeft>()
+            .add_message::<TaintRun>()
+            .init_resource::<DevAccess>()
             .add_message::<HostSaid>()
             .add_message::<SeatDropped>()
             .add_message::<SeatReturned>()
@@ -429,10 +433,25 @@ fn hear_inputs(mut inbox: ResMut<Inbox>, mut remotes: Query<(&mut Remote, &mut P
 /// Sets each remote Player's input for the tick to what they pressed in the next of theirs. A tick
 /// that hasn't come is stepped as the last was, with no Jump newly pressed; when none has come for
 /// a while the Player stands still.
-fn drive_remotes(mut players: Query<(&mut Remote, &mut MoveInput, &mut Transform, Has<Choosing>, Has<Disconnected>)>) {
-    for (mut remote, mut input, mut transform, choosing, disconnected) in &mut players {
+fn drive_remotes(
+    mut players: Query<(&PlayerSeat, &mut Remote, &mut MoveInput, &mut Transform, Has<Choosing>, Has<Disconnected>)>,
+    access: Res<DevAccess>,
+    mut taint: MessageWriter<TaintRun>,
+) {
+    for (seat, mut remote, mut input, mut transform, choosing, disconnected) in &mut players {
         match remote.next() {
-            Next::Step(step) => *input = step.input(),
+            Next::Step(step) => {
+                *input = step.input();
+                // Flying is the Host's to allow: the bit means nothing from a Player Developer mode
+                // does not allow, and from one it does, it taints the Run (as the request did).
+                if input.noclip {
+                    if access.0.allows(seat.0 == 0) {
+                        taint.write(TaintRun);
+                    } else {
+                        input.noclip = false;
+                    }
+                }
+            }
             Next::Nothing => {}
             Next::Missing | Next::Held => input.jump = false,
         }
