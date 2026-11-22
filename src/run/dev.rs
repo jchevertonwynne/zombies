@@ -169,7 +169,7 @@ impl Cheats {
     /// Whether this toggle is on. A one-shot never is.
     pub fn on(&self, cheat: Cheat) -> bool {
         match cheat {
-            Cheat::Points => false,
+            Cheat::Points | Cheat::RoundJump(_) | Cheat::KillAll | Cheat::Spawn(_) | Cheat::OpenAllDoors | Cheat::PowerOn => false,
             Cheat::Invincible => self.invincible,
             Cheat::FreePurchases => self.free_purchases,
             Cheat::InfiniteAmmo => self.infinite_ammo,
