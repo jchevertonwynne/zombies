@@ -137,6 +137,8 @@ fn boss_request(kind: BossKind, round: u32) -> SpawnZombie {
         holds_round: true,
         profile,
         heavyweight: Some(BOSS_SHARE),
+        tag: None,
+        outside_cap: false,
     }
 }
 
@@ -165,7 +167,18 @@ fn pack_request(round: u32, tier: u32, at: Vec3) -> SpawnZombie {
         holds_round: false,
         profile: SpawnProfile::default(),
         heavyweight: None,
+        tag: Some(PACK_TAG),
+        outside_cap: false,
     }
+}
+
+/// What the Alpha's pack is tagged with (`SpawnZombie::tag`), so it can tell its own hounds from
+/// any other requested Hellhound.
+pub const PACK_TAG: u32 = 0x5041_434B;
+
+/// Whether a requested Zombie is one of the Alpha's pack.
+fn is_pack(requested: &Requested) -> bool {
+    requested.tag == Some(PACK_TAG)
 }
 
 /// A Boss's health in Round `round`, as a factor on the Round's base Zombie health.
@@ -416,18 +429,61 @@ pub fn spawn_boss(
     spawns.write(request);
 }
 
-/// The Heavyweight the Boss request asked for is the Boss: it's named, and its phases tracked.
+/// The Heavyweight the Boss request asked for is the Boss: it's named, and its phases tracked. A
+/// summoned Boss says which it is in its tag; the Round's own is the Round's, and a Heavyweight
+/// with any other share (a Sapper someone asked for) is no Boss.
 pub fn tag_boss(
     mut commands: Commands,
-    new: Query<Entity, (Added<Requested>, With<Heavyweight>, Without<Boss>)>,
+    new: Query<(Entity, &Heavyweight, &Requested), (Added<Requested>, Without<Boss>)>,
     mut plan: ResMut<BossPlan>,
 ) {
-    for entity in &new {
-        let Some(kind) = plan.kind else {
+    for (entity, heavyweight, requested) in &new {
+        let summoned = requested.tag.and_then(boss_of_tag);
+        let Some(kind) = summoned.or_else(|| (*heavyweight == BOSS_SHARE).then_some(plan.kind).flatten()) else {
             continue;
         };
-        plan.asked = None;
+        if summoned.is_none() {
+            plan.asked = None;
+        }
         commands.entity(entity).insert(Boss::new(kind));
+    }
+}
+
+/// What a summoned Boss's `SpawnZombie::tag` starts with; its kind is added.
+const BOSS_TAG: u32 = 0x4253_5300;
+
+fn boss_tag(kind: BossKind) -> u32 {
+    BOSS_TAG + kind as u32
+}
+
+fn boss_of_tag(tag: u32) -> Option<BossKind> {
+    [BossKind::Bloater, BossKind::PackAlpha, BossKind::Warden].into_iter().find(|&kind| boss_tag(kind) == tag)
+}
+
+/// Summon `kind`'s Boss at `at` now, whatever the Round: at the Round's Boss health, outside the
+/// Horde and the Alive Cap, and not holding the Round open. A Boss Round's own Boss is not affected.
+/// The Host judges it.
+#[derive(Message, Debug, Clone, Copy, PartialEq)]
+pub struct SummonBoss {
+    pub kind: BossKind,
+    pub at: Vec3,
+}
+
+/// Each `SummonBoss` asks Classic for that Boss, as the Round's own is, tagged so `tag_boss` knows it.
+pub fn summon_boss(
+    mut summons: MessageReader<SummonBoss>,
+    round: Res<Round>,
+    heat: Res<RunHeat>,
+    mut spawns: MessageWriter<SpawnZombie>,
+) {
+    for summon in summons.read() {
+        let mut request = boss_request(summon.kind, round.number);
+        request.health_factor *= heat.boss_health_factor();
+        request.at = SpawnAt::Point(summon.at);
+        request.holds_round = false;
+        request.outside_cap = true;
+        request.tag = Some(boss_tag(summon.kind));
+        spawns.write(request);
     }
 }
 
@@ -548,7 +604,7 @@ fn feet_of(transform: &Transform, zombie: &Zombie) -> Vec3 {
 /// around it, as many as keep its pack to `GAUNTLET_PACK_ALPHA_MAX_HOUNDS` alive.
 pub fn pack_howls(
     mut bosses: Query<(&mut Boss, &Transform, &Zombie), Without<Dying>>,
-    hounds: Query<&Zombie, (With<Requested>, Without<Heavyweight>, Without<Dying>)>,
+    hounds: Query<(&Zombie, &Requested), (Without<Heavyweight>, Without<Dying>)>,
     round: Res<Round>,
     mut spawns: MessageWriter<SpawnZombie>,
     mut cues: MessageWriter<PlayCue>,
@@ -563,7 +619,7 @@ pub fn pack_howls(
         if !howls {
             continue;
         }
-        let alive = hounds.iter().filter(|hound| hound.is_hellhound()).count() as u32;
+        let alive = hounds.iter().filter(|(hound, requested)| hound.is_hellhound() && is_pack(requested)).count() as u32;
         let calling = pack_to_call(alive);
         if calling == 0 {
             continue;
@@ -584,14 +640,14 @@ pub fn pack_howls(
 /// in its lightning can't be hurt, so it goes the moment its strike is over.
 pub fn pack_dies_with_alpha(
     bosses: Query<&Boss, Without<Dying>>,
-    pack: Query<(Entity, &Zombie), (With<Requested>, Without<Heavyweight>, Without<Dying>, Without<Telegraph>)>,
+    pack: Query<(Entity, &Zombie, &Requested), (Without<Heavyweight>, Without<Dying>, Without<Telegraph>)>,
     mut damage: MessageWriter<DamageZombie>,
 ) {
     if bosses.iter().any(|boss| boss.kind == BossKind::PackAlpha) {
         return;
     }
-    for (hound, zombie) in &pack {
-        if zombie.is_hellhound() {
+    for (hound, zombie, requested) in &pack {
+        if zombie.is_hellhound() && is_pack(requested) {
             damage.write(DamageZombie {
                 player: None,
                 zombie: hound,
@@ -971,16 +1027,22 @@ mod tests {
         assert_eq!(hellhound_health(9), 1600.0, "the latest tier covers every later Round");
     }
 
+    fn pack_hound() -> Requested {
+        Requested { tag: Some(PACK_TAG), outside_cap: false }
+    }
+
     /// The pack's damage messages once the system has run over `alpha` and a pack of one hound.
     fn pack_damage(alpha: impl FnOnce(&mut EntityWorldMut)) -> Vec<(Entity, Attack, f32)> {
         let mut app = App::new();
         app.add_message::<DamageZombie>().add_systems(Update, pack_dies_with_alpha);
         let boss = Boss { kind: BossKind::PackAlpha, marks_left: Vec::new(), last_share: 1.0, howl_left: 5.0 };
         alpha(&mut app.world_mut().spawn(boss));
-        let hound = app.world_mut().spawn((Requested, Zombie::hellhound(100.0, Vec3::ZERO))).id();
+        let hound = app.world_mut().spawn((pack_hound(), Zombie::hellhound(100.0, Vec3::ZERO))).id();
         // A Hellhound of the Horde, and a Heavyweight one, are never the pack.
         app.world_mut().spawn(Zombie::hellhound(100.0, Vec3::ZERO));
-        app.world_mut().spawn((Requested, BOSS_SHARE, Zombie::hellhound(100.0, Vec3::ZERO)));
+        app.world_mut().spawn((pack_hound(), BOSS_SHARE, Zombie::hellhound(100.0, Vec3::ZERO)));
+        // A Hellhound someone else asked for is not the pack.
+        app.world_mut().spawn((Requested::default(), Zombie::hellhound(100.0, Vec3::ZERO)));
         app.update();
         let hits: Vec<_> = app.world_mut().resource_mut::<Messages<DamageZombie>>().drain().collect();
         assert!(hits.iter().all(|hit| hit.zombie == hound && hit.player.is_none()));
@@ -1005,7 +1067,7 @@ mod tests {
     fn a_pack_hound_left_with_no_living_alpha_dies_too() {
         let mut app = App::new();
         app.add_message::<DamageZombie>().add_systems(Update, pack_dies_with_alpha);
-        app.world_mut().spawn((Requested, Zombie::hellhound(100.0, Vec3::ZERO)));
+        app.world_mut().spawn((pack_hound(), Zombie::hellhound(100.0, Vec3::ZERO)));
         // No living Alpha, whether it's dying or already gone, is what ends the pack.
         app.update();
         assert_eq!(app.world_mut().resource_mut::<Messages<DamageZombie>>().drain().count(), 1);

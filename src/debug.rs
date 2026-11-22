@@ -32,9 +32,9 @@ pub struct DebugView(pub bool);
 /// Mystery Box would. F6 Pack-a-Punches the Weapon in hand. F7 drops the next Power-up from the
 /// bag just ahead of the Player. F8 pulses the next effect overlay. F4 (hold fn on a Mac) puts a
 /// second Player in Seat 1. F10 summons the Sapper, after
-/// its warning, once the Round is under way. [ (beside it, and not an F-key, which a Mac's
-/// keyboard takes) Claims every Generator at once, on the Host, and ] Loses the Held one nearest
-/// the Player.
+/// its warning, once the Round is under way. ] (not an F-key, which a Mac's keyboard takes) Loses
+/// the Held Generator nearest the Player, on the Host. Claiming every Generator at once is the
+/// Cheat Panel's Power on.
 pub struct DebugPlugin;
 
 impl Plugin for DebugPlugin {
@@ -87,14 +87,6 @@ impl Plugin for DebugPlugin {
             )
             .add_systems(
                 Update,
-                claim_every_generator
-                    .in_set(HostSimulation)
-                    .run_if(resource_exists::<Generators>)
-                    .run_if(input_runs)
-                    .run_if(input_just_pressed(KeyCode::BracketLeft)),
-            )
-            .add_systems(
-                Update,
                 lose_nearest_generator
                     .in_set(HostSimulation)
                     .run_if(resource_exists::<Generators>)
@@ -113,12 +105,6 @@ impl Plugin for DebugPlugin {
                     .run_if(input_runs)
                     .run_if(input_just_pressed(KeyCode::F8)),
             );
-    }
-}
-
-fn claim_every_generator(mut generators: ResMut<Generators>) {
-    for index in 0..generators.states().len() {
-        generators.hold(index);
     }
 }
 

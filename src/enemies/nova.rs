@@ -17,7 +17,8 @@ use crate::layers::GameLayer;
 use crate::maps::map::SpawnKind;
 use crate::enemies::nav::Route;
 use crate::players::player::LocalPlayer;
-use crate::run::round::zombie_health;
+use crate::enemies::request::{Entry, Requested, RequestedKind, SpawnZombie, requested_health};
+use crate::run::round::{CarriesOver, Round, zombie_health};
 use crate::players::shellshock::Shellshock;
 use crate::state::{InRun, world_runs};
 use crate::tuning::*;
@@ -127,6 +128,10 @@ impl Plugin for NovaPlugin {
             .add_systems(
                 Update,
                 (burst.in_set(HostSimulation), linger).chain().run_if(world_runs),
+            )
+            .add_systems(
+                Update,
+                spawn_requested_novas.run_if(on_message::<SpawnZombie>).in_set(HostSimulation).run_if(world_runs),
             );
     }
 }
@@ -193,6 +198,32 @@ pub fn spawn_nova_crawler(
         commands.entity(nova).insert(VentDrop);
     }
     nova
+}
+
+/// Each `SpawnZombie` for a Nova Crawler spawns one outside the Horde, climbing up out of the
+/// ground at the point asked for, as a Riser's does. Without `holds_round` it carries over.
+pub(crate) fn spawn_requested_novas(
+    mut commands: Commands,
+    mut requests: MessageReader<SpawnZombie>,
+    round: Option<Res<Round>>,
+    mut entry: Entry,
+    assets: NovaAssetsParam,
+) {
+    let number = round.map_or(1, |round| round.number);
+    for request in requests.read().filter(|request| request.kind == RequestedKind::NovaCrawler) {
+        let Some((at, _)) = entry.resolve(request.at) else {
+            continue;
+        };
+        let nova = spawn_nova_crawler(&mut commands, &assets, SpawnKind::Riser, at, requested_health(number, request.health_factor));
+        let mut entity = commands.entity(nova);
+        entity.insert(Requested::of(request));
+        if !request.holds_round {
+            entity.insert(CarriesOver);
+        }
+        if let Some(heavyweight) = request.heavyweight {
+            entity.insert(heavyweight);
+        }
+    }
 }
 
 /// Spawns the body of a Nova Crawler the Host has, on a client: at `centre`, with nothing to move

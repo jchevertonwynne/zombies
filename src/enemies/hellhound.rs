@@ -55,6 +55,16 @@ impl HellhoundSchedule {
         hounds_on.then_some(self.played)
     }
 
+    /// Skips ahead to Round `round`: every Hellhound Round due before it is booked as played, a
+    /// `gap()` Rounds apart, so the Round after a jump is a Hellhound Round only if the schedule
+    /// really puts one there. Going back changes nothing.
+    pub fn skip_to(&mut self, round: u32, mut gap: impl FnMut() -> u32) {
+        while self.next < round {
+            self.played += 1;
+            self.next = self.next.saturating_add(gap().max(1));
+        }
+    }
+
     /// Whether Round `round` is due to be a Hellhound Round, which `begin` will make it. Changes
     /// nothing.
     pub fn due(&self, round: u32) -> bool {
@@ -509,7 +519,7 @@ pub(crate) fn spawn_requested_hellhounds(
         let health = requested_health(number, request.health_factor);
         let hound = spawn_hellhound(&mut commands, &assets, at, health);
         let mut entity = commands.entity(hound);
-        entity.insert(Requested);
+        entity.insert(Requested::of(request));
         if request.scale != 1.0 {
             // Standing on the floor at the bigger size, not sunk into it.
             let centre = at + Vec3::Y * (HELLHOUND_RADIUS * request.scale + 0.02);

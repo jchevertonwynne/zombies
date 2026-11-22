@@ -322,6 +322,7 @@ impl Plugin for GauntletPlugin {
             .add_message::<PickRound>()
             .add_message::<VoteRound>()
             .init_resource::<arc::BossPlan>()
+            .add_message::<arc::SummonBoss>()
             .init_resource::<arc::BossView>()
             .init_resource::<armory::ArmoryTab>()
             .init_resource::<armory::ArmoryNote>()
@@ -399,6 +400,7 @@ impl Plugin for GauntletPlugin {
                         (scorched_earth, overkill),
                         (
                             elite::mark_elites,
+                            elite::mark_requested_elites,
                             elite::soak_armour,
                             elite::regenerate,
                             elite::rally,
@@ -453,6 +455,7 @@ impl Plugin for GauntletPlugin {
                     (
                         arc::extend_reserved,
                         arc::spawn_boss.run_if(world_runs),
+                        arc::summon_boss,
                         arc::tag_boss,
                         arc::bloater_bursts,
                         arc::grow_bursts,

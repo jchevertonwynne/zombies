@@ -677,7 +677,7 @@ pub(crate) fn spawn_requested_sappers(
         let health = requested_health(number, request.health_factor);
         let zombie = spawn_sapper_body(&mut commands, &zombie_assets, &assets, at, health, request.scale, &request.profile);
         let mut entity = commands.entity(zombie);
-        entity.insert((Requested, request.heavyweight.unwrap_or(Heavyweight::SAPPER)));
+        entity.insert((Requested::of(request), request.heavyweight.unwrap_or(Heavyweight::SAPPER)));
         if !request.holds_round {
             entity.insert(CarriesOver);
         }
