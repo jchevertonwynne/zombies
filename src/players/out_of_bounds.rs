@@ -30,7 +30,7 @@ impl Plugin for OutOfBoundsPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<TideLanded>().add_message::<Teleport>().add_systems(
             Update,
-            (note_footing, washed_up.after(crate::maps::tide::TideTurn), catch_out_of_bounds)
+            (note_footing, washed_up.after(crate::maps::tide::TideTurn), wade_into_deep, catch_out_of_bounds)
                 .chain()
                 .after(take_hits)
                 .before(go_down)
@@ -67,18 +67,17 @@ pub fn catch_out_of_bounds(
     >,
     map: Res<MapId>,
     graph: Option<Res<NavGraph>>,
-    tide: Option<Res<Tide>>,
     mut teleport: MessageWriter<Teleport>,
 ) {
     let layout = map.layout();
-    let tide = tide.map_or_else(TideLevel::default, |tide| tide.level());
     for (player, transform, mut locomotion, footing, mut health, last_stand, invincible) in &mut players {
         if locomotion.as_deref().is_some_and(Locomotion::flying) {
             continue;
         }
         let landed = locomotion.as_deref_mut().is_some_and(|locomotion| std::mem::take(&mut locomotion.left_flight));
         let feet = feet_of(transform, locomotion.as_deref());
-        if !layout.out_of_bounds(tide, feet) || in_holding_space(feet) {
+        // Deep Water is not Out of Bounds for a Player: `wade_into_deep` washes them up from it.
+        if !layout.off_the_map(feet) || in_holding_space(feet) {
             continue;
         }
         if !last_stand && !invincible && !landed {
@@ -86,8 +85,48 @@ pub fn catch_out_of_bounds(
             health.since_hit = 0.0;
         }
         let from = footing.0.unwrap_or(layout.seat_start(0));
-        let back = graph.as_ref().filter(|graph| graph.map == *map).map_or(from, |graph| graph.nodes[graph.nearest_in_zone(from)].at);
+        let back = graph.as_ref().filter(|graph| graph.map == *map).map_or(from, |graph| put_back_node(graph, layout, from));
         teleport.write(Teleport { player, feet: back, facing: None });
+    }
+}
+
+/// Where a Player Out of Bounds is put back, and so where a Last Stand and its Quick Revive stand
+/// them up: the in-Zone path node nearest `from` that is never Deep Water, at any Tide level, so
+/// no Tide leaves them wading in the next Turn.
+pub fn put_back_node(graph: &NavGraph, layout: &crate::maps::map::Layout, from: Vec3) -> Vec3 {
+    let dry = |node: &crate::enemies::nav::Node| TideLevel::ALL.iter().all(|&level| water_at(layout, level, node.at) != Some(Wading::Deep));
+    graph.nodes[graph.nearest_in_zone_where(from, dry)].at
+}
+
+/// A Player whose feet are in Deep Water, however they got there (the Tide landing is
+/// `washed_up`'s), is Washed Up to the nearest dry or Shallow path node: no Down, no damage, their
+/// Last Stand kept, their speed gone. Deep Water is a wall to Players, so it takes a shove, a
+/// ride or a missing wall to get in. The Host judges it; a client sees the move in the snapshot.
+pub fn wade_into_deep(
+    mut players: Query<(Entity, &mut Transform, Option<&Locomotion>), (With<Player>, Without<AwaitingRespawn>)>,
+    map: Res<MapId>,
+    tide: Option<Res<Tide>>,
+    graph: Option<Res<NavGraph>>,
+    open: Option<Res<ActiveZones>>,
+    mut teleport: MessageWriter<Teleport>,
+) {
+    let layout = map.layout();
+    if layout.water.is_empty() {
+        return;
+    }
+    let level = tide.map_or_else(TideLevel::default, |tide| tide.level());
+    let Some(graph) = graph.filter(|graph| graph.map == *map) else { return };
+    for (player, mut transform, locomotion) in &mut players {
+        if locomotion.is_some_and(Locomotion::flying) {
+            continue;
+        }
+        let feet = feet_of(&transform, locomotion);
+        if water_at(layout, level, feet) != Some(Wading::Deep) || in_holding_space(feet) {
+            continue;
+        }
+        let Some(to) = washed_up_target(&graph, layout, level, feet, zone_at(*map, feet + Vec3::Y * 0.1), open.as_deref()) else { continue };
+        transform.translation = to + Vec3::Y * (Stance::Standing.half_height() + 0.05);
+        teleport.write(Teleport { player, feet: to, facing: None });
     }
 }
 

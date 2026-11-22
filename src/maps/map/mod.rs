@@ -231,13 +231,14 @@ impl Layout {
     /// Whether `at` is Out of Bounds: outside the Map's plan, in Deep Water, or more than
     /// `OUT_OF_BOUNDS_DROP` below its lowest floor.
     pub fn out_of_bounds(&self, tide: TideLevel, at: Vec3) -> bool {
+        self.off_the_map(at) || water_at(self, tide, at) == Some(Wading::Deep)
+    }
+
+    /// Whether `at` is off the Map itself: outside its plan, or more than `OUT_OF_BOUNDS_DROP`
+    /// below its lowest floor. A Player there goes Down; one in Deep Water only is Washed Up.
+    pub fn off_the_map(&self, at: Vec3) -> bool {
         let (min, max) = self.plan;
-        at.x < min.x
-            || at.x > max.x
-            || at.z < min.y
-            || at.z > max.y
-            || at.y < self.lowest_floor() - OUT_OF_BOUNDS_DROP
-            || water_at(self, tide, at) == Some(Wading::Deep)
+        at.x < min.x || at.x > max.x || at.z < min.y || at.z > max.y || at.y < self.lowest_floor() - OUT_OF_BOUNDS_DROP
     }
 }
 
