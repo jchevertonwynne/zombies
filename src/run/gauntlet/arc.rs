@@ -700,10 +700,15 @@ pub fn clear_boss_rounds(
     }
 }
 
-/// A client's own Win: the Host's `RoundEnded` at `win_round()` is the Win, so the client's
-/// `RunArc.won` is set from it, as `clear_boss_rounds` sets the Host's. Co-op has no Win screen.
+/// A client's own Act bonus and Win: the Host's `RoundEnded` on a Boss Round is the cleared Boss
+/// Round, so the client banks the Act's Scrip and, at `win_round()`, sets `RunArc.won`, as
+/// `clear_boss_rounds` does for the Host. Co-op has no Win screen.
 pub fn infer_win(mut ended: MessageReader<RoundEnded>, round: Res<Round>, mut arc: ResMut<RunArc>, mut won: ResMut<RunWon>) {
-    if ended.read().count() > 0 && round.number == win_round() && !arc.won {
+    if ended.read().count() == 0 || !is_boss_round(round.number) {
+        return;
+    }
+    arc.act_scrip = arc.act_scrip.saturating_add(act_scrip_bonus(round.number));
+    if round.number == win_round() && !arc.won {
         arc.won = true;
         won.0 = true;
     }

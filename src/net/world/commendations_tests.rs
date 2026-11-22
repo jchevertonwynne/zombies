@@ -73,3 +73,16 @@ fn a_client_earns_elites_100_from_the_hosts_count_and_the_host_does_not() {
     assert_eq!(earned(&mut run, 1), ["elites_100"]);
     assert!(earned(&mut run, 0).is_empty(), "the Host's own Run counted none");
 }
+
+#[test]
+fn a_client_banks_the_same_act_scrip_as_the_host_for_a_cleared_boss_round() {
+    let mut run = Run::with(1, &gauntlet);
+    run.world(0).insert_resource(Round::in_progress(10));
+    run.step(10);
+    run.world(0).write_message(RoundEnded);
+    run.world(0).resource_mut::<Round>().phase = RoundPhase::Intermission(INTERMISSION_SECS);
+    run.step(20);
+    let host = run.world(0).resource::<RunArc>().act_scrip;
+    assert!(host > 0);
+    assert_eq!(run.world(1).resource::<RunArc>().act_scrip, host);
+}
