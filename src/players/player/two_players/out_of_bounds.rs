@@ -103,6 +103,26 @@ fn a_player_out_of_bounds_goes_down_and_is_put_back_on_the_path_node_nearest_whe
 }
 
 #[test]
+fn an_invincible_player_out_of_bounds_is_put_back_without_a_down() {
+    for out in [past_the_plan(), under_the_map()] {
+        // Without Quick Revive a Down would end the Run.
+        let (mut sim, local) = solo(&[]);
+        sim.world_mut().entity_mut(local).insert(crate::players::player::Invincible);
+        let stood = Vec3::new(-6.0, 0.0, 18.0);
+        place(&mut sim, local, stood);
+        sim.run(10);
+        let footing = sim.world_mut().get::<Footing>(local).unwrap().0.expect("they've stood in a Zone");
+        sim.send(Teleport { player: local, feet: out, facing: None });
+        sim.run(15);
+        assert_eq!(downs(&mut sim), 0, "a Down at {out}");
+        assert!(sim.world_mut().get::<Health>(local).unwrap().current > 0.0);
+        let node = put_back_at(&mut sim, footing);
+        let back = feet_of(&mut sim, local);
+        assert!(back.distance(node) < 0.3, "put back at {back}, not the node at {node}");
+    }
+}
+
+#[test]
 fn a_player_in_last_stand_out_of_bounds_is_only_put_back() {
     let (mut sim, local) = solo(&[Perk::QuickRevive]);
     sim.world_mut().get_mut::<Health>(local).unwrap().current = 0.0;

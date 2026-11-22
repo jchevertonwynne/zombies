@@ -15,7 +15,7 @@ use crate::players::hands::{cook_pose, cook_raise, plant_pose, throw_pose};
 use crate::weapons::explosive::{Explosion, Explosive, Launch, Thrown, in_sight, makes_crawlers, world_filter};
 use crate::layers::GameLayer;
 use crate::weapons::arsenal::Splash;
-use crate::modifier::{Modifier, Modifiers, Stat, resolve, resolve_count};
+use crate::modifier::{Modifier, Modifiers, Stat, ammo_is_free, resolve, resolve_count};
 use crate::players::player::{LocalPlayer, Player, PlayerCamera, not_changing_prone};
 use crate::run::round::{Round, RoundStarted};
 use crate::enemies::zombie::Heavyweight;
@@ -708,7 +708,9 @@ fn throw_frags(
     let held = controls.pressed(Action::Lethal);
     let Some(cooked) = equipment.cooking else {
         if controls.just_pressed(Action::Lethal) && equipment.frags > 0 && !handling {
-            equipment.frags -= 1;
+            if !ammo_is_free(entries) {
+                equipment.frags -= 1;
+            }
             equipment.cooking = Some(0.0);
         }
         return;
@@ -740,32 +742,36 @@ fn throw_frags(
 /// The Monkey Bomb key starts throwing one.
 fn throw_monkey_bombs(
     mut commands: Commands,
-    player: Single<(Entity, &mut Equipment, Has<Handling>), With<LocalPlayer>>,
+    player: Single<(Entity, &mut Equipment, &Modifiers, Has<Handling>), With<LocalPlayer>>,
     controls: Controls,
 ) {
-    let (entity, mut equipment, handling) = player.into_inner();
+    let (entity, mut equipment, modifiers, handling) = player.into_inner();
     if !controls.just_pressed(Action::MonkeyBomb) || equipment.monkey_bombs == 0 || handling || equipment.cooking.is_some() {
         return;
     }
-    equipment.monkey_bombs -= 1;
+    if !ammo_is_free(&modifiers.0) {
+        equipment.monkey_bombs -= 1;
+    }
     commands.entity(entity).insert(Handling::new(Handled::MonkeyBomb, 0.0));
 }
 
 /// The Claymore key starts planting one, if there's a floor to plant it on.
 fn plant_claymores(
     mut commands: Commands,
-    player: Single<(Entity, &mut Equipment, &Transform, Has<Handling>), With<LocalPlayer>>,
+    player: Single<(Entity, &mut Equipment, &Modifiers, &Transform, Has<Handling>), With<LocalPlayer>>,
     controls: Controls,
     spatial: SpatialQuery,
 ) {
-    let (entity, mut equipment, transform, handling) = player.into_inner();
+    let (entity, mut equipment, modifiers, transform, handling) = player.into_inner();
     if !controls.just_pressed(Action::Claymore) || equipment.claymores == 0 || handling || equipment.cooking.is_some() {
         return;
     }
     if floor_below(transform.translation, &spatial).is_none() {
         return;
     }
-    equipment.claymores -= 1;
+    if !ammo_is_free(&modifiers.0) {
+        equipment.claymores -= 1;
+    }
     commands.entity(entity).insert(Handling::new(Handled::Claymore, 0.0));
 }
 

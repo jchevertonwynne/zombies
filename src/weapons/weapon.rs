@@ -25,7 +25,7 @@ use crate::weapons::gun_model::{GunModels, Part, model_length};
 use crate::players::last_stand::LastStand;
 use crate::layers::GameLayer;
 use crate::weapons::muzzle::{BulletImpact, ImpactKind};
-use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, resolve, resolve_count};
+use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat, ammo_is_free, resolve, resolve_count};
 use crate::weapons::equipment::{Equipment, Handling, arms_free, hand_pose};
 use crate::economy::perk::{Drinking, hands_free};
 use crate::players::player::Riding;
@@ -782,7 +782,7 @@ impl Loadout {
     /// With a `Stat::ReserveFeed` entry, the gun that fires now takes its bullets straight from
     /// Reserve Ammo: its Magazine is topped up from it at once, so it never needs a Reload.
     pub fn feed_from_reserve(&mut self, player: &[Modifier]) {
-        if resolve(Stat::ReserveFeed, 0.0, player) < 1.0 {
+        if resolve(Stat::ReserveFeed, 0.0, player) < 1.0 || ammo_is_free(player) {
             return;
         }
         let size = self.magazine_size(player);
@@ -820,7 +820,7 @@ impl Loadout {
         let size = self.magazine_size(player);
         let (magazine, reserve) = self.gun_ammo();
         let recharges = self.underbarrel().is_some_and(|underbarrel| underbarrel.kind == Underbarrel::Flamethrower);
-        if self.swap.is_some() || self.reload.is_some() || magazine >= size || reserve == 0 || recharges {
+        if self.swap.is_some() || self.reload.is_some() || magazine >= size || (reserve == 0 && !ammo_is_free(player)) || recharges {
             return false;
         }
         let loading = (size - magazine).min(reserve);
@@ -873,13 +873,18 @@ impl Loadout {
                 held.reloads = held.reloads.wrapping_add(1);
             }
         }
+        let free = ammo_is_free(player);
         let (magazine, reserve) = self.gun_ammo_mut();
+        // With free ammo a Reload draws on nothing: the Reserve neither limits it nor drops.
+        let room = if free { u32::MAX } else { *reserve };
         let taken = if done {
-            size.saturating_sub(*magazine).min(*reserve)
+            size.saturating_sub(*magazine).min(room)
         } else {
-            due.min(size.saturating_sub(*magazine)).min(*reserve)
+            due.min(size.saturating_sub(*magazine)).min(room)
         };
-        *reserve -= taken;
+        if !free {
+            *reserve -= taken;
+        }
         *magazine += taken;
         done
     }
@@ -910,12 +915,15 @@ impl Loadout {
             }
             self.reload = None;
         }
+        let free = ammo_is_free(player);
         let (magazine, _) = self.gun_ammo_mut();
-        if *magazine == 0 {
+        if *magazine == 0 && !free {
             self.burst_left = 0;
             return false;
         }
-        *magazine -= 1;
+        if !free {
+            *magazine -= 1;
+        }
         self.since_shot = 0.0;
         self.burst_left = self.burst_left.saturating_sub(1);
         self.bloom = (self.bloom + SPREAD_BLOOM_PER_SHOT).min(1.0);
@@ -2275,6 +2283,30 @@ mod tests {
         loadout.held_mut().magazine = 0;
         loadout.feed_from_reserve(&feed);
         assert_eq!((loadout.held().magazine, loadout.held().reserve), (2, 0));
+    }
+
+    #[test]
+    fn free_ammo_never_empties_a_magazine_or_drops_a_reserve() {
+        let free = [Modifier { stat: Stat::AmmoSpent, source: Source("A"), effect: Effect::Mult(0.0) }];
+        let mut loadout = Loadout::new(WeaponId::M1911);
+        loadout.held_mut().magazine = 0;
+        loadout.held_mut().reserve = 0;
+        assert!(!loadout.try_fire(true, true, NONE), "Classic can't fire an empty gun");
+        for _ in 0..20 {
+            loadout.tick(1.0);
+            assert!(loadout.try_fire(true, true, &free));
+        }
+        assert_eq!((loadout.held().magazine, loadout.held().reserve), (0, 0));
+        // A Reload with nothing in Reserve still fills the Magazine, and takes nothing.
+        assert!(loadout.start_reload(&free));
+        assert!(loadout.advance_reload(10.0, &free));
+        assert_eq!((loadout.held().magazine, loadout.held().reserve), (8, 0));
+        // A Reserve Feed doesn't draw the Reserve down either.
+        let feed = Modifier { stat: Stat::ReserveFeed, source: Source("B"), effect: Effect::Flat(1.0) };
+        loadout.held_mut().magazine = 3;
+        loadout.held_mut().reserve = 30;
+        loadout.feed_from_reserve(&[free[0], feed]);
+        assert_eq!((loadout.held().magazine, loadout.held().reserve), (3, 30));
     }
 
     #[test]

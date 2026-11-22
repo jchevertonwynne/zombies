@@ -15,7 +15,7 @@ use crate::maps::water::{TideLevel, Wading, swamped, water_at};
 use crate::maps::zone::{ActiveZones, ZoneId};
 use crate::maps::teleporter::in_holding_space;
 use crate::players::last_stand::{LastStand, go_down};
-use crate::players::player::{Health, Locomotion, Player, Stance, Teleport, take_hits};
+use crate::players::player::{Health, Invincible, Locomotion, Player, Stance, Teleport, take_hits};
 use crate::players::respawn::AwaitingRespawn;
 use crate::state::world_runs;
 
@@ -57,11 +57,11 @@ pub fn note_footing(mut players: Query<(&Transform, Option<&Locomotion>, &mut Fo
 
 /// A Player Out of Bounds goes Down at once, whatever their Health, the same Down as from damage
 /// (`go_down` judges it next), and is moved to the in-Zone path node nearest where they last
-/// stood. One already in Last Stand is only moved back. A rider waiting in the Teleporter's
+/// stood. One already in Last Stand, or Invincible, is only moved back. A rider waiting in the Teleporter's
 /// holding space is not Out of Bounds.
 pub fn catch_out_of_bounds(
     mut players: Query<
-        (Entity, &Transform, Option<&Locomotion>, &Footing, &mut Health, Has<LastStand>),
+        (Entity, &Transform, Option<&Locomotion>, &Footing, &mut Health, Has<LastStand>, Has<Invincible>),
         (With<Player>, Without<AwaitingRespawn>),
     >,
     map: Res<MapId>,
@@ -71,12 +71,12 @@ pub fn catch_out_of_bounds(
 ) {
     let layout = map.layout();
     let tide = tide.map_or_else(TideLevel::default, |tide| tide.level());
-    for (player, transform, locomotion, footing, mut health, last_stand) in &mut players {
+    for (player, transform, locomotion, footing, mut health, last_stand, invincible) in &mut players {
         let feet = feet_of(transform, locomotion);
         if !layout.out_of_bounds(tide, feet) || in_holding_space(feet) {
             continue;
         }
-        if !last_stand {
+        if !last_stand && !invincible {
             health.current = 0.0;
             health.since_hit = 0.0;
         }

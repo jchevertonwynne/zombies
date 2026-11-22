@@ -12,7 +12,7 @@ use bevy::window::{CursorGrabMode, CursorOptions};
 
 use crate::authority::Authority;
 use crate::players::player::LocalPlayer;
-use crate::run::dev::{CheatRequest, Cheat, DevAccess, DevMode, SetDevMode};
+use crate::run::dev::{Cheat, CheatRequest, Cheats, DevAccess, DevMode, SetDevMode};
 use crate::state::{Choosing, GameState, PanelOpen, Pause};
 use crate::ui::hud::{text, ROUND_RED};
 use crate::ui::menu::{HINT_GREY, button};
@@ -22,6 +22,8 @@ use crate::ui::menu::{HINT_GREY, button};
 struct CheatPanel {
     dev: DevMode,
     host: bool,
+    /// The Player's toggles, as `Cheats::toggles` has them, so the buttons show them.
+    toggles: u8,
 }
 
 /// A Cheat button: pressing it asks for the Cheat.
@@ -83,11 +85,12 @@ fn sync_panel(
     access: Res<DevAccess>,
     authority: Res<State<Authority>>,
     pause: Res<State<Pause>>,
-    local: Query<(Entity, Has<PanelOpen>, Has<Choosing>), With<LocalPlayer>>,
+    local: Query<(Entity, Has<PanelOpen>, Has<Choosing>, Option<&Cheats>), With<LocalPlayer>>,
     panels: Query<(Entity, &CheatPanel)>,
     mut cursor: Query<&mut CursorOptions>,
 ) {
-    let Ok((player, open, choosing)) = local.single() else { return };
+    let Ok((player, open, choosing, cheats)) = local.single() else { return };
+    let toggles = Cheats::toggles(cheats);
     let running = *pause.get() == Pause::Running;
     let want = open && access.0 != DevMode::Off && running && !choosing;
     if open && !want {
@@ -97,12 +100,12 @@ fn sync_panel(
     let shown = panels.iter().next();
     match (want, shown) {
         (true, None) => {
-            spawn_panel(&mut commands, access.0, host);
+            spawn_panel(&mut commands, access.0, host, cheats);
             set_cursor(&mut cursor, true);
         }
-        (true, Some((panel, shown))) if shown.dev != access.0 || shown.host != host => {
+        (true, Some((panel, shown))) if shown.dev != access.0 || shown.host != host || shown.toggles != toggles => {
             commands.entity(panel).despawn();
-            spawn_panel(&mut commands, access.0, host);
+            spawn_panel(&mut commands, access.0, host, cheats);
         }
         (false, Some((panel, _))) => {
             commands.entity(panel).despawn();
@@ -122,11 +125,21 @@ fn set_cursor(cursor: &mut Query<&mut CursorOptions>, free: bool) {
     }
 }
 
-fn spawn_panel(commands: &mut Commands, dev: DevMode, host: bool) {
+/// A Cheat button's words: a toggle says whether it is on.
+fn cheat_label(cheat: Cheat, cheats: Option<&Cheats>) -> String {
+    if cheat.is_toggle() {
+        let on = cheats.is_some_and(|cheats| cheats.on(cheat));
+        format!("{}: {}", cheat.label(), if on { "ON" } else { "OFF" })
+    } else {
+        cheat.label().to_string()
+    }
+}
+
+fn spawn_panel(commands: &mut Commands, dev: DevMode, host: bool, cheats: Option<&Cheats>) {
     let allowed = dev.allows(host);
     commands
         .spawn((
-            CheatPanel { dev, host },
+            CheatPanel { dev, host, toggles: Cheats::toggles(cheats) },
             DespawnOnExit(GameState::Playing),
             GlobalZIndex(12),
             Node {
@@ -148,7 +161,7 @@ fn spawn_panel(commands: &mut Commands, dev: DevMode, host: bool) {
             }
             for cheat in Cheat::ALL {
                 if allowed {
-                    button(panel, cheat.label(), CheatButton(cheat), 260.0);
+                    button(panel, &cheat_label(cheat, cheats), CheatButton(cheat), 260.0);
                 } else {
                     panel
                         .spawn((
@@ -161,7 +174,7 @@ fn spawn_panel(commands: &mut Commands, dev: DevMode, host: bool) {
                             },
                             BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.6)),
                         ))
-                        .with_child(text(cheat.label(), 26.0, Color::srgb(0.4, 0.4, 0.4)));
+                        .with_child(text(&cheat_label(cheat, cheats), 26.0, Color::srgb(0.4, 0.4, 0.4)));
                 }
             }
             panel.spawn(text("` to close", 18.0, HINT_GREY));
