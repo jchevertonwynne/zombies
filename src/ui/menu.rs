@@ -15,7 +15,7 @@ use crate::run::mode::Mode;
 use crate::players::player::Seat;
 use crate::storage::records::{
     Teammate,
-    LastRun, RecordsFile, RunRecord, extra_line, format_date, format_time, off_types, rank_line,
+    LastRun, RecordsFile, RunTainted, RunRecord, extra_line, format_date, format_time, off_types, rank_line,
     record_run,
 };
 use crate::storage::settings::{Setting, Settings};
@@ -634,13 +634,18 @@ fn refresh_records(
         });
 }
 
+/// What a Tainted Run's Game Over says in place of its Run Record.
+pub const NOT_RECORDED_LINE: &str = "Not recorded (developer mode)";
+
 fn spawn_game_over(
     mut commands: Commands,
     last: Res<LastRun>,
     more: Res<GameOverLines>,
     run_type: Res<RunType>,
+    tainted: Res<RunTainted>,
 ) {
     let LastRun { record, rank } = &*last;
+    let tainted = tainted.0;
     let screen = screen(&mut commands, DIM_BACKGROUND, |screen| {
         screen.spawn(text("GAME OVER", 80.0, ROUND_RED));
         screen.spawn(text(
@@ -653,7 +658,11 @@ fn spawn_game_over(
         } else {
             HINT_GREY
         };
-        screen.spawn(text(rank_line(*rank), 32.0, rank_color));
+        if tainted {
+            screen.spawn(text(NOT_RECORDED_LINE, 32.0, HINT_GREY));
+        } else {
+            screen.spawn(text(rank_line(*rank), 32.0, rank_color));
+        }
         screen
             .spawn(Node {
                 flex_direction: FlexDirection::Column,
@@ -663,6 +672,7 @@ fn spawn_game_over(
                 ..default()
             })
             .with_children(|lines| {
+                if !tainted {
                 lines.spawn(text(
                     format!(
                         "Kills {}   Headshots {}   Downs {}",
@@ -704,6 +714,7 @@ fn spawn_game_over(
                     20.0,
                     HINT_GREY,
                 ));
+                }
             });
         if run_type.is_coop() {
             button(screen, "Back to the room", MenuButton::BackToRoom, 320.0);

@@ -467,3 +467,20 @@ fn elites_killed_reaches_every_client_on_change() {
         assert_eq!(run.world(on).resource::<RunElitesKilled>().0, 3, "game {on}");
     }
 }
+
+#[test]
+fn the_hosts_taint_reaches_every_client_and_never_goes_back() {
+    use crate::storage::records::RunTainted;
+    let mut run = Run::with(2, &|app| {
+        app.init_resource::<RunTainted>();
+    });
+    run.step(10);
+    for on in 0..3 {
+        assert!(!run.world(on).resource::<RunTainted>().0);
+    }
+    run.world(0).resource_mut::<RunTainted>().0 = true;
+    run.step(20);
+    for on in 0..3 {
+        assert!(run.world(on).resource::<RunTainted>().0, "game {on}");
+    }
+}

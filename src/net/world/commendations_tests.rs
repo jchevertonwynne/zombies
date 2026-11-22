@@ -22,6 +22,7 @@ fn gauntlet(app: &mut App) {
         .init_resource::<ActiveRanks>()
         .init_resource::<UnlockAll>()
         .init_resource::<RunElitesKilled>()
+        .init_resource::<crate::storage::records::RunTainted>()
         .add_message::<CommendationEarned>()
         .add_message::<crate::audio::PlayCue>()
         .add_systems(Update, give_boons)
