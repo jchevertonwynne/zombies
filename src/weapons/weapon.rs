@@ -1348,7 +1348,7 @@ fn refill_magazines(mut refills: MessageReader<RefillMagazine>, mut players: Que
     }
 }
 
-fn fire(
+pub(crate) fn fire(
     player: Single<(Entity, &mut Loadout, &Modifiers, Option<&LentAmmoMods>), With<LocalPlayer>>,
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
     mut view_model: Single<&mut ViewModel>,

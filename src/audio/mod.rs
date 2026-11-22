@@ -40,7 +40,7 @@ use crate::state::{GameState, InRun};
 use crate::players::teammate::{HeldWeapon, Pose, Shots};
 use crate::maps::teleporter::{MAINFRAME_AT, Teleporter};
 use crate::maps::trap::Trap;
-use crate::tuning::{PLAYER_CAPSULE_LENGTH, PLAYER_RADIUS, IDLE_VOCAL_CAP, IDLE_VOCAL_RETRY_SECS, LOW_HEALTH_FRACTION, NAPALM_HEAT_DIST, SHELLSHOCK_MUFFLE_GAIN, SHRIEKER_BLUR_SECS};
+use crate::tuning::{GUNSHOT_CUT_FADE_SECS, PLAYER_CAPSULE_LENGTH, PLAYER_RADIUS, IDLE_VOCAL_CAP, IDLE_VOCAL_RETRY_SECS, LOW_HEALTH_FRACTION, NAPALM_HEAT_DIST, SHELLSHOCK_MUFFLE_GAIN, SHRIEKER_BLUR_SECS};
 use crate::weapons::weapon::{Loadout, ShotFired};
 use crate::enemies::zombie::{Attack, Dying, Gibbed, Rising, Zombie, ZombieHit, ZombieKilled};
 use cues::{AUDIO_DIR, Cue, FloorFamily, Mix};
@@ -72,6 +72,20 @@ impl PlayCue {
     }
 }
 
+/// A playing voice of a capped cue (see `mix::voice_cap`), numbered by when it started.
+#[derive(Component)]
+struct Voice {
+    cue: Cue,
+    seq: u64,
+}
+
+/// A voice the cap has cut, fading out from `from` before it goes.
+#[derive(Component)]
+struct Cut {
+    left: f32,
+    from: Volume,
+}
+
 /// A cue's loaded variants. A slot with none is a bad one, and its cue plays nothing.
 struct Slot {
     variants: Vec<Handle<AudioSource>>,
@@ -87,6 +101,8 @@ struct Sounds {
     /// is absent, and its family steps on `Cue::Footstep`.
     floors: Vec<Slot>,
     muffled: bool,
+    /// How many capped voices have started, to number them.
+    started: u64,
 }
 
 /// Each slot's files, found by the startup check, waiting to be loaded. A bad slot has none.
@@ -183,7 +199,8 @@ impl Plugin for AudioPlugin {
                     play_cues,
                     play_round_sounds,
                     play_buy_sounds,
-                    play_player_sounds,
+                    // After `fire`, so a shot sounds the frame it is fired, not the next.
+                    play_player_sounds.after(crate::weapons::weapon::fire),
                     play_teammate_sounds,
                     play_zombie_sounds,
                     play_splashes,
@@ -193,6 +210,7 @@ impl Plugin for AudioPlugin {
                     crawler_drag,
                     entity_loops,
                     flat_loops,
+                    cap_voices,
                 )
                     .chain(),
             );
@@ -210,7 +228,7 @@ fn load_sounds(mut commands: Commands, files: Res<SlotFiles>, assets: Res<AssetS
     };
     let slots = files.cues.iter().map(load).collect();
     let floors = files.floors.iter().map(load).collect();
-    commands.insert_resource(Sounds { slots, floors, muffled: false });
+    commands.insert_resource(Sounds { slots, floors, muffled: false, started: 0 });
     commands.remove_resource::<SlotFiles>();
 }
 
@@ -276,13 +294,18 @@ impl Sounds {
         let settings = PlaybackSettings::DESPAWN
             .with_volume(Volume::Linear(self.gain(cue) * scale))
             .with_speed(speed);
-        match (cue.spec().mix, at) {
-            (Mix::Spatial, Some(at)) => {
-                commands.spawn((player, settings.with_spatial(true), Transform::from_translation(at)));
-            }
-            _ => {
-                commands.spawn((player, settings));
-            }
+        let mut voice = match (cue.spec().mix, at) {
+            (Mix::Spatial, Some(at)) => commands.spawn((player, settings.with_spatial(true), Transform::from_translation(at))),
+            _ => commands.spawn((player, settings)),
+        };
+        self.tag(cue, &mut voice);
+    }
+
+    /// Numbers the voice just spawned for `cue`, if the cue is capped, for `cap_voices`.
+    fn tag(&mut self, cue: Cue, voice: &mut EntityCommands) {
+        if mix::voice_cap(cue).is_some() {
+            self.started += 1;
+            voice.insert(Voice { cue, seq: self.started });
         }
     }
 
@@ -299,7 +322,8 @@ impl Sounds {
             .with_volume(Volume::Linear(self.gain(cue) * scale))
             .with_speed(speed)
             .with_spatial(true);
-        commands.spawn((AudioPlayer::new(sound), settings, Transform::from_translation(at)));
+        let mut voice = commands.spawn((AudioPlayer::new(sound), settings, Transform::from_translation(at)));
+        self.tag(cue, &mut voice);
     }
 
     /// `cue` played once as a child of an entity, heard from wherever it goes. `None` if its slot
@@ -320,6 +344,46 @@ impl Sounds {
             .with_volume(Volume::Linear(self.gain(cue) * scale))
             .with_spatial(cue.spec().mix == Mix::Spatial);
         Some((AudioPlayer::new(sound), settings, Transform::default()))
+    }
+}
+
+/// Keeps each capped cue to its voice cap: past it, the oldest voices fade out over
+/// `GUNSHOT_CUT_FADE_SECS` and go. The Player's own shots and their teammates' count together.
+fn cap_voices(
+    mut commands: Commands,
+    time: Res<Time>,
+    live: Query<(Entity, &Voice, Option<&AudioSink>, Option<&SpatialAudioSink>), Without<Cut>>,
+    mut cut: Query<(Entity, &mut Cut, Option<&mut AudioSink>, Option<&mut SpatialAudioSink>)>,
+) {
+    let mut by_cue: HashMap<usize, Vec<(Entity, u64)>> = HashMap::new();
+    for (entity, voice, ..) in &live {
+        by_cue.entry(voice.cue.index()).or_default().push((entity, voice.seq));
+    }
+    for (index, voices) in by_cue {
+        let Some(cap) = mix::voice_cap(Cue::ALL[index]) else { continue };
+        for entity in mix::voices_to_cut(&voices, cap) {
+            match live.get(entity).ok().and_then(|(_, _, sink, spatial)| sink.map(|s| s.volume()).or(spatial.map(|s| s.volume()))) {
+                Some(from) => {
+                    commands.entity(entity).insert(Cut { left: GUNSHOT_CUT_FADE_SECS, from });
+                }
+                // Not started yet, so nothing to fade: it just never plays.
+                None => commands.entity(entity).try_despawn(),
+            }
+        }
+    }
+    for (entity, mut fade, sink, spatial) in &mut cut {
+        fade.left -= time.delta_secs();
+        if fade.left <= 0.0 {
+            commands.entity(entity).try_despawn();
+            continue;
+        }
+        let volume = Volume::Linear(fade.from.to_linear() * fade.left / GUNSHOT_CUT_FADE_SECS);
+        if let Some(mut sink) = sink {
+            sink.set_volume(volume);
+        }
+        if let Some(mut sink) = spatial {
+            sink.set_volume(volume);
+        }
     }
 }
 

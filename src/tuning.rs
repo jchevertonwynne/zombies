@@ -1567,6 +1567,12 @@ pub const NOVA_CRAWLER_IDLE_SECS: std::ops::RangeInclusive<f32> = 2.0..=4.0;
 pub const HELLHOUND_IDLE_SECS: std::ops::RangeInclusive<f32> = 2.0..=4.0;
 /// A Zombie due a vocal with no voice free tries again this soon (invented).
 pub const IDLE_VOCAL_RETRY_SECS: f32 = 0.5;
+/// At most this many voices of one gunshot cue sound at once, the Player's own and every
+/// teammate's together. A clip that outlasts its fire interval would otherwise stack its tails
+/// over each new shot's attack (#422); past the cap the oldest voice is cut (invented).
+pub const GUNSHOT_MAX_VOICES: usize = 4;
+/// A voice cut by the cap fades out over this long, so it ends without a click (invented).
+pub const GUNSHOT_CUT_FADE_SECS: f32 = 0.03;
 /// A powered Perk machine plays its jingle this often, at random within the range.
 pub const PERK_JINGLE_SECS: std::ops::RangeInclusive<f32> = 120.0..=240.0;
 /// The heartbeat loops while the Player's Health is below this fraction of its max.

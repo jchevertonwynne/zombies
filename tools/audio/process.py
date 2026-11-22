@@ -7,7 +7,8 @@
 
 What it does, with ffmpeg:
 
-1. Trims to `--start`..`--end` (seconds; either may be left off).
+1. Trims to `--start`..`--end` (seconds; either may be left off), and fades the end out over
+   `--fade-out` seconds if asked, so a short hard cut (a gunshot's tail) doesn't click.
 2. Normalises loudness to the target of its cue group (`--group`, see GROUPS), so every file in a
    group sits at the same level whatever it was recorded at. Clips too short for a LUFS reading
    (a footstep is a few hundred ms) are matched on their mean level instead. Peaks stay under -1 dB.
@@ -107,6 +108,8 @@ def main():
     parser.add_argument("--archive", help="a capture of the source page, for per-asset or contradictory sources")
     parser.add_argument("--start", type=float)
     parser.add_argument("--end", type=float)
+    parser.add_argument("--fade-in", type=float, default=0.004, help="seconds to fade the start in over (default 0.004; a gunshot's attack wants less)")
+    parser.add_argument("--fade-out", type=float, help="seconds to fade the end of the trimmed clip out over")
     parser.add_argument("--variant", type=int, help="the variant number to write (default: the next free one)")
     parser.add_argument("--plain", action="store_true", help="write <slot>.ogg, a slot of one file")
     channels = parser.add_mutually_exclusive_group()
@@ -129,9 +132,12 @@ def main():
         if args.end is not None:
             parts.append(f"end={args.end}")
         trim = f"atrim={':'.join(parts)},asetpts=PTS-STARTPTS,"
-    # Short clips fade a few ms in and out so a hard cut doesn't click.
-    fades = "afade=t=in:d=0.004,"
-    pre = trim + ("pan=mono|c0=0.5*c0+0.5*c1," if mono else "")
+    # Short clips fade a few ms in so a hard cut doesn't click.
+    fades = f"afade=t=in:d={args.fade_in},"
+    # Reversed, so the fade lands on the end whatever the clip's length (and so the loudness
+    # reading below sees it too).
+    fade_out = f"areverse,afade=t=in:d={args.fade_out},areverse," if args.fade_out else ""
+    pre = trim + ("pan=mono|c0=0.5*c0+0.5*c1," if mono else "") + fade_out
 
     lufs, mean = measure(args.input, pre)
     target = GROUPS[args.group]
@@ -152,7 +158,9 @@ def main():
         out = AUDIO / f"{args.slot}_{number}.ogg"
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    chain = f"{pre}{fades}volume={gain:.2f}dB,alimiter=limit={10 ** (PEAK_CEILING_DB / 20):.4f}:level=disabled"
+    # `latency=1` takes out the limiter's own look-ahead delay (5 ms by default), which would
+    # otherwise push every attack that late.
+    chain = f"{pre}{fades}volume={gain:.2f}dB,alimiter=limit={10 ** (PEAK_CEILING_DB / 20):.4f}:level=disabled:latency=1"
     result = run(["ffmpeg", "-hide_banner", "-nostats", "-y", "-i", args.input, "-af", chain, "-ar", "44100", "-c:a", "libvorbis", "-q:a", "4", "-map_metadata", "-1", str(out)])
     if result.returncode != 0:
         sys.exit(result.stderr)

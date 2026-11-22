@@ -35,6 +35,29 @@ pub fn class_gunshot(class: WeaponClass) -> Cue {
     }
 }
 
+/// How many voices of `cue` may sound at once, or `None` if it isn't capped. The gunshots are: a
+/// long clip at a high fire rate would otherwise pile up.
+pub fn voice_cap(cue: Cue) -> Option<usize> {
+    match cue {
+        Cue::GunshotPistol
+        | Cue::GunshotSmg
+        | Cue::GunshotRifle
+        | Cue::GunshotShotgun
+        | Cue::GunshotLmg
+        | Cue::GunshotSniper
+        | Cue::GunshotLauncher => Some(GUNSHOT_MAX_VOICES),
+        _ => None,
+    }
+}
+
+/// Which of one cue's `live` voices to cut to keep `cap`: the oldest first. Each voice comes
+/// with the sequence number it started on, so a smaller number is older.
+pub fn voices_to_cut<E: Copy>(live: &[(E, u64)], cap: usize) -> Vec<E> {
+    let mut by_age = live.to_vec();
+    by_age.sort_by_key(|&(_, seq)| seq);
+    by_age.iter().take(live.len().saturating_sub(cap)).map(|&(voice, _)| voice).collect()
+}
+
 /// A Weapon's fixed pitch offset, as a playback speed: by its place among the Weapons of its
 /// class, so every Weapon in a class has its own.
 pub fn weapon_pitch(weapon: WeaponId) -> f32 {
@@ -376,6 +399,16 @@ mod tests {
         assert!((Cue::StanceRustle.spec().gain * teammate_gain(Cue::StanceRustle) - TEAMMATE_STANCE_RUSTLE_GAIN).abs() < 1e-6);
         assert_eq!(teammate_gain(Cue::DiveLand), 1.0);
         assert_eq!(teammate_gain(Cue::CrawlDrag), 1.0);
+    }
+
+    #[test]
+    fn only_gunshots_are_capped_and_the_oldest_voices_go_first() {
+        assert_eq!(voice_cap(Cue::GunshotPistol), Some(GUNSHOT_MAX_VOICES));
+        assert_eq!(voice_cap(Cue::Hit), None);
+        let live = [('c', 7), ('a', 3), ('d', 9), ('b', 5)];
+        assert_eq!(voices_to_cut(&live, 4), Vec::<char>::new());
+        assert_eq!(voices_to_cut(&live, 3), vec!['a']);
+        assert_eq!(voices_to_cut(&live, 2), vec!['a', 'b']);
     }
 
     #[test]
