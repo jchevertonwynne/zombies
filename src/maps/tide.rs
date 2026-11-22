@@ -14,7 +14,7 @@ use crate::maps::map::{Layout, MapId};
 use crate::maps::water::{Canal, CanalId, Level, TideLevel};
 use crate::maps::zone::ZoneId;
 use crate::run::round::{Round, RoundEnded, RoundStarted};
-use crate::state::{GameState, input_runs, world_runs};
+use crate::state::{GameState, world_runs};
 use crate::tuning::*;
 
 /// Where the Tide is in its cycle.
@@ -250,8 +250,15 @@ fn settle_on_round_start(
     }
 }
 
-/// The debug key turns the Tide to its next phase now, with no bells.
-fn turn_now(mut tide: ResMut<Tide>, map: Option<Res<MapId>>) {
+/// Request to turn the Tide to its next phase now, with no bells. The Host judges it.
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TurnTide;
+
+/// A `TurnTide` turns the Tide now.
+fn turn_now(mut asked: MessageReader<TurnTide>, mut tide: ResMut<Tide>, map: Option<Res<MapId>>) {
+    if asked.read().count() == 0 {
+        return;
+    }
     if map.is_some_and(|map| !map.layout().canals.is_empty()) && !tide.turning() {
         tide.turn = TurnState::Turning { elapsed: 0.0 };
     }
@@ -337,6 +344,7 @@ impl Plugin for TidePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Tide>()
             .add_message::<TideLanded>()
+            .add_message::<TurnTide>()
             .add_message::<RoundEnded>()
             .add_message::<RoundStarted>()
             .add_message::<PlayCue>()
@@ -354,9 +362,7 @@ impl Plugin for TidePlugin {
                 Update,
                 turn_now
                     .in_set(HostSimulation)
-                    .run_if(world_runs)
-                    .run_if(input_runs)
-                    .run_if(|keys: Option<Res<ButtonInput<KeyCode>>>| keys.is_some_and(|keys| keys.just_pressed(KeyCode::Backslash))),
+                    .run_if(world_runs),
             );
     }
 }

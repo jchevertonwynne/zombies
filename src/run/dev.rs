@@ -104,6 +104,16 @@ pub enum Cheat {
     OpenAllDoors,
     /// One-shot: the Power comes on and every Generator is Claimed.
     PowerOn,
+    /// One-shot: the Tactical slot is filled with Monkey Bombs, as the Mystery Box would.
+    MonkeyBombs,
+    /// One-shot: the Held Generator nearest the Player is Lost, as a Sapper would take it.
+    LoseGenerator,
+    /// One-shot: the Lever-driven bridge nearest the Player swings now: no price, warning or cooldown.
+    SwingBridge,
+    /// One-shot: the Tide turns to its next phase now, with no bells.
+    TurnTide,
+    /// One-shot, Gauntlet only: flips whether every Boon and Pact counts as Unlocked.
+    UnlockAll,
     /// One-shot grant: the Power-up, applied at once.
     PowerUp(PowerUp),
     /// One-shot grant: the Weapon, Pack-a-Punched or not, in place of the one in hand if full.
@@ -126,11 +136,20 @@ pub enum GrantKind {
     Perks,
     Boons,
     Pacts,
+    /// Not grants: the odd world one-shots, in the same grid.
+    Debug,
 }
 
 impl GrantKind {
-    pub const ALL: [GrantKind; 6] =
-        [GrantKind::PowerUps, GrantKind::Weapons, GrantKind::PackedWeapons, GrantKind::Perks, GrantKind::Boons, GrantKind::Pacts];
+    pub const ALL: [GrantKind; 7] = [
+        GrantKind::PowerUps,
+        GrantKind::Weapons,
+        GrantKind::PackedWeapons,
+        GrantKind::Perks,
+        GrantKind::Boons,
+        GrantKind::Pacts,
+        GrantKind::Debug,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -140,6 +159,7 @@ impl GrantKind {
             GrantKind::Perks => "Perks",
             GrantKind::Boons => "Boons",
             GrantKind::Pacts => "Pacts",
+            GrantKind::Debug => "Debug",
         }
     }
 
@@ -152,6 +172,7 @@ impl GrantKind {
             GrantKind::Perks => Perk::ALL.map(Cheat::Perk).to_vec(),
             GrantKind::Boons => (0..boon_catalog().count() as u16).map(Cheat::Boon).collect(),
             GrantKind::Pacts => (0..pact_catalog().len() as u8).map(Cheat::Pact).collect(),
+            GrantKind::Debug => Cheat::DEBUG.to_vec(),
         }
     }
 }
@@ -171,6 +192,9 @@ impl Cheat {
         Cheat::PowerOn,
     ];
 
+    /// The one-shots that were debug hotkeys, on the panel's Debug tab.
+    pub const DEBUG: [Cheat; 5] = [Cheat::MonkeyBombs, Cheat::LoseGenerator, Cheat::SwingBridge, Cheat::TurnTide, Cheat::UnlockAll];
+
     /// One Spawn button per kind: the panel puts the Elite tick on at the press.
     pub fn spawns() -> impl Iterator<Item = Cheat> {
         Spawnable::ALL.into_iter().map(|kind| Cheat::Spawn(Spawn { kind, elite: false }))
@@ -188,6 +212,11 @@ impl Cheat {
             Cheat::Spawn(spawn) => spawn.label(),
             Cheat::OpenAllDoors => "Open all Doors",
             Cheat::PowerOn => "Power on",
+            Cheat::MonkeyBombs => "Monkey Bombs",
+            Cheat::LoseGenerator => "Lose nearest Generator",
+            Cheat::SwingBridge => "Swing nearest bridge",
+            Cheat::TurnTide => "Turn the Tide",
+            Cheat::UnlockAll => "Unlock all (toggle)",
             Cheat::PowerUp(power_up) => power_up.name(),
             Cheat::Weapon(id, false) => id.stats().name,
             Cheat::Weapon(id, true) => id.upgraded().name,
@@ -203,6 +232,7 @@ impl Cheat {
         match self {
             Cheat::Boon(index) => mode == Mode::Gauntlet && usize::from(index) < boon_catalog().count(),
             Cheat::Pact(index) => mode == Mode::Gauntlet && usize::from(index) < pact_catalog().len(),
+            Cheat::UnlockAll => mode == Mode::Gauntlet,
             _ => true,
         }
     }
@@ -422,7 +452,7 @@ fn apply_cheats(
             continue;
         }
         // A Player in Last Stand has no hands to take a Weapon or a Perk into.
-        if down && matches!(cheat, Cheat::Weapon(..) | Cheat::Perk(_)) {
+        if down && matches!(cheat, Cheat::Weapon(..) | Cheat::Perk(_) | Cheat::MonkeyBombs) {
             continue;
         }
         // The one-shots on the Round, Zombies, Doors and Power: the Run is Tainted only when one
@@ -744,7 +774,7 @@ mod tests {
             assert!(!cheats.is_empty(), "{kind:?}");
             for cheat in cheats {
                 assert!(!cheat.label().is_empty() && cheat.label() != "?", "{kind:?} {cheat:?}");
-                let gauntlet_only = matches!(kind, GrantKind::Boons | GrantKind::Pacts);
+                let gauntlet_only = matches!(kind, GrantKind::Boons | GrantKind::Pacts) || cheat == Cheat::UnlockAll;
                 assert!(cheat.available(Mode::Gauntlet));
                 assert_eq!(cheat.available(Mode::Classic), !gauntlet_only, "{cheat:?}");
             }

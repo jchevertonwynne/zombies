@@ -33,6 +33,13 @@ pub struct GiveLethals {
     pub count: u32,
 }
 
+/// Request to hand a Player the Monkey Bombs, as the Mystery Box would: the Tactical slot filled.
+/// The Host judges it.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct GiveMonkeyBombs {
+    pub player: Entity,
+}
+
 /// The Equipment the Player carries. It never counts toward the Weapon limit.
 #[derive(Component, Debug, Clone, PartialEq)]
 pub struct Equipment {
@@ -485,6 +492,7 @@ impl Plugin for EquipmentPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<LethalThrown>()
             .add_message::<GiveLethals>()
+            .add_message::<GiveMonkeyBombs>()
             .add_systems(Startup, load_assets)
             .add_systems(OnEnter(GameState::Playing), spawn_walls)
             .add_systems(
@@ -492,7 +500,7 @@ impl Plugin for EquipmentPlugin {
                 (
                     resolve_frag_limits,
                     restock,
-                    give_lethals.in_set(HostSimulation),
+                    (give_lethals, give_monkey_bombs).in_set(HostSimulation),
                     (buy_walls.in_set(HostSimulation), price_walls).chain(),
                     (
                         // A paused Player's cook waits in the hand. Starting a throw or a plant
@@ -517,6 +525,15 @@ fn give_lethals(mut gifts: MessageReader<GiveLethals>, mut players: Query<&mut E
     for gift in gifts.read() {
         if let Ok(mut equipment) = players.get_mut(gift.player) {
             equipment.give_frags(gift.count);
+        }
+    }
+}
+
+/// Monkey Bombs asked for land.
+fn give_monkey_bombs(mut gifts: MessageReader<GiveMonkeyBombs>, mut players: Query<&mut Equipment>) {
+    for gift in gifts.read() {
+        if let Ok(mut equipment) = players.get_mut(gift.player) {
+            equipment.take_monkey_bombs();
         }
     }
 }

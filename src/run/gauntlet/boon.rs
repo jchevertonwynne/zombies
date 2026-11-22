@@ -147,7 +147,7 @@ pub struct RunFacts {
     pub holds_proc_boon: bool,
     /// The stable IDs of the Boons and Pacts bought in the Armory.
     pub unlocked: Vec<String>,
-    /// Every Boon and Pact counts as Unlocked (the F9 debug key).
+    /// Every Boon and Pact counts as Unlocked (the Cheat Panel's Unlock all).
     pub unlock_all: bool,
     /// The Family of the Kit the Run started with, which Offers lean toward. No Kits yet.
     pub kit: Option<Family>,

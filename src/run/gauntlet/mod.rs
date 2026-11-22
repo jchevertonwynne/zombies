@@ -33,7 +33,6 @@ mod snapshot_tests;
 #[cfg(test)]
 mod duos_tests;
 
-use bevy::input::common_conditions::input_just_pressed;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use bevy::ui_widgets::Activate;
@@ -153,7 +152,7 @@ pub fn pact_catalog() -> &'static [pact::PactDef] {
     PACTS
 }
 
-/// Debug: every Boon and Pact counts as Unlocked, toggled with F9 during a Gauntlet Run. It
+/// Debug: every Boon and Pact counts as Unlocked, toggled by the Cheat Panel during a Gauntlet Run. It
 /// changes nothing in `gauntlet.ron`.
 #[derive(Resource, Default)]
 pub(crate) struct UnlockAll(bool);
@@ -321,6 +320,7 @@ impl Plugin for GauntletPlugin {
             .init_resource::<Gifts>()
             .init_resource::<OfferWait>()
             .add_message::<PickOffer>()
+            .add_message::<ToggleUnlockAll>()
             .add_message::<GrantBoon>()
             .add_message::<GrantPact>()
             .add_message::<RerollOffer>()
@@ -525,9 +525,7 @@ impl Plugin for GauntletPlugin {
             .add_observer(arc::click_win)
             .add_systems(
                 Update,
-                toggle_unlock_all
-                    .run_if(input_just_pressed(KeyCode::F9))
-                    .run_if(gauntlet),
+                toggle_unlock_all.in_set(HostSimulation).run_if(gauntlet),
             )
             .add_systems(OnEnter(Pause::Frozen), screen::spawn_offer.run_if(gauntlet))
             .add_systems(
@@ -1253,8 +1251,14 @@ fn lucky_strike(
     }
 }
 
-fn toggle_unlock_all(mut unlock_all: ResMut<UnlockAll>) {
-    unlock_all.0 = !unlock_all.0;
+/// Request to flip `UnlockAll`. The Host judges it.
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ToggleUnlockAll;
+
+fn toggle_unlock_all(mut asked: MessageReader<ToggleUnlockAll>, mut unlock_all: ResMut<UnlockAll>) {
+    for _ in asked.read() {
+        unlock_all.0 = !unlock_all.0;
+    }
 }
 
 /// The held Boons go on the Run Record in pick order, with their Stacks, then the Pacts, then the

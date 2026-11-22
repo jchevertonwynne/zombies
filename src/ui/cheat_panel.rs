@@ -15,6 +15,7 @@ use crate::authority::Authority;
 use crate::players::player::LocalPlayer;
 use crate::run::dev::{Cheat, CheatRequest, Cheats, DevAccess, DevMode, GrantKind, SetDevMode};
 use crate::run::mode::Mode;
+use crate::ui::hud::overlay::{Overlay, Overlays};
 use crate::state::{Choosing, GameState, PanelOpen, Pause};
 use crate::ui::hud::{text, ROUND_RED};
 use crate::ui::menu::{HINT_GREY, button, colored_button};
@@ -57,6 +58,11 @@ struct SpawnElite(bool);
 #[derive(Component)]
 struct EliteTick;
 
+/// The Debug tab's button that pulses the next effect overlay. It only shows on this machine's
+/// HUD and changes nothing in the Run, so it asks for nothing and taints nothing.
+#[derive(Component)]
+struct PulseButton;
+
 /// A Cheat button: pressing it asks for the Cheat.
 #[derive(Component, Clone, Copy)]
 struct CheatButton(Cheat);
@@ -83,6 +89,7 @@ impl Plugin for CheatPanelPlugin {
             .add_observer(press_tab)
             .add_observer(press_cheat)
             .add_observer(press_elite_tick)
+            .add_observer(press_pulse)
             .add_observer(press_dev_mode)
             .add_systems(
                 Update,
@@ -280,6 +287,9 @@ fn spawn_panel(
                                 cheat_button(grid, cheat.label(), cheat, allowed && cheat.available(mode), GRANT_WIDTH);
                             }
                         });
+                    if kind == GrantKind::Debug {
+                        button(panel, "Pulse next overlay (local)", PulseButton, 320.0);
+                    }
                     if matches!(kind, GrantKind::Boons | GrantKind::Pacts) && !gauntlet {
                         panel.spawn(text("Gauntlet only", 22.0, ROUND_RED));
                     }
@@ -340,6 +350,15 @@ fn dead_button(parent: &mut ChildSpawnerCommands, label: &str, width: f32) {
 fn press_elite_tick(activate: On<Activate>, ticks: Query<(), With<EliteTick>>, mut elite: ResMut<SpawnElite>) {
     if ticks.contains(activate.entity) {
         elite.0 = !elite.0;
+    }
+}
+
+/// The Pulse button was pressed: the next of the overlays whose sources aren't built yet shows.
+fn press_pulse(activate: On<Activate>, buttons: Query<(), With<PulseButton>>, mut overlays: ResMut<Overlays>, mut next: Local<usize>) {
+    const TRIED: [Overlay; 3] = [Overlay::Shellshock, Overlay::NapalmHeat, Overlay::TeleporterDaze];
+    if buttons.contains(activate.entity) {
+        overlays.pulse(TRIED[*next % TRIED.len()], 1.0, 4.0);
+        *next += 1;
     }
 }
 
