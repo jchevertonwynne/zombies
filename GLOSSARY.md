@@ -234,6 +234,18 @@ _Avoid_: high scores, leaderboard
 
 **Settings**: The Player's saved preferences: sensitivity, volume, field of view, invert-Y, camera sway, and an On/Off switch per Special Zombie type (all On by default).
 
+**Developer Mode**: The testing option, always available in a Run and silent until a Cheat is used. Solo it is always allowed. In Co-op the Host sets it in the Room to Off, On (every Player) or Host only, and can change it during the Run. A Run that has used it is Tainted.
+_Avoid_: debug mode, god mode
+
+**Cheat**: One action in the Cheat Panel. A toggle stays on for the Player who set it (invincibility, free purchases, infinite ammo, noclip). A one-shot acts at once (Round jump, kill all, spawn a Zombie, grant a Power-up, Weapon, Perk, Boon or Pact, open all Doors, Power on, extra Points). In Co-op a Cheat is a request the Host judges.
+
+**Cheat Panel**: The floating panel of buttons that opens and closes with the backtick key, with the cursor freed while the world keeps running. It shows nothing in a normal Run until it is opened. Under Host only, a client's panel opens with every button disabled.
+
+**Tainted Run**: A Run in which a Cheat has been used. It stays Tainted to the end, even if the Cheat is switched off, and in Co-op it is Tainted for every Player, a Rejoiner included. It writes no Run Record, no Records, no Lifetime Stats, no Commendations and no Scrip, and its Game Over says "Not recorded (developer mode)".
+_Avoid_: cheated Run, dev Run
+
+**Info Screen**: The game-info screen shown while the Info control (Tab by default) is held: Map, Mode, Heat, Round, time survived, and a row per Player. Once the Run is Tainted it adds one line saying so.
+
 **Perk**: A lasting upgrade the Player buys from a Perk Machine. It lasts until the Player's next Down, which takes away every Perk they hold.
 _Avoid_: perk-a-cola, buff
 
