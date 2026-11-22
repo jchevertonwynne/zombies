@@ -900,6 +900,27 @@ fn noclip_flies_the_same_on_both_without_correction() {
 }
 
 #[test]
+fn noclip_forward_climbs_with_the_look_the_same_on_both() {
+    let mut run = Run::with(1, 3, 0.0, 0, &|app| {
+        app.insert_resource(crate::run::dev::DevAccess(crate::run::dev::DevMode::On));
+    });
+    let floor = run.at(0, 1).y;
+    let climb = |seat: u8, tick: u32| match (seat, tick) {
+        (1, 30..90) => MoveInput { noclip: true, axes: Vec2::Y, pitch: 0.6, ..default() },
+        _ => MoveInput::default(),
+    };
+    let (mut worst, mut highest) = (0.0f32, 0.0f32);
+    for _ in 0..90 {
+        run.step(&climb, 1);
+        worst = worst.max(run.corrected(1));
+        highest = highest.max(run.at(0, 1).y - floor);
+    }
+    assert!(highest > 3.0, "the Host only had them {highest} m up");
+    assert!(worst < 0.05, "put right by {worst} m");
+    assert!(run.at(1, 1).distance(run.at(0, 1)) < 0.05);
+}
+
+#[test]
 fn a_host_that_does_not_allow_noclip_ignores_the_bit() {
     for dev in [crate::run::dev::DevMode::Off, crate::run::dev::DevMode::HostOnly] {
         let (mut run, highest, _) = flight(dev);
