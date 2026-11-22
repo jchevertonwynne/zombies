@@ -681,6 +681,7 @@ fn spawn_game_over(
     more: Res<GameOverLines>,
     run_type: Res<RunType>,
     tainted: Res<RunTainted>,
+    party: Option<Res<Party>>,
 ) {
     let LastRun { record, rank } = &*last;
     let tainted = tainted.0;
@@ -755,7 +756,10 @@ fn spawn_game_over(
                 }
             });
         if run_type.is_coop() {
-            button(screen, "Back to the room", MenuButton::BackToRoom, 320.0);
+            // A joiner who ended the Run at the Win has given up their Seat in the Room.
+            if party.as_ref().is_none_or(|party| party.can_go_back()) {
+                button(screen, "Back to the room", MenuButton::BackToRoom, 320.0);
+            }
             button(screen, "Leave", MenuButton::MainMenu, 320.0);
         } else {
             button(screen, "Play Again", MenuButton::PlayAgain, 280.0);

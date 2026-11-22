@@ -589,7 +589,7 @@ impl<L: Link> Joining<L> {
             }
             (
                 ToPlayer::Room(_)
-                | ToPlayer::RunOver
+                | ToPlayer::RunOver { .. }
                 | ToPlayer::Scoreboard(_)
                 | ToPlayer::BackToRoom
                 | ToPlayer::Launched(_)
