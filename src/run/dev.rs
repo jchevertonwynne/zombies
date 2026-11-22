@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::authority::HostSimulation;
 use crate::economy::points::BonusPoints;
 use crate::modifier::{Effect, Modifier, Modifiers, Source, Stat};
-use crate::players::player::{Invincible, LocalPlayer, Player, Seat};
+use crate::players::player::{Invincible, LocalPlayer, Noclip, Player, Seat};
 use crate::players::respawn::Disconnected;
 use crate::run::party::Party;
 use crate::state::{GameState, RunType};
@@ -78,10 +78,13 @@ pub enum Cheat {
     FreePurchases,
     /// Toggle: Magazines never empty and Reserve Ammo never drops, Equipment included.
     InfiniteAmmo,
+    /// Toggle: free flight, no gravity and no map collision. Predicted on the Player's own machine
+    /// (a `Step` bit the Host replays), so the Host's word is only that it taints the Run.
+    Noclip,
 }
 
 impl Cheat {
-    pub const ALL: [Cheat; 4] = [Cheat::Points, Cheat::Invincible, Cheat::FreePurchases, Cheat::InfiniteAmmo];
+    pub const ALL: [Cheat; 5] = [Cheat::Points, Cheat::Invincible, Cheat::FreePurchases, Cheat::InfiniteAmmo, Cheat::Noclip];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -89,6 +92,7 @@ impl Cheat {
             Cheat::Invincible => "Invincibility",
             Cheat::FreePurchases => "Free purchases",
             Cheat::InfiniteAmmo => "Infinite ammo",
+            Cheat::Noclip => "Noclip",
         }
     }
 
@@ -117,12 +121,14 @@ pub struct Cheats {
     pub invincible: bool,
     pub free_purchases: bool,
     pub infinite_ammo: bool,
+    pub noclip: bool,
 }
 
 impl Cheats {
     const INVINCIBLE: u8 = 1;
     const FREE_PURCHASES: u8 = 2;
     const INFINITE_AMMO: u8 = 4;
+    const NOCLIP: u8 = 8;
 
     /// Whether this toggle is on. A one-shot never is.
     pub fn on(&self, cheat: Cheat) -> bool {
@@ -131,6 +137,7 @@ impl Cheats {
             Cheat::Invincible => self.invincible,
             Cheat::FreePurchases => self.free_purchases,
             Cheat::InfiniteAmmo => self.infinite_ammo,
+            Cheat::Noclip => self.noclip,
         }
     }
 
@@ -140,6 +147,7 @@ impl Cheats {
             Cheat::Invincible => self.invincible = !self.invincible,
             Cheat::FreePurchases => self.free_purchases = !self.free_purchases,
             Cheat::InfiniteAmmo => self.infinite_ammo = !self.infinite_ammo,
+            Cheat::Noclip => self.noclip = !self.noclip,
         }
     }
 
@@ -149,6 +157,7 @@ impl Cheats {
             (u8::from(cheats.invincible) * Self::INVINCIBLE)
                 | (u8::from(cheats.free_purchases) * Self::FREE_PURCHASES)
                 | (u8::from(cheats.infinite_ammo) * Self::INFINITE_AMMO)
+                | (u8::from(cheats.noclip) * Self::NOCLIP)
         })
     }
 
@@ -159,6 +168,7 @@ impl Cheats {
             invincible: toggles & Self::INVINCIBLE != 0,
             free_purchases: toggles & Self::FREE_PURCHASES != 0,
             infinite_ammo: toggles & Self::INFINITE_AMMO != 0,
+            noclip: toggles & Self::NOCLIP != 0,
         })
     }
 
@@ -195,6 +205,7 @@ impl Plugin for DevPlugin {
             .add_message::<CheatRequest>()
             .add_message::<SetDevMode>()
             .add_systems(OnEnter(GameState::Playing), start_access.after(crate::players::player::SpawnPlayers))
+            .add_systems(Update, follow_noclip.run_if(in_state(GameState::Playing)))
             .add_systems(
                 Update,
                 (set_dev_mode, apply_cheats)
@@ -276,6 +287,43 @@ fn apply_cheats(
     }
     for (player, held) in fresh {
         commands.entity(player).insert(held);
+    }
+}
+
+/// On the Player's own machine (solo, the Host's or a client's), a Noclip request flips flight on
+/// the `LocalPlayer` at once, so the step is predicted, and the Host judges the same request.
+/// Flight ends when Developer mode stops allowing it. When the Host's word on the toggle changes
+/// (a Rejoin tells it again), flight follows it.
+fn follow_noclip(
+    mut commands: Commands,
+    mut requests: MessageReader<CheatRequest>,
+    access: Res<DevAccess>,
+    mut told: Local<bool>,
+    local: Query<(Entity, &Seat, Option<&Cheats>, Has<Noclip>), With<LocalPlayer>>,
+) {
+    let Ok((player, seat, cheats, mut flying)) = local.single() else { return };
+    let allowed = access.0.allows(seat.0 == 0);
+    let hosts = cheats.is_some_and(|cheats| cheats.noclip);
+    if hosts != *told {
+        *told = hosts;
+        flying = hosts;
+    }
+    for request in requests.read() {
+        if allowed && request.player == player && request.cheat == Cheat::Noclip {
+            flying = !flying;
+        }
+    }
+    if !allowed {
+        flying = false;
+    }
+    match (flying, local.single().is_ok_and(|(.., had)| had)) {
+        (true, false) => {
+            commands.entity(player).insert(Noclip);
+        }
+        (false, true) => {
+            commands.entity(player).remove::<Noclip>();
+        }
+        _ => {}
     }
 }
 

@@ -18,6 +18,9 @@ pub const PLAYER_EYE_HEIGHT: f32 = 0.7; // above the capsule centre
 // clearly escapes one while stamina lasts.
 pub const PLAYER_WALK_SPEED: f32 = 6.5;
 pub const PLAYER_SPRINT_SPEED: f32 = 9.0;
+/// Flying with noclip (Developer mode): metres per second, and the multiple Sprint gives.
+pub const NOCLIP_SPEED: f32 = 8.0;
+pub const NOCLIP_SPRINT_MULT: f32 = 3.0;
 pub const PLAYER_ACCELERATION: f32 = 60.0;
 pub const PLAYER_JUMP_SPEED: f32 = 5.5;
 pub const GRAVITY: f32 = 18.0;
