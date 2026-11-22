@@ -1532,8 +1532,8 @@ pub(crate) mod tests {
         zone.floor()
     }
 
-    /// Each pool lies on the floor that's built there, over its whole extent, and no stairs or
-    /// ramps cross it.
+    /// Each pool's bed lies on the floor that's built there (a sunken floor, where the pool is
+    /// recessed), over its whole extent, and no stairs or ramps cross it.
     #[test]
     fn every_pools_bed_matches_the_floor_built_under_it() {
         for map in MapId::ALL {
@@ -1555,6 +1555,73 @@ pub(crate) mod tests {
                     let apart = lo.x >= pool.max.x || hi.x <= pool.min.x || lo.y >= pool.max.y || hi.y <= pool.min.y;
                     assert!(apart, "a flight in {} runs through a pool", pool.zone.name());
                 }
+            }
+        }
+    }
+
+    /// No pool's surface is above a floor it touches, at any Tide level: not the floor of its own
+    /// Zone, and not the dry floor just past any of its edges. Exact, not within a tolerance, so a
+    /// pool is recessed into its floor rather than standing on it. A Canal's surface rises and
+    /// falls with the Tide by design, so only Still pools (the Cove's) are held to it.
+    #[test]
+    fn no_pools_surface_is_above_a_floor_it_touches() {
+        for map in MapId::ALL {
+            let layout = map.layout();
+            for pool in layout.water.iter().filter(|pool| matches!(pool.level, Level::Still(_))) {
+                let (lo, hi) = pool.zone.volume();
+                let surface = pool.surface(layout.canals, TideLevel::Low);
+                assert!(surface <= pool.zone.floor(), "{}'s pool at {} stands {surface} over a floor at {}", pool.zone.name(), pool.min, pool.zone.floor());
+                let (mid, half) = ((pool.min + pool.max) / 2.0, (pool.max - pool.min) / 2.0);
+                for i in 0..=8 {
+                    let t = i as f32 / 8.0 * 2.0 - 1.0;
+                    for out in [
+                        Vec2::new(mid.x + t * half.x, pool.min.y - 0.1),
+                        Vec2::new(mid.x + t * half.x, pool.max.y + 0.1),
+                        Vec2::new(pool.min.x - 0.1, mid.y + t * half.y),
+                        Vec2::new(pool.max.x + 0.1, mid.y + t * half.y),
+                    ] {
+                        let inside_zone = out.x > lo.x && out.x < hi.x && out.y > lo.z && out.y < hi.z;
+                        let in_a_pool = layout.water.iter().any(|other| other.zone == pool.zone && out.cmpgt(other.min).all() && out.cmplt(other.max).all());
+                        if inside_zone && !in_a_pool {
+                            let floor = built_floor(layout, pool.zone, out);
+                            assert!(surface <= floor, "{}'s pool at {} stands {surface} over the floor at {floor} beside it, at {out}", pool.zone.name(), pool.min);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Seats, Props, perk machines and Box Locations stand at their Zone's floor, so none of them
+    /// is inside a Still pool's plan, where the floor is recessed under the water.
+    #[test]
+    fn nothing_that_stands_at_the_floor_stands_in_a_pool() {
+        use crate::economy::perk::Perk;
+        for map in MapId::ALL {
+            let layout = map.layout();
+            let in_a_pool = |zone: ZoneId, min: Vec2, max: Vec2| {
+                layout.water.iter().any(|pool| pool.zone == zone && matches!(pool.level, Level::Still(_)) && min.x < pool.max.x && max.x > pool.min.x && min.y < pool.max.y && max.y > pool.min.y)
+            };
+            let start_zone = layout.start_zone();
+            for (i, seat) in layout.seats.iter().enumerate() {
+                let spot = Vec2::new(seat.x, seat.z);
+                assert!(!in_a_pool(start_zone, spot - Vec2::splat(0.4), spot + Vec2::splat(0.4)), "Seat {i} stands in a pool on the {}", map.name());
+            }
+            for prop in layout.props {
+                let (min, max) = (Vec2::new(prop.at.x - prop.size.x / 2.0, prop.at.z - prop.size.z / 2.0), Vec2::new(prop.at.x + prop.size.x / 2.0, prop.at.z + prop.size.z / 2.0));
+                assert!(!in_a_pool(prop.zone, min, max), "a {:?} at {} stands in a pool on the {}", prop.kind, prop.at, map.name());
+            }
+            for perk in Perk::ALL {
+                let at = perk.machine_spot(map).0;
+                let spot = Vec2::new(at.x, at.z);
+                for &zone in layout.zones {
+                    assert!(!in_a_pool(zone, spot - Vec2::splat(0.7), spot + Vec2::splat(0.7)), "{perk:?} stands in a pool in {} on the {}", zone.name(), map.name());
+                }
+            }
+            for i in map.box_locations() {
+                let (zone, at, _) = BOX_LOCATIONS[i];
+                let spot = Vec2::new(at.x, at.z);
+                assert!(!in_a_pool(zone, spot - Vec2::splat(0.5), spot + Vec2::splat(0.5)), "Box Location {i} stands in a pool on the {}", map.name());
             }
         }
     }
@@ -1697,10 +1764,10 @@ pub(crate) mod tests {
         assert!(polder.out_of_bounds(TideLevel::High, Vec3::new(-47.0, -1.6, -10.25)));
         assert!(!polder.out_of_bounds(TideLevel::Mid, Vec3::new(-47.0, -1.6, -10.25)));
         let cove = MapId::Cove.layout();
-        let sea = Vec3::new(-30.0, 0.0, -20.0);
+        let sea = Vec3::new(-30.0, -0.1, -20.0);
         assert!(cove.out_of_bounds(crate::maps::water::TideLevel::Low, sea));
         assert!(cove.out_of_bounds(crate::maps::water::TideLevel::Low, sea - Vec3::Y * 1.5));
-        assert!(!cove.out_of_bounds(crate::maps::water::TideLevel::Low, Vec3::new(0.0, 0.0, -10.0)), "the surf");
+        assert!(!cove.out_of_bounds(crate::maps::water::TideLevel::Low, Vec3::new(0.0, -0.1, -10.0)), "the surf");
         assert!(!cove.out_of_bounds(crate::maps::water::TideLevel::Low, sea + Vec3::Y * 1.0), "over the sea, on a parapet say");
     }
 

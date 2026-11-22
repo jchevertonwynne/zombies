@@ -2110,8 +2110,8 @@ mod tests {
         for mut transform in world.query_filtered::<&mut Transform, With<crate::players::player::Player>>().iter_mut(world) {
             transform.translation = Vec3::new(-8.0, 0.9, 1.0);
         }
-        let wet = sim.spawn(Vec3::new(-8.0, 0.0, -11.0), None);
-        let sapper = sim.spawn(Vec3::new(-4.0, 0.0, -11.0), None);
+        let wet = sim.spawn(Vec3::new(-8.0, -0.1, -11.0), None);
+        let sapper = sim.spawn(Vec3::new(-4.0, -0.1, -11.0), None);
         sim.world_mut().entity_mut(sapper).insert(Heavyweight::SAPPER);
         let dry = sim.spawn(Vec3::new(4.0, 0.0, -3.0), None);
         sim.run(3);

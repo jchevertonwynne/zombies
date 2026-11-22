@@ -29,6 +29,8 @@ const SKIRTING: Vec2 = Vec2::new(0.16, 0.03);
 const CORNICE: Vec2 = Vec2::new(0.18, 0.04);
 /// How high a step is drawn, about.
 const STEP_RISE: f32 = 0.15;
+/// A sunken floor shallower than this gets no facings on its sides: it is a recess, not a well.
+const FACING_MIN_DEPTH: f32 = 0.3;
 /// How thick the slab under a ramp or a flight of steps is.
 const SLAB: f32 = 0.3;
 
@@ -296,7 +298,8 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
             (Vec2::new(min.x + facing / 2.0, middle.y), Vec2::new(facing, max.y - min.y), on_edge(min.x, zone_min.x)),
             (Vec2::new(max.x - facing / 2.0, middle.y), Vec2::new(facing, max.y - min.y), on_edge(max.x, zone_max.x)),
         ] {
-            if skip {
+            // A recess no deeper than a step (a pool's bed) is faced by the floor's own side.
+            if skip || depth < FACING_MIN_DEPTH {
                 continue;
             }
             self.shape(Vec3::new(size.x, depth, size.y), Vec3::new(centre.x, top - depth / 2.0, centre.y), Quat::IDENTITY, colours.trim);
