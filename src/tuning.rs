@@ -2511,6 +2511,9 @@ pub const GAUNTLET_BOSS_POINTS_PER_ACT: u64 = 1000;
 /// The warning cue and banner run this long before a Boss Round's Boss comes.
 pub const GAUNTLET_BOSS_WARNING_SECS: f32 = 5.0;
 /// A Boss's health: the Round's base Zombie health × this, by Act; Endless uses the last.
+/// A Boss's health in Co-op, as a factor on the solo figure by Players (N = 1-4): BO1's Pentagon
+/// Thief ratios. Stacks with Heat's Boss factor.
+pub const BOSS_HEALTH_BY_PLAYERS: [f32; 4] = [1.0, 2.0, 2.67, 3.33];
 pub const GAUNTLET_BOSS_HEALTH_MULTIPLIER: [f32; 3] = [30.0, 40.0, 50.0];
 /// A Boss Round's Horde is this much of the usual (`HordeSize` ×).
 pub const GAUNTLET_BOSS_ROUND_HORDE_FACTOR: f32 = 0.5;

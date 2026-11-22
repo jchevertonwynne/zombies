@@ -185,7 +185,7 @@ impl Round {
     /// Hellhounds switched off). Its Horde follows the Player's stat entries.
     /// `players` is N, the Players connected now.
     #[cfg(test)]
-    fn begin(number: u32, schedule: HellhoundSchedule, player: &[Modifier], hounds_on: bool, players: u32) -> Self {
+    pub(crate) fn begin(number: u32, schedule: HellhoundSchedule, player: &[Modifier], hounds_on: bool, players: u32) -> Self {
         Self::begin_in(number, schedule, player, hounds_on, players, &ReservedRounds::default())
     }
 
@@ -248,7 +248,6 @@ impl Round {
     }
 
     /// The Players connected when this Round began.
-    #[allow(dead_code, reason = "later Co-op rules read N too")]
     pub fn players(&self) -> u32 {
         self.players
     }

@@ -142,6 +142,21 @@ fn boss_request(kind: BossKind, round: u32) -> SpawnZombie {
     }
 }
 
+/// A Boss's health factor for a Round with `players` Players: `BOSS_HEALTH_BY_PLAYERS[N-1]`, with
+/// N clamped to 1..=4. It scales the Boss alone, never the Alpha's pack.
+pub fn boss_health_by_players(players: u32) -> f32 {
+    BOSS_HEALTH_BY_PLAYERS[(players.max(1) as usize - 1).min(BOSS_HEALTH_BY_PLAYERS.len() - 1)]
+}
+
+/// `boss_request`, with the Boss's health also scaled by Heat's Boss factor and by the Round's
+/// Player count (`Round.players`, fixed when the Round began). Every ask for a Boss goes
+/// through this, the re-ask included.
+fn heated_boss_request(kind: BossKind, round: u32, players: u32, heat: &RunHeat) -> SpawnZombie {
+    let mut request = boss_request(kind, round);
+    request.health_factor *= heat.boss_health_factor() * boss_health_by_players(players);
+    request
+}
+
 /// How many Hellhounds a howl calls with `alive` of the Alpha's pack still alive: a full pack, but
 /// never past `GAUNTLET_PACK_ALPHA_MAX_HOUNDS` alive.
 pub fn pack_to_call(alive: u32) -> u32 {
@@ -424,8 +439,7 @@ pub fn spawn_boss(
         return;
     }
     *waited = 0.0;
-    let mut request = boss_request(plan.kind.unwrap_or(BossKind::Bloater), plan.round);
-    request.health_factor *= heat.boss_health_factor();
+    let request = heated_boss_request(plan.kind.unwrap_or(BossKind::Bloater), plan.round, round.players(), &heat);
     spawns.write(request);
 }
 
@@ -477,8 +491,7 @@ pub fn summon_boss(
     mut spawns: MessageWriter<SpawnZombie>,
 ) {
     for summon in summons.read() {
-        let mut request = boss_request(summon.kind, round.number);
-        request.health_factor *= heat.boss_health_factor();
+        let mut request = heated_boss_request(summon.kind, round.number, round.players(), &heat);
         request.at = SpawnAt::Point(summon.at);
         request.holds_round = false;
         request.outside_cap = true;
@@ -987,6 +1000,70 @@ mod tests {
         assert!(request.holds_round);
         assert_eq!(request.heavyweight, Some(BOSS_SHARE));
         assert_eq!(request.profile, SpawnProfile::default(), "a Hellhound has no Napalm options");
+    }
+
+    #[test]
+    fn a_boss_has_the_solo_health_times_the_player_count_ratio() {
+        assert_eq!([1, 2, 3, 4].map(boss_health_by_players), [1.0, 2.0, 2.67, 3.33]);
+        assert_eq!(boss_health_by_players(0), 1.0);
+        assert_eq!(boss_health_by_players(9), 3.33, "N past 4 holds the 4-Player figure");
+    }
+
+    #[test]
+    fn a_solo_boss_keeps_its_health_and_heat_stacks_with_the_player_count() {
+        use crate::run::gauntlet::heat::Condition;
+        let none = RunHeat::default();
+        assert_eq!(heated_boss_request(BossKind::Bloater, 10, 1, &none).health_factor, 30.0);
+        let mut iron = RunHeat::default();
+        iron.0[Condition::ALL.iter().position(|c| *c == Condition::IronBosses).unwrap()] = 2;
+        assert_eq!(iron.boss_health_factor(), 1.5);
+        assert_eq!(heated_boss_request(BossKind::Warden, 30, 3, &iron).health_factor, 50.0 * 1.5 * 2.67);
+    }
+
+    #[test]
+    fn nothing_but_health_changes_with_the_player_count() {
+        for kind in [BossKind::Bloater, BossKind::PackAlpha, BossKind::Warden] {
+            let solo = heated_boss_request(kind, 30, 1, &RunHeat::default());
+            for n in 2..=4 {
+                let coop = heated_boss_request(kind, 30, n, &RunHeat::default());
+                assert_eq!(coop.health_factor, solo.health_factor * boss_health_by_players(n), "{kind:?} N={n}");
+                assert_eq!(
+                    (coop.kind, coop.scale, coop.at, coop.holds_round, coop.profile, coop.heavyweight, coop.tag, coop.outside_cap),
+                    (solo.kind, solo.scale, solo.at, solo.holds_round, solo.profile, solo.heavyweight, solo.tag, solo.outside_cap),
+                    "{kind:?} N={n}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_alphas_pack_is_not_scaled_by_the_player_count() {
+        let pack = pack_request(20, 3, Vec3::ZERO);
+        assert_eq!(pack.health_factor, hellhound_health(3) / zombie_health(20) as f32);
+    }
+
+    #[test]
+    fn a_two_player_runs_boss_is_asked_for_at_double_health_and_asked_again_the_same() {
+        use crate::enemies::hellhound::HellhoundSchedule;
+        use crate::players::player::two_players::two_players_with;
+        #[derive(Resource, Default)]
+        struct Asked(Vec<f32>);
+        fn collect(mut spawns: MessageReader<SpawnZombie>, mut asked: ResMut<Asked>) {
+            asked.0.extend(spawns.read().map(|request| request.health_factor));
+        }
+        let (mut sim, _local, _teammate) = two_players_with(|app| {
+            app.add_message::<SpawnZombie>()
+                .init_resource::<Asked>()
+                .init_resource::<RunHeat>()
+                .insert_resource(BossPlan { round: 10, kind: Some(BossKind::Bloater), warning: None, asked: Some(0.0) })
+                .insert_resource(Round::begin(10, HellhoundSchedule::new(99), &[], false, 2))
+                .add_systems(Update, (spawn_boss, collect).chain());
+        });
+        assert_eq!(sim.world_mut().resource::<Round>().players(), 2);
+        sim.run(sim.frames(BOSS_ASK_AGAIN_SECS * 2.0 + 0.5));
+        let asked = &sim.world_mut().resource::<Asked>().0;
+        assert!(asked.len() >= 2, "the Boss is asked for, and again while it hasn't come");
+        assert!(asked.iter().all(|&factor| factor == 30.0 * 2.0), "{asked:?}");
     }
 
     #[test]
