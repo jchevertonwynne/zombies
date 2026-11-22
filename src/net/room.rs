@@ -6,7 +6,7 @@
 
 use super::link::{Event, Link};
 use super::protocol::{
-    HOST, PROTOCOL, Peer, Refusal, RoomView, Seat, SeatView, ToHost, ToPlayer, Unlocks, answer,
+    BUILD, HOST, PROTOCOL, Peer, Refusal, RoomView, Seat, SeatView, ToHost, ToPlayer, Unlocks, answer,
     clean_name, decode, encode,
 };
 use crate::maps::map::MapId;
@@ -535,6 +535,7 @@ impl<L: Link> Joining<L> {
             link,
             hello: ToHost::Hello {
                 version: PROTOCOL,
+                build: BUILD.into(),
                 back: None,
                 name: clean_name(name),
                 password: password.to_string(),
@@ -774,6 +775,7 @@ mod tests {
         let mut old = join(&hub, "Old", "");
         old.hello = ToHost::Hello {
             version: PROTOCOL + 1,
+            build: BUILD.into(),
             back: None,
             name: "Old".into(),
             password: String::new(),

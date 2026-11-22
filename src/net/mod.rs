@@ -26,7 +26,7 @@ mod movement;
 mod tests {
     use super::link::{Event, Hub, Link};
     use super::protocol::{
-        DATAGRAM, HOST, PROTOCOL, Refusal, ToHost, ToPlayer, answer, decode, encode,
+        BUILD, DATAGRAM, HOST, PROTOCOL, Refusal, ToHost, ToPlayer, answer, decode, encode,
     };
 
     /// Lets the network run until a link has something to say.
@@ -42,6 +42,14 @@ mod tests {
 
     /// A Player joins and says `Hello`; returns what the Host answered.
     fn join_with(version: u32) -> ToPlayer {
+        join(version, BUILD)
+    }
+
+    fn join_on(build: &str) -> ToPlayer {
+        join(PROTOCOL, build)
+    }
+
+    fn join(version: u32, build: &str) -> ToPlayer {
         let hub = Hub::new(2, 0.0);
         let (mut host, mut player) = (hub.host(), hub.join());
         assert_eq!(next(&hub, &mut host), Event::Joined(player.peer()));
@@ -50,6 +58,7 @@ mod tests {
             HOST,
             encode(&ToHost::Hello {
                 version,
+                build: build.into(),
                 back: None,
                 name: "Ada".into(),
                 password: String::new(),
@@ -95,5 +104,13 @@ mod tests {
         };
         assert_eq!(why, Refusal::Version);
         assert_eq!(why.reason(), "Host is on a different version");
+    }
+
+    #[test]
+    fn a_player_on_another_build_is_refused_over_the_wire() {
+        let ToPlayer::Refused(why) = join_on("9.9.9-other") else {
+            panic!("expected a refusal");
+        };
+        assert_eq!(why, Refusal::Build(BUILD.into()));
     }
 }

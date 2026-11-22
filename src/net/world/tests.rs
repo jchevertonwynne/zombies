@@ -9,7 +9,7 @@ use crate::weapons::mystery_box::MysteryBoxPlugin;
 use crate::net::link::Hub;
 use crate::net::away::Rejoin;
 use crate::net::play::{Held, install_client, install_host};
-use crate::net::protocol::{PROTOCOL, ToHost};
+use crate::net::protocol::{BUILD, PROTOCOL, ToHost};
 use crate::weapons::pack_a_punch::PackAPunchPlugin;
 use crate::economy::power_up::PowerUpAssets;
 use crate::maps::trap::TrapPlugin;
@@ -101,6 +101,7 @@ impl Run {
                 install_client(app, link);
                 let hello = ToHost::Hello {
                     version: PROTOCOL,
+                    build: BUILD.into(),
                     back: None,
                     name: format!("P{seat}"),
                     password: String::new(),
@@ -128,6 +129,7 @@ impl Run {
             HOST,
             encode(&ToHost::Hello {
                 version: PROTOCOL,
+                build: BUILD.into(),
                 back,
                 name: "Stranger".into(),
                 password: String::new(),

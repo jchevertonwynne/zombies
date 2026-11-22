@@ -26,7 +26,15 @@ pub type Seat = u8;
 
 /// What version of the wire format this game speaks. The Host refuses a Player on
 /// another, and it is raised whenever the format changes (along with the ALPN).
-pub const PROTOCOL: u32 = 18;
+pub const PROTOCOL: u32 = 19;
+
+/// The build this game is, set when it is compiled: CI puts the release (the git tag without
+/// its `v`, so `v0.3.0` is `0.3.0`) in `ZOMBIES_BUILD`, and a build without it is `dev`. The
+/// Host refuses a Player on another build, and `dev` is only ever the same as `dev`.
+pub const BUILD: &str = match option_env!("ZOMBIES_BUILD") {
+    Some(build) if !build.is_empty() => build,
+    _ => "dev",
+};
 /// The most a datagram may be, in bytes: what the real link is tried with, and under
 /// what it carries. One bigger is not sent at all.
 pub const DATAGRAM: usize = 1000;
@@ -47,10 +55,13 @@ pub fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, WireError> {
 }
 
 /// Why a Host won't have a Player.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum Refusal {
     /// The two games don't speak the same `PROTOCOL`.
     Version,
+    /// The Host is on another build (what it says it is), though a Player on it would speak the
+    /// same wire.
+    Build(String),
     /// Every Seat in the Room is taken.
     Full,
     /// The Room has a password and it wasn't the one given.
@@ -63,13 +74,14 @@ pub enum Refusal {
 
 impl Refusal {
     /// What to tell the Player who was refused.
-    pub fn reason(self) -> &'static str {
+    pub fn reason(&self) -> String {
         match self {
-            Refusal::Version => "Host is on a different version",
-            Refusal::Full => "Room is full",
-            Refusal::WrongPassword => "Wrong password",
-            Refusal::Started => "Run already started",
-            Refusal::NoSeat => "No Seat held for you",
+            Refusal::Version => "Host is on a different version".into(),
+            Refusal::Build(host) => format!("Host is on {host}, you are on {BUILD}, run update"),
+            Refusal::Full => "Room is full".into(),
+            Refusal::WrongPassword => "Wrong password".into(),
+            Refusal::Started => "Run already started".into(),
+            Refusal::NoSeat => "No Seat held for you".into(),
         }
     }
 }
@@ -143,6 +155,8 @@ pub enum ToHost {
     /// The first thing a Player says.
     Hello {
         version: u32,
+        /// The build the Player is on (`BUILD`).
+        build: String,
         /// What the Host gave them when they were here before, if they were: by it
         /// they are known for who they were, and take their own Seat again.
         back: Option<u64>,
@@ -224,11 +238,14 @@ pub fn token() -> u64 {
 }
 
 /// What the Host answers a `Hello` with: a `Welcome` into `seat` with a new token, or
-/// a refusal if the Player is on another version.
+/// a refusal if the Player is on another build or version.
 pub fn answer(hello: &ToHost, seat: Seat) -> ToPlayer {
-    let ToHost::Hello { version, .. } = hello else {
+    let ToHost::Hello { version, build, .. } = hello else {
         return ToPlayer::Refused(Refusal::Version);
     };
+    if build != BUILD {
+        return ToPlayer::Refused(Refusal::Build(BUILD.into()));
+    }
     if *version != PROTOCOL {
         return ToPlayer::Refused(Refusal::Version);
     }
@@ -246,6 +263,7 @@ mod tests {
     fn messages_survive_the_wire() {
         let hello = ToHost::Hello {
             version: PROTOCOL,
+            build: BUILD.into(),
             back: Some(7),
             name: "Ada".into(),
             password: String::new(),
@@ -269,8 +287,45 @@ mod tests {
     #[test]
     fn each_refusal_has_its_reason() {
         assert_eq!(Refusal::Full.reason(), "Room is full");
+        assert!(Refusal::Build("0.3.0".into()).reason().starts_with("Host is on 0.3.0, you are on "));
+        assert!(Refusal::Build("0.3.0".into()).reason().ends_with(", run update"));
         assert_eq!(Refusal::WrongPassword.reason(), "Wrong password");
         assert_eq!(Refusal::Started.reason(), "Run already started");
+    }
+
+    fn hello_on(build: &str) -> ToHost {
+        ToHost::Hello {
+            version: PROTOCOL,
+            build: build.into(),
+            back: None,
+            name: "Ada".into(),
+            password: String::new(),
+            unlocks: Unlocks::default(),
+        }
+    }
+
+    #[test]
+    fn a_player_on_the_hosts_build_is_welcomed() {
+        assert!(matches!(answer(&hello_on(BUILD), 1), ToPlayer::Welcome { seat: 1, .. }));
+    }
+
+    #[test]
+    fn a_player_on_another_build_is_refused_with_the_hosts() {
+        assert_eq!(
+            answer(&hello_on("9.9.9-other"), 1),
+            ToPlayer::Refused(Refusal::Build(BUILD.into()))
+        );
+    }
+
+    #[test]
+    fn dev_matches_only_dev() {
+        assert_ne!(BUILD, "9.9.9-other");
+        assert!(matches!(answer(&hello_on("dev"), 1), ToPlayer::Refused(_)) == (BUILD != "dev"));
+        assert!(matches!(answer(&hello_on("0.3.0"), 1), ToPlayer::Refused(Refusal::Build(_))) == (BUILD != "0.3.0"));
+        assert_eq!(
+            Refusal::Build("0.3.0".into()).reason().replace(BUILD, "X"),
+            "Host is on 0.3.0, you are on X, run update"
+        );
     }
 
     #[test]

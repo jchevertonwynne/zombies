@@ -269,7 +269,7 @@ fn hear_host(
             HostSaid::BackToRoom => party.back = true,
             HostSaid::Refused(why) => {
                 // The Host holds no Seat for this Player: the Run is over for them.
-                notice.0 = why.reason().into();
+                notice.0 = why.reason();
                 next.set(GameState::MainMenu);
             }
         }
