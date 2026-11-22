@@ -30,7 +30,7 @@ use crate::maps::map::{Layout, MapId, SpawnKind, SpawnPoint};
 use crate::maps::tide::{Tide, TidePhase, TideTurn, TurnState};
 use crate::maps::zone::ActiveZones;
 use crate::maps::zone::ZoneId;
-use crate::players::player::{Locomotion, LocalPlayer, Player, Stance, Teleport};
+use crate::players::player::{Locomotion, Player, Stance, Teleport};
 use crate::state::{InRun, world_runs};
 use crate::tuning::*;
 
@@ -558,13 +558,14 @@ pub struct ShiftingPlugin;
 impl Plugin for ShiftingPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<SwingStarted>()
+            .add_message::<SwingNearest>()
             .add_message::<Teleport>()
             .add_systems(FixedUpdate, (pose_leaves, throw_tipped).run_if(world_runs))
             .add_systems(FixedUpdate, move_sappers.in_set(HostSimulation).run_if(world_runs))
             .add_systems(
                 Update,
                 (
-                    (use_levers, drive_gates.after(TideTurn), run_pieces, tip_occupants, wash_gate_players).chain().in_set(HostSimulation),
+                    (use_levers, swing_nearest, drive_gates.after(TideTurn), run_pieces, tip_occupants, wash_gate_players).chain().in_set(HostSimulation),
                     (prompt_levers, light_lamps, light_gate_lamps, ring_cues).chain(),
                 )
                     .run_if(world_runs),
@@ -631,19 +632,25 @@ fn run_pieces(
     }
 }
 
-/// The debug key: the Piece nearest the Player swings to its next Rest now, with no price,
-/// warning or cooldown, and still Tips.
-pub(crate) fn debug_swing(
-    player: Query<&Transform, With<LocalPlayer>>,
+/// Request to swing the Lever-driven Piece nearest `at` to its next Rest now: no price, warning or
+/// cooldown, and it still Tips. The Host judges it.
+#[derive(Message, Debug, Clone, Copy, PartialEq)]
+pub struct SwingNearest {
+    pub at: Vec3,
+}
+
+/// A `SwingNearest` swings the Piece nearest it now.
+fn swing_nearest(
+    mut asked: MessageReader<SwingNearest>,
     mut pieces: Query<&mut PieceState>,
     map: Res<MapId>,
     mut swings: MessageWriter<SwingStarted>,
 ) {
-    let Ok(player) = player.single() else { return };
+    let Some(&SwingNearest { at }) = asked.read().last() else { return };
     let layout = map.layout();
     let nearest = pieces
         .iter()
-        .filter_map(|state| layout.shifting.get(usize::from(state.id.0)).filter(|piece| !matches!(piece.driver, Driver::Tide(_))).map(|piece| (state.id, piece.leaves[0].hinge.distance(player.translation))))
+        .filter_map(|state| layout.shifting.get(usize::from(state.id.0)).filter(|piece| !matches!(piece.driver, Driver::Tide(_))).map(|piece| (state.id, piece.leaves[0].hinge.distance(at))))
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .map(|(id, _)| id);
     for mut state in &mut pieces {

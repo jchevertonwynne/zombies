@@ -21,6 +21,12 @@ use crate::modifier::{Modifiers, Source};
 use crate::run::gauntlet::{GrantBoon, GrantPact, HeldBoons, HeldPacts, apply_grants, boon_catalog, pact_catalog};
 use crate::storage::records::{RunTainted, TaintRun};
 use crate::weapons::arsenal::WeaponId;
+use crate::maps::generator::{Generators, LoseNearestGenerator};
+use crate::maps::map::MapId;
+use crate::maps::shifting::SwingNearest;
+use crate::maps::tide::TurnTide;
+use crate::run::gauntlet::ToggleUnlockAll;
+use crate::weapons::equipment::{Equipment, GiveMonkeyBombs};
 use crate::weapons::weapon::{GiveWeapon, Loadout, give_weapons};
 
 /// The Power-ups given, as a Run has them (the pickup itself is Classic's own).
@@ -60,6 +66,11 @@ struct Asked {
     spawns: Vec<SpawnZombie>,
     bosses: Vec<SummonBoss>,
     rounds: Vec<u32>,
+    monkey_bombs: usize,
+    generators: Vec<Vec3>,
+    swings: Vec<Vec3>,
+    tides: usize,
+    unlocks: usize,
 }
 
 fn note_asked(
@@ -67,7 +78,17 @@ fn note_asked(
     mut spawns: MessageReader<SpawnZombie>,
     mut bosses: MessageReader<SummonBoss>,
     mut rounds: MessageReader<BeginRound>,
+    mut monkey_bombs: MessageReader<GiveMonkeyBombs>,
+    mut generators: MessageReader<LoseNearestGenerator>,
+    mut swings: MessageReader<SwingNearest>,
+    mut tides: MessageReader<TurnTide>,
+    mut unlocks: MessageReader<ToggleUnlockAll>,
 ) {
+    asked.monkey_bombs += monkey_bombs.read().count();
+    asked.generators.extend(generators.read().map(|request| request.at));
+    asked.swings.extend(swings.read().map(|request| request.at));
+    asked.tides += tides.read().count();
+    asked.unlocks += unlocks.read().count();
     asked.spawns.extend(spawns.read().copied());
     asked.bosses.extend(bosses.read().copied());
     asked.rounds.extend(rounds.read().map(|round| round.0));
@@ -584,4 +605,83 @@ fn a_grant_the_setting_forbids_is_dropped() {
     assert!(run.world(1).get::<Loadout>(own).unwrap().slot_of(WeaponId::RayGun).is_none());
     assert!(run.world(1).get::<Perks>(own).unwrap().0.is_empty());
     assert!(!tainted(&mut run, 0));
+}
+
+/// A Run of the Host and a client on `map`, Developer mode On.
+fn run_on(map: MapId, mode: Mode) -> Run {
+    let mut run = run_in(1, DevMode::On, mode);
+    for on in 0..2 {
+        run.world(on).insert_resource(map);
+    }
+    run.world(0).insert_resource(Generators::for_map(map));
+    run
+}
+
+#[test]
+fn a_clients_monkey_bombs_land_on_the_hosts_copy_and_taint() {
+    let mut run = run(1, DevMode::On);
+    ask_for(&mut run, 1, Cheat::MonkeyBombs);
+    assert_eq!(run.world(0).resource::<Asked>().monkey_bombs, 1);
+    let host_copy = run.player(0, 1);
+    assert!(run.world(0).get::<Equipment>(host_copy).is_some());
+    assert!(tainted(&mut run, 0));
+}
+
+#[test]
+fn a_clients_swing_tide_and_generator_asks_come_from_the_player_and_taint() {
+    let tide_map = MapId::ALL.into_iter().find(|map| !map.layout().canals.is_empty()).expect("a Map with a Tide");
+    let mut run = run_on(tide_map, Mode::Classic);
+    ask_for(&mut run, 1, Cheat::TurnTide);
+    assert_eq!(run.world(0).resource::<Asked>().tides, 1);
+    assert!(tainted(&mut run, 0));
+
+    let swing_map = MapId::ALL.into_iter().find(|map| !map.layout().shifting.is_empty()).expect("a Map with a bridge");
+    let mut run = run_on(swing_map, Mode::Classic);
+    ask_for(&mut run, 1, Cheat::SwingBridge);
+    let body = run.player(0, 1);
+    let at = run.world(0).get::<Transform>(body).unwrap().translation;
+    assert_eq!(run.world(0).resource::<Asked>().swings, [at]);
+    assert!(tainted(&mut run, 0));
+
+    let mut run = run_on(MapId::Dam, Mode::Classic);
+    ask_for(&mut run, 1, Cheat::LoseGenerator);
+    assert_eq!(run.world(0).resource::<Asked>().generators.len(), 1);
+    assert!(tainted(&mut run, 0));
+}
+
+#[test]
+fn a_map_without_the_thing_drops_the_ask_without_a_taint() {
+    let bare = MapId::ALL.into_iter().find(|map| map.layout().canals.is_empty() && map.layout().shifting.is_empty()).unwrap_or(MapId::Greybox);
+    let mut run = run_on(bare, Mode::Classic);
+    run.world(0).insert_resource(Generators::for_map(bare));
+    if bare.layout().canals.is_empty() {
+        ask_for(&mut run, 1, Cheat::TurnTide);
+        assert_eq!(run.world(0).resource::<Asked>().tides, 0);
+    }
+    if !Generators::for_map(bare).on_map() {
+        ask_for(&mut run, 1, Cheat::LoseGenerator);
+        assert!(run.world(0).resource::<Asked>().generators.is_empty());
+    }
+    if bare.layout().shifting.is_empty() {
+        ask_for(&mut run, 1, Cheat::SwingBridge);
+        assert!(run.world(0).resource::<Asked>().swings.is_empty());
+    }
+    assert!(!tainted(&mut run, 0));
+}
+
+#[test]
+fn unlock_all_is_gauntlets_and_the_setting_applies_to_the_debug_ones_too() {
+    let mut run = run(1, DevMode::On);
+    ask_for(&mut run, 1, Cheat::UnlockAll);
+    assert_eq!(run.world(0).resource::<Asked>().unlocks, 0, "Classic has no Boons to unlock");
+    assert!(!tainted(&mut run, 0));
+    let mut run = run_in(1, DevMode::On, Mode::Gauntlet);
+    ask_for(&mut run, 1, Cheat::UnlockAll);
+    assert_eq!(run.world(0).resource::<Asked>().unlocks, 1);
+    assert!(tainted(&mut run, 0));
+    for cheat in Cheat::DEBUG {
+        let mut run = run_in(1, DevMode::HostOnly, Mode::Gauntlet);
+        ask_for(&mut run, 1, cheat);
+        assert!(!tainted(&mut run, 0), "{cheat:?}");
+    }
 }

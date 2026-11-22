@@ -818,23 +818,6 @@ pub(crate) fn spawn_player(
     }
 }
 
-/// A debug convenience: puts a second Player in Seat 1, standing on its spawn point and driven
-/// only through `MoveInput` and Player-tagged messages. It has no camera, no `LocalPlayer` and no
-/// view model; `teammate` gives it a body. It does nothing if Seat 1 is
-/// taken. The Run's type is already fixed, so a Player added here doesn't make it Co-op.
-pub fn spawn_debug_player(
-    mut commands: Commands,
-    run: Res<RunModifiers>,
-    seats: Query<&Seat, With<Player>>,
-    map: Res<MapId>,
-) {
-    let seat = Seat(1);
-    if seats.iter().any(|&taken| taken == seat) {
-        return;
-    }
-    commands.spawn(player_body(seat, "Player 2", &run.0, *map));
-}
-
 fn grab_cursor(mut cursor: Single<&mut CursorOptions>, choosing: Query<(), (With<LocalPlayer>, With<Choosing>)>) {
     // An open Offer needs the pointer, whatever else just closed.
     if !choosing.is_empty() {

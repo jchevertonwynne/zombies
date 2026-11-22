@@ -17,8 +17,13 @@ use crate::enemies::target::{Players, path_distance};
 use crate::enemies::zombie::KillAllZombies;
 use crate::maps::barrier::Barriers;
 use crate::maps::door::{Door, OpenAllDoors};
+use crate::maps::map::MapId;
+use crate::maps::generator::{Generators, LoseNearestGenerator};
 use crate::maps::power::SwitchPowerOn;
-use crate::maps::shifting::{PieceState, standing_rests};
+use crate::maps::shifting::{PieceState, SwingNearest, standing_rests};
+use crate::maps::tide::TurnTide;
+use crate::run::gauntlet::ToggleUnlockAll;
+use crate::weapons::equipment::GiveMonkeyBombs;
 use crate::players::player::Player;
 use crate::run::gauntlet::arc::{BossKind, SummonBoss};
 use crate::run::gauntlet::elite::ELITE_TAG;
@@ -220,6 +225,13 @@ pub struct WorldCheats<'w, 's> {
     power: MessageWriter<'w, SwitchPowerOn>,
     spawns: MessageWriter<'w, SpawnZombie>,
     bosses: MessageWriter<'w, SummonBoss>,
+    monkey_bombs: MessageWriter<'w, GiveMonkeyBombs>,
+    lose_generator: MessageWriter<'w, LoseNearestGenerator>,
+    swing: MessageWriter<'w, SwingNearest>,
+    tide: MessageWriter<'w, TurnTide>,
+    unlock_all: MessageWriter<'w, ToggleUnlockAll>,
+    generators: Option<Res<'w, Generators>>,
+    map: Option<Res<'w, MapId>>,
 }
 
 impl WorldCheats<'_, '_> {
@@ -266,6 +278,40 @@ impl WorldCheats<'_, '_> {
                 self.power.write(SwitchPowerOn);
                 true
             }
+            Cheat::MonkeyBombs => {
+                self.monkey_bombs.write(GiveMonkeyBombs { player });
+                true
+            }
+            Cheat::LoseGenerator => {
+                if !self.generators.as_ref().is_some_and(|generators| generators.on_map()) {
+                    return Some(false);
+                }
+                let Ok(body) = self.bodies.get(player) else { return Some(false) };
+                self.lose_generator.write(LoseNearestGenerator { at: body.translation });
+                true
+            }
+            Cheat::SwingBridge => {
+                if !self.map.as_ref().is_some_and(|map| !map.layout().shifting.is_empty()) {
+                    return Some(false);
+                }
+                let Ok(body) = self.bodies.get(player) else { return Some(false) };
+                self.swing.write(SwingNearest { at: body.translation });
+                true
+            }
+            Cheat::TurnTide => {
+                if !self.map.as_ref().is_some_and(|map| !map.layout().canals.is_empty()) {
+                    return Some(false);
+                }
+                self.tide.write(TurnTide);
+                true
+            }
+            Cheat::UnlockAll => {
+                if !self.gauntlet() {
+                    return Some(false);
+                }
+                self.unlock_all.write(ToggleUnlockAll);
+                true
+            }
             Cheat::Spawn(Spawn { kind, elite }) => {
                 if kind.gauntlet_only() && !self.gauntlet() {
                     return Some(false);
@@ -297,7 +343,12 @@ pub fn add_messages(app: &mut App) {
         .add_message::<OpenAllDoors>()
         .add_message::<SwitchPowerOn>()
         .add_message::<SpawnZombie>()
-        .add_message::<SummonBoss>();
+        .add_message::<SummonBoss>()
+        .add_message::<GiveMonkeyBombs>()
+        .add_message::<LoseNearestGenerator>()
+        .add_message::<SwingNearest>()
+        .add_message::<TurnTide>()
+        .add_message::<ToggleUnlockAll>();
 }
 
 #[cfg(test)]

@@ -296,16 +296,32 @@ fn glow_plates(
     }
 }
 
+/// Request to lose the Held Generator nearest `at`, as a Sapper would take it. The Host judges it.
+#[derive(Message, Debug, Clone, Copy, PartialEq)]
+pub struct LoseNearestGenerator {
+    pub at: Vec3,
+}
+
+/// A `LoseNearestGenerator` loses the Held Generator nearest it.
+fn lose_nearest(mut asked: MessageReader<LoseNearestGenerator>, mut generators: ResMut<Generators>) {
+    for request in asked.read() {
+        if let Some(index) = generators.nearest_held(request.at) {
+            generators.lose(index);
+        }
+    }
+}
+
 pub struct GeneratorPlugin;
 
 impl Plugin for GeneratorPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Generators>()
+            .add_message::<LoseNearestGenerator>()
             .add_systems(OnEnter(GameState::Playing), (reset, spawn_plates))
             .add_systems(
                 Update,
                 (
-                    (claim, charge).chain().in_set(HostSimulation),
+                    (claim, lose_nearest, charge).chain().in_set(HostSimulation),
                     run_shown_charge.run_if(in_state(Authority::Client)),
                     (prompt_plates, announce, glow_plates),
                 )

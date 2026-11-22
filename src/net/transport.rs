@@ -35,7 +35,7 @@ use super::protocol::{HOST, Peer};
 use crate::tuning::LINK_LOST_SILENCE_SECS;
 
 /// Games speak only to games that speak this.
-const ALPN: &[u8] = b"zombies/7";
+const ALPN: &[u8] = b"zombies/8";
 /// The byte a Player's stream begins with.
 const GREETING: u8 = 1;
 /// The longest message taken from a stream.
