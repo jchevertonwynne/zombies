@@ -176,6 +176,7 @@ per_map! {
     void_sweep_dam: Dam,
     void_sweep_cove: Cove,
     void_sweep_polder: Polder,
+    void_sweep_sanatorium: Sanatorium,
 }
 
 /// Dense running jumps off every slope's sides and top.
@@ -239,6 +240,7 @@ per_map_slopes! {
     void_slopes_dam: Dam,
     void_slopes_cove: Cove,
     void_slopes_polder: Polder,
+    void_slopes_sanatorium: Sanatorium,
 }
 
 /// A Player who somehow reaches the Rail Yard's window ledge can't jump, bunny-hop or run over its

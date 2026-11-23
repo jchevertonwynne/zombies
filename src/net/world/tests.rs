@@ -223,6 +223,39 @@ fn a_client_buys_a_door_and_every_machine_sees_it_open() {
     assert_eq!(run.seen(2).bought, 0);
 }
 
+/// Every peer builds the Sanatorium from the same `Layout`: a client buys one of its Doors, and the
+/// Power Switch (in the Boiler House) is thrown, and both reach the Host and the other client alike,
+/// each of whom has the same Doors by `NetId`.
+#[test]
+fn a_two_player_run_on_the_sanatorium_opens_a_door_and_the_power_goes_on_for_both() {
+    use crate::maps::power::{Power, PowerSwitch};
+    let mut run = Run::on(crate::maps::map::MapId::Sanatorium, 2, &|_| {});
+    run.give_points(1, 5000);
+    for on in 0..3 {
+        assert!(!run.world(on).resource::<Power>().is_on(), "game {on}");
+        let world = run.world(on);
+        let doors = world.query::<&Door>().iter(world).count();
+        assert_eq!(doors, 19, "game {on} builds all 19 Doors from the Layout");
+    }
+    // D2, Hall to West Corridor, the cheapest.
+    let door = run.find::<Door>(1, |door| door.price == Some(750) && door.route() == Some((crate::maps::zone::ZoneId::WestCorridor, crate::maps::zone::ZoneId::EntranceHall)));
+    let id = *run.world(1).get::<NetId>(door).unwrap();
+    run.use_buyable(1, door, false);
+    run.step(20);
+    for on in 0..3 {
+        let door = run.world(on).resource::<NetIds>().entity(id.0).expect("every game names the Door alike");
+        assert!(run.world(on).get::<Door>(door).unwrap().open, "game {on} still has the Door shut");
+    }
+    // The Power Switch is thrown on the Host, and the Power goes on in every game.
+    let switch = run.find::<PowerSwitch>(0, |_| true);
+    let player = run.player(0, 0);
+    run.world(0).write_message(crate::economy::buy::Purchased { player, buyable: switch });
+    run.step(400);
+    for on in 0..3 {
+        assert!(run.world(on).resource::<Power>().is_on(), "game {on} didn't see the Power go on");
+    }
+}
+
 #[test]
 fn a_client_who_cant_afford_a_door_gets_the_refusal_and_the_door_stays_shut() {
     let mut run = Run::new(1);

@@ -383,6 +383,17 @@ pub(crate) fn equipment_walls(map: MapId) -> &'static [(EquipmentWall, ZoneId, V
             ];
             &SPOTS
         }
+        MapId::Sanatorium => {
+            const SPOTS: [(EquipmentWall, ZoneId, Vec3, Vec3); 3] = [
+                // On the Forecourt's lodge wall, west of the front doors.
+                (EquipmentWall::Frags, ZoneId::Forecourt, Vec3::new(-30.0, 1.5, -0.2), Vec3::NEG_Z),
+                // On the Garden Court's south wall, by the bandstand.
+                (EquipmentWall::Claymore, ZoneId::GardenCourt, Vec3::new(0.0, 1.5, 14.2), Vec3::Z),
+                // On the Mortuary's east wall.
+                (EquipmentWall::BowieKnife, ZoneId::Mortuary, Vec3::new(71.8, 1.5, 8.0), Vec3::NEG_X),
+            ];
+            &SPOTS
+        }
     }
 }
 

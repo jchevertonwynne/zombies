@@ -78,6 +78,16 @@ pub(crate) fn traps(map: MapId) -> &'static [((ZoneId, ZoneId), Vec3, f32)] {
             ];
             &SPOTS
         }
+        // The Hall's front doors, the West Corridor's way into the Garden Court and the Court's way
+        // into the Refectory, all in walls along x.
+        MapId::Sanatorium => {
+            const SPOTS: [((ZoneId, ZoneId), Vec3, f32); 3] = [
+                ((ZoneId::EntranceHall, ZoneId::Forecourt), Vec3::new(0.0, 0.0, 0.0), -2.2),
+                ((ZoneId::WestCorridor, ZoneId::GardenCourt), Vec3::new(-18.0, 0.0, 14.0), -15.8),
+                ((ZoneId::GardenCourt, ZoneId::Refectory), Vec3::new(0.0, 0.0, 42.0), 2.2),
+            ];
+            &SPOTS
+        }
     }
 }
 

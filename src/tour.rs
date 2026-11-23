@@ -1,5 +1,4 @@
-//! The screenshot tour, for approving a Map's look: `ZOMBIES_TOUR=<map>` (`greybox`, `cove`, `dam`, `village` or `quarry`) skips the menu, stands the Player at each of the Map's views in turn with no Zombies about,
-//! The screenshot tour, for approving a Map's look: `ZOMBIES_TOUR=<map>` (`greybox`, `cove`, `dam` or `polder`) skips the menu, stands the Player at each of the Map's views in turn with no Zombies about,
+//! The screenshot tour, for approving a Map's look: `ZOMBIES_TOUR=<map>` (`greybox`, `quarry`, `village`, `dam`, `cove`, `polder` or `sanatorium`) skips the menu, stands the Player at each of the Map's views in turn with no Zombies about,
 //! saves a 1920×1080 shot of the game window for each into `ZOMBIES_TOUR_OUT` (default `tour/`),
 //! and quits. The route views look from Zone to Zone through the Doors, which are hidden for them.
 //! `ZOMBIES_TOUR_TIDE=low|rising|high|falling` holds the Polder's Tide at that phase.
@@ -214,6 +213,32 @@ const COVE: &[View] = &[
     view("infill-keepers-cottage-breast", (-4.0, 12.0, 54.0), (-3.0, 63.5), -0.05, false),
 ];
 
+/// The Sanatorium: a view of each of its 17 Zones, then the stairs, the drop, the bandstand and the gallery.
+const SANATORIUM: &[View] = &[
+    view("entrance-hall", (0.0, 0.0, 2.5), (0.0, 13.0), -0.05, false),
+    view("forecourt", (-30.0, 0.0, -26.0), (0.0, -12.0), -0.02, false),
+    view("west-corridor", (-47.0, 0.0, 11.0), (-12.0, 11.0), 0.0, false),
+    view("east-corridor", (47.0, 0.0, 11.0), (12.0, 11.0), 0.0, false),
+    view("garden-court", (-22.0, 0.0, 17.0), (0.0, 28.0), -0.02, false),
+    view("refectory", (-23.0, 0.0, 44.0), (22.0, 52.0), -0.05, false),
+    view("boiler-house", (-53.0, 0.0, -11.0), (-68.0, 8.0), -0.05, false),
+    view("mortuary", (53.0, 0.0, -11.0), (68.0, 8.0), -0.05, false),
+    view("long-ward", (-47.0, 0.0, 16.0), (-38.0, 40.0), -0.05, false),
+    view("day-room", (-47.0, 0.0, 44.0), (-28.0, 54.0), -0.05, false),
+    view("bath-hall", (47.0, 0.0, 16.0), (38.0, 40.0), -0.05, false),
+    view("treatment-room", (47.0, 0.0, 44.0), (28.0, 54.0), -0.05, false),
+    view("upper-landing", (0.0, 4.0, 44.0), (0.0, 62.0), -0.05, false),
+    view("operating-theatre", (12.0, 4.0, 44.0), (30.0, 50.0), -0.05, false),
+    view("sun-roof", (-32.0, 4.0, 17.0), (-45.0, 40.0), -0.02, false),
+    view("isolation-ward", (-12.0, 4.0, 44.0), (-24.0, 54.0), -0.05, false),
+    view("childrens-ward", (-28.0, 4.0, 44.0), (-48.0, 54.0), -0.05, false),
+    view("main-stair", (2.0, 0.0, 58.5), (-2.0, 63.0), 0.2, false),
+    view("fire-escape", (-27.8, 0.0, 16.0), (-27.5, 26.0), 0.3, false),
+    view("sun-roof-drop", (-40.0, 4.0, 32.5), (-26.0, 32.5), -0.1, false),
+    view("bandstand", (-12.0, 0.0, 28.0), (0.0, 28.0), -0.02, false),
+    view("observation-gallery", (20.0, 4.0, 45.0), (22.0, 56.0), 0.05, false),
+];
+
 /// The Polder: a view of each of its 16 Zones, then its bridges, the lock gates, the water and the dyke.
 const POLDER: &[View] = &[
     view("town-square-pump", (-12.0, 0.0, -34.0), (-4.0, -24.0), -0.05, false),
@@ -294,7 +319,8 @@ impl Tour {
             "village" => (MapId::Village, VILLAGE),
             "quarry" => (MapId::Quarry, QUARRY),
             "polder" => (MapId::Polder, POLDER),
-            other => panic!("ZOMBIES_TOUR={other}: only greybox, dam, cove, village, quarry and polder have views"),
+            "sanatorium" => (MapId::Sanatorium, SANATORIUM),
+            other => panic!("ZOMBIES_TOUR={other}: only greybox, dam, cove, village, quarry, polder and sanatorium have views"),
         };
         let dir = std::env::var("ZOMBIES_TOUR_OUT").unwrap_or_else(|_| "tour".into());
         std::fs::create_dir_all(&dir).expect("ZOMBIES_TOUR_OUT is writable");

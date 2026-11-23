@@ -162,6 +162,8 @@ pub(crate) fn switch_spot(map: MapId) -> Option<(Vec3, Vec3)> {
         MapId::Cove => (Vec3::new(-48.0, 3.0 * STOREY + 1.3, 44.4), Vec3::Z),
         // On the Pumping Station's seaward wall, at hand height, by the beam engine.
         MapId::Polder => (Vec3::new(62.0, STOREY + 1.3, 59.6), Vec3::NEG_Z),
+        // On the Boiler House's north wall, at hand height, on the boiler front.
+        MapId::Sanatorium => (Vec3::new(-66.0, 1.3, 13.6), Vec3::NEG_Z),
     })
 }
 

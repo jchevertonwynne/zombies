@@ -79,6 +79,13 @@ pub(super) enum Gap {
     Window,
 }
 
+/// Whether `zone`'s volume reaches down to the bottom of `hole`, a well in its floor. Every Zone's
+/// does, but the Sanatorium's two stacked over a ground Zone, whose wells stand in bays outside
+/// every Zone's box.
+fn reaches_down(zone: ZoneId, hole: &Sunken) -> bool {
+    zone.volume().0.y < zone.floor() - hole.depth + 0.5
+}
+
 /// A stair tread's nosing: how deep (along the climb) and how thick.
 const NOSING: Vec2 = Vec2::new(0.05, 0.03);
 
@@ -213,7 +220,9 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
     pub fn floor(&mut self, zone: ZoneId, holes: &[Sunken]) {
         let (lo, hi) = zone.volume();
         let height = zone.floor();
-        let deepest = holes.iter().map(|hole| hole.depth).fold(0.0, f32::max);
+        // A well the Zone's volume reaches down into has a floor solid all the way down its sides;
+        // one cut in the floor of a Zone stacked over another (the Sanatorium's stairs) doesn't.
+        let deepest = holes.iter().filter(|hole| reaches_down(zone, hole)).map(|hole| hole.depth).fold(0.0, f32::max);
         let thick = 0.2 + deepest;
         let colour = palette(Some(zone)).floor;
         let set = materials(Some(zone));
@@ -240,7 +249,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let top = (hi.y / STOREY).ceil() * STOREY;
         let material = materials(Some(zone)).map(|set| set.wall);
         // Open over water and stairwells a storey deep or more, which the roof leaves to the sky.
-        let cut: Vec<_> = holes.iter().filter(|hole| hole.zone == zone && hole.depth >= 1.5).map(|hole| (hole.min, hole.max)).collect();
+        let cut: Vec<_> = holes.iter().filter(|hole| hole.zone == zone && hole.depth >= 1.5 && reaches_down(zone, hole)).map(|hole| (hole.min, hole.max)).collect();
         for (min, max) in rects_around((Vec2::new(lo.x, lo.z), Vec2::new(hi.x, hi.z)), &cut) {
             let size = Vec3::new(max.x - min.x, THICKNESS, max.y - min.y);
             let centre = Vec3::new((min.x + max.x) / 2.0, top + THICKNESS / 2.0, (min.y + max.y) / 2.0);
