@@ -33,7 +33,7 @@ use crate::tuning::*;
 use crate::weapons::arsenal::WeaponId;
 
 use super::build::{Builder, Gap};
-use super::{Canal, Layout, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, palette, prop};
+use super::{Canal, Infill, Layout, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, infill, palette, prop};
 
 #[path = "polder/data.rs"]
 mod data;
@@ -98,7 +98,7 @@ pub(super) const POLDER: Layout = Layout {
     special_spawns: &SPECIAL_SPAWNS,
     vents: &[],
     raised_floors: &RAISED_FLOORS,
-    infills: &[],
+    infills: &INFILLS,
     slopes: &SLOPES,
     sunken: &data::SUNKEN,
     water: &data::POOLS,
@@ -472,6 +472,44 @@ pub(super) const WELLS: [Sunken; 3] = [
     Sunken { zone: ZoneId::DykeRoad, min: v(-22.8, 48.0), max: v(-17.2, 48.2 + LANDING + RUN), depth: STOREY, rim: false },
     Sunken { zone: ZoneId::PumpingStation, min: v(65.2, 48.0), max: v(70.8, 48.2 + LANDING + RUN), depth: STOREY, rim: false },
 ];
+
+/// The Infills, one to three in each indoor Zone, so no two rooms share a shape. Each keeps clear
+/// of the Doors, windows, Buyables, Spawn Points and every path-node edge, none comes more than
+/// 1.1 m out of a wall, and none stands in or beside a Canal, a Ford, a stairwell or a Swing
+/// Bridge's span or landings: the water's extent is its highest, so they clear it at every Tide.
+const INFILLS: [Infill; 17] = {
+    use ZoneId::*;
+    [
+        // The Weigh House: a chimney breast in the west wall, a stair core in the east wall's
+        // dry corner, and a pier in the south wall between the two windows.
+        infill(WeighHouse, (-56.0, -20.5), (-55.0, -17.5)),
+        infill(WeighHouse, (-27.0, -16.0), (-26.0, -13.6)),
+        infill(WeighHouse, (-46.8, -40.0), (-45.2, -39.0)),
+        // The Brewery: a cupboard in the north-west corner, a flue breast in the west wall past
+        // the Box, and a pier in the north wall.
+        infill(Brewery, (-80.0, -56.0), (-79.0, -55.0)),
+        infill(Brewery, (-80.0, -35.5), (-79.0, -32.5)),
+        infill(Brewery, (-68.5, -56.0), (-67.0, -55.0)),
+        // The Warehouse: a hoist-motor cupboard in the north-west corner, a nib in the west wall
+        // between its Door and the Box, and a buttress in the east wall past Speed Cola.
+        infill(Warehouse, (-56.0, 0.0), (-54.9, 1.4)),
+        infill(Warehouse, (-56.0, 14.6), (-55.1, 17.2)),
+        infill(Warehouse, (-35.0, 20.0), (-34.0, 22.0)),
+        // The Sluice House: a gear housing against each long wall inside, offset along it.
+        infill(SluiceHouse, (-5.0, 8.5), (-4.1, 11.5)),
+        infill(SluiceHouse, (4.1, 12.4), (5.0, 14.0)),
+        // The Customs House: a pier in the north wall, a strongroom in the north-west corner and
+        // a bonded-store nib in the east wall.
+        infill(CustomsHouse, (38.5, 47.0), (40.0, 48.0)),
+        infill(CustomsHouse, (14.0, 44.8), (15.0, 48.0)),
+        infill(CustomsHouse, (57.0, 44.5), (58.0, 47.0)),
+        // The Pumping Station: a stair core in the corner by the dyke's edge, a pier in the
+        // seaward wall between the windows, and a cupboard in the far corner.
+        infill(PumpingStation, (44.0, 48.0), (45.0, 49.0)),
+        infill(PumpingStation, (59.6, 58.9), (60.8, 60.0)),
+        infill(PumpingStation, (78.9, 58.9), (80.0, 60.0)),
+    ]
+};
 
 /// The Props. Most stand flush against a wall; the islands to run round are the Square's pump and
 /// its stalls, the Brewery's vats, the Cheese Market's racks, the hull on the Shipyard's stocks and
@@ -971,5 +1009,49 @@ mod tests {
                 x += 0.5;
             }
         }
+    }
+
+    /// Whether two footprints overlap across the floor (touching along a wall doesn't).
+    fn overlap((a_min, a_max): (Vec2, Vec2), (b_min, b_max): (Vec2, Vec2)) -> bool {
+        a_min.cmplt(b_max).all() && b_min.cmplt(a_max).all()
+    }
+
+    /// An Infill stays clear of the water at every Tide level (every Pool and Sunken floor here is
+    /// at its fullest extent, which the Tide only ever fills to), and clear of every Swing Bridge
+    /// and Lock Gate Leaf wherever it rests and of the landings at its ends.
+    #[test]
+    fn every_infill_keeps_clear_of_the_water_at_every_tide_and_of_the_bridges() {
+        let mut bad = Vec::new();
+        for infill in polder().infills {
+            let at = (infill.min, infill.max);
+            let what = format!("the Infill at {}..{} in {}", infill.min, infill.max, infill.zone.name());
+            for pool in polder().water {
+                if overlap(at, (pool.min, pool.max)) {
+                    bad.push(format!("{what} stands in the water at {}..{}", pool.min, pool.max));
+                }
+            }
+            for sunken in polder().sunken {
+                if overlap(at, (sunken.min, sunken.max)) {
+                    bad.push(format!("{what} stands in the sunken floor at {}..{}", sunken.min, sunken.max));
+                }
+            }
+            for piece in SHIFTING.iter() {
+                for (i, leaf) in piece.leaves.iter().enumerate() {
+                    for rest in piece.rests {
+                        let yaw = rest.yaws[i];
+                        let centre = leaf.centre(yaw);
+                        let (c, n) = (yaw.cos().abs(), yaw.sin().abs());
+                        let half = Vec2::new(c * leaf.size.x + n * leaf.size.z, n * leaf.size.x + c * leaf.size.z) / 2.0;
+                        // A metre of landing all round the Leaf.
+                        let reach = half + Vec2::ONE;
+                        let middle = Vec2::new(centre.x, centre.z);
+                        if overlap(at, (middle - reach, middle + reach)) {
+                            bad.push(format!("{what} is in the way of a Leaf at {centre}"));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(bad.is_empty(), "{bad:#?}");
     }
 }
