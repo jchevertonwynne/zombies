@@ -78,6 +78,70 @@ pub fn shot_cue(weapon: WeaponId, underbarrel: Option<Underbarrel>) -> (Cue, f32
     }
 }
 
+/// A Weapon's own gunshot slot: files are `gunshot_<weapon>.ogg` or `gunshot_<weapon>_1.ogg`...
+/// A shot plays them when the slot has files, and its class's gunshot (`class_gunshot`) when it
+/// has none, as a floor family does for footsteps. The slots are optional. It is a slot name, not
+/// a `Cue`, so the 28 Weapons add no variants to `Cue::ALL` (every one of which must have files,
+/// and which `gen-sounds` writes placeholders for); `WeaponId as usize` indexes them.
+pub const fn weapon_gunshot_slot(weapon: WeaponId) -> &'static str {
+    match weapon {
+        WeaponId::M1911 => "gunshot_m1911",
+        WeaponId::Olympia => "gunshot_olympia",
+        WeaponId::M14 => "gunshot_m14",
+        WeaponId::Mp40 => "gunshot_mp40",
+        WeaponId::TrenchGun => "gunshot_trench_gun",
+        WeaponId::Ak74u => "gunshot_ak74u",
+        WeaponId::Cz75 => "gunshot_cz75",
+        WeaponId::Cz75DualWield => "gunshot_cz75_dual_wield",
+        WeaponId::Python => "gunshot_python",
+        WeaponId::Spectre => "gunshot_spectre",
+        WeaponId::G11 => "gunshot_g11",
+        WeaponId::Famas => "gunshot_famas",
+        WeaponId::Aug => "gunshot_aug",
+        WeaponId::Commando => "gunshot_commando",
+        WeaponId::Galil => "gunshot_galil",
+        WeaponId::FnFal => "gunshot_fn_fal",
+        WeaponId::Hs10 => "gunshot_hs10",
+        WeaponId::Spas12 => "gunshot_spas12",
+        WeaponId::Dragunov => "gunshot_dragunov",
+        WeaponId::L96a1 => "gunshot_l96a1",
+        WeaponId::Rpk => "gunshot_rpk",
+        WeaponId::Hk21 => "gunshot_hk21",
+        WeaponId::M72Law => "gunshot_m72_law",
+        WeaponId::ChinaLake => "gunshot_china_lake",
+        WeaponId::RayGun => "gunshot_ray_gun",
+        WeaponId::Thundergun => "gunshot_thundergun",
+        WeaponId::Crossbow => "gunshot_crossbow",
+        WeaponId::BallisticKnife => "gunshot_ballistic_knife",
+    }
+}
+
+/// What a shot plays: the Weapon's own slot, or a cue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shot {
+    Own(WeaponId),
+    Cue(Cue),
+}
+
+/// The sound a shot plays and its playback speed. A Weapon's own slot (when `has_files` says it
+/// has files) plays at its natural speed; a Weapon without one falls back to its class gunshot
+/// at its pitch offset. The underbarrels are unchanged.
+pub fn shot_sound(weapon: WeaponId, underbarrel: Option<Underbarrel>, has_files: impl Fn(WeaponId) -> bool) -> (Shot, f32) {
+    if underbarrel.is_none() && has_files(weapon) {
+        return (Shot::Own(weapon), 1.0);
+    }
+    let (cue, speed) = shot_cue(weapon, underbarrel);
+    (Shot::Cue(cue), speed)
+}
+
+/// The cue whose gain, and voice cap, a shot takes: its class gunshot for a Weapon's own slot.
+pub fn shot_voice_cue(shot: Shot) -> Cue {
+    match shot {
+        Shot::Own(weapon) => class_gunshot(weapon.stats().class),
+        Shot::Cue(cue) => cue,
+    }
+}
+
 /// The sound a teammate's body makes going from `before` to `now`: the groan of going Down, the
 /// rush of getting back up, or the start of a Reload, Knife swing or Perk drink. Throws, and the
 /// Revive's kneel, have no sound of their own.
@@ -288,6 +352,48 @@ mod tests {
         assert_eq!(shot_cue(WeaponId::ChinaLake, None).0, Cue::GunshotLauncher);
         assert_eq!(shot_cue(WeaponId::RayGun, None).0, Cue::RayGun);
         assert_eq!(shot_cue(WeaponId::Thundergun, None).0, Cue::Thundergun);
+    }
+
+    #[test]
+    fn a_weapon_with_its_own_clips_plays_them_and_one_without_falls_back_to_its_class() {
+        let own = |id: WeaponId| id == WeaponId::M1911;
+        assert_eq!(shot_sound(WeaponId::M1911, None, own), (Shot::Own(WeaponId::M1911), 1.0));
+        assert_eq!(shot_sound(WeaponId::Cz75, None, own), (Shot::Cue(Cue::GunshotPistol), weapon_pitch(WeaponId::Cz75)));
+        // The pitch offset only survives on the fallback.
+        assert_ne!(weapon_pitch(WeaponId::Cz75), 1.0);
+        assert_eq!(shot_sound(WeaponId::Cz75, None, |_| false), (Shot::Cue(Cue::GunshotPistol), weapon_pitch(WeaponId::Cz75)));
+    }
+
+    #[test]
+    fn an_underbarrel_shot_ignores_the_weapons_own_clips() {
+        let all = |_: WeaponId| true;
+        assert_eq!(shot_sound(WeaponId::Commando, Some(Underbarrel::Masterkey), all), (Shot::Cue(Cue::GunshotShotgun), 1.0));
+        assert_eq!(shot_sound(WeaponId::Commando, Some(Underbarrel::GrenadeLauncher), all), (Shot::Cue(Cue::GunshotLauncher), 1.0));
+        assert_eq!(shot_sound(WeaponId::Commando, Some(Underbarrel::Flamethrower), all), (Shot::Cue(Cue::Flamethrower), 1.0));
+    }
+
+    #[test]
+    fn an_own_clip_takes_its_class_gunshot_gain_and_voice_cap() {
+        let shot = Shot::Own(WeaponId::Rpk);
+        assert_eq!(shot_voice_cue(shot), Cue::GunshotLmg);
+        assert_eq!(voice_cap(shot_voice_cue(shot)), Some(GUNSHOT_MAX_VOICES));
+        assert_eq!(shot_voice_cue(Shot::Cue(Cue::RayGun)), Cue::RayGun);
+        // A wonder weapon's own slot is uncapped, as its cue is.
+        assert_eq!(voice_cap(shot_voice_cue(Shot::Own(WeaponId::RayGun))), None);
+    }
+
+    #[test]
+    fn each_weapon_has_its_own_distinct_gunshot_slot() {
+        let mut slots: Vec<_> = ALL_WEAPONS.iter().map(|&id| weapon_gunshot_slot(id)).collect();
+        for (i, id) in ALL_WEAPONS.iter().enumerate() {
+            assert_eq!(*id as usize, i);
+            assert!(weapon_gunshot_slot(*id).starts_with("gunshot_"));
+        }
+        slots.sort_unstable();
+        slots.dedup();
+        assert_eq!(slots.len(), ALL_WEAPONS.len());
+        // And none is a cue's slot: they're optional.
+        assert!(Cue::ALL.iter().all(|cue| !slots.contains(&cue.spec().name)));
     }
 
     #[test]
