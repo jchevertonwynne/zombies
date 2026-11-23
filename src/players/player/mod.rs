@@ -604,6 +604,15 @@ fn queue_teleports(mut teleports: MessageReader<Teleport>, mut pending: ResMut<P
     pending.0.extend(teleports.read().copied());
 }
 
+/// Makes a headless game carry out `Teleport`s as the real one does, before each Player's move.
+#[cfg(test)]
+pub(crate) fn add_teleport_systems(app: &mut App) {
+    app.add_message::<Teleport>()
+        .init_resource::<PendingTeleports>()
+        .add_systems(PostUpdate, queue_teleports)
+        .add_systems(FixedUpdate, teleport_player.before(move_player));
+}
+
 /// A Player took damage: a Zombie's swing, a blast, a Trap, a fire pool.
 #[derive(Message)]
 pub struct PlayerHit {

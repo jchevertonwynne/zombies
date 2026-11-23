@@ -1,7 +1,8 @@
 //! Shifting: Pieces of the world that turn about vertical hinges between fixed Rests, and the
-//! Levers or the Tide that drive them. The Polder's four Swing Bridges are turned by Levers; its
-//! two Lock Gates by the Tide, which gives each the Rest it stands at in every phase and swings it
-//! along with the water.
+//! Levers, the Tide or the Quarantine that drive them. The Polder's four Swing Bridges are turned by
+//! Levers; its two Lock Gates by the Tide, which gives each the Rest it stands at in every phase and
+//! swings it along with the water; the Sanatorium's six Quarantine Doors by the Quarantine, which
+//! shuts a Wing's pair of them and opens them again.
 //!
 //! A Piece is one or more Leaves, each a solid box (a deck with rails) that turns about its own
 //! vertical hinge. The Host decides everything: a Lever pull starts a cycle of Warning, Waiting
@@ -27,6 +28,7 @@ use crate::maps::door::Door;
 use crate::enemies::nav::Route;
 use crate::enemies::special::special_spawn_candidates;
 use crate::maps::map::{Layout, MapId, SpawnKind, SpawnPoint};
+use crate::maps::quarantine::{Quarantine, QuarantineClock, Stage, WingId};
 use crate::maps::tide::{Tide, TidePhase, TideTurn, TurnState};
 use crate::maps::zone::ActiveZones;
 use crate::maps::zone::ZoneId;
@@ -66,8 +68,18 @@ impl Leaf {
         local.x.abs() <= self.size.x / 2.0 + margin && local.z.abs() <= self.size.z / 2.0 + margin
     }
 
+    /// Whether the Leaf is a door, standing from its hinge's floor up, not a deck to walk on.
+    pub fn is_door(&self) -> bool {
+        self.size.y > 1.0
+    }
+
     /// Whether feet at `feet` are at the heights a body on the deck or in the water below it is.
+    /// A door's reach is the floor it stands on (a body a storey up is not in its way).
     pub fn height_in_reach(&self, feet: Vec3) -> bool {
+        if self.is_door() {
+            let bottom = self.hinge.y + self.offset.y - self.size.y / 2.0;
+            return (bottom - SWING_DOOR_REACH_BELOW..=self.top()).contains(&feet.y);
+        }
         (self.top() - SWING_REACH_BELOW..=self.top() + SWING_REACH_ABOVE).contains(&feet.y)
     }
 }
@@ -89,6 +101,10 @@ pub enum Driver {
     /// on a Turn whose new phase has a different Rest, over the Turn's own seconds, and has no
     /// Lever, no cooldown and nothing to Sabotage.
     Tide([u8; 4]),
+    /// The Quarantine: it shuts when this Wing seals (Rest 1) and stands Open (Rest 0) otherwise.
+    /// It Swings only as the Quarantine's stage says, over `SWING_SECS`, with no Lever, no wait and no
+    /// cooldown, and nothing to Sabotage.
+    Quarantine(WingId),
 }
 
 /// A Piece of world that shifts between Rests.
@@ -156,7 +172,7 @@ impl Piece {
     pub fn levers(&self) -> &'static [(ZoneId, Vec3, Vec2)] {
         match self.driver {
             Driver::Levers(levers) => levers,
-            Driver::Tide(_) => &[],
+            Driver::Tide(_) | Driver::Quarantine(_) => &[],
         }
     }
 
@@ -169,7 +185,15 @@ impl Piece {
                 TidePhase::High => 2,
                 TidePhase::Falling => 3,
             }]),
-            Driver::Levers(_) => None,
+            Driver::Levers(_) | Driver::Quarantine(_) => None,
+        }
+    }
+
+    /// The Wing a Quarantine Door seals, if it is one.
+    pub fn wing(&self) -> Option<WingId> {
+        match self.driver {
+            Driver::Quarantine(wing) => Some(wing),
+            _ => None,
         }
     }
 }
@@ -365,8 +389,9 @@ pub struct PieceState {
     phase: PiecePhase,
     /// The Player whose pull it was, whose Tipped kills it credits.
     activator: Option<Entity>,
-    /// Whether the Tide drives it: it comes to Rest at the end of a Swing, with no cooldown.
-    tide: bool,
+    /// Whether the Tide or the Quarantine drives it: it comes to Rest at the end of a Swing, with no
+    /// cooldown.
+    driven: bool,
 }
 
 impl PieceState {
@@ -391,7 +416,7 @@ impl PieceState {
 
     /// A Tide-driven Piece has no cooldown: a landed Swing is at Rest.
     fn settle(&mut self) {
-        if self.tide
+        if self.driven
             && let PiecePhase::Cooling { at, .. } = self.phase
         {
             self.phase = PiecePhase::Rest(at);
@@ -400,7 +425,7 @@ impl PieceState {
 
     /// A Piece standing at its start Rest.
     pub fn at_start(id: PieceId, piece: &Piece) -> Self {
-        Self { id, phase: PiecePhase::Rest(piece.start), activator: None, tide: matches!(piece.driver, Driver::Tide(_)) }
+        Self { id, phase: PiecePhase::Rest(piece.start), activator: None, driven: matches!(piece.driver, Driver::Tide(_) | Driver::Quarantine(_)) }
     }
 }
 
@@ -451,6 +476,10 @@ pub struct SwingStarted {
 /// The collider of a Leaf: its deck and both rails, in the Leaf's own frame (the hinge at the
 /// origin).
 fn leaf_collider(leaf: &Leaf) -> Collider {
+    if leaf.is_door() {
+        // A door leaf is its slab: no rails.
+        return Collider::compound(vec![(leaf.offset, Quat::IDENTITY, Collider::cuboid(leaf.size.x, leaf.size.y, leaf.size.z))]);
+    }
     let rail = Vec3::new(LEAF_RAIL_THICKNESS, LEAF_RAIL_HEIGHT, leaf.size.z);
     let side = leaf.size.x / 2.0 - LEAF_RAIL_THICKNESS / 2.0;
     let up = leaf.offset.y + leaf.size.y / 2.0 + LEAF_RAIL_HEIGHT / 2.0;
@@ -477,6 +506,8 @@ pub fn spawn_pieces(commands: &mut Commands, meshes: &mut Assets<Mesh>, material
     let post = meshes.add(Cuboid::new(0.4, 1.0, 0.4));
     let arm = meshes.add(Cuboid::new(0.08, 0.6, 0.08));
     let lamp = meshes.add(Sphere::new(0.12));
+    // A Quarantine Door's Leaves are cream-green steel fire doors, drawn as the slab.
+    let steel = materials.add(Color::srgb(0.66, 0.72, 0.6));
     for (id, piece) in pieces(layout) {
         commands.spawn((
             InRun,
@@ -503,6 +534,10 @@ pub fn spawn_pieces(commands: &mut Commands, meshes: &mut Assets<Mesh>, material
                     Visibility::default(),
                 ))
                 .with_children(|parent| {
+                    if leaf.is_door() {
+                        parent.spawn((Mesh3d(deck), MeshMaterial3d(steel.clone()), Transform::from_translation(leaf.offset)));
+                        return;
+                    }
                     parent.spawn((Mesh3d(deck), MeshMaterial3d(timber.clone()), Transform::from_translation(leaf.offset)));
                     for sign in [-1.0, 1.0] {
                         parent.spawn((
@@ -557,15 +592,27 @@ pub struct ShiftingPlugin;
 
 impl Plugin for ShiftingPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<SwingStarted>()
+        app.add_plugins(crate::maps::quarantine::QuarantinePlugin)
+            .add_message::<SwingStarted>()
             .add_message::<SwingNearest>()
             .add_message::<Teleport>()
             .add_systems(FixedUpdate, (pose_leaves, throw_tipped).run_if(world_runs))
-            .add_systems(FixedUpdate, move_sappers.in_set(HostSimulation).run_if(world_runs))
+            .add_systems(FixedUpdate, (move_sappers, move_swept).in_set(HostSimulation).run_if(world_runs))
             .add_systems(
                 Update,
                 (
-                    (use_levers, swing_nearest, drive_gates.after(TideTurn), run_pieces, tip_occupants, wash_gate_players).chain().in_set(HostSimulation),
+                    (
+                        use_levers,
+                        swing_nearest,
+                        drive_gates.after(TideTurn),
+                        drive_quarantine.after(QuarantineClock),
+                        run_pieces,
+                        tip_occupants,
+                        wash_gate_players,
+                        sweep_quarantine,
+                    )
+                        .chain()
+                        .in_set(HostSimulation),
                     (prompt_levers, light_lamps, light_gate_lamps, ring_cues).chain(),
                 )
                     .run_if(world_runs),
@@ -650,7 +697,7 @@ fn swing_nearest(
     let layout = map.layout();
     let nearest = pieces
         .iter()
-        .filter_map(|state| layout.shifting.get(usize::from(state.id.0)).filter(|piece| !matches!(piece.driver, Driver::Tide(_))).map(|piece| (state.id, piece.leaves[0].hinge.distance(at))))
+        .filter_map(|state| layout.shifting.get(usize::from(state.id.0)).filter(|piece| matches!(piece.driver, Driver::Levers(_))).map(|piece| (state.id, piece.leaves[0].hinge.distance(at))))
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .map(|(id, _)| id);
     for mut state in &mut pieces {
@@ -735,6 +782,98 @@ fn wash_gate_players(
     }
 }
 
+/// The Quarantine drives its Pieces: a Wing's doors Swing shut as it Seals and open as it Opens, and
+/// otherwise stand where the stage says (shut through Sealed and Release, Open at every other time and
+/// for every other Wing). A Swing that is under way lands before anything else is decided. Both
+/// Swings come with the sweep's effects at once: nothing waits for anyone to clear.
+fn drive_quarantine(quarantine: Res<Quarantine>, mut pieces: Query<&mut PieceState>, map: Res<MapId>, mut swings: MessageWriter<SwingStarted>) {
+    let layout = map.layout();
+    for mut state in &mut pieces {
+        let Some(piece) = layout.shifting.get(usize::from(state.id.0)) else { continue };
+        let Some(wing) = piece.wing() else { continue };
+        let Some(at) = state.phase.standing() else { continue };
+        let seal = quarantine.seals(wing);
+        let to = u8::from(seal);
+        if at == to {
+            continue;
+        }
+        // Over its own Swing's seconds, as far into it as the stage is.
+        let elapsed = if matches!(quarantine.stage(), Stage::Sealing | Stage::Opening) { quarantine.elapsed() } else { 0.0 };
+        let id = state.id;
+        state.phase = PiecePhase::Swinging { from: at, to, elapsed };
+        swings.write(SwingStarted { piece: id, from: at, to });
+    }
+}
+
+/// Where a Quarantine Door's outside landing is: the node outside the Wing that the doorway's Door edge
+/// leads to. `None` on a graph for another Map, or one with no such edge.
+pub fn outside_landing(graph: &crate::enemies::nav::NavGraph, id: PieceId, piece: &Piece) -> Option<Vec3> {
+    use crate::enemies::nav::Gate;
+    let door = piece.door?;
+    let doorway = graph.edges.iter().find(|edge| edge.gate == Gate::Rest(id, 0))?.from;
+    let edge = graph.edges.iter().find(|edge| {
+        matches!(edge.gate, Gate::Door(a, b) if (a, b) == door || (b, a) == door) && (edge.from == doorway || edge.to == doorway)
+    })?;
+    let landing = if edge.from == doorway { edge.to } else { edge.from };
+    Some(graph.nodes[landing].at)
+}
+
+/// A Zombie, Hellhound or special a Quarantine Door's Swing has caught, to be put at `to`.
+#[derive(Component)]
+pub struct Swept {
+    to: Vec3,
+}
+
+/// When a Quarantine Door starts to Swing, either way, every Player (Down or not) and every enemy on
+/// a Leaf or in its sweep is put at the doorway's outside landing. Nothing is hurt: a Player takes no
+/// damage and is not Downed, and a Down one keeps their Last Stand; an enemy is not killed, but plans
+/// its route again from where it lands.
+fn sweep_quarantine(
+    mut commands: Commands,
+    mut swings: MessageReader<SwingStarted>,
+    mut players: Query<(Entity, &mut Transform, Option<&Locomotion>), With<Player>>,
+    zombies: Query<(Entity, &Zombie, &Transform), (Without<Dying>, Without<Player>)>,
+    graph: Option<Res<crate::enemies::nav::NavGraph>>,
+    map: Res<MapId>,
+    mut teleport: MessageWriter<Teleport>,
+) {
+    let layout = map.layout();
+    for &SwingStarted { piece: id, from, to } in swings.read() {
+        let Some(piece) = layout.shifting.get(usize::from(id.0)) else { continue };
+        if piece.wing().is_none() {
+            continue;
+        }
+        let Some(landing) = graph.as_ref().filter(|graph| graph.map == *map).and_then(|graph| outside_landing(graph, id, piece)) else { continue };
+        for (player, mut transform, locomotion) in &mut players {
+            let feet = transform.translation - Vec3::Y * half_height_above_feet(locomotion);
+            if !piece.in_way(feet, from, to) {
+                continue;
+            }
+            transform.translation = landing + Vec3::Y * (Stance::Standing.half_height() + 0.05);
+            teleport.write(Teleport { player, feet: landing, facing: None });
+        }
+        for (entity, zombie, transform) in &zombies {
+            let feet = transform.translation - Vec3::Y * zombie.half_height();
+            if piece.in_way(feet, from, to) {
+                commands.entity(entity).insert(Swept { to: landing });
+            }
+        }
+    }
+}
+
+/// An enemy a Swing caught is put on the outside landing as a clean cut, and plans again.
+fn move_swept(
+    mut commands: Commands,
+    mut swept: Query<(Entity, &Zombie, &Swept, &mut Transform, &mut TranslationEasingState, &mut Route), (Without<Dying>, Without<Player>)>,
+) {
+    for (entity, zombie, swept, mut transform, mut easing, mut route) in &mut swept {
+        commands.entity(entity).remove::<Swept>();
+        transform.translation = swept.to + Vec3::Y * (zombie.half_height() + 0.02);
+        easing.start = Some(transform.translation);
+        *route = Route::default();
+    }
+}
+
 /// When a Swing starts, every Zombie and Hellhound on a Leaf or in its sweep is Tipped: it dies
 /// at once as `Attack::Swing`, an Unpaid Kill. A Sapper loses the Trap's share of its health
 /// and is moved to a fresh spawn point instead.
@@ -749,6 +888,10 @@ fn tip_occupants(
     let layout = map.layout();
     for &SwingStarted { piece: id, from, to } in swings.read() {
         let Some(piece) = layout.shifting.get(usize::from(id.0)) else { continue };
+        // A Quarantine Door is no Trap: it puts bodies outside, it kills none.
+        if matches!(piece.driver, Driver::Quarantine(_)) {
+            continue;
+        }
         let activator = pieces.iter().find(|state| state.id == id).and_then(|state| state.activator);
         for (entity, zombie, transform) in &zombies {
             let feet = transform.translation - Vec3::Y * zombie.half_height();
@@ -890,7 +1033,8 @@ fn light_gate_lamps(tide: Option<Res<Tide>>, pieces: Query<&PieceState>, map: Re
     }
 }
 
-/// The clunk at Rest, on every machine, from the phase it shows.
+/// The clunk at Rest, on every machine, from the phase it shows; a Quarantine Door instead sounds as
+/// it starts to Swing and slams as it lands shut.
 fn ring_cues(
     pieces: Query<&PieceState>,
     map: Res<MapId>,
@@ -905,14 +1049,27 @@ fn ring_cues(
             Some(i) => was[i].1 = swinging,
             None => was.push((state.id, swinging)),
         }
-        if had && !swinging
-            && let Some(piece) = map.layout().shifting.get(usize::from(state.id.0))
-        {
-            let yaws = state.phase.yaws(piece);
-            let at = piece.leaves[0].centre(yaws[0]);
+        if had == swinging {
+            continue;
+        }
+        let Some(piece) = map.layout().shifting.get(usize::from(state.id.0)) else { continue };
+        let yaws = state.phase.yaws(piece);
+        let at = piece.leaves[0].centre(yaws[0]);
+        if piece.wing().is_some() {
+            if swinging {
+                cues.write(PlayCue::new(Cue::QuarantineSwing, Some(door_centre(piece))));
+            } else if state.phase.standing() == Some(1) {
+                cues.write(PlayCue::new(Cue::QuarantineSlam, Some(door_centre(piece))));
+            }
+        } else if !swinging {
             cues.write(PlayCue::new(Cue::BridgeClunk, Some(at)));
         }
     }
+}
+
+/// The middle of a Quarantine Door's doorway, at head height: between its two hinges.
+pub fn door_centre(piece: &Piece) -> Vec3 {
+    piece.leaves.iter().map(|leaf| leaf.hinge).sum::<Vec3>() / piece.leaves.len() as f32 + Vec3::Y * 1.2
 }
 
 /// A Door that is the gate of a Piece, if it is open.
@@ -1059,9 +1216,9 @@ mod tests {
     // ---- Per Map ----
 
     #[test]
-    fn only_the_polder_has_pieces_four_bridges_each_with_span_and_along_and_two_lock_gates() {
+    fn only_the_polder_and_the_sanatorium_have_pieces_the_polders_four_bridges_each_with_span_and_along_and_two_lock_gates() {
         for map in MapId::ALL {
-            assert_eq!(map.layout().shifting.len(), if map == MapId::Polder { 6 } else { 0 }, "{}", map.name());
+            assert_eq!(map.layout().shifting.len(), if matches!(map, MapId::Polder | MapId::Sanatorium) { 6 } else { 0 }, "{}", map.name());
         }
         for (id, piece) in pieces(polder()).take(4) {
             assert!(matches!(piece.driver, Driver::Levers(_)));

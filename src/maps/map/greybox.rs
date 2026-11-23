@@ -51,6 +51,7 @@ pub(super) const GREYBOX: Layout = Layout {
     lamps: &LAMPS,
     fixed_joins: &FIXED_JOINS,
     shifting: &[],
+    wings: &[],
     nav_nodes: NODES,
     nav_edges: EDGES,
     jump_pads: &[],

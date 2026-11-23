@@ -189,6 +189,14 @@ cues! {
     BridgeBell => "bridge_bell", Root, Spatial, 0.8;
     BridgeGrind => "bridge_grind", Root, Spatial, 0.8;
     BridgeClunk => "bridge_clunk", Root, Spatial, 1.0;
+    // The Sanatorium's Quarantine: a two-tone klaxon looping from a Wing's doors through Warning and
+    // Sealing, a Map-wide siren once at the Warning, the doors' swing, the slam as they land Sealed
+    // and the hiss and chime at the Release.
+    QuarantineKlaxon => "quarantine_klaxon", Root, Spatial, 0.9;
+    QuarantineSiren => "quarantine_siren", Root, Flat, 0.25;
+    QuarantineSwing => "quarantine_swing", Root, Spatial, 0.8;
+    QuarantineSlam => "quarantine_slam", Root, Spatial, 1.0;
+    QuarantineRelease => "quarantine_release", Root, Spatial, 0.8;
     TeleporterCharge => "teleporter_charge", Root, Spatial, 0.9;
     TeleporterFire => "teleporter_fire", Root, Spatial, 1.0;
     TeleporterArrive => "teleporter_arrive", Root, Spatial, 1.0;
@@ -359,6 +367,8 @@ mod tests {
             "wade_step", "splash", "zombie_wade", "zipline_ride", "zipline_land", "tide_bell", "tide_rush", "washed_up",
             // The Polder's Swing Bridges: the bell, the grind of the turn and the clunk at Rest.
             "bridge_bell", "bridge_grind", "bridge_clunk",
+            // The Sanatorium's Quarantine.
+            "quarantine_klaxon", "quarantine_siren", "quarantine_swing", "quarantine_slam", "quarantine_release",
             // Gauntlet v2's Proc cues (spec #182, Appendix C6).
             "proc_frost", "proc_blast",
             "set_bonus_tier_two", "set_bonus_tier_four", "set_bonus_tier_six", "duo_taken",

@@ -134,6 +134,7 @@ pub(super) const DAM: Layout = Layout {
     lamps: &LAMPS,
     fixed_joins: &[],
     shifting: &[],
+    wings: &[],
     nav_nodes: NODES,
     nav_edges: EDGES,
     jump_pads: &[],

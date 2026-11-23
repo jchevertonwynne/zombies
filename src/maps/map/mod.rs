@@ -170,6 +170,10 @@ pub struct Layout {
     /// The Pieces that Shift (turn about hinges between Rests): the Swing Bridges. Empty on every
     /// Map but the Polder. A Piece's `PieceId` is its place in this list.
     pub shifting: &'static [crate::maps::shifting::Piece],
+    /// The Wings the Quarantine seals, in the order it takes them: groups of Zones joined to the
+    /// rest of the Map only through Quarantine Doors. A `WingId` is its place in this list. Empty
+    /// on every Map but the Sanatorium.
+    pub wings: &'static [Wing],
     /// The path nodes: a name, then where a Zombie's feet stand there (x, y, z).
     pub nav_nodes: &'static [(&'static str, f32, f32, f32)],
     /// The path-node edges, by node name. Barrier and one-way edges run from the first node to
@@ -209,6 +213,13 @@ pub struct Layout {
     pub plan: (Vec2, Vec2),
     /// Builds the walls, the Doors and everything else the data above doesn't cover.
     build: fn(&mut Builder),
+}
+
+/// A group of Zones that the Quarantine seals together.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Wing {
+    pub name: &'static str,
+    pub zones: &'static [ZoneId],
 }
 
 impl Layout {

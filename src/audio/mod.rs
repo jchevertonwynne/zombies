@@ -1006,10 +1006,21 @@ fn entity_loops(
     pieces: Query<(Entity, &crate::maps::shifting::PieceState)>,
     boxes: Query<(Entity, &MysteryBox)>,
     active: Res<ActivePowerUps>,
+    quarantine: Option<Res<crate::maps::quarantine::Quarantine>>,
+    map: Option<Res<crate::maps::map::MapId>>,
 ) {
+    // The klaxon sounds from each of the Wing's doors through its Warning and Sealing.
+    let klaxon: Vec<Entity> = match (quarantine, map) {
+        (Some(quarantine), Some(map)) if quarantine.stage().alarm() => pieces
+            .iter()
+            .filter(|(_, state)| map.layout().shifting.get(usize::from(state.id().0)).is_some_and(|piece| piece.wing().is_some() && piece.wing() == quarantine.wing()))
+            .map(|(entity, _)| entity)
+            .collect(),
+        _ => Vec::new(),
+    };
     let all = |entities: Vec<Entity>| entities.into_iter().map(|entity| (entity, 1.0)).collect::<Vec<_>>();
     let fire_sale = active.active(PowerUp::FireSale);
-    let wanted: [(Cue, Vec<(Entity, f32)>); 11] = [
+    let wanted: [(Cue, Vec<(Entity, f32)>); 12] = [
         (Cue::NovaGas, all(clouds.iter().collect())),
         (Cue::SapperIdle, all(sappers.iter().map(|(entity, _)| entity).collect())),
         (Cue::SapperSabotage, all(sappers.iter().filter(|(_, working)| *working).map(|(entity, _)| entity).collect())),
@@ -1022,6 +1033,7 @@ fn entity_loops(
         (Cue::PowerupHum, all(dropped.iter().collect())),
         (Cue::TrapActive, all(traps.iter().filter(|(_, trap)| trap.running()).map(|(entity, _)| entity).collect())),
         (Cue::BridgeBell, all(pieces.iter().filter(|(_, state)| state.phase().bell()).map(|(entity, _)| entity).collect())),
+        (Cue::QuarantineKlaxon, all(klaxon)),
         (Cue::BridgeGrind, all(pieces.iter().filter(|(_, state)| state.phase().swinging()).map(|(entity, _)| entity).collect())),
         (
             Cue::FireSale,
