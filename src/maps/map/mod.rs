@@ -2272,11 +2272,11 @@ pub(crate) mod tests {
         }
     }
 
-    /// Every indoor Zone of the Greybox and the Quarry has one to three Infills, and no two rooms
+    /// Every indoor Zone of the Greybox, the Quarry and the Polder has one to three Infills, and no two rooms
     /// of a Map come out the same shape: no two have the same set of Infill sizes.
     #[test]
     fn every_indoor_greybox_zone_has_one_to_three_infills_and_no_two_share_a_shape() {
-        for map in [MapId::Greybox, MapId::Quarry] {
+        for map in [MapId::Greybox, MapId::Quarry, MapId::Polder] {
             every_indoor_zone_has_one_to_three_infills_and_no_two_share_a_shape(map);
         }
     }

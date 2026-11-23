@@ -236,6 +236,20 @@ const POLDER: &[View] = &[
     view("sea-gate", (22.0, 0.0, 21.5), (8.0, 21.5), -0.1, false),
     view("harbour", (0.0, 0.0, 38.0), (-40.0, 30.0), 0.0, false),
     view("town-canal", (-6.0, 0.0, -14.0), (40.0, -6.0), 0.0, false),
+    // The Infills that the room views above leave behind the camera.
+    view("infill-weigh-house-breast", (-46.0, 0.0, -24.0), (-56.0, -19.0), -0.05, false),
+    view("infill-weigh-house-pier", (-46.0, 0.0, -30.0), (-46.0, -40.0), -0.05, false),
+    view("infill-brewery-corners", (-70.0, 0.0, -46.0), (-80.0, -34.0), -0.05, false),
+    view("infill-brewery-pier", (-66.0, 0.0, -46.0), (-68.0, -56.0), -0.05, false),
+    view("infill-warehouse-corner", (-46.0, 0.0, 10.0), (-56.0, 0.5), -0.05, false),
+    view("infill-warehouse-nib", (-46.0, 0.0, 12.0), (-56.0, 16.0), -0.05, false),
+    view("infill-warehouse-buttress", (-44.0, 0.0, 19.0), (-34.0, 21.0), -0.05, false),
+    view("infill-sluice-house-housings", (0.0, 0.0, 15.0), (-5.0, 10.0), -0.05, false),
+    view("infill-customs-house-pier", (36.0, 0.0, 42.0), (39.0, 48.0), -0.05, false),
+    view("infill-customs-house-strongroom", (24.0, 0.0, 42.0), (14.0, 46.0), -0.05, false),
+    view("infill-customs-house-nib", (50.0, 0.0, 41.0), (58.0, 45.5), -0.05, false),
+    view("infill-pumping-station-corners", (52.0, 4.0, 54.0), (44.0, 48.0), -0.05, false),
+    view("infill-pumping-station-piers", (66.0, 4.0, 55.0), (79.5, 59.5), -0.05, false),
 ];
 
 /// Frames before the first shot, for every file to load.
