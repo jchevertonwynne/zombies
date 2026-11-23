@@ -23,7 +23,7 @@ use crate::tuning::*;
 use crate::weapons::ammo_mod::{AmmoMod, AmmoMods, CastEffect, CastTarget, Element, TurnedAlly, TurnedAllyExpired};
 use crate::weapons::burn::{Burning, Ignite};
 use crate::weapons::equipment::{GiveLethals, equipment_splash};
-use crate::weapons::explosive::{Explosion, Explosive, makes_crawlers};
+use crate::weapons::explosive::{BlastKind, Explosion, Explosive, makes_crawlers};
 use crate::weapons::weapon::{RefillMagazine, ResetKnifeCooldown};
 
 /// A Duo's recipe: the two Boons it needs, by stable ID, and their Families in the same order.
@@ -618,6 +618,7 @@ pub fn fly_supply_shells(
             hurts_zombies: true,
             ammo_mods: AmmoMods::NONE,
             crawlers: makes_crawlers(Explosive::Frag),
+            kind: BlastKind::Plain,
         });
         commands.entity(entity).despawn();
     }

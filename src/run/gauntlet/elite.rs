@@ -26,7 +26,7 @@ use crate::state::InRun;
 use crate::tuning::*;
 use crate::weapons::ammo_mod::AmmoMods;
 use crate::weapons::arsenal::Splash;
-use crate::weapons::explosive::Explosion;
+use crate::weapons::explosive::{BlastKind, Explosion};
 
 /// The five Elite Traits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -237,6 +237,7 @@ pub fn volatile_blasts(at: Vec3, players: &[Entity]) -> Vec<Explosion> {
         hurts_zombies: false,
         ammo_mods: AmmoMods::NONE,
         crawlers: false,
+        kind: BlastKind::Volatile,
     };
     if players.is_empty() {
         return vec![blast(None, false)];

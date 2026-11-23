@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use super::boon::{Requirement, RunFacts, draw};
 use crate::weapons::ammo_mod::AmmoMods;
 use crate::weapons::arsenal::Splash;
-use crate::weapons::explosive::Explosion;
+use crate::weapons::explosive::{BlastKind, Explosion};
 use crate::modifier::{Effect, Modifier, Source, Stat};
 use crate::economy::perk::Perk;
 use crate::players::player::Seat;
@@ -426,6 +426,7 @@ pub fn scorched_earth_blast(at: Vec3, max_health: f32, player: Option<Entity>) -
         hurts_zombies: true,
         ammo_mods: AmmoMods::NONE,
         crawlers: true,
+        kind: BlastKind::Plain,
     }
 }
 
