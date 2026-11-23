@@ -153,7 +153,7 @@ pub(super) const SANATORIUM: Layout = Layout {
     roofed: true,
     sun: Vec3::new(1.0, -3.4, 4.7),
     look: crate::maps::look::NORTHERN_DUSK,
-    outside: Some(super::Outside { floor: super::textures::Material::CobblestoneFloor06, wall: super::textures::Material::DarkBrickWall }),
+    outside: Some(super::Outside { floor: super::textures::Material::GrassGround, wall: super::textures::Material::WornMossyPlasterwall }),
     plan: (Vec2::new(-72.0, -30.0), Vec2::new(72.0, 66.0)),
     build,
 };
@@ -814,5 +814,40 @@ mod tests {
         let graph = NavGraph::new(MapId::Sanatorium);
         let (top, bottom) = (graph.nodes[graph.node("sr_drop").unwrap()].at, graph.nodes[graph.node("gc_drop").unwrap()].at);
         assert!(top.y - bottom.y >= 3.9);
+    }
+
+    /// Every Zone of the Map wears a Material Set, and so does its outside (grass and white render gone green).
+    #[test]
+    fn every_sanatorium_zone_has_a_material_set() {
+        use crate::maps::map::{materials, textures::Material};
+        for &zone in sanatorium().zones {
+            assert!(materials(Some(zone)).is_some(), "{} has no Material Set", zone.name());
+        }
+        let outside = sanatorium().outside.expect("the Sanatorium has an outside");
+        assert_eq!((outside.floor, outside.wall), (Material::GrassGround, Material::WornMossyPlasterwall));
+    }
+
+    /// Two Zones that are joined (by a Door or a fixed archway) differ in the family of their floor or their wall.
+    #[test]
+    fn sanatorium_joined_neighbours_differ_in_floor_or_wall_family() {
+        use crate::maps::map::materials;
+        let mut joins: Vec<(ZoneId, ZoneId)> = data::EDGES
+            .iter()
+            .filter_map(|&(.., gate)| match gate {
+                Gate::Door(a, b) => Some((a, b)),
+                _ => None,
+            })
+            .collect();
+        joins.extend(FIXED_JOINS);
+        assert!(joins.len() >= 18, "only {} joins", joins.len());
+        for (a, b) in joins {
+            let (ma, mb) = (materials(Some(a)).unwrap(), materials(Some(b)).unwrap());
+            assert!(
+                ma.floor.family() != mb.floor.family() || ma.wall.family() != mb.wall.family(),
+                "{} and {} share floor and wall families",
+                a.name(),
+                b.name()
+            );
+        }
     }
 }
