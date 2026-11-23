@@ -96,6 +96,11 @@ impl Stage {
     }
 }
 
+/// The Wing of `map` that has `zone` in it, if any.
+pub fn wing_of_zone(map: MapId, zone: crate::maps::zone::ZoneId) -> Option<WingId> {
+    map.layout().wings.iter().position(|wing| wing.zones.contains(&zone)).map(|wing| WingId(wing as u8))
+}
+
 /// What the Host knows that the clock reads.
 #[derive(Debug, Clone, Copy)]
 pub struct Conditions<'a> {
@@ -515,6 +520,7 @@ impl Plugin for QuarantinePlugin {
         app.init_resource::<Quarantine>()
             .add_message::<StepQuarantine>()
             .add_message::<PlayCue>()
+            .add_plugins(crate::maps::quarantine_look::QuarantineLookPlugin)
             .add_systems(OnEnter(GameState::Playing), (reset, spawn_crash_bars))
             .add_systems(Update, run_clock.in_set(QuarantineClock).in_set(HostSimulation).run_if(world_runs))
             .add_systems(

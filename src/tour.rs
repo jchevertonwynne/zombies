@@ -237,7 +237,23 @@ const SANATORIUM: &[View] = &[
     view("sun-roof-drop", (-40.0, 4.0, 32.5), (-26.0, 32.5), -0.1, false),
     view("bandstand", (-12.0, 0.0, 28.0), (0.0, 28.0), -0.02, false),
     view("observation-gallery", (20.0, 4.0, 45.0), (22.0, 56.0), 0.05, false),
+    // The Quarantine's stages, each held while its view settles (see `quarantine_hold`): the West
+    // Wing Sealed from inside (its Crash Bar and repeater) and from outside, and Q6's beacon on the
+    // Sun Roof through its Warning. The doors are hidden, so the Leaves and the doorway show.
+    view("quarantine-sealed-from-inside", (-40.0, 0.0, 17.5), (-40.0, 14.0), 0.12, true),
+    view("quarantine-sealed-from-outside", (-40.0, 0.0, 9.0), (-40.0, 14.0), 0.2, true),
+    view("quarantine-q6-beacon-warning", (-38.0, 4.0, 33.5), (-38.0, 42.0), 0.32, true),
 ];
+
+/// The stage a Sanatorium view holds the Quarantine at, from its name: the Wing out and the stage.
+fn quarantine_hold(name: &str) -> Option<(crate::maps::quarantine::Stage, u8, f32)> {
+    use crate::maps::quarantine::Stage;
+    match name {
+        "quarantine-sealed-from-inside" | "quarantine-sealed-from-outside" => Some((Stage::Sealed, 0, 20.0)),
+        "quarantine-q6-beacon-warning" => Some((Stage::Warning, 2, 3.0)),
+        _ => None,
+    }
+}
 
 /// The Polder: a view of each of its 16 Zones, then its bridges, the lock gates, the water and the dyke.
 const POLDER: &[View] = &[
@@ -291,6 +307,8 @@ const POLDER: &[View] = &[
 const WARM_UP: u32 = 240;
 /// Frames each view settles for before its shot.
 const SETTLE: u32 = 40;
+/// Frames a Quarantine view settles for: its doors take `SWING_SECS` to swing shut.
+const QUARANTINE_SETTLE: u32 = 480;
 
 #[derive(Resource)]
 pub struct Tour {
@@ -346,7 +364,8 @@ impl Plugin for TourPlugin {
         app.insert_resource(tour)
             .add_systems(Startup, set_window)
             .add_systems(OnEnter(GameState::MainMenu), start_run)
-            .add_systems(Update, (clear, shoot, give_boons, hold_generators, throw_switch, hold_tide).run_if(in_state(GameState::Playing)));
+            .add_systems(Update, (clear, shoot, give_boons, hold_generators, throw_switch, hold_tide).run_if(in_state(GameState::Playing)))
+            .add_systems(Update, hold_quarantine.before(crate::maps::quarantine::QuarantineClock).run_if(in_state(GameState::Playing)));
     }
 }
 
@@ -354,6 +373,18 @@ impl Plugin for TourPlugin {
 fn hold_tide(tour: Res<Tour>, mut tide: ResMut<crate::maps::tide::Tide>) {
     if let Some(phase) = tour.tide {
         *tide = crate::maps::tide::Tide { phase, turn: crate::maps::tide::TurnState::Still };
+    }
+}
+
+/// While a Quarantine view is up, the Quarantine held at the stage it shows (as the Developer mode
+/// stage key would step it there).
+fn hold_quarantine(tour: Res<Tour>, mut quarantine: ResMut<crate::maps::quarantine::Quarantine>) {
+    let Some(&(name, ..)) = tour.views.get(tour.shot) else { return };
+    if tour.frames < WARM_UP {
+        return;
+    }
+    if let Some((stage, wing, elapsed)) = quarantine_hold(name) {
+        quarantine.show(stage, Some(crate::maps::quarantine::WingId(wing)), elapsed);
     }
 }
 
@@ -449,7 +480,7 @@ fn shoot(
         }
     }
     tour.settle += 1;
-    if tour.settle < SETTLE {
+    if tour.settle < if quarantine_hold(name).is_some() { QUARANTINE_SETTLE } else { SETTLE } {
         return;
     }
     let path = format!("{}/{:02}-{name}.png", tour.dir, tour.shot);

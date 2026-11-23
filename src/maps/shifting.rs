@@ -535,7 +535,12 @@ pub fn spawn_pieces(commands: &mut Commands, meshes: &mut Assets<Mesh>, material
                 ))
                 .with_children(|parent| {
                     if leaf.is_door() {
-                        parent.spawn((Mesh3d(deck), MeshMaterial3d(steel.clone()), Transform::from_translation(leaf.offset)));
+                        if piece.wing().is_some() {
+                            // A Quarantine Door's Leaf: painted steel with a vision panel, kick plate and signs.
+                            crate::maps::quarantine_look::dress_leaf(parent, meshes, materials, leaf);
+                        } else {
+                            parent.spawn((Mesh3d(deck), MeshMaterial3d(steel.clone()), Transform::from_translation(leaf.offset)));
+                        }
                         return;
                     }
                     parent.spawn((Mesh3d(deck), MeshMaterial3d(timber.clone()), Transform::from_translation(leaf.offset)));

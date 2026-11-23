@@ -166,3 +166,80 @@ fn a_burst_is_dips_of_40_to_120_ms() {
     assert!(dips >= 2, "the lamp dipped {dips} times in 200 s");
     assert!(shortest >= 0.04 - 1e-3 && longest <= 0.12 * 5.0 + 0.12 * 4.0 + FRAME, "(a frame can span a gap, so a burst's dips may merge) dips last {shortest}..{longest} s");
 }
+
+// ---- The Quarantine's stages on a Wing's lamps (#524) ----
+
+use crate::maps::quarantine::{Quarantine, Stage, WingId};
+
+/// The Sanatorium Playing with the Power on and a Quarantine to show stages on.
+fn quarantined() -> App {
+    let mut app = playing_with(MapId::Sanatorium, |app| {
+        app.init_resource::<crate::maps::power::Power>().init_resource::<Quarantine>();
+    });
+    throw_the_power(&mut app);
+    run(&mut app, 1.0);
+    app
+}
+
+fn show(app: &mut App, stage: Stage, wing: u8, elapsed: f32) {
+    app.world_mut().resource_mut::<Quarantine>().show(stage, Some(WingId(wing)), elapsed);
+}
+
+/// The levels of the tube lamps in `zones`, over `frames` frames.
+fn levels_of(app: &mut App, zones: &[ZoneId], frames: u32) -> Vec<Vec<f32>> {
+    (0..frames)
+        .map(|_| {
+            app.update();
+            tubes(app).into_iter().filter(|tube| zones.contains(&tube.zone)).map(|tube| tube.level).collect()
+        })
+        .collect()
+}
+
+const WEST: [ZoneId; 2] = [ZoneId::LongWard, ZoneId::DayRoom];
+
+#[test]
+fn wing_lamps_flicker_hard_through_warning_and_sealing() {
+    for stage in [Stage::Warning, Stage::Sealing] {
+        let mut app = quarantined();
+        show(&mut app, stage, 0, 1.0);
+        let mut seen: Vec<f32> = Vec::new();
+        let mut changes = 0;
+        let mut last = Vec::new();
+        for frame in levels_of(&mut app, &WEST, 200) {
+            assert!(frame.iter().all(|&level| (lamp_flicker::HARD_FLICKER_MIN - 1e-4..=1.0 + 1e-4).contains(&level)), "within [0.1, 1]: {frame:?}");
+            if frame != last {
+                changes += 1;
+            }
+            last = frame.clone();
+            seen.extend(frame);
+        }
+        // 200 frames of 0.05 s is 10 s: about 6 changes a second, over the Wing's lamps.
+        assert!(changes > 40, "{stage:?}: it flickers hard, {changes} changes in 10 s");
+        assert!(seen.iter().any(|&level| is(level, 0.1)), "{stage:?}: it dips to 0.1");
+        assert!(seen.iter().any(|&level| level > 0.9), "{stage:?}: and comes back up");
+        // The lamps of the other Wings and the corridor outside do not.
+        let calm = levels_of(&mut app, &[ZoneId::BathHall, ZoneId::WestCorridor], 40);
+        assert!(calm.iter().flatten().all(|&level| level >= lamp_flicker::DIP_LEVEL - 1e-4));
+        assert!(calm.iter().flatten().filter(|&&level| is(level, 1.0)).count() > calm.iter().flatten().count() / 2, "{stage:?}");
+    }
+}
+
+#[test]
+fn sealed_wing_lamps_hold_at_0_35() {
+    let mut app = quarantined();
+    show(&mut app, Stage::Sealed, 0, 1.0);
+    for frame in levels_of(&mut app, &WEST, 400) {
+        assert!(!frame.is_empty() && frame.iter().all(|&level| is(level, 0.35)), "{frame:?}");
+    }
+    // At Release they fade back to full over 1.2 s with a stutter, never below 0.1.
+    show(&mut app, Stage::Release, 0, 0.0);
+    let mut peak = 0.0_f32;
+    for _ in 0..30 {
+        app.world_mut().resource_mut::<Quarantine>().run_shown(FRAME);
+        for level in levels_of(&mut app, &WEST, 1).remove(0) {
+            assert!((lamp_flicker::HARD_FLICKER_MIN - 1e-4..=1.0 + 1e-4).contains(&level), "{level}");
+            peak = peak.max(level);
+        }
+    }
+    assert!(peak > 0.9, "back at full by the end of the fade, {peak}");
+}
