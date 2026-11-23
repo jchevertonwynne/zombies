@@ -213,7 +213,7 @@ const COVE: &[View] = &[
     view("infill-keepers-cottage-breast", (-4.0, 12.0, 54.0), (-3.0, 63.5), -0.05, false),
 ];
 
-/// The Sanatorium: a view of each of its 17 Zones, then the stairs, the drop, the bandstand and the gallery.
+/// The Sanatorium: a view of each of its 17 Zones, then its Infills, the stairs, the drop, the bandstand and the gallery.
 const SANATORIUM: &[View] = &[
     view("entrance-hall", (0.0, 0.0, 2.5), (0.0, 13.0), -0.05, false),
     view("forecourt", (-30.0, 0.0, -26.0), (0.0, -12.0), -0.02, false),
@@ -232,6 +232,27 @@ const SANATORIUM: &[View] = &[
     view("sun-roof", (-32.0, 4.0, 17.0), (-45.0, 40.0), -0.02, false),
     view("isolation-ward", (-12.0, 4.0, 44.0), (-24.0, 54.0), -0.05, false),
     view("childrens-ward", (-28.0, 4.0, 44.0), (-48.0, 54.0), -0.05, false),
+    // The Infills that the room views above leave behind the camera.
+    view("infill-hall-lodge", (0.0, 0.0, 6.5), (8.3, 0.7), -0.05, false),
+    view("infill-west-corridor-ducts", (-29.0, 0.0, 12.0), (-29.0, 8.0), -0.05, false),
+    view("infill-west-corridor-hatch", (-34.0, 0.0, 11.5), (-42.0, 8.2), -0.05, false),
+    view("infill-east-corridor-nibs", (28.5, 0.0, 12.0), (28.5, 8.0), -0.05, false),
+    view("infill-east-corridor-chute", (42.0, 0.0, 11.0), (50.0, 13.5), -0.05, false),
+    view("infill-refectory-breast", (-12.0, 0.0, 47.0), (-12.0, 56.0), -0.05, false),
+    view("infill-refectory-servery", (8.0, 0.0, 50.0), (15.0, 54.5), -0.05, false),
+    view("infill-boiler-house-chimney-base", (-58.0, 0.0, 6.0), (-70.0, 12.0), -0.05, false),
+    view("infill-boiler-house-bunker", (-58.0, 0.0, -3.0), (-70.5, -7.0), -0.05, false),
+    view("infill-mortuary-cold-room", (58.0, 0.0, 5.0), (70.3, 11.6), -0.05, false),
+    view("infill-mortuary-pier", (60.0, 0.0, 0.5), (72.0, 0.7), -0.05, false),
+    view("infill-long-ward-piers", (-40.0, 0.0, 24.0), (-49.5, 24.5), -0.05, false),
+    view("infill-day-room-nib", (-40.0, 0.0, 50.0), (-49.5, 48.3), -0.05, false),
+    view("infill-bath-hall-calorifier", (36.0, 0.0, 24.0), (48.0, 15.5), -0.05, false),
+    view("infill-bath-hall-pier", (38.0, 0.0, 29.0), (49.7, 28.8), -0.05, false),
+    view("infill-treatment-room-cupboard", (36.0, 0.0, 48.0), (48.5, 54.5), -0.05, false),
+    view("infill-upper-landing-cupboards", (0.0, 4.0, 50.0), (0.0, 42.5), -0.05, false),
+    view("infill-theatre-scrub-room", (20.0, 4.0, 48.0), (12.0, 43.5), -0.05, false),
+    view("infill-isolation-ward-partitions", (-18.5, 4.0, 52.0), (-18.5, 43.0), -0.05, false),
+    view("infill-childrens-ward-breast", (-40.0, 4.0, 46.0), (-40.9, 55.6), -0.05, false),
     view("main-stair", (2.0, 0.0, 58.5), (-2.0, 63.0), 0.2, false),
     view("fire-escape", (-27.8, 0.0, 16.0), (-27.5, 26.0), 0.3, false),
     view("sun-roof-drop", (-40.0, 4.0, 32.5), (-26.0, 32.5), -0.1, false),

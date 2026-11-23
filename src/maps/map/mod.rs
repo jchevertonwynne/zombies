@@ -2397,11 +2397,57 @@ pub(crate) mod tests {
         }
     }
 
-    /// Every indoor Zone of the Greybox, the Quarry, the Cove and the Polder has one to three Infills, and no two rooms
+    /// No Infill on the Sanatorium stands in a Quarantine Door's sweep (either way it swings, a
+    /// Zombie's width round it), on its outside or inside landing, or against its doorway where a
+    /// Crash Bar and its Leaves stand: each stays clear of the doorway's centre and its path nodes.
+    #[test]
+    fn no_sanatorium_infill_stands_in_a_quarantine_sweep_or_on_a_landing() {
+        use crate::maps::shifting::door_centre;
+        let layout = MapId::Sanatorium.layout();
+        let node = |name: &str| {
+            let &(_, x, y, z) = layout.nav_nodes.iter().find(|(n, ..)| *n == name).unwrap_or_else(|| panic!("no node {name}"));
+            Vec3::new(x, y, z)
+        };
+        let mut bad = Vec::new();
+        for (i, piece) in layout.shifting.iter().enumerate() {
+            let centre = door_centre(piece);
+            let landings = ["o", "d", "i"].map(|end| node(&format!("q{}_{end}", i + 1)));
+            for infill in layout.infills {
+                let what = format!("the Infill at {}..{} in {}", infill.min, infill.max, infill.zone.name());
+                let (bottom, top) = infill.span();
+                if centre.y <= bottom - 0.5 || centre.y >= top {
+                    continue;
+                }
+                let (min, max) = (infill.min - Vec2::splat(ZOMBIE_RADIUS), infill.max + Vec2::splat(ZOMBIE_RADIUS));
+                let floor = centre.y - 1.2;
+                let steps = |lo: f32, hi: f32| ((hi - lo) / 0.1).ceil() as i32;
+                'sweep: for xi in 0..=steps(min.x, max.x) {
+                    for zi in 0..=steps(min.y, max.y) {
+                        let at = Vec3::new((min.x + xi as f32 * 0.1).min(max.x), floor + 0.1, (min.y + zi as f32 * 0.1).min(max.y));
+                        if piece.in_way(at, 0, 1) || piece.in_way(at, 1, 0) {
+                            bad.push(format!("{what} is in Quarantine Door {}'s sweep at {at}", i + 1));
+                            break 'sweep;
+                        }
+                    }
+                }
+                if off(infill.min, infill.max, centre) < 1.8 {
+                    bad.push(format!("{what} crowds Quarantine Door {}'s doorway", i + 1));
+                }
+                for landing in landings {
+                    if off(infill.min, infill.max, landing) < 1.0 {
+                        bad.push(format!("{what} is on Quarantine Door {}'s landing at {landing}", i + 1));
+                    }
+                }
+            }
+        }
+        assert!(bad.is_empty(), "{bad:#?}");
+    }
+
+    /// Every indoor Zone of the Greybox, the Quarry, the Cove, the Polder and the Sanatorium has one to three Infills, and no two rooms
     /// of a Map come out the same shape: no two have the same set of Infill sizes.
     #[test]
     fn every_indoor_greybox_zone_has_one_to_three_infills_and_no_two_share_a_shape() {
-        for map in [MapId::Greybox, MapId::Quarry, MapId::Cove, MapId::Polder] {
+        for map in [MapId::Greybox, MapId::Quarry, MapId::Cove, MapId::Polder, MapId::Sanatorium] {
             every_indoor_zone_has_one_to_three_infills_and_no_two_share_a_shape(map);
         }
     }

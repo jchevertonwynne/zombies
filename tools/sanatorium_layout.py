@@ -101,6 +101,36 @@ BLOCKS += [
     (-29.2, 14.0, -25.8, 27.4, 4.0, 0.3),     # the Fire Escape's well, as the Sun Roof's floor sees it
 ]
 
+# The Infills (#523): solid blocks of the building against the walls, as `sanatorium.rs`'s `INFILLS` has them.
+BLOCKS += [
+    (6.5, 0.0, 10.0, 1.3, 0.0, 0.3),   # Entrance Hall
+    (-0.6, 13.4, 0.6, 14.0, 0.0, 0.3),   # Entrance Hall
+    (-42.4, 8.0, -41.6, 8.5, 0.0, 0.3),   # West Corridor
+    (-33.3, 8.0, -32.7, 8.9, 0.0, 0.3),   # West Corridor
+    (-24.1, 8.0, -22.7, 8.6, 0.0, 0.3),   # West Corridor
+    (22.7, 8.0, 23.7, 8.5, 0.0, 0.3),   # East Corridor
+    (48.8, 13.0, 50.0, 14.0, 0.0, 0.3),   # East Corridor
+    (33.7, 8.0, 34.3, 9.2, 0.0, 0.3),   # East Corridor
+    (-13.3, 55.2, -10.9, 56.0, 0.0, 0.3),   # Refectory
+    (14.7, 53.0, 15.3, 56.0, 0.0, 0.3),   # Refectory
+    (-72.0, 10.0, -68.0, 14.0, 0.0, 0.3),   # Boiler House
+    (-72.0, -10.0, -69.5, -4.0, 0.0, 0.3),   # Boiler House
+    (68.7, 9.3, 72.0, 14.0, 0.0, 0.3),   # Mortuary
+    (71.4, -0.3, 72.0, 1.7, 0.0, 0.3),   # Mortuary
+    (-50.0, 26.7, -49.2, 28.3, 0.0, 0.3),   # Long Ward
+    (-50.0, 20.7, -49.5, 21.3, 0.0, 0.3),   # Long Ward
+    (-50.0, 48.0, -48.8, 48.6, 0.0, 0.3),   # Day Room
+    (46.0, 14.0, 50.0, 17.0, 0.0, 0.3),   # Bath Hall
+    (49.4, 28.4, 50.0, 29.2, 0.0, 0.3),   # Bath Hall
+    (47.0, 53.0, 50.0, 56.0, 0.0, 0.3),   # Treatment Room
+    (-10.0, 42.0, -7.0, 43.5, 4.0, 0.3),   # Upper Landing
+    (7.5, 42.0, 10.0, 44.6, 4.0, 0.3),   # Upper Landing
+    (10.0, 42.0, 14.0, 45.0, 4.0, 0.3),   # Operating Theatre
+    (-21.9, 42.0, -21.5, 46.0, 4.0, 0.3),   # Isolation Ward
+    (-15.9, 42.0, -15.5, 47.0, 4.0, 0.3),   # Isolation Ward
+    (-42.1, 55.2, -39.7, 56.0, 4.0, 0.3),   # Children's Ward
+]
+
 # ---------------------------------------------------------------- zones' grids
 HALL = grid("EntranceHall", "hall", -7.5, 7.5, 2.5, 11.5, 0.0, step=7.5)
 FORE = grid("Forecourt", "fc", -46.0, 46.0, -27.0, -3.0, 0.0, step=8.0)
