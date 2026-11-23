@@ -24,9 +24,10 @@ use crate::weapons::ammo_mod::{AmmoModHit, AmmoMods};
 use crate::weapons::arsenal::{Burn, Splash, WeaponId};
 use crate::weapons::burn::Ignite;
 use crate::authority::HostSimulation;
+use crate::weapons::blast::Blasts;
 use crate::weapons::combat::HitReport;
 use crate::weapons::explosive::{
-    Explosion, ExplosiveAssets, Flight, Launch, LauncherRound, Thrown, fireball, world_filter,
+    Explosion, ExplosiveAssets, Flight, Launch, LauncherRound, Thrown, world_filter,
 };
 use crate::players::player::{LocalPlayer, Player};
 use crate::state::{InRun, world_runs};
@@ -476,6 +477,7 @@ fn hear(
     assets: Option<Res<ExplosiveAssets>>,
     cosmetics: Query<(Entity, &Transform), With<Cosmetic>>,
     mut explosions: MessageWriter<Explosion>,
+    blasts: Blasts,
     time: Res<Time>,
 ) {
     inbox.heard.retain_mut(|(_, left)| {
@@ -535,7 +537,7 @@ fn hear(
             commands.entity(entity).despawn();
         }
         if let Some(assets) = &assets {
-            commands.spawn(fireball(assets, at, burst.radius));
+            blasts.show(&mut commands, assets, at, burst.radius);
         }
         // For the sound, unless the shooter has heard it; no one's blast, so it is not sent back.
         if let Some(heard) = inbox.heard.iter().position(|&(went, _)| went.distance(at) < HEARD_BLAST_MATCH_METRES) {
@@ -751,6 +753,32 @@ mod tests {
         assert!(health(&run, zombie) < early - 20.0, "burned from {early} to {}", health(&run, zombie));
         // A burn that cannot tick is not believed.
         assert!(burn_in([5.0, 0.0, 3.0]).is_none() && burn_in([f32::NAN, 0.5, 3.0]).is_none());
+    }
+
+    #[test]
+    fn a_client_sees_the_hosts_blast_the_host_does() {
+        use crate::weapons::explosive::{Fireball, load_assets};
+        use bevy::ecs::system::RunSystemOnce;
+        let mut run = run(1);
+        run.step(IDLE, 10);
+        for app in &mut run.apps {
+            app.world_mut().run_system_once(load_assets).unwrap();
+        }
+        let at = crate::maps::map::PLAYER_START + Vec3::new(5.0, 1.0, 5.0);
+        let host = player(&mut run, 0, 0);
+        run.apps[0].world_mut().write_message(Explosion {
+            at,
+            thrower: Some(host),
+            splash: Splash { max: 1.0, min: 1.0, radius: 3.0 },
+            hurts_player: false,
+            hurts_zombies: false,
+            ammo_mods: AmmoMods::NONE,
+            crawlers: false,
+        });
+        run.step(IDLE, 30);
+        let client = run.apps[1].world_mut();
+        let fireballs: Vec<Vec3> = client.query::<(&Fireball, &Transform)>().iter(client).map(|(_, t)| t.translation).collect();
+        assert!(fireballs.iter().any(|&p| p.distance(at) < 0.01), "the client draws the blast at the Host's spot");
     }
 
     #[test]

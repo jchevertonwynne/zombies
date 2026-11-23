@@ -2189,6 +2189,42 @@
       "notes": "smoke_04.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); a muzzle flash or impact sprite in src/weapons/muzzle.rs"
     },
     {
+      "path": "sprites/fire_01",
+      "name": "Kenney Particle Pack fire_01",
+      "source": "https://kenney.nl/assets/particle-pack",
+      "licence": "CC0 (Creative Commons Zero, as stated in the pack's License.txt)",
+      "fetched": "2026-11-23",
+      "archive": "https://opengameart.org/content/particle-pack-80-sprites",
+      "notes": "fire_01.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); the blast fireball in src/weapons/blast.rs"
+    },
+    {
+      "path": "sprites/fire_02",
+      "name": "Kenney Particle Pack fire_02",
+      "source": "https://kenney.nl/assets/particle-pack",
+      "licence": "CC0 (Creative Commons Zero, as stated in the pack's License.txt)",
+      "fetched": "2026-11-23",
+      "archive": "https://opengameart.org/content/particle-pack-80-sprites",
+      "notes": "fire_02.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); the blast fireball in src/weapons/blast.rs"
+    },
+    {
+      "path": "sprites/scorch_01",
+      "name": "Kenney Particle Pack scorch_01",
+      "source": "https://kenney.nl/assets/particle-pack",
+      "licence": "CC0 (Creative Commons Zero, as stated in the pack's License.txt)",
+      "fetched": "2026-11-23",
+      "archive": "https://opengameart.org/content/particle-pack-80-sprites",
+      "notes": "scorch_01.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); the scorch decal under a blast in src/weapons/blast.rs"
+    },
+    {
+      "path": "sprites/spark_01",
+      "name": "Kenney Particle Pack spark_01",
+      "source": "https://kenney.nl/assets/particle-pack",
+      "licence": "CC0 (Creative Commons Zero, as stated in the pack's License.txt)",
+      "fetched": "2026-11-23",
+      "archive": "https://opengameart.org/content/particle-pack-80-sprites",
+      "notes": "spark_01.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); a blast spark in src/weapons/blast.rs"
+    },
+    {
       "path": "weapons/atlas",
       "name": "Weapon atlas",
       "source": "tools/texpack/weapon_atlas.py, from https://polyhaven.com/a/metal_plate, https://polyhaven.com/a/metal_plate_02, https://polyhaven.com/a/wood_table_worn, https://polyhaven.com/a/green_metal_rust, https://polyhaven.com/a/hessian_230, https://polyhaven.com/a/brown_leather, https://polyhaven.com/a/poly_wool_herringbone",
