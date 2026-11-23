@@ -14,14 +14,20 @@ use serde::{Deserialize, Serialize};
 use crate::audio::PlayCue;
 use crate::audio::cues::Cue;
 use crate::authority::{Authority, HostSimulation};
+use crate::economy::buy::{Buyable, Nearby, Offer, Offers, Purchased, WhileDown};
+use crate::enemies::nav::NavGraph;
+use crate::enemies::target::half_height_above_feet;
 use crate::maps::door::Door;
 use crate::maps::map::MapId;
 use crate::maps::power::Power;
-use crate::maps::shifting::{Driver, door_centre, gate_open, pieces};
+use crate::maps::shifting::{Driver, PieceId, PiecePhase, PieceState, door_centre, gate_open, outside_landing, pieces};
+use crate::players::last_stand::LastStand;
+use crate::players::player::{LocalPlayer, Locomotion, Player, Teleport};
+use crate::players::respawn::{AwaitingRespawn, Disconnected};
 use crate::run::gauntlet::arc::is_boss_round;
 use crate::run::mode::Mode;
 use crate::run::round::{Round, RoundPhase};
-use crate::state::{GameState, world_runs};
+use crate::state::{GameState, InRun, world_runs};
 use crate::tuning::*;
 
 /// A Wing's place in `Layout.wings`, the same on every machine.
@@ -317,6 +323,191 @@ fn quarantine_cues(quarantine: Res<Quarantine>, map: Option<Res<MapId>>, mut las
     }
 }
 
+// ---- The Crash Bar ----
+
+/// What the Prompt reads at a Sealed Quarantine Door's inside face.
+pub const CRASH_BAR_PROMPT: &str = "Press F to push the Crash Bar";
+
+/// How far above or below the door's floor a Player's feet may be and still be at its Crash Bar.
+const CRASH_BAR_FLOOR_SLACK: f32 = 1.5;
+
+/// Where a Quarantine Door's doorway stands, from its Piece and the path nodes either side of it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Doorway {
+    /// The middle of the door's plane, on the floor.
+    pub centre: Vec3,
+    /// Along the floor, out of the Wing: the way its outside face looks (a unit vector).
+    pub out: Vec3,
+    /// The floor under the two hinges: the ends of the door's face.
+    pub ends: [Vec3; 2],
+    /// The outside landing: the path node outside the Wing that a Crash Bar puts a Player on.
+    pub landing: Vec3,
+    /// The path node inside the Wing that its doorway leads to.
+    pub inside: Vec3,
+}
+
+impl Doorway {
+    /// The doorway of the Quarantine Door `id` (a `piece` of `graph`'s Map), if the graph has its
+    /// nodes.
+    pub fn of(graph: &NavGraph, id: PieceId, piece: &crate::maps::shifting::Piece) -> Option<Self> {
+        use crate::enemies::nav::Gate;
+        let landing = outside_landing(graph, id, piece)?;
+        let rest = graph.edges.iter().find(|edge| edge.gate == Gate::Rest(id, 0))?;
+        let inside = graph.nodes[rest.to].at;
+        let out = (landing - inside).with_y(0.0).normalize_or_zero();
+        let [a, b] = [piece.leaves.first()?.hinge, piece.leaves.last()?.hinge];
+        Some(Self { centre: (a + b) / 2.0, out, ends: [a, b], landing, inside })
+    }
+
+    /// The nearest point on the door's face to `feet`, at the floor.
+    pub fn nearest(&self, feet: Vec3) -> Vec3 {
+        let [a, b] = self.ends;
+        let along = (b - a).with_y(0.0);
+        let t = ((feet - a).with_y(0.0).dot(along) / along.length_squared().max(1e-6)).clamp(0.0, 1.0);
+        a + along * t
+    }
+
+    /// Whether feet at `feet` stand on the inside of the door, within `CRASH_BAR_RANGE` of its face.
+    pub fn inside_reach(&self, feet: Vec3) -> bool {
+        (feet - self.centre).with_y(0.0).dot(self.out) <= 0.0
+            && (feet - self.nearest(feet)).with_y(0.0).length() <= CRASH_BAR_RANGE
+            && (feet.y - self.centre.y).abs() < CRASH_BAR_FLOOR_SLACK
+    }
+}
+
+/// Whether a Player in this state can push a Crash Bar: up, or in a Last Stand, but not waiting to
+/// Respawn or gone from the game.
+pub fn can_push(last_stand: bool, awaiting_respawn: bool, disconnected: bool) -> bool {
+    crate::enemies::target::is_up(last_stand, awaiting_respawn, disconnected) || (last_stand && !awaiting_respawn && !disconnected)
+}
+
+/// Whether a Player standing at `feet` is offered the Crash Bar of the door at `doorway`, which is at
+/// `phase`: only inside a Sealed door, within `CRASH_BAR_RANGE` of its face. Never outside, never
+/// while the door is Open or Swinging.
+pub fn crash_bar_prompts(doorway: &Doorway, phase: PiecePhase, feet: Vec3, can_push: bool) -> bool {
+    can_push && phase == PiecePhase::Rest(1) && doorway.inside_reach(feet)
+}
+
+/// The push bar inside a Sealed Quarantine Door. A Buyable used, not bought: it asks the Host to put
+/// the Player outside.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct CrashBar {
+    pub piece: PieceId,
+    pub doorway: Doorway,
+}
+
+/// One Crash Bar for each Quarantine Door, on every machine alike.
+fn spawn_crash_bars(mut commands: Commands, map: Option<Res<MapId>>, graph: Option<Res<NavGraph>>) {
+    let Some(map) = map else { return };
+    let layout = map.layout();
+    if layout.wings.is_empty() {
+        return;
+    }
+    let own;
+    let graph = match graph.as_deref() {
+        Some(graph) if graph.map == *map => graph,
+        _ => {
+            own = NavGraph::new(*map);
+            &own
+        }
+    };
+    for (id, piece) in pieces(layout) {
+        if piece.wing().is_none() {
+            continue;
+        }
+        let Some(doorway) = Doorway::of(graph, id, piece) else { continue };
+        commands.spawn((
+            InRun,
+            Name::new("Crash Bar"),
+            CrashBar { piece: id, doorway },
+            Buyable { use_point: doorway.centre + Vec3::Y, prompt: String::new(), price: None, range: -1.0 },
+            Nearby,
+            WhileDown,
+            Offers::default(),
+            Transform::from_translation(doorway.centre),
+        ));
+    }
+}
+
+fn phase_of(pieces: &Query<&PieceState>, id: PieceId) -> Option<PiecePhase> {
+    pieces.iter().find(|state| state.id() == id).map(PieceState::phase)
+}
+
+/// Each Crash Bar offers itself to the `LocalPlayer` only when they could push it: its Prompt and
+/// reach are written every frame from what this machine shows.
+fn show_crash_bars(
+    mut bars: Query<(&CrashBar, &mut Buyable)>,
+    pieces: Query<&PieceState>,
+    player: Query<(&Transform, Option<&Locomotion>, Has<LastStand>, Has<AwaitingRespawn>, Has<Disconnected>), With<LocalPlayer>>,
+) {
+    let Ok((transform, locomotion, last_stand, awaiting, disconnected)) = player.single() else { return };
+    let feet = transform.translation - Vec3::Y * half_height_above_feet(locomotion);
+    let can = can_push(last_stand, awaiting, disconnected);
+    for (bar, mut buyable) in &mut bars {
+        let offered = phase_of(&pieces, bar.piece).is_some_and(|phase| crash_bar_prompts(&bar.doorway, phase, feet, can));
+        let (prompt, range, at) = if offered {
+            (CRASH_BAR_PROMPT, CRASH_BAR_RANGE + 2.0, bar.doorway.nearest(feet) + Vec3::Y * (feet.y - bar.doorway.centre.y + 1.0))
+        } else {
+            ("", -1.0, buyable.use_point)
+        };
+        if buyable.range != range || buyable.prompt != prompt || buyable.use_point != at {
+            buyable.range = range;
+            buyable.use_point = at;
+            buyable.prompt = prompt.to_string();
+        }
+    }
+}
+
+/// The Host judges each Crash Bar for every Player but the `LocalPlayer` by where they are, for it to
+/// hold their request against (see `Offers`).
+fn offer_crash_bars(
+    mut bars: Query<(&CrashBar, &mut Offers)>,
+    pieces: Query<&PieceState>,
+    players: Query<(Entity, &Transform, Option<&Locomotion>, Has<LastStand>, Has<AwaitingRespawn>, Has<Disconnected>), (With<Player>, Without<LocalPlayer>)>,
+) {
+    for (bar, mut offers) in &mut bars {
+        let Some(phase) = phase_of(&pieces, bar.piece) else { continue };
+        for (player, transform, locomotion, last_stand, awaiting, disconnected) in &players {
+            let feet = transform.translation - Vec3::Y * half_height_above_feet(locomotion);
+            let judged = crash_bar_prompts(&bar.doorway, phase, feet, can_push(last_stand, awaiting, disconnected))
+                .then_some(Offer { price: None, tap: true, hold: None, refused: false });
+            if offers.get(player) != Some(judged) {
+                offers.set(player, judged);
+            }
+        }
+    }
+}
+
+/// A Crash Bar pushed: the Host puts the Player outside the doorway on its landing, with no damage
+/// and no Down (a Player in a Last Stand keeps it), and the push sounds on every machine. It judges
+/// the Player's place again, whatever the request said.
+fn push_crash_bars(
+    mut purchases: MessageReader<Purchased>,
+    bars: Query<&CrashBar>,
+    pieces: Query<&PieceState>,
+    mut players: Query<(&mut Transform, Option<&Locomotion>, Has<LastStand>, Has<AwaitingRespawn>, Has<Disconnected>), With<Player>>,
+    mut teleport: MessageWriter<Teleport>,
+    mut cues: MessageWriter<PlayCue>,
+    map: Option<Res<MapId>>,
+) {
+    let Some(map) = map else { return };
+    for &Purchased { player, buyable } in purchases.read() {
+        let Ok(bar) = bars.get(buyable) else { continue };
+        let Ok((mut transform, locomotion, last_stand, awaiting, disconnected)) = players.get_mut(player) else { continue };
+        let half = half_height_above_feet(locomotion);
+        let feet = transform.translation - Vec3::Y * half;
+        let pushes = phase_of(&pieces, bar.piece).is_some_and(|phase| crash_bar_prompts(&bar.doorway, phase, feet, can_push(last_stand, awaiting, disconnected)));
+        if !pushes {
+            continue;
+        }
+        transform.translation = bar.doorway.landing + Vec3::Y * (half + 0.05);
+        teleport.write(Teleport { player, feet: bar.doorway.landing, facing: None });
+        if let Some(piece) = map.layout().shifting.get(usize::from(bar.piece.0)) {
+            cues.write(PlayCue::new(Cue::CrashBar, Some(door_centre(piece))));
+        }
+    }
+}
+
 pub struct QuarantinePlugin;
 
 impl Plugin for QuarantinePlugin {
@@ -324,11 +515,16 @@ impl Plugin for QuarantinePlugin {
         app.init_resource::<Quarantine>()
             .add_message::<StepQuarantine>()
             .add_message::<PlayCue>()
-            .add_systems(OnEnter(GameState::Playing), reset)
+            .add_systems(OnEnter(GameState::Playing), (reset, spawn_crash_bars))
             .add_systems(Update, run_clock.in_set(QuarantineClock).in_set(HostSimulation).run_if(world_runs))
             .add_systems(
                 Update,
                 (run_shown.run_if(not(in_state(Authority::Host))), quarantine_cues).chain().after(QuarantineClock).run_if(world_runs),
+            )
+            .add_systems(Update, show_crash_bars.before(crate::economy::buy::focus).run_if(world_runs))
+            .add_systems(
+                Update,
+                (offer_crash_bars, push_crash_bars.after(crate::economy::buy::resolve_use)).in_set(HostSimulation).run_if(world_runs),
             );
     }
 }
@@ -763,5 +959,238 @@ mod tests {
         sim.run(2);
         assert_eq!(sim.world_mut().resource::<Quarantine>().stage(), Stage::Sealing);
         assert!(matches!(phase(&mut sim, 0), PiecePhase::Swinging { from: 0, to: 1, .. }));
+    }
+
+    // ---- The Crash Bar ----
+
+    fn q1() -> Doorway {
+        let graph = NavGraph::new(MapId::Sanatorium);
+        Doorway::of(&graph, PieceId(0), &MapId::Sanatorium.layout().shifting[0]).unwrap()
+    }
+
+    #[test]
+    fn crash_bar_prompts_only_inside_a_sealed_door_within_1_2_m() {
+        let door = q1();
+        assert!((door.out - Vec3::NEG_Z).length() < 1e-3, "Q1 looks out toward -z: {}", door.out);
+        let sealed = PiecePhase::Rest(1);
+        let face = door.centre;
+        for (feet, want) in [
+            (face + Vec3::Z * 0.3, true),
+            (face + Vec3::Z * 1.1, true),
+            (face + Vec3::new(1.0, 0.0, 0.6), true),
+            (face + Vec3::Z * 1.3, false),
+            (face + Vec3::new(2.5, 0.0, 0.5), false),
+            (face + Vec3::Z * 0.5 + Vec3::Y * 4.0, false),
+        ] {
+            assert_eq!(crash_bar_prompts(&door, sealed, feet, true), want, "{feet}");
+        }
+    }
+
+    #[test]
+    fn crash_bar_prompts_in_a_last_stand() {
+        let door = q1();
+        let feet = door.centre + Vec3::Z * 0.6;
+        assert!(can_push(true, false, false), "a Last Stand can push");
+        assert!(crash_bar_prompts(&door, PiecePhase::Rest(1), feet, can_push(true, false, false)));
+        assert!(crash_bar_prompts(&door, PiecePhase::Rest(1), feet, can_push(false, false, false)), "up too");
+        assert!(!crash_bar_prompts(&door, PiecePhase::Rest(1), feet, can_push(false, true, false)), "not one waiting to Respawn");
+        assert!(!can_push(true, false, true), "nor one who has gone");
+    }
+
+    #[test]
+    fn crash_bar_never_prompts_outside_or_while_open() {
+        let door = q1();
+        let outside = door.centre + door.out * 0.4;
+        assert!(!crash_bar_prompts(&door, PiecePhase::Rest(1), outside, true), "no prompt outside");
+        assert!(!crash_bar_prompts(&door, PiecePhase::Rest(1), door.landing, true));
+        let inside = door.centre - door.out * 0.6;
+        for phase in [PiecePhase::Rest(0), PiecePhase::Swinging { from: 0, to: 1, elapsed: 1.0 }, PiecePhase::Swinging { from: 1, to: 0, elapsed: 1.0 }] {
+            assert!(!crash_bar_prompts(&door, phase, inside, true), "{phase:?}");
+        }
+    }
+
+    fn crash_bar(sim: &mut Sim, piece: u8) -> Entity {
+        let world = sim.world_mut();
+        world.query::<(Entity, &CrashBar)>().iter(world).find(|(_, bar)| bar.piece == PieceId(piece)).unwrap().0
+    }
+
+    fn seal_west_wing(sim: &mut Sim) {
+        open_every_door(sim);
+        for id in 0..2u8 {
+            show_piece(sim, id, PiecePhase::Rest(1));
+        }
+        show(sim, Stage::Sealed, Some(0), 1.0);
+    }
+
+    /// A Crash Bar puts a Player inside a Sealed door outside, on the landing, and from a Last Stand
+    /// too (which they keep). Outside, or with the door Open, it does nothing.
+    #[test]
+    fn a_crash_bar_puts_a_player_outside_and_from_a_last_stand_too() {
+        for last_stand in [false, true] {
+            let mut sim = sanatorium_sim();
+            seal_west_wing(&mut sim);
+            let inside = Vec3::new(-40.0, 0.0, 14.6);
+            put_player(&mut sim, inside);
+            let player = the_player(&mut sim);
+            if last_stand {
+                sim.world_mut().entity_mut(player).insert(LastStand::shown(10.0, false));
+            }
+            sim.run(3);
+            let bar = crash_bar(&mut sim, 0);
+            sim.send(Purchased { player, buyable: bar });
+            let mut cues = Vec::new();
+            for _ in 0..sim.frames(0.5) {
+                sim.run(1);
+                cues.extend(sim.world_mut().resource_mut::<Messages<PlayCue>>().drain().map(|cue| cue.cue));
+            }
+            let feet = feet_of(&mut sim, player);
+            assert!(feet.distance(landing(0)) < 0.5, "last_stand {last_stand}: {feet}");
+            assert_eq!(sim.world_mut().get::<LastStand>(player).is_some(), last_stand, "the Last Stand is kept");
+            assert!(cues.contains(&Cue::CrashBar), "{cues:?}");
+        }
+        // Standing outside, or with the Wing Open: a request moves no one.
+        for sealed in [false, true] {
+            let mut sim = sanatorium_sim();
+            open_every_door(&mut sim);
+            if sealed {
+                seal_west_wing(&mut sim);
+            }
+            let at = if sealed { Vec3::new(-40.0, 0.0, 11.0) } else { Vec3::new(-40.0, 0.0, 14.6) };
+            put_player(&mut sim, at);
+            let player = the_player(&mut sim);
+            sim.run(3);
+            let bar = crash_bar(&mut sim, 0);
+            sim.send(Purchased { player, buyable: bar });
+            sim.run(sim.frames(0.3));
+            assert!(feet_of(&mut sim, player).distance(at) < 0.2, "sealed {sealed}");
+        }
+    }
+
+    // ---- Stranded Zombies ----
+
+    fn stranded_sim() -> Sim {
+        use crate::run::round::requeue_cleaned_up;
+        Sim::on(MapId::Sanatorium, 20.0, |app| {
+            app.add_plugins(ShiftingPlugin)
+                .insert_resource(ActiveZones(Default::default()))
+                .insert_resource(Round::in_progress(3))
+                .init_resource::<Power>()
+                .add_message::<Purchased>()
+                .add_message::<PlayCue>()
+                .add_message::<Teleport>()
+                .add_systems(Update, requeue_cleaned_up);
+        })
+    }
+
+    fn zombie_alive(sim: &mut Sim, zombie: Entity) -> bool {
+        sim.world_mut().get_entity(zombie).is_ok()
+    }
+
+    /// A Zombie cut off by a seal is Stranded after 5 s, walks to the door and pounds, and is back in the
+    /// Horde afterwards, so the Round still ends; the outside Horde drains back the same way.
+    #[test]
+    fn a_zombie_cut_off_by_a_seal_is_stranded_pounds_and_is_back_in_the_horde() {
+        use crate::enemies::zombie::stranded::Stranded;
+        let mut sim = stranded_sim();
+        seal_west_wing(&mut sim);
+        put_player(&mut sim, Vec3::new(-40.0, 0.0, 28.0));
+        let outside = [Vec3::new(-34.0, 0.0, 11.0), Vec3::new(-20.0, 0.0, 49.0), Vec3::new(0.0, 0.0, 22.0)];
+        let zombies: Vec<Entity> = outside
+            .iter()
+            .map(|&at| {
+                assert!(sim.world_mut().resource_mut::<Round>().take_from_horde());
+                sim.spawn(at, None)
+            })
+            .collect();
+        let spawned = sim.world_mut().resource::<Round>().horde_spawned();
+        sim.run(sim.frames(3.0));
+        assert!(zombies.iter().all(|&z| sim.world_mut().get::<Stranded>(z).is_none()), "not yet stranded at 3 s");
+        let (mut stranded_seen, mut pounded, mut sounded) = (false, false, false);
+        for _ in 0..sim.frames(40.0) {
+            sim.run(1);
+            let first = zombies[0];
+            if zombie_alive(&mut sim, first) {
+                let is_stranded = sim.world_mut().get::<Stranded>(first).is_some();
+                stranded_seen |= is_stranded;
+                pounded |= sim.world_mut().get::<Stranded>(first).is_some_and(Stranded::pounding);
+            }
+            sounded |= sim.world_mut().resource_mut::<Messages<PlayCue>>().drain().any(|cue| cue.cue == Cue::DoorPound);
+        }
+        assert!(stranded_seen, "it was Stranded");
+        assert!(pounded, "it swung at the door");
+        assert!(sounded, "the blows sounded");
+        for &zombie in &zombies {
+            assert!(!zombie_alive(&mut sim, zombie), "back in the Horde");
+        }
+        assert!(sim.world_mut().resource::<Messages<crate::enemies::zombie::ZombieKilled>>().is_empty(), "no kills");
+        assert_eq!(sim.world_mut().resource::<Round>().horde_spawned(), spawned - 3, "all three are back in the Horde");
+        // They come in again through the Wing's windows: with the Player inside, the only live Window
+        // spawn points are the Wing's.
+        let zones = {
+            let world = sim.world_mut();
+            world.query::<&mut PlayerZone>().iter_mut(world).next().unwrap().0 = ZoneId::LongWard;
+            world.run_system_once(update_active_zones).unwrap();
+            world.resource::<ActiveZones>().0
+        };
+        let live: Vec<ZoneId> = {
+            let world = sim.world_mut();
+            world
+                .query::<&crate::maps::map::SpawnPoint>()
+                .iter(world)
+                .filter(|point| matches!(point.kind, crate::maps::map::SpawnKind::Window(_)) && zones.contains(point.zone))
+                .map(|point| point.zone)
+                .collect()
+        };
+        assert!(!live.is_empty() && live.iter().all(|zone| matches!(zone, ZoneId::LongWard | ZoneId::DayRoom)), "{live:?}");
+    }
+
+    /// A Zombie that can still reach a Player is never Stranded, however long a Wing is Sealed.
+    #[test]
+    fn a_zombie_that_can_reach_a_player_is_never_stranded_in_a_run() {
+        use crate::enemies::zombie::stranded::Stranded;
+        let mut sim = stranded_sim();
+        seal_west_wing(&mut sim);
+        put_player(&mut sim, Vec3::new(-20.0, 0.0, 30.0));
+        let zombie = sim.spawn(Vec3::new(-34.0, 0.0, 11.0), None);
+        for _ in 0..sim.frames(12.0) {
+            sim.run(1);
+            assert!(sim.world_mut().get::<Stranded>(zombie).is_none());
+        }
+    }
+
+    /// A special and a Sapper cut off by a seal are moved to a fresh Special Spawn Point, and stay.
+    #[test]
+    fn a_stranded_special_and_a_stranded_sapper_are_moved_to_a_fresh_spawn_point() {
+        use crate::enemies::special::SpecialKind;
+        use crate::run::round::CarriesOver;
+        for kind in [SpecialKind::Shrieker, SpecialKind::Sapper] {
+            let mut sim = stranded_sim();
+            seal_west_wing(&mut sim);
+            sim.world_mut().resource_mut::<ActiveZones>().0 = [ZoneId::Forecourt, ZoneId::GardenCourt, ZoneId::Refectory, ZoneId::SunRoof, ZoneId::WestCorridor].into_iter().collect();
+            put_player(&mut sim, Vec3::new(-40.0, 0.0, 28.0));
+            let start = Vec3::new(-34.0, 0.0, 11.0);
+            let zombie = sim.spawn(start, None);
+            sim.world_mut().entity_mut(zombie).insert((Zombie::special(kind, 1000.0, start), CarriesOver));
+            let world = sim.world_mut();
+            let points: Vec<Vec3> = world
+                .query::<(&Transform, &crate::maps::map::SpawnPoint)>()
+                .iter(world)
+                .filter(|(_, p)| p.kind == crate::maps::map::SpawnKind::Special)
+                .map(|(t, _)| t.translation)
+                .collect();
+            let mut last = start;
+            let mut jumped = None;
+            for _ in 0..sim.frames(8.0) {
+                sim.run(1);
+                assert!(zombie_alive(&mut sim, zombie), "{kind:?} stays in play");
+                let at = sim.world_mut().get::<Transform>(zombie).unwrap().translation;
+                if at.distance(last) > 3.0 {
+                    jumped = Some(at);
+                }
+                last = at;
+            }
+            let at = jumped.unwrap_or_else(|| panic!("{kind:?} was never moved"));
+            assert!(points.iter().any(|point| Vec2::new(point.x - at.x, point.z - at.z).length() < 1.5), "{kind:?} at {at}, not on any of {points:?}");
+        }
     }
 }

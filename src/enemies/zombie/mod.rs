@@ -27,6 +27,9 @@ use crate::audio::cues::Cue;
 use crate::state::{InRun, world_runs};
 use crate::tuning::*;
 
+pub mod stranded;
+use stranded::Stranded;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpeedTier {
     Walker,
@@ -891,6 +894,7 @@ impl Plugin for ZombiePlugin {
             .add_message::<ZombieSpawned>()
             .add_message::<KillAllZombies>()
             .add_message::<HealZombie>()
+            .add_message::<crate::audio::PlayCue>()
             .add_systems(Startup, load_assets)
             .configure_sets(
                 RunFixedMainLoop,
@@ -901,13 +905,19 @@ impl Plugin for ZombiePlugin {
             )
             .add_systems(
                 FixedUpdate,
-                (rise, wade.before(chase), chase, tumble, sink).in_set(HostSimulation).run_if(world_runs),
+                (rise, wade.before(chase), stranded::relocate_stranded.before(chase), chase, tumble, sink).in_set(HostSimulation).run_if(world_runs),
             )
             .add_systems(
                 RunFixedMainLoop,
                 fall_over.run_if(world_runs).in_set(FrameTurnSystems),
             )
             .add_systems(Update, (rig::animate.run_if(world_runs), rig::wear_outfits))
+            .add_systems(
+                Update,
+                (stranded::strand_zombies.before(attack), stranded::pound_doors.after(attack).before(clean_up_stuck))
+                    .in_set(HostSimulation)
+                    .run_if(world_runs),
+            )
             .add_systems(
                 Update,
                 (
@@ -1518,7 +1528,7 @@ fn clean_up_stuck(
     mut commands: Commands,
     mut zombies: Query<
         (Entity, &mut Zombie, &Transform, Option<&Entering>, Has<Surge>, Option<&Route>),
-        (Without<Dying>, Without<Rising>, Without<Telegraph>, Or<(Without<CarriesOver>, With<Surge>)>, Without<Requested>),
+        (Without<Dying>, Without<Rising>, Without<Telegraph>, Or<(Without<CarriesOver>, With<Surge>)>, Without<Requested>, Without<Stranded>),
     >,
     players: Players,
     barriers: Res<Barriers>,

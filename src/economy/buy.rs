@@ -74,6 +74,12 @@ pub struct Refused;
 #[derive(Component)]
 pub struct Held;
 
+/// A Buyable a Player in a Last Stand can still use, like a Crash Bar: it is the way out of a Sealed
+/// Quarantine Door, and a Down Player must be able to crawl to it. It does not reach a Player waiting
+/// to Respawn.
+#[derive(Component)]
+pub struct WhileDown;
+
 /// A Buyable used from anywhere near it, wherever the Player looks, like a Barrier's Planks. It
 /// gets the Prompt only when nothing the Player is aiming at is in reach, so it never steals a buy
 /// next to it.
@@ -335,7 +341,7 @@ fn buyer(points: &Points, down: bool, pause: &State<Pause>) -> Buyer {
 
 pub(crate) fn focus(
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
-    buyables: Query<(Entity, &Buyable, Has<Nearby>)>,
+    buyables: Query<(Entity, &Buyable, Has<Nearby>, Has<WhileDown>)>,
     player: Single<(Has<LastStand>, Has<AwaitingRespawn>, &Points), With<LocalPlayer>>,
     pause: Res<State<Pause>>,
     reviving: Res<ReviveFocus>,
@@ -343,13 +349,23 @@ pub(crate) fn focus(
 ) {
     let (last_stand, awaiting, points) = *player;
     let down = last_stand || awaiting;
+    // A Player in a Last Stand is offered only what stays usable Down.
+    let only_down = last_stand && !awaiting;
+    let blocked = if only_down { buyer(points, false, &pause).blocked() } else { buyer(points, down, &pause).blocked() };
     // A teammate to Revive takes the Use key before any Buyable.
-    let picked = if buyer(points, down, &pause).blocked() || reviving.0.is_some() {
+    let picked = if blocked || reviving.0.is_some() {
         None
     } else {
         let eye = camera.translation();
-        let aimed = buyables.iter().filter(|(_, _, nearby)| !nearby).map(|(entity, b, _)| (entity, b.use_point, b.range));
-        let nearby = buyables.iter().filter(|(_, _, nearby)| *nearby).map(|(entity, b, _)| (entity, b.use_point, b.range));
+        let usable = |while_down: bool| !only_down || while_down;
+        let aimed = buyables
+            .iter()
+            .filter(|(_, _, nearby, while_down)| !nearby && usable(*while_down))
+            .map(|(entity, b, ..)| (entity, b.use_point, b.range));
+        let nearby = buyables
+            .iter()
+            .filter(|(_, _, nearby, while_down)| *nearby && usable(*while_down))
+            .map(|(entity, b, ..)| (entity, b.use_point, b.range));
         pick(eye, camera.forward().as_vec3(), aimed).or_else(|| pick_nearby(eye, nearby))
     };
     if focus.0 != picked {
@@ -410,6 +426,7 @@ pub(crate) fn resolve_use(
         Option<&PricedFor>,
         Option<&OncePerPlayer>,
         Option<&Offers>,
+        Has<WhileDown>,
     )>,
     mut players: Query<
         (
@@ -433,12 +450,13 @@ pub(crate) fn resolve_use(
 ) {
     let claimed: Vec<(Entity, Entity)> = claims.read().map(|claim| (claim.player, claim.buyable)).collect();
     for &UseRequest { player, buyable: entity, hold } in requests.read() {
-        let Ok((buyable, hold_buy, refused, rebuild, priced_for, once, offers)) = buyables.get(entity) else { continue };
+        let Ok((buyable, hold_buy, refused, rebuild, priced_for, once, offers, while_down)) = buyables.get(entity) else { continue };
         let Ok((last_stand, awaiting, modifiers, loadout, perks, drinking, mut points, local)) = players.get_mut(player)
         else {
             continue;
         };
-        let down = last_stand || awaiting;
+        // A Buyable that stays usable Down is judged as if the Player in a Last Stand were up.
+        let down = awaiting || (last_stand && !while_down);
         let mut refused = refused || once.is_some_and(|once| once.refuses(perks, drinking));
         if rebuild {
             continue;
@@ -786,5 +804,20 @@ mod tests {
         assert_eq!(app.world().get::<Points>(player).unwrap().balance, 3000);
         assert_eq!(drained::<HoldPurchased>(&mut app).len(), 1);
         assert!(drained::<Purchased>(&mut app).is_empty());
+    }
+
+    #[test]
+    fn a_player_in_a_last_stand_can_use_only_what_stays_usable_down() {
+        let mut app = use_app();
+        let down = player_with(&mut app, 0);
+        app.world_mut().entity_mut(down).insert(LastStand::shown(10.0, false));
+        let plain = app.world_mut().spawn(Buyable { use_point: Vec3::ZERO, prompt: String::new(), price: None, range: USE_RANGE }).id();
+        let bar = app.world_mut().spawn((Buyable { use_point: Vec3::ZERO, prompt: String::new(), price: None, range: USE_RANGE }, WhileDown)).id();
+        app.world_mut().write_message(UseRequest { player: down, buyable: plain, hold: false });
+        app.world_mut().write_message(UseRequest { player: down, buyable: bar, hold: false });
+        app.update();
+        let bought = drained::<Purchased>(&mut app);
+        assert_eq!(bought.len(), 1);
+        assert_eq!(bought[0].buyable, bar);
     }
 }

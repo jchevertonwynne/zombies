@@ -2359,6 +2359,22 @@
       "licence": "CC0 (synthesised for this project)",
       "fetched": "2026-11-23",
       "notes": "Placeholder for Cue::QuarantineRelease: a hiss and a two-note chime. To be replaced by the real recording in the sound ticket (#505 section 8)"
+    },
+    {
+      "path": "audio/crash_bar.ogg",
+      "name": "Crash Bar placeholder",
+      "source": "tools/gen-sounds (synthesised, no samples)",
+      "licence": "CC0 (synthesised for this project)",
+      "fetched": "2026-11-23",
+      "notes": "Placeholder for Cue::CrashBar: a push bar giving way. To be replaced by the real recording in the sound ticket (#505 section 8)"
+    },
+    {
+      "path": "audio/door_pound.ogg",
+      "name": "Door pound placeholder",
+      "source": "tools/gen-sounds (synthesised, no samples)",
+      "licence": "CC0 (synthesised for this project)",
+      "fetched": "2026-11-23",
+      "notes": "Placeholder for Cue::DoorPound: a fist on a steel door. To be replaced by the real recording in the sound ticket (#505 section 8)"
     }
   ]
 }
