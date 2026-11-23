@@ -984,6 +984,21 @@ fn a_zombie_takes_every_drop_to_a_player_below() {
     assert!(failures.is_empty(), "stalled at a drop: {failures:#?}");
 }
 
+/// The Sanatorium's one drop: a Zombie on the Sun Roof walks off its court-side parapet gap, once D13
+/// is bought, and lands in the Garden Court after a Player standing under it.
+#[test]
+fn sanatorium_a_zombie_walks_off_the_sun_roofs_drop_once_d13_is_bought() {
+    let layout = MapId::Sanatorium.layout();
+    let node = |name: &str| {
+        let &(_, x, y, z) = layout.nav_nodes.iter().find(|(n, ..)| *n == name).unwrap();
+        Vec3::new(x, y, z)
+    };
+    let (top, bottom) = (node("sr_drop"), node("gc_drop"));
+    assert!(top.y - bottom.y >= 3.9);
+    let (arrived, last) = drops_after_with(MapId::Sanatorium, top, bottom, bottom.y + 1.0, ZOMBIE_CLEANUP_SECS - 3.0, true);
+    assert!(arrived, "stalled at the drop: last seen at {last}");
+}
+
 /// Three Zombies crossing the Greybox to a Player in the Start Room, every Door open: their
 /// feet every frame until each is within a body or two of the Player.
 fn greybox_crossing() -> Vec<(&'static str, Vec<Vec3>)> {

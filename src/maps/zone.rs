@@ -165,10 +165,44 @@ pub enum ZoneId {
     DykeRoad,
     /// The roofed engine house astride the dyke, with the Power Switch.
     PumpingStation,
+    /// The Sanatorium's start: the two-storey hall behind its front doors, with Quick Revive.
+    EntranceHall,
+    /// The drive and lawns in front of the Sanatorium, round the Founder's plinth, over the hill falling away into fog.
+    Forecourt,
+    /// The long corridor west of the Entrance Hall, along the front of the Sanatorium's west half.
+    WestCorridor,
+    /// The long corridor east of the Entrance Hall, the West Corridor's mirror.
+    EastCorridor,
+    /// The garden court between the corridors and the Refectory, round its bandstand.
+    GardenCourt,
+    /// The dining hall at the north of the garden court, under the first floor.
+    Refectory,
+    /// The tall boiler house at the west end of the Sanatorium, with the Power Switch.
+    BoilerHouse,
+    /// The mortuary at the east end of the Sanatorium.
+    Mortuary,
+    /// The West Wing's long ward off the West Corridor, under the Sun Roof.
+    LongWard,
+    /// The West Wing's day room, off the Refectory and the Long Ward.
+    DayRoom,
+    /// The East Wing's bath hall off the East Corridor, with Double Tap.
+    BathHall,
+    /// The East Wing's treatment room, off the Refectory and the Bath Hall.
+    TreatmentRoom,
+    /// The first-floor landing at the head of the Main Stair, over the Refectory.
+    UpperLanding,
+    /// The first-floor operating theatre, with Pack-a-Punch.
+    OperatingTheatre,
+    /// The flat roof of the Long Ward, out of doors, up the Fire Escape from the garden court.
+    SunRoof,
+    /// The Isolation Wing's ward, west of the Upper Landing.
+    IsolationWard,
+    /// The Isolation Wing's children's ward, off the Sun Roof and the Isolation Ward.
+    ChildrensWard,
 }
 
 impl ZoneId {
-    pub const ALL: [ZoneId; 79] = [
+    pub const ALL: [ZoneId; 96] = [
         ZoneId::StartRoom,
         ZoneId::WestHall,
         ZoneId::Balcony,
@@ -248,6 +282,23 @@ impl ZoneId {
         ZoneId::CustomsHouse,
         ZoneId::DykeRoad,
         ZoneId::PumpingStation,
+        ZoneId::EntranceHall,
+        ZoneId::Forecourt,
+        ZoneId::WestCorridor,
+        ZoneId::EastCorridor,
+        ZoneId::GardenCourt,
+        ZoneId::Refectory,
+        ZoneId::BoilerHouse,
+        ZoneId::Mortuary,
+        ZoneId::LongWard,
+        ZoneId::DayRoom,
+        ZoneId::BathHall,
+        ZoneId::TreatmentRoom,
+        ZoneId::UpperLanding,
+        ZoneId::OperatingTheatre,
+        ZoneId::SunRoof,
+        ZoneId::IsolationWard,
+        ZoneId::ChildrensWard,
     ];
 
     pub fn name(self) -> &'static str {
@@ -331,6 +382,23 @@ impl ZoneId {
             ZoneId::CustomsHouse => "Customs House",
             ZoneId::DykeRoad => "Dyke Road",
             ZoneId::PumpingStation => "Pumping Station",
+            ZoneId::EntranceHall => "Entrance Hall",
+            ZoneId::Forecourt => "Forecourt",
+            ZoneId::WestCorridor => "West Corridor",
+            ZoneId::EastCorridor => "East Corridor",
+            ZoneId::GardenCourt => "Garden Court",
+            ZoneId::Refectory => "Refectory",
+            ZoneId::BoilerHouse => "Boiler House",
+            ZoneId::Mortuary => "Mortuary",
+            ZoneId::LongWard => "Long Ward",
+            ZoneId::DayRoom => "Day Room",
+            ZoneId::BathHall => "Bath Hall",
+            ZoneId::TreatmentRoom => "Treatment Room",
+            ZoneId::UpperLanding => "Upper Landing",
+            ZoneId::OperatingTheatre => "Operating Theatre",
+            ZoneId::SunRoof => "Sun Roof",
+            ZoneId::IsolationWard => "Isolation Ward",
+            ZoneId::ChildrensWard => "Children's Ward",
         }
     }
 
@@ -347,6 +415,8 @@ impl ZoneId {
             | KeepersCottage | Battery => MapId::Cove,
             TownSquare | WeighHouse | Brewery | CheeseMarket | AlmshouseCourt | Windmill | Warehouse | LockYard | SluiceHouse | TollQuay | Shipyard | CoalYard | HerringQuay
             | CustomsHouse | DykeRoad | PumpingStation => MapId::Polder,
+            EntranceHall | Forecourt | WestCorridor | EastCorridor | GardenCourt | Refectory | BoilerHouse | Mortuary | LongWard | DayRoom | BathHall | TreatmentRoom
+            | UpperLanding | OperatingTheatre | SunRoof | IsolationWard | ChildrensWard => MapId::Sanatorium,
         }
     }
 
@@ -372,6 +442,8 @@ impl ZoneId {
             TownSquare | WeighHouse | Brewery | CheeseMarket | AlmshouseCourt | Windmill | Warehouse | LockYard | SluiceHouse | TollQuay | Shipyard | CoalYard | HerringQuay
             | CustomsHouse => 0.0,
             DykeRoad | PumpingStation => STOREY,
+            EntranceHall | Forecourt | WestCorridor | EastCorridor | GardenCourt | Refectory | BoilerHouse | Mortuary | LongWard | DayRoom | BathHall | TreatmentRoom => 0.0,
+            UpperLanding | OperatingTheatre | SunRoof | IsolationWard | ChildrensWard => STOREY,
         }
     }
 
@@ -388,6 +460,8 @@ impl ZoneId {
         const TOP: f32 = 8.0;
         const GALLERY: f32 = STOREY - 0.25;
         const CREST: f32 = 2.0 * STOREY - 0.25;
+        /// The Sanatorium's Sun Roof reaches well above its parapets.
+        const ROOF: f32 = 2.0 * STOREY + 1.0;
         let (x0, x1, y0, y1, z0, z1) = match self {
             ZoneId::StartRoom => (-14.0, 14.0, LOW, UPPER, 14.0, 26.0),
             ZoneId::WestHall => (-26.0, -14.0, LOW, TOP, -14.0, 26.0),
@@ -468,8 +542,32 @@ impl ZoneId {
             ZoneId::CustomsHouse => (14.0, 58.0, LOW, UPPER, 24.0, 48.0),
             ZoneId::DykeRoad => (-80.0, 44.0, STOREY - 0.25, 2.0 * STOREY - 0.25, 48.0, 60.0),
             ZoneId::PumpingStation => (44.0, 80.0, STOREY - 0.25, 2.0 * STOREY - 0.25, 48.0, 60.0),
+            ZoneId::EntranceHall => (-10.0, 10.0, LOW, TOP, 0.0, 14.0),
+            ZoneId::Forecourt => (-50.0, 50.0, LOW, TOP, -30.0, 0.0),
+            ZoneId::WestCorridor => (-50.0, -10.0, LOW, UPPER, 8.0, 14.0),
+            ZoneId::EastCorridor => (10.0, 50.0, LOW, UPPER, 8.0, 14.0),
+            ZoneId::GardenCourt => (-26.0, 26.0, LOW, TOP, 14.0, 42.0),
+            ZoneId::Refectory => (-26.0, 26.0, LOW, UPPER, 42.0, 56.0),
+            ZoneId::BoilerHouse => (-72.0, -50.0, LOW, TOP, -14.0, 14.0),
+            ZoneId::Mortuary => (50.0, 72.0, LOW, UPPER, -14.0, 14.0),
+            ZoneId::LongWard => (-50.0, -29.0, LOW, UPPER, 14.0, 42.0),
+            ZoneId::DayRoom => (-50.0, -26.0, LOW, UPPER, 42.0, 56.0),
+            ZoneId::BathHall => (26.0, 50.0, LOW, UPPER, 14.0, 42.0),
+            ZoneId::TreatmentRoom => (26.0, 50.0, LOW, UPPER, 42.0, 56.0),
+            ZoneId::UpperLanding => (-10.0, 10.0, UPPER, TOP, 42.0, 64.0),
+            ZoneId::OperatingTheatre => (10.0, 34.0, UPPER, TOP, 42.0, 56.0),
+            ZoneId::SunRoof => (-50.0, -26.0, UPPER, ROOF, 14.0, 42.0),
+            ZoneId::IsolationWard => (-26.0, -10.0, UPPER, TOP, 42.0, 56.0),
+            ZoneId::ChildrensWard => (-50.0, -26.0, UPPER, TOP, 42.0, 56.0),
         };
-        let sunk = self.map().layout().sunken.iter().filter(|sunken| sunken.zone == self).map(|sunken| sunken.depth).fold(0.0, f32::max);
+        // The Sanatorium's Upper Landing and Sun Roof are stacked over a ground Zone, so their
+        // volumes can't reach down into the stairwells (Main Stair, Fire Escape) cut in their
+        // floors: those stand in bays outside every Zone, the path nodes there ending in `_out`.
+        let sunk = if matches!(self, ZoneId::UpperLanding | ZoneId::SunRoof) {
+            0.0
+        } else {
+            self.map().layout().sunken.iter().filter(|sunken| sunken.zone == self).map(|sunken| sunken.depth).fold(0.0, f32::max)
+        };
         (Vec3::new(x0, y0 - sunk, z0), Vec3::new(x1, y1, z1))
     }
 
@@ -682,6 +780,19 @@ mod tests {
     fn track(current: ZoneId, feet: (f32, f32, f32)) -> ZoneId {
         let (min, max) = body(feet.0, feet.1, feet.2);
         track_zone(current, min, max)
+    }
+
+    /// A `ZoneSet` is a `u128`: every Zone's bit has to fit in it, and `ALL` has to list each Zone
+    /// at the place its bit counts from.
+    #[test]
+    fn every_zone_id_fits_in_a_zone_set() {
+        assert!(ZoneId::ALL.len() <= 128, "{} Zones is more than a ZoneSet's 128 bits", ZoneId::ALL.len());
+        for (i, zone) in ZoneId::ALL.into_iter().enumerate() {
+            assert_eq!(zone as usize, i, "{} is out of order in ALL", zone.name());
+            assert!((zone as u32) < 128);
+            assert!(ZoneSet::from_iter([zone]).contains(zone));
+        }
+        assert_eq!(ZoneId::ALL.len(), 96);
     }
 
     #[test]

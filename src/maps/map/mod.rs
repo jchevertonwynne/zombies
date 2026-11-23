@@ -25,6 +25,7 @@ mod fitting;
 mod greybox;
 mod polder;
 mod quarry;
+mod sanatorium;
 pub mod textures;
 mod village;
 
@@ -73,10 +74,13 @@ pub enum MapId {
     /// A canal town behind a sea dyke: two Canals crossed by Swing Bridges, a twin lock with
     /// Pack-a-Punch on its island, and the Power in the pumping station on the dyke.
     Polder,
+    /// A hospital on a fogbound hill: wards and corridors ringing a garden court, three Wings off
+    /// the ring, the Power in the boiler house and Pack-a-Punch in the operating theatre.
+    Sanatorium,
 }
 
 impl MapId {
-    pub const ALL: [MapId; 6] = [MapId::Greybox, MapId::Quarry, MapId::Village, MapId::Dam, MapId::Cove, MapId::Polder];
+    pub const ALL: [MapId; 7] = [MapId::Greybox, MapId::Quarry, MapId::Village, MapId::Dam, MapId::Cove, MapId::Polder, MapId::Sanatorium];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -86,6 +90,7 @@ impl MapId {
             MapId::Dam => "Dam",
             MapId::Cove => "Cove",
             MapId::Polder => "Polder",
+            MapId::Sanatorium => "Sanatorium",
         }
     }
 
@@ -98,6 +103,7 @@ impl MapId {
             MapId::Dam => "A dam's crest, its galleries and the turbine hall at its foot.",
             MapId::Cove => "A cliffside town, climbed by stairs from the beach to its lighthouse.",
             MapId::Polder => "A canal town behind a sea dyke, its bridges and its lock leading to the pumping station.",
+            MapId::Sanatorium => "A hospital on a fogbound hill, its wards sealed in turn by the Quarantine.",
         }
     }
 
@@ -110,6 +116,7 @@ impl MapId {
             MapId::Dam => &dam::DAM,
             MapId::Cove => &cove::COVE,
             MapId::Polder => &polder::POLDER,
+            MapId::Sanatorium => &sanatorium::SANATORIUM,
         }
     }
 }
@@ -261,7 +268,8 @@ const fn concat<T: Copy, const A: usize, const B: usize, const N: usize>(a: [T; 
 /// Every Map's windows, each Map's in a run of its own in `MapId::ALL` order, so a `BarrierId`
 /// names one window in one Map: the Zone it lets into, its centre on the wall line at the height
 /// of the floor it lets onto, and the way out. Each is planked up by its Barrier.
-pub const WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_POLDER_WINDOWS.len() + polder::WINDOWS.len()] = concat(BEFORE_THE_POLDER_WINDOWS, polder::WINDOWS);
+pub const WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_SANATORIUM_WINDOWS.len() + sanatorium::WINDOWS.len()] = concat(BEFORE_THE_SANATORIUM_WINDOWS, sanatorium::WINDOWS);
+const BEFORE_THE_SANATORIUM_WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_POLDER_WINDOWS.len() + polder::WINDOWS.len()] = concat(BEFORE_THE_POLDER_WINDOWS, polder::WINDOWS);
 const BEFORE_THE_POLDER_WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_COVE_WINDOWS.len() + cove::WINDOWS.len()] = concat(BEFORE_THE_COVE_WINDOWS, cove::WINDOWS);
 const BEFORE_THE_COVE_WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_DAM_WINDOWS.len() + dam::WINDOWS.len()] = concat(BEFORE_THE_DAM_WINDOWS, dam::WINDOWS);
 const BEFORE_THE_DAM_WINDOWS: [(ZoneId, Vec3, Vec2); GREYBOX_AND_QUARRY_WINDOWS.len() + village::WINDOWS.len()] = concat(GREYBOX_AND_QUARRY_WINDOWS, village::WINDOWS);
@@ -270,7 +278,8 @@ const GREYBOX_AND_QUARRY_WINDOWS: [(ZoneId, Vec3, Vec2); greybox::WINDOWS.len() 
 /// Every Map's Box Locations, each Map's in a run of its own, in order: the Zone, where the Box's
 /// centre sits on the floor, and which way its front faces (where the Player stands). Every Run
 /// starts the Box at its Map's first.
-pub const BOX_LOCATIONS: [(ZoneId, Vec3, Vec2); BEFORE_THE_POLDER_BOXES.len() + polder::BOX_LOCATIONS.len()] = concat(BEFORE_THE_POLDER_BOXES, polder::BOX_LOCATIONS);
+pub const BOX_LOCATIONS: [(ZoneId, Vec3, Vec2); BEFORE_THE_SANATORIUM_BOXES.len() + sanatorium::BOX_LOCATIONS.len()] = concat(BEFORE_THE_SANATORIUM_BOXES, sanatorium::BOX_LOCATIONS);
+const BEFORE_THE_SANATORIUM_BOXES: [(ZoneId, Vec3, Vec2); BEFORE_THE_POLDER_BOXES.len() + polder::BOX_LOCATIONS.len()] = concat(BEFORE_THE_POLDER_BOXES, polder::BOX_LOCATIONS);
 const BEFORE_THE_POLDER_BOXES: [(ZoneId, Vec3, Vec2); BEFORE_THE_COVE_BOXES.len() + cove::BOX_LOCATIONS.len()] = concat(BEFORE_THE_COVE_BOXES, cove::BOX_LOCATIONS);
 const BEFORE_THE_COVE_BOXES: [(ZoneId, Vec3, Vec2); BEFORE_THE_DAM_BOXES.len() + dam::BOX_LOCATIONS.len()] = concat(BEFORE_THE_DAM_BOXES, dam::BOX_LOCATIONS);
 const BEFORE_THE_DAM_BOXES: [(ZoneId, Vec3, Vec2); GREYBOX_AND_QUARRY_BOXES.len() + village::BOX_LOCATIONS.len()] =
@@ -596,6 +605,25 @@ pub fn materials(zone: Option<ZoneId>) -> Option<MaterialSet> {
         CustomsHouse => (DiagonalParquet, BrickWall001, None, &[]),
         DykeRoad => (WornConcreteFloor, ConcreteBlockWall02, None, &[]),
         PumpingStation => (HangarConcreteFloor, ConcreteTileFacade, Some(OilStains), &[]),
+        // The Sanatorium, for now in the families the Maps already have, west half ward green and
+        // east half tile (its own Material Sets come with its Look).
+        EntranceHall => (OldMosaicFloor, WhitePlasterRough01, Some(Leaks), &[]),
+        Forecourt => (GravelGround01, PlasteredStoneWall, None, &[]),
+        WestCorridor => (WornConcreteFloor, WornMossyPlasterwall, None, &[]),
+        EastCorridor => (CheckeredPavementTiles, WhiteStucco, None, &[]),
+        GardenCourt => (LeafyGrass, WornMossyPlasterwall, None, &[]),
+        Refectory => (FloorTiles06, DamagedPlaster, Some(Leaks), &[]),
+        BoilerHouse => (HangarConcreteFloor, BrickWall001, Some(OilStains), &[]),
+        Mortuary => (SmoothConcreteFloor, ConcreteTileFacade, Some(Leaks), &[]),
+        LongWard => (DiagonalParquet, WornMossyPlasterwall, Some(Leaks), &[]),
+        DayRoom => (DarkWoodenPlanks, PeelingPaintedWall, Some(Leaks), &[]),
+        BathHall => (OldMosaicFloor, WhiteSandstoneBricks03, Some(Leaks), &[]),
+        TreatmentRoom => (FloorTiles06, ConcreteTileFacade, None, &[]),
+        UpperLanding => (WornConcreteFloor, PeelingPaintedWall, None, &[]),
+        OperatingTheatre => (OldMosaicFloor, ConcreteTileFacade, None, &[]),
+        SunRoof => (AsphaltFloor, ConcreteMoss, None, &[]),
+        IsolationWard => (SmoothConcreteFloor, WhitePlasterRough01, Some(Leaks), &[]),
+        ChildrensWard => (WeatheredPlanks, PeelingPaintedWall, Some(Leaks), &[]),
     };
     let props = if props.is_empty() { zone_props(zone) } else { props };
     Some(MaterialSet { floor, wall, decals, props })
@@ -773,6 +801,41 @@ pub fn palette(zone: Option<ZoneId>) -> Palette {
         Some(DykeRoad) => paints((0.4, 0.36, 0.3), (0.72, 0.64, 0.76), (0.2, 0.2, 0.2), (0.85, 0.9, 1.0)),
         // Engine-room plate, white-glazed brick, brass and red.
         Some(PumpingStation) => paints((0.2, 0.2, 0.25), (0.62, 0.84, 0.9), (0.62, 0.16, 0.12), (1.0, 0.88, 0.7)),
+        // The Sanatorium: ward green in the west half, tile gone green-grey in the east, strip-lit.
+        // Buff mosaic, plaster, dark wood trim, a warm-white lamp.
+        Some(EntranceHall) => paints((0.46, 0.4, 0.3), (0.9, 0.86, 0.74), (0.3, 0.2, 0.12), (0.95, 0.93, 0.85)),
+        // Gravel and weathered render under the fog.
+        Some(Forecourt) => paints((0.5, 0.46, 0.36), (0.5, 0.6, 0.8), (0.2, 0.22, 0.2), (0.75, 0.85, 0.8)),
+        // Green linoleum and hospital-green gloss paint.
+        Some(WestCorridor) => paints((0.4, 0.5, 0.34), (0.4, 0.66, 0.5), (0.9, 0.92, 0.85), (0.82, 0.95, 0.88)),
+        // Dirty tile and stained white wall tile.
+        Some(EastCorridor) => paints((0.55, 0.58, 0.54), (0.78, 0.84, 0.8), (0.2, 0.35, 0.3), (0.82, 0.95, 0.88)),
+        // Lawn, and the pale mossy render of the wards round it.
+        Some(GardenCourt) => paints((0.2, 0.32, 0.1), (0.45, 0.62, 0.45), (0.85, 0.85, 0.8), (0.8, 0.9, 0.8)),
+        // Dining tiles under tan plaster.
+        Some(Refectory) => paints((0.5, 0.52, 0.45), (0.6, 0.52, 0.4), (0.25, 0.3, 0.22), (0.88, 0.95, 0.85)),
+        // Black iron floor, sooty red brick, caged amber light.
+        Some(BoilerHouse) => paints((0.1, 0.08, 0.12), (0.62, 0.22, 0.12), (0.8, 0.45, 0.1), (1.0, 0.66, 0.34)),
+        // Cold slab and broken white tile.
+        Some(Mortuary) => paints((0.45, 0.5, 0.52), (0.86, 0.9, 0.92), (0.15, 0.25, 0.3), (0.75, 0.9, 1.0)),
+        // Parquet and mossy green plaster.
+        Some(LongWard) => paints((0.42, 0.3, 0.18), (0.3, 0.64, 0.34), (0.85, 0.85, 0.78), (0.82, 0.95, 0.88)),
+        // Dark boards and faded wallpaper.
+        Some(DayRoom) => paints((0.25, 0.18, 0.34), (0.6, 0.46, 0.64), (0.88, 0.82, 0.6), (0.82, 0.95, 0.88)),
+        // Blue mosaic and blue broken tile.
+        Some(BathHall) => paints((0.2, 0.4, 0.5), (0.46, 0.62, 0.78), (0.9, 0.92, 0.95), (0.82, 0.95, 0.88)),
+        // Pale worn tile under long white wall tiles.
+        Some(TreatmentRoom) => paints((0.62, 0.66, 0.6), (0.9, 0.92, 0.88), (0.45, 0.15, 0.12), (0.82, 0.95, 0.88)),
+        // Linoleum and peeling cream paint.
+        Some(UpperLanding) => paints((0.3, 0.46, 0.4), (0.76, 0.82, 0.62), (0.2, 0.25, 0.22), (0.82, 0.95, 0.88)),
+        // Slate floor, white tile, blood-red trim, a cold lamp.
+        Some(OperatingTheatre) => paints((0.25, 0.3, 0.34), (0.92, 0.94, 0.96), (0.6, 0.1, 0.1), (0.9, 0.97, 1.0)),
+        // Asphalt and moss-streaked concrete.
+        Some(SunRoof) => paints((0.12, 0.13, 0.16), (0.36, 0.54, 0.4), (0.9, 0.9, 0.86), (0.8, 0.9, 0.8)),
+        // Grey concrete and small green tile.
+        Some(IsolationWard) => paints((0.5, 0.5, 0.52), (0.3, 0.55, 0.5), (0.85, 0.88, 0.85), (0.82, 0.95, 0.88)),
+        // Pine boards and warm nursery wallpaper.
+        Some(ChildrensWard) => paints((0.6, 0.45, 0.28), (0.9, 0.72, 0.5), (0.3, 0.4, 0.6), (0.95, 0.9, 0.75)),
         // Bare ground round weathered brick.
         None => paints((0.15, 0.17, 0.12), (0.3, 0.21, 0.17), (0.42, 0.4, 0.36), (1.0, 0.75, 0.45)),
     }

@@ -159,6 +159,14 @@ impl Perk {
             (MapId::Polder, Perk::DoubleTap) => (Vec3::new(34.8, 0.0, 20.0), Vec3::X),
             // The Square's south wall, between the two cheap guns.
             (MapId::Polder, Perk::QuickRevive) => (Vec3::new(5.0, 0.0, -39.2), Vec3::Z),
+            // The Boiler House's south wall, on the Power route.
+            (MapId::Sanatorium, Perk::Juggernog) => (Vec3::new(-66.0, 0.0, -13.2), Vec3::Z),
+            // The Refectory's south wall, west of the Garden Court's Door.
+            (MapId::Sanatorium, Perk::SpeedCola) => (Vec3::new(-14.0, 0.0, 42.8), Vec3::Z),
+            // The Bath Hall's east wall, inside the East Wing.
+            (MapId::Sanatorium, Perk::DoubleTap) => (Vec3::new(49.2, 0.0, 27.0), Vec3::NEG_X),
+            // The Entrance Hall's north wall.
+            (MapId::Sanatorium, Perk::QuickRevive) => (Vec3::new(5.0, 0.0, 13.2), Vec3::NEG_Z),
         }
     }
 
