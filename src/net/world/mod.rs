@@ -61,6 +61,7 @@ use crate::players::shellshock::Shellshock;
 use crate::maps::teleporter::{Aftereffect, Aftermath, begin_aftereffect};
 use crate::players::revive::{Revived, Reviving};
 use crate::economy::points::Points;
+use crate::run::stats::RunStats;
 use crate::maps::generator::{GeneratorState, Generators};
 use crate::maps::power::{Power, PowerSwitch};
 use crate::economy::power_up::{ActivePowerUps, Dropped, PowerUp, PowerUpAssets, PowerUpTaken, spawn_drop};
@@ -305,6 +306,10 @@ pub enum WorldEvent {
     /// at most `POINTS_TELL_PER_SEC` times a second per Seat, and all of them to a Player who
     /// comes back.
     Points { seat: Seat, points: u32 },
+    /// A Player's Run tallies as the Host counted them, to every Player, their own included: told
+    /// when any change, at most `POINTS_TELL_PER_SEC` times a second per Seat, and all of them to
+    /// a Player who comes back.
+    Tallies { seat: Seat, kills: u32, headshots: u32, downs: u32, revives: u32 },
     /// Lasting facts about Zombies, by id, told once when they are first true (batched per
     /// frame) and again to a Player who comes back: an Elite's trait.
     Tags(Vec<(u16, Tag)>),
@@ -422,6 +427,8 @@ pub struct Mirror {
     challenge_told: Option<f32>,
     /// Each Seat's Points as last told, and the seconds since.
     points: HashMap<Seat, (u32, f32)>,
+    /// Each Seat's tallies (kills, headshots, downs, revives) as last told, and the seconds since.
+    tallies: HashMap<Seat, ([u32; 4], f32)>,
     offers: HashMap<Seat, Option<OfferWire>>,
     boons: HashMap<Seat, Vec<(String, u32)>>,
     pacts: Vec<(String, u8)>,
@@ -547,7 +554,7 @@ pub fn add(app: &mut App) {
                 tell_perks,
                 tell_held,
                 tell_status,
-                (tell_health, tell_points, tell_tags, tell_elites_killed, tell_taint, tell_dev),
+                (tell_health, tell_points, tell_tallies, tell_tags, tell_elites_killed, tell_taint, tell_dev),
                 tell_hurts,
                 tell_offers,
                 tell_gauntlet,
@@ -603,7 +610,7 @@ pub fn add(app: &mut App) {
                     hear_perks,
                     hear_held,
                     hear_status,
-                    (hear_health, hear_hurts, hear_points),
+                    (hear_health, hear_hurts, hear_points, hear_tallies),
                     hear_offers,
                     hear_gauntlet,
                     hear_left,
@@ -1233,6 +1240,55 @@ fn tell_points(
     }
 }
 
+/// A Seat's tallies as the wire has them.
+fn tallies_of(stats: &RunStats) -> [u32; 4] {
+    [stats.kills, stats.headshots, stats.downs, stats.revives]
+}
+
+fn tallies_event(seat: Seat, [kills, headshots, downs, revives]: [u32; 4]) -> WorldEvent {
+    WorldEvent::Tallies { seat, kills, headshots, downs, revives }
+}
+
+/// Each Player's Kills, Headshots, Downs and Revives, to every Player, when they change and at
+/// most `POINTS_TELL_PER_SEC` times a second per Seat: a change inside the gap waits for it to pass.
+fn tell_tallies(
+    mut tell: Tell,
+    mut mirror: ResMut<Mirror>,
+    time: Res<Time>,
+    players: Query<(&PlayerSeat, &RunStats), With<Player>>,
+) {
+    for (seat, stats) in &players {
+        let now = tallies_of(stats);
+        let (told, since) = mirror.tallies.entry(seat.0).or_insert((now, f32::MAX));
+        *since += time.delta_secs();
+        if *told == now && *since != f32::MAX {
+            continue;
+        }
+        if *since < 1.0 / POINTS_TELL_PER_SEC {
+            continue;
+        }
+        *told = now;
+        *since = 0.0;
+        tell.all(&tallies_event(seat.0, now));
+    }
+}
+
+/// Each Player's tallies, by the Host's word: kills are judged on the Host, so a client's own
+/// `RunStats` would otherwise miss the kills it made.
+fn hear_tallies(mut heard: MessageReader<Heard>, mut players: Query<(&PlayerSeat, &mut RunStats), With<Player>>) {
+    for Heard(event) in heard.read() {
+        let WorldEvent::Tallies { seat, kills, headshots, downs, revives } = *event else { continue };
+        for (held, mut stats) in &mut players {
+            if held.0 == seat && tallies_of(&stats) != [kills, headshots, downs, revives] {
+                stats.kills = kills;
+                stats.headshots = headshots;
+                stats.downs = downs;
+                stats.revives = revives;
+            }
+        }
+    }
+}
+
 /// Each remote Player's Health, to them: at once when it falls, and as it regenerates in steps.
 fn tell_health(mut tell: Tell, mut mirror: ResMut<Mirror>, players: Query<(&PlayerSeat, &Health, &Remote), With<Player>>) {
     for (seat, health, remote) in &players {
@@ -1510,6 +1566,7 @@ fn catch_up_player(
             &HeldBoons,
             &Points,
             Option<&Banishes>,
+            &RunStats,
         ),
         With<Player>,
     >,
@@ -1517,10 +1574,11 @@ fn catch_up_player(
 ) {
     for &SeatReturned { seat } in returned.read() {
         let Some(&(peer, _)) = tell.roster.0.iter().find(|&&(_, held)| held == seat.0) else { continue };
-        for (held_seat, perks, drinking, weapon, loadout, equipment, knife, health, offer, boons, points, banishes) in &players {
+        for (held_seat, perks, drinking, weapon, loadout, equipment, knife, health, offer, boons, points, banishes, stats) in &players {
             if *held_seat != seat {
                 tell.to(peer, &WorldEvent::Points { seat: held_seat.0, points: wire_points(points.balance) });
             }
+            tell.to(peer, &tallies_event(held_seat.0, tallies_of(stats)));
             tell.to(peer, &WorldEvent::Perks { seat: held_seat.0, drinking: drinking.map(|drinking| drinking.perk), held: perks.0.clone() });
             if *held_seat != seat {
                 tell.to(peer, &WorldEvent::Held { seat: held_seat.0, weapon: weapon.clone() });

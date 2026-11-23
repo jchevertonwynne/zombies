@@ -144,6 +144,7 @@ pub struct Score {
     pub name: String,
     pub seat: Seat,
     pub kills: u32,
+    pub headshots: u32,
     pub downs: u32,
     pub revives: u32,
     /// The Points they earned over the Run, not the balance they hold.

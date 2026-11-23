@@ -203,6 +203,7 @@ fn run_over(
                 name: name.0.clone(),
                 seat: seat.0,
                 kills: stats.kills,
+                headshots: stats.headshots,
                 downs: stats.downs,
                 revives: stats.revives,
                 points_earned: points.earned,

@@ -83,6 +83,9 @@ pub struct Teammate {
     pub name: String,
     pub seat: u8,
     pub kills: u32,
+    /// 0 in Records saved before it was kept.
+    #[serde(default)]
+    pub headshots: u32,
     pub downs: u32,
     pub revives: u32,
     pub points_earned: u64,
@@ -593,6 +596,7 @@ fn teammates(
             name: name.0.clone(),
             seat: seat.0,
             kills: stats.kills,
+            headshots: stats.headshots,
             downs: stats.downs,
             revives: stats.revives,
             points_earned: points.earned,
@@ -610,6 +614,7 @@ pub fn teammates_from(rows: &[crate::net::protocol::Score], own: Option<Seat>) -
             name: row.name.clone(),
             seat: row.seat,
             kills: row.kills,
+            headshots: row.headshots,
             downs: row.downs,
             revives: row.revives,
             points_earned: row.points_earned,
@@ -940,6 +945,7 @@ mod tests {
             name: name.into(),
             seat,
             kills: 5,
+            headshots: 3,
             downs: 1,
             revives: 2,
             points_earned: 700,
@@ -948,6 +954,7 @@ mod tests {
         let mine = teammates_from(&board, Some(Seat(1)));
         assert_eq!(mine.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["Host", "Bo"]);
         assert_eq!(mine[0].revives, 2);
+        assert_eq!(mine[0].headshots, 3);
     }
 
     #[test]

@@ -530,9 +530,10 @@ fn record_cells(rank: usize, run: &RunRecord) -> Vec<String> {
 fn teammate_line(board: &mut ChildSpawnerCommands, mate: &Teammate) {
     board.spawn(text(
         format!(
-            "  {}: Kills {}  Downs {}  Revives {}  Points Earned {}",
+            "  {}: Kills {}  Headshots {}  Downs {}  Revives {}  Points Earned {}",
             mate.name,
             with_commas(mate.kills.into()),
+            with_commas(mate.headshots.into()),
             with_commas(mate.downs.into()),
             with_commas(mate.revives.into()),
             with_commas(mate.points_earned),

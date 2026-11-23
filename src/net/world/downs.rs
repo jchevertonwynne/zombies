@@ -373,3 +373,98 @@ fn a_clients_reroll_and_banish_apply_on_the_host_and_come_back_in_the_offer() {
     assert_eq!(run.world(1).get::<Banishes>(own).unwrap().charges, charges - 1);
     assert_eq!(run.world(1).get::<Offer>(own).unwrap().card_ids(), run.world(0).get::<Offer>(on_host).unwrap().card_ids());
 }
+
+/// The four tallies game `on` has for the Player in `seat`: kills, headshots, downs, revives.
+fn tallies(run: &mut Run, on: usize, seat: u8) -> [u32; 4] {
+    let player = run.player(on, seat);
+    let stats = run.world(on).get::<RunStats>(player).unwrap();
+    [stats.kills, stats.headshots, stats.downs, stats.revives]
+}
+
+/// The Host judges a kill by the Player in `seat`.
+fn kill_by(run: &mut Run, seat: u8, headshot: bool) {
+    use crate::enemies::zombie::{Attack, HitZone, Pay, ZombieKilled};
+    let player = run.player(0, seat);
+    run.world(0).write_message(ZombieKilled {
+        player: Some(player),
+        pay: Pay::Paid,
+        headshot,
+        zone: if headshot { HitZone::Head } else { HitZone::Torso },
+        attack: Attack::Bullet,
+        at: Vec3::ZERO,
+        surge: false,
+        zombie: Entity::PLACEHOLDER,
+    });
+}
+
+#[test]
+fn a_clients_own_kills_come_from_the_hosts_tallies_event() {
+    let mut run = run(2);
+    run.step(5);
+    kill_by(&mut run, 1, true);
+    kill_by(&mut run, 1, false);
+    kill_by(&mut run, 2, false);
+    // Kills are judged on the Host, which never writes a `ZombieKilled` on a client: before the
+    // Tallies event a client's own RunStats stayed 0. Now the Host's count reaches every game.
+    run.step(30);
+    for on in 0..3 {
+        assert_eq!(tallies(&mut run, on, 1), [2, 1, 0, 0], "game {on}'s view of seat 1");
+        assert_eq!(tallies(&mut run, on, 2), [1, 0, 0, 0], "game {on}'s view of seat 2");
+        assert_eq!(tallies(&mut run, on, 0), [0, 0, 0, 0], "game {on}'s view of seat 0");
+    }
+}
+
+#[test]
+fn a_down_reaches_every_game_with_the_hosts_count() {
+    let mut run = run(1);
+    run.give_points(0, 1_000);
+    run.step(5);
+    knock_down(&mut run, 1);
+    run.step(40);
+    for on in 0..2 {
+        assert_eq!(tallies(&mut run, on, 1)[2], 1, "game {on} counts the Down");
+    }
+}
+
+#[test]
+fn tallies_are_told_at_most_eight_times_a_second() {
+    let mut run = run(1);
+    run.step(30);
+    let mut changes = 0;
+    let mut seen = tallies(&mut run, 1, 0)[0];
+    for _ in 0..64u32 {
+        kill_by(&mut run, 0, false);
+        run.step(1);
+        let now = tallies(&mut run, 1, 0)[0];
+        changes += u32::from(now != seen);
+        seen = now;
+    }
+    assert!(changes <= 9, "{changes} changes in a second");
+    assert!(changes >= 4, "{changes} changes in a second");
+    run.step(30);
+    assert_eq!(tallies(&mut run, 1, 0)[0], 64, "the last one is not lost to the gap");
+}
+
+#[test]
+fn a_rejoiner_catches_up_on_every_seats_tallies_at_once() {
+    use crate::net::away::Reach;
+    let mut run = run(2);
+    run.step(5);
+    kill_by(&mut run, 0, true);
+    kill_by(&mut run, 1, false);
+    kill_by(&mut run, 1, false);
+    kill_by(&mut run, 2, true);
+    run.step(30);
+    run.cut(1);
+    run.step(2);
+    // What they had is gone from their game: only the catch-up can give it back.
+    for seat in 0..3 {
+        let player = run.player(1, seat);
+        *run.world(1).get_mut::<RunStats>(player).unwrap() = RunStats::default();
+    }
+    run.step(30);
+    assert_eq!(run.world(1).resource::<crate::net::away::Rejoin>().reach, Reach::Up);
+    assert_eq!(tallies(&mut run, 1, 0), [1, 1, 0, 0]);
+    assert_eq!(tallies(&mut run, 1, 1), [2, 0, 0, 0]);
+    assert_eq!(tallies(&mut run, 1, 2), [1, 1, 0, 0]);
+}

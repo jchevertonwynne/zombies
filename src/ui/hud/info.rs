@@ -1,10 +1,12 @@
 //! The Info Screen: held on the Info key (Tab by default), it lays the Run's standing over the
 //! middle of the screen. Map, Mode, Heat (Gauntlet), Round, time survived, and a row per Player
-//! with their Seat colour, Points and whether they are up, in Last Stand or Bled Out. Once the Run
-//! is Tainted it adds one line saying so; before that it says nothing about developer mode.
+//! with their Seat colour, Points, Kills (K), Headshots (HS), Downs (D) and, in Co-op, Revives (R)
+//! under a small header row, and whether they are up, in Last Stand or Bled Out. Once the Run is
+//! Tainted it adds one line saying so; before that it says nothing about developer mode.
 //!
-//! It reads only what every machine already has, so it is the same solo and in Co-op and adds
-//! nothing to the wire. It shows at any time in a Run (Last Stand, spectating, Intermission, with an
+//! It reads each Player's `RunStats`. In Co-op the Host tells every Player every Seat's counts (see
+//! `WorldEvent::Tallies`), so a client's own row shows the Host's count, and the screen is the same
+//! on every machine. It shows at any time in a Run (Last Stand, spectating, Intermission, with an
 //! Offer open), sits below the Offer and the Pause menu, and hides while the Pause menu is open.
 //! The world keeps running and the Player keeps control.
 
@@ -21,7 +23,7 @@ use crate::run::mode::Mode;
 use crate::run::round::Round;
 use crate::run::stats::RunStats;
 use crate::state::{GameState, InRun, Pause};
-use crate::storage::records::{RunHeatRecord, RunTainted, format_time};
+use crate::storage::records::{RunHeatRecord, RunPlayers, RunTainted, format_time};
 use crate::storage::settings::Settings;
 
 /// Over the HUD, under the Pause menu (10) and any Offer (15, 20).
@@ -76,6 +78,10 @@ pub struct InfoRow {
     pub seat: Seat,
     pub name: String,
     pub points: u64,
+    pub kills: u32,
+    pub headshots: u32,
+    pub downs: u32,
+    pub revives: u32,
     pub standing: Standing,
 }
 
@@ -90,6 +96,8 @@ pub struct InfoView {
     /// Whole seconds survived.
     pub survived_secs: u64,
     pub players: Vec<InfoRow>,
+    /// Whether this is a Co-op Run, which adds the Revives column.
+    pub coop: bool,
     pub tainted: bool,
 }
 
@@ -106,6 +114,35 @@ impl InfoView {
             format!("Round {} · {}", self.round, format_time(self.survived_secs as f64)),
         ]
     }
+}
+
+/// The width of a tally column, so every row lines up under the header.
+const TALLY_WIDTH: f32 = 56.0;
+const NAME_WIDTH: f32 = 150.0;
+const POINTS_WIDTH: f32 = 90.0;
+
+impl InfoRow {
+    /// The tally cells in column order: K, HS, D, then R in Co-op.
+    pub fn tallies(&self, coop: bool) -> Vec<String> {
+        let mut cells = vec![with_commas(self.kills.into()), with_commas(self.headshots.into()), with_commas(self.downs.into())];
+        if coop {
+            cells.push(with_commas(self.revives.into()));
+        }
+        cells
+    }
+}
+
+/// The header over the tally columns, in the same order as `InfoRow::tallies`.
+pub fn tally_header(coop: bool) -> Vec<&'static str> {
+    let mut cells = vec!["K", "HS", "D"];
+    if coop {
+        cells.push("R");
+    }
+    cells
+}
+
+fn cell(label: impl Into<String>, size: f32, colour: Color, width: f32) -> impl Bundle {
+    (text(label, size, colour), Node { width: px(width), justify_content: JustifyContent::FlexEnd, ..default() })
 }
 
 /// The Info Screen's root, a full-screen layer shown while the Info key is held.
@@ -146,7 +183,8 @@ fn show_info(
     pause: Option<Res<State<Pause>>>,
     (map, mode, round, heat, tainted): (Res<MapId>, Res<Mode>, Option<Res<Round>>, Res<RunHeatRecord>, Res<RunTainted>),
     local: Single<&RunStats, With<LocalPlayer>>,
-    players: Query<(&Seat, &PlayerName, &Points, Has<LastStand>, Has<AwaitingRespawn>), With<Player>>,
+    players: Query<(&Seat, &PlayerName, &Points, &RunStats, Has<LastStand>, Has<AwaitingRespawn>), With<Player>>,
+    run_players: Option<Res<RunPlayers>>,
     mut screen: Single<(Entity, &mut Node), With<InfoScreen>>,
     mut shown: Local<Shown>,
 ) {
@@ -159,10 +197,14 @@ fn show_info(
     }
     let mut rows: Vec<InfoRow> = players
         .iter()
-        .map(|(&seat, name, points, last_stand, awaiting)| InfoRow {
+        .map(|(&seat, name, points, stats, last_stand, awaiting)| InfoRow {
             seat,
             name: name.0.clone(),
             points: points.balance,
+            kills: stats.kills,
+            headshots: stats.headshots,
+            downs: stats.downs,
+            revives: stats.revives,
             standing: Standing::of(last_stand, awaiting),
         })
         .collect();
@@ -174,6 +216,7 @@ fn show_info(
         round: round.map_or(0, |round| round.number),
         survived_secs: local.survived_secs.max(0.0) as u64,
         players: rows,
+        coop: run_players.is_some_and(|players| players.0 > 1),
         tainted: tainted.0,
     };
     if screen.1.display != Display::Flex {
@@ -191,10 +234,21 @@ fn show_info(
             for (i, line) in view.header().into_iter().enumerate() {
                 panel.spawn(text(line, if i == 0 { 26.0 } else { 20.0 }, Color::WHITE));
             }
+            panel.spawn(row(14.0)).with_children(|row| {
+                row.spawn(cell("", 14.0, GREY, NAME_WIDTH));
+                row.spawn(cell("", 14.0, GREY, POINTS_WIDTH));
+                for label in tally_header(view.coop) {
+                    row.spawn(cell(label, 14.0, GREY, TALLY_WIDTH));
+                }
+            });
             for player in &view.players {
                 panel.spawn(row(14.0)).with_children(|row| {
-                    row.spawn(text(player.name.clone(), 20.0, player.seat.colour()));
-                    row.spawn(text(with_commas(player.points), 20.0, player.seat.colour()));
+                    let colour = player.seat.colour();
+                    row.spawn(Node { width: px(NAME_WIDTH), ..default() }).with_child(text(player.name.clone(), 20.0, colour));
+                    row.spawn(cell(with_commas(player.points), 20.0, colour, POINTS_WIDTH));
+                    for tally in player.tallies(view.coop) {
+                        row.spawn(cell(tally, 20.0, colour, TALLY_WIDTH));
+                    }
                     row.spawn(text(player.standing.text(), 16.0, player.standing.colour()));
                 });
             }
@@ -228,6 +282,7 @@ mod tests {
             round: 7,
             survived_secs: 125,
             players: vec![],
+            coop: false,
             tainted: false,
         }
     }
@@ -287,9 +342,9 @@ mod tests {
             Seat(0),
             PlayerName("Dempsey".into()),
             Points { balance: 1500, ..default() },
-            RunStats::default(),
+            RunStats { kills: 1_234, headshots: 56, downs: 2, revives: 3, ..default() },
         ));
-        app.world_mut().spawn((Player, Seat(1), PlayerName("Nikolai".into()), Points::default(), AwaitingRespawn));
+        app.world_mut().spawn((Player, Seat(1), PlayerName("Nikolai".into()), Points::default(), RunStats::default(), AwaitingRespawn));
         app
     }
 
@@ -314,6 +369,52 @@ mod tests {
         app.update();
         let display = app.world_mut().query_filtered::<&Node, With<InfoScreen>>().single(app.world()).unwrap().display;
         assert_eq!(display, Display::None);
+    }
+
+    fn held_texts(app: &mut App) -> Vec<String> {
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Tab);
+        app.update();
+        app.update();
+        texts(app)
+    }
+
+    #[test]
+    fn solo_shows_kills_headshots_and_downs_but_no_revives() {
+        let mut app = app(false);
+        let shown = held_texts(&mut app);
+        for want in ["K", "HS", "D", "1,234", "56", "2"] {
+            assert!(shown.iter().any(|line| line == want), "{want} in {shown:?}");
+        }
+        assert!(!shown.iter().any(|line| line == "R"), "no Revives column solo: {shown:?}");
+        assert!(!shown.iter().any(|line| line == "3"), "{shown:?}");
+    }
+
+    #[test]
+    fn co_op_adds_the_revives_column() {
+        let mut app = app(false);
+        app.insert_resource(RunPlayers(2));
+        let shown = held_texts(&mut app);
+        for want in ["K", "HS", "D", "R", "1,234", "56", "2", "3"] {
+            assert!(shown.iter().any(|line| line == want), "{want} in {shown:?}");
+        }
+    }
+
+    #[test]
+    fn a_row_lists_its_tallies_in_column_order() {
+        let row = InfoRow {
+            seat: Seat(0),
+            name: "A".into(),
+            points: 0,
+            kills: 1_000,
+            headshots: 2,
+            downs: 3,
+            revives: 4,
+            standing: Standing::Up,
+        };
+        assert_eq!(row.tallies(false), ["1,000", "2", "3"]);
+        assert_eq!(row.tallies(true), ["1,000", "2", "3", "4"]);
+        assert_eq!(tally_header(false), ["K", "HS", "D"]);
+        assert_eq!(tally_header(true), ["K", "HS", "D", "R"]);
     }
 
     #[test]
