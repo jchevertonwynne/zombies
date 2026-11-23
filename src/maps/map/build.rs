@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 
 use avian3d::prelude::*;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::economy::buy::{Buyable, Refused};
@@ -153,7 +154,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
     }
 
     /// A box drawn in `colour` until `material` (if any) has loaded, then in that.
-    fn shape_in(&mut self, size: Vec3, at: Vec3, rotation: Quat, colour: Color, material: Option<Material>) -> Entity {
+    pub fn shape_in(&mut self, size: Vec3, at: Vec3, rotation: Quat, colour: Color, material: Option<Material>) -> Entity {
         let paint = self.paint(colour);
         let mut shape = self.commands.spawn((
             InRun,
@@ -167,6 +168,27 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let shape = shape.id();
         self.drawn.push(shape);
         shape
+    }
+
+    /// A box that glows: `colour` lit from within at `strength`, with no shadow and not solid.
+    pub fn glow_box(&mut self, size: Vec3, at: Vec3, colour: Color, strength: f32) -> Entity {
+        let material = self.materials.add(StandardMaterial { base_color: colour, emissive: LinearRgba::from(colour) * strength, ..default() });
+        let shape = self.commands.spawn((InRun, Mesh3d(self.cube.clone()), MeshMaterial3d(material), Transform { translation: at, rotation: Quat::IDENTITY, scale: size }, NotShadowCaster)).id();
+        self.drawn.push(shape);
+        shape
+    }
+
+    /// An upright drum (a cylinder `size.x` across and `size.y` tall) drawn in `colour`. Not solid.
+    pub fn drum(&mut self, size: Vec3, at: Vec3, colour: Color) -> Entity {
+        let paint = self.paint(colour);
+        let shape = self.commands.spawn((InRun, Mesh3d(self.cylinder.clone()), MeshMaterial3d(paint), Transform { translation: at, rotation: Quat::IDENTITY, scale: size })).id();
+        self.drawn.push(shape);
+        shape
+    }
+
+    /// Adds `bundle` to an entity the Builder spawned.
+    pub fn tag(&mut self, entity: Entity, bundle: impl Bundle) {
+        self.commands.entity(entity).insert(bundle);
     }
 
     /// Something solid with nothing drawn: what's seen of it is drawn on its own.

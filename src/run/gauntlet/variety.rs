@@ -2268,6 +2268,41 @@ mod tests {
         assert!(app.world().resource::<RoundVariety>().reward.is_none(), "paid out");
     }
 
+    /// While the Fog Twist's Round is Active the fog is drawn in to `GAUNTLET_FOG_DISTANCE`; once
+    /// it ends the fog clears to the Map's `look.fog_range`, whatever that is (the Sanatorium's is
+    /// closer than the others'), not to the `FOG_START` and `FOG_END` constants.
+    #[test]
+    fn fog_twist_restores_to_the_looks_fog_range() {
+        use crate::maps::map::MapId;
+        for map in [MapId::Sanatorium, MapId::Greybox] {
+            let range = map.layout().look.fog_range;
+            let mut app = App::new();
+            app.add_plugins(MinimalPlugins)
+                .insert_resource(map)
+                .insert_resource(live(7, Some(Twist::Fog), None))
+                .insert_resource(Round::shown(7, None))
+                .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_millis(100)))
+                .add_systems(Update, (crate::enemies::hellhound::pull_in_fog, draw_fog).chain());
+            let camera = app
+                .world_mut()
+                .spawn((PlayerCamera, DistanceFog { falloff: FogFalloff::Linear { start: range.0, end: range.1 }, ..default() }))
+                .id();
+            let falloff = |app: &App| match app.world().get::<DistanceFog>(camera).unwrap().falloff {
+                FogFalloff::Linear { start, end } => (start, end),
+                _ => panic!("linear"),
+            };
+            for _ in 0..20 {
+                app.update();
+            }
+            assert_eq!(falloff(&app).1, GAUNTLET_FOG_DISTANCE.min(range.1), "{map:?} is drawn in during the Twist");
+            app.world_mut().resource_mut::<Round>().phase = RoundPhase::Intermission(5.0);
+            for _ in 0..100 {
+                app.update();
+            }
+            assert_eq!(falloff(&app), range, "{map:?} restores to its Look's fog range");
+        }
+    }
+
     #[test]
     fn a_client_mirroring_the_pick_has_the_twist_and_survives_it() {
         let mut variety = RoundVariety::default();

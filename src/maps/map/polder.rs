@@ -131,6 +131,8 @@ pub(super) const POLDER: Layout = Layout {
     roofed: true,
     sun: Vec3::new(1.0, -3.4, 4.7),
     look: crate::maps::look::NORTHERN_DUSK,
+    lamp_style: super::LampStyle::Bulb,
+    bulb_zones: &[],
     outside: Some(super::Outside { floor: super::textures::Material::CobblestoneFloor06, wall: super::textures::Material::DarkBrickWall }),
     plan: (Vec2::new(-80.0, -56.0), Vec2::new(80.0, 66.0)),
     build,

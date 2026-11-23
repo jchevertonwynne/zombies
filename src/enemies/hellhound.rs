@@ -160,10 +160,10 @@ pub fn hellhound_spawn_candidates(
 
 /// The fog's linear falloff (start, end) to head for: pulled in while a Hellhound Round is under
 /// way, and otherwise normal, or closer on a Map with Darkness.
-pub fn fog_target(hellhound_round: bool, darkness: bool) -> (f32, f32) {
+pub fn fog_target(hellhound_round: bool, darkness: bool, look_range: (f32, f32)) -> (f32, f32) {
     match (hellhound_round, darkness) {
         (true, _) => (HELLHOUND_FOG_START, HELLHOUND_FOG_END),
-        (false, false) => (FOG_START, FOG_END),
+        (false, false) => look_range,
         (false, true) => (DARK_FOG_START, DARK_FOG_END),
     }
 }
@@ -566,7 +566,7 @@ fn flicker(hounds: Query<&Telegraph>, mut bolts: Query<&mut Visibility>) {
 }
 
 /// The fog pulls in while a Hellhound Round is under way, and clears again in the Intermission.
-fn pull_in_fog(
+pub(crate) fn pull_in_fog(
     round: Option<Res<Round>>,
     mut fogs: Query<&mut DistanceFog, With<PlayerCamera>>,
     time: Res<Time>,
@@ -574,7 +574,7 @@ fn pull_in_fog(
 ) {
     let hellhound_round =
         round.is_some_and(|round| round.hellhound.is_some() && round.phase == RoundPhase::Active);
-    let (start, end) = fog_target(hellhound_round, map.layout().darkness);
+    let (start, end) = fog_target(hellhound_round, map.layout().darkness, map.layout().look.fog_range);
     let step = FOG_PULL_SPEED * time.delta_secs();
     for mut fog in &mut fogs {
         if let FogFalloff::Linear { start: s, end: e } = fog.falloff
@@ -751,19 +751,44 @@ mod tests {
 
     #[test]
     fn the_fog_pulls_in_for_a_hellhound_round() {
-        let (start, end) = fog_target(true, false);
+        let normal = (FOG_START, FOG_END);
+        let (start, end) = fog_target(true, false, normal);
         assert!(start < FOG_START && end < FOG_END);
-        assert_eq!(fog_target(false, false), (FOG_START, FOG_END));
-        let (dark_start, dark_end) = fog_target(true, true);
+        assert_eq!(fog_target(false, false, normal), (FOG_START, FOG_END));
+        let (dark_start, dark_end) = fog_target(true, true, normal);
         assert!(dark_start < DARK_FOG_START && dark_end < DARK_FOG_END, "and in on a dark Map too");
         assert_eq!(approach(45.0, 20.0, 5.0), 40.0);
         assert_eq!(approach(21.0, 20.0, 5.0), 20.0);
         assert_eq!(approach(10.0, 20.0, 5.0), 15.0);
     }
 
+    /// The fog's falloff after `secs` of `pull_in_fog` outside a Hellhound Round on `map`, starting
+    /// from `from`.
+    fn fog_after(map: crate::maps::map::MapId, from: (f32, f32), secs: f32) -> (f32, f32) {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins).insert_resource(map).add_systems(Update, pull_in_fog);
+        let camera = app.world_mut().spawn((PlayerCamera, DistanceFog { falloff: FogFalloff::Linear { start: from.0, end: from.1 }, ..default() })).id();
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_millis(100)));
+        for _ in 0..(secs * 10.0) as u32 {
+            app.update();
+        }
+        let FogFalloff::Linear { start, end } = app.world().get::<DistanceFog>(camera).unwrap().falloff else { panic!("linear") };
+        (start, end)
+    }
+
+    #[test]
+    fn hellhound_fog_restores_to_the_looks_fog_range() {
+        use crate::maps::map::MapId;
+        let pulled = (HELLHOUND_FOG_START, HELLHOUND_FOG_END);
+        // After the Round it clears to the Map's own range, not the constants.
+        assert_eq!(fog_after(MapId::Sanatorium, pulled, 10.0), (5.0, 34.0));
+        assert_eq!(fog_after(MapId::Greybox, pulled, 10.0), (FOG_START, FOG_END));
+        assert_eq!(fog_target(true, false, (5.0, 34.0)), pulled);
+    }
+
     #[test]
     fn on_a_dark_map_the_fog_rests_closer() {
-        assert_eq!(fog_target(false, true), (DARK_FOG_START, DARK_FOG_END));
+        assert_eq!(fog_target(false, true, (FOG_START, FOG_END)), (DARK_FOG_START, DARK_FOG_END));
     }
 
     /// A hound Out of Bounds isn't cleaned up but moved at once to a Hellhound Spawn Point, on

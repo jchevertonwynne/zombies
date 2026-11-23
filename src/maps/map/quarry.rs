@@ -104,6 +104,8 @@ pub(super) const QUARRY: Layout = Layout {
     outside: Some(super::Outside { floor: super::textures::Material::GravelGround01, wall: super::textures::Material::RustyCorrugatedIron }),
     sun: Vec3::new(1.0, -3.0, -1.5),
     look: crate::maps::look::OVERCAST,
+    lamp_style: super::LampStyle::Bulb,
+    bulb_zones: &[],
     plan: (Vec2::new(-36.0, -38.0), Vec2::new(38.0, 44.0)),
     build,
 };

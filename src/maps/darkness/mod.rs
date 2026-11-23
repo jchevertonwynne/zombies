@@ -11,6 +11,8 @@ use bevy::prelude::*;
 use crate::enemies::nav::zone_at;
 use crate::maps::generator::Generators;
 use crate::maps::map::MapId;
+use crate::maps::power::Power;
+use lamp_flicker::{LampBurst, LampFlicker};
 use crate::maps::zone::ZoneId;
 use crate::players::player::PlayerCamera;
 use crate::state::GameState;
@@ -78,6 +80,7 @@ pub struct DarknessPlugin;
 impl Plugin for DarknessPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ChalkMaterials>()
+            .add_message::<LampBurst>()
             .add_observer(light_camera)
             .add_systems(Update, (light_lamps, light_chalk).run_if(in_state(GameState::Playing)))
             .add_systems(
@@ -136,15 +139,39 @@ fn light_chalk(
 fn light_lamps(
     map: Res<MapId>,
     generators: Res<Generators>,
+    power: Option<Res<Power>>,
     time: Res<Time>,
-    mut lamps: Query<(&mut Lamp, Option<&mut PointLight>, Option<&mut SpotLight>)>,
+    mut materials: Option<ResMut<Assets<StandardMaterial>>>,
+    mut bursts: MessageWriter<LampBurst>,
+    mut lamps: Query<(&mut Lamp, Option<&mut PointLight>, Option<&mut SpotLight>, Option<&mut LampFlicker>)>,
 ) {
-    for (mut lamp, point, spot) in &mut lamps {
+    let powered = power.is_some_and(|power| power.is_on());
+    for (mut lamp, point, spot, tube) in &mut lamps {
         let lit = lit(*map, &generators, lamp.zone);
         let target = if lit { 1.0 } else { 0.0 };
         let level = lamp.level.map_or(target, |level| fade(level, lit, time.delta_secs()));
         lamp.level = Some(level);
-        let strength = map.layout().look.lamps * level * if lit { flicker(level) } else { 1.0 };
+        // A Tube lamp's own flicker, and its glowing tube following it.
+        let tube_factor = match tube {
+            Some(mut tube) => {
+                let (factor, began) = tube.factor(time.elapsed_secs(), powered);
+                if began {
+                    bursts.write(tube.burst_event());
+                }
+                let shown = level * factor;
+                if tube.applied != shown {
+                    tube.applied = shown;
+                    if let (Some((handle, full)), Some(materials)) = (&tube.glow, materials.as_mut())
+                        && let Some(mut material) = materials.get_mut(handle)
+                    {
+                        material.emissive = *full * shown;
+                    }
+                }
+                factor
+            }
+            None => 1.0,
+        };
+        let strength = map.layout().look.lamps * level * tube_factor * if lit { flicker(level) } else { 1.0 };
         if let Some(mut light) = point {
             let intensity = LAMP_INTENSITY * strength;
             if light.intensity != intensity {
@@ -175,7 +202,10 @@ fn flicker(level: f32) -> f32 {
     if level < 1.0 && (level * LAMP_FLICKER_RATE).sin() < LAMP_FLICKER_BELOW { LAMP_FLICKER_DIP } else { 1.0 }
 }
 
+pub mod lamp_flicker;
 pub mod weapon_light;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tube_tests;
