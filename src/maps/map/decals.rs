@@ -22,6 +22,8 @@ pub enum Decal {
     Leak005,
     OilStain1,
     OilStain2,
+    /// A black-on-yellow biohazard sign (ambientCG `Sign004`), 0.25 m across, for the Quarantine Doors.
+    Biohazard,
     /// A Tree's crown: a leaf-cluster alpha card, cut out rather than blended, seen from both sides.
     Foliage,
 }
@@ -37,6 +39,7 @@ impl Decal {
             Decal::Leak005 => "leaking005",
             Decal::OilStain1 => "oil_stain_1",
             Decal::OilStain2 => "oil_stain_2",
+            Decal::Biohazard => "sign004",
             Decal::Foliage => "foliage",
         };
         format!("decals/{dir}/color.ktx2")

@@ -1,3 +1,5 @@
+> Partly superseded by [ADR 0011](0011-maps-are-data-files.md): Zones, windows and Barriers are now each Map's own numbers, named in its Map File, rather than variants of one `ZoneId` enum and one `WINDOWS` table.
+
 > Superseded by [ADR 0009](0009-every-map-is-built-at-the-world-origin.md): every Map is now built centred on the world origin, and `zone_at` and the other position lookups take the current Map. The rest of this ADR (one `ZoneId` enum whose variants know their Map, one `WINDOWS` table, per-Map systems reading the current `Layout`) stands.
 
 # Each Map is built in its own part of the world, and its Zones and windows are unique to it

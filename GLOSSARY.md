@@ -149,6 +149,26 @@ _Avoid_: surf spawn, water Riser
 
 **Map**: The playable space, made of Zones joined by Doors. There are seven: the Greybox, a house round a courtyard with a wing across the field; the Quarry, a pit and its works climbed terrace by terrace; the Village, a long village of streets and lanes with the Power at one end and Pack-a-Punch at the other; the Dam, a road along a dam's crest with galleries inside it and a turbine hall at its foot; the Cove, a cliffside town on four levels (the Shore, the Lower Town, the Upper Town and the Headland), climbed by stairs from the beach to a lighthouse; and the Polder, a canal town behind a sea dyke, its two Canals crossed by bridges and a twin lock with Pack-a-Punch on its island; and the Sanatorium, a hospital on a fogbound hill whose wards and corridors ring a garden court, its three Wings sealed in turn by the Quarantine. The Player picks one beside the Mode before a Run, or the Host does in the Room. The first prototype used a single open Arena.
 
+**Map File**: A Map as data: a folder holding `map.ron` and the Map's own assets, which is everything about the Map. Every Map is one, loaded when a Run starts.
+
+**Shipped Map**: A Map that comes with the game, in `assets/maps/`. Only Runs on Shipped Maps earn Scrip and Commendations.
+_Avoid_: official map, built-in map
+
+**Custom Map**: A Map made by a Player in the Map Editor, or received from a Host. It keeps its own Records.
+_Avoid_: user map, mod map
+
+**Map Editor**: The game's mode for making and changing Maps, opened from the main menu. It is used on one machine; the Maps it makes play the same in Co-op as solo.
+
+**Fork**: A Map made by editing someone else's. It keeps the Map id but takes the editor's Name as its creator, so its Records are its own.
+
+**Lineage**: The Maps a Fork came from, in order, each with its name and creator, so every earlier creator stays credited.
+
+**Footprint**: A shape on a Map made of triangles laid out over the ground, each corner at its own height. Zones, their floors, Infills, Raised Floors, Sunken areas, Pools and ramps are Footprints, so a room can be any shape.
+
+**Wall**: A straight piece of wall drawn by hand in the Map Editor, with a height, thickness and material. Walls stop Players and Zombies; Zones only say where they are.
+
+**Opening**: A gap cut in a Wall with no Door, such as an archway. Zones that meet through an Opening are joined.
+
 **Terrace**: One of the Quarry's level shelves, each a storey above the last: the pit floor, then the Rail Yard and the Crusher Shed, then the Winding House and the Offices. The Headframe's deck stands a storey above the top one. Off the pit's west side, the Incline climbs past both terraces with a landing at each, a Door off each into the terrace's building.
 
 **Zone**: A named area of a Map, such as a room or a yard. Each Zone is either open or closed to the Player. Opening a Zone (usually by buying a Door) activates its Barriers and Spawn Points. Zones decide where Zombies come from, not how they move.

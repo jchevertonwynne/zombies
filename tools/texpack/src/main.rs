@@ -9,6 +9,9 @@
 //! texpack --color diff.png --normal nor_gl.png --orm arm.png --out assets/materials/<id>
 //! ```
 //!
+//! The ORM can instead be packed from separate greyscale maps (`--ao`, `--roughness`, `--metalness`),
+//! as ambientCG ships them.
+//!
 //! A decal is one file, `color.ktx2` (BC7, sRGB, with its opacity as alpha), from a colour map and
 //! an opacity map (`--color`, `--opacity`), or made here as a procedural oil stain (`--stain <seed>`).
 //!
@@ -24,10 +27,18 @@ use ctt::{AlphaMode, ColorSpace, Container, ConvertSettings, Format, Image, Pipe
 /// zstd level for the supercompression: slow to write, as fast as any to read.
 const ZSTD_LEVEL: i32 = 19;
 
+/// Where a material's occlusion, roughness and metallic maps come from.
+enum Orm {
+    /// One image already packed (R, G, B), as Poly Haven's `arm`.
+    Packed(PathBuf),
+    /// Three greyscale maps (ambientCG's). A missing occlusion map is white, a missing metalness map black.
+    Parts { ao: Option<PathBuf>, roughness: PathBuf, metalness: Option<PathBuf> },
+}
+
 /// What to make, from the command line.
 enum Job {
     /// A tiling material: colour, normal and ORM.
-    Material { color: PathBuf, normal: PathBuf, orm: PathBuf },
+    Material { color: PathBuf, normal: PathBuf, orm: Orm },
     /// A decal: its colour with an opacity map as alpha, and nothing else.
     Decal { color: PathBuf, opacity: PathBuf, gain: f32 },
     /// A procedural oil stain, made here, from a seed.
@@ -37,6 +48,8 @@ enum Job {
 }
 
 const USAGE: &str = "usage: texpack --color <png> --normal <png> --orm <png> --out <dir>
+       texpack --color <png> --normal <png> --roughness <png> [--ao <png>] [--metalness <png>] --out <dir>
+                                                           (the ORM packed from separate greyscale maps)
        texpack --color <png> --opacity <png> [--gain <x>] --out <dir>   (a decal)
        texpack --stain <seed> --out <dir>                  (a procedural oil stain)
        texpack --sky <hdr> [--size <face px>] [--yaw <degrees>] --out <dir>   (an HDRI as a cubemap)";
@@ -46,7 +59,7 @@ fn parse() -> Result<(Job, PathBuf)> {
     let mut flags = std::collections::HashMap::new();
     while let Some(flag) = args.next() {
         let value = args.next().with_context(|| format!("{flag} needs a value\n{USAGE}"))?;
-        if !["--color", "--normal", "--orm", "--opacity", "--gain", "--stain", "--sky", "--size", "--yaw", "--out"].contains(&flag.as_str()) {
+        if !["--color", "--normal", "--orm", "--ao", "--roughness", "--metalness", "--opacity", "--gain", "--stain", "--sky", "--size", "--yaw", "--out"].contains(&flag.as_str()) {
             bail!("unknown flag {flag}\n{USAGE}");
         }
         flags.insert(flag, value);
@@ -68,11 +81,15 @@ fn parse() -> Result<(Job, PathBuf)> {
         };
         Job::Decal { color: take("--color").context(USAGE)?, opacity, gain }
     } else {
-        Job::Material {
-            color: take("--color").context(USAGE)?,
-            normal: take("--normal").context(USAGE)?,
-            orm: take("--orm").context(USAGE)?,
-        }
+        let orm = match take("--orm") {
+            Some(packed) => Orm::Packed(packed),
+            None => Orm::Parts {
+                ao: take("--ao"),
+                roughness: take("--roughness").context(USAGE)?,
+                metalness: take("--metalness"),
+            },
+        };
+        Job::Material { color: take("--color").context(USAGE)?, normal: take("--normal").context(USAGE)?, orm }
     };
     Ok((job, out))
 }
@@ -81,6 +98,40 @@ fn parse() -> Result<(Job, PathBuf)> {
 fn load(path: &Path, color_space: ColorSpace) -> Result<Image> {
     let source = image::open(path).with_context(|| format!("reading {}", path.display()))?;
     Ok(image_of(block_aligned(source.to_rgba8()), color_space, AlphaMode::Opaque))
+}
+
+/// An ORM image packed from separate greyscale maps: occlusion in red, roughness in green, metallic
+/// in blue. They must all be the size of the roughness map.
+fn load_orm(orm: &Orm) -> Result<Image> {
+    let packed = match orm {
+        Orm::Packed(path) => return load(path, ColorSpace::Linear),
+        Orm::Parts { ao, roughness, metalness } => {
+            let grey = |path: &Path| -> Result<image::GrayImage> {
+                Ok(image::open(path).with_context(|| format!("reading {}", path.display()))?.to_luma8())
+            };
+            let roughness_map = grey(roughness)?;
+            let (width, height) = roughness_map.dimensions();
+            let optional = |path: &Option<PathBuf>, default: u8| -> Result<image::GrayImage> {
+                match path {
+                    Some(path) => {
+                        let map = grey(path)?;
+                        if map.dimensions() != (width, height) {
+                            bail!("{} and {} differ in size", path.display(), roughness.display());
+                        }
+                        Ok(map)
+                    }
+                    None => Ok(image::GrayImage::from_pixel(width, height, image::Luma([default]))),
+                }
+            };
+            let (ao_map, metal_map) = (optional(ao, 255)?, optional(metalness, 0)?);
+            let mut rgba = image::RgbaImage::new(width, height);
+            for (x, y, pixel) in rgba.enumerate_pixels_mut() {
+                *pixel = image::Rgba([ao_map.get_pixel(x, y).0[0], roughness_map.get_pixel(x, y).0[0], metal_map.get_pixel(x, y).0[0], 255]);
+            }
+            rgba
+        }
+    };
+    Ok(image_of(block_aligned(packed), ColorSpace::Linear, AlphaMode::Opaque))
 }
 
 /// A colour map with an opacity map as its alpha, scaled by `gain` (to make a faint decal read).
@@ -479,7 +530,7 @@ fn main() -> Result<()> {
         Job::Material { color, normal, orm } => {
             write(&out, "color", load(&color, ColorSpace::Srgb)?, Format::BC7_UNORM_BLOCK, true)?;
             write(&out, "normal", load(&normal, ColorSpace::Linear)?, Format::BC5_UNORM_BLOCK, true)?;
-            write(&out, "orm", load(&orm, ColorSpace::Linear)?, Format::BC7_UNORM_BLOCK, true)?;
+            write(&out, "orm", load_orm(&orm)?, Format::BC7_UNORM_BLOCK, true)?;
         }
         Job::Decal { color, opacity, gain } => write(&out, "color", load_with_alpha(&color, &opacity, gain)?, Format::BC7_UNORM_BLOCK, true)?,
         Job::Sky { hdr, size, yaw } => write_sky(&out, &hdr, size, yaw)?,
