@@ -7,6 +7,7 @@ pub mod attachment;
 pub mod burn;
 pub mod combat;
 pub mod equipment;
+pub mod blast;
 pub mod explosive;
 pub mod gun_model;
 pub mod muzzle;

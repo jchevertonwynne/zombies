@@ -5,6 +5,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+use crate::weapons::blast::{BlastLook, Blasts, settle_blast, update_blast, update_scorches};
 use crate::weapons::ammo_mod::{AmmoModHit, AmmoMods};
 use crate::weapons::arsenal::{Splash, WeaponId};
 use crate::authority::HostSimulation;
@@ -153,7 +154,7 @@ struct Projectile {
 
 /// The fireball an explosion leaves for a moment.
 #[derive(Component)]
-struct Fireball {
+pub(crate) struct Fireball {
     age: f32,
     radius: f32,
 }
@@ -164,6 +165,8 @@ const FIREBALL_SECS: f32 = 0.3;
 pub(crate) struct ExplosiveAssets {
     pub(crate) ball: Handle<Mesh>,
     fire: Handle<StandardMaterial>,
+    /// The textured blast, when its sprites are on disk.
+    pub(crate) blast: Option<BlastLook>,
     pub(crate) projectile: Handle<Mesh>,
     pub(crate) casing: Handle<StandardMaterial>,
 }
@@ -177,7 +180,7 @@ impl Plugin for ExplosivePlugin {
             .add_systems(Startup, load_assets)
             .add_systems(
                 Update,
-                ((launch, fly, explode).chain().in_set(HostSimulation), fade_fireballs)
+                ((launch, fly, explode).chain().in_set(HostSimulation), fade_fireballs, settle_blast, update_blast, update_scorches)
                     .chain()
                     .run_if(world_runs),
             );
@@ -188,8 +191,13 @@ pub(crate) fn load_assets(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Option<Res<AssetServer>>,
+    images: Option<Res<Assets<Image>>>,
 ) {
+    // No images to draw sprites with (a headless run) keeps the bare fireball.
+    let blast = BlastLook::new(asset_server.as_deref().filter(|_| images.is_some()), &mut meshes, &mut materials);
     commands.insert_resource(ExplosiveAssets {
+        blast,
         ball: meshes.add(Sphere::new(1.0)),
         fire: materials.add(StandardMaterial {
             base_color: Color::srgba(1.0, 0.6, 0.2, 0.5),
@@ -330,6 +338,7 @@ pub(crate) fn explode(
     mut player_hits: MessageWriter<PlayerHit>,
     assets: Res<ExplosiveAssets>,
     settings: Res<Settings>,
+    blasts: Blasts,
 ) {
     let crawlers_on = settings.special_zombies.crawlers;
     // Several blasts in one frame each see the Health the last one left.
@@ -397,11 +406,11 @@ pub(crate) fn explode(
             }
         }
 
-        commands.spawn(fireball(&assets, explosion.at, splash.radius));
+        blasts.show(&mut commands, &assets, explosion.at, splash.radius);
     }
 }
 
-/// The fireball of a blast of `radius` at `at`.
+/// The bare fireball of a blast of `radius` at `at`, which a blast is until its sprites load.
 pub(crate) fn fireball(assets: &ExplosiveAssets, at: Vec3, radius: f32) -> impl Bundle {
     (
         InRun,
