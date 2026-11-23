@@ -26,7 +26,7 @@ pub type Seat = u8;
 
 /// What version of the wire format this game speaks. The Host refuses a Player on
 /// another, and it is raised whenever the format changes (along with the ALPN).
-pub const PROTOCOL: u32 = 21;
+pub const PROTOCOL: u32 = 22;
 
 /// The build this game is, set when it is compiled: CI puts the release (the git tag without
 /// its `v`, so `v0.3.0` is `0.3.0`) in `ZOMBIES_BUILD`, and a build without it is `dev`. The

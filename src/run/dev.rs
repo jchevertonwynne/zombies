@@ -112,6 +112,8 @@ pub enum Cheat {
     SwingBridge,
     /// One-shot: the Tide turns to its next phase now, with no bells.
     TurnTide,
+    /// One-shot: the Quarantine steps to its next stage now (a Warning, the seal, the Release...).
+    StepQuarantine,
     /// One-shot, Gauntlet only: flips whether every Boon and Pact counts as Unlocked.
     UnlockAll,
     /// One-shot grant: the Power-up, applied at once.
@@ -193,7 +195,7 @@ impl Cheat {
     ];
 
     /// The one-shots that were debug hotkeys, on the panel's Debug tab.
-    pub const DEBUG: [Cheat; 5] = [Cheat::MonkeyBombs, Cheat::LoseGenerator, Cheat::SwingBridge, Cheat::TurnTide, Cheat::UnlockAll];
+    pub const DEBUG: [Cheat; 6] = [Cheat::MonkeyBombs, Cheat::LoseGenerator, Cheat::SwingBridge, Cheat::TurnTide, Cheat::StepQuarantine, Cheat::UnlockAll];
 
     /// One Spawn button per kind: the panel puts the Elite tick on at the press.
     pub fn spawns() -> impl Iterator<Item = Cheat> {
@@ -216,6 +218,7 @@ impl Cheat {
             Cheat::LoseGenerator => "Lose nearest Generator",
             Cheat::SwingBridge => "Swing nearest bridge",
             Cheat::TurnTide => "Turn the Tide",
+            Cheat::StepQuarantine => "Step the Quarantine",
             Cheat::UnlockAll => "Unlock all (toggle)",
             Cheat::PowerUp(power_up) => power_up.name(),
             Cheat::Weapon(id, false) => id.stats().name,

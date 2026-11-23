@@ -1,7 +1,9 @@
 //! The Sanatorium Map: a hospital on a fogbound hill, in 17 Zones. Its wards and corridors ring a
 //! garden court, with three Wings (the West, East and Isolation Wings) off the ring, each of two
 //! Zones that meet at a fixed archway and are entered through two doorways (Q1 to Q6). This is the
-//! plain, walkable Map: nothing seals yet, and the six Quarantine doorways are ordinary bought Doors.
+//! Quarantine: the six doorways are bought gate Doors, and behind each stands a Quarantine Door, a
+//! Shifting Piece the Quarantine turns between Open (folded against the doorway's outside wall) and
+//! Sealed (shut across it).
 //!
 //! Three levels, built at the world origin (ADR 0009), plan (-72, -30) to (72, 66):
 //!
@@ -31,10 +33,14 @@ use bevy::prelude::*;
 
 use crate::enemies::sapper::SapperTiming;
 use crate::maps::zone::ZoneId;
+use crate::tuning::QUARANTINE_LEAF_SIZE;
 use crate::weapons::arsenal::WeaponId;
 
+use crate::maps::quarantine::WingId;
+use crate::maps::shifting::{Driver, Leaf, Piece, Rest};
+
 use super::build::{Builder, Gap};
-use super::{DOOR_HEIGHT, Layout, Prop, PropKind, RaisedFloor, STOREY, Slope, palette, prop};
+use super::{DOOR_HEIGHT, Layout, Prop, PropKind, RaisedFloor, STOREY, Slope, Wing, palette, prop};
 
 #[path = "sanatorium/data.rs"]
 mod data;
@@ -140,7 +146,8 @@ pub(super) const SANATORIUM: Layout = Layout {
     props: &PROPS,
     lamps: &data::LAMPS,
     fixed_joins: &FIXED_JOINS,
-    shifting: &[],
+    shifting: &SHIFTING,
+    wings: &WINGS,
     nav_nodes: data::NODES,
     nav_edges: data::EDGES,
     jump_pads: &[],
@@ -164,6 +171,67 @@ const FIXED_JOINS: [(ZoneId, ZoneId); 3] = [
     (ZoneId::BathHall, ZoneId::TreatmentRoom),
     (ZoneId::IsolationWard, ZoneId::ChildrensWard),
 ];
+
+/// The three Wings, in the order the Quarantine seals them. Each is two Zones that meet at an archway
+/// and is entered through two doorways, on two different Zones outside every Wing.
+const WINGS: [Wing; 3] = [
+    Wing { name: "West Wing", zones: &[ZoneId::LongWard, ZoneId::DayRoom] },
+    Wing { name: "East Wing", zones: &[ZoneId::BathHall, ZoneId::TreatmentRoom] },
+    Wing { name: "Isolation Wing", zones: &[ZoneId::IsolationWard, ZoneId::ChildrensWard] },
+];
+
+const PI: f32 = std::f32::consts::PI;
+const FRAC_PI_2: f32 = std::f32::consts::FRAC_PI_2;
+
+/// How far the Leaves' hinges stand out from the doorway's centre line: past the wall's outside face
+/// and half a Leaf's thickness, so a shut Leaf lies flush against the face.
+const HINGE_OUT: f32 = 0.23;
+/// How far a hinge stands from the doorway's centre along the wall: half the doorway.
+const HINGE_ALONG: f32 = 1.2;
+
+/// A Quarantine Door's Leaf, hinged at `hinge` and lying along its own x at yaw 0.
+const fn q_leaf(hinge: Vec3) -> Leaf {
+    let (width, height, thick) = QUARANTINE_LEAF_SIZE;
+    Leaf { hinge, size: Vec3::new(width, height, thick), offset: Vec3::new(width / 2.0, height / 2.0, 0.0) }
+}
+
+/// Where a Quarantine Door's hinge stands: `side` (-1 or 1) of the doorway's centre `at` along the
+/// wall, out past the wall's face by `HINGE_OUT` the way `out` looks.
+const fn hinge(at: Vec3, out: Vec2, side: f32) -> Vec3 {
+    let (along_x, along_z) = if out.x == 0.0 { (1.0, 0.0) } else { (0.0, 1.0) };
+    Vec3::new(at.x + side * along_x * HINGE_ALONG + out.x * HINGE_OUT, at.y, at.z + side * along_z * HINGE_ALONG + out.y * HINGE_OUT)
+}
+
+/// A Quarantine Door in the doorway at `at` whose outside looks `out`. Rest 0 is Open (the Leaves
+/// folded against the outside wall, joining outside to inside) and Rest 1 is Sealed (shut across the
+/// doorway, joining nothing); each gives the yaw of the Leaf at the lower and then the higher hinge
+/// along the wall. Both Leaves swing through the outside, a half turn between the Rests.
+macro_rules! quarantine_door {
+    ($outside:expr, $inside:expr, $at:expr, $out:expr, $wing:expr, open [$o0:expr, $o1:expr], sealed [$s0:expr, $s1:expr]) => {
+        Piece {
+            zone: $outside,
+            leaves: &[q_leaf(hinge($at, $out, -1.0)), q_leaf(hinge($at, $out, 1.0))],
+            rests: &[Rest { yaws: &[$o0, $o1], joins: &[($outside, $inside)] }, Rest { yaws: &[$s0, $s1], joins: &[] }],
+            start: 0,
+            driver: Driver::Quarantine(WingId($wing)),
+            door: Some(($outside, $inside)),
+        }
+    };
+}
+
+/// The six Quarantine Doors, in the order Q1 to Q6: two to a Wing, which is the Piece's `PieceId`
+/// divided by two.
+const SHIFTING: [Piece; 6] = {
+    use ZoneId::*;
+    [
+        quarantine_door!(WestCorridor, LongWard, at(-40.0, GROUND, 14.0), Vec2::NEG_Y, 0, open [PI, 0.0], sealed [0.0, PI]),
+        quarantine_door!(Refectory, DayRoom, at(-26.0, GROUND, 49.0), Vec2::X, 0, open [FRAC_PI_2, -FRAC_PI_2], sealed [-FRAC_PI_2, FRAC_PI_2]),
+        quarantine_door!(EastCorridor, BathHall, at(40.0, GROUND, 14.0), Vec2::NEG_Y, 1, open [PI, 0.0], sealed [0.0, PI]),
+        quarantine_door!(Refectory, TreatmentRoom, at(26.0, GROUND, 49.0), Vec2::NEG_X, 1, open [-3.0 * FRAC_PI_2, 3.0 * FRAC_PI_2], sealed [-FRAC_PI_2, FRAC_PI_2]),
+        quarantine_door!(UpperLanding, IsolationWard, at(-10.0, FIRST, 49.0), Vec2::X, 2, open [FRAC_PI_2, -FRAC_PI_2], sealed [-FRAC_PI_2, FRAC_PI_2]),
+        quarantine_door!(SunRoof, ChildrensWard, at(-38.0, FIRST, 42.0), Vec2::NEG_Y, 2, open [PI, 0.0], sealed [0.0, PI]),
+    ]
+};
 
 #[cfg_attr(not(test), allow(dead_code))]
 /// The six Quarantine doorways, as plain Doors: where each is, the Zone outside it, the way the
@@ -312,6 +380,12 @@ fn door(a: ZoneId, b: ZoneId, price: u64) -> Gap {
     Gap::Door(Some((a, b)), Some(price))
 }
 
+/// The gate Door of a Quarantine Door, bought for the price: it joins nothing itself, but names the
+/// two Zones (outside, then inside) whose doorway it guards.
+fn gate(outside: ZoneId, inside: ZoneId, price: u64) -> Gap {
+    Gap::Gate((outside, inside), price)
+}
+
 /// The Power Door.
 fn pdoor(a: ZoneId, b: ZoneId) -> Gap {
     Gap::Door(Some((a, b)), None)
@@ -363,8 +437,8 @@ fn build(b: &mut Builder) {
     // with Q1 and D8, D9 and Q3 (the Hall's north wall stands between).
     xwall(b, (-50.0, -10.0), 8.0, GROUND, H, vec![(-30.0, Gap::Window), (-20.0, Gap::Window)]);
     xwall(b, (10.0, 50.0), 8.0, GROUND, H, vec![(20.0, Gap::Window), (30.0, Gap::Window)]);
-    xwall(b, (-50.0, -10.0), 14.0, GROUND, H, vec![(-40.0, door(WestCorridor, LongWard, Q1)), (-18.0, door(WestCorridor, GardenCourt, D8))]);
-    xwall(b, (10.0, 50.0), 14.0, GROUND, H, vec![(18.0, door(EastCorridor, GardenCourt, D9)), (40.0, door(EastCorridor, BathHall, Q3))]);
+    xwall(b, (-50.0, -10.0), 14.0, GROUND, H, vec![(-40.0, gate(WestCorridor, LongWard, Q1)), (-18.0, door(WestCorridor, GardenCourt, D8))]);
+    xwall(b, (10.0, 50.0), 14.0, GROUND, H, vec![(18.0, door(EastCorridor, GardenCourt, D9)), (40.0, gate(EastCorridor, BathHall, Q3))]);
 
     // The Boiler House and the Mortuary, tall, at the ends of the range, each with a Door from
     // its corridor and one from the Forecourt, and two windows.
@@ -395,8 +469,8 @@ fn build(b: &mut Builder) {
     zwall(b, -50.0, (14.0, 56.0), GROUND, H, vec![(18.0, Gap::Window), (24.0, Gap::Window)]);
     zwall(b, 50.0, (14.0, 56.0), GROUND, H, vec![(22.0, Gap::Window), (32.0, Gap::Window)]);
     // The Refectory's ends, with Q2 and Q4.
-    zwall(b, -26.0, (42.0, 56.0), GROUND, H, vec![(49.0, door(Refectory, DayRoom, Q2))]);
-    zwall(b, 26.0, (42.0, 56.0), GROUND, H, vec![(49.0, door(Refectory, TreatmentRoom, Q4))]);
+    zwall(b, -26.0, (42.0, 56.0), GROUND, H, vec![(49.0, gate(Refectory, DayRoom, Q2))]);
+    zwall(b, 26.0, (42.0, 56.0), GROUND, H, vec![(49.0, gate(Refectory, TreatmentRoom, Q4))]);
     // The north wall of the ground floor: the Day Room's window, the Refectory's two, D11 into the
     // Main Stair's tower, and the Treatment Room's.
     xwall(
@@ -422,8 +496,8 @@ fn build(b: &mut Builder) {
     // The first floor: the south wall (the Theatre's, the Landing's, the Isolation Ward's and the
     // Children's Ward's, with Q6), the Landing's side walls with Q5 and D12 and a window, the
     // Theatre's east wall, and the north wall in four runs (the gallery's is higher).
-    xwall(b, (-50.0, 34.0), 42.0, FIRST, H, vec![(-38.0, door(SunRoof, ChildrensWard, Q6))]);
-    zwall(b, -10.0, (42.0, 64.0), FIRST, H, vec![(49.0, door(IsolationWard, UpperLanding, Q5)), (61.0, Gap::Window)]);
+    xwall(b, (-50.0, 34.0), 42.0, FIRST, H, vec![(-38.0, gate(SunRoof, ChildrensWard, Q6))]);
+    zwall(b, -10.0, (42.0, 64.0), FIRST, H, vec![(49.0, gate(UpperLanding, IsolationWard, Q5)), (61.0, Gap::Window)]);
     zwall(b, 10.0, (42.0, 64.0), FIRST, H, vec![(49.0, pdoor(UpperLanding, OperatingTheatre))]);
     zwall(b, 34.0, (42.0, 56.0), FIRST, H, vec![]);
     xwall(b, (-50.0, -10.0), 56.0, FIRST, H, vec![(-22.0, Gap::Window)]);
@@ -739,10 +813,9 @@ mod tests {
         }
     }
 
-    /// Nothing is within 1.5 m of a Quarantine doorway's outside face: no Spawn Point, Buyable, chalk
-    /// outline, Box Location, Trap or Prop.
-    #[test]
-    fn sanatorium_nothing_stands_within_1_5_m_of_a_quarantine_doorway() {
+    /// Everything placed in the Map that a Quarantine Door's Leaves must keep clear of: Spawn Points,
+    /// Buyables, Box Locations, chalk outlines, Traps, the machines and the Power Switch.
+    fn placed_things() -> Vec<(String, Vec3)> {
         use crate::maps::map::{BOX_LOCATIONS, window_spawn};
         use crate::weapons::equipment::equipment_walls;
         let layout = sanatorium();
@@ -775,6 +848,15 @@ mod tests {
         if let Some((at, _)) = crate::maps::power::switch_spot(MapId::Sanatorium) {
             things.push(("the Power Switch".into(), at));
         }
+        things
+    }
+
+    /// Nothing is within 1.5 m of a Quarantine doorway's outside face: no Spawn Point, Buyable, chalk
+    /// outline, Box Location, Trap or Prop.
+    #[test]
+    fn sanatorium_nothing_stands_within_1_5_m_of_a_quarantine_doorway() {
+        let layout = sanatorium();
+        let things = placed_things();
         for &(name, doorway, out, ..) in &QUARANTINE_DOORWAYS {
             let face = Vec2::new(doorway.x, doorway.z) + out * 0.2;
             for (what, at) in &things {
@@ -814,6 +896,258 @@ mod tests {
         let graph = NavGraph::new(MapId::Sanatorium);
         let (top, bottom) = (graph.nodes[graph.node("sr_drop").unwrap()].at, graph.nodes[graph.node("gc_drop").unwrap()].at);
         assert!(top.y - bottom.y >= 3.9);
+    }
+
+    // ---- Wings and Quarantine Doors ----
+
+    use crate::maps::quarantine::WingId;
+    use crate::maps::shifting::{outside_landing, pieces};
+
+    /// Every join the Map can make with all its Doors bought and every Quarantine Door at `rests`
+    /// (a Rest for each Piece): the ordinary Doors, the fixed joins and what the Pieces' Rests join.
+    fn joins_at(rests: &[u8]) -> Vec<(ZoneId, ZoneId)> {
+        let layout = sanatorium();
+        let mut joins: Vec<(ZoneId, ZoneId)> = layout.fixed_joins.to_vec();
+        for (id, piece) in pieces(layout) {
+            joins.extend(piece.open_joins(Some(rests[usize::from(id.0)]), true).iter().copied());
+        }
+        joins.extend(ordinary_door_joins());
+        joins
+    }
+
+    /// The joins of the Map's Doors that are not Quarantine gates (the bought Doors and the Power
+    /// Door), from the Doors the Map builds. The gate Doors of the Quarantine Doors join nothing
+    /// themselves: their Pieces' Rests do.
+    fn ordinary_door_joins() -> Vec<(ZoneId, ZoneId)> {
+        use crate::enemies::zombie::headless::Sim;
+        let mut sim = Sim::on(MapId::Sanatorium, 60.0, |_| {});
+        let all = doors(&mut sim);
+        let gates: Vec<(ZoneId, ZoneId)> = pieces(sanatorium()).filter_map(|(_, piece)| piece.door).collect();
+        all.into_iter()
+            .filter_map(|(route, _)| route)
+            .filter(|&(a, b)| !gates.iter().any(|&gate| gate == (a, b) || gate == (b, a)))
+            .collect()
+    }
+
+    /// The Zones reachable from the Entrance Hall over `joins`.
+    fn reach(joins: &[(ZoneId, ZoneId)]) -> std::collections::HashSet<ZoneId> {
+        let mut seen = std::collections::HashSet::from([EntranceHall]);
+        loop {
+            let before = seen.len();
+            for &(a, b) in joins {
+                if seen.contains(&a) || seen.contains(&b) {
+                    seen.insert(a);
+                    seen.insert(b);
+                }
+            }
+            if seen.len() == before {
+                return seen;
+            }
+        }
+    }
+
+    fn wing_of(zone: ZoneId) -> Option<usize> {
+        sanatorium().wings.iter().position(|wing| wing.zones.contains(&zone))
+    }
+
+    #[test]
+    fn only_the_sanatorium_has_wings_three_of_two_zones_in_the_order_west_east_isolation() {
+        for map in MapId::ALL {
+            assert_eq!(map.layout().wings.len(), if map == MapId::Sanatorium { 3 } else { 0 }, "{}", map.name());
+        }
+        let names: Vec<&str> = sanatorium().wings.iter().map(|wing| wing.name).collect();
+        assert_eq!(names, ["West Wing", "East Wing", "Isolation Wing"]);
+        for wing in sanatorium().wings {
+            assert_eq!(wing.zones.len(), 2, "{}", wing.name);
+            assert!(wing.zones.iter().all(|zone| sanatorium().zones.contains(zone)));
+        }
+        let all: Vec<ZoneId> = sanatorium().wings.iter().flat_map(|wing| wing.zones.iter().copied()).collect();
+        assert_eq!(all.len(), all.iter().collect::<std::collections::HashSet<_>>().len(), "no Zone is in two Wings");
+    }
+
+    /// Six Quarantine Doors, two to a Wing, each of two 1.2 x 2.4 x 0.06 m Leaves, Open at the start.
+    #[test]
+    fn six_quarantine_doors_two_leaves_each_open_joining_outside_to_inside_and_sealed_joining_nothing() {
+        use crate::maps::shifting::Driver;
+        let layout = sanatorium();
+        assert_eq!(layout.shifting.len(), 6);
+        for (id, piece) in pieces(layout) {
+            assert_eq!(piece.driver, Driver::Quarantine(WingId(id.0 / 2)), "{id:?}");
+            assert_eq!(piece.leaves.len(), 2);
+            for leaf in piece.leaves {
+                assert_eq!(leaf.size, Vec3::new(1.2, 2.4, 0.06));
+            }
+            assert_eq!((piece.rests.len(), piece.start), (2, 0));
+            let (outside, inside) = piece.door.expect("a gate Door");
+            assert_eq!(piece.rests[0].joins, [(outside, inside)], "Open joins outside and inside");
+            assert!(piece.rests[1].joins.is_empty(), "Sealed joins nothing");
+            assert_eq!(wing_of(outside), None, "{id:?}'s outside is in no Wing");
+            assert_eq!(wing_of(inside), Some(usize::from(id.0 / 2)), "{id:?}'s inside is in its own Wing");
+            assert_eq!(piece.zone, outside);
+            assert!(piece.levers().is_empty());
+        }
+    }
+
+    /// Each Wing's Zones join the rest of the Map only through its own Quarantine Doors, no Wing joins
+    /// another, and every Wing has at least two doorways and two Spawn Points.
+    #[test]
+    fn each_wings_zones_join_outside_only_through_its_own_quarantine_doors() {
+        let layout = sanatorium();
+        let open = joins_at(&[0; 6]);
+        for (index, wing) in layout.wings.iter().enumerate() {
+            let own: Vec<(ZoneId, ZoneId)> =
+                pieces(layout).filter(|(_, piece)| piece.wing() == Some(WingId(index as u8))).map(|(_, piece)| piece.door.unwrap()).collect();
+            assert!(own.len() >= 2, "{} has only {} doorways", wing.name, own.len());
+            let mut crossings = 0;
+            for &(a, b) in &open {
+                let (a_in, b_in) = (wing.zones.contains(&a), wing.zones.contains(&b));
+                if a_in == b_in {
+                    continue;
+                }
+                crossings += 1;
+                let outside = if a_in { b } else { a };
+                assert!(
+                    own.iter().any(|&(o, i)| (o, i) == (a, b) || (o, i) == (b, a)),
+                    "{} joins {} to {} outside its Quarantine Doors",
+                    wing.name,
+                    a.name(),
+                    b.name()
+                );
+                assert_eq!(wing_of(outside), None, "{} joins another Wing's {}", wing.name, outside.name());
+            }
+            assert_eq!(crossings, own.len(), "{}", wing.name);
+            // The doorways stand on two different Zones outside.
+            let mut outsides: Vec<&str> = own.iter().map(|&(o, _)| o.name()).collect();
+            outsides.sort_unstable();
+            outsides.dedup();
+            assert_eq!(outsides.len(), own.len(), "{}'s doorways open on one Zone", wing.name);
+            // Spawn Points of its own: window Barriers, Risers and Vents.
+            let points: usize = wing
+                .zones
+                .iter()
+                .map(|&zone| {
+                    MapId::Sanatorium.barriers().filter(|b| crate::maps::map::WINDOWS[b.0 as usize].0 == zone).count()
+                        + layout.risers.iter().filter(|(z, _)| *z == zone).count()
+                        + layout.vents.iter().filter(|(z, _)| *z == zone).count()
+                })
+                .sum();
+            assert!(points >= 2, "{} has {points} Spawn Points", wing.name);
+        }
+    }
+
+    /// The Zones in no Wing stay connected without any Wing, with every ordinary Door bought.
+    #[test]
+    fn the_zones_in_no_wing_are_connected_without_any_wing() {
+        let reached = reach(&joins_at(&[1; 6]));
+        for &zone in sanatorium().zones {
+            if wing_of(zone).is_none() {
+                assert!(reached.contains(&zone), "{} is cut off with every Wing Sealed", zone.name());
+            } else {
+                assert!(!reached.contains(&zone), "{} is reached through a Sealed Wing", zone.name());
+            }
+        }
+    }
+
+    /// With each Wing Sealed in turn and every Door bought, every other Zone is reachable by joins and
+    /// by nav; the Sealed Wing's own nodes are not.
+    #[test]
+    fn with_each_wing_sealed_and_every_door_bought_all_other_zones_are_reachable_by_joins_and_nav() {
+        use crate::enemies::nav::NavState;
+        let layout = sanatorium();
+        let graph = NavGraph::new(MapId::Sanatorium);
+        let mut doors: Vec<(ZoneId, ZoneId)> = ordinary_door_joins();
+        doors.extend(pieces(layout).filter_map(|(_, piece)| piece.door));
+        let yes = |_: crate::maps::map::BarrierId| true;
+        let start = graph.nearest(layout.seat_start(0));
+        for (sealed, sealed_wing) in layout.wings.iter().enumerate() {
+            let rests: Vec<u8> = pieces(layout).map(|(_, piece)| u8::from(piece.wing() == Some(WingId(sealed as u8)))).collect();
+            let reached = reach(&joins_at(&rests));
+            let standing: Vec<Option<u8>> = rests.iter().map(|&rest| Some(rest)).collect();
+            let state = NavState::new(&doors, &yes).with_rests(&standing);
+            for &zone in layout.zones {
+                let inside = sealed_wing.zones.contains(&zone);
+                assert_eq!(reached.contains(&zone), !inside, "{} with the {} Sealed", zone.name(), sealed_wing.name);
+            }
+            for (to, node) in graph.nodes.iter().enumerate() {
+                let Some(zone) = node.zone else { continue };
+                if node.vent || node.name.ends_with("_out") {
+                    continue;
+                }
+                let planned = graph.plan(to, start, state).is_some();
+                assert_eq!(planned, !sealed_wing.zones.contains(&zone), "{} ({}) with the {} Sealed", node.name, zone.name(), sealed_wing.name);
+            }
+        }
+    }
+
+    #[test]
+    fn no_power_switch_or_pack_a_punch_is_in_a_wing() {
+        let power = crate::maps::power::switch_spot(MapId::Sanatorium).expect("the Sanatorium has a Power Switch").0;
+        let pap = crate::weapons::pack_a_punch::machine_at(MapId::Sanatorium);
+        for (what, at) in [("the Power Switch", power), ("Pack-a-Punch", pap)] {
+            let zone = crate::enemies::nav::zone_at(MapId::Sanatorium, at + Vec3::Y * 0.1).unwrap_or_else(|| panic!("{what} is in no Zone"));
+            assert_eq!(wing_of(zone), None, "{what} is in the {}", zone.name());
+        }
+    }
+
+    /// Each Piece's outside landing is clear of every sweep, outside its Wing, and 2.5 m out.
+    #[test]
+    fn each_quarantine_door_has_an_outside_landing_clear_of_its_sweep() {
+        let layout = sanatorium();
+        let graph = NavGraph::new(MapId::Sanatorium);
+        for (id, piece) in pieces(layout) {
+            let landing = outside_landing(&graph, id, piece).unwrap_or_else(|| panic!("{id:?} has no outside landing"));
+            let (outside, _) = piece.door.unwrap();
+            assert_eq!(crate::enemies::nav::zone_at(MapId::Sanatorium, landing + Vec3::Y * 0.1), Some(outside), "{id:?}'s landing is in {}", outside.name());
+            assert!(!piece.in_way(landing, 0, 1) && !piece.in_way(landing, 1, 0), "{id:?}'s landing is in its sweep");
+            let (_, doorway, out, ..) = QUARANTINE_DOORWAYS[usize::from(id.0)];
+            let away = (Vec2::new(landing.x, landing.z) - Vec2::new(doorway.x, doorway.z)).dot(out);
+            assert!((away - 2.5).abs() < 0.05, "{id:?}'s landing is {away} m out");
+        }
+    }
+
+    /// No Spawn Point, Buyable, Box Location, chalk outline or Trap is in a sweep, and no Prop is.
+    #[test]
+    fn nothing_placed_is_in_a_quarantine_doors_sweep() {
+        let layout = sanatorium();
+        for (what, at) in placed_things() {
+            for (id, piece) in pieces(layout) {
+                assert!(!piece.in_way(at, 0, 1) && !piece.in_way(at, 1, 0), "{what} is in {id:?}'s sweep");
+            }
+        }
+        for prop in layout.props {
+            let feet = Vec3::new(prop.at.x, prop.zone.floor(), prop.at.z);
+            let half = Vec2::new(prop.size.x, prop.size.z) / 2.0;
+            for (id, piece) in pieces(layout) {
+                for corner in [Vec2::new(-1.0, -1.0), Vec2::new(1.0, -1.0), Vec2::new(-1.0, 1.0), Vec2::new(1.0, 1.0), Vec2::ZERO] {
+                    let at = feet + Vec3::new(corner.x * half.x, 0.0, corner.y * half.y);
+                    assert!(!piece.in_way(at, 0, 1), "a Prop of the {} is in {id:?}'s sweep", prop.zone.name());
+                }
+            }
+        }
+    }
+
+    /// Each doorway's nodes chain a Door edge to a Rest edge, and no path node sits on a Leaf.
+    #[test]
+    fn the_doorway_nodes_chain_a_door_edge_to_a_rest_edge_and_no_node_sits_on_a_leaf() {
+        let layout = sanatorium();
+        let graph = NavGraph::new(MapId::Sanatorium);
+        for (id, piece) in pieces(layout) {
+            let (outside, inside) = piece.door.unwrap();
+            let rest: Vec<_> = graph.edges.iter().filter(|edge| edge.gate == Gate::Rest(id, 0)).collect();
+            assert_eq!(rest.len(), 1, "{id:?}");
+            let (doorway, far) = (&graph.nodes[rest[0].from], &graph.nodes[rest[0].to]);
+            assert_eq!((doorway.zone, far.zone), (Some(outside), Some(inside)), "{id:?}");
+            let door_edges = graph.edges.iter().filter(|edge| matches!(edge.gate, Gate::Door(a, b) if (a, b) == (outside, inside)) && edge.to == rest[0].from).count();
+            assert_eq!(door_edges, 1, "{id:?}'s landing reaches its doorway node through the gate Door");
+            for node in &graph.nodes {
+                for rest in piece.rests {
+                    for (leaf, &yaw) in piece.leaves.iter().zip(rest.yaws) {
+                        assert!(!leaf.over(node.at, yaw, 0.0), "{} is on a Leaf of {id:?}", node.name);
+                    }
+                }
+            }
+        }
+        assert_eq!(graph.edges.iter().filter(|edge| matches!(edge.gate, Gate::Rest(..))).count(), 6);
     }
 
     /// Every Zone of the Map wears a Material Set, and so does its outside (grass and white render gone green).

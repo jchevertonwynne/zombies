@@ -2039,6 +2039,8 @@ pub const SWING_SECS: f32 = 5.0;
 pub const LEVER_COOLDOWN_SECS: f32 = 30.0;
 /// How far a Leaf's reach goes below its deck, down into the water, for what is in its way.
 pub const SWING_REACH_BELOW: f32 = 5.5;
+/// How far below its foot a door's reach goes: a body a little under the floor it stands on.
+pub const SWING_DOOR_REACH_BELOW: f32 = 0.6;
 /// How far a Leaf's reach goes above its deck: a body standing or jumping on it.
 pub const SWING_REACH_ABOVE: f32 = 2.5;
 /// How far past a Leaf's edge a body's centre still counts as on it or in its sweep.
@@ -2050,6 +2052,18 @@ pub const LEAF_RAIL_THICKNESS: f32 = 0.2;
 /// the canal.
 pub const TIPPED_THROW_SPEED: f32 = 3.0;
 pub const TIPPED_FALL_SECS: f32 = 0.7;
+
+// The Quarantine (the Sanatorium's clock that seals its Wings)
+/// How long every Wing stands Open between one Wing opening and the next Warning.
+pub const QUARANTINE_ALL_CLEAR_SECS: f32 = 30.0;
+/// How long the klaxon sounds and the beacons spin before a Wing's doors start to close.
+pub const QUARANTINE_WARNING_SECS: f32 = 10.0;
+/// How long a Wing stays Sealed.
+pub const QUARANTINE_SEALED_SECS: f32 = 60.0;
+/// How long the green beacons and the chime run before a Sealed Wing's doors start to open.
+pub const QUARANTINE_RELEASE_SECS: f32 = 3.0;
+/// A Quarantine Door's Leaf: 1.2 m wide, 2.4 m high and 0.06 m thick.
+pub const QUARANTINE_LEAF_SIZE: (f32, f32, f32) = (1.2, 2.4, 0.06);
 
 // Teleporter
 /// After activating a Pad, the Player has this long to use the Mainframe and Link it.

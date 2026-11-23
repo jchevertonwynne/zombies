@@ -69,6 +69,7 @@ use crate::run::round::{Round, RoundEnded, RoundPhase, RoundStarted};
 use crate::state::{Choosing, GameState, Paused, world_runs};
 use crate::players::teammate::HeldWeapon;
 use crate::maps::teleporter::{Mainframe, Pad, TeleporterView, mainframe_use_point};
+use crate::maps::quarantine::{Quarantine, Stage as QuarantineStage, WingId};
 use crate::maps::shifting::{Lever, PieceId, PiecePhase, PieceState};
 use crate::maps::trap::{Trap, TrapPhase, TrapSwitch};
 use crate::tuning::*;
@@ -290,6 +291,10 @@ pub enum WorldEvent {
     /// The Tide is at this phase, in this state of its Turn: told when the bells start, when the
     /// water starts to move, and when it lands, and always to a Player who comes back.
     Tide { phase: TidePhase, turn: TurnState },
+    /// The Quarantine is in this stage, `elapsed` seconds in, with this Wing (if one) out of All
+    /// Clear: told on every stage change and always to a Player who comes back. A client runs
+    /// `elapsed` on only to show it. The Quarantine Doors themselves come as `Piece`.
+    Quarantine { wing: Option<WingId>, stage: QuarantineStage, elapsed: f32 },
     /// Round `number` has begun.
     Round { number: u32, hellhound: Option<u32> },
     /// The Round's Horde is dead.
@@ -396,6 +401,8 @@ pub struct Mirror {
     intermission: bool,
     /// The Tide as last told: its phase and the kind of its Turn.
     tide: (TidePhase, u8),
+    /// The Quarantine as last told: its stage and the Wing out.
+    quarantine: (QuarantineStage, Option<WingId>),
     /// Where each Power-up lying about was when last told.
     drop_at: HashMap<Entity, Vec3>,
     perks: HashMap<Seat, (Option<Perk>, Vec<Perk>)>,
@@ -571,6 +578,7 @@ pub fn add(app: &mut App) {
             Update,
             (
                 tell_tide,
+                tell_quarantine,
                 tell_extras,
                 tell_sabotage,
                 tell_aftereffect,
@@ -614,7 +622,7 @@ pub fn add(app: &mut App) {
                     hear_offers,
                     hear_gauntlet,
                     hear_left,
-                    (hear_extras, hear_sabotage, hear_aftereffect, stand_after_ride, hear_active, hear_tide).chain(),
+                    (hear_extras, hear_sabotage, hear_aftereffect, stand_after_ride, hear_active, hear_tide, hear_quarantine).chain(),
                 ),
             )
                 .chain()
@@ -1004,6 +1012,26 @@ fn tell_tide(mut tell: Tell, mut mirror: ResMut<Mirror>, tide: Option<Res<Tide>>
     if mirror.tide != now {
         mirror.tide = now;
         tell.all(&WorldEvent::Tide { phase: tide.phase, turn: tide.turn });
+    }
+}
+
+/// The Quarantine, whenever its stage or the Wing out changes.
+fn tell_quarantine(mut tell: Tell, mut mirror: ResMut<Mirror>, quarantine: Option<Res<Quarantine>>) {
+    let Some(quarantine) = quarantine else { return };
+    let now = (quarantine.stage(), quarantine.wing());
+    if mirror.quarantine != now {
+        mirror.quarantine = now;
+        tell.all(&WorldEvent::Quarantine { wing: now.1, stage: now.0, elapsed: quarantine.elapsed() });
+    }
+}
+
+/// A client shows the Quarantine as the Host says, and runs the stage's seconds on from there.
+fn hear_quarantine(mut heard: MessageReader<Heard>, quarantine: Option<ResMut<Quarantine>>) {
+    let Some(mut quarantine) = quarantine else { return };
+    for Heard(event) in heard.read() {
+        if let WorldEvent::Quarantine { wing, stage, elapsed } = *event {
+            quarantine.show(stage, wing, elapsed);
+        }
     }
 }
 
@@ -1448,12 +1476,12 @@ fn catch_up_world(
         Query<(&NetId, &Trap)>,
         Query<&PlayerSeat>,
     ),
-    (teleporter, active, round, generators, tide): (
+    (teleporter, active, round, generators, (tide, quarantine)): (
         Res<crate::maps::teleporter::Teleporter>,
         Res<ActivePowerUps>,
         Option<Res<Round>>,
         Option<Res<Generators>>,
-        Option<Res<Tide>>,
+        (Option<Res<Tide>>, Option<Res<Quarantine>>),
     ),
     (drops, restores, ids): (Query<(Entity, &Dropped)>, Query<(&NetId, &Restore, &Transform)>, Query<&NetId>),
     pieces: Query<&PieceState>,
@@ -1532,6 +1560,10 @@ fn catch_up_world(
         // The phase decides the water, so it is always told, even when Still.
         if let Some(tide) = &tide {
             say(WorldEvent::Tide { phase: tide.phase, turn: tide.turn });
+        }
+        // The stage decides what the beacons and the klaxon show, so it is always told, even Dormant.
+        if let Some(quarantine) = &quarantine {
+            say(WorldEvent::Quarantine { wing: quarantine.wing(), stage: quarantine.stage(), elapsed: quarantine.elapsed() });
         }
         if let Some(round) = &round {
             say(WorldEvent::Round { number: round.number, hellhound: round.hellhound });
@@ -2500,6 +2532,8 @@ mod downs;
 mod reconnect;
 #[cfg(test)]
 mod shared;
+#[cfg(test)]
+mod quarantine_tests;
 #[cfg(test)]
 mod shifting_tests;
 #[cfg(test)]

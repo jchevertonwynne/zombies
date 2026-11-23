@@ -9,6 +9,7 @@ pub mod look;
 pub mod machine_look;
 pub mod map;
 pub mod power;
+pub mod quarantine;
 pub mod shifting;
 pub mod surge;
 pub mod teleporter;

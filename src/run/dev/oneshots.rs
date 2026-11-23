@@ -21,6 +21,7 @@ use crate::maps::map::MapId;
 use crate::maps::generator::{Generators, LoseNearestGenerator};
 use crate::maps::power::SwitchPowerOn;
 use crate::maps::shifting::{PieceState, SwingNearest, standing_rests};
+use crate::maps::quarantine::StepQuarantine;
 use crate::maps::tide::TurnTide;
 use crate::run::gauntlet::ToggleUnlockAll;
 use crate::weapons::equipment::GiveMonkeyBombs;
@@ -229,6 +230,7 @@ pub struct WorldCheats<'w, 's> {
     lose_generator: MessageWriter<'w, LoseNearestGenerator>,
     swing: MessageWriter<'w, SwingNearest>,
     tide: MessageWriter<'w, TurnTide>,
+    quarantine: MessageWriter<'w, StepQuarantine>,
     unlock_all: MessageWriter<'w, ToggleUnlockAll>,
     generators: Option<Res<'w, Generators>>,
     map: Option<Res<'w, MapId>>,
@@ -305,6 +307,13 @@ impl WorldCheats<'_, '_> {
                 self.tide.write(TurnTide);
                 true
             }
+            Cheat::StepQuarantine => {
+                if !self.map.as_ref().is_some_and(|map| !map.layout().wings.is_empty()) {
+                    return Some(false);
+                }
+                self.quarantine.write(StepQuarantine);
+                true
+            }
             Cheat::UnlockAll => {
                 if !self.gauntlet() {
                     return Some(false);
@@ -348,6 +357,7 @@ pub fn add_messages(app: &mut App) {
         .add_message::<LoseNearestGenerator>()
         .add_message::<SwingNearest>()
         .add_message::<TurnTide>()
+        .add_message::<StepQuarantine>()
         .add_message::<ToggleUnlockAll>();
 }
 

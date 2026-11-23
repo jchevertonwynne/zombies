@@ -133,6 +133,11 @@ fn recipe(cue: Cue) -> Recipe {
         Cue::BridgeBell => Recipe::Synth(bridge_bell()),
         Cue::BridgeGrind => Recipe::Synth(bridge_grind()),
         Cue::BridgeClunk => Recipe::Synth(bridge_clunk()),
+        Cue::QuarantineKlaxon => Recipe::Synth(quarantine_klaxon()),
+        Cue::QuarantineSiren => Recipe::Synth(quarantine_siren()),
+        Cue::QuarantineSwing => Recipe::Synth(quarantine_swing()),
+        Cue::QuarantineSlam => Recipe::Synth(quarantine_slam()),
+        Cue::QuarantineRelease => Recipe::Synth(quarantine_release()),
         Cue::TeleporterCharge => Recipe::Synth(sweep(2.0, 200.0, 1600.0, 0.3)),
         Cue::TeleporterFire => Recipe::Synth(boom(1.5, 55.0, 0x6a00_0018)),
         Cue::TeleporterArrive => Recipe::Synth(reversed(boom(1.5, 55.0, 0x6a00_0019))),
@@ -1246,6 +1251,63 @@ fn bridge_grind() -> Vec<f32> {
 fn bridge_clunk() -> Vec<f32> {
     let mut out = scaled(thud(0.5, 55.0), 1.0);
     layer(&mut out, 0.0, &scaled(chime(&[180.0, 310.0], 0.25, 18.0), 0.6));
+    clamped(out)
+}
+
+/// A two-tone alarm, a third of a second a tone, over three seconds so it loops.
+fn quarantine_klaxon() -> Vec<f32> {
+    let out: Vec<f32> = samples(3.0)
+        .map(|t| {
+            let freq = if (t / 0.75) as u32 % 2 == 0 { 622.0 } else { 466.0 };
+            let tone = (TAU * freq * t).sin() + 0.5 * (TAU * freq * 3.0 * t).sin() + 0.25 * (TAU * freq * 5.0 * t).sin();
+            let gate = (((t % 0.75) * 60.0).min(1.0)) * (1.0 - ((t % 0.75) / 0.75 - 0.9).max(0.0) * 10.0);
+            tone * gate * 0.3
+        })
+        .collect();
+    clamped(out)
+}
+
+/// A siren rising and falling twice over six seconds.
+fn quarantine_siren() -> Vec<f32> {
+    let mut phase = 0.0;
+    let out: Vec<f32> = samples(6.0)
+        .map(|t| {
+            let rise = 0.5 - 0.5 * (TAU * t / 3.0).cos();
+            phase += TAU * (420.0 + 520.0 * rise) / SAMPLE_RATE as f32;
+            (phase.sin() + 0.3 * (phase * 2.0).sin()) * 0.4 * (t * 20.0).min(1.0) * ((6.0 - t) * 20.0).min(1.0)
+        })
+        .collect();
+    clamped(out)
+}
+
+/// Heavy hinges moving: a low rasp that swells and fades over two seconds.
+fn quarantine_swing() -> Vec<f32> {
+    let mut seed = 0x71a4_0001;
+    let mut low = 0.0;
+    let out: Vec<f32> = samples(2.0)
+        .map(|t| {
+            low += (noise(&mut seed) - low) * 0.04;
+            let swell = (t * 3.0).min(1.0) * ((2.0 - t) * 3.0).min(1.0);
+            (low * 1.2 + noise(&mut seed) * 0.08 * (0.5 + 0.5 * (t * TAU * 9.0).sin())) * swell
+        })
+        .collect();
+    clamped(out)
+}
+
+/// Two steel doors meeting: a deep thud, a metal clang, then the bolt.
+fn quarantine_slam() -> Vec<f32> {
+    let mut out = scaled(thud(0.7, 48.0), 1.0);
+    layer(&mut out, 0.0, &scaled(chime(&[210.0, 330.0, 570.0], 0.5, 12.0), 0.8));
+    layer(&mut out, 0.35, &scaled(tick(0.1, 900.0), 1.2));
+    clamped(out)
+}
+
+/// A pneumatic hiss, then a two-note chime.
+fn quarantine_release() -> Vec<f32> {
+    let mut seed = 0x71a4_0002;
+    let hiss: Vec<f32> = samples(0.9).map(|t| noise(&mut seed) * 0.25 * (-t * 3.5).exp()).collect();
+    let mut out = hiss;
+    layer(&mut out, 0.5, &chime(&[783.99, 1046.5], 1.0, 4.0));
     clamped(out)
 }
 

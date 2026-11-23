@@ -166,7 +166,26 @@ DOORS = [
     ("q5", "z", -10.0, 49.0, 4.0, 2.5, "IsolationWard", "UpperLanding"),
     ("q6", "x", 42.0, -38.0, 4.0, 2.5, "SunRoof", "ChildrensWard"),
 ]
+QUARANTINE = {"q1": 0, "q2": 1, "q3": 2, "q4": 3, "q5": 4, "q6": 5}   # the Piece each Quarantine Door is
+# Which Zone of each Quarantine doorway is outside its Wing (the other is inside).
+OUTSIDE = {"q1": "WestCorridor", "q2": "Refectory", "q3": "EastCorridor", "q4": "Refectory", "q5": "UpperLanding", "q6": "SunRoof"}
 for name, axis, line, pos, y, off, low, high in DOORS:
+    if name in QUARANTINE:
+        # A Quarantine doorway (#519): the outside landing, the doorway node just outside the Leaves'
+        # plane, and the inside landing. The Door gates the walk from the landing to the doorway, and the
+        # Quarantine Door's Open Rest the walk on in.
+        outside, inside = (low, high) if OUTSIDE[name] == low else (high, low)
+        sign = -1 if OUTSIDE[name] == low else 1          # the outside is on the low or the high side of the wall
+        def at(dist):
+            return (pos, y, round(line + sign * dist, 2)) if axis == "x" else (round(line + sign * dist, 2), y, pos)
+        no = node(f"{name}_o", *at(off))
+        nd = node(f"{name}_d", *at(0.45))
+        ni = node(f"{name}_i", *(at(-off)))
+        edge(no, nd, f"Gate::Door(ZoneId::{outside}, ZoneId::{inside})", check=False)
+        edge(nd, ni, f"Gate::Rest(PieceId({QUARANTINE[name]}), 0)", check=False)
+        attach(no, outside)
+        attach(ni, inside)
+        continue
     if axis == "x":
         a, b = (pos, y, line - off), (pos, y, line + off)
     else:
@@ -338,7 +357,7 @@ def rs(n):
 
 out = []
 out.append("//! The Sanatorium's windows, stairwells, lamps and path-node graph, laid out from `sanatorium.rs`'s\n//! walls and Props by `tools/sanatorium_layout.py` (rewritten by it: edit the script, not this file).\n")
-out.append("use bevy::prelude::*;\n\nuse crate::enemies::nav::Gate;\nuse crate::maps::map::{BarrierId, Sunken};\nuse crate::maps::zone::ZoneId;\n\nuse super::W0;\n")
+out.append("use bevy::prelude::*;\n\nuse crate::enemies::nav::Gate;\nuse crate::maps::map::{BarrierId, Sunken};\nuse crate::maps::shifting::PieceId;\nuse crate::maps::zone::ZoneId;\n\nuse super::W0;\n")
 out.append("""const fn v(x: f32, z: f32) -> Vec2 {
     Vec2::new(x, z)
 }

@@ -98,6 +98,7 @@ pub(super) const COVE: Layout = Layout {
     lamps: &LAMPS,
     fixed_joins: &[],
     shifting: &[],
+    wings: &[],
     nav_nodes: NODES,
     nav_edges: EDGES,
     jump_pads: &[],

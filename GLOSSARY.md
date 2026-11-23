@@ -279,7 +279,7 @@ _Avoid_: perk-a-cola, buff
 
 **Quick Revive**: A Perk. Solo, it lets the Player get back up from one Down instead of reaching Game Over. In Co-op, it only makes the Player's Revives of others faster.
 
-**Power**: A state of the whole Map that starts off and, once turned on, stays on for the rest of the Run. Most Perk Machines, every Power Door, every Trap and every Jump Pad wait for it. A Map with Generators has no Power and no Power Switch.
+**Power**: A state of the whole Map that starts off and, once turned on, stays on for the rest of the Run. Most Perk Machines, every Power Door, every Trap and every Jump Pad wait for it, and so does the Quarantine. A Map with Generators has no Power and no Power Switch.
 
 **Power Switch**: The switch on the wall that turns Power on. It is free to use. (Not a Lever.)
 
@@ -287,7 +287,7 @@ _Avoid_: perk-a-cola, buff
 _Avoid_: power node, objective, capture point
 
 **Section**: A group of Zones Powered by one Generator. Not every Zone is in a Section.
-_Avoid_: wing, area, district, region
+_Avoid_: area, district, region
 
 **Powered**: A Section whose Generator is Held. On a Map with Generators, a Perk Machine or Trap that would wait for the Power waits for its Section to be Powered instead, and works only while it is. Pack-a-Punch there works only while every Generator is Held, and a Perk Machine or Trap in a Zone outside every Section never waits.
 
@@ -314,13 +314,23 @@ _Avoid_: unlit, blackout
 **Weapon Light**: The torch-wide spotlight every Player carries, always on, on a Map with Dark Zones.
 _Avoid_: flashlight, torch
 
-**Shifting**: A Piece of the Map (one or more Leaves, each a solid deck or gate that turns about its own vertical hinge) moving between fixed Rests. Nothing rises, falls or slides, and nothing is carried: a body on a Leaf while it turns is pushed off by it. The Polder's Swing Bridges are the first Pieces, turned by Levers; its Lock Gates are the second, turned by the Tide.
+**Shifting**: A Piece of the Map (one or more Leaves, each a solid deck or gate that turns about its own vertical hinge) moving between fixed Rests. Nothing rises, falls or slides, and nothing is carried: a body on a Leaf while it turns is pushed off by it. The Polder's Swing Bridges are the first Pieces, turned by Levers; its Lock Gates are the second, turned by the Tide; the Sanatorium's Quarantine Doors are the third, turned by the Quarantine.
 
 **Rest**: One of the fixed places a Shifting Piece can stand still, each with a yaw for every Leaf and the Zone joins it makes. A Swing Bridge has Span (joins its two banks) and Along (lies along its own bank over the water, joins nothing). Zombies and Active Zones count a Rest's joins only while the Piece stands at that Rest and its gate Door (if it has one) is open.
 
 **Swing Bridge**: A Piece with one Leaf, a deck with rails hinged at one bank, that a Lever turns between Span and Along. It crosses Deep Water. A pen and a gate Door guard its near landing; a gate Door joins no Zones itself.
 
 **Lock Gate**: A pair of gates across one of the Polder's lock chambers, a Piece the Tide turns at each Turn that changes its Rest, with no Lever, no cooldown and nothing to Sabotage. Shut, its two Leaves meet mid-chamber and their top is a 1 m walkway with handrails onto the island, reached through a Power Door wicket; Open, they fold against the chamber walls. The Inland Gate is Shut at Low and Rising, the Sea Gate at High and Falling, so exactly one gate top leads to the island at each phase, and which one alternates. A Player on a gate's top or in its sweep when it starts to Swing is Washed Up to the landing nearer them, and a Zombie there is Tipped.
+
+**Quarantine**: The Sanatorium's clock that, once the Power is on, seals its Wings one at a time, for a minute each in a fixed order, with an All Clear between. It holds at All Clear through a Boss Round. Only the Sanatorium has one.
+
+**Wing**: A group of the Sanatorium's Zones joined to the rest of the Map only through Quarantine Doors, sealed together by the Quarantine. Not a Section.
+
+**Quarantine Door**: A pair of steel fire doors in a Wing's doorway, behind a bought Door: a Shifting Piece that the Quarantine turns between Open and Sealed. It isn't a Door, because it closes again. Anyone in its sweep as it starts to Swing is put outside the Wing.
+
+**Sealed**: A Wing whose Quarantine Doors are shut. Nothing walks in.
+
+**All Clear**: The Quarantine's spell with every Wing open, between one Wing opening and the next Warning.
 
 **Lever**: A Buyable for 500 Points, with no Power and no Co-op scaling, that Swings its bridge to the next Rest. Each bridge has one at each landing, outside the pen, and they share one cooldown. A Lever is not a Trap, so no Trap Boon applies.
 

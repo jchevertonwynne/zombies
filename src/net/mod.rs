@@ -106,6 +106,17 @@ mod tests {
         assert_eq!(why.reason(), "Host is on a different version");
     }
 
+    /// The Quarantine's `WorldEvent` broke the wire format (#519), so a game on the version before it,
+    /// 21, is refused.
+    #[test]
+    fn a_player_on_the_version_before_the_quarantine_is_refused() {
+        assert_eq!(PROTOCOL, 22);
+        let ToPlayer::Refused(why) = join_with(21) else {
+            panic!("expected a refusal");
+        };
+        assert_eq!(why, Refusal::Version);
+    }
+
     #[test]
     fn a_player_on_another_build_is_refused_over_the_wire() {
         let ToPlayer::Refused(why) = join_on("9.9.9-other") else {

@@ -2319,6 +2319,46 @@
       "licence": "CC0 (Poly Haven sets, recoloured and cropped; the camo is made in this repo)",
       "fetched": "2026-11-20",
       "notes": "1K atlas of the gun finishes, gloves and sleeves, plus the shared purple camo; layout in src/weapons/atlas.rs"
+    },
+    {
+      "path": "audio/quarantine_klaxon.ogg",
+      "name": "Quarantine klaxon placeholder",
+      "source": "tools/gen-sounds (synthesised, no samples)",
+      "licence": "CC0 (synthesised for this project)",
+      "fetched": "2026-11-23",
+      "notes": "Placeholder for Cue::QuarantineKlaxon: a two-tone alarm. To be replaced by the real recording in the sound ticket (#505 section 8)"
+    },
+    {
+      "path": "audio/quarantine_siren.ogg",
+      "name": "Quarantine siren placeholder",
+      "source": "tools/gen-sounds (synthesised, no samples)",
+      "licence": "CC0 (synthesised for this project)",
+      "fetched": "2026-11-23",
+      "notes": "Placeholder for Cue::QuarantineSiren: a rising and falling siren. To be replaced by the real recording in the sound ticket (#505 section 8)"
+    },
+    {
+      "path": "audio/quarantine_swing.ogg",
+      "name": "Quarantine swing placeholder",
+      "source": "tools/gen-sounds (synthesised, no samples)",
+      "licence": "CC0 (synthesised for this project)",
+      "fetched": "2026-11-23",
+      "notes": "Placeholder for Cue::QuarantineSwing: heavy hinges moving. To be replaced by the real recording in the sound ticket (#505 section 8)"
+    },
+    {
+      "path": "audio/quarantine_slam.ogg",
+      "name": "Quarantine slam placeholder",
+      "source": "tools/gen-sounds (synthesised, no samples)",
+      "licence": "CC0 (synthesised for this project)",
+      "fetched": "2026-11-23",
+      "notes": "Placeholder for Cue::QuarantineSlam: two steel doors meeting. To be replaced by the real recording in the sound ticket (#505 section 8)"
+    },
+    {
+      "path": "audio/quarantine_release.ogg",
+      "name": "Quarantine release placeholder",
+      "source": "tools/gen-sounds (synthesised, no samples)",
+      "licence": "CC0 (synthesised for this project)",
+      "fetched": "2026-11-23",
+      "notes": "Placeholder for Cue::QuarantineRelease: a hiss and a two-note chime. To be replaced by the real recording in the sound ticket (#505 section 8)"
     }
   ]
 }
