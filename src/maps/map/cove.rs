@@ -113,6 +113,8 @@ pub(super) const COVE: Layout = Layout {
     outside: Some(super::Outside { floor: super::textures::Material::CobblestoneFloor02, wall: super::textures::Material::WhiteStucco }),
     sun: Vec3::new(0.6, -3.0, 0.8),
     look: crate::maps::look::GOLDEN_HOUR,
+    lamp_style: super::LampStyle::Bulb,
+    bulb_zones: &[],
     plan: (Vec2::new(-70.0, -24.0), Vec2::new(70.0, 72.0)),
     build,
 };

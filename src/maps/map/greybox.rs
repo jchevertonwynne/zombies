@@ -65,6 +65,8 @@ pub(super) const GREYBOX: Layout = Layout {
     outside: Some(super::Outside { floor: super::textures::Material::AsphaltFloor, wall: super::textures::Material::ConcreteWall006 }),
     sun: Vec3::new(-1.0, -3.0, -2.0),
     look: crate::maps::look::DUSK,
+    lamp_style: super::LampStyle::Bulb,
+    bulb_zones: &[],
     plan: (Vec2::new(-40.0, -56.0), Vec2::new(40.0, 32.0)),
     build,
 };

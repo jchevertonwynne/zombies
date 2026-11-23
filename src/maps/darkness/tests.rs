@@ -12,15 +12,15 @@ use crate::players::player::{Seat, player_body};
 use crate::state::GameState;
 
 /// A frame of this many seconds.
-const FRAME: f32 = 0.05;
+pub(super) const FRAME: f32 = 0.05;
 
 /// `map` built and Playing, with its Generators all Unclaimed and Darkness running.
-fn playing(map: MapId) -> App {
+pub(super) fn playing(map: MapId) -> App {
     playing_with(map, |_| {})
 }
 
 /// The same, with `extra` added first.
-fn playing_with(map: MapId, extra: impl FnOnce(&mut App)) -> App {
+pub(super) fn playing_with(map: MapId, extra: impl FnOnce(&mut App)) -> App {
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, AssetPlugin::default(), TransformPlugin, StatesPlugin));
     extra(&mut app);
@@ -41,7 +41,7 @@ fn playing_with(map: MapId, extra: impl FnOnce(&mut App)) -> App {
 }
 
 /// Runs `secs` of frames.
-fn run(app: &mut App, secs: f32) {
+pub(super) fn run(app: &mut App, secs: f32) {
     for _ in 0..(secs / FRAME).round() as u32 {
         app.update();
     }

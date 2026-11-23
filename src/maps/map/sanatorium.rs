@@ -44,6 +44,7 @@ use super::{DOOR_HEIGHT, Layout, Prop, PropKind, RaisedFloor, STOREY, Slope, Win
 
 #[path = "sanatorium/data.rs"]
 mod data;
+mod scenery;
 
 pub(in crate::maps::map) use data::WINDOWS;
 
@@ -158,8 +159,11 @@ pub(super) const SANATORIUM: Layout = Layout {
     darkness: false,
     outdoor: &[ZoneId::Forecourt, ZoneId::GardenCourt, ZoneId::SunRoof],
     roofed: true,
-    sun: Vec3::new(1.0, -3.4, 4.7),
-    look: crate::maps::look::NORTHERN_DUSK,
+    sun: Vec3::new(0.3, -1.0, 0.5),
+    look: crate::maps::look::FOGBOUND,
+    // Fluorescent tubes, but for the Boiler House's caged incandescents (and the outdoor posts).
+    lamp_style: super::LampStyle::Tube,
+    bulb_zones: &[ZoneId::BoilerHouse],
     outside: Some(super::Outside { floor: super::textures::Material::GrassGround, wall: super::textures::Material::WornMossyPlasterwall }),
     plan: (Vec2::new(-72.0, -30.0), Vec2::new(72.0, 66.0)),
     build,
@@ -532,6 +536,9 @@ fn build(b: &mut Builder) {
     for &(_, centre, out) in &data::WINDOWS {
         pocket(b, centre, out);
     }
+
+    // The look in code: the bulkheads, the dead theatre lamp and the outside.
+    scenery::build(b);
 }
 
 #[cfg(test)]

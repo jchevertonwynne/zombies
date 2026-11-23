@@ -83,6 +83,8 @@ pub(super) const VILLAGE: Layout = Layout {
     outside: Some(super::Outside { floor: super::textures::Material::LeafyGrass, wall: super::textures::Material::PlasteredStoneWall }),
     sun: Vec3::new(-1.0, -3.0, 1.5),
     look: crate::maps::look::VILLAGE_NIGHT,
+    lamp_style: super::LampStyle::Bulb,
+    bulb_zones: &[],
     plan: (Vec2::new(-80.0, -30.0), Vec2::new(80.0, 60.0)),
     build,
 };

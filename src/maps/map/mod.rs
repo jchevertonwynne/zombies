@@ -35,7 +35,9 @@ pub use greybox::CONTROL_PLATFORM;
 #[cfg(test)]
 pub use greybox::PLAYER_START;
 
+use crate::maps::darkness::lamp_flicker::LampFlicker;
 use crate::maps::darkness::{Chalk, Lamp};
+use std::collections::HashMap;
 use crate::maps::generator::{Generator, SectionId};
 use crate::maps::jump_pad::JumpPad;
 use crate::maps::zipline::Zipline;
@@ -208,11 +210,23 @@ pub struct Layout {
     pub sun: Vec3,
     /// How the Map is lit and graded.
     pub look: crate::maps::look::Look,
+    /// What the Map's lamps look like (a roofed Map's): a bulb everywhere but the Sanatorium.
+    pub lamp_style: LampStyle,
+    /// The Zones that keep a bulb lamp on a Map whose `lamp_style` is `Tube` (the Sanatorium's
+    /// caged Boiler House). Out-of-doors Zones' lamps are always bulbs.
+    pub bulb_zones: &'static [ZoneId],
     /// The corners (x, z) of the part of the world the Map takes up: everything playable is
     /// inside it, and past its edge is Out of Bounds.
     pub plan: (Vec2, Vec2),
     /// Builds the walls, the Doors and everything else the data above doesn't cover.
     build: fn(&mut Builder),
+}
+
+/// What a lamp looks like: a glowing bulb, or a fluorescent tube in a housing (the Sanatorium's).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LampStyle {
+    Bulb,
+    Tube,
 }
 
 /// A group of Zones that the Quarantine seals together.
@@ -223,6 +237,12 @@ pub struct Wing {
 }
 
 impl Layout {
+    /// What the lamps in `zone` look like: a Tube Map's, except its `bulb_zones` and the Zones
+    /// out of doors, which keep bulbs.
+    pub fn lamp_style_in(&self, zone: ZoneId) -> LampStyle {
+        if self.lamp_style == LampStyle::Tube && self.indoor(zone) && !self.bulb_zones.contains(&zone) { LampStyle::Tube } else { LampStyle::Bulb }
+    }
+
     /// Whether `zone` is indoors: under a roof (once its Map builds ceilings), not open to the sky.
     pub fn indoor(&self, zone: ZoneId) -> bool {
         !self.outdoor.contains(&zone)
@@ -1202,32 +1222,48 @@ pub fn spawn_map(
     if layout.roofed {
         // Warm downward spots, each with a glowing bulb, that light every indoor floor.
         let bulb = meshes.add(Sphere::new(0.12));
+        // A Tube's housing, 1.2 x 0.06 x 0.2 m, and the emissive tube box under it.
+        let tube_housing = meshes.add(Cuboid::new(1.2, 0.06, 0.2));
+        let tube_glass = meshes.add(Cuboid::new(1.1, 0.04, 0.1));
+        let mut housings: HashMap<ZoneId, Handle<StandardMaterial>> = HashMap::new();
         // A street's gas lamp stands on a thin iron post, and lights less far than a room's.
         let post_mesh = meshes.add(Cuboid::new(0.12, 1.0, 0.12));
         let post_mat = materials.add(Color::srgb(0.05, 0.05, 0.055));
         for &(zone, at) in layout.lamps {
             let out_of_doors = !layout.indoor(zone);
             let colour = palette(Some(zone)).light;
+            let tube = layout.lamp_style_in(zone) == LampStyle::Tube;
             let glow = materials.add(StandardMaterial {
                 base_color: colour,
                 emissive: LinearRgba::from(colour) * 12.0,
                 ..default()
             });
-            commands
-                .spawn((
-                    InRun,
-                    Lamp::in_zone(zone),
-                    SpotLight {
-                        color: colour,
-                        intensity: SPOT_LAMP_INTENSITY * look.lamps,
-                        range: if out_of_doors { OUTDOOR_LAMP_RANGE } else { 25.0 },
-                        outer_angle: SPOT_LAMP_CONE,
-                        inner_angle: SPOT_LAMP_CONE * 0.6,
-                        ..default()
-                    },
-                    Transform::from_translation(at).looking_to(Vec3::NEG_Y, Vec3::X),
-                ))
-                .with_child((Mesh3d(bulb.clone()), MeshMaterial3d(glow), NotShadowCaster));
+            let light = (
+                InRun,
+                Lamp::in_zone(zone),
+                SpotLight {
+                    color: colour,
+                    intensity: SPOT_LAMP_INTENSITY * look.lamps,
+                    range: if out_of_doors { OUTDOOR_LAMP_RANGE } else { 25.0 },
+                    outer_angle: SPOT_LAMP_CONE,
+                    inner_angle: SPOT_LAMP_CONE * 0.6,
+                    ..default()
+                },
+                Transform::from_translation(at).looking_to(Vec3::NEG_Y, Vec3::X),
+            );
+            if tube {
+                // A fluorescent tube: a housing in the Zone's trim paint against the ceiling, and
+                // the glowing tube under it. The spot hangs beneath both. The lamp follows its
+                // `LampFlicker`, and the tube's glow follows the lamp.
+                let housing = housings.entry(zone).or_insert_with(|| materials.add(palette(Some(zone)).trim)).clone();
+                let full = LinearRgba::from(colour) * 12.0;
+                commands
+                    .spawn((light, LampFlicker::new(zone, at, Some((glow.clone(), full)))))
+                    .with_child((Mesh3d(tube_housing.clone()), MeshMaterial3d(housing), Transform::from_xyz(0.0, 0.1, 0.0), NotShadowCaster))
+                    .with_child((Mesh3d(tube_glass.clone()), MeshMaterial3d(glow), Transform::from_xyz(0.0, 0.05, 0.0), NotShadowCaster));
+            } else {
+                commands.spawn(light).with_child((Mesh3d(bulb.clone()), MeshMaterial3d(glow), NotShadowCaster));
+            }
             if out_of_doors && !layout.darkness {
                 let height = at.y - zone.floor() - 0.15;
                 commands.spawn((
@@ -1243,8 +1279,9 @@ pub fn spawn_map(
         // not the sky's, however bright the Yard through its Door.
         // (None under Darkness, whose ambient light is zero.)
         if let (Some(mut images), false) = (images, layout.darkness) {
-            let probe = EnvironmentMapLight::solid_color(&mut images, Color::srgb(0.75, 0.7, 0.65)).with_intensity(INDOOR_PROBE_BRIGHTNESS);
             for &zone in layout.zones.iter().filter(|&&zone| layout.indoor(zone)) {
+                // The constant probe, or one a Look's `probe_tint` mixes towards the Zone's lamps.
+                let probe = EnvironmentMapLight::solid_color(&mut images, look.probe_colour(palette(Some(zone)).light)).with_intensity(INDOOR_PROBE_BRIGHTNESS);
                 let (lo, hi) = zone.volume();
                 let top = (hi.y / STOREY).ceil() * STOREY;
                 let (lo, hi) = (Vec3::new(lo.x, zone.floor() - 0.25, lo.z), Vec3::new(hi.x, top + 0.3, hi.z));
