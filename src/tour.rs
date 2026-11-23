@@ -202,6 +202,16 @@ const COVE: &[View] = &[
     view("belfry-line-landing", (-6.0, 8.0, 28.0), (-41.0, 41.0), 0.45, false),
     view("pensione-line-top", (32.5, 12.0, 27.0), (32.5, 12.0), -0.4, false),
     view("pergola-deck", (29.0, 4.0, 9.0), (32.5, 20.0), 0.35, false),
+    // The Infills that the room views above leave behind the camera.
+    view("infill-sea-cave-buttress", (-50.0, 0.0, 1.0), (-45.0, 5.0), -0.05, false),
+    view("infill-boathouse-flue", (27.0, 0.0, 0.0), (33.3, 5.0), -0.05, false),
+    view("infill-washhouse-boiler", (-50.0, 4.0, 14.0), (-45.0, 7.2), -0.05, false),
+    view("infill-taverna-nibs", (18.0, 4.0, 13.0), (18.0, 6.5), -0.05, false),
+    view("infill-chapel-vestry", (-37.0, 8.0, 33.0), (-30.8, 42.0), -0.05, false),
+    view("infill-pensione-nooks", (24.0, 8.0, 34.0), (18.7, 29.0), -0.05, false),
+    view("infill-lighthouse-store", (-48.0, 12.0, 56.0), (-55.4, 63.2), -0.05, false),
+    view("infill-lighthouse-buttress", (-47.0, 12.0, 53.0), (-40.8, 49.9), -0.05, false),
+    view("infill-keepers-cottage-breast", (-4.0, 12.0, 54.0), (-3.0, 63.5), -0.05, false),
 ];
 
 /// The Polder: a view of each of its 16 Zones, then its bridges, the lock gates, the water and the dyke.
