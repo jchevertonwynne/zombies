@@ -20,7 +20,7 @@ use crate::weapons::attachment::{
 };
 use crate::weapons::burn::Ignite;
 use crate::weapons::combat::{Crossing, HitReport, Sights, hit_damage, pierce, spread_direction};
-use crate::weapons::explosive::{Explosion, Explosive, Launch, LauncherRound, Thrown, flight, makes_crawlers};
+use crate::weapons::explosive::{BlastKind, Explosion, Explosive, Launch, LauncherRound, Thrown, flight, makes_crawlers};
 use crate::weapons::gun_model::{GunModels, Part, model_length};
 use crate::players::last_stand::LastStand;
 use crate::layers::GameLayer;
@@ -1433,6 +1433,8 @@ pub(crate) fn fire(
             }),
         });
     }
+    // Every blast this shot makes is drawn in the same tint.
+    let blast_kind = BlastKind::of(stats.id, loadout.held().upgraded, ammo_mods);
     let filter = attack_filter(entity);
     let sights = loadout.sights(entries);
     // Where the shot first landed.
@@ -1467,6 +1469,7 @@ pub(crate) fn fire(
                     Some(_) => Explosive::GrenadeLauncher,
                     None => Explosive::Weapon(stats.id),
                 }),
+                kind: blast_kind,
             }) });
             continue;
         }
@@ -1503,6 +1506,7 @@ pub(crate) fn fire(
                     Some(_) => Explosive::GrenadeLauncher,
                     None => Explosive::Weapon(stats.id),
                 }),
+                kind: blast_kind,
             });
             continue;
         }

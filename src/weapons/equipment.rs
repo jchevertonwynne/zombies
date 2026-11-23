@@ -12,7 +12,7 @@ use crate::maps::barrier::Entering;
 use crate::economy::buy::{Buyable, Purchased, Refused};
 use crate::weapons::gun_model::Handheld;
 use crate::players::hands::{cook_pose, cook_raise, plant_pose, throw_pose};
-use crate::weapons::explosive::{Explosion, Explosive, Launch, Thrown, in_sight, makes_crawlers, world_filter};
+use crate::weapons::explosive::{BlastKind, Explosion, Explosive, Launch, Thrown, in_sight, makes_crawlers, world_filter};
 use crate::layers::GameLayer;
 use crate::weapons::arsenal::Splash;
 use crate::modifier::{Modifier, Modifiers, Stat, ammo_is_free, resolve, resolve_count};
@@ -751,6 +751,7 @@ fn throw_frags(
                 hurts_zombies: true,
                 ammo_mods: AmmoMods::NONE,
                 crawlers: makes_crawlers(Explosive::Frag),
+                kind: BlastKind::Plain,
             });
         }
     }
@@ -896,6 +897,7 @@ fn burn_frags(
                 hurts_zombies: true,
                 ammo_mods: AmmoMods::NONE,
                 crawlers: makes_crawlers(Explosive::Frag),
+                kind: BlastKind::Plain,
             });
             commands.entity(entity).despawn();
         }
@@ -935,6 +937,7 @@ fn land_monkey_bombs(
                     hurts_zombies: true,
                     ammo_mods: AmmoMods::NONE,
                     crawlers: makes_crawlers(Explosive::MonkeyBomb),
+                    kind: BlastKind::Plain,
                 });
                 commands.entity(entity).despawn();
             }
@@ -1023,6 +1026,7 @@ fn trigger_claymores(
                     hurts_zombies: true,
                     ammo_mods: AmmoMods::NONE,
                     crawlers: makes_crawlers(Explosive::Claymore),
+                    kind: BlastKind::Plain,
                 });
                 commands.entity(entity).despawn();
             }

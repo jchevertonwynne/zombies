@@ -9,7 +9,7 @@ use crate::weapons::ammo_mod::AmmoMods;
 use crate::weapons::arsenal::{Splash, WeaponClass, WeaponId, WeaponStats};
 use crate::authority::HostSimulation;
 use crate::weapons::equipment::Pull;
-use crate::weapons::explosive::{Explosion, Explosive, Launch, Thrown, in_sight, makes_crawlers, world_filter};
+use crate::weapons::explosive::{BlastKind, Explosion, Explosive, Launch, Thrown, in_sight, makes_crawlers, world_filter};
 use crate::layers::GameLayer;
 use crate::players::player::LocalPlayer;
 use crate::state::{InRun, world_runs};
@@ -78,6 +78,8 @@ struct Bolt {
     player: Entity,
     fuse: f32,
     splash: Splash,
+    /// How its blast is drawn: the Awful Lawton's is Upgraded.
+    kind: BlastKind,
 }
 
 /// A Ballistic Knife blade, waiting to be picked back up.
@@ -212,7 +214,7 @@ fn fire_wonders(
                 let Some(splash) = shot.splash else { continue };
                 let mut bolt = commands.spawn((
                     stuck,
-                    Bolt { player, fuse, splash },
+                    Bolt { player, fuse, splash, kind: BlastKind::of(shot.stats.id, shot.upgraded, AmmoMods::NONE) },
                     Mesh3d(assets.bolt.clone()),
                     MeshMaterial3d(assets.bolt_mat.clone()),
                 ));
@@ -273,6 +275,7 @@ fn burn_bolts(
                 ammo_mods: AmmoMods::NONE,
                 // Only the Crossbow and its Awful Lawton fire bolts.
                 crawlers: makes_crawlers(Explosive::Weapon(WeaponId::Crossbow)),
+                kind: bolt.kind,
             });
             commands.entity(entity).despawn();
             continue;

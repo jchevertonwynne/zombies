@@ -8,7 +8,7 @@ use crate::economy::power_up::{Dropped, GivePowerUp, PowerUp, PowerUpTaken};
 use crate::run::round::Round;
 use crate::maps::map::BarrierId;
 use crate::weapons::ammo_mod::{AmmoMods, AmmoModHit};
-use crate::weapons::explosive::{Explosion, explode, load_assets};
+use crate::weapons::explosive::{BlastKind, Explosion, explode, load_assets};
 use crate::storage::settings::Settings;
 use bevy::ecs::system::RunSystemOnce;
 use crate::enemies::zombie::Gibbed;
@@ -302,6 +302,7 @@ fn blast(sim: &mut Sim, thrower: Entity, hurts_player: bool) -> Vec<Entity> {
         hurts_zombies: true,
         ammo_mods: AmmoMods::NONE,
         crawlers: false,
+        kind: BlastKind::Plain,
     });
     let mut hurt = Vec::new();
     for _ in 0..4 {
@@ -369,6 +370,7 @@ fn a_crouched_player_is_shielded_from_their_own_blast_by_low_cover() {
             hurts_zombies: true,
             ammo_mods: AmmoMods::NONE,
             crawlers: false,
+            kind: BlastKind::Plain,
         });
         let mut hurt = Vec::new();
         for _ in 0..4 {

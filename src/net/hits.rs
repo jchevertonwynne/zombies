@@ -27,7 +27,7 @@ use crate::authority::HostSimulation;
 use crate::weapons::blast::Blasts;
 use crate::weapons::combat::HitReport;
 use crate::weapons::explosive::{
-    Explosion, ExplosiveAssets, Flight, Launch, LauncherRound, Thrown, world_filter,
+    BlastKind, Explosion, ExplosiveAssets, Flight, Launch, LauncherRound, Thrown, world_filter,
 };
 use crate::players::player::{LocalPlayer, Player};
 use crate::state::{InRun, world_runs};
@@ -67,6 +67,7 @@ pub enum Throw {
         splash: [f32; 3],
         ammo_mods: u8,
         crawlers: bool,
+        kind: BlastKind,
     },
     Wonder {
         origin: [f32; 3],
@@ -80,7 +81,7 @@ pub enum Throw {
     MonkeyBomb { from: [f32; 3], aim: [f32; 3] },
     Claymore { at: [f32; 3], facing: [f32; 3] },
     /// A blast that goes off where a hitscan line landed (the Ray Gun's).
-    Blast { at: [f32; 3], splash: [f32; 3], ammo_mods: u8, crawlers: bool, hurts_player: bool },
+    Blast { at: [f32; 3], splash: [f32; 3], ammo_mods: u8, crawlers: bool, hurts_player: bool, kind: BlastKind },
 }
 
 fn splash_out(splash: Splash) -> [f32; 3] {
@@ -115,6 +116,7 @@ impl Throw {
                 headshots: round.headshots,
                 splash: splash_out(round.splash),
                 ammo_mods: round.ammo_mods.bits(),
+                kind: round.kind,
                 crawlers: round.crawlers,
             },
             Thrown::Wonder(shot) => Throw::Wonder {
@@ -138,7 +140,7 @@ impl Throw {
         let finite = |numbers: &[f32]| numbers.iter().all(|number| number.is_finite());
         match self {
             Throw::Launcher {
-                origin, direction, speed, gravity, impact, impact_headshot, headshots, splash, ammo_mods, crawlers,
+                origin, direction, speed, gravity, impact, impact_headshot, headshots, splash, ammo_mods, crawlers, kind,
             } => {
                 if !finite(&[speed, gravity, impact, impact_headshot]) || !finite(&splash) || !finite(&origin) {
                     return None;
@@ -153,6 +155,7 @@ impl Throw {
                     splash: splash_in(splash),
                     ammo_mods: AmmoMods::from_bits(ammo_mods),
                     crawlers,
+                    kind,
                 }))
             }
             Throw::Wonder { origin, direction, weapon, upgraded, damage, splash } => {
@@ -189,7 +192,7 @@ impl Throw {
 
     /// The `Explosion` this is, if it is a blast.
     pub fn blast(self, thrower: Entity) -> Option<Explosion> {
-        let Throw::Blast { at, splash, ammo_mods, crawlers, hurts_player } = self else {
+        let Throw::Blast { at, splash, ammo_mods, crawlers, hurts_player, kind } = self else {
             return None;
         };
         (at.iter().chain(&splash).all(|number| number.is_finite())).then(|| Explosion {
@@ -200,6 +203,7 @@ impl Throw {
             hurts_zombies: true,
             ammo_mods: AmmoMods::from_bits(ammo_mods),
             crawlers,
+            kind,
         })
     }
 }
@@ -264,6 +268,8 @@ impl Launched {
 pub struct Burst {
     pub at: [f32; 3],
     pub radius: f32,
+    /// How it is drawn, so a client tints it as the Host does.
+    pub kind: BlastKind,
 }
 
 /// What has come in over the reliable stream about hits and launches, not yet read.
@@ -401,7 +407,7 @@ fn announce(
         }
     }
     for explosion in explosions.read() {
-        let bytes = encode(&ToPlayer::Burst(Burst { at: explosion.at.to_array(), radius: explosion.splash.radius }));
+        let bytes = encode(&ToPlayer::Burst(Burst { at: explosion.at.to_array(), radius: explosion.splash.radius, kind: explosion.kind }));
         for &(peer, _) in &roster.0 {
             wire.0.send(peer, bytes.clone());
         }
@@ -453,6 +459,7 @@ fn report(
             ammo_mods: explosion.ammo_mods.bits(),
             crawlers: explosion.crawlers,
             hurts_player: explosion.hurts_player,
+            kind: explosion.kind,
         };
         wire.0.send(super::protocol::HOST, encode(&ToHost::Launch(blast)));
         // Its sound is playing already; the Host's `Burst` only adds the fireball.
@@ -537,7 +544,7 @@ fn hear(
             commands.entity(entity).despawn();
         }
         if let Some(assets) = &assets {
-            blasts.show(&mut commands, assets, at, burst.radius);
+            blasts.show(&mut commands, assets, at, burst.radius, burst.kind);
         }
         // For the sound, unless the shooter has heard it; no one's blast, so it is not sent back.
         if let Some(heard) = inbox.heard.iter().position(|&(went, _)| went.distance(at) < HEARD_BLAST_MATCH_METRES) {
@@ -552,6 +559,7 @@ fn hear(
             hurts_zombies: true,
             ammo_mods: AmmoMods::NONE,
             crawlers: false,
+            kind: burst.kind,
         });
     }
 }
@@ -774,11 +782,17 @@ mod tests {
             hurts_zombies: false,
             ammo_mods: AmmoMods::NONE,
             crawlers: false,
+            kind: BlastKind::RayGun,
         });
         run.step(IDLE, 30);
         let client = run.apps[1].world_mut();
-        let fireballs: Vec<Vec3> = client.query::<(&Fireball, &Transform)>().iter(client).map(|(_, t)| t.translation).collect();
-        assert!(fireballs.iter().any(|&p| p.distance(at) < 0.01), "the client draws the blast at the Host's spot");
+        let fireballs: Vec<(Vec3, BlastKind)> =
+            client.query::<(&Fireball, &Transform)>().iter(client).map(|(fireball, t)| (t.translation, fireball.kind)).collect();
+        assert!(fireballs.iter().any(|&(p, _)| p.distance(at) < 0.01), "the client draws the blast at the Host's spot");
+        assert!(
+            fireballs.iter().filter(|&&(p, _)| p.distance(at) < 0.01).all(|&(_, kind)| kind == BlastKind::RayGun),
+            "in the Host's tint"
+        );
     }
 
     #[test]
@@ -795,6 +809,7 @@ mod tests {
             hurts_zombies: true,
             ammo_mods: AmmoMods::NONE,
             crawlers: false,
+            kind: BlastKind::Plain,
         });
         // The local blast, then the Host's burst of it.
         run.step(IDLE, 30);
@@ -884,6 +899,7 @@ mod tests {
             hurts_zombies: true,
             ammo_mods: AmmoMods::NONE,
             crawlers: false,
+            kind: BlastKind::Plain,
         });
         run.step(IDLE, 10);
         for on in 1..=2 {
@@ -906,6 +922,7 @@ mod tests {
             splash: [500.0, 100.0, 4.0],
             ammo_mods: 0b11,
             crawlers: true,
+            kind: BlastKind::Upgraded,
         };
         let round_ahead = round([0.0, 0.0, -1.0]);
         assert_eq!(decode::<ToHost>(&encode(&ToHost::Launch(round_ahead))).unwrap(), ToHost::Launch(round_ahead));
@@ -913,8 +930,24 @@ mod tests {
         assert!(round([0.0; 3]).launch().is_none());
         let nan = Throw::Frag { from: [f32::NAN, 0.0, 0.0], aim: [1.0, 0.0, 0.0], fuse: 1.0 };
         assert!(nan.launch().is_none());
-        let blast = Throw::Blast { at: [0.0; 3], splash: [1.0, 1.0, 1.0], ammo_mods: 0, crawlers: false, hurts_player: true };
+        let blast = Throw::Blast {
+            at: [0.0; 3],
+            splash: [1.0, 1.0, 1.0],
+            ammo_mods: 0,
+            crawlers: false,
+            hurts_player: true,
+            kind: BlastKind::BlastFurnace,
+        };
         assert!(blast.launch().is_none() && blast.blast(Entity::PLACEHOLDER).is_some());
+        assert_eq!(blast.blast(Entity::PLACEHOLDER).unwrap().kind, BlastKind::BlastFurnace);
+        assert_eq!(decode::<ToHost>(&encode(&ToHost::Launch(blast))).unwrap(), ToHost::Launch(blast));
+        // Every kind survives the Host's `Burst`, and costs the same bytes whichever it is.
+        for kind in BlastKind::ALL {
+            let burst = ToPlayer::Burst(Burst { at: [1.0, 2.0, 3.0], radius: 4.0, kind });
+            assert_eq!(decode::<ToPlayer>(&encode(&burst)).unwrap(), burst);
+        }
+        let size = |kind| encode(&ToPlayer::Burst(Burst { at: [0.0; 3], radius: 1.0, kind })).len();
+        assert_eq!(size(BlastKind::Turned), size(BlastKind::Plain));
         let hit = Hit {
             tick: 4,
             zombie: 9,

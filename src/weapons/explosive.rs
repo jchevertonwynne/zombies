@@ -4,9 +4,10 @@
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
 use crate::weapons::blast::{BlastLook, Blasts, settle_blast, update_blast, update_scorches};
-use crate::weapons::ammo_mod::{AmmoModHit, AmmoMods};
+use crate::weapons::ammo_mod::{AmmoMod, AmmoModHit, AmmoMods};
 use crate::weapons::arsenal::{Splash, WeaponId};
 use crate::authority::HostSimulation;
 use crate::layers::GameLayer;
@@ -38,6 +39,76 @@ pub struct Explosion {
     /// Whether the blast can blow a Zombie's legs off, making a Crawler. Classic explosives set
     /// it from `makes_crawlers`; anything else that may (Scorched Earth) just sends it set.
     pub crawlers: bool,
+    /// Which tint the blast is drawn in. Cosmetic: it changes no damage.
+    pub kind: BlastKind,
+}
+
+/// What a blast is drawn as: the tint of its fire, smoke, sparks and scorch. A Co-op client is
+/// told it with the blast, so it sees what the Host does.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BlastKind {
+    /// A frag, Claymore, Monkey Bomb, launcher shell or anything else with no mark of its own.
+    #[default]
+    Plain,
+    /// An Upgraded Weapon's blast: purple.
+    Upgraded,
+    /// The Ray Gun's blast, Upgraded or not: its muzzle green.
+    RayGun,
+    /// An Elite Volatile's fused blast: its Elite tint.
+    Volatile,
+    /// A Weapon holding Blast Furnace, Dead Wire, Fireworks, Thunder Wall or Turned: that Ammo
+    /// Mod's glint colour.
+    BlastFurnace,
+    DeadWire,
+    Fireworks,
+    ThunderWall,
+    Turned,
+}
+
+impl BlastKind {
+    pub const ALL: [BlastKind; 9] = [
+        BlastKind::Plain,
+        BlastKind::Upgraded,
+        BlastKind::RayGun,
+        BlastKind::Volatile,
+        BlastKind::BlastFurnace,
+        BlastKind::DeadWire,
+        BlastKind::Fireworks,
+        BlastKind::ThunderWall,
+        BlastKind::Turned,
+    ];
+
+    /// The kind of a blast `weapon` fires, `upgraded` or not, holding `ammo_mods`. An Ammo Mod
+    /// shows first (the first held, in `AmmoMod::ALL` order), then the Ray Gun, then Pack-a-Punch.
+    pub fn of(weapon: WeaponId, upgraded: bool, ammo_mods: AmmoMods) -> BlastKind {
+        if let Some(ammo_mod) = ammo_mods.iter().next() {
+            return BlastKind::from(ammo_mod);
+        }
+        if weapon == WeaponId::RayGun {
+            BlastKind::RayGun
+        } else if upgraded {
+            BlastKind::Upgraded
+        } else {
+            BlastKind::Plain
+        }
+    }
+
+    /// Where it sits in `ALL`.
+    pub fn index(self) -> usize {
+        self as usize
+    }
+}
+
+impl From<AmmoMod> for BlastKind {
+    fn from(ammo_mod: AmmoMod) -> BlastKind {
+        match ammo_mod {
+            AmmoMod::BlastFurnace => BlastKind::BlastFurnace,
+            AmmoMod::DeadWire => BlastKind::DeadWire,
+            AmmoMod::Fireworks => BlastKind::Fireworks,
+            AmmoMod::ThunderWall => BlastKind::ThunderWall,
+            AmmoMod::Turned => BlastKind::Turned,
+        }
+    }
 }
 
 /// Where a blast came from, for the Crawler rule.
@@ -134,6 +205,8 @@ pub struct LauncherRound {
     pub ammo_mods: AmmoMods,
     /// Whether its blast can make Crawlers.
     pub crawlers: bool,
+    /// How its blast is drawn.
+    pub kind: BlastKind,
 }
 
 /// A launcher's projectile in flight. It bursts on the first thing it touches.
@@ -149,6 +222,7 @@ struct Projectile {
     splash: Splash,
     ammo_mods: AmmoMods,
     crawlers: bool,
+    kind: BlastKind,
     life: f32,
 }
 
@@ -157,6 +231,9 @@ struct Projectile {
 pub(crate) struct Fireball {
     age: f32,
     radius: f32,
+    /// The kind of blast it stands in for. The bare sphere is not tinted; this is for tests.
+    #[allow(dead_code, reason = "only tests read it")]
+    pub(crate) kind: BlastKind,
 }
 
 const FIREBALL_SECS: f32 = 0.3;
@@ -247,6 +324,7 @@ fn launch(mut commands: Commands, mut launches: MessageReader<Launch>, assets: R
                 splash: shot.splash,
                 ammo_mods: shot.ammo_mods,
                 crawlers: shot.crawlers,
+                kind: shot.kind,
                 life: PROJECTILE_LIFETIME_SECS,
             },
             Mesh3d(assets.projectile.clone()),
@@ -310,6 +388,7 @@ fn fly(
                 hurts_zombies: true,
                 ammo_mods: projectile.ammo_mods,
                 crawlers: projectile.crawlers,
+                kind: projectile.kind,
             });
             commands.entity(entity).despawn();
             continue;
@@ -406,15 +485,15 @@ pub(crate) fn explode(
             }
         }
 
-        blasts.show(&mut commands, &assets, explosion.at, splash.radius);
+        blasts.show(&mut commands, &assets, explosion.at, splash.radius, explosion.kind);
     }
 }
 
 /// The bare fireball of a blast of `radius` at `at`, which a blast is until its sprites load.
-pub(crate) fn fireball(assets: &ExplosiveAssets, at: Vec3, radius: f32) -> impl Bundle {
+pub(crate) fn fireball(assets: &ExplosiveAssets, at: Vec3, radius: f32, kind: BlastKind) -> impl Bundle {
     (
         InRun,
-        Fireball { age: 0.0, radius },
+        Fireball { age: 0.0, radius, kind },
         Mesh3d(assets.ball.clone()),
         MeshMaterial3d(assets.fire.clone()),
         Transform::from_translation(at).with_scale(Vec3::splat(0.01)),
@@ -486,6 +565,21 @@ mod tests {
     }
 
     #[test]
+    fn a_blast_is_drawn_for_what_fired_it() {
+        let furnace = AmmoMods::NONE.with(AmmoMod::BlastFurnace);
+        let both = furnace.with(AmmoMod::Turned);
+        assert_eq!(BlastKind::of(WeaponId::M72Law, false, AmmoMods::NONE), BlastKind::Plain);
+        assert_eq!(BlastKind::of(WeaponId::ChinaLake, true, AmmoMods::NONE), BlastKind::Upgraded);
+        assert_eq!(BlastKind::of(WeaponId::RayGun, false, AmmoMods::NONE), BlastKind::RayGun);
+        // Pack-a-Punch'd Ray Gun is still the Ray Gun's green.
+        assert_eq!(BlastKind::of(WeaponId::RayGun, true, AmmoMods::NONE), BlastKind::RayGun);
+        // An Ammo Mod shows over the rest; with two, the first in `AmmoMod::ALL` order.
+        assert_eq!(BlastKind::of(WeaponId::RayGun, true, furnace), BlastKind::BlastFurnace);
+        assert_eq!(BlastKind::of(WeaponId::ChinaLake, true, both), BlastKind::BlastFurnace);
+        assert_eq!(BlastKind::of(WeaponId::ChinaLake, true, AmmoMods::NONE.with(AmmoMod::Turned)), BlastKind::Turned);
+    }
+
+    #[test]
     fn the_crawler_explosives_are_a_set_and_nothing_else_makes_crawlers() {
         for explosive in [Explosive::Frag, Explosive::Claymore, Explosive::MonkeyBomb, Explosive::GrenadeLauncher] {
             assert!(makes_crawlers(explosive), "{explosive:?}");
@@ -538,6 +632,7 @@ mod tests {
             hurts_zombies: true,
             ammo_mods: AmmoMods::NONE,
             crawlers: false,
+            kind: BlastKind::Plain,
         });
         app.update();
         let hit: Vec<_> = app.world_mut().resource_mut::<Messages<PlayerHit>>().drain().map(|hit| hit.player).collect();
@@ -572,6 +667,7 @@ mod tests {
             hurts_zombies,
             ammo_mods: AmmoMods::NONE,
             crawlers: false,
+            kind: BlastKind::Plain,
         };
         app.world_mut().write_message(blast(false));
         app.update();
