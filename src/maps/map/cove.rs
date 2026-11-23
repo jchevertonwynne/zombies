@@ -32,7 +32,7 @@ use crate::tuning::*;
 use crate::weapons::arsenal::WeaponId;
 
 use super::build::{Builder, Gap};
-use super::{Layout, Level, Pool, Prop, concat, PropKind, RaisedFloor, STOREY, Slope, Sunken, door, materials, palette, prop};
+use super::{Infill, Layout, Level, Pool, Prop, concat, PropKind, RaisedFloor, STOREY, Slope, Sunken, door, infill, materials, palette, prop};
 
 /// The four levels.
 const SHORE: f32 = 0.0;
@@ -89,7 +89,7 @@ pub(super) const COVE: Layout = Layout {
     special_spawns: &SPECIAL_SPAWNS,
     vents: &[],
     raised_floors: &RAISED_FLOORS,
-    infills: &[],
+    infills: &INFILLS,
     slopes: &SLOPES,
     sunken: &SUNKEN,
     water: &POOLS,
@@ -114,6 +114,43 @@ pub(super) const COVE: Layout = Layout {
     look: crate::maps::look::GOLDEN_HOUR,
     plan: (Vec2::new(-70.0, -24.0), Vec2::new(70.0, 72.0)),
     build,
+};
+
+/// The Infills, one to three in each of the eight roofed or walled-in rooms, so no two share a
+/// shape. Each keeps to the dry floor, clear of the pools and their recessed beds, the Wading
+/// Points, the Doors, windows, Buyables and Spawn Points, and every path-node edge. (The Seats and
+/// Quick Revive's plinth are on the open Strand, which has none.)
+const INFILLS: [Infill; 16] = {
+    use ZoneId::*;
+    [
+        // The Sea Cave: a rock buttress in the north-east corner and a nib of rock out of the west
+        // wall, over the tidal pool's back strip.
+        infill(SeaCave, (-46.2, 3.6), (-44.0, 6.0)),
+        infill(SeaCave, (-56.0, 0.4), (-55.0, 2.0)),
+        // The Boathouse: a net locker in the north-west corner and a stove flue in the north-east.
+        infill(Boathouse, (20.0, 3.4), (21.6, 6.0)),
+        infill(Boathouse, (32.6, 4.0), (34.0, 6.0)),
+        // The Washhouse: a copper boiler in the south-east corner and a linen press in the
+        // north-west.
+        infill(Washhouse, (-46.0, 6.0), (-44.0, 8.4)),
+        infill(Washhouse, (-56.0, 21.6), (-54.6, 24.0)),
+        // The Taverna: two nibs out of the south wall, either side of the table.
+        infill(Taverna, (21.0, 6.0), (22.4, 7.4)),
+        infill(Taverna, (13.5, 6.0), (14.8, 7.0)),
+        // The Chapel: a vestry cupboard on the east wall behind the altar and a buttress on the south wall.
+        infill(Chapel, (-31.6, 41.0), (-30.0, 43.0)),
+        infill(Chapel, (-42.0, 24.0), (-40.6, 25.2)),
+        // The Pensione: a chimney in the north-east corner and a linen cupboard on the west wall.
+        infill(Pensione, (33.0, 38.6), (34.0, 40.0)),
+        infill(Pensione, (18.0, 28.2), (19.4, 30.0)),
+        // The Lighthouse: an oil store in the north-west corner and a buttress on the east wall.
+        infill(Lighthouse, (-56.0, 62.4), (-54.8, 64.0)),
+        infill(Lighthouse, (-41.6, 49.0), (-40.0, 50.8)),
+        // The Keeper's Cottage: a chimney breast between the windows and a larder in the
+        // south-west corner.
+        infill(KeepersCottage, (-3.8, 63.0), (-2.2, 64.0)),
+        infill(KeepersCottage, (-12.0, 44.0), (-10.0, 46.4)),
+    ]
 };
 
 /// The Cove's three Ziplines, each from a lookout over the town's edge to a lower Zone: the

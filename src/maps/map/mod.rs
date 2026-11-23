@@ -2260,6 +2260,19 @@ pub(crate) mod tests {
                         bad.push(format!("{what} swallows the lamp at {lamp}"));
                     }
                 }
+                // Nor does it stand in water or over a recessed bed or well.
+                let overlaps = |zone: ZoneId, lo: Vec2, hi: Vec2| zone == infill.zone && lo.x < max.x && min.x < hi.x && lo.y < max.y && min.y < hi.y;
+                for pool in layout.water.iter().filter(|pool| overlaps(pool.zone, pool.min, pool.max)) {
+                    bad.push(format!("{what} stands in the pool at {}..{}", pool.min, pool.max));
+                }
+                for sunken in layout.sunken.iter().filter(|sunken| overlaps(sunken.zone, sunken.min, sunken.max)) {
+                    bad.push(format!("{what} stands over the sunken floor at {}..{}", sunken.min, sunken.max));
+                }
+                for &(zone, wading) in layout.wading {
+                    if zone == infill.zone && off(min, max, wading) < WADING_DEEP_CLEARANCE {
+                        bad.push(format!("{what} crowds the Wading Point at {wading}"));
+                    }
+                }
                 for &(a, b, _) in layout.nav_edges {
                     let (from, to) = (node(a), node(b));
                     let crossed = (0..=40).map(|k| from.lerp(to, k as f32 / 40.0)).any(|at| level(at.y) && off(min, max, at) < ZOMBIE_RADIUS);
@@ -2272,11 +2285,11 @@ pub(crate) mod tests {
         }
     }
 
-    /// Every indoor Zone of the Greybox and the Quarry has one to three Infills, and no two rooms
+    /// Every indoor Zone of the Greybox, the Quarry and the Cove has one to three Infills, and no two rooms
     /// of a Map come out the same shape: no two have the same set of Infill sizes.
     #[test]
     fn every_indoor_greybox_zone_has_one_to_three_infills_and_no_two_share_a_shape() {
-        for map in [MapId::Greybox, MapId::Quarry] {
+        for map in [MapId::Greybox, MapId::Quarry, MapId::Cove] {
             every_indoor_zone_has_one_to_three_infills_and_no_two_share_a_shape(map);
         }
     }
