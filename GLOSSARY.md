@@ -244,7 +244,7 @@ _Avoid_: debug mode, god mode
 **Tainted Run**: A Run in which a Cheat has been used. It stays Tainted to the end, even if the Cheat is switched off, and in Co-op it is Tainted for every Player, a Rejoiner included. It writes no Run Record, no Records, no Lifetime Stats, no Commendations and no Scrip, and its Game Over says "Not recorded (developer mode)".
 _Avoid_: cheated Run, dev Run
 
-**Info Screen**: The game-info screen shown while the Info control (Tab by default) is held: Map, Mode, Heat, Round, time survived, and a row per Player. Once the Run is Tainted it adds one line saying so.
+**Info Screen**: The game-info screen shown while the Info control (Tab by default) is held: Map, Mode, Heat, Round, time survived, and a row per Player with their Points, Kills, Headshots and Downs, and in Co-op their Revives. Once the Run is Tainted it adds one line saying so.
 
 **Perk**: A lasting upgrade the Player buys from a Perk Machine. It lasts until the Player's next Down, which takes away every Perk they hold.
 _Avoid_: perk-a-cola, buff

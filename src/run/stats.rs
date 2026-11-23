@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use crate::players::last_stand::{Down, go_down};
 use crate::players::revive::Revived;
 use crate::players::player::Player;
+use crate::authority::HostSimulation;
 use crate::state::world_runs;
 use crate::enemies::zombie::ZombieKilled;
 
@@ -36,7 +37,9 @@ impl Plugin for StatsPlugin {
     fn build(&self, app: &mut App) {
         app
             // Counted in the frame of the Down, so the one that ends the Run is in its Record.
-            .add_systems(Update, (count_kills, count_downs.after(go_down), count_revives))
+            // Only the Host counts: it judges kills, Downs and Revives, and tells every Player
+            // the counts (`WorldEvent::Tallies`), a client's own included.
+            .add_systems(Update, (count_kills, count_downs.after(go_down), count_revives).in_set(HostSimulation))
             .add_systems(Update, count_time.run_if(world_runs));
     }
 }
