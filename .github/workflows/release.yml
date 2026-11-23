@@ -5,6 +5,8 @@
 # - `assets-<hash>.zip`: the `assets/` folder. `<hash>` is the first 16 hex digits of the assets
 #   hash, so a release whose assets didn't change carries a zip of the same name.
 # - `release.json`: the build id, both file names, the SHA-256 of each zip, and the full assets hash.
+# - `zombies.ps1`: the install, update and remove script, so the README's one-liner always runs the
+#   script that matches the latest release.
 #
 # Unzipping both into one folder gives a working game: Bevy finds `assets/` beside the exe.
 #
@@ -134,6 +136,6 @@ jobs:
         run: |
           $release = Get-Content dist\release.json | ConvertFrom-Json
           gh release create $env:GITHUB_REF_NAME `
-            "dist\$($release.game.file)" "dist\$($release.assets.file)" dist\release.json `
+            "dist\$($release.game.file)" "dist\$($release.assets.file)" dist\release.json zombies.ps1 `
             --title "Zombies $env:ZOMBIES_BUILD" --generate-notes
           if ($LASTEXITCODE -ne 0) { throw "creating the release failed" }

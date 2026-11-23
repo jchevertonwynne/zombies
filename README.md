@@ -2,15 +2,23 @@
 
 A single-player and Co-op first-person zombies game, inspired by the round-based zombies modes of the late 2000s. Built with [Bevy](https://bevyengine.org) and [avian3d](https://github.com/Jondolf/avian).
 
-## Install (Windows)
+## Install on Windows
 
-In PowerShell, no administrator rights needed:
+Open PowerShell (no admin needed) and run:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/jchevertonwynne/zombies/main/tools/zombies.ps1))) install
+& ([scriptblock]::Create((irm https://github.com/jchevertonwynne/zombies/releases/latest/download/zombies.ps1))) install
 ```
 
-That downloads the latest release, checks its SHA-256, installs it under `%LOCALAPPDATA%\Zombies` and adds a Start Menu shortcut. Run the same line with `update` to get a newer release (it refuses while the game is running, and keeps the previous `zombies.exe` as `zombies.exe.old`), or with `remove` to uninstall. `remove -Purge` also deletes your Run Records and settings; without `-Purge` they are left alone. The script is [`tools/zombies.ps1`](tools/zombies.ps1).
+This installs the latest release into `%LOCALAPPDATA%\Zombies` and adds Zombies to the Start Menu. Every download is checked against the SHA-256 published with the release. Windows may warn that the game is from an unknown publisher, because it isn't code-signed.
+
+To update or uninstall, run the same line with `update` or `remove` in place of `install`. Update keeps your saves, skips the ~300 MB of assets when they haven't changed, and won't run while the game is open. Remove keeps your saves, settings and Run Records (in `%APPDATA%\zombies`) unless you add `-Purge`:
+
+```powershell
+& ([scriptblock]::Create((irm https://github.com/jchevertonwynne/zombies/releases/latest/download/zombies.ps1))) remove -Purge
+```
+
+Co-op players need the same release, so update before playing together.
 
 ## Build and run
 
