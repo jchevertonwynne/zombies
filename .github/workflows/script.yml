@@ -1,0 +1,51 @@
+# Tests zombies.ps1 on Windows whenever it or its tests change: the Pester tests of its decisions,
+# then the end-to-end run against the real latest release, under Windows PowerShell 5.1 (what
+# players have) and PowerShell 7. No Rust build.
+
+name: Install script
+
+on:
+  push:
+    paths:
+      - zombies.ps1
+      - tests/zombies.*
+      - .github/workflows/script.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pester:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        target-shell: [powershell, pwsh]
+    defaults:
+      run:
+        shell: ${{ matrix.target-shell }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pester
+        run: |
+          Install-Module Pester -MinimumVersion 5.5 -Force -Scope CurrentUser -SkipPublisherCheck
+          Import-Module Pester -MinimumVersion 5.5
+          $result = Invoke-Pester tests/zombies.Tests.ps1 -Output Detailed -PassThru
+          if ($result.FailedCount -gt 0 -or $result.Result -ne 'Passed') { throw "$($result.FailedCount) Pester tests failed" }
+
+  end-to-end:
+    needs: pester
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target-shell: [powershell, pwsh]
+    steps:
+      - uses: actions/checkout@v4
+      # The harness itself always runs in pwsh; it runs the script under the shell being tested.
+      - name: Install, update and remove the latest release
+        shell: pwsh
+        run: ./tests/zombies.e2e.ps1 -Shell ${{ matrix.target-shell }}
