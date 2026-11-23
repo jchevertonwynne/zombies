@@ -16,7 +16,7 @@ use bevy::asset::io::file::FileAssetReader;
 use bevy::audio::Volume;
 use bevy::prelude::*;
 
-use crate::weapons::attachment::FlameFired;
+use crate::weapons::attachment::{FlameFired, Underbarrel};
 use crate::maps::barrier::{PlankRebuilt, PlankTorn};
 use crate::economy::buy::{BuyRefused, CantAfford, HoldPurchased, Purchased};
 use crate::maps::door::Door;
@@ -44,6 +44,7 @@ use crate::tuning::{GUNSHOT_CUT_FADE_SECS, PLAYER_CAPSULE_LENGTH, PLAYER_RADIUS,
 use crate::weapons::weapon::{Loadout, ShotFired};
 use crate::enemies::zombie::{Attack, Dying, Gibbed, Rising, Zombie, ZombieHit, ZombieKilled};
 use cues::{AUDIO_DIR, Cue, FloorFamily, Mix};
+use mix::Shot;
 use mix::BoxPhase;
 
 /// Distance between the Player's ears, in metres, for spatial cues.
@@ -100,6 +101,9 @@ struct Sounds {
     /// The footstep slots of each floor family, in `FloorFamily::ALL` order. One with no files
     /// is absent, and its family steps on `Cue::Footstep`.
     floors: Vec<Slot>,
+    /// The per-Weapon gunshot slots, in `WeaponId::ALL` order. One with no files is empty, and its
+    /// Weapon fires its class gunshot.
+    weapons: Vec<Slot>,
     muffled: bool,
     /// How many capped voices have started, to number them.
     started: u64,
@@ -111,6 +115,8 @@ struct SlotFiles {
     cues: Vec<Option<Vec<String>>>,
     /// The optional per-floor footstep slots, in `FloorFamily::ALL` order.
     floors: Vec<Option<Vec<String>>>,
+    /// The optional per-Weapon gunshot slots, in `WeaponId::ALL` order.
+    weapons: Vec<Option<Vec<String>>>,
 }
 
 /// A looping cue, a child of the entity it belongs to, so it stops when that goes.
@@ -184,7 +190,16 @@ impl Plugin for AudioPlugin {
                 floors.errors.iter().map(ToString::to_string).collect::<Vec<_>>().join("\n  ")
             );
         }
-        app.insert_resource(SlotFiles { cues: check.found, floors: floors.found });
+        // So are the per-Weapon gunshot slots: one with no files fires its class gunshot.
+        let weapons = slots::check_optional_slots(WeaponId::ALL.iter().map(|&weapon| mix::weapon_gunshot_slot(weapon)), &files);
+        if !weapons.errors.is_empty() {
+            error!(
+                "bad gunshot slots in {}, so those Weapons fire their class gunshot:\n  {}",
+                dir.display(),
+                weapons.errors.iter().map(ToString::to_string).collect::<Vec<_>>().join("\n  ")
+            );
+        }
+        app.insert_resource(SlotFiles { cues: check.found, floors: floors.found, weapons: weapons.found });
 
         app.add_message::<PlayCue>()
             .add_systems(Startup, load_sounds)
@@ -228,7 +243,8 @@ fn load_sounds(mut commands: Commands, files: Res<SlotFiles>, assets: Res<AssetS
     };
     let slots = files.cues.iter().map(load).collect();
     let floors = files.floors.iter().map(load).collect();
-    commands.insert_resource(Sounds { slots, floors, muffled: false, started: 0 });
+    let weapons = files.weapons.iter().map(load).collect();
+    commands.insert_resource(Sounds { slots, floors, weapons, muffled: false, started: 0 });
     commands.remove_resource::<SlotFiles>();
 }
 
@@ -268,6 +284,32 @@ impl Sounds {
             .with_volume(Volume::Linear(self.gain(Cue::Footstep)))
             .with_spatial(true);
         commands.spawn((AudioPlayer::new(sound), settings, Transform::from_translation(at)));
+    }
+
+    /// A shot of `weapon` (through `underbarrel`, if any): its own slot's clip if it has files, its
+    /// class gunshot at its pitch offset otherwise. Heard from `at`, or flat without it. Both the
+    /// Player's shots and a teammate's come through here, so a Weapon sounds the same to everyone.
+    fn play_shot(&mut self, commands: &mut Commands, weapon: WeaponId, underbarrel: Option<Underbarrel>, at: Option<Vec3>) {
+        let (shot, speed) = mix::shot_sound(weapon, underbarrel, |weapon| !self.weapons[weapon as usize].variants.is_empty());
+        let weapon = match shot {
+            Shot::Own(weapon) => weapon,
+            Shot::Cue(cue) => match at {
+                Some(at) => return self.play_from(commands, cue, at, speed),
+                None => return self.play_at_speed(commands, cue, None, speed),
+            },
+        };
+        let slot = &mut self.weapons[weapon as usize];
+        let pick = slots::pick_variant(slot.variants.len(), slot.last, rand::random());
+        slot.last = Some(pick);
+        let sound = slot.variants[pick].clone();
+        // It is capped, and has the gain, of its class's gunshot.
+        let cue = mix::shot_voice_cue(shot);
+        let settings = PlaybackSettings::DESPAWN.with_volume(Volume::Linear(self.gain(cue)));
+        let mut voice = match at {
+            Some(at) => commands.spawn((AudioPlayer::new(sound), settings.with_spatial(true), Transform::from_translation(at))),
+            None => commands.spawn((AudioPlayer::new(sound), settings)),
+        };
+        self.tag(cue, &mut voice);
     }
 
     /// A cue's volume: its gain, turned down under a Shellshock's muffle (bar the rings in the
@@ -584,8 +626,7 @@ fn play_player_sounds(
         *was_riding = locomotion.riding();
     }
     for shot in shots.read() {
-        let (cue, speed) = mix::shot_cue(shot.weapon, shot.underbarrel);
-        sounds.play_at_speed(&mut commands, cue, None, speed);
+        sounds.play_shot(&mut commands, shot.weapon, shot.underbarrel, None);
         if shot.upgraded {
             sounds.play(&mut commands, Cue::PapShotLayer, None);
         }
@@ -664,8 +705,7 @@ fn play_teammate_sounds(
             continue;
         };
         if shots.count() != heard.shots {
-            let (cue, speed) = mix::shot_cue(held.id, None);
-            sounds.play_from(&mut commands, cue, at, speed);
+            sounds.play_shot(&mut commands, held.id, None, Some(at));
             if held.glint.is_some() {
                 sounds.play_from(&mut commands, Cue::PapShotLayer, at, 1.0);
             }

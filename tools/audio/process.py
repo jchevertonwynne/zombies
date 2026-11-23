@@ -23,7 +23,10 @@ A slot's files are `<slot>.ogg` or `<slot>_1.ogg`, `<slot>_2.ogg`...: never both
 have no gaps (see `src/audio/slots.rs`). The tool refuses to make a numbered variant beside a plain
 file. Per-floor footsteps are the slots `footstep_wood`, `footstep_tile`, `footstep_brick`,
 `footstep_concrete`, `footstep_metal`, `footstep_cobble` and `footstep_dirt`; a floor with no files
-steps on the plain `footstep` slot.
+steps on the plain `footstep` slot. A Weapon's own gunshot is the slot `gunshot_<weapon>` (e.g.
+`gunshot_m1911`, `gunshot_rpk`; the list is `weapon_gunshot_slot` in `src/audio/mix.rs`), Flat
+like the class gunshots; a Weapon with no files fires its class gunshot (`gunshot_pistol`...) at
+its pitch offset, and one with files plays them at their natural speed.
 
 Needs `ffmpeg` with libvorbis.
 """
@@ -39,6 +42,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 AUDIO = ROOT / "assets" / "audio"
 MANIFEST = ROOT / "assets" / "manifest.json"
 CUES = ROOT / "src" / "audio" / "cues.rs"
+MIX = ROOT / "src" / "audio" / "mix.rs"
 
 # Integrated loudness targets in LUFS, per cue group. Quiet, frequent sounds sit low, so the mix
 # is the cue's own `gain` on top of a consistent base.
@@ -62,10 +66,18 @@ def run(cmd):
     return subprocess.run(cmd, capture_output=True, text=True)
 
 
+def weapon_slots():
+    """The per-Weapon gunshot slots, from `weapon_gunshot_slot` in src/audio/mix.rs."""
+    return set(re.findall(r'WeaponId::\w+ => "(gunshot_\w+)",', MIX.read_text()))
+
+
 def slot_mix(slot):
     """'spatial' or 'flat' for a slot, from the cue table; None if it isn't a cue."""
     if slot in {f"footstep_{family}" for family in FLOOR_SLOTS}:
         return "spatial"
+    # A Weapon's own gunshot, `gunshot_<weapon>`: Flat like the class gunshots it falls back to.
+    if slot in weapon_slots():
+        return "flat"
     leaf = slot.rsplit("/", 1)[-1]
     match = re.search(r'=> "%s",\s*\w+,\s*(Flat|Spatial),' % re.escape(leaf), CUES.read_text())
     return match.group(1).lower() if match else None
