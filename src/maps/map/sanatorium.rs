@@ -40,7 +40,7 @@ use crate::maps::quarantine::WingId;
 use crate::maps::shifting::{Driver, Leaf, Piece, Rest};
 
 use super::build::{Builder, Gap};
-use super::{DOOR_HEIGHT, Layout, Prop, PropKind, RaisedFloor, STOREY, Slope, Wing, palette, prop};
+use super::{DOOR_HEIGHT, Infill, Layout, Prop, PropKind, RaisedFloor, STOREY, Slope, Wing, palette, prop};
 
 #[path = "sanatorium/data.rs"]
 mod data;
@@ -102,6 +102,10 @@ const fn v(x: f32, z: f32) -> Vec2 {
     Vec2::new(x, z)
 }
 
+const fn infill(zone: ZoneId, min: (f32, f32), max: (f32, f32)) -> Infill {
+    Infill { zone, min: Vec2::new(min.0, min.1), max: Vec2::new(max.0, max.1) }
+}
+
 const fn p(kind: PropKind, zone: ZoneId, x: f32, y: f32, z: f32, size: (f32, f32, f32)) -> Prop {
     prop(kind, zone, (x, y, z), size)
 }
@@ -139,7 +143,7 @@ pub(super) const SANATORIUM: Layout = Layout {
     special_spawns: &SPECIAL_SPAWNS,
     vents: &VENTS,
     raised_floors: &RAISED_FLOORS,
-    infills: &[],
+    infills: &INFILLS,
     slopes: &SLOPES,
     sunken: &data::SUNKEN,
     water: &[],
@@ -248,6 +252,57 @@ pub(super) const QUARANTINE_DOORWAYS: [(&str, Vec3, Vec2, ZoneId, ZoneId); 6] = 
     ("Q5", at(-10.0, FIRST, 49.0), Vec2::X, ZoneId::UpperLanding, ZoneId::IsolationWard),
     ("Q6", at(-38.0, FIRST, 42.0), Vec2::NEG_Y, ZoneId::SunRoof, ZoneId::ChildrensWard),
 ];
+
+/// The Infills, one to three in each of the 14 indoor Zones, so no two rooms share a shape: #505 §6's
+/// rects, moved along their wall (or trimmed) off every window and its landing, Box Location, chalk,
+/// Perk, lamp and Spawn Point they crowded. Each keeps clear of the Doors, the Quarantine doorways with their sweeps and outside landings, the
+/// Crash Bars, windows, lamps, Buyables, Spawn Points and every path-node edge. Every machine builds
+/// them from this Layout, as World colliders.
+const INFILLS: [Infill; 26] = {
+    use ZoneId::*;
+    [
+        // The Entrance Hall: the porter's lodge in the east wall's corner, and a pier between the windows.
+        infill(EntranceHall, (6.5, 0.0), (10.0, 1.3)),
+        infill(EntranceHall, (-0.6, 13.4), (0.6, 14.0)),
+        // The West Corridor: a hatch pier, a duct casing and a hose cupboard along the south wall.
+        infill(WestCorridor, (-42.4, 8.0), (-41.6, 8.5)),
+        infill(WestCorridor, (-33.3, 8.0), (-32.7, 8.9)),
+        infill(WestCorridor, (-24.1, 8.0), (-22.7, 8.6)),
+        // The East Corridor: a hatch pier, a linen chute and a radiator nib.
+        infill(EastCorridor, (22.7, 8.0), (23.7, 8.5)),
+        infill(EastCorridor, (48.8, 13.0), (50.0, 14.0)),
+        infill(EastCorridor, (33.7, 8.0), (34.3, 9.2)),
+        // The Refectory: a chimney breast and a servery nib.
+        infill(Refectory, (-13.3, 55.2), (-10.9, 56.0)),
+        infill(Refectory, (14.7, 53.0), (15.3, 56.0)),
+        // The Boiler House: the chimney's base and a coal bunker.
+        infill(BoilerHouse, (-72.0, 10.0), (-68.0, 14.0)),
+        infill(BoilerHouse, (-72.0, -10.0), (-69.5, -4.0)),
+        // The Mortuary: the cold-room block and a pier.
+        infill(Mortuary, (68.7, 9.3), (72.0, 14.0)),
+        infill(Mortuary, (71.4, -0.3), (72.0, 1.7)),
+        // The Long Ward: a chimney pier and a slimmer pier.
+        infill(LongWard, (-50.0, 26.7), (-49.2, 28.3)),
+        infill(LongWard, (-50.0, 20.7), (-49.5, 21.3)),
+        // The Day Room: a bay-window nib.
+        infill(DayRoom, (-50.0, 48.0), (-48.8, 48.6)),
+        // The Bath Hall: the calorifier cupboard and a pier.
+        infill(BathHall, (46.0, 14.0), (50.0, 17.0)),
+        infill(BathHall, (49.4, 28.4), (50.0, 29.2)),
+        // The Treatment Room: a cupboard.
+        infill(TreatmentRoom, (47.0, 53.0), (50.0, 56.0)),
+        // The Upper Landing: a linen cupboard and the lift shaft.
+        infill(UpperLanding, (-10.0, 42.0), (-7.0, 43.5)),
+        infill(UpperLanding, (7.5, 42.0), (10.0, 44.6)),
+        // The Operating Theatre: the scrub-room block.
+        infill(OperatingTheatre, (10.0, 42.0), (14.0, 45.0)),
+        // The Isolation Ward: two cell partitions.
+        infill(IsolationWard, (-21.9, 42.0), (-21.5, 46.0)),
+        infill(IsolationWard, (-15.9, 42.0), (-15.5, 47.0)),
+        // The Children's Ward: a chimney breast.
+        infill(ChildrensWard, (-42.1, 55.2), (-39.7, 56.0)),
+    ]
+};
 
 /// The chalk outlines: the cheap guns either side of the Hall's front doors, the MP40 in the West
 /// Corridor, the Trench Gun in the East, and the AK-74u in the Refectory.
