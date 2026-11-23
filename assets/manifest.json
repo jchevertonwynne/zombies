@@ -169,6 +169,14 @@
       "notes": "Commendation: a short bugle-style call on a D major arpeggio, with a bell. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
     },
     {
+      "path": "audio/crash_bar.ogg",
+      "name": "Crash Bar placeholder",
+      "source": "tools/gen-sounds (synthesised, no samples)",
+      "licence": "CC0 (synthesised for this project)",
+      "fetched": "2026-11-23",
+      "notes": "Placeholder for Cue::CrashBar: a push bar giving way. To be replaced by the real recording in the sound ticket (#505 section 8)"
+    },
+    {
       "path": "audio/crawl_drag_1.ogg",
       "name": "Freesound 578493, Dragging a body across a concrete floor 2 (PostProdDog)",
       "source": "https://freesound.org/people/PostProdDog/sounds/578493/",
@@ -223,6 +231,14 @@
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Trimmed, normalised to -26 LUFS (foley), mono, OGG q4, via tools/audio/process.py"
+    },
+    {
+      "path": "audio/door_pound.ogg",
+      "name": "Door pound placeholder",
+      "source": "tools/gen-sounds (synthesised, no samples)",
+      "licence": "CC0 (synthesised for this project)",
+      "fetched": "2026-11-23",
+      "notes": "Placeholder for Cue::DoorPound: a fist on a steel door. To be replaced by the real recording in the sound ticket (#505 section 8)"
     },
     {
       "path": "audio/down_1.ogg",
@@ -871,6 +887,46 @@
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/quarantine_klaxon.ogg",
+      "name": "Quarantine klaxon placeholder",
+      "source": "tools/gen-sounds (synthesised, no samples)",
+      "licence": "CC0 (synthesised for this project)",
+      "fetched": "2026-11-23",
+      "notes": "Placeholder for Cue::QuarantineKlaxon: a two-tone alarm. To be replaced by the real recording in the sound ticket (#505 section 8)"
+    },
+    {
+      "path": "audio/quarantine_release.ogg",
+      "name": "Quarantine release placeholder",
+      "source": "tools/gen-sounds (synthesised, no samples)",
+      "licence": "CC0 (synthesised for this project)",
+      "fetched": "2026-11-23",
+      "notes": "Placeholder for Cue::QuarantineRelease: a hiss and a two-note chime. To be replaced by the real recording in the sound ticket (#505 section 8)"
+    },
+    {
+      "path": "audio/quarantine_siren.ogg",
+      "name": "Quarantine siren placeholder",
+      "source": "tools/gen-sounds (synthesised, no samples)",
+      "licence": "CC0 (synthesised for this project)",
+      "fetched": "2026-11-23",
+      "notes": "Placeholder for Cue::QuarantineSiren: a rising and falling siren. To be replaced by the real recording in the sound ticket (#505 section 8)"
+    },
+    {
+      "path": "audio/quarantine_slam.ogg",
+      "name": "Quarantine slam placeholder",
+      "source": "tools/gen-sounds (synthesised, no samples)",
+      "licence": "CC0 (synthesised for this project)",
+      "fetched": "2026-11-23",
+      "notes": "Placeholder for Cue::QuarantineSlam: two steel doors meeting. To be replaced by the real recording in the sound ticket (#505 section 8)"
+    },
+    {
+      "path": "audio/quarantine_swing.ogg",
+      "name": "Quarantine swing placeholder",
+      "source": "tools/gen-sounds (synthesised, no samples)",
+      "licence": "CC0 (synthesised for this project)",
+      "fetched": "2026-11-23",
+      "notes": "Placeholder for Cue::QuarantineSwing: heavy hinges moving. To be replaced by the real recording in the sound ticket (#505 section 8)"
     },
     {
       "path": "audio/ray_gun_1.ogg",
@@ -2042,12 +2098,28 @@
       "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 0.66 x 0.95 x 0.66 m (length, height, depth); textures as KTX2 via texpack"
     },
     {
+      "path": "models/WetFloorSign_01",
+      "name": "Wet Floor Sign 01",
+      "source": "https://polyhaven.com/a/WetFloorSign_01",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "1K glTF decimated by tools/props to 228 triangles, unit 0.36 x 0.63 x 0.3 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
       "path": "models/barrel_03",
       "name": "Barrel 03",
       "source": "https://polyhaven.com/a/barrel_03",
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "1K glTF decimated by tools/props to 1473 triangles, unit 0.66 x 0.95 x 0.66 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "models/drawer_cabinet",
+      "name": "Drawer Cabinet",
+      "source": "https://polyhaven.com/a/drawer_cabinet",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "1K glTF decimated by tools/props to 1938 triangles, unit 1.1 x 1.8 x 0.5 m (length, height, depth); textures as KTX2 via texpack"
     },
     {
       "path": "models/hellhound",
@@ -2066,6 +2138,14 @@
       "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 2 x 0.8 x 1 m (length, height, depth); textures as KTX2 via texpack"
     },
     {
+      "path": "models/old_bed_frame",
+      "name": "Old Bed Frame",
+      "source": "https://polyhaven.com/a/old_bed_frame",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 2 x 1.1 x 0.9 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
       "path": "models/painted_wooden_cabinet_02",
       "name": "Painted Wooden Cabinet 02",
       "source": "https://polyhaven.com/a/painted_wooden_cabinet_02",
@@ -2082,12 +2162,44 @@
       "notes": "1K glTF decimated by tools/props to 600 triangles, unit 2.5 x 0.8 x 1.1 m (length, height, depth); textures as KTX2 via texpack"
     },
     {
+      "path": "models/steel_frame_shelves_01",
+      "name": "Steel Frame Shelves 01",
+      "source": "https://polyhaven.com/a/steel_frame_shelves_01",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 1.1 x 2.1 x 0.5 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "models/tool_cart",
+      "name": "Tool Cart",
+      "source": "https://polyhaven.com/a/tool_cart",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 1.2 x 0.95 x 0.75 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "models/vintage_day_bed",
+      "name": "Vintage Day Bed",
+      "source": "https://polyhaven.com/a/vintage_day_bed",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 2 x 1.1 x 0.85 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
       "path": "models/vintage_wooden_drawer_01",
       "name": "Vintage Wooden Drawer 01",
       "source": "https://polyhaven.com/a/vintage_wooden_drawer_01",
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "1K glTF decimated by tools/props to 1939 triangles, unit 1.4 x 1 x 0.85 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "models/wheelchair_01",
+      "name": "Wheelchair 01",
+      "source": "https://polyhaven.com/a/wheelchair_01",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "1K glTF decimated by tools/props to 1939 triangles, unit 1 x 1 x 0.75 m (length, height, depth); textures as KTX2 via texpack"
     },
     {
       "path": "models/wine_barrel_01",
@@ -2122,12 +2234,76 @@
       "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 0.95 x 2 x 0.6 m (length, height, depth); textures as KTX2 via texpack"
     },
     {
+      "path": "props/ambulance",
+      "name": "Derelict ambulance (kitbash for the Sanatorium)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/green_metal_rust, https://polyhaven.com/a/rusty_metal_02",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/green_metal_rust and materials/rusty_metal_02 (Poly Haven, CC0), no new texture files"
+    },
+    {
+      "path": "props/bath_tub",
+      "name": "Bath tub (kitbash for the Sanatorium)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/long_white_tiles, https://polyhaven.com/a/rusty_metal_02",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/long_white_tiles and materials/rusty_metal_02 (Poly Haven, CC0), no new texture files"
+    },
+    {
+      "path": "props/cot",
+      "name": "Cot (kitbash for the Sanatorium)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/dark_wooden_planks, https://polyhaven.com/a/fabric_pattern_07",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/dark_wooden_planks and materials/fabric_pattern_07 (Poly Haven, CC0), no new texture files"
+    },
+    {
       "path": "props/crates",
       "name": "Crate stacks (kitbash of Poly Haven Wooden Crate 02)",
       "source": "https://polyhaven.com/a/wooden_crate_02",
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "2- and 3-high stacks of wooden_crate_02 (1K glTF), each crate decimated to ~325 triangles and stretched to a 0.53 m layer, joined into one mesh by tools/props/kitbash.py. Textures are the model's 1K diffuse, nor_gl and arm via texpack"
+    },
+    {
+      "path": "props/dressing_trolley",
+      "name": "Dressing trolley (kitbash for the Sanatorium)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/rusty_metal_02, https://polyhaven.com/a/metal_plate_02",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/rusty_metal_02 and materials/metal_plate_02 (Poly Haven, CC0), no new texture files"
+    },
+    {
+      "path": "props/gurney",
+      "name": "Gurney (kitbash for the Sanatorium)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/rusty_metal_02, https://polyhaven.com/a/fabric_pattern_07",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/rusty_metal_02 and materials/fabric_pattern_07 (Poly Haven, CC0), no new texture files"
+    },
+    {
+      "path": "props/locker_bank",
+      "name": "Locker bank (kitbash for the Sanatorium)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/painted_metal_shutter, https://polyhaven.com/a/rusty_metal_02",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/painted_metal_shutter and materials/rusty_metal_02 (Poly Haven, CC0), no new texture files"
+    },
+    {
+      "path": "props/mortuary_slab",
+      "name": "Mortuary slab (kitbash for the Sanatorium)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/metal_plate_02, https://polyhaven.com/a/rusty_metal_02",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/metal_plate_02 and materials/rusty_metal_02 (Poly Haven, CC0), no new texture files"
+    },
+    {
+      "path": "props/rocking_horse",
+      "name": "Rocking horse (kitbash for the Sanatorium)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/dark_wooden_planks, https://polyhaven.com/a/fabric_pattern_07",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/dark_wooden_planks and materials/fabric_pattern_07 (Poly Haven, CC0), no new texture files"
     },
     {
       "path": "props/sandbags",
@@ -2319,62 +2495,6 @@
       "licence": "CC0 (Poly Haven sets, recoloured and cropped; the camo is made in this repo)",
       "fetched": "2026-11-20",
       "notes": "1K atlas of the gun finishes, gloves and sleeves, plus the shared purple camo; layout in src/weapons/atlas.rs"
-    },
-    {
-      "path": "audio/quarantine_klaxon.ogg",
-      "name": "Quarantine klaxon placeholder",
-      "source": "tools/gen-sounds (synthesised, no samples)",
-      "licence": "CC0 (synthesised for this project)",
-      "fetched": "2026-11-23",
-      "notes": "Placeholder for Cue::QuarantineKlaxon: a two-tone alarm. To be replaced by the real recording in the sound ticket (#505 section 8)"
-    },
-    {
-      "path": "audio/quarantine_siren.ogg",
-      "name": "Quarantine siren placeholder",
-      "source": "tools/gen-sounds (synthesised, no samples)",
-      "licence": "CC0 (synthesised for this project)",
-      "fetched": "2026-11-23",
-      "notes": "Placeholder for Cue::QuarantineSiren: a rising and falling siren. To be replaced by the real recording in the sound ticket (#505 section 8)"
-    },
-    {
-      "path": "audio/quarantine_swing.ogg",
-      "name": "Quarantine swing placeholder",
-      "source": "tools/gen-sounds (synthesised, no samples)",
-      "licence": "CC0 (synthesised for this project)",
-      "fetched": "2026-11-23",
-      "notes": "Placeholder for Cue::QuarantineSwing: heavy hinges moving. To be replaced by the real recording in the sound ticket (#505 section 8)"
-    },
-    {
-      "path": "audio/quarantine_slam.ogg",
-      "name": "Quarantine slam placeholder",
-      "source": "tools/gen-sounds (synthesised, no samples)",
-      "licence": "CC0 (synthesised for this project)",
-      "fetched": "2026-11-23",
-      "notes": "Placeholder for Cue::QuarantineSlam: two steel doors meeting. To be replaced by the real recording in the sound ticket (#505 section 8)"
-    },
-    {
-      "path": "audio/quarantine_release.ogg",
-      "name": "Quarantine release placeholder",
-      "source": "tools/gen-sounds (synthesised, no samples)",
-      "licence": "CC0 (synthesised for this project)",
-      "fetched": "2026-11-23",
-      "notes": "Placeholder for Cue::QuarantineRelease: a hiss and a two-note chime. To be replaced by the real recording in the sound ticket (#505 section 8)"
-    },
-    {
-      "path": "audio/crash_bar.ogg",
-      "name": "Crash Bar placeholder",
-      "source": "tools/gen-sounds (synthesised, no samples)",
-      "licence": "CC0 (synthesised for this project)",
-      "fetched": "2026-11-23",
-      "notes": "Placeholder for Cue::CrashBar: a push bar giving way. To be replaced by the real recording in the sound ticket (#505 section 8)"
-    },
-    {
-      "path": "audio/door_pound.ogg",
-      "name": "Door pound placeholder",
-      "source": "tools/gen-sounds (synthesised, no samples)",
-      "licence": "CC0 (synthesised for this project)",
-      "fetched": "2026-11-23",
-      "notes": "Placeholder for Cue::DoorPound: a fist on a steel door. To be replaced by the real recording in the sound ticket (#505 section 8)"
     }
   ]
 }
