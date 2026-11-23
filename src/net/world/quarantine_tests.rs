@@ -213,3 +213,121 @@ fn a_clients_crash_bar_request_moves_them_on_the_host_and_on_their_own_screen() 
         }
     }
 }
+
+
+// ---- The look (#524): beacons, Wing lamps and text, drawn from the stage each machine shows ----
+
+use crate::maps::quarantine_look::{Beacon, BeaconBulb};
+
+fn sanatorium_lit(clients: u8) -> Run {
+    Run::on(MapId::Sanatorium, clients, &|app| {
+        app.insert_resource(crate::maps::generator::Generators::for_map(MapId::Sanatorium))
+            .insert_resource(GlobalAmbientLight::default())
+            .add_plugins(crate::maps::darkness::DarknessPlugin);
+    })
+}
+
+/// The lens glow (red, green) of each of `wing`'s four beacons (an outside beacon and a repeater at
+/// each of its two doors), as game `on` has them.
+fn lenses(run: &mut Run, on: usize, wing: u8) -> Vec<(f32, f32)> {
+    let world = run.world(on);
+    let handles: Vec<Handle<StandardMaterial>> = world.query::<&Beacon>().iter(world).filter(|b| b.wing == WingId(wing)).map(|b| b.lens.clone()).collect();
+    let materials = world.resource::<Assets<StandardMaterial>>();
+    handles.iter().map(|h| materials.get(h).map(|m| (m.emissive.red, m.emissive.green)).unwrap()).collect()
+}
+
+/// How many extra lights are shown over every beacon of the Map: (spots, points).
+fn lights_shown(run: &mut Run, on: usize) -> (usize, usize) {
+    let world = run.world(on);
+    let (mut spots, mut points) = (0, 0);
+    for (bulb, visibility) in world.query::<(&BeaconBulb, &Visibility)>().iter(world) {
+        if *visibility != Visibility::Hidden {
+            if bulb.spot {
+                spots += 1;
+            } else {
+                points += 1;
+            }
+        }
+    }
+    (spots, points)
+}
+
+/// The Long Ward's (the West Wing's) lamps as game `on` has them, as a fraction of a full lamp.
+fn long_ward_lamps(run: &mut Run, on: usize) -> f32 {
+    let look = MapId::Sanatorium.layout().look.lamps;
+    let world = run.world(on);
+    let mut query = world.query::<(&crate::maps::darkness::Lamp, &SpotLight)>();
+    let levels: Vec<f32> = query
+        .iter(world)
+        .filter(|(lamp, _)| lamp.zone == crate::maps::zone::ZoneId::LongWard)
+        .map(|(_, spot)| spot.intensity / (SPOT_LAMP_INTENSITY * look))
+        .collect();
+    assert!(!levels.is_empty());
+    levels.iter().sum::<f32>() / levels.len() as f32
+}
+
+fn is_dark(lenses: &[(f32, f32)]) -> bool {
+    lenses.len() == 4 && lenses.iter().all(|&(r, g)| r == 0.0 && g == 0.0)
+}
+
+#[test]
+fn a_clients_beacons_wing_lamps_and_text_follow_the_hosts_stages() {
+    use crate::ui::hud::quarantine::stage_text;
+    let mut run = sanatorium_lit(1);
+    start(&mut run);
+    run.step(10);
+    for on in 0..2 {
+        assert!(is_dark(&lenses(&mut run, on, 0)), "dark at All Clear, game {on}");
+        assert_eq!(lights_shown(&mut run, on), (0, 0));
+    }
+    host_shows(&mut run, QuarantineStage::Warning, Some(0), 2.0);
+    run.step(10);
+    for on in 0..2 {
+        let glow = lenses(&mut run, on, 0);
+        assert!(glow.iter().all(|&(r, g)| r > 10.0 && g < r / 10.0), "red x20 on game {on}: {glow:?}");
+        assert!(is_dark(&lenses(&mut run, on, 1)), "another Wing's beacons stay dark");
+        assert_eq!(lights_shown(&mut run, on), (2, 0), "a spot over each outside face, game {on}");
+        let quarantine = *run.world(on).resource::<Quarantine>();
+        assert_eq!(stage_text(MapId::Sanatorium, &quarantine, Some(crate::maps::zone::ZoneId::LongWard)).as_deref(), Some("Quarantine: the West Wing seals in 8"));
+        assert_eq!(stage_text(MapId::Sanatorium, &quarantine, Some(crate::maps::zone::ZoneId::Refectory)), None);
+    }
+    // Sealed: steady red x8, a point light each, the Wing's lamps held at 0.35.
+    host_shows(&mut run, QuarantineStage::Sealed, Some(0), 5.0);
+    run.step(10);
+    for on in 0..2 {
+        let glow = lenses(&mut run, on, 0);
+        assert!(glow.iter().all(|&(r, g)| r > 5.0 && r < 9.0 && g < r / 10.0), "game {on}: {glow:?}");
+        assert_eq!(lights_shown(&mut run, on), (0, 2));
+        let lamps = long_ward_lamps(&mut run, on);
+        assert!((lamps - 0.35).abs() < 1e-3, "game {on}: {lamps}");
+    }
+    // Release: green, pulsing, and the lamps coming back up.
+    host_shows(&mut run, QuarantineStage::Release, Some(0), 2.9);
+    run.step(10);
+    for on in 0..2 {
+        let glow = lenses(&mut run, on, 0);
+        assert!(glow.iter().all(|&(r, g)| g > 3.0 && r < g / 5.0), "game {on}: {glow:?}");
+        assert_eq!(lights_shown(&mut run, on), (0, 2));
+        assert!(long_ward_lamps(&mut run, on) > 0.35);
+    }
+}
+
+#[test]
+fn a_late_joiner_arriving_while_a_wing_is_sealed_sees_red_beacons_and_the_sealed_lamps() {
+    let mut run = sanatorium_lit(1);
+    start(&mut run);
+    host_shows(&mut run, QuarantineStage::Warning, Some(0), 9.9);
+    run.step(ticks(SWING_SECS + 1.0));
+    assert_eq!(stage(&mut run, 0), (QuarantineStage::Sealed, Some(WingId(0))));
+    // The client forgets, as one that was away would have, and is told again.
+    *run.world(1).resource_mut::<Quarantine>() = Quarantine::default();
+    run.step(5);
+    assert!(is_dark(&lenses(&mut run, 1, 0)));
+    run.world(0).write_message(SeatReturned { seat: Seat(1) });
+    run.step(20);
+    assert_eq!(stage(&mut run, 1), (QuarantineStage::Sealed, Some(WingId(0))));
+    let glow = lenses(&mut run, 1, 0);
+    assert!(glow.iter().all(|&(r, g)| r > 5.0 && g < r / 10.0), "red beacons: {glow:?}");
+    assert_eq!(lights_shown(&mut run, 1), (0, 2));
+    assert!((long_ward_lamps(&mut run, 1) - 0.35).abs() < 1e-3, "the Sealed lamps");
+}

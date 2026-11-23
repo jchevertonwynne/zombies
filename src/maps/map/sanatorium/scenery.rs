@@ -12,11 +12,15 @@ use crate::maps::map::textures::Material;
 use crate::maps::zone::ZoneId;
 use crate::weapons::pack_a_punch::machine_at;
 
-/// An emergency bulkhead: a small box with a white-green glow and no light source. The Quarantine
-/// look ticket turns a Wing's red while it is Sealed.
+/// An emergency bulkhead: a small box with a white-green glow and no light source. A Wing's turn
+/// red while it is Sealed (`quarantine_look`).
 #[derive(Component, Debug, Clone, Copy)]
-#[allow(dead_code)] // The Quarantine look ticket reads the Zone.
 pub struct Bulkhead(pub ZoneId);
+
+/// A bulkhead's colour and glow strength: white-green normally, red while its Wing is Sealed.
+pub fn bulkhead_glow(sealed: bool) -> (Color, f32) {
+    (if sealed { Color::srgb(1.0, 0.08, 0.05) } else { Color::srgb(0.7, 1.0, 0.8) }, 4.0)
+}
 
 /// The bulkheads (12): two in each corridor, one at each stair's foot, and one in each Wing Zone.
 /// Each is a Zone, the centre of its box on a wall's face, and whether that wall runs along z.
@@ -55,7 +59,8 @@ pub(super) fn build(b: &mut Builder) {
     let paint = palette(None);
     for &(zone, at, along_z) in &BULKHEADS {
         let size = if along_z { Vec3::new(0.08, 0.15, 0.4) } else { Vec3::new(0.4, 0.15, 0.08) };
-        let bulkhead = b.glow_box(size, at, Color::srgb(0.7, 1.0, 0.8), 4.0);
+        let (colour, strength) = bulkhead_glow(false);
+        let bulkhead = b.glow_box(size, at, colour, strength);
         b.tag(bulkhead, Bulkhead(zone));
     }
 

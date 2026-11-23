@@ -12,6 +12,7 @@ use crate::enemies::nav::zone_at;
 use crate::maps::generator::Generators;
 use crate::maps::map::MapId;
 use crate::maps::power::Power;
+use crate::maps::quarantine::{Quarantine, wing_of_zone};
 use lamp_flicker::{LampBurst, LampFlicker};
 use crate::maps::zone::ZoneId;
 use crate::players::player::PlayerCamera;
@@ -140,6 +141,7 @@ fn light_lamps(
     map: Res<MapId>,
     generators: Res<Generators>,
     power: Option<Res<Power>>,
+    quarantine: Option<Res<Quarantine>>,
     time: Res<Time>,
     mut materials: Option<ResMut<Assets<StandardMaterial>>>,
     mut bursts: MessageWriter<LampBurst>,
@@ -154,10 +156,17 @@ fn light_lamps(
         // A Tube lamp's own flicker, and its glowing tube following it.
         let tube_factor = match tube {
             Some(mut tube) => {
-                let (factor, began) = tube.factor(time.elapsed_secs(), powered);
+                let (idle, began) = tube.factor(time.elapsed_secs(), powered);
                 if began {
                     bursts.write(tube.burst_event());
                 }
+                // The Wing that is out has its own stages (a Quarantine, shown on every machine).
+                let factor = match quarantine.as_deref() {
+                    Some(quarantine) if quarantine.wing().is_some() && wing_of_zone(*map, lamp.zone) == quarantine.wing() => {
+                        tube.wing_factor(quarantine.stage(), quarantine.elapsed(), time.elapsed_secs(), idle)
+                    }
+                    _ => idle,
+                };
                 let shown = level * factor;
                 if tube.applied != shown {
                     tube.applied = shown;

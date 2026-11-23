@@ -25,7 +25,7 @@ mod fitting;
 mod greybox;
 mod polder;
 mod quarry;
-mod sanatorium;
+pub(crate) mod sanatorium;
 pub mod textures;
 mod village;
 

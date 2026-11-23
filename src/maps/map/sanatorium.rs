@@ -44,7 +44,7 @@ use super::{DOOR_HEIGHT, Infill, Layout, Prop, PropKind, RaisedFloor, STOREY, Sl
 
 #[path = "sanatorium/data.rs"]
 mod data;
-mod scenery;
+pub(crate) mod scenery;
 
 pub(in crate::maps::map) use data::WINDOWS;
 
