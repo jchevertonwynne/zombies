@@ -434,11 +434,11 @@
     },
     {
       "path": "audio/gunshot_lmg_1.ogg",
-      "name": "Freesound 834247, short burst from a light machine gun (barryshamir)",
-      "source": "https://freesound.org/people/barryshamir/sounds/834247/",
+      "name": "Freesound 384687, Single Gunshot 4.2 (morganpurkis)",
+      "source": "https://freesound.org/people/morganpurkis/sounds/384687/",
       "licence": "CC0",
-      "fetched": "2026-11-20",
-      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+      "fetched": "2026-11-23",
+      "notes": "Freesound HQ preview (mp3; the original download needs a login), cut to 0.2 s with a 40 ms fade-out so LMG shots stay distinct at 750 RPM (#423), normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
       "path": "audio/gunshot_pistol_1.ogg",
