@@ -91,11 +91,22 @@ pub enum Material {
     CastleBrick02Red,
     CobblestoneFloor06,
     BeigeWall001,
+    // The Sanatorium's: tile, linoleum, painted plaster and steel (the last four from ambientCG).
+    OldLinoleumFlooring01,
+    DirtyTiles,
+    LongWhiteTiles,
+    DecrepitWallpaper,
+    WornTileFloor,
+    PaintedMetalShutter,
+    PaintedPlaster003,
+    Tiles133D,
+    Tiles132D,
+    Tiles053,
 }
 
 impl Material {
     #[cfg(test)]
-    pub const ALL: [Material; 64] = [
+    pub const ALL: [Material; 74] = [
         Material::DarkWoodenPlanks,
         Material::DamagedPlaster,
         Material::FloorTiles06,
@@ -160,6 +171,16 @@ impl Material {
         Material::CastleBrick02Red,
         Material::CobblestoneFloor06,
         Material::BeigeWall001,
+        Material::OldLinoleumFlooring01,
+        Material::DirtyTiles,
+        Material::LongWhiteTiles,
+        Material::DecrepitWallpaper,
+        Material::WornTileFloor,
+        Material::PaintedMetalShutter,
+        Material::PaintedPlaster003,
+        Material::Tiles133D,
+        Material::Tiles132D,
+        Material::Tiles053,
     ];
 
     /// Its directory under `assets/materials/`, and the real-world size of one repeat in metres,
@@ -230,6 +251,16 @@ impl Material {
             Material::CobblestoneFloor06 => ("cobblestone_floor_06", 2.0),
             Material::BeigeWall001 => ("beige_wall_001", 3.0),
             Material::Hessian230 => ("hessian_230", 0.2688),
+            Material::OldLinoleumFlooring01 => ("old_linoleum_flooring_01", 1.99),
+            Material::DirtyTiles => ("dirty_tiles", 2.26),
+            Material::LongWhiteTiles => ("long_white_tiles", 1.27),
+            Material::DecrepitWallpaper => ("decrepit_wallpaper", 2.5),
+            Material::WornTileFloor => ("worn_tile_floor", 2.0),
+            Material::PaintedMetalShutter => ("painted_metal_shutter", 2.0),
+            Material::PaintedPlaster003 => ("paintedplaster003", 2.0),
+            Material::Tiles133D => ("tiles133d", 1.8),
+            Material::Tiles132D => ("tiles132d", 1.8),
+            Material::Tiles053 => ("tiles053", 1.6),
         }
     }
 
@@ -237,6 +268,10 @@ impl Material {
     pub fn tint(self) -> Color {
         match self {
             Material::RustyMetal02 | Material::BrokenWall => Color::srgb(0.62, 0.62, 0.62),
+            // White tile gone grey-green with damp.
+            Material::LongWhiteTiles => Color::srgb(0.7, 0.82, 0.72),
+            // The Quarantine Leaves' cream-green paint.
+            Material::PaintedMetalShutter => Color::srgb(0.66, 0.72, 0.6),
             // Burlap is a muddy khaki once it's a sandbag.
             Material::Hessian230 => Color::srgb(0.62, 0.58, 0.46),
             _ => Color::WHITE,
@@ -252,20 +287,22 @@ impl Material {
         use self::Material::*;
         match self {
             DarkWoodenPlanks | WeatheredPlanks | DiagonalParquet | BlackPaintedPlanks | BarkBrown02 => FloorFamily::Wood,
-            FloorTiles06 | TerracottaFloorTiles | CheckeredPavementTiles | OldMosaicFloor | SlateFloor02 | ConcreteTileFacade => {
+            FloorTiles06 | TerracottaFloorTiles | CheckeredPavementTiles | OldMosaicFloor | SlateFloor02 | ConcreteTileFacade
+            | OldLinoleumFlooring01 | DirtyTiles | LongWhiteTiles | WornTileFloor | Tiles133D | Tiles132D | Tiles053 => {
                 FloorFamily::Tile
             }
             WornBrickFloor | BrickWall001 | DarkBrickWall | CastleBrick02Red | WhiteSandstoneBricks03 | ConcreteBlockWall02 => {
                 FloorFamily::Brick
             }
-            RustyCorrugatedIron | RustyMetal02 | BlueMetalPlate | MetalPlate02 | GreenMetalRust => FloorFamily::Metal,
+            RustyCorrugatedIron | RustyMetal02 | BlueMetalPlate | MetalPlate02 | GreenMetalRust | PaintedMetalShutter => FloorFamily::Metal,
             MossyCobblestone | CobblestoneFloor02 | CobblestoneFloor06 | RockWall08 | RockWall05 | DarkRock => FloorFamily::Cobble,
             MuddyTracks | LeafyGrass | GrassGround | CoastSand04 | SandyGravel02 | GravelGround01 | GrayRocks => FloorFamily::Dirt,
             DamagedPlaster | WornMossyPlasterwall | PeelingPaintedWall | PlasteredStoneWall | ConcreteFloor02 | FabricPattern07
             | BrokenWall | AsphaltFloor | ConcreteSlabWall02 | ConcreteWall006 | PaintedConcrete | ConcreteWall007
             | DamagedConcreteFloor03 | RibbedConcreteWall | SmoothConcreteFloor | ConcreteLayers02 | BrushedConcrete04
             | ConcreteWall008 | GranularConcrete | RockEmbeddedConcreteWall | HangarConcreteFloor | WornConcreteFloor
-            | ConcreteMoss | CrackedConcrete | WhitePlasterRough01 | WhiteStucco | YellowStoneWall | BeigeWall001 | Hessian230 => {
+            | ConcreteMoss | CrackedConcrete | WhitePlasterRough01 | WhiteStucco | YellowStoneWall | BeigeWall001 | Hessian230 | PaintedPlaster003
+            | DecrepitWallpaper => {
                 FloorFamily::Concrete
             }
         }

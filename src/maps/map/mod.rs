@@ -605,25 +605,26 @@ pub fn materials(zone: Option<ZoneId>) -> Option<MaterialSet> {
         CustomsHouse => (DiagonalParquet, BrickWall001, None, &[]),
         DykeRoad => (WornConcreteFloor, ConcreteBlockWall02, None, &[]),
         PumpingStation => (HangarConcreteFloor, ConcreteTileFacade, Some(OilStains), &[]),
-        // The Sanatorium, for now in the families the Maps already have, west half ward green and
-        // east half tile (its own Material Sets come with its Look).
-        EntranceHall => (OldMosaicFloor, WhitePlasterRough01, Some(Leaks), &[]),
+        // The Sanatorium: the west half ward green (green gloss paint, linoleum, wood), the east half
+        // white tile gone green-grey, each Zone differing from its joined neighbours in the family of
+        // its floor or wall.
+        EntranceHall => (OldMosaicFloor, WhiteSandstoneBricks03, Some(Leaks), &[]),
         Forecourt => (GravelGround01, PlasteredStoneWall, None, &[]),
-        WestCorridor => (WornConcreteFloor, WornMossyPlasterwall, None, &[]),
-        EastCorridor => (CheckeredPavementTiles, WhiteStucco, None, &[]),
+        WestCorridor => (OldLinoleumFlooring01, PaintedPlaster003, None, &[]),
+        EastCorridor => (DirtyTiles, LongWhiteTiles, None, &[]),
         GardenCourt => (LeafyGrass, WornMossyPlasterwall, None, &[]),
         Refectory => (FloorTiles06, DamagedPlaster, Some(Leaks), &[]),
         BoilerHouse => (HangarConcreteFloor, BrickWall001, Some(OilStains), &[]),
-        Mortuary => (SmoothConcreteFloor, ConcreteTileFacade, Some(Leaks), &[]),
-        LongWard => (DiagonalParquet, WornMossyPlasterwall, Some(Leaks), &[]),
-        DayRoom => (DarkWoodenPlanks, PeelingPaintedWall, Some(Leaks), &[]),
-        BathHall => (OldMosaicFloor, WhiteSandstoneBricks03, Some(Leaks), &[]),
-        TreatmentRoom => (FloorTiles06, ConcreteTileFacade, None, &[]),
-        UpperLanding => (WornConcreteFloor, PeelingPaintedWall, None, &[]),
-        OperatingTheatre => (OldMosaicFloor, ConcreteTileFacade, None, &[]),
+        Mortuary => (SmoothConcreteFloor, Tiles133D, Some(Leaks), &[]),
+        LongWard => (SmoothConcreteFloor, WornMossyPlasterwall, Some(Leaks), &[]),
+        DayRoom => (DarkWoodenPlanks, DecrepitWallpaper, Some(Leaks), &[]),
+        BathHall => (WornConcreteFloor, Tiles132D, Some(Leaks), &[]),
+        TreatmentRoom => (WornTileFloor, LongWhiteTiles, None, &[]),
+        UpperLanding => (DiagonalParquet, PeelingPaintedWall, None, &[]),
+        OperatingTheatre => (OldMosaicFloor, Tiles133D, None, &[]),
         SunRoof => (AsphaltFloor, ConcreteMoss, None, &[]),
-        IsolationWard => (SmoothConcreteFloor, WhitePlasterRough01, Some(Leaks), &[]),
-        ChildrensWard => (WeatheredPlanks, PeelingPaintedWall, Some(Leaks), &[]),
+        IsolationWard => (SmoothConcreteFloor, Tiles053, Some(Leaks), &[]),
+        ChildrensWard => (WeatheredPlanks, DecrepitWallpaper, Some(Leaks), &[]),
     };
     let props = if props.is_empty() { zone_props(zone) } else { props };
     Some(MaterialSet { floor, wall, decals, props })

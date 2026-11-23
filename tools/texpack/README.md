@@ -31,6 +31,27 @@ runs `texpack`, writes `assets/materials/<id>/`, and adds or replaces the set's 
 `assets/manifest.json`. It prints each set's real-world size, which is the tile size its
 `Material` takes in `src/maps/map/textures.rs`. Use `--res 2k` for a hero floor.
 
+## An ambientCG set
+
+```
+python3 -I tools/texpack/ambientcg.py PaintedPlaster003 --size 2
+python3 -I tools/texpack/ambientcg.py Tiles133D --tiles 12 --tile-m 0.15
+python3 -I tools/texpack/ambientcg.py Sign004 --decal
+```
+
+For each id this asks the ambientCG API for the asset, downloads its `1K-PNG` zip into a new empty
+temporary directory, reads only the maps it needs by exact member name (`Color`, `NormalGL`,
+`AmbientOcclusion`, `Roughness`, `Metalness`; nothing is extracted by path or run), has `texpack` pack
+the three greyscale maps into the ORM (`--ao`, `--roughness`, `--metalness`), and writes
+`assets/materials/<lowercase id>/` with its manifest entry. NormalGL is the OpenGL-convention normal
+the game wants (never `NormalDX`). The tile size is the API's `dimensionX` where it gives one; most
+photo scans don't, so give it as `--size <metres>`, or measure it from the image: `--tiles` is how
+many tiles fit across one repeat and `--tile-m` one tile's width. With `--decal` it makes
+`assets/decals/<lowercase id>/color.ktx2` from `Color` and `Opacity` instead (a 1K sign is about
+0.4 MB). The manifest `source` is the asset URL and the licence is "CC0"; ambientCG's asset pages
+carry no licence label, so the notes cite the [site licence](https://docs.ambientcg.com/license/) as
+the evidence.
+
 ## A decal
 
 A decal is one file, `assets/decals/<id>/color.ktx2`: BC7 sRGB with the opacity as alpha.
