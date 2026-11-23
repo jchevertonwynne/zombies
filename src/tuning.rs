@@ -2064,6 +2064,19 @@ pub const QUARANTINE_SEALED_SECS: f32 = 60.0;
 pub const QUARANTINE_RELEASE_SECS: f32 = 3.0;
 /// A Quarantine Door's Leaf: 1.2 m wide, 2.4 m high and 0.06 m thick.
 pub const QUARANTINE_LEAF_SIZE: (f32, f32, f32) = (1.2, 2.4, 0.06);
+/// How close to a Sealed Quarantine Door's inside face a Player must stand to push its Crash Bar.
+pub const CRASH_BAR_RANGE: f32 = 1.2;
+/// How long a Zombie with no route to any Player it could go after, while a Wing is Sealed or
+/// Sealing, goes before it is Stranded.
+pub const QUARANTINE_STRAND_SECS: f32 = 5.0;
+/// How long a Stranded Zombie pounds on the Quarantine Door before it goes back into the Horde.
+pub const QUARANTINE_POUND_SECS: f32 = 5.0;
+/// The longest a Stranded Zombie walks to its door before it goes back into the Horde anyway.
+pub const QUARANTINE_STRAND_WALK_SECS: f32 = 15.0;
+/// How close to the door's face (flat) a Stranded Zombie stands to pound on it.
+pub const QUARANTINE_POUND_REACH: f32 = 1.6;
+/// How often a Zombie's route to the Players is checked for being cut off.
+pub const QUARANTINE_STRAND_CHECK_SECS: f32 = 0.5;
 
 // Teleporter
 /// After activating a Pad, the Player has this long to use the Mainframe and Link it.

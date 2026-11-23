@@ -169,3 +169,47 @@ fn a_client_in_a_sweep_lands_outside_on_its_own_screen() {
     let host_has = run.world(0).get::<Transform>(on_host).unwrap().translation;
     assert!(Vec2::new(host_has.x - landing.x, host_has.z - landing.z).length() < 0.6, "and so does the Host: {host_has}");
 }
+
+/// A client's Crash Bar request moves them on the Host and on their own screen, from a Last Stand too.
+#[test]
+fn a_clients_crash_bar_request_moves_them_on_the_host_and_on_their_own_screen() {
+    use crate::maps::quarantine::CrashBar;
+    for last_stand in [false, true] {
+        let mut run = sanatorium(1);
+        start(&mut run);
+        for on in 0..2 {
+            for id in 0..2 {
+                show_piece(&mut run, on, id, PiecePhase::Rest(1));
+            }
+        }
+        host_shows(&mut run, QuarantineStage::Sealed, Some(0), 1.0);
+        let spot = Vec3::new(-40.0, 0.0, 14.6);
+        let half = crate::players::player::Stance::Standing.half_height();
+        for on in 0..2 {
+            let player = run.player(on, 1);
+            run.world(on).get_mut::<Transform>(player).unwrap().translation = spot + Vec3::Y * half;
+            run.world(on).entity_mut(player).insert(Position(spot + Vec3::Y * half));
+        }
+        if last_stand {
+            for on in 0..2 {
+                let player = run.player(on, 1);
+                run.world(on).entity_mut(player).insert(crate::players::last_stand::LastStand::shown(10.0, false));
+            }
+        }
+        run.step(ticks(1.0));
+        let bar = run.find::<CrashBar>(1, |bar| bar.piece == PieceId(0));
+        // The client's own game offers it: a Prompt, in reach.
+        assert!(run.world(1).get::<crate::economy::buy::Buyable>(bar).unwrap().range > 0.0, "the Prompt is offered");
+        run.use_buyable(1, bar, false);
+        run.step(ticks(1.5));
+        let landing = Vec3::new(-40.0, 0.0, 11.5);
+        let feet = |run: &mut Run, on: usize| {
+            let player = run.player(on, 1);
+            run.world(on).get::<Transform>(player).unwrap().translation - Vec3::Y * half
+        };
+        for on in 0..2 {
+            let at = feet(&mut run, on);
+            assert!(Vec2::new(at.x - landing.x, at.z - landing.z).length() < 0.8, "last_stand {last_stand}, game {on}: {at}");
+        }
+    }
+}

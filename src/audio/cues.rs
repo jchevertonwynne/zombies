@@ -197,6 +197,10 @@ cues! {
     QuarantineSwing => "quarantine_swing", Root, Spatial, 0.8;
     QuarantineSlam => "quarantine_slam", Root, Spatial, 1.0;
     QuarantineRelease => "quarantine_release", Root, Spatial, 0.8;
+    // The Crash Bar's clack as a Player pushes out through a Sealed Quarantine Door, and a Stranded
+    // Zombie's fist on its far side.
+    CrashBar => "crash_bar", Root, Spatial, 0.9;
+    DoorPound => "door_pound", Root, Spatial, 0.9;
     TeleporterCharge => "teleporter_charge", Root, Spatial, 0.9;
     TeleporterFire => "teleporter_fire", Root, Spatial, 1.0;
     TeleporterArrive => "teleporter_arrive", Root, Spatial, 1.0;
@@ -369,6 +373,7 @@ mod tests {
             "bridge_bell", "bridge_grind", "bridge_clunk",
             // The Sanatorium's Quarantine.
             "quarantine_klaxon", "quarantine_siren", "quarantine_swing", "quarantine_slam", "quarantine_release",
+            "crash_bar", "door_pound",
             // Gauntlet v2's Proc cues (spec #182, Appendix C6).
             "proc_frost", "proc_blast",
             "set_bonus_tier_two", "set_bonus_tier_four", "set_bonus_tier_six", "duo_taken",

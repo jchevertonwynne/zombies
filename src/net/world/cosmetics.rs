@@ -18,7 +18,9 @@ const FROST_RETELL_SECS: f32 = 0.5;
 
 /// The cues the Host makes for what only it simulates, and so tells: an Ammo Mod's sound, the
 /// Pack Alpha's howl.
-const SHARED_CUES: [Cue; 6] = [
+const SHARED_CUES: [Cue; 8] = [
+    Cue::CrashBar,
+    Cue::DoorPound,
     Cue::BossHowl,
     Cue::AmmoModBlastFurnace,
     Cue::AmmoModDeadWire,

@@ -138,6 +138,8 @@ fn recipe(cue: Cue) -> Recipe {
         Cue::QuarantineSwing => Recipe::Synth(quarantine_swing()),
         Cue::QuarantineSlam => Recipe::Synth(quarantine_slam()),
         Cue::QuarantineRelease => Recipe::Synth(quarantine_release()),
+        Cue::CrashBar => Recipe::Synth(crash_bar()),
+        Cue::DoorPound => Recipe::Synth(door_pound()),
         Cue::TeleporterCharge => Recipe::Synth(sweep(2.0, 200.0, 1600.0, 0.3)),
         Cue::TeleporterFire => Recipe::Synth(boom(1.5, 55.0, 0x6a00_0018)),
         Cue::TeleporterArrive => Recipe::Synth(reversed(boom(1.5, 55.0, 0x6a00_0019))),
@@ -1308,6 +1310,22 @@ fn quarantine_release() -> Vec<f32> {
     let hiss: Vec<f32> = samples(0.9).map(|t| noise(&mut seed) * 0.25 * (-t * 3.5).exp()).collect();
     let mut out = hiss;
     layer(&mut out, 0.5, &chime(&[783.99, 1046.5], 1.0, 4.0));
+    clamped(out)
+}
+
+/// A push bar giving way: a hard clack, then the latch and the door's rattle.
+fn crash_bar() -> Vec<f32> {
+    let mut out = scaled(tick(0.08, 1400.0), 1.2);
+    layer(&mut out, 0.0, &scaled(chime(&[310.0, 520.0], 0.3, 18.0), 0.6));
+    layer(&mut out, 0.12, &scaled(thud(0.25, 90.0), 0.8));
+    clamped(out)
+}
+
+/// A fist on a steel door: two dull blows, a beat apart.
+fn door_pound() -> Vec<f32> {
+    let mut out = scaled(thud(0.45, 70.0), 1.0);
+    layer(&mut out, 0.0, &scaled(chime(&[180.0, 260.0], 0.3, 16.0), 0.4));
+    layer(&mut out, 0.28, &scaled(thud(0.45, 66.0), 0.9));
     clamped(out)
 }
 

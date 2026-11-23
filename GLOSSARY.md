@@ -108,7 +108,7 @@ _Avoid_: grenade (when meaning the slot)
 **Buyable**: Anything in the Map the Player spends Points on with the Use key: a Door, Wall Weapon, Mystery Box, Perk Machine, Pack-a-Punch, Trap, Teleporter Pad or Generator. The Power Switch and a Zipline are used but not bought, so neither is a Buyable.
 _Avoid_: purchasable, trigger
 
-**Use key**: The single key the Player presses to buy a Buyable, flip the Power Switch or ride a Zipline, or holds to put Planks back on a Barrier.
+**Use key**: The single key the Player presses to buy a Buyable, flip the Power Switch, ride a Zipline or push a Crash Bar, or holds to put Planks back on a Barrier.
 
 **Prompt**: The on-screen line saying what the Use key will do here and what it costs.
 
@@ -328,7 +328,11 @@ _Avoid_: flashlight, torch
 
 **Quarantine Door**: A pair of steel fire doors in a Wing's doorway, behind a bought Door: a Shifting Piece that the Quarantine turns between Open and Sealed. It isn't a Door, because it closes again. Anyone in its sweep as it starts to Swing is put outside the Wing.
 
-**Sealed**: A Wing whose Quarantine Doors are shut. Nothing walks in.
+**Sealed**: A Wing whose Quarantine Doors are shut. Nothing walks in, and only Players get out, through a Crash Bar.
+
+**Crash Bar**: The push bar inside a Sealed Quarantine Door. A Player who is up or in a Last Stand and presses Use at it is put outside the doorway, for free. Zombies never use one.
+
+**Stranded**: A Zombie that a seal leaves with no route to any Player. It pounds on the door for 5 s, then goes back into the Horde.
 
 **All Clear**: The Quarantine's spell with every Wing open, between one Wing opening and the next Warning.
 
