@@ -22,7 +22,7 @@ import sys
 
 import bmesh
 import bpy
-from mathutils import Matrix, Vector
+from mathutils import Euler, Matrix, Vector
 
 # A unit's triangle limit, from the Spec: at most about 2k.
 BUDGET = 2000
@@ -306,17 +306,248 @@ def headstone(scan, out, work):
     report(unit, "headstone")
 
 
+# ---- The Sanatorium's kitbashes (#525): built from primitives, wearing material sets already in
+# assets/materials. A unit is boxes and cylinders in Blender's axes (x length, y depth, z up), each
+# face in one named material whose UV tile is its real-world size in metres.
+
+# material set id -> its UV tile, metres (the `real-world size` in its manifest entry).
+SET_TILE = {
+    "rusty_metal_02": 1.0,
+    "fabric_pattern_07": 0.4,
+    "painted_metal_shutter": 2.0,
+    "green_metal_rust": 1.0,
+    "long_white_tiles": 1.27,
+    "metal_plate_02": 2.0,
+    "dark_wooden_planks": 2.0,
+    "weathered_planks": 2.0,
+}
+
+
+class Kit:
+    """Boxes and cylinders gathered into one mesh, a material set on each."""
+
+    def __init__(self):
+        self.bm = bmesh.new()
+        self.uv = self.bm.loops.layers.uv.new("UVMap")
+        self.sets = []
+
+    def _faces(self, verts, material):
+        """Gives the faces of `verts` (just made) their material and a box-projected UV."""
+        if material not in self.sets:
+            self.sets.append(material)
+        index = self.sets.index(material)
+        tile = SET_TILE[material]
+        faces = {f for v in verts for f in v.link_faces}
+        for face in faces:
+            face.material_index = index
+            face.smooth = False
+            n = face.normal
+            a = max(range(3), key=lambda i: abs(n[i]))
+            for loop in face.loops:
+                p = loop.vert.co
+                u, v = ((p.y, p.z), (p.x, p.z), (p.x, p.y))[a]
+                loop[self.uv].uv = (u / tile, v / tile)
+
+    def box(self, centre, size, material, rot=(0.0, 0.0, 0.0)):
+        """A box `size` (x, y, z) centred `centre`, turned by `rot` (Euler, radians, about x, y, z)."""
+        matrix = Matrix.Translation(Vector(centre)) @ Euler(rot, "XYZ").to_matrix().to_4x4() @ Matrix.Diagonal(Vector((*size, 1.0)))
+        made = bmesh.ops.create_cube(self.bm, size=1.0, matrix=matrix)
+        self._faces(made["verts"], material)
+
+    def cyl(self, centre, radius, length, axis, material, segments=10):
+        """A cylinder of `radius` and `length` along `axis` ("x", "y" or "z"), centred `centre`."""
+        along = {"x": Euler((0.0, math.pi / 2, 0.0)), "y": Euler((-math.pi / 2, 0.0, 0.0)), "z": Euler((0.0, 0.0, 0.0))}[axis]
+        matrix = Matrix.Translation(Vector(centre)) @ along.to_matrix().to_4x4()
+        made = bmesh.ops.create_cone(self.bm, cap_ends=True, cap_tris=False, segments=segments, radius1=radius, radius2=radius, depth=length, matrix=matrix)
+        self._faces(made["verts"], material)
+
+    def finish(self, name):
+        """The mesh object: its materials named for their sets, its foot's middle at the origin."""
+        mesh = bpy.data.meshes.new(name)
+        self.bm.to_mesh(mesh)
+        self.bm.free()
+        for material in self.sets:
+            mat = bpy.data.materials.new(material)
+            mat.use_nodes = True
+            mesh.materials.append(mat)
+        obj = bpy.data.objects.new(name, mesh)
+        bpy.context.scene.collection.objects.link(obj)
+        ground(mesh)
+        return obj
+
+
+def gurney():
+    k = Kit()
+    steel, cloth = "rusty_metal_02", "fabric_pattern_07"
+    for y in (-0.26, 0.26):
+        k.cyl((0, y, 0.72), 0.022, 1.9, "x", steel)
+    for x in (-0.88, 0.0, 0.88):
+        k.cyl((x, 0, 0.72), 0.018, 0.56, "y", steel)
+    for x in (-0.8, 0.8):
+        for y in (-0.26, 0.26):
+            k.cyl((x, y, 0.4), 0.02, 0.62, "z", steel)
+            k.cyl((x, y, 0.07), 0.07, 0.04, "y", steel)
+    k.box((0.1, 0, 0.8), (1.5, 0.58, 0.1), cloth)
+    # The head end propped up on its rest.
+    k.box((-0.78, 0, 0.9), (0.55, 0.56, 0.08), cloth, rot=(0.0, 0.4, 0.0))
+    # A pull bar at the foot.
+    k.cyl((0.95, 0, 0.9), 0.018, 0.5, "y", steel)
+    return k.finish("gurney")
+
+
+def dressing_trolley():
+    k = Kit()
+    steel, tray = "rusty_metal_02", "metal_plate_02"
+    for x in (-0.4, 0.4):
+        for y in (-0.23, 0.23):
+            k.cyl((x, y, 0.5), 0.02, 0.84, "z", steel)
+            k.cyl((x, y, 0.05), 0.05, 0.04, "y", steel)
+    for z in (0.35, 0.85):
+        k.box((0, 0, z), (0.9, 0.52, 0.03), tray)
+        for y in (-0.255, 0.255):
+            k.box((0, y, z + 0.03), (0.9, 0.02, 0.04), tray)
+        for x in (-0.44, 0.44):
+            k.box((x, 0, z + 0.03), (0.02, 0.52, 0.04), tray)
+    k.cyl((-0.43, 0, 0.95), 0.018, 0.52, "y", steel)
+    return k.finish("dressing_trolley")
+
+
+def locker_bank():
+    k = Kit()
+    paint, steel = "painted_metal_shutter", "rusty_metal_02"
+    k.box((0, 0, 0.9), (1.2, 0.44, 1.8), paint)
+    # Doors on both faces, since the fitting doesn't turn a unit to face the room.
+    for side in (-1, 1):
+        for i in (-1, 0, 1):
+            x = i * 0.4
+            k.box((x, side * 0.225, 0.9), (0.37, 0.02, 1.72), paint)
+            for row in range(4):
+                k.box((x, side * 0.238, 1.5 + row * 0.06), (0.22, 0.01, 0.02), steel)
+            k.box((x + 0.12, side * 0.24, 0.95), (0.03, 0.02, 0.12), steel)
+    k.box((0, 0, 0.04), (1.22, 0.46, 0.08), steel)
+    return k.finish("locker_bank")
+
+
+def cot():
+    k = Kit()
+    wood, cloth = "dark_wooden_planks", "fabric_pattern_07"
+    for x in (-0.6, 0.6):
+        for y in (-0.3, 0.3):
+            k.box((x, y, 0.425), (0.05, 0.05, 0.85), wood)
+    for y in (-0.3, 0.3):
+        k.box((0, y, 0.82), (1.2, 0.04, 0.04), wood)
+        k.box((0, y, 0.4), (1.2, 0.04, 0.04), wood)
+        for i in range(-3, 4):
+            k.box((i * 0.15, y, 0.61), (0.02, 0.02, 0.4), wood)
+    for x in (-0.6, 0.6):
+        k.box((x, 0, 0.82), (0.04, 0.6, 0.04), wood)
+    k.box((0, 0, 0.36), (1.12, 0.56, 0.1), cloth)
+    return k.finish("cot")
+
+
+def mortuary_slab():
+    k = Kit()
+    plate, steel = "metal_plate_02", "rusty_metal_02"
+    k.box((0, 0, 0.925), (2.1, 0.75, 0.05), plate)
+    for y in (-0.36, 0.36):
+        k.box((0, y, 0.96), (2.1, 0.03, 0.04), plate)
+    for x in (-1.035, 1.035):
+        k.box((x, 0, 0.96), (0.03, 0.75, 0.04), plate)
+    k.box((0, 0, 0.45), (0.5, 0.4, 0.85), steel)
+    k.box((0, 0, 0.03), (1.0, 0.62, 0.06), steel)
+    for x in (-0.7, 0.7):
+        k.box((x, 0, 0.88), (0.08, 0.5, 0.05), steel)
+    return k.finish("mortuary_slab")
+
+
+def bath_tub():
+    k = Kit()
+    tile, steel = "long_white_tiles", "rusty_metal_02"
+    for y in (-0.34, 0.34):
+        k.box((0, y, 0.42), (1.7, 0.1, 0.55), tile)
+        k.box((0, y, 0.7), (1.74, 0.14, 0.04), tile)
+    for x in (-0.8, 0.8):
+        k.box((x, 0, 0.42), (0.1, 0.58, 0.55), tile)
+        k.box((x, 0, 0.7), (0.14, 0.8, 0.04), tile)
+    k.box((0, 0, 0.18), (1.5, 0.6, 0.06), tile)
+    for x in (-0.72, 0.72):
+        for y in (-0.3, 0.3):
+            k.cyl((x, y, 0.07), 0.05, 0.14, "z", steel, segments=8)
+    return k.finish("bath_tub")
+
+
+def rocking_horse():
+    k = Kit()
+    wood, cloth = "dark_wooden_planks", "fabric_pattern_07"
+    radius, steps = 1.0, 8
+    for y in (-0.17, 0.17):
+        for i in range(steps):
+            a0, a1 = math.radians(-32 + 64 * i / steps), math.radians(-32 + 64 * (i + 1) / steps)
+            (x0, z0), (x1, z1) = ((radius * math.sin(a), radius * (1 - math.cos(a))) for a in (a0, a1))
+            length = math.hypot(x1 - x0, z1 - z0) + 0.02
+            k.box(((x0 + x1) / 2, y, (z0 + z1) / 2 + 0.025), (length, 0.04, 0.05), wood, rot=(0.0, -math.atan2(z1 - z0, x1 - x0), 0.0))
+    for x in (-0.26, 0.26):
+        for y in (-0.1, 0.1):
+            k.box((x, y, 0.32), (0.06, 0.06, 0.4), wood)
+    k.box((0, 0, 0.58), (0.74, 0.2, 0.22), wood)
+    k.box((0, 0, 0.7), (0.3, 0.22, 0.05), cloth)
+    k.box((0.38, 0, 0.78), (0.14, 0.14, 0.34), wood, rot=(0.0, -0.35, 0.0))
+    k.box((0.5, 0, 0.93), (0.26, 0.13, 0.14), wood, rot=(0.0, 0.2, 0.0))
+    k.box((-0.4, 0, 0.64), (0.08, 0.06, 0.28), wood, rot=(0.0, 0.5, 0.0))
+    return k.finish("rocking_horse")
+
+
+def ambulance():
+    k = Kit()
+    body, dark = "green_metal_rust", "rusty_metal_02"
+    k.box((0, 0, 0.58), (4.9, 1.9, 0.24), dark)
+    k.box((-0.95, 0, 1.42), (3.1, 2.0, 1.45), body)
+    k.box((1.25, 0, 1.22), (1.3, 2.0, 1.05), body)
+    k.box((2.2, 0, 0.98), (0.8, 1.9, 0.58), body)
+    # Windows: a dark band down each side of the cab and the body, and the back doors' glass.
+    for side in (-1, 1):
+        k.box((1.2, side * 1.0, 1.45), (0.9, 0.03, 0.5), dark)
+        k.box((-1.0, side * 1.0, 1.7), (2.2, 0.03, 0.3), dark)
+    k.box((-2.5, 0, 1.45), (0.03, 1.8, 1.0), dark)
+    k.box((1.9, 0, 1.2), (0.03, 1.7, 0.45), dark)
+    k.box((2.42, 0, 0.7), (0.14, 1.95, 0.18), dark)
+    k.box((-2.46, 0, 0.62), (0.12, 1.95, 0.18), dark)
+    k.box((0.7, 0, 2.2), (0.3, 1.2, 0.12), dark)
+    for x in (-1.6, 1.7):
+        for y in (-0.95, 0.95):
+            k.cyl((x, y, 0.4), 0.4, 0.24, "y", dark, segments=12)
+    return k.finish("ambulance")
+
+
+SANATORIUM_KITS = {
+    "gurney": gurney,
+    "dressing_trolley": dressing_trolley,
+    "locker_bank": locker_bank,
+    "cot": cot,
+    "mortuary_slab": mortuary_slab,
+    "bath_tub": bath_tub,
+    "rocking_horse": rocking_horse,
+    "ambulance": ambulance,
+}
+
+
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     parser = argparse.ArgumentParser()
     parser.add_argument("--src", required=True)
     parser.add_argument("--out", required=True)
-    parser.add_argument("--only", choices=["crate", "sandbags", "headstone"])
+    parser.add_argument("--only", choices=["crate", "sandbags", "headstone", *SANATORIUM_KITS])
     parser.add_argument("--headstone", help="a high-poly headstone scan to decimate and bake")
     parser.add_argument("--work", help="where the headstone's baked PNGs go")
     args = parser.parse_args(argv)
     out = pathlib.Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    if args.only in SANATORIUM_KITS:
+        reset()
+        obj = SANATORIUM_KITS[args.only]()
+        export(obj, out, args.only)
+        report(obj, args.only)
+        return
     if args.only in (None, "crate"):
         for layers in (2, 3):
             reset()

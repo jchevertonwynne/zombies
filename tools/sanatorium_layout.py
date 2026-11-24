@@ -131,6 +131,28 @@ BLOCKS += [
     (-42.1, 55.2, -39.7, 56.0, 4.0, 0.3),   # Children's Ward
 ]
 
+# The Props (#525), read from `sanatorium.rs`'s `PROPS` so the two can't drift: each is a block its floor level's edges
+# must keep off (the plinth and the bandstand's posts above are the same Props, listed twice harmlessly).
+def prop_blocks():
+    import re
+    src = open(f"{ROOT}/src/maps/map/sanatorium.rs").read()
+    body = src[src.index("const PROPS: [Prop;"):]
+    body = body[:body.index("\n};")]
+    sizes = {m.group(1): tuple(float(v) for v in m.group(2).split(",")) for m in re.finditer(r"const (\w+): \(f32, f32, f32\) = \(([^)]*)\);", body)}
+    levels = {"GROUND": 0.0, "FIRST": 4.0}
+    out = []
+    for m in re.finditer(r"^\s*p\((\w+), (\w+), (-?[\d.]+), (GROUND|FIRST)(?: \+ ([\d.]+))?, (-?[\d.]+), (\([^)]*\)|[A-Z_]+)\),", body, re.M):
+        x, z = float(m.group(3)), float(m.group(6))
+        level = levels[m.group(4)] + float(m.group(5) or 0)
+        size = m.group(7)
+        sx, sy, sz = sizes[size] if size in sizes else tuple(float(v) for v in size.strip("()").split(","))
+        out.append((x - sx / 2, z - sz / 2, x + sx / 2, z + sz / 2, level, 0.3))
+    assert len(out) == 68, len(out)
+    return out
+
+
+BLOCKS += prop_blocks()
+
 # ---------------------------------------------------------------- zones' grids
 HALL = grid("EntranceHall", "hall", -7.5, 7.5, 2.5, 11.5, 0.0, step=7.5)
 FORE = grid("Forecourt", "fc", -46.0, 46.0, -27.0, -3.0, 0.0, step=8.0)

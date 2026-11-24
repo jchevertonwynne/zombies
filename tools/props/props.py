@@ -44,6 +44,14 @@ UNITS = {
     "wooden_bookshelf_worn": (1.2, 2.3, 0.6),
     "painted_wooden_cabinet_02": (1.0, 2.3, 0.65),
     "worn_metal_rack": (0.95, 2.0, 0.6),
+    # The Sanatorium's (#525).
+    "old_bed_frame": (2.0, 1.1, 0.9),
+    "wheelchair_01": (1.0, 1.0, 0.75),
+    "tool_cart": (1.2, 0.95, 0.75),
+    "steel_frame_shelves_01": (1.1, 2.1, 0.5),
+    "drawer_cabinet": (1.1, 1.8, 0.5),
+    "WetFloorSign_01": (0.36, 0.63, 0.3),
+    "vintage_day_bed": (2.0, 1.1, 0.85),
 }
 
 
