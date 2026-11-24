@@ -1,4 +1,4 @@
-//! The screenshot tour, for approving a Map's look: `ZOMBIES_TOUR=<map>` (`greybox`, `quarry`, `village`, `dam`, `cove`, `polder` or `sanatorium`) skips the menu, stands the Player at each of the Map's views in turn with no Zombies about,
+//! The screenshot tour, for approving a Map's look: `ZOMBIES_TOUR=<map>` (`greybox`, `quarry`, `village`, `dam`, `cove`, `polder`, `sanatorium` or `archive`) skips the menu, stands the Player at each of the Map's views in turn with no Zombies about,
 //! saves a 1920×1080 shot of the game window for each into `ZOMBIES_TOUR_OUT` (default `tour/`),
 //! and quits. The route views look from Zone to Zone through the Doors, which are hidden for them.
 //! `ZOMBIES_TOUR_TIDE=low|rising|high|falling` holds the Polder's Tide at that phase.
@@ -276,6 +276,31 @@ fn quarantine_hold(name: &str) -> Option<(crate::maps::quarantine::Stage, u8, f3
     }
 }
 
+/// The Archive: a view of each of its 14 Zones, then the Great Range, the ring's Ranges, the stairs, the Causeway and the Theatre's tiers.
+const ARCHIVE: &[View] = &[
+    view("catalogue-hall", (-15.0, 8.0, 3.2), (15.0, 8.8), -0.02, false),
+    view("reading-room", (-17.0, 8.0, 16.5), (10.0, 28.0), -0.05, false),
+    view("map-room", (-23.0, 8.0, 14.5), (-32.0, 30.0), -0.05, false),
+    view("lecture-theatre", (27.0, 4.0, 20.0), (28.0, 6.0), 0.12, false),
+    view("old-stacks", (-18.0, 4.0, 6.0), (-6.0, 14.0), -0.03, false),
+    view("folio-stacks", (-18.0, 4.0, 25.3), (-6.0, 31.0), -0.03, false),
+    view("periodical-stacks", (18.5, 4.0, 25.3), (6.0, 31.0), -0.03, false),
+    view("new-stacks", (18.5, 4.0, 7.95), (6.0, 14.0), -0.03, false),
+    view("bindery", (23.0, 4.0, 26.0), (30.0, 32.0), -0.05, false),
+    view("well-stair", (-28.0, 4.0, 10.0), (-22.0, 3.0), -0.15, false),
+    view("flooded-cellar", (-15.2, 0.6, 10.0), (10.0, 10.0), -0.03, false),
+    view("undercroft", (-17.5, 0.0, 22.0), (-5.0, 32.0), -0.03, false),
+    view("strong-room", (4.0, 0.0, 24.5), (10.0, 30.0), -0.03, false),
+    view("pump-room", (24.0, 0.0, 4.0), (32.0, 14.0), -0.03, false),
+    view("great-range", (0.0, 8.0, 5.0), (0.0, 14.0), -0.02, false),
+    view("range-ra", (-12.8, 4.0, 14.0), (-12.8, 20.0), -0.02, false),
+    view("range-rd", (-8.0, 4.0, 11.7), (0.0, 11.7), -0.02, false),
+    view("map-stair", (-35.0, 8.0, 31.0), (-27.0, 34.5), -0.35, false),
+    view("bindery-stair", (34.2, 4.0, 33.4), (34.2, 26.0), -0.35, false),
+    view("causeway", (-15.2, 0.6, 10.0), (15.0, 10.0), -0.02, false),
+    view("lecture-theatre-tiers", (28.0, 4.0, 22.0), (28.0, 2.0), 0.2, false),
+];
+
 /// The Polder: a view of each of its 16 Zones, then its bridges, the lock gates, the water and the dyke.
 const POLDER: &[View] = &[
     view("town-square-pump", (-12.0, 0.0, -34.0), (-4.0, -24.0), -0.05, false),
@@ -359,7 +384,8 @@ impl Tour {
             "quarry" => (MapId::Quarry, QUARRY),
             "polder" => (MapId::Polder, POLDER),
             "sanatorium" => (MapId::Sanatorium, SANATORIUM),
-            other => panic!("ZOMBIES_TOUR={other}: only greybox, dam, cove, village, quarry, polder and sanatorium have views"),
+            "archive" => (MapId::Archive, ARCHIVE),
+            other => panic!("ZOMBIES_TOUR={other}: only greybox, dam, cove, village, quarry, polder, sanatorium and archive have views"),
         };
         let dir = std::env::var("ZOMBIES_TOUR_OUT").unwrap_or_else(|_| "tour".into());
         std::fs::create_dir_all(&dir).expect("ZOMBIES_TOUR_OUT is writable");

@@ -1,5 +1,5 @@
 //! The worst-case benchmark: a late Round at the Alive Cap, in Co-op, with effects running, timed
-//! frame by frame at 1080p. `ZOMBIES_BENCH=<map>` (greybox, quarry, village, dam, cove, polder or sanatorium) turns it on: the
+//! frame by frame at 1080p. `ZOMBIES_BENCH=<map>` (greybox, quarry, village, dam, cove, polder, sanatorium or archive) turns it on: the
 //! menu is skipped, four Players stand at their spawns and can't be hurt, the local one turns
 //! slowly and holds the trigger, and after a warm-up the frame times are measured, reported and
 //! the game quits. Build with `--release`, and run with a scratch `HOME` so no Run Record is kept.
@@ -75,7 +75,8 @@ impl Bench {
             "cove" => MapId::Cove,
             "polder" => MapId::Polder,
             "sanatorium" => MapId::Sanatorium,
-            other => panic!("ZOMBIES_BENCH={other}: expected greybox, quarry, village, dam, cove, polder or sanatorium"),
+            "archive" => MapId::Archive,
+            other => panic!("ZOMBIES_BENCH={other}: expected greybox, quarry, village, dam, cove, polder, sanatorium or archive"),
         };
         Some(Self { map })
     }

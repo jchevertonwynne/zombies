@@ -620,8 +620,8 @@ mod tests {
         }
         assert_eq!(sanatorium().outdoor, [Forecourt, GardenCourt, SunRoof]);
         assert!(sanatorium().roofed);
-        // The first Zone of the map's 17 are the 17 new ZoneIds, 96 of ZoneSet's 128 bits in all.
-        assert_eq!(ZoneId::ALL.len(), 96);
+        // The first Zone of the map's 17 are the 17 new ZoneIds; the Archive's 14 take the ZoneSet to 110 of its 128 bits.
+        assert_eq!(ZoneId::ALL.len(), 110);
     }
 
     /// The Doors a Run can buy, with their joins: 18 bought and the one Power Door.

@@ -394,6 +394,17 @@ pub(crate) fn equipment_walls(map: MapId) -> &'static [(EquipmentWall, ZoneId, V
             ];
             &SPOTS
         }
+        MapId::Archive => {
+            const SPOTS: [(EquipmentWall, ZoneId, Vec3, Vec3); 3] = [
+                // On the Lecture Theatre's east wall, at the dais.
+                (EquipmentWall::Frags, ZoneId::LectureTheatre, Vec3::new(35.8, STOREY + 1.5, 19.6), Vec3::NEG_X),
+                // On the New Stacks' north wall, beside RC's Aisle mouth, which plays well with slamming the stacks.
+                (EquipmentWall::Claymore, ZoneId::NewStacks, Vec3::new(16.5, STOREY + 1.5, 19.8), Vec3::NEG_Z),
+                // On the Undercroft's north wall.
+                (EquipmentWall::BowieKnife, ZoneId::Undercroft, Vec3::new(-10.0, 1.5, 35.8), Vec3::NEG_Z),
+            ];
+            &SPOTS
+        }
     }
 }
 

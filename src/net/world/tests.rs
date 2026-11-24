@@ -256,6 +256,41 @@ fn a_two_player_run_on_the_sanatorium_opens_a_door_and_the_power_goes_on_for_bot
     }
 }
 
+/// Every peer builds the Archive from the same `Layout`, and nothing about the Map goes on the wire but what a Door and the Power already do: a client
+/// buys one of its Doors (D1, the cheapest, from the Catalogue Hall to the Theatre's crossover), and the Power Switch (in the Pump Room) is thrown,
+/// and both reach the Host and the other client alike, each of whom has the same Doors by `NetId`.
+#[test]
+fn a_two_player_run_on_the_archive_opens_a_door_and_the_power_goes_on_for_both() {
+    use crate::maps::map::MapId;
+    use crate::maps::power::{Power, PowerSwitch};
+    use crate::maps::zone::ZoneId;
+    let mut run = Run::on(MapId::Archive, 2, &|_| {});
+    run.give_points(1, 5000);
+    for on in 0..3 {
+        assert!(!run.world(on).resource::<Power>().is_on(), "game {on}");
+        let world = run.world(on);
+        let doors = world.query::<&Door>().iter(world).count();
+        assert_eq!(doors, 15, "game {on} builds all 15 Doors from the Layout");
+    }
+    // D1, Catalogue Hall to the Lecture Theatre, one of the two 750s (G0 is the other).
+    let door = run.find::<Door>(1, |door| door.price == Some(750) && door.route() == Some((ZoneId::CatalogueHall, ZoneId::LectureTheatre)));
+    let id = *run.world(1).get::<NetId>(door).unwrap();
+    run.use_buyable(1, door, false);
+    run.step(20);
+    for on in 0..3 {
+        let door = run.world(on).resource::<NetIds>().entity(id.0).expect("every game names the Door alike");
+        assert!(run.world(on).get::<Door>(door).unwrap().open, "game {on} still has the Door shut");
+    }
+    // The Power Switch is thrown on the Host, and the Power goes on in every game.
+    let switch = run.find::<PowerSwitch>(0, |_| true);
+    let player = run.player(0, 0);
+    run.world(0).write_message(crate::economy::buy::Purchased { player, buyable: switch });
+    run.step(400);
+    for on in 0..3 {
+        assert!(run.world(on).resource::<Power>().is_on(), "game {on} didn't see the Power go on");
+    }
+}
+
 #[test]
 fn a_client_who_cant_afford_a_door_gets_the_refusal_and_the_door_stays_shut() {
     let mut run = Run::new(1);

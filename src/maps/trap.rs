@@ -88,6 +88,16 @@ pub(crate) fn traps(map: MapId) -> &'static [((ZoneId, ZoneId), Vec3, f32)] {
             ];
             &SPOTS
         }
+        // The Theatre's dais to the Bindery on the Power route (D4), the Flooded Cellar to the Undercroft (D10) and the vault door into the
+        // Strong Room (PD), all in walls along x. None is at a Range, because a Range is never a Trap.
+        MapId::Archive => {
+            const SPOTS: [((ZoneId, ZoneId), Vec3, f32); 3] = [
+                ((ZoneId::LectureTheatre, ZoneId::Bindery), Vec3::new(26.0, STOREY, 24.0), 28.2),
+                ((ZoneId::FloodedCellar, ZoneId::Undercroft), Vec3::new(-10.0, 0.0, 20.0), -7.8),
+                ((ZoneId::FloodedCellar, ZoneId::StrongRoom), Vec3::new(10.0, 0.0, 20.0), 12.2),
+            ];
+            &SPOTS
+        }
     }
 }
 

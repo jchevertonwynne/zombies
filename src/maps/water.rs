@@ -953,7 +953,7 @@ mod tests {
     #[test]
     fn a_map_without_pools_is_dry_everywhere() {
         for map in crate::maps::map::MapId::ALL {
-            if matches!(map, crate::maps::map::MapId::Cove | crate::maps::map::MapId::Polder) {
+            if matches!(map, crate::maps::map::MapId::Cove | crate::maps::map::MapId::Polder | crate::maps::map::MapId::Archive) {
                 continue;
             }
             assert!(map.layout().water.is_empty() && map.layout().canals.is_empty(), "{}", map.name());

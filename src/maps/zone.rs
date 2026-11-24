@@ -199,10 +199,38 @@ pub enum ZoneId {
     IsolationWard,
     /// The Isolation Wing's children's ward, off the Sun Roof and the Isolation Ward.
     ChildrensWard,
+    /// The Archive's start: the long hall of card-catalogue banks on the Reading level, with Quick Revive, where the Great Range stands in its north wall.
+    CatalogueHall,
+    /// The six-metre-ceilinged reading room on the Reading level, round its issue desk, with Speed Cola.
+    ReadingRoom,
+    /// The Reading level's plan chests and the Map Stair's corridor, with the Box at the start.
+    MapRoom,
+    /// The Reading level's tiered lecture theatre, raking down to its dais, with a top crossover from the Catalogue Hall.
+    LectureTheatre,
+    /// The south-west ring hall of the Stacks level, round the book-lift core.
+    OldStacks,
+    /// The north-west ring hall of the Stacks level.
+    FolioStacks,
+    /// The north-east ring hall of the Stacks level.
+    PeriodicalStacks,
+    /// The south-east ring hall of the Stacks level.
+    NewStacks,
+    /// The Stacks level's bindery, with its presses and Juggernog, and the Bindery Stair down to the Pump Room.
+    Bindery,
+    /// The stone stair from the Old Stacks down to the Flooded Cellar.
+    WellStair,
+    /// The flooded cellar under the stacks: Shallow Water, a Causeway and a field of brick piers.
+    FloodedCellar,
+    /// The rib-vaulted undercroft on its field of columns, with Double Tap.
+    Undercroft,
+    /// The rare-books vault behind its round door, with Pack-a-Punch.
+    StrongRoom,
+    /// The pump room under the Lecture Theatre, with the Power Switch.
+    PumpRoom,
 }
 
 impl ZoneId {
-    pub const ALL: [ZoneId; 96] = [
+    pub const ALL: [ZoneId; 110] = [
         ZoneId::StartRoom,
         ZoneId::WestHall,
         ZoneId::Balcony,
@@ -299,6 +327,20 @@ impl ZoneId {
         ZoneId::SunRoof,
         ZoneId::IsolationWard,
         ZoneId::ChildrensWard,
+        ZoneId::CatalogueHall,
+        ZoneId::ReadingRoom,
+        ZoneId::MapRoom,
+        ZoneId::LectureTheatre,
+        ZoneId::OldStacks,
+        ZoneId::FolioStacks,
+        ZoneId::PeriodicalStacks,
+        ZoneId::NewStacks,
+        ZoneId::Bindery,
+        ZoneId::WellStair,
+        ZoneId::FloodedCellar,
+        ZoneId::Undercroft,
+        ZoneId::StrongRoom,
+        ZoneId::PumpRoom,
     ];
 
     pub fn name(self) -> &'static str {
@@ -399,6 +441,20 @@ impl ZoneId {
             ZoneId::SunRoof => "Sun Roof",
             ZoneId::IsolationWard => "Isolation Ward",
             ZoneId::ChildrensWard => "Children's Ward",
+            ZoneId::CatalogueHall => "Catalogue Hall",
+            ZoneId::ReadingRoom => "Reading Room",
+            ZoneId::MapRoom => "Map Room",
+            ZoneId::LectureTheatre => "Lecture Theatre",
+            ZoneId::OldStacks => "Old Stacks",
+            ZoneId::FolioStacks => "Folio Stacks",
+            ZoneId::PeriodicalStacks => "Periodical Stacks",
+            ZoneId::NewStacks => "New Stacks",
+            ZoneId::Bindery => "Bindery",
+            ZoneId::WellStair => "Well Stair",
+            ZoneId::FloodedCellar => "Flooded Cellar",
+            ZoneId::Undercroft => "Undercroft",
+            ZoneId::StrongRoom => "Strong Room",
+            ZoneId::PumpRoom => "Pump Room",
         }
     }
 
@@ -417,6 +473,8 @@ impl ZoneId {
             | CustomsHouse | DykeRoad | PumpingStation => MapId::Polder,
             EntranceHall | Forecourt | WestCorridor | EastCorridor | GardenCourt | Refectory | BoilerHouse | Mortuary | LongWard | DayRoom | BathHall | TreatmentRoom
             | UpperLanding | OperatingTheatre | SunRoof | IsolationWard | ChildrensWard => MapId::Sanatorium,
+            CatalogueHall | ReadingRoom | MapRoom | LectureTheatre | OldStacks | FolioStacks | PeriodicalStacks | NewStacks | Bindery | WellStair | FloodedCellar | Undercroft
+            | StrongRoom | PumpRoom => MapId::Archive,
         }
     }
 
@@ -444,6 +502,12 @@ impl ZoneId {
             DykeRoad | PumpingStation => STOREY,
             EntranceHall | Forecourt | WestCorridor | EastCorridor | GardenCourt | Refectory | BoilerHouse | Mortuary | LongWard | DayRoom | BathHall | TreatmentRoom => 0.0,
             UpperLanding | OperatingTheatre | SunRoof | IsolationWard | ChildrensWard => STOREY,
+            // The Archive's three levels: the Reading level, the Stacks level and the Cellar, whose nominal
+            // floor stands level with its Pool's surface (the bed is `POOL_DEPTH` under it).
+            CatalogueHall | ReadingRoom | MapRoom => 2.0 * STOREY,
+            LectureTheatre | OldStacks | FolioStacks | PeriodicalStacks | NewStacks | Bindery | WellStair => STOREY,
+            FloodedCellar => 0.5,
+            Undercroft | StrongRoom | PumpRoom => 0.0,
         }
     }
 
@@ -462,6 +526,8 @@ impl ZoneId {
         const CREST: f32 = 2.0 * STOREY - 0.25;
         /// The Sanatorium's Sun Roof reaches well above its parapets.
         const ROOF: f32 = 2.0 * STOREY + 1.0;
+        /// The Archive's Reading level, a shade under its floor so a Player standing on it is inside (and the top of the Stacks level).
+        const READING: f32 = 2.0 * STOREY - 0.25;
         let (x0, x1, y0, y1, z0, z1) = match self {
             ZoneId::StartRoom => (-14.0, 14.0, LOW, UPPER, 14.0, 26.0),
             ZoneId::WestHall => (-26.0, -14.0, LOW, TOP, -14.0, 26.0),
@@ -559,6 +625,22 @@ impl ZoneId {
             ZoneId::SunRoof => (-50.0, -26.0, UPPER, ROOF, 14.0, 42.0),
             ZoneId::IsolationWard => (-26.0, -10.0, UPPER, TOP, 42.0, 56.0),
             ZoneId::ChildrensWard => (-50.0, -26.0, UPPER, TOP, 42.0, 56.0),
+            // The Archive: the Reading level a storey over the Stacks level over the Cellar. The Map Room, the Bindery, the
+            // Well Stair and the Cellar reach down into their stairwells and Pool (below).
+            ZoneId::CatalogueHall => (-20.0, 20.0, READING, 3.0 * STOREY, 0.0, 12.0),
+            ZoneId::ReadingRoom => (-20.0, 20.0, READING, 14.0, 12.0, 36.0),
+            ZoneId::MapRoom => (-36.0, -20.0, READING, 3.0 * STOREY, 12.0, 36.0),
+            ZoneId::LectureTheatre => (20.0, 36.0, UPPER, 3.0 * STOREY, 0.0, 24.0),
+            ZoneId::OldStacks => (-20.0, 0.0, UPPER, READING, 4.0, 20.0),
+            ZoneId::FolioStacks => (-20.0, 0.0, UPPER, READING, 20.0, 36.0),
+            ZoneId::PeriodicalStacks => (0.0, 20.0, UPPER, READING, 20.0, 36.0),
+            ZoneId::NewStacks => (0.0, 20.0, UPPER, READING, 4.0, 20.0),
+            ZoneId::Bindery => (20.0, 36.0, UPPER, READING, 24.0, 36.0),
+            ZoneId::WellStair => (-36.0, -20.0, UPPER, READING, 0.0, 12.0),
+            ZoneId::FloodedCellar => (-20.0, 20.0, 0.5 + LOW, UPPER, 0.0, 20.0),
+            ZoneId::Undercroft => (-20.0, 0.0, LOW, UPPER, 20.0, 36.0),
+            ZoneId::StrongRoom => (0.0, 20.0, LOW, UPPER, 20.0, 36.0),
+            ZoneId::PumpRoom => (20.0, 36.0, LOW, UPPER, 0.0, 24.0),
         };
         // The Sanatorium's Upper Landing and Sun Roof are stacked over a ground Zone, so their
         // volumes can't reach down into the stairwells (Main Stair, Fire Escape) cut in their
@@ -792,7 +874,15 @@ mod tests {
             assert!((zone as u32) < 128);
             assert!(ZoneSet::from_iter([zone]).contains(zone));
         }
-        assert_eq!(ZoneId::ALL.len(), 96);
+        assert_eq!(ZoneId::ALL.len(), 110);
+    }
+
+    /// The Archive's 14 Zones take the ZoneSet to 110 of its 128 bits, leaving 18 for the Refectory's Map.
+    #[test]
+    fn zone_ids_fit_the_zone_set() {
+        assert!(ZoneId::ALL.len() <= 128, "{} Zones is more than a ZoneSet's 128 bits", ZoneId::ALL.len());
+        assert_eq!(ZoneId::ALL.len(), 110);
+        assert_eq!(ZoneId::ALL.into_iter().filter(|zone| zone.map() == MapId::Archive).count(), 14);
     }
 
     #[test]
