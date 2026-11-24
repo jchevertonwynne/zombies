@@ -413,17 +413,116 @@ const SLOPES: [Slope; 6] = [
     Slope { zone: ZoneId::OperatingTheatre, foot: at(32.4, FIRST, 54.0), up: Vec2::NEG_X, run: 2.4, rise: 1.2, width: 3.0, steps: true, colour: IRON },
 ];
 
-/// The Props built so far: the Founder's plinth in the Forecourt and the bandstand's four posts in
-/// the Garden Court, which are the Training loops' centres. The rest come with the Props ticket.
-const PROPS: [Prop; 5] = [
-    // The Founder's statue on its 5 x 5 m plinth.
-    p(PropKind::Machine, ZoneId::Forecourt, 0.0, GROUND, -15.0, (5.0, 2.2, 5.0)),
-    // The bandstand's corner posts.
-    p(PropKind::Pillar, ZoneId::GardenCourt, -3.0, GROUND + 0.6, 25.0, (0.5, 3.0, 0.5)),
-    p(PropKind::Pillar, ZoneId::GardenCourt, 3.0, GROUND + 0.6, 25.0, (0.5, 3.0, 0.5)),
-    p(PropKind::Pillar, ZoneId::GardenCourt, -3.0, GROUND + 0.6, 31.0, (0.5, 3.0, 0.5)),
-    p(PropKind::Pillar, ZoneId::GardenCourt, 3.0, GROUND + 0.6, 31.0, (0.5, 3.0, 0.5)),
-];
+/// The 68 Props (#505 §7), low and against the walls in the corridors and wards, each between the path
+/// nodes' rows and clear of every doorway, window landing, sweep, Crash Bar face, Buyable, Spawn Point,
+/// Infill and path edge. The Founder's plinth and the bandstand's corner posts (the Training loops'
+/// centres) come first. Each Zone's set names what its kinds look like (`zone_props`); a Prop is the
+/// size of its unit model, so the model fits it. `tools/sanatorium_layout.py` reads these to keep the
+/// path edges off them, so keep the `p(...)` calls one to a line.
+const PROPS: [Prop; 68] = {
+    use PropKind::*;
+    use ZoneId::*;
+    const BED: (f32, f32, f32) = (2.0, 1.1, 0.9);
+    const BED_ALONG_Z: (f32, f32, f32) = (0.9, 1.1, 2.0);
+    const TREE: (f32, f32, f32) = (0.5, 4.0, 0.5);
+    const BENCH: (f32, f32, f32) = (1.8, 0.55, 0.55);
+    const WHEELCHAIR: (f32, f32, f32) = (1.0, 1.0, 0.75);
+    const TROLLEY: (f32, f32, f32) = (0.9, 0.968, 0.53);
+    const SIGN: (f32, f32, f32) = (0.36, 0.63, 0.3);
+    const TABLE: (f32, f32, f32) = (2.5, 0.8, 1.1);
+    const DRUM: (f32, f32, f32) = (0.66, 0.95, 0.66);
+    const SLAB: (f32, f32, f32) = (2.1, 0.98, 0.75);
+    const TUB: (f32, f32, f32) = (0.82, 0.72, 1.74);
+    const COT: (f32, f32, f32) = (1.25, 0.85, 0.65);
+    [
+        // The Forecourt: the Founder's statue on its 5 x 5 m plinth, a derelict ambulance, three dead trees and a bench.
+        p(Pillar, Forecourt, 0.0, GROUND, -15.0, (5.0, 2.2, 5.0)),
+        p(Machine, Forecourt, -37.0, GROUND, -22.0, (5.12, 2.26, 2.14)),
+        p(Tree, Forecourt, -42.2, GROUND, -7.0, TREE),
+        p(Tree, Forecourt, 42.2, GROUND, -15.0, TREE),
+        p(Tree, Forecourt, -19.2, GROUND, -23.0, TREE),
+        p(Bench, Forecourt, 19.2, GROUND, -7.0, BENCH),
+        // The Garden Court: the bandstand's corner posts, two dead trees and a bench.
+        p(Pillar, GardenCourt, -3.0, GROUND + 0.6, 25.0, (0.5, 3.0, 0.5)),
+        p(Pillar, GardenCourt, 3.0, GROUND + 0.6, 25.0, (0.5, 3.0, 0.5)),
+        p(Pillar, GardenCourt, -3.0, GROUND + 0.6, 31.0, (0.5, 3.0, 0.5)),
+        p(Pillar, GardenCourt, 3.0, GROUND + 0.6, 31.0, (0.5, 3.0, 0.5)),
+        p(Tree, GardenCourt, -20.1, GROUND, 25.1, TREE),
+        p(Tree, GardenCourt, 20.1, GROUND, 31.0, TREE),
+        p(Bench, GardenCourt, -13.4, GROUND, 19.4, BENCH),
+        // The Entrance Hall: the reception counter, two columns and a wheelchair.
+        p(Counter, EntranceHall, -5.2, GROUND, 12.9, (2.8, 1.05, 0.85)),
+        p(Pillar, EntranceHall, -6.0, GROUND, 5.0, (0.6, 7.9, 0.6)),
+        p(Pillar, EntranceHall, 6.0, GROUND, 5.0, (0.6, 7.9, 0.6)),
+        p(Trolley, EntranceHall, -9.4, GROUND, 7.5, (0.75, 1.0, 1.0)),
+        // The West Corridor: a wheelchair, a dressing trolley and a wet-floor sign.
+        p(Trolley, WestCorridor, -46.0, GROUND, 8.4, WHEELCHAIR),
+        p(Trolley, WestCorridor, -34.0, GROUND, 13.6, TROLLEY),
+        p(Sign, WestCorridor, -15.0, GROUND, 8.4, SIGN),
+        // The East Corridor, the same mirrored.
+        p(Trolley, EastCorridor, 46.0, GROUND, 8.4, WHEELCHAIR),
+        p(Trolley, EastCorridor, 34.0, GROUND, 13.6, TROLLEY),
+        p(Sign, EastCorridor, 15.0, GROUND, 8.4, SIGN),
+        // The Refectory: four long tables and the servery counter.
+        p(Table, Refectory, -20.1, GROUND, 46.75, TABLE),
+        p(Table, Refectory, -6.7, GROUND, 46.75, TABLE),
+        p(Table, Refectory, 6.7, GROUND, 46.75, TABLE),
+        p(Table, Refectory, 20.1, GROUND, 46.75, TABLE),
+        p(Counter, Refectory, -21.5, GROUND, 55.55, (3.0, 1.05, 0.7)),
+        // The Boiler House: two boilers, the coal heap, two drums and a tool cart.
+        p(Machine, BoilerHouse, -61.0, GROUND, -8.0, (3.2, 2.6, 1.8)),
+        p(Machine, BoilerHouse, -61.0, GROUND, 8.0, (3.2, 2.6, 1.8)),
+        p(Rubble, BoilerHouse, -66.8, GROUND, -9.5, (1.7, 1.1, 1.6)),
+        p(Barrel, BoilerHouse, -50.9, GROUND, -2.5, DRUM),
+        p(Barrel, BoilerHouse, -50.9, GROUND, -1.6, DRUM),
+        p(Trolley, BoilerHouse, -66.5, GROUND, 4.5, (1.2, 0.949, 0.749)),
+        // The Mortuary: the drawer bank (three drawer cabinets) on the south wall, first so its index is even and
+        // `nth` picks the drawer cabinet over the locker bank, and three slabs in a row.
+        p(Locker, Mortuary, 60.0, GROUND, -13.7, (3.228, 1.8, 0.5)),
+        p(Bed, Mortuary, 55.3, GROUND, -8.6, SLAB),
+        p(Bed, Mortuary, 61.0, GROUND, -8.6, SLAB),
+        p(Bed, Mortuary, 66.67, GROUND, -8.6, SLAB),
+        // The Long Ward: six beds (four down the east wall, two on the west) and the nurses' station.
+        p(Bed, LongWard, -29.6, GROUND, 19.0, BED_ALONG_Z),
+        p(Bed, LongWard, -29.6, GROUND, 23.0, BED_ALONG_Z),
+        p(Bed, LongWard, -29.6, GROUND, 27.0, BED_ALONG_Z),
+        p(Bed, LongWard, -29.6, GROUND, 31.0, BED_ALONG_Z),
+        p(Bed, LongWard, -49.5, GROUND, 35.5, BED_ALONG_Z),
+        p(Bed, LongWard, -49.5, GROUND, 38.9, BED_ALONG_Z),
+        p(Counter, LongWard, -39.5, GROUND, 30.9, (3.0, 1.05, 0.8)),
+        // The Day Room: a day bed, an armchair and the piano.
+        p(Bed, DayRoom, -49.5, GROUND, 51.5, (0.85, 1.1, 2.0)),
+        p(Bench, DayRoom, -45.5, GROUND, 55.4, (0.9, 0.85, 0.9)),
+        p(Counter, DayRoom, -31.0, GROUND, 55.6, (1.6, 1.2, 0.65)),
+        // The Bath Hall: four tubs down the west wall.
+        p(Tub, BathHall, 26.5, GROUND, 18.5, TUB),
+        p(Tub, BathHall, 26.5, GROUND, 22.5, TUB),
+        p(Tub, BathHall, 26.5, GROUND, 26.5, TUB),
+        p(Tub, BathHall, 26.5, GROUND, 30.5, TUB),
+        // The Treatment Room: the electrotherapy machine and a gurney.
+        p(Machine, TreatmentRoom, 47.2, GROUND, 43.4, (1.0, 1.5, 0.8)),
+        p(Bed, TreatmentRoom, 32.0, GROUND, 55.5, (2.016, 1.044, 0.58)),
+        // The Upper Landing: steel shelves and a wheelchair.
+        p(Shelf, UpperLanding, 9.7, FIRST, 60.5, (0.5, 2.1, 1.1)),
+        p(Trolley, UpperLanding, 9.4, FIRST, 54.5, (0.75, 1.0, 1.0)),
+        // The Operating Theatre: a dressing trolley.
+        p(Trolley, OperatingTheatre, 30.5, FIRST, 43.0, TROLLEY),
+        // The Isolation Ward: three beds in the cells and a screen.
+        p(Bed, IsolationWard, -24.0, FIRST, 43.5, BED),
+        p(Bed, IsolationWard, -18.7, FIRST, 43.5, BED),
+        p(Bed, IsolationWard, -13.0, FIRST, 43.5, BED),
+        p(Shelf, IsolationWard, -12.5, FIRST, 55.5, (1.2, 1.8, 0.1)),
+        // The Children's Ward: three cots and the rocking horse.
+        p(Bed, ChildrensWard, -46.0, FIRST, 55.5, COT),
+        p(Bed, ChildrensWard, -34.4, FIRST, 55.5, COT),
+        p(Bed, ChildrensWard, -30.8, FIRST, 55.5, COT),
+        p(Bench, ChildrensWard, -44.3, FIRST, 46.75, (1.192, 1.025, 0.38)),
+        // The Sun Roof: two beds out in the weather and a deck chair.
+        p(Bed, SunRoof, -49.5, FIRST, 21.0, BED_ALONG_Z),
+        p(Bed, SunRoof, -49.5, FIRST, 25.5, BED_ALONG_Z),
+        p(Bench, SunRoof, -39.25, FIRST, 19.9, (1.4, 0.8, 0.7)),
+    ]
+};
 
 /// A stretch of wall along x at `z`, from `x0` to `x1`, with gaps at absolute `x`.
 fn xwall(b: &mut Builder, (x0, x1): (f32, f32), z: f32, y0: f32, height: f32, gaps: Vec<(f32, Gap)>) {

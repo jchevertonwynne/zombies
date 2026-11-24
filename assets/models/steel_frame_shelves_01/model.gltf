@@ -1,0 +1,159 @@
+{
+ "asset": {
+  "generator": "Khronos glTF Blender I/O v5.3.43",
+  "version": "2.0"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "name": "Scene",
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "mesh": 0,
+   "name": "steel_frame_shelves_01"
+  }
+ ],
+ "meshes": [
+  {
+   "name": "Cylinder.008",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2
+     },
+     "indices": 3,
+     "material": 0
+    }
+   ]
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 2116,
+   "max": [
+    0.5499999523162842,
+    2.1000001430511475,
+    0.25
+   ],
+   "min": [
+    -0.5499999523162842,
+    0,
+    -0.25
+   ],
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 2116,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 2116,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5123,
+   "count": 5820,
+   "type": "SCALAR"
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteLength": 25392,
+   "byteOffset": 0,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 25392,
+   "byteOffset": 25392,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 16928,
+   "byteOffset": 50784,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 11640,
+   "byteOffset": 67712,
+   "target": 34963
+  }
+ ],
+ "buffers": [
+  {
+   "byteLength": 79352,
+   "uri": "model.bin"
+  }
+ ],
+ "images": [
+  {
+   "uri": "color.ktx2"
+  },
+  {
+   "uri": "normal.ktx2"
+  },
+  {
+   "uri": "orm.ktx2"
+  }
+ ],
+ "samplers": [
+  {
+   "magFilter": 9729,
+   "minFilter": 9987,
+   "wrapS": 10497,
+   "wrapT": 10497
+  }
+ ],
+ "textures": [
+  {
+   "source": 0,
+   "sampler": 0
+  },
+  {
+   "source": 1,
+   "sampler": 0
+  },
+  {
+   "source": 2,
+   "sampler": 0
+  }
+ ],
+ "materials": [
+  {
+   "name": "steel_frame_shelves_01",
+   "pbrMetallicRoughness": {
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicRoughnessTexture": {
+     "index": 2
+    },
+    "metallicFactor": 1.0,
+    "roughnessFactor": 1.0
+   },
+   "normalTexture": {
+    "index": 1
+   },
+   "occlusionTexture": {
+    "index": 2
+   }
+  }
+ ]
+}

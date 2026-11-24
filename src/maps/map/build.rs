@@ -55,6 +55,12 @@ const MACHINE_STEEL: Color = Color::srgb(0.21, 0.26, 0.24);
 const MACHINE_PANEL: Color = Color::srgb(0.3, 0.35, 0.33);
 const BARK: Color = Color::srgb(0.22, 0.16, 0.11);
 const LEAVES: [Color; 2] = [Color::srgb(0.12, 0.2, 0.09), Color::srgb(0.16, 0.24, 0.1)];
+const STEEL_FRAME: Color = Color::srgb(0.34, 0.37, 0.36);
+const LOCKER_PAINT: Color = Color::srgb(0.46, 0.52, 0.44);
+const MATTRESS: Color = Color::srgb(0.62, 0.62, 0.56);
+const TUB_ENAMEL: Color = Color::srgb(0.7, 0.72, 0.68);
+const TUB_WATER: Color = Color::srgb(0.06, 0.09, 0.07);
+const WET_FLOOR_YELLOW: Color = Color::srgb(0.8, 0.66, 0.1);
 const HEADSTONE: [Color; 3] = [Color::srgb(0.55, 0.55, 0.53), Color::srgb(0.46, 0.47, 0.46), Color::srgb(0.6, 0.58, 0.52)];
 /// Hazard yellow, for the Jump Pads.
 const GENERATOR_CONSOLE_PAINT: Color = Color::srgb(0.32, 0.36, 0.3);
@@ -563,8 +569,12 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                     band(self, size.y / 2.0, 0.07, batten);
                 }
             }
-            PropKind::Table | PropKind::Bench => {
-                let (wood, top) = if kind == PropKind::Table { (TABLE_WOOD, 0.06) } else { (BENCH_WOOD, 0.08) };
+            PropKind::Table | PropKind::Bench | PropKind::Trolley => {
+                let (wood, top) = match kind {
+                    PropKind::Table => (TABLE_WOOD, 0.06),
+                    PropKind::Trolley => (STEEL_FRAME, 0.05),
+                    _ => (BENCH_WOOD, 0.08),
+                };
                 piece(self, Vec3::new(size.x, top, size.z), size.y - top, Vec2::ZERO, wood, mat);
                 let leg = Vec3::new(0.09, size.y - top, 0.09);
                 let (dx, dz) = (size.x / 2.0 - 0.1, size.z / 2.0 - 0.1);
@@ -593,8 +603,9 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                     piece(self, Vec3::new(size.x + 0.16, 0.3, size.z + 0.16), up, Vec2::ZERO, trim, None);
                 }
             }
-            PropKind::Shelf => {
-                piece(self, size, 0.0, Vec2::ZERO, SHELF_WOOD, mat);
+            PropKind::Shelf | PropKind::Locker => {
+                let paint = if kind == PropKind::Locker { LOCKER_PAINT } else { SHELF_WOOD };
+                piece(self, size, 0.0, Vec2::ZERO, paint, mat);
                 for k in 1..4 {
                     band(self, size.y * k as f32 / 4.0, 0.04, SHELF_BOARD);
                 }
@@ -660,6 +671,15 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
             }
             PropKind::Tree => {
                 piece(self, size, 0.0, Vec2::ZERO, BARK, mat);
+                // The Sanatorium's trees are dead: bare branches, no crown.
+                if zone.map() == MapId::Sanatorium {
+                    for (k, up) in [0.6_f32, 0.75, 0.9].into_iter().enumerate() {
+                        let tilt = Quat::from_rotation_y(k as f32 * 2.1 + nth as f32 * 0.5) * Quat::from_rotation_z(0.9);
+                        let len = 1.9 - k as f32 * 0.35;
+                        let centre = at + Vec3::Y * size.y * up + tilt * Vec3::Y * (len / 2.0);
+                        self.shape_in(Vec3::new(0.1, len, 0.1), centre, tilt, BARK, mat);
+                    }
+                } else {
                 // The crown, drawn but not solid, so nothing catches on it: two boxes of leaves
                 // until its alpha cards (crossed, three to a clump) have loaded to replace them.
                 let turn = if nth.is_multiple_of(2) { 1.0 } else { -1.0 };
@@ -680,6 +700,23 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                         ));
                     }
                 }
+                }
+            }
+            PropKind::Bed => {
+                // A frame, a mattress on it and a head board at one end.
+                let (frame, mattress) = (size.y * 0.55, 0.12);
+                piece(self, Vec3::new(size.x, frame, size.z), 0.0, Vec2::ZERO, STEEL_FRAME, mat);
+                piece(self, Vec3::new(size.x - 0.08, mattress, size.z - 0.08), frame, Vec2::ZERO, MATTRESS, Some(Material::FabricPattern07));
+                let (head, off) = if size.x > size.z { (Vec3::new(0.08, size.y, size.z), Vec2::new(size.x / 2.0 - 0.04, 0.0)) } else { (Vec3::new(size.x, size.y, 0.08), Vec2::new(0.0, size.z / 2.0 - 0.04)) };
+                piece(self, head, 0.0, off, STEEL_FRAME, mat);
+            }
+            PropKind::Tub => {
+                // A roll-top tub: its enamel sides, and dark water in the bowl.
+                piece(self, size, 0.0, Vec2::ZERO, TUB_ENAMEL, mat);
+                piece(self, Vec3::new(size.x - 0.2, 0.02, size.z - 0.2), size.y - 0.01, Vec2::ZERO, TUB_WATER, None);
+            }
+            PropKind::Sign => {
+                piece(self, size, 0.0, Vec2::ZERO, WET_FLOOR_YELLOW, mat);
             }
             PropKind::Headstone => {
                 // A slab with a narrower cap, leaning a little this way or that.

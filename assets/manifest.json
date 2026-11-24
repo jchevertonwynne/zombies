@@ -49,6 +49,14 @@
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
+      "path": "audio/boiler_drone_1.ogg",
+      "name": "Freesound 567148, Steel mill low frequency drone (sarana)",
+      "source": "https://freesound.org/people/sarana/sounds/567148/",
+      "licence": "CC0",
+      "fetched": "2026-11-24",
+      "notes": "Freesound HQ preview (mp3), CC0 on its page; 12-24 s cross-faded (1 s) into a seamless 11 s loop, normalised, mono, OGG q4 via tools/audio/process.py"
+    },
+    {
       "path": "audio/boon_offer.ogg",
       "name": "boon_offer, composed for this project",
       "source": "tools/audio/compose.py",
@@ -169,6 +177,14 @@
       "notes": "Commendation: a short bugle-style call on a D major arpeggio, with a bell. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
     },
     {
+      "path": "audio/crash_bar_1.ogg",
+      "name": "Freesound 799198, Lab Door Open and Close Industrial Sci-Fi (kentspublicdomain)",
+      "source": "https://freesound.org/people/kentspublicdomain/sounds/799198/",
+      "licence": "CC0",
+      "fetched": "2026-11-24",
+      "notes": "Freesound HQ preview (mp3), CC0 on its page; the latch and push 3.5-4.5 s, normalised, mono, OGG q4 via tools/audio/process.py"
+    },
+    {
       "path": "audio/crawl_drag_1.ogg",
       "name": "Freesound 578493, Dragging a body across a concrete floor 2 (PostProdDog)",
       "source": "https://freesound.org/people/PostProdDog/sounds/578493/",
@@ -223,6 +239,30 @@
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Trimmed, normalised to -26 LUFS (foley), mono, OGG q4, via tools/audio/process.py"
+    },
+    {
+      "path": "audio/door_pound_1.ogg",
+      "name": "Freesound 739197, Sci-Fi Mechanical Door (CheatinSloth), clang tail, variant 1",
+      "source": "https://freesound.org/people/CheatinSloth/sounds/739197/",
+      "licence": "CC0",
+      "fetched": "2026-11-24",
+      "notes": "Freesound HQ preview (mp3), CC0 on its page; the clang tail 3.7-5.6 s, pitched by playback rate (x0.9, x1.0, x1.13 for variants 1-3), normalised, mono, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/door_pound_2.ogg",
+      "name": "Freesound 739197, Sci-Fi Mechanical Door (CheatinSloth), clang tail, variant 2",
+      "source": "https://freesound.org/people/CheatinSloth/sounds/739197/",
+      "licence": "CC0",
+      "fetched": "2026-11-24",
+      "notes": "Freesound HQ preview (mp3), CC0 on its page; the clang tail 3.7-5.6 s, pitched by playback rate (x0.9, x1.0, x1.13 for variants 1-3), normalised, mono, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/door_pound_3.ogg",
+      "name": "Freesound 739197, Sci-Fi Mechanical Door (CheatinSloth), clang tail, variant 3",
+      "source": "https://freesound.org/people/CheatinSloth/sounds/739197/",
+      "licence": "CC0",
+      "fetched": "2026-11-24",
+      "notes": "Freesound HQ preview (mp3), CC0 on its page; the clang tail 3.7-5.6 s, pitched by playback rate (x0.9, x1.0, x1.13 for variants 1-3), normalised, mono, OGG q4 via tools/audio/process.py"
     },
     {
       "path": "audio/down_1.ogg",
@@ -303,6 +343,22 @@
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/fluorescent_hum_1.ogg",
+      "name": "Freesound 777053, Flickering Fluorescent Light with Background Hum, seamless loop (kentspublicdomain)",
+      "source": "https://freesound.org/people/kentspublicdomain/sounds/777053/",
+      "licence": "CC0",
+      "fetched": "2026-11-24",
+      "notes": "Freesound HQ preview (mp3), CC0 on its page; whole 9 s seamless loop, normalised, mono, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/fog_wind_1.ogg",
+      "name": "Freesound 444921, Wind through trees (loop) (NomadApe)",
+      "source": "https://freesound.org/people/NomadApe/sounds/444921/",
+      "licence": "CC0",
+      "fetched": "2026-11-24",
+      "notes": "Freesound HQ preview (mp3), CC0 on its page; 16-40 s cross-faded (2 s) into a seamless 22 s loop, normalised, mono (kept small; Flat), OGG q4 via tools/audio/process.py. The wind #504 could not find: a CC0 wind from NomadApe"
     },
     {
       "path": "audio/footstep_1.ogg",
@@ -497,6 +553,14 @@
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
+      "path": "audio/heart_monitor_1.ogg",
+      "name": "Freesound 148897, Heart Monitor Beep (samfk360)",
+      "source": "https://freesound.org/people/samfk360/sounds/148897/",
+      "licence": "CC0",
+      "fetched": "2026-11-24",
+      "notes": "Freesound HQ preview (mp3), CC0 on its page; 2.0-6.0 s (four beeps at one-second intervals, cut in the gaps so it loops), normalised, mono, OGG q4 via tools/audio/process.py"
+    },
+    {
       "path": "audio/hellhound_round_start.ogg",
       "name": "hellhound_round_start, composed for this project",
       "source": "tools/audio/compose.py",
@@ -583,6 +647,30 @@
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/lamp_flicker_1.ogg",
+      "name": "Freesound 232447, Lights Flicker On (mmaruska), slice",
+      "source": "https://freesound.org/people/mmaruska/sounds/232447/",
+      "licence": "CC0",
+      "fetched": "2026-11-24",
+      "notes": "Freesound HQ preview (mp3), CC0 on its page; slice 0.8-1.6 s, normalised, mono, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/lamp_flicker_2.ogg",
+      "name": "Freesound 232446, Lights Flicker on and some electrical Noises (mmaruska), slice 18 s",
+      "source": "https://freesound.org/people/mmaruska/sounds/232446/",
+      "licence": "CC0",
+      "fetched": "2026-11-24",
+      "notes": "Freesound HQ preview (mp3), CC0 on its page; slice 18.1-18.9 s, normalised, mono, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/lamp_flicker_3.ogg",
+      "name": "Freesound 232446, Lights Flicker on and some electrical Noises (mmaruska), slice 29 s",
+      "source": "https://freesound.org/people/mmaruska/sounds/232446/",
+      "licence": "CC0",
+      "fetched": "2026-11-24",
+      "notes": "Freesound HQ preview (mp3), CC0 on its page; slice 29.0-29.6 s, normalised, mono, OGG q4 via tools/audio/process.py"
     },
     {
       "path": "audio/low_health_1.ogg",
@@ -873,6 +961,46 @@
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
+      "path": "audio/quarantine_klaxon_1.ogg",
+      "name": "Freesound 699248, Emergency Alarm (Mozfoo)",
+      "source": "https://freesound.org/people/Mozfoo/sounds/699248/",
+      "licence": "CC0",
+      "fetched": "2026-11-24",
+      "notes": "Freesound HQ preview (mp3), CC0 on its page; 1.0-4.0 s (three two-tone cycles) cross-faded into a seamless loop, normalised, mono, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/quarantine_release_1.ogg",
+      "name": "Freesound 607265, Sci-Fi Doors-Airlock Sound Effect (RyanKingArt), hiss, with a composed chime",
+      "source": "https://freesound.org/people/RyanKingArt/sounds/607265/",
+      "licence": "CC0",
+      "fetched": "2026-11-24",
+      "notes": "Freesound HQ preview (mp3), CC0 on its page; the hiss 0.0-1.7 s with a two-note bell chime (A4, E5) composed by tools/audio/compose.py (quarantine_release_chime, CC0, composed for this project) mixed in 0.5 s late; normalised, mono, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/quarantine_siren_1.ogg",
+      "name": "Freesound 533588, Siren warning: NBC Alarm (Breviceps)",
+      "source": "https://freesound.org/people/Breviceps/sounds/533588/",
+      "licence": "CC0",
+      "fetched": "2026-11-24",
+      "notes": "Freesound HQ preview (mp3), CC0 on its page; 3.0-9.0 s, faded out, normalised, stereo (Flat), OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/quarantine_slam_1.ogg",
+      "name": "Freesound 264063, Hatch Seal (Paul368), layered with bridge_clunk",
+      "source": "https://freesound.org/people/Paul368/sounds/264063/",
+      "licence": "CC0",
+      "fetched": "2026-11-24",
+      "notes": "Freesound HQ preview (mp3), CC0 on its page; 2.95-5.4 s (seal and bolt) mixed with this project's bridge_clunk_1.ogg (celadon_noise 399449, CC0) at 0.7, 60 ms late; normalised, mono, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/quarantine_swing_1.ogg",
+      "name": "Freesound 607265, Sci-Fi Doors-Airlock Sound Effect (RyanKingArt), motion",
+      "source": "https://freesound.org/people/RyanKingArt/sounds/607265/",
+      "licence": "CC0",
+      "fetched": "2026-11-24",
+      "notes": "Freesound HQ preview (mp3), CC0 on its page; the door-motion section 5.9-8.4 s, normalised, mono, OGG q4 via tools/audio/process.py"
+    },
+    {
       "path": "audio/ray_gun_1.ogg",
       "name": "Freesound 635426, Freesound - Futuristic shot #3 (BloodPixelHero)",
       "source": "https://freesound.org/people/BloodPixelHero/sounds/635426/",
@@ -887,6 +1015,14 @@
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/room_tone_1.ogg",
+      "name": "Freesound 451914, room tone bassy hospital stairwell hum +distant noises (kyles)",
+      "source": "https://freesound.org/people/kyles/sounds/451914/",
+      "licence": "CC0",
+      "fetched": "2026-11-24",
+      "notes": "Freesound HQ preview (mp3), CC0 on its page; 40-70 s cross-faded (1.5 s) into a seamless 28.5 s loop, normalised, mono (kept small; Flat), OGG q4 via tools/audio/process.py"
     },
     {
       "path": "audio/round_end.ogg",
@@ -1143,6 +1279,22 @@
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Trimmed, normalised to -26 LUFS (foley), mono, OGG q4, via tools/audio/process.py"
+    },
+    {
+      "path": "audio/trolley_squeak_1.ogg",
+      "name": "Freesound 389687, Squeaky Wheels (Shamewap)",
+      "source": "https://freesound.org/people/Shamewap/sounds/389687/",
+      "licence": "CC0",
+      "fetched": "2026-11-24",
+      "notes": "Freesound HQ preview (mp3), CC0 on its page; 0.3-2.3 s, normalised, mono, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/trolley_squeak_2.ogg",
+      "name": "Freesound 219268, squeaky.wav (servicedesign)",
+      "source": "https://freesound.org/people/servicedesign/sounds/219268/",
+      "licence": "CC0",
+      "fetched": "2026-11-24",
+      "notes": "Freesound HQ preview (mp3), CC0 on its page; 9.9-12.0 s, normalised, mono, OGG q4 via tools/audio/process.py"
     },
     {
       "path": "audio/twist_round_start.ogg",
@@ -2042,12 +2194,28 @@
       "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 0.66 x 0.95 x 0.66 m (length, height, depth); textures as KTX2 via texpack"
     },
     {
+      "path": "models/WetFloorSign_01",
+      "name": "Wet Floor Sign 01",
+      "source": "https://polyhaven.com/a/WetFloorSign_01",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "1K glTF decimated by tools/props to 228 triangles, unit 0.36 x 0.63 x 0.3 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
       "path": "models/barrel_03",
       "name": "Barrel 03",
       "source": "https://polyhaven.com/a/barrel_03",
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "1K glTF decimated by tools/props to 1473 triangles, unit 0.66 x 0.95 x 0.66 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "models/drawer_cabinet",
+      "name": "Drawer Cabinet",
+      "source": "https://polyhaven.com/a/drawer_cabinet",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "1K glTF decimated by tools/props to 1938 triangles, unit 1.1 x 1.8 x 0.5 m (length, height, depth); textures as KTX2 via texpack"
     },
     {
       "path": "models/hellhound",
@@ -2066,6 +2234,14 @@
       "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 2 x 0.8 x 1 m (length, height, depth); textures as KTX2 via texpack"
     },
     {
+      "path": "models/old_bed_frame",
+      "name": "Old Bed Frame",
+      "source": "https://polyhaven.com/a/old_bed_frame",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 2 x 1.1 x 0.9 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
       "path": "models/painted_wooden_cabinet_02",
       "name": "Painted Wooden Cabinet 02",
       "source": "https://polyhaven.com/a/painted_wooden_cabinet_02",
@@ -2082,12 +2258,44 @@
       "notes": "1K glTF decimated by tools/props to 600 triangles, unit 2.5 x 0.8 x 1.1 m (length, height, depth); textures as KTX2 via texpack"
     },
     {
+      "path": "models/steel_frame_shelves_01",
+      "name": "Steel Frame Shelves 01",
+      "source": "https://polyhaven.com/a/steel_frame_shelves_01",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 1.1 x 2.1 x 0.5 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "models/tool_cart",
+      "name": "Tool Cart",
+      "source": "https://polyhaven.com/a/tool_cart",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 1.2 x 0.95 x 0.75 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "models/vintage_day_bed",
+      "name": "Vintage Day Bed",
+      "source": "https://polyhaven.com/a/vintage_day_bed",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 2 x 1.1 x 0.85 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
       "path": "models/vintage_wooden_drawer_01",
       "name": "Vintage Wooden Drawer 01",
       "source": "https://polyhaven.com/a/vintage_wooden_drawer_01",
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "1K glTF decimated by tools/props to 1939 triangles, unit 1.4 x 1 x 0.85 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "models/wheelchair_01",
+      "name": "Wheelchair 01",
+      "source": "https://polyhaven.com/a/wheelchair_01",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "1K glTF decimated by tools/props to 1939 triangles, unit 1 x 1 x 0.75 m (length, height, depth); textures as KTX2 via texpack"
     },
     {
       "path": "models/wine_barrel_01",
@@ -2122,12 +2330,76 @@
       "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 0.95 x 2 x 0.6 m (length, height, depth); textures as KTX2 via texpack"
     },
     {
+      "path": "props/ambulance",
+      "name": "Derelict ambulance (kitbash for the Sanatorium)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/green_metal_rust, https://polyhaven.com/a/rusty_metal_02",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/green_metal_rust and materials/rusty_metal_02 (Poly Haven, CC0), no new texture files"
+    },
+    {
+      "path": "props/bath_tub",
+      "name": "Bath tub (kitbash for the Sanatorium)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/long_white_tiles, https://polyhaven.com/a/rusty_metal_02",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/long_white_tiles and materials/rusty_metal_02 (Poly Haven, CC0), no new texture files"
+    },
+    {
+      "path": "props/cot",
+      "name": "Cot (kitbash for the Sanatorium)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/dark_wooden_planks, https://polyhaven.com/a/fabric_pattern_07",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/dark_wooden_planks and materials/fabric_pattern_07 (Poly Haven, CC0), no new texture files"
+    },
+    {
       "path": "props/crates",
       "name": "Crate stacks (kitbash of Poly Haven Wooden Crate 02)",
       "source": "https://polyhaven.com/a/wooden_crate_02",
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "2- and 3-high stacks of wooden_crate_02 (1K glTF), each crate decimated to ~325 triangles and stretched to a 0.53 m layer, joined into one mesh by tools/props/kitbash.py. Textures are the model's 1K diffuse, nor_gl and arm via texpack"
+    },
+    {
+      "path": "props/dressing_trolley",
+      "name": "Dressing trolley (kitbash for the Sanatorium)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/rusty_metal_02, https://polyhaven.com/a/metal_plate_02",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/rusty_metal_02 and materials/metal_plate_02 (Poly Haven, CC0), no new texture files"
+    },
+    {
+      "path": "props/gurney",
+      "name": "Gurney (kitbash for the Sanatorium)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/rusty_metal_02, https://polyhaven.com/a/fabric_pattern_07",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/rusty_metal_02 and materials/fabric_pattern_07 (Poly Haven, CC0), no new texture files"
+    },
+    {
+      "path": "props/locker_bank",
+      "name": "Locker bank (kitbash for the Sanatorium)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/painted_metal_shutter, https://polyhaven.com/a/rusty_metal_02",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/painted_metal_shutter and materials/rusty_metal_02 (Poly Haven, CC0), no new texture files"
+    },
+    {
+      "path": "props/mortuary_slab",
+      "name": "Mortuary slab (kitbash for the Sanatorium)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/metal_plate_02, https://polyhaven.com/a/rusty_metal_02",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/metal_plate_02 and materials/rusty_metal_02 (Poly Haven, CC0), no new texture files"
+    },
+    {
+      "path": "props/rocking_horse",
+      "name": "Rocking horse (kitbash for the Sanatorium)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/dark_wooden_planks, https://polyhaven.com/a/fabric_pattern_07",
+      "licence": "CC0",
+      "fetched": "2026-11-23",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/dark_wooden_planks and materials/fabric_pattern_07 (Poly Haven, CC0), no new texture files"
     },
     {
       "path": "props/sandbags",
@@ -2319,62 +2591,6 @@
       "licence": "CC0 (Poly Haven sets, recoloured and cropped; the camo is made in this repo)",
       "fetched": "2026-11-20",
       "notes": "1K atlas of the gun finishes, gloves and sleeves, plus the shared purple camo; layout in src/weapons/atlas.rs"
-    },
-    {
-      "path": "audio/quarantine_klaxon.ogg",
-      "name": "Quarantine klaxon placeholder",
-      "source": "tools/gen-sounds (synthesised, no samples)",
-      "licence": "CC0 (synthesised for this project)",
-      "fetched": "2026-11-23",
-      "notes": "Placeholder for Cue::QuarantineKlaxon: a two-tone alarm. To be replaced by the real recording in the sound ticket (#505 section 8)"
-    },
-    {
-      "path": "audio/quarantine_siren.ogg",
-      "name": "Quarantine siren placeholder",
-      "source": "tools/gen-sounds (synthesised, no samples)",
-      "licence": "CC0 (synthesised for this project)",
-      "fetched": "2026-11-23",
-      "notes": "Placeholder for Cue::QuarantineSiren: a rising and falling siren. To be replaced by the real recording in the sound ticket (#505 section 8)"
-    },
-    {
-      "path": "audio/quarantine_swing.ogg",
-      "name": "Quarantine swing placeholder",
-      "source": "tools/gen-sounds (synthesised, no samples)",
-      "licence": "CC0 (synthesised for this project)",
-      "fetched": "2026-11-23",
-      "notes": "Placeholder for Cue::QuarantineSwing: heavy hinges moving. To be replaced by the real recording in the sound ticket (#505 section 8)"
-    },
-    {
-      "path": "audio/quarantine_slam.ogg",
-      "name": "Quarantine slam placeholder",
-      "source": "tools/gen-sounds (synthesised, no samples)",
-      "licence": "CC0 (synthesised for this project)",
-      "fetched": "2026-11-23",
-      "notes": "Placeholder for Cue::QuarantineSlam: two steel doors meeting. To be replaced by the real recording in the sound ticket (#505 section 8)"
-    },
-    {
-      "path": "audio/quarantine_release.ogg",
-      "name": "Quarantine release placeholder",
-      "source": "tools/gen-sounds (synthesised, no samples)",
-      "licence": "CC0 (synthesised for this project)",
-      "fetched": "2026-11-23",
-      "notes": "Placeholder for Cue::QuarantineRelease: a hiss and a two-note chime. To be replaced by the real recording in the sound ticket (#505 section 8)"
-    },
-    {
-      "path": "audio/crash_bar.ogg",
-      "name": "Crash Bar placeholder",
-      "source": "tools/gen-sounds (synthesised, no samples)",
-      "licence": "CC0 (synthesised for this project)",
-      "fetched": "2026-11-23",
-      "notes": "Placeholder for Cue::CrashBar: a push bar giving way. To be replaced by the real recording in the sound ticket (#505 section 8)"
-    },
-    {
-      "path": "audio/door_pound.ogg",
-      "name": "Door pound placeholder",
-      "source": "tools/gen-sounds (synthesised, no samples)",
-      "licence": "CC0 (synthesised for this project)",
-      "fetched": "2026-11-23",
-      "notes": "Placeholder for Cue::DoorPound: a fist on a steel door. To be replaced by the real recording in the sound ticket (#505 section 8)"
     }
   ]
 }

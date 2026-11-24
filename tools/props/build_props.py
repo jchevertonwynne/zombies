@@ -213,13 +213,72 @@ def build_headstone(blender, work, scan, source):
     })
 
 
+# The Sanatorium's kitbashes (#525): each is built from primitives by `kitbash.py`, one mesh per unit, wearing
+# material sets already under assets/materials. unit -> (name, {material set: base-colour tint}).
+SANATORIUM_KITS = {
+    "gurney": ("Gurney", {"rusty_metal_02": None, "fabric_pattern_07": [0.78, 0.8, 0.74, 1.0]}),
+    "dressing_trolley": ("Dressing trolley", {"rusty_metal_02": None, "metal_plate_02": None}),
+    "locker_bank": ("Locker bank", {"painted_metal_shutter": [0.66, 0.72, 0.6, 1.0], "rusty_metal_02": None}),
+    "cot": ("Cot", {"dark_wooden_planks": None, "fabric_pattern_07": [0.82, 0.84, 0.78, 1.0]}),
+    "mortuary_slab": ("Mortuary slab", {"metal_plate_02": None, "rusty_metal_02": None}),
+    "bath_tub": ("Bath tub", {"long_white_tiles": [0.86, 0.9, 0.86, 1.0], "rusty_metal_02": None}),
+    "rocking_horse": ("Rocking horse", {"dark_wooden_planks": None, "fabric_pattern_07": [0.7, 0.55, 0.5, 1.0]}),
+    "ambulance": ("Derelict ambulance", {"green_metal_rust": None, "rusty_metal_02": [0.28, 0.28, 0.28, 1.0]}),
+}
+
+
+def patch_sets(path, tints):
+    """Gives each of a unit's materials (named for a material set) that set's textures, from
+    `assets/materials/<set>`, with its tint."""
+    doc = json.loads(path.read_text())
+    sets = list(tints)
+    doc["images"] = [{"uri": f"../../materials/{name}/{kind}.ktx2"} for name in sets for kind in ("color", "normal", "orm")]
+    doc["samplers"] = [{"magFilter": 9729, "minFilter": 9987, "wrapS": 10497, "wrapT": 10497}]
+    doc["textures"] = [{"sampler": 0, "source": i} for i in range(len(doc["images"]))]
+    for material in doc["materials"]:
+        k = sets.index(material["name"])
+        material["doubleSided"] = False
+        pbr = material["pbrMetallicRoughness"]
+        pbr["baseColorTexture"] = {"index": 3 * k}
+        pbr["metallicRoughnessTexture"] = {"index": 3 * k + 2}
+        pbr["metallicFactor"] = 1.0
+        pbr["roughnessFactor"] = 1.0
+        if tints[material["name"]]:
+            pbr["baseColorFactor"] = tints[material["name"]]
+        material["normalTexture"] = {"index": 3 * k + 1}
+        material["occlusionTexture"] = {"index": 3 * k + 2}
+    path.write_text(json.dumps(doc, indent=1) + "\n")
+
+
+def build_sanatorium(blender, only):
+    for unit, (name, tints) in SANATORIUM_KITS.items():
+        if only not in (None, "sanatorium", unit):
+            continue
+        out = ASSETS / "props" / unit
+        shutil.rmtree(out, ignore_errors=True)
+        out.mkdir(parents=True)
+        run_blender(blender, ["--out", out, "--src", out, "--only", unit])
+        patch_sets(out / f"{unit}.gltf", tints)
+        record({
+            "path": f"props/{unit}",
+            "name": f"{name} (kitbash for the Sanatorium)",
+            "source": "tools/props/kitbash.py, from " + ", ".join(f"https://polyhaven.com/a/{s}" for s in tints),
+            "licence": "CC0",
+            "fetched": today(),
+            "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/" + " and materials/".join(tints) + " (Poly Haven, CC0), no new texture files",
+        })
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--blender", default=os.environ.get("BLENDER", BLENDER_DEFAULT))
-    parser.add_argument("--only", choices=["crate", "sandbags", "headstone"])
+    parser.add_argument("--only", choices=["crate", "sandbags", "headstone", "sanatorium", *SANATORIUM_KITS])
     parser.add_argument("--headstone-scan")
     parser.add_argument("--headstone-source")
     args = parser.parse_args()
+    if args.only in ("sanatorium", *SANATORIUM_KITS):
+        build_sanatorium(args.blender, args.only)
+        return
     with tempfile.TemporaryDirectory() as tmp:
         work = pathlib.Path(tmp)
         src = work / "src"

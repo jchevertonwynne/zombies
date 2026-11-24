@@ -428,6 +428,8 @@ fn default_variants(kind: PropKind) -> &'static [PropVariant] {
     const BROKEN: &[PropVariant] = &[boxed(BrokenWall)];
     const STEEL: &[PropVariant] = &[boxed(RustyMetal02)];
     const BARK: &[PropVariant] = &[boxed(BarkBrown02)];
+    const SHUTTER: &[PropVariant] = &[boxed(PaintedMetalShutter)];
+    const TILE: &[PropVariant] = &[boxed(LongWhiteTiles)];
     // The kitbashes: stacks of crates (3 high for the tall Props, 2 for the others), courses of
     // burlap sandbags (5 high, then 3), and the Headstone's box until a scan has been baked.
     const CRATES: &[PropVariant] = &[
@@ -450,6 +452,9 @@ fn default_variants(kind: PropKind) -> &'static [PropVariant] {
         PropKind::Tree => BARK,
         PropKind::Sandbags => SANDBAGS,
         PropKind::Headstone => HEADSTONES,
+        PropKind::Bed | PropKind::Trolley => STEEL,
+        PropKind::Locker | PropKind::Sign => SHUTTER,
+        PropKind::Tub => TILE,
     }
 }
 
@@ -491,6 +496,34 @@ const BOOKSHELF: PropVariant = model("models/wooden_bookshelf_worn/model.gltf", 
 const CABINET: PropVariant = model("models/painted_wooden_cabinet_02/model.gltf", (1.0, 2.3, 0.65), textures::Material::WeatheredPlanks);
 const METAL_RACK: PropVariant = model("models/worn_metal_rack/model.gltf", (0.95, 2.0, 0.6), textures::Material::RustyMetal02);
 
+// The Sanatorium's (#525): seven more Poly Haven models, and eight kitbashes (tools/props/kitbash.py) for the
+// gurney, the trolley, the lockers and the rest that no CC0 model stands in for.
+const OLD_BED: PropVariant = model("models/old_bed_frame/model.gltf", (2.0, 1.1, 0.9), textures::Material::RustyMetal02);
+const WHEELCHAIR: PropVariant = model("models/wheelchair_01/model.gltf", (1.0, 1.0, 0.75), textures::Material::RustyMetal02);
+const TOOL_CART: PropVariant = model("models/tool_cart/model.gltf", (1.2, 0.949, 0.749), textures::Material::RustyMetal02);
+const STEEL_SHELVES: PropVariant = model("models/steel_frame_shelves_01/model.gltf", (1.1, 2.1, 0.5), textures::Material::RustyMetal02);
+/// Laid three times by the fitting as the Mortuary's drawer bank.
+const DRAWER_CABINET: PropVariant = model("models/drawer_cabinet/model.gltf", (1.076, 1.8, 0.5), textures::Material::PaintedMetalShutter);
+const WET_FLOOR_SIGN: PropVariant = model("models/WetFloorSign_01/model.gltf", (0.36, 0.63, 0.3), textures::Material::PaintedMetalShutter);
+const DAY_BED: PropVariant = model("models/vintage_day_bed/model.gltf", (2.0, 1.1, 0.85), textures::Material::FabricPattern07);
+const GURNEY: PropVariant = kitbash("props/gurney/gurney.gltf", Vec3::new(2.016, 1.044, 0.58), textures::Material::RustyMetal02);
+const DRESSING_TROLLEY: PropVariant = kitbash("props/dressing_trolley/dressing_trolley.gltf", Vec3::new(0.9, 0.968, 0.53), textures::Material::MetalPlate02);
+const LOCKER_BANK: PropVariant = kitbash("props/locker_bank/locker_bank.gltf", Vec3::new(1.22, 1.8, 0.5), textures::Material::PaintedMetalShutter);
+const COT: PropVariant = kitbash("props/cot/cot.gltf", Vec3::new(1.25, 0.85, 0.65), textures::Material::DarkWoodenPlanks);
+const MORTUARY_SLAB: PropVariant = kitbash("props/mortuary_slab/mortuary_slab.gltf", Vec3::new(2.1, 0.98, 0.75), textures::Material::MetalPlate02);
+const BATH_TUB: PropVariant = kitbash("props/bath_tub/bath_tub.gltf", Vec3::new(1.74, 0.72, 0.82), textures::Material::LongWhiteTiles);
+const ROCKING_HORSE: PropVariant = kitbash("props/rocking_horse/rocking_horse.gltf", Vec3::new(1.192, 1.025, 0.38), textures::Material::DarkWoodenPlanks);
+const AMBULANCE: PropVariant = kitbash("props/ambulance/ambulance.gltf", Vec3::new(5.12, 2.26, 2.14), textures::Material::GreenMetalRust);
+
+// Textured boxes the Sanatorium's sets name (a call can't sit in a promoted constant).
+const STONE_BOX: PropVariant = boxed(textures::Material::RockWall08);
+const PLANK_BOX: PropVariant = boxed(textures::Material::WeatheredPlanks);
+const BOILER_BOX: PropVariant = boxed(textures::Material::GreenMetalRust);
+const COAL_BOX: PropVariant = boxed(textures::Material::DarkRock);
+const FABRIC_BOX: PropVariant = boxed(textures::Material::FabricPattern07);
+const PIANO_BOX: PropVariant = boxed(textures::Material::BlackPaintedPlanks);
+const PLATE_BOX: PropVariant = boxed(textures::Material::MetalPlate02);
+
 /// Workbenches, racks and counters are steel in the Workshop.
 const WORKSHOP_PROPS: &[(PropKind, &[PropVariant])] = &[
     (PropKind::Table, &[boxed(textures::Material::RustyMetal02)]),
@@ -529,6 +562,31 @@ fn zone_props(zone: ZoneId) -> &'static [(PropKind, &'static [PropVariant])] {
         FishMarket | TownSquare => &[(PropKind::Counter, &[DRAWER])],
         Taverna | KeepersCottage => &[(PropKind::Table, &[WOODEN_TABLE])],
         LockYard => &[(PropKind::Barrel, &[WINE_BARREL])],
+        // The Sanatorium (#505 §7): what each Zone's Props wear. The kinds it doesn't name stay planks,
+        // steel or stone boxes. nth picks between variants, the one whose unit fits the Prop size first.
+        EntranceHall => &[(PropKind::Counter, &[DRAWER]), (PropKind::Trolley, &[WHEELCHAIR])],
+        Forecourt => &[(PropKind::Pillar, &[STONE_BOX]), (PropKind::Machine, &[AMBULANCE])],
+        WestCorridor | EastCorridor => &[(PropKind::Trolley, &[WHEELCHAIR, DRESSING_TROLLEY]), (PropKind::Sign, &[WET_FLOOR_SIGN])],
+        GardenCourt => &[(PropKind::Pillar, &[PLANK_BOX])],
+        Refectory => &[(PropKind::Table, &[PAINTED_TABLE])],
+        BoilerHouse => &[
+            (PropKind::Machine, &[BOILER_BOX]),
+            (PropKind::Rubble, &[COAL_BOX]),
+            (PropKind::Barrel, &[BARREL_03, BARREL_01]),
+            (PropKind::Trolley, &[TOOL_CART]),
+        ],
+        Mortuary => &[(PropKind::Bed, &[MORTUARY_SLAB]), (PropKind::Locker, &[DRAWER_CABINET, LOCKER_BANK])],
+        LongWard | IsolationWard | SunRoof => &[(PropKind::Bed, &[OLD_BED]), (PropKind::Shelf, &[FABRIC_BOX])],
+        DayRoom => &[
+            (PropKind::Bed, &[DAY_BED]),
+            (PropKind::Bench, &[FABRIC_BOX]),
+            (PropKind::Counter, &[PIANO_BOX]),
+        ],
+        BathHall => &[(PropKind::Tub, &[BATH_TUB])],
+        TreatmentRoom => &[(PropKind::Machine, &[PLATE_BOX]), (PropKind::Bed, &[GURNEY])],
+        ChildrensWard => &[(PropKind::Bed, &[COT]), (PropKind::Bench, &[ROCKING_HORSE])],
+        UpperLanding => &[(PropKind::Shelf, &[STEEL_SHELVES]), (PropKind::Trolley, &[WHEELCHAIR])],
+        OperatingTheatre => &[(PropKind::Trolley, &[DRESSING_TROLLEY])],
         _ => &[],
     }
 }
@@ -1022,6 +1080,16 @@ pub enum PropKind {
     Tree,
     /// A headstone.
     Headstone,
+    /// A bed, a cot, a gurney, a mortuary slab: a low sleeping surface on a frame.
+    Bed,
+    /// A wheelchair, a dressing trolley, a tool cart: a thing on castors.
+    Trolley,
+    /// A bank of lockers or drawers, floor to chest or head.
+    Locker,
+    /// A bath tub.
+    Tub,
+    /// A sign standing on the floor.
+    Sign,
 }
 
 /// Something standing on a floor, for the Player to weave round or jump onto and for Zombies to
@@ -1395,7 +1463,7 @@ pub(crate) mod tests {
         // A Pillar wears its Zone's wall.
         assert_eq!(prop_variant(ZoneId::Passage, PropKind::Pillar, 3, Vec3::ONE).unwrap().material, BrickWall001);
         // Every kind but none still in paint has a look in every Zone, and nth wraps round.
-        for kind in [PropKind::Crate, PropKind::Sandbags, PropKind::Headstone, PropKind::Table, PropKind::Bench, PropKind::Counter, PropKind::Altar, PropKind::Pillar, PropKind::Shelf, PropKind::Rubble, PropKind::Barrel, PropKind::Machine, PropKind::Tree] {
+        for kind in [PropKind::Crate, PropKind::Sandbags, PropKind::Headstone, PropKind::Table, PropKind::Bench, PropKind::Counter, PropKind::Altar, PropKind::Pillar, PropKind::Shelf, PropKind::Rubble, PropKind::Barrel, PropKind::Machine, PropKind::Tree, PropKind::Bed, PropKind::Trolley, PropKind::Locker, PropKind::Tub, PropKind::Sign] {
             assert!(prop_variant(ZoneId::StartRoom, kind, 7, Vec3::ONE).is_some(), "{kind:?}");
         }
         // With two variants named, nth alternates.
@@ -1414,7 +1482,7 @@ pub(crate) mod tests {
             let Some(set) = materials(Some(zone)) else { continue };
             for (kind, variants) in set.props {
                 for (path, unit) in variants.iter().filter_map(|variant| variant.model) {
-                    assert!(path.starts_with("models/") && path.ends_with("/model.gltf"), "{path}");
+                    assert!((path.starts_with("models/") && path.ends_with("/model.gltf")) || (path.starts_with("props/") && path.ends_with(".gltf")), "{path}");
                     let mut props = MapId::ALL.iter().flat_map(|map| map.layout().props.iter()).filter(|prop| prop.zone == zone && prop.kind == *kind);
                     let covered = |prop: &Prop| if *kind == PropKind::Counter { Vec3::new(prop.size.x, prop.size.y - 0.05, prop.size.z) } else { prop.size };
                     assert!(props.any(|prop| fitting::fit(unit, covered(prop)).is_some()), "{path} fits no {kind:?} in {zone:?}");
@@ -1431,7 +1499,7 @@ pub(crate) mod tests {
         assert!(checked >= 20, "only {checked} model variants named");
     }
 
-    /// Each of the ten Poly Haven models is named by some Zone's set.
+    /// Each of the seventeen Poly Haven models (ten, and the Sanatorium's seven) is named by some Zone's set.
     #[test]
     fn every_poly_haven_prop_model_belongs_to_a_zone() {
         let mut named = Vec::new();
@@ -1442,7 +1510,8 @@ pub(crate) mod tests {
                 }
             }
         }
-        for id in ["barrel_03", "Barrel_01", "wine_barrel_01", "painted_wooden_table", "metal_office_desk", "wooden_table_02", "vintage_wooden_drawer_01", "wooden_bookshelf_worn", "painted_wooden_cabinet_02", "worn_metal_rack"] {
+        for id in ["barrel_03", "Barrel_01", "wine_barrel_01", "painted_wooden_table", "metal_office_desk", "wooden_table_02", "vintage_wooden_drawer_01", "wooden_bookshelf_worn", "painted_wooden_cabinet_02", "worn_metal_rack",
+            "old_bed_frame", "wheelchair_01", "tool_cart", "steel_frame_shelves_01", "drawer_cabinet", "WetFloorSign_01", "vintage_day_bed"] {
             assert!(named.contains(&format!("models/{id}/model.gltf").as_str()), "{id} is in no Zone's set");
         }
     }
@@ -1457,6 +1526,72 @@ pub(crate) mod tests {
         }
         // Nothing fits a tiny Shelf, so `nth` picks as before and the box stays.
         assert_eq!(prop_variant(ZoneId::WestHall, PropKind::Shelf, 1, Vec3::splat(0.3)).unwrap(), CABINET);
+    }
+
+    /// The Sanatorium's 68 Props (#505 §7's table): so many in each Zone, and every one either fits a variant
+    /// its Zone's set names, scaled within 15% on every axis, or has none and stays a textured box.
+    #[test]
+    fn the_sanatorium_has_68_props_each_fitting_a_variant_within_15_percent_or_staying_a_textured_box() {
+        use ZoneId::*;
+        let layout = MapId::Sanatorium.layout();
+        assert_eq!(layout.props.len(), 68);
+        let table = [
+            (Forecourt, 6), (EntranceHall, 4), (WestCorridor, 3), (EastCorridor, 3), (GardenCourt, 7), (Refectory, 5), (BoilerHouse, 6), (Mortuary, 4), (LongWard, 7),
+            (DayRoom, 3), (BathHall, 4), (TreatmentRoom, 2), (IsolationWard, 4), (ChildrensWard, 4), (UpperLanding, 2), (OperatingTheatre, 1), (SunRoof, 3),
+        ];
+        for (zone, count) in table {
+            assert_eq!(layout.props.iter().filter(|prop| prop.zone == zone).count(), count, "{}", zone.name());
+        }
+        let (mut fitted, mut boxes) = (0, 0);
+        for (nth, prop) in layout.props.iter().enumerate() {
+            let covered = if prop.kind == PropKind::Counter { Vec3::new(prop.size.x, prop.size.y - 0.05, prop.size.z) } else { prop.size };
+            let variant = prop_variant(prop.zone, prop.kind, nth, covered).unwrap_or_else(|| panic!("the {:?} at {} has no look", prop.kind, prop.at));
+            let named = materials(Some(prop.zone)).unwrap().props.iter().find(|(kind, _)| *kind == prop.kind).is_some_and(|(_, variants)| variants.iter().any(|v| v.model.is_some()));
+            match variant.model.and_then(|(_, unit)| fitting::fit(unit, covered)) {
+                Some(fit) => {
+                    assert!(fit.scale.to_array().into_iter().all(|s| (1.0 - fitting::MAX_STRETCH..=1.0 + fitting::MAX_STRETCH).contains(&s)), "{:?} at {}: {fit:?}", prop.kind, prop.at);
+                    fitted += 1;
+                }
+                None => {
+                    // A Prop with no model to fit stays its textured box: only the ones its set gave no model, on purpose.
+                    assert!(!named, "the {:?} at {} in the {} names a model that doesn't fit it", prop.kind, prop.at, prop.zone.name());
+                    boxes += 1;
+                }
+            }
+        }
+        assert_eq!(fitted + boxes, 68);
+        assert!(fitted >= 44, "only {fitted} of the Sanatorium's Props are fitted ({boxes} boxes)");
+    }
+
+    /// The Mortuary's drawer bank lays three drawer cabinets; the Long Ward's beds and the Children's Ward's cots are what #505 names.
+    #[test]
+    fn the_sanatorium_props_wear_the_variants_the_look_decision_names() {
+        let layout = MapId::Sanatorium.layout();
+        let wearing = |zone: ZoneId, kind: PropKind| -> Vec<&'static str> {
+            layout.props.iter().enumerate().filter(|(_, prop)| prop.zone == zone && prop.kind == kind).map(|(nth, prop)| {
+                let covered = if prop.kind == PropKind::Counter { Vec3::new(prop.size.x, prop.size.y - 0.05, prop.size.z) } else { prop.size };
+                prop_variant(zone, kind, nth, covered).unwrap().model.map_or("box", |(path, _)| path)
+            }).collect()
+        };
+        assert_eq!(wearing(ZoneId::LongWard, PropKind::Bed), ["models/old_bed_frame/model.gltf"; 6]);
+        assert_eq!(wearing(ZoneId::ChildrensWard, PropKind::Bed), ["props/cot/cot.gltf"; 3]);
+        assert_eq!(wearing(ZoneId::BathHall, PropKind::Tub), ["props/bath_tub/bath_tub.gltf"; 4]);
+        assert_eq!(wearing(ZoneId::Mortuary, PropKind::Bed), ["props/mortuary_slab/mortuary_slab.gltf"; 3]);
+        assert_eq!(wearing(ZoneId::Mortuary, PropKind::Locker), ["models/drawer_cabinet/model.gltf"]);
+        assert_eq!(wearing(ZoneId::Forecourt, PropKind::Machine), ["props/ambulance/ambulance.gltf"]);
+        assert_eq!(wearing(ZoneId::ChildrensWard, PropKind::Bench), ["props/rocking_horse/rocking_horse.gltf"]);
+        assert_eq!(wearing(ZoneId::TreatmentRoom, PropKind::Bed), ["props/gurney/gurney.gltf"]);
+        assert_eq!(wearing(ZoneId::BoilerHouse, PropKind::Trolley), ["models/tool_cart/model.gltf"]);
+        // The drawer bank is three cabinets laid along its long axis.
+        let bank = layout.props.iter().find(|prop| prop.kind == PropKind::Locker).unwrap();
+        assert_eq!(fitting::fit(Vec3::new(1.076, 1.8, 0.5), bank.size).unwrap().copies, 3);
+        // The corridors' wheelchair and dressing trolley each get the model that fits them.
+        for zone in [ZoneId::WestCorridor, ZoneId::EastCorridor] {
+            let mut seen = wearing(zone, PropKind::Trolley);
+            seen.sort_unstable();
+            assert_eq!(seen, ["models/wheelchair_01/model.gltf", "props/dressing_trolley/dressing_trolley.gltf"], "{}", zone.name());
+            assert_eq!(wearing(zone, PropKind::Sign), ["models/WetFloorSign_01/model.gltf"]);
+        }
     }
 
     #[test]
@@ -1528,13 +1663,18 @@ pub(crate) mod tests {
         let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets");
         let text = std::fs::read_to_string(base.join(path)).ok()?;
         let doc: serde_json::Value = serde_json::from_str(&text).unwrap();
-        let primitive = &doc["meshes"][0]["primitives"][0];
         let accessor = |i: &serde_json::Value| doc["accessors"][i.as_u64().unwrap() as usize].clone();
-        let position = accessor(&primitive["attributes"]["POSITION"]);
         let vec = |v: &serde_json::Value| Vec3::new(v[0].as_f64().unwrap() as f32, v[1].as_f64().unwrap() as f32, v[2].as_f64().unwrap() as f32);
-        let tris = accessor(&primitive["indices"])["count"].as_u64().unwrap() as usize / 3;
+        // A kitbash with several materials has a primitive for each: the bounds and triangles are over all of them.
+        let (mut lo, mut hi, mut tris) = (Vec3::MAX, Vec3::MIN, 0);
+        for primitive in doc["meshes"][0]["primitives"].as_array().unwrap() {
+            let position = accessor(&primitive["attributes"]["POSITION"]);
+            lo = lo.min(vec(&position["min"]));
+            hi = hi.max(vec(&position["max"]));
+            tris += accessor(&primitive["indices"])["count"].as_u64().unwrap() as usize / 3;
+        }
         let images = doc["images"].as_array().unwrap().iter().map(|i| i["uri"].as_str().unwrap().to_string()).collect();
-        Some((vec(&position["min"]), vec(&position["max"]), tris, images))
+        Some((lo, hi, tris, images))
     }
 
     #[test]
@@ -1542,8 +1682,12 @@ pub(crate) mod tests {
         // Headless runs have no asset files and skip this; with them, the constants in
         // `default_variants` must be the unit's real size, since the fit relies on them.
         let mut seen = 0;
-        for kind in [PropKind::Crate, PropKind::Sandbags, PropKind::Headstone] {
-            for variant in default_variants(kind) {
+        // The Crates, Sandbags and Headstone, and the Sanatorium's eight (named by its Zones' sets).
+        let sanatorium: Vec<PropVariant> = ZoneId::ALL.into_iter().filter_map(|zone| materials(Some(zone))).flat_map(|set| set.props.iter().flat_map(|(_, variants)| variants.iter().copied()).collect::<Vec<_>>()).filter(|variant| variant.model.is_some_and(|(path, _)| path.starts_with("props/"))).collect();
+        assert_eq!(sanatorium.iter().map(|variant| variant.model.unwrap().0).collect::<std::collections::BTreeSet<_>>().len(), 8, "the Sanatorium names eight kitbashes");
+        let others: Vec<PropVariant> = [PropKind::Crate, PropKind::Sandbags, PropKind::Headstone].into_iter().flat_map(|kind| default_variants(kind).iter().copied()).collect();
+        for variant in others.iter().chain(&sanatorium) {
+            {
                 let Some((path, unit)) = variant.model else { continue };
                 let Some((lo, hi, tris, images)) = read_unit(path) else { continue };
                 seen += 1;
