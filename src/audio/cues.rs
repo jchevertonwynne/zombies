@@ -200,7 +200,18 @@ cues! {
     // The Crash Bar's clack as a Player pushes out through a Sealed Quarantine Door, and a Stranded
     // Zombie's fist on its far side.
     CrashBar => "crash_bar", Root, Spatial, 0.9;
-    DoorPound => "door_pound", Root, Spatial, 0.9;
+    DoorPound => "door_pound", Root, Spatial, 0.7;
+    // The Sanatorium's ambience (#526): a room tone under every indoor Zone and the fog's wind out of
+    // doors, crossfading as the eye changes Zone; a hum from each indoor Zone's lamps (the four
+    // nearest play), the click of a lamp starting a flicker burst, the boilers' drone and the
+    // electrotherapy machine's heart monitor while the Power is on, and a phantom trolley's squeak.
+    RoomTone => "room_tone", Root, Flat, 0.22;
+    FogWind => "fog_wind", Root, Flat, 0.15;
+    FluorescentHum => "fluorescent_hum", Root, Spatial, 0.12;
+    LampFlicker => "lamp_flicker", Root, Spatial, 0.35;
+    BoilerDrone => "boiler_drone", Root, Spatial, 0.5;
+    HeartMonitor => "heart_monitor", Root, Spatial, 0.25;
+    TrolleySqueak => "trolley_squeak", Root, Spatial, 0.4;
     TeleporterCharge => "teleporter_charge", Root, Spatial, 0.9;
     TeleporterFire => "teleporter_fire", Root, Spatial, 1.0;
     TeleporterArrive => "teleporter_arrive", Root, Spatial, 1.0;
@@ -374,6 +385,8 @@ mod tests {
             // The Sanatorium's Quarantine.
             "quarantine_klaxon", "quarantine_siren", "quarantine_swing", "quarantine_slam", "quarantine_release",
             "crash_bar", "door_pound",
+            // The Sanatorium's ambience and Props.
+            "room_tone", "fog_wind", "fluorescent_hum", "lamp_flicker", "boiler_drone", "heart_monitor", "trolley_squeak",
             // Gauntlet v2's Proc cues (spec #182, Appendix C6).
             "proc_frost", "proc_blast",
             "set_bonus_tier_two", "set_bonus_tier_four", "set_bonus_tier_six", "duo_taken",
@@ -410,6 +423,15 @@ mod tests {
         assert_eq!(slots.len(), FloorFamily::ALL.len());
         // And none of them is a cue's slot: they're optional.
         assert!(Cue::ALL.iter().all(|cue| !slots.contains(&cue.spec().name)));
+    }
+
+    #[test]
+    fn every_cue_has_a_file_in_assets() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets").join(AUDIO_DIR);
+        let files = crate::audio::slots::list_files(&dir);
+        let stems: Vec<String> = Cue::ALL.iter().map(|cue| cue.stem()).collect();
+        let check = crate::audio::slots::check_slots(stems.iter().map(String::as_str), &files);
+        assert!(check.errors.is_empty(), "bad slots: {:?}", check.errors);
     }
 
     #[test]

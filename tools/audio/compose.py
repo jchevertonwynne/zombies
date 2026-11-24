@@ -655,6 +655,14 @@ def box_teddy():
     return m
 
 
+@piece("quarantine_release_chime", "Quarantine release chime: two soft bell notes rising a fifth (A4, E5), the all-clear laid over the airlock's hiss", layer=True, max_secs=2.0)
+def quarantine_release_chime():
+    m = Mix(1.8, 19)
+    m.add(tine(hz("A4"), 0.7, decay=1.0, rng=m.rng, partials=BELL), 0.0, 0.9, -0.1)
+    m.add(tine(hz("E5"), 0.8, decay=1.2, rng=m.rng, partials=BELL), 0.32, 1.0, 0.1)
+    return m
+
+
 # The Perk jingles: period radio adverts, one per machine, played through the machine's speaker.
 
 
@@ -902,7 +910,7 @@ def main():
         for slot, (_, desc, _) in PIECES.items():
             print(f"{slot:28} {desc}")
         return
-    slots = args.slots or list(PIECES)
+    slots = args.slots or [slot for slot, (_, _, fx) in PIECES.items() if not fx.get("layer")]
     unknown = [s for s in slots if s not in PIECES]
     if unknown:
         sys.exit(f"no piece for {', '.join(unknown)}; see --list")
@@ -913,6 +921,9 @@ def main():
             final, desc, radio = render(slot, pathlib.Path(tmp), args.keep)
             if args.render_only:
                 print(f"rendered {slot}")
+                continue
+            if PIECES[slot][2].get("layer"):
+                print(f"rendered {slot}: a layer, not a slot; run it with --render-only --keep DIR and mix it under its recording")
                 continue
             notes = (
                 f"{desc}. An original piece composed and synthesised for this project and released as CC0 "
