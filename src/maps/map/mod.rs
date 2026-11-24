@@ -1807,6 +1807,13 @@ pub(crate) mod tests {
         }
     }
 
+    /// A `BarrierId` is a `u8`: every Map's windows share its 256 values (the Archive's 28 take it to 198, leaving the
+    /// Refinery about 57).
+    #[test]
+    fn barrier_ids_fit_a_u8() {
+        assert!(WINDOWS.len() <= 256, "{} windows is more than a BarrierId's 256", WINDOWS.len());
+    }
+
     /// Nothing a Map places is Out of Bounds: its path nodes, Seats, Spawn Points, Vents, Box
     /// Locations, windows and Jump Pads.
     #[test]
