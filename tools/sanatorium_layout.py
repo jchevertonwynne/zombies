@@ -364,7 +364,7 @@ lamps("LongWard", 3.85, lattice([-44, -35], [17.5, 24.5, 31.5, 38.5]))
 lamps("DayRoom", 3.85, lattice([-44, -38, -32], [45.5, 52.5]))
 lamps("BathHall", 3.85, lattice([31, 38, 45], [19, 28, 37]))
 lamps("TreatmentRoom", 3.85, lattice([32, 38, 44], [45.5, 52.5]))
-lamps("UpperLanding", 7.85, [(-5, 45), (5, 45), (-6.5, 53), (6.5, 53), (0, 50), (-7, 60.5), (7, 60.5)])
+lamps("UpperLanding", 7.85, [(-5, 45), (5, 45), (-6.5, 53), (6.5, 53), (0, 50), (-5.2, 60), (5.2, 60)])
 lamps("OperatingTheatre", 7.85, lattice([16, 22, 28], [45.5, 52.5]))
 lamps("IsolationWard", 7.85, lattice([-21, -15], [45.5, 52.5]))
 lamps("ChildrensWard", 7.85, lattice([-44, -38, -32], [45.5, 52.5]))
@@ -387,14 +387,13 @@ def check_lamps():
     for zone, (x0, x1, z0, z1, fl, top) in ZONES.items():
         mine = [(x, z) for z_, x, y, z in LAMPS if z_ == zone]
         x = x0 + 1.0
-        while x < x1 - 1.0:
+        while x <= x1 - 1.0 + 1e-6:
             z = z0 + 1.0
-            while z < z1 - 1.0:
-                in_well = (zone == "UpperLanding" and -4 <= x <= 4 and 56.2 <= z <= 63.8)
-                if not in_well and min(math.hypot(x - lx, z - lz) for lx, lz in mine) > 6.5:
+            while z <= z1 - 1.0 + 1e-6:
+                if min(math.hypot(x - lx, z - lz) for lx, lz in mine) > 6.5:
                     bad.append((zone, x, z))
-                z += 0.5
-            x += 0.5
+                z += 0.25
+            x += 0.25
     assert not bad, bad[:10]
 
 
