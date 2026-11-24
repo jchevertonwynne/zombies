@@ -6,6 +6,7 @@
 //! stop when it goes, or flat loops that last while their trigger does. The mix rules live in
 //! [`mix`].
 
+mod ambience;
 pub mod cues;
 pub mod mix;
 pub mod slots;
@@ -202,6 +203,7 @@ impl Plugin for AudioPlugin {
         app.insert_resource(SlotFiles { cues: check.found, floors: floors.found, weapons: weapons.found });
 
         app.add_message::<PlayCue>()
+            .add_message::<crate::maps::darkness::lamp_flicker::LampBurst>()
             .add_systems(Startup, load_sounds)
             .add_systems(OnEnter(GameState::GameOver), |mut commands: Commands, mut sounds: ResMut<Sounds>| {
                 sounds.play(&mut commands, Cue::GameOver, None);
@@ -225,6 +227,10 @@ impl Plugin for AudioPlugin {
                     crawler_drag,
                     entity_loops,
                     flat_loops,
+                    ambience::ambience,
+                    ambience::point_loops,
+                    ambience::lamp_flicker_clicks,
+                    ambience::phantom_squeaks,
                     cap_voices,
                 )
                     .chain(),

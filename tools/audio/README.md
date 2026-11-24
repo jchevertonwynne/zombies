@@ -26,3 +26,7 @@ python3 tools/audio/compose.py --list            # the pieces
 python3 tools/audio/compose.py                   # write every one into assets/audio
 python3 tools/audio/compose.py round_start --render-only --keep /tmp/wav   # just listen
 ```
+
+A piece marked `layer=True` (`quarantine_release_chime`) is not a slot: render it with `--render-only --keep DIR`
+and mix it under its recording with ffmpeg before handing the mix to `process.py` (the Quarantine's release
+cue is the airlock hiss with that chime on it).
