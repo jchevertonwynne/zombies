@@ -860,6 +860,29 @@ mod tests {
         assert_eq!(sanatorium().lamps.len(), 96);
     }
 
+    /// Every point of an indoor Zone's floor, clear of its walls, is within `LAMP_REACH` of a lamp in
+    /// that Zone (the Upper Landing's stairwell included: its steps are floor too).
+    #[test]
+    fn sanatorium_every_point_of_an_indoor_zone_is_within_reach_of_a_lamp() {
+        use crate::tuning::LAMP_REACH;
+        let layout = sanatorium();
+        for &zone in layout.zones.iter().filter(|&&zone| layout.indoor(zone)) {
+            let (lo, hi) = zone.volume();
+            let lamps: Vec<Vec2> = layout.lamps.iter().filter(|(lamp, _)| *lamp == zone).map(|(_, at)| Vec2::new(at.x, at.z)).collect();
+            assert!(!lamps.is_empty(), "{zone:?} has no lamps");
+            let mut x = lo.x + 1.0;
+            while x <= hi.x - 1.0 + 1e-3 {
+                let mut z = lo.z + 1.0;
+                while z <= hi.z - 1.0 + 1e-3 {
+                    let nearest = lamps.iter().map(|lamp| lamp.distance(Vec2::new(x, z))).fold(f32::MAX, f32::min);
+                    assert!(nearest <= LAMP_REACH, "({x}, {z}) in {zone:?} is {nearest} m from a lamp");
+                    z += 0.25;
+                }
+                x += 0.25;
+            }
+        }
+    }
+
     /// Every Wing Zone pair has 3 Spawn Points: window Barriers plus Risers, Vents and Specials.
     #[test]
     fn sanatorium_every_wing_zone_pair_has_three_spawn_points() {
