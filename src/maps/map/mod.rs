@@ -432,6 +432,7 @@ fn default_variants(kind: PropKind) -> &'static [PropVariant] {
     const BARK: &[PropVariant] = &[boxed(BarkBrown02)];
     const SHUTTER: &[PropVariant] = &[boxed(PaintedMetalShutter)];
     const TILE: &[PropVariant] = &[boxed(LongWhiteTiles)];
+    const STACK: &[PropVariant] = &[boxed(WoodTableWorn)];
     // The kitbashes: stacks of crates (3 high for the tall Props, 2 for the others), courses of
     // burlap sandbags (5 high, then 3), and the Headstone's box until a scan has been baked.
     const CRATES: &[PropVariant] = &[
@@ -457,6 +458,8 @@ fn default_variants(kind: PropKind) -> &'static [PropVariant] {
         PropKind::Bed | PropKind::Trolley => STEEL,
         PropKind::Locker | PropKind::Sign => SHUTTER,
         PropKind::Tub => TILE,
+        // Built by `stacks_look`, not fitted; the wood is its carcass's.
+        PropKind::Stack => STACK,
     }
 }
 
@@ -1094,6 +1097,9 @@ pub enum PropKind {
     Tub,
     /// A sign standing on the floor.
     Sign,
+    /// One of the Archive's fixed stacks: a tall double-sided shelf block bolted to a stone plinth on no rail, which
+    /// shares its books with the Bookcases of a Range but not their foot, ends or plate (`stacks_look`).
+    Stack,
 }
 
 /// Something standing on a floor, for the Player to weave round or jump onto and for Zombies to
@@ -1544,7 +1550,7 @@ pub(crate) mod tests {
         // A Pillar wears its Zone's wall.
         assert_eq!(prop_variant(ZoneId::Passage, PropKind::Pillar, 3, Vec3::ONE).unwrap().material, BrickWall001);
         // Every kind but none still in paint has a look in every Zone, and nth wraps round.
-        for kind in [PropKind::Crate, PropKind::Sandbags, PropKind::Headstone, PropKind::Table, PropKind::Bench, PropKind::Counter, PropKind::Altar, PropKind::Pillar, PropKind::Shelf, PropKind::Rubble, PropKind::Barrel, PropKind::Machine, PropKind::Tree, PropKind::Bed, PropKind::Trolley, PropKind::Locker, PropKind::Tub, PropKind::Sign] {
+        for kind in [PropKind::Crate, PropKind::Sandbags, PropKind::Headstone, PropKind::Table, PropKind::Bench, PropKind::Counter, PropKind::Altar, PropKind::Pillar, PropKind::Shelf, PropKind::Rubble, PropKind::Barrel, PropKind::Machine, PropKind::Tree, PropKind::Bed, PropKind::Trolley, PropKind::Locker, PropKind::Tub, PropKind::Sign, PropKind::Stack] {
             assert!(prop_variant(ZoneId::StartRoom, kind, 7, Vec3::ONE).is_some(), "{kind:?}");
         }
         // With two variants named, nth alternates.

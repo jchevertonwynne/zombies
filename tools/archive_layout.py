@@ -575,9 +575,9 @@ out.append(f"/// The lamps ({len(LAMPS)}: a grid per Zone whose cells reach `LAM
 for zone, x, y, z in LAMPS:
     out.append(f"    (ZoneId::{zone}, Vec3::new({rs(x)}, {rs(y)}, {rs(z)})),\n")
 out.append("];\n\n")
-out.append(f"/// The fixed stacks: tall shelves, 1.2 x 5 m, bolted down in the ring halls on no rail ({len(FIXED)} of them), as plain `Shelf` Props for now.\npub(super) const FIXED_STACKS: [Prop; {len(FIXED)}] = [\n")
+out.append(f"/// The fixed stacks: tall shelves, 1.2 x 5 m, bolted down in the ring halls on no rail ({len(FIXED)} of them), `Stack` Props (`stacks_look`).\npub(super) const FIXED_STACKS: [Prop; {len(FIXED)}] = [\n")
 for zone, cx, cz in FIXED:
-    out.append(f"    p(PropKind::Shelf, ZoneId::{zone}, {rs(cx)}, {rs(ZONES[zone][4])}, {rs(cz)}, ({rs(STACK_W)}, {rs(STACK_H)}, {rs(STACK_L)})),\n")
+    out.append(f"    p(PropKind::Stack, ZoneId::{zone}, {rs(cx)}, {rs(ZONES[zone][4])}, {rs(cz)}, ({rs(STACK_W)}, {rs(STACK_H)}, {rs(STACK_L)})),\n")
 out.append("];\n\n")
 out.append(f"/// The Training loops' centres, as plain boxes: the two catalogue banks, the issue desk, the theatre tiers, the 8 brick piers and the\n/// Undercroft's 3 x 3 columns.\npub(super) const LOOP_CENTRES: [Prop; {len(LOOP)}] = [\n")
 for kind, zone, cx, y, cz, w, h, d in LOOP:

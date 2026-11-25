@@ -137,9 +137,10 @@ def single_material(obj, name):
         poly.use_smooth = True
 
 
-def export(obj, out, name):
-    """Writes `out/name.gltf` and `name.bin`, with no images."""
+def export(obj, out, name, colours=False):
+    """Writes `out/name.gltf` and `name.bin`, with no images (and the vertex colours if `colours`)."""
     select_only([obj])
+    extra = {"export_vertex_color": "ACTIVE", "export_vertex_color_name": "Col", "export_all_vertex_colors": False} if colours else {}
     bpy.ops.export_scene.gltf(
         filepath=str(pathlib.Path(out) / f"{name}.gltf"),
         export_format="GLTF_SEPARATE",
@@ -152,6 +153,7 @@ def export(obj, out, name):
         export_cameras=False,
         export_lights=False,
         export_yup=True,
+        **extra,
     )
 
 
@@ -519,6 +521,99 @@ def ambulance():
     return k.finish("ambulance")
 
 
+# ---- The Archive's book rows (#537): the shelf fill of every Bookcase and fixed stack. One mesh a
+# face (front and top faces of the spines only, no backs, no sides), 6 shelves of about 50 spines,
+# each spine tinted per vertex from a 12-colour library palette over the `book_pattern` cloth, folios
+# (taller, wider, darker) on the bottom shelf. The unit's origin is the middle of a stack's foot; its
+# face looks along +z in the game (Blender's -y) at the carcass face, 0.6 m out. Three variants, one mirrored
+# and one offset, so neighbouring stacks never match; the other face of a stack is the same mesh
+# turned half a revolution.
+
+BOOK_LENGTH = 5.0
+BOOK_FACE = 0.6 + 0.012  # a hair proud of the carcass's face
+BOOK_DEPTH = 0.24
+BOOK_SHELVES = 6
+BOOK_FOOT = 0.04 + 0.1  # the carcass stands on its castors; the lowest board is 0.1 above it
+BOOK_PITCH = 0.46
+BOOK_BOARD = 0.04
+BOOK_END = 0.1
+BOOK_TILE = 0.3  # `book_pattern`'s swatch, metres
+
+# The library palette, sRGB: oxblood, bottle green, navy, tan, black and seven more (each a leather or cloth).
+BOOK_PALETTE = [
+    (0.42, 0.09, 0.09), (0.10, 0.30, 0.17), (0.11, 0.17, 0.38), (0.72, 0.58, 0.38),
+    (0.09, 0.08, 0.075), (0.40, 0.24, 0.13), (0.68, 0.48, 0.18), (0.26, 0.36, 0.48),
+    (0.36, 0.07, 0.16), (0.38, 0.40, 0.18), (0.78, 0.7, 0.55), (0.55, 0.26, 0.12),
+]
+# (seed, mirrored, offset along x in metres)
+BOOK_VARIANTS = {"a": (11, False, 0.0), "b": (23, True, 0.0), "c": (37, False, 0.17)}
+
+
+def srgb_to_linear(c):
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def book_rows(variant):
+    seed, mirrored, offset = BOOK_VARIANTS[variant]
+    rng = random.Random(seed)
+    bm = bmesh.new()
+    uv = bm.loops.layers.uv.new("UVMap")
+    colour = bm.loops.layers.float_color.new("Col")
+
+    def quad(corners, normal, rgb, uvs):
+        verts = [bm.verts.new(c) for c in corners]
+        face = bm.faces.new(verts)
+        face.normal_update()
+        if face.normal.dot(Vector(normal)) < 0:
+            face.normal_flip()
+        for loop, uv_at in zip(face.loops, uvs):
+            loop[uv].uv = uv_at
+            loop[colour] = (*rgb, 1.0)
+
+    for shelf in range(BOOK_SHELVES):
+        base = BOOK_FOOT + shelf * BOOK_PITCH + BOOK_BOARD
+        folio = shelf == 0
+        x = -BOOK_LENGTH / 2 + BOOK_END + offset % 0.3
+        while True:
+            width = rng.uniform(0.1, 0.15) if folio else rng.uniform(0.055, 0.13)
+            height = rng.uniform(0.40, 0.44) if folio else rng.uniform(0.26, 0.38)
+            if x + width > BOOK_LENGTH / 2 - BOOK_END:
+                break
+            pick = BOOK_PALETTE[rng.randrange(len(BOOK_PALETTE))]
+            shade = rng.uniform(0.8, 1.15) * (0.7 if folio else 1.0)
+            rgb = tuple(srgb_to_linear(min(1.0, c * shade)) for c in pick)
+            x0, x1 = (-(x + width), -x) if mirrored else (x, x + width)
+            front = -BOOK_FACE  # Blender's -y is the game's +z
+            top = base + height
+            quad([(x0, front, base), (x1, front, base), (x1, front, top), (x0, front, top)], (0, -1, 0), rgb,
+                 [(x0 / BOOK_TILE, base / BOOK_TILE), (x1 / BOOK_TILE, base / BOOK_TILE), (x1 / BOOK_TILE, top / BOOK_TILE), (x0 / BOOK_TILE, top / BOOK_TILE)])
+            back = front + BOOK_DEPTH
+            quad([(x0, front, top), (x1, front, top), (x1, back, top), (x0, back, top)], (0, 0, 1), rgb,
+                 [(x0 / BOOK_TILE, front / BOOK_TILE), (x1 / BOOK_TILE, front / BOOK_TILE), (x1 / BOOK_TILE, back / BOOK_TILE), (x0 / BOOK_TILE, back / BOOK_TILE)])
+            # Spines are shoulder to shoulder, with the odd gap where a book is out.
+            x += width + (rng.uniform(0.0, 0.01) if rng.random() < 0.9 else rng.uniform(0.05, 0.1))
+    mesh = bpy.data.meshes.new(f"book_rows_{variant}")
+    bm.to_mesh(mesh)
+    bm.free()
+    mesh.color_attributes.active_color = mesh.color_attributes["Col"]
+    mesh.color_attributes.render_color_index = mesh.color_attributes.find("Col")
+    mat = bpy.data.materials.new("book_pattern")
+    mat.use_nodes = True
+    mesh.materials.append(mat)
+    for poly in mesh.polygons:
+        poly.use_smooth = False
+    obj = bpy.data.objects.new(f"book_rows_{variant}", mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    return obj
+
+
+def book_rows_report(obj, name):
+    lo, hi = bounds(obj.data)
+    tris = triangles(obj.data)
+    assert tris <= BUDGET, f"{name}: {tris} triangles"
+    print(f"UNIT {json.dumps({'name': name, 'tris': tris, 'size': [round(hi.x - lo.x, 3), round(hi.z - lo.z, 3), round(hi.y - lo.y, 3)]})}")
+
+
 SANATORIUM_KITS = {
     "gurney": gurney,
     "dressing_trolley": dressing_trolley,
@@ -536,12 +631,18 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--src", required=True)
     parser.add_argument("--out", required=True)
-    parser.add_argument("--only", choices=["crate", "sandbags", "headstone", *SANATORIUM_KITS])
+    parser.add_argument("--only", choices=["crate", "sandbags", "headstone", *SANATORIUM_KITS, *(f"book_rows_{v}" for v in BOOK_VARIANTS)])
     parser.add_argument("--headstone", help="a high-poly headstone scan to decimate and bake")
     parser.add_argument("--work", help="where the headstone's baked PNGs go")
     args = parser.parse_args(argv)
     out = pathlib.Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    if args.only and args.only.startswith("book_rows_"):
+        reset()
+        obj = book_rows(args.only[len("book_rows_"):])
+        export(obj, out, args.only, colours=True)
+        book_rows_report(obj, args.only)
+        return
     if args.only in SANATORIUM_KITS:
         reset()
         obj = SANATORIUM_KITS[args.only]()

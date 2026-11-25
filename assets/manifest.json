@@ -2426,6 +2426,14 @@
       "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/long_white_tiles and materials/rusty_metal_02 (Poly Haven, CC0), no new texture files"
     },
     {
+      "path": "props/book_rows",
+      "name": "Book rows (kitbash for the Archive's Bookcases and fixed stacks)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/book_pattern",
+      "licence": "CC0",
+      "fetched": "2026-11-25",
+      "notes": "Three variants (a, b mirrored, c offset) of one face of book spines, front and top faces only, 6 shelves of about 50 spines, built by tools/props/kitbash.py in headless Blender (about 1.1k triangles each) with a 12-colour library palette in per-vertex colour; it wears materials/book_pattern (Poly Haven, CC0), no new texture files"
+    },
+    {
       "path": "props/cot",
       "name": "Cot (kitbash for the Sanatorium)",
       "source": "tools/props/kitbash.py, from https://polyhaven.com/a/dark_wooden_planks, https://polyhaven.com/a/fabric_pattern_07",

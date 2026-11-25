@@ -163,16 +163,16 @@ pub(super) const LAMPS: [(ZoneId, Vec3); 88] = [
     (ZoneId::PumpRoom, Vec3::new(31.0, 3.85, 20.0)),
 ];
 
-/// The fixed stacks: tall shelves, 1.2 x 5 m, bolted down in the ring halls on no rail (8 of them), as plain `Shelf` Props for now.
+/// The fixed stacks: tall shelves, 1.2 x 5 m, bolted down in the ring halls on no rail (8 of them), `Stack` Props (`stacks_look`).
 pub(super) const FIXED_STACKS: [Prop; 8] = [
-    p(PropKind::Shelf, ZoneId::OldStacks, -11.3, 4.0, 11.4, (1.2, 3.0, 5.0)),
-    p(PropKind::Shelf, ZoneId::OldStacks, -7.1, 4.0, 11.4, (1.2, 3.0, 5.0)),
-    p(PropKind::Shelf, ZoneId::FolioStacks, -11.3, 4.0, 29.6, (1.2, 3.0, 5.0)),
-    p(PropKind::Shelf, ZoneId::FolioStacks, -7.1, 4.0, 29.6, (1.2, 3.0, 5.0)),
-    p(PropKind::Shelf, ZoneId::PeriodicalStacks, 12.2, 4.0, 29.6, (1.2, 3.0, 5.0)),
-    p(PropKind::Shelf, ZoneId::PeriodicalStacks, 8.0, 4.0, 29.6, (1.2, 3.0, 5.0)),
-    p(PropKind::Shelf, ZoneId::NewStacks, 12.2, 4.0, 11.4, (1.2, 3.0, 5.0)),
-    p(PropKind::Shelf, ZoneId::NewStacks, 8.0, 4.0, 11.4, (1.2, 3.0, 5.0)),
+    p(PropKind::Stack, ZoneId::OldStacks, -11.3, 4.0, 11.4, (1.2, 3.0, 5.0)),
+    p(PropKind::Stack, ZoneId::OldStacks, -7.1, 4.0, 11.4, (1.2, 3.0, 5.0)),
+    p(PropKind::Stack, ZoneId::FolioStacks, -11.3, 4.0, 29.6, (1.2, 3.0, 5.0)),
+    p(PropKind::Stack, ZoneId::FolioStacks, -7.1, 4.0, 29.6, (1.2, 3.0, 5.0)),
+    p(PropKind::Stack, ZoneId::PeriodicalStacks, 12.2, 4.0, 29.6, (1.2, 3.0, 5.0)),
+    p(PropKind::Stack, ZoneId::PeriodicalStacks, 8.0, 4.0, 29.6, (1.2, 3.0, 5.0)),
+    p(PropKind::Stack, ZoneId::NewStacks, 12.2, 4.0, 11.4, (1.2, 3.0, 5.0)),
+    p(PropKind::Stack, ZoneId::NewStacks, 8.0, 4.0, 11.4, (1.2, 3.0, 5.0)),
 ];
 
 /// The Training loops' centres, as plain boxes: the two catalogue banks, the issue desk, the theatre tiers, the 8 brick piers and the

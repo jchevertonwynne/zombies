@@ -1,0 +1,180 @@
+{
+ "asset": {
+  "generator": "Khronos glTF Blender I/O v5.3.43",
+  "version": "2.0"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "name": "Scene",
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "mesh": 0,
+   "name": "book_rows_b"
+  }
+ ],
+ "materials": [
+  {
+   "doubleSided": false,
+   "name": "book_pattern",
+   "pbrMetallicRoughness": {
+    "baseColorFactor": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "metallicFactor": 1.0,
+    "roughnessFactor": 1.0,
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicRoughnessTexture": {
+     "index": 2
+    }
+   },
+   "normalTexture": {
+    "index": 1
+   },
+   "occlusionTexture": {
+    "index": 2
+   }
+  }
+ ],
+ "meshes": [
+  {
+   "name": "book_rows_b",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2,
+      "COLOR_0": 3
+     },
+     "indices": 4,
+     "material": 0
+    }
+   ]
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 2080,
+   "max": [
+    2.4000000953674316,
+    2.854933261871338,
+    0.6119999885559082
+   ],
+   "min": [
+    -2.3923680782318115,
+    0.18000000715255737,
+    0.3720000088214874
+   ],
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 2080,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 2080,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5123,
+   "count": 2080,
+   "normalized": true,
+   "type": "VEC4"
+  },
+  {
+   "bufferView": 4,
+   "componentType": 5123,
+   "count": 3120,
+   "type": "SCALAR"
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteLength": 24960,
+   "byteOffset": 0,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 24960,
+   "byteOffset": 24960,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 16640,
+   "byteOffset": 49920,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 16640,
+   "byteOffset": 66560,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 6240,
+   "byteOffset": 83200,
+   "target": 34963
+  }
+ ],
+ "buffers": [
+  {
+   "byteLength": 89440,
+   "uri": "book_rows_b.bin"
+  }
+ ],
+ "images": [
+  {
+   "uri": "../../materials/book_pattern/color.ktx2"
+  },
+  {
+   "uri": "../../materials/book_pattern/normal.ktx2"
+  },
+  {
+   "uri": "../../materials/book_pattern/orm.ktx2"
+  }
+ ],
+ "samplers": [
+  {
+   "magFilter": 9729,
+   "minFilter": 9987,
+   "wrapS": 10497,
+   "wrapT": 10497
+  }
+ ],
+ "textures": [
+  {
+   "sampler": 0,
+   "source": 0
+  },
+  {
+   "sampler": 0,
+   "source": 1
+  },
+  {
+   "sampler": 0,
+   "source": 2
+  }
+ ]
+}

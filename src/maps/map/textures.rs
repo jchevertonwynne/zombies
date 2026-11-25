@@ -374,6 +374,14 @@ pub struct Textured {
 #[derive(Component, Debug, Clone, Copy)]
 pub struct Tint(pub Color);
 
+/// A tinted piece that is metal, not paint (a brass plate, a polished rail): its `Tint` keeps the
+/// set's roughness map scaled by `roughness` and is `metallic` instead of 0.
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct Polish {
+    pub metallic: f32,
+    pub roughness: f32,
+}
+
 /// A piece of decoration (a Door's frame, a Barrier's jambs) that is hidden until `Material` has
 /// loaded, so with the files missing the Map keeps its plain look.
 #[derive(Component, Debug, Clone, Copy)]
@@ -572,10 +580,10 @@ fn put_on(
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut tinted: Local<HashMap<(Material, [u8; 4]), Handle<StandardMaterial>>>,
-    mut pieces: Query<(Entity, &Textured, Option<&Tint>, &mut Transform, &mut Mesh3d, &mut MeshMaterial3d<StandardMaterial>), Without<Dressed>>,
+    mut tinted: Local<HashMap<(Material, [u8; 4], [u8; 2]), Handle<StandardMaterial>>>,
+    mut pieces: Query<(Entity, &Textured, Option<&Tint>, Option<&Polish>, &mut Transform, &mut Mesh3d, &mut MeshMaterial3d<StandardMaterial>), Without<Dressed>>,
 ) {
-    for (entity, textured, tint, mut transform, mut mesh, mut paint) in &mut pieces {
+    for (entity, textured, tint, polish, mut transform, mut mesh, mut paint) in &mut pieces {
         let Some(entry) = library.0.get(&textured.material) else { continue };
         let choice = match entry {
             Entry::Missing => dress(false, &[]),
@@ -594,12 +602,19 @@ fn put_on(
                 paint.0 = match tint {
                     None => material.clone(),
                     Some(Tint(colour)) => tinted
-                        .entry((textured.material, colour.to_srgba().to_u8_array()))
+                        .entry((textured.material, colour.to_srgba().to_u8_array(), polish.map_or([0, 0], |p| [(p.metallic * 255.0) as u8, (p.roughness * 255.0) as u8])))
                         .or_insert_with(|| {
                             let mut dyed = materials.get(material).cloned().unwrap_or_default();
                             dyed.base_color = *colour;
-                            // Paint isn't metal: a painted piece keeps the set's roughness and shows its colour.
-                            dyed.metallic = 0.0;
+                            // Paint isn't metal: a painted piece keeps the set's roughness and shows its colour,
+                            // unless it is polished metal.
+                            match polish {
+                                None => dyed.metallic = 0.0,
+                                Some(polish) => {
+                                    dyed.metallic = polish.metallic;
+                                    dyed.perceptual_roughness = polish.roughness;
+                                }
+                            }
                             materials.add(dyed)
                         })
                         .clone(),

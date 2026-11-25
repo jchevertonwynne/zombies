@@ -23,6 +23,7 @@ use super::{MapId, DOOR_HEIGHT, DOOR_WIDTH, Infill, Palette, Prop, PropKind, Rai
 use crate::maps::generator::{Generator, PlateDisc};
 use crate::maps::jump_pad::JumpPad;
 use crate::maps::zipline::Zipline;
+use crate::maps::stacks_look::{self, Item};
 
 /// How tall the skirting along the foot of a wall is, and how far it stands out from the face.
 const SKIRTING: Vec2 = Vec2::new(0.16, 0.03);
@@ -122,6 +123,8 @@ pub(super) struct Builder<'a, 'w, 's> {
     map: MapId,
     /// Every piece drawn since a Prop began: what its unit model replaces.
     drawn: Vec<Entity>,
+    /// The Archive's stacks' meshes and materials, shared by every stack, rail and soffit.
+    stacks: stacks_look::Kit,
 }
 
 impl<'a, 'w, 's> Builder<'a, 'w, 's> {
@@ -136,7 +139,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let cylinder = meshes.add(Cylinder::new(0.5, 1.0));
         let door = materials.add(Color::srgb(0.85, 0.45, 0.1));
         let power_door = materials.add(Color::srgb(0.5, 0.3, 0.8));
-        Self { commands, meshes, materials, cube, cylinder, paints: HashMap::new(), door, power_door, repaint: None, repaint_wall: None, outside_wall: None, outside_floor: None, windows, map, drawn: Vec::new() }
+        Self { commands, meshes, materials, cube, cylinder, paints: HashMap::new(), door, power_door, repaint: None, repaint_wall: None, outside_wall: None, outside_floor: None, windows, map, drawn: Vec::new(), stacks: stacks_look::Kit::default() }
     }
 
     /// The material for a flat colour.
@@ -724,6 +727,14 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
             PropKind::Sign => {
                 piece(self, size, 0.0, Vec2::ZERO, WET_FLOOR_YELLOW, mat);
             }
+            PropKind::Stack => {
+                // A fixed stack: its carcass on a stone plinth, plain ends, and the shared shelf fill on both faces, in the
+                // box's own frame (its length along x), turned onto the Prop's long axis.
+                let frame = Vec3::new(size.x.max(size.z), size.y, size.x.min(size.z));
+                let root = self.commands.spawn((InRun, Name::new("Fixed stack"), Transform::from_translation(at).with_rotation(stacks_look::lay(size)), Visibility::default())).id();
+                self.stacks.dress(&mut *self.commands, &mut *self.meshes, &mut *self.materials, root, "fixed stack", || stacks_look::fixed_stack(frame));
+                stacks_look::spawn_book_faces(&mut *self.commands, root, nth);
+            }
             PropKind::Headstone => {
                 // A slab with a narrower cap, leaning a little this way or that.
                 let stone = HEADSTONE[nth % 3];
@@ -740,12 +751,21 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         }
     }
 
+    /// A look built from `items` (a rail, a soffit's letters), in the frame at `at` turned `rot`. Not solid.
+    pub fn look(&mut self, key: &str, items: Vec<Item>, at: Vec3, rot: Quat) {
+        let root = self.commands.spawn((InRun, Name::new("Stack look"), Transform::from_translation(at).with_rotation(rot), Visibility::default())).id();
+        self.stacks.dress(&mut *self.commands, &mut *self.meshes, &mut *self.materials, root, key, || items);
+    }
+
     /// A Door's slab: solid and drawn as one entity, which opening the Door moves and then hides.
     /// Once its material has loaded it wears it (weathered wood, or a steel shutter), and its
     /// boards, frame and ribs (children, so they move and hide with it) appear.
-    fn door_slab(&mut self, size: Vec3, at: Vec3, power: bool, zone: Option<ZoneId>) -> Entity {
+    fn door_slab(&mut self, size: Vec3, at: Vec3, power: bool, zone: Option<ZoneId>, gate: bool) -> Entity {
         let shape = Cuboid::from_size(size);
         let along_x = size.x > size.z;
+        if door_look::look(zone.map(ZoneId::map), gate, power) == door_look::DoorLook::Grille {
+            return self.grille_door(size, at);
+        }
         let (material, cover) = if power {
             (self.power_door.clone(), Material::RustyCorrugatedIron)
         } else {
@@ -777,6 +797,44 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
             self.commands.entity(door).add_child(child);
         }
         door
+    }
+
+    /// A Range's gate Door (#537): solid, but drawn as a brass grille of bars you see through, its bars (children, so they move
+    /// and hide with it) in plain brass until `metal_plate_02` has loaded and then in polished brass over it.
+    fn grille_door(&mut self, size: Vec3, at: Vec3) -> Entity {
+        let along_x = size.x > size.z;
+        let door = self
+            .commands
+            .spawn((InRun, Name::new("Gate grille"), Transform::from_translation(at), RigidBody::Static, Collider::from(Cuboid::from_size(size)), CollisionLayers::new(GameLayer::World, LayerMask::ALL)))
+            .id();
+        let look = stacks_look::Finish::Brass.look();
+        let paint = self.paint_metal(look.colour, look.metallic, look.roughness);
+        let local = if along_x { size } else { Vec3::new(size.z, size.y, size.x) };
+        for piece in door_look::grille(local) {
+            let (size, offset, rotation) = if along_x {
+                (piece.size, piece.at, Quat::from_rotation_z(piece.tilt))
+            } else {
+                (Vec3::new(piece.size.z, piece.size.y, piece.size.x), Vec3::new(piece.at.z, piece.at.y, piece.at.x), Quat::from_rotation_x(piece.tilt))
+            };
+            let mut bar = self.commands.spawn((
+                Name::new("Grille bar"),
+                Mesh3d(self.meshes.add(box_uv_mesh(size, at + offset, rotation, look.material.tile()))),
+                MeshMaterial3d(paint.clone()),
+                Textured { material: look.material, shape: Shape::Baked },
+                Tint(look.tint),
+                Transform { translation: offset, rotation, scale: Vec3::ONE },
+                ChildOf(door),
+            ));
+            if let Some(polish) = look.polish {
+                bar.insert(polish);
+            }
+        }
+        door
+    }
+
+    /// The material for a plain colour that is metal.
+    fn paint_metal(&mut self, colour: Color, metallic: f32, roughness: f32) -> Handle<StandardMaterial> {
+        self.materials.add(StandardMaterial { base_color: colour, metallic, perceptual_roughness: roughness, ..default() })
     }
 
     /// One piece of a Door's or window's look, centred `piece.at` from `centre` in the frame whose
@@ -865,7 +923,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                 self.window_frame(Vec3::new(mid.x, y0, mid.y), along_x, zone);
             }
             if let Gap::Door(joins, price) = gap {
-                let door = self.door_slab(across(0.25, DOOR_HEIGHT), Vec3::new(mid.x, y0 + DOOR_HEIGHT / 2.0, mid.y), price.is_none(), joins.map(|j| j.0));
+                let door = self.door_slab(across(0.25, DOOR_HEIGHT), Vec3::new(mid.x, y0 + DOOR_HEIGHT / 2.0, mid.y), price.is_none(), joins.map(|j| j.0), false);
                 self.commands.entity(door).insert((
                     Door {
                         joins: *joins,
@@ -887,7 +945,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
             }
             if let Gap::Gate(key, price) = gap {
                 let at = Vec3::new(mid.x, y0 + DOOR_HEIGHT / 2.0, mid.y);
-                let door = self.door_slab(across(0.25, DOOR_HEIGHT), at, false, Some(key.0));
+                let door = self.door_slab(across(0.25, DOOR_HEIGHT), at, false, Some(key.0), true);
                 self.commands.entity(door).insert((
                     Door { joins: None, price: Some(*price), open: false, gate: Some(*key) },
                     Visibility::default(),
@@ -896,12 +954,12 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
             }
             if let Gap::PowerGate(key) = gap {
                 let at = Vec3::new(mid.x, y0 + DOOR_HEIGHT / 2.0, mid.y);
-                let door = self.door_slab(across(0.25, DOOR_HEIGHT), at, true, Some(key.0));
+                let door = self.door_slab(across(0.25, DOOR_HEIGHT), at, true, Some(key.0), false);
                 self.commands.entity(door).insert((Door { joins: None, price: None, open: false, gate: Some(*key) }, Visibility::default()));
             }
             if let Gap::LinkedDoor(joins) = gap {
                 let at = Vec3::new(mid.x, y0 + DOOR_HEIGHT / 2.0, mid.y);
-                let door = self.door_slab(across(0.25, DOOR_HEIGHT), at, true, joins.map(|j| j.0));
+                let door = self.door_slab(across(0.25, DOOR_HEIGHT), at, true, joins.map(|j| j.0), false);
                 // It can't be bought either, but its Prompt says what opens it, and the Use key
                 // buzzes.
                 self.commands.entity(door).insert((

@@ -269,13 +269,35 @@ def build_sanatorium(blender, only):
         })
 
 
+def build_book_rows(blender):
+    """The Archive's shelf fill (#537): three variants of one face of book spines, each one mesh in
+    per-vertex library colours over the `book_pattern` cloth. One manifest entry covers the directory."""
+    out = ASSETS / "props" / "book_rows"
+    shutil.rmtree(out, ignore_errors=True)
+    out.mkdir(parents=True)
+    for variant in ("a", "b", "c"):
+        run_blender(blender, ["--out", out, "--src", out, "--only", f"book_rows_{variant}"])
+        patch_sets(out / f"book_rows_{variant}.gltf", {"book_pattern": [1.0, 1.0, 1.0, 1.0]})
+    record({
+        "path": "props/book_rows",
+        "name": "Book rows (kitbash for the Archive's Bookcases and fixed stacks)",
+        "source": "tools/props/kitbash.py, from https://polyhaven.com/a/book_pattern",
+        "licence": "CC0",
+        "fetched": today(),
+        "notes": "Three variants (a, b mirrored, c offset) of one face of book spines, front and top faces only, 6 shelves of about 50 spines, built by tools/props/kitbash.py in headless Blender (about 1.1k triangles each) with a 12-colour library palette in per-vertex colour; it wears materials/book_pattern (Poly Haven, CC0), no new texture files",
+    })
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--blender", default=os.environ.get("BLENDER", BLENDER_DEFAULT))
-    parser.add_argument("--only", choices=["crate", "sandbags", "headstone", "sanatorium", *SANATORIUM_KITS])
+    parser.add_argument("--only", choices=["crate", "sandbags", "headstone", "sanatorium", *SANATORIUM_KITS, "book_rows"])
     parser.add_argument("--headstone-scan")
     parser.add_argument("--headstone-source")
     args = parser.parse_args()
+    if args.only == "book_rows":
+        build_book_rows(args.blender)
+        return
     if args.only in ("sanatorium", *SANATORIUM_KITS):
         build_sanatorium(args.blender, args.only)
         return
