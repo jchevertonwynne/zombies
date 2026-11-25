@@ -14,7 +14,7 @@ use crate::state::InRun;
 use crate::tuning::*;
 use crate::maps::zone::ZoneId;
 
-use super::decals::{Decal, DecalFamily, DecalPiece, Instead, leak_transform, leaks, stain_transform, stains};
+use super::decals::{Decal, DecalFamily, DecalPiece, Instead, leak_transform, leaks, page_keep_out, page_transform, pages, stain_transform, stains};
 use super::door_look::{self, Part, Piece};
 use super::fitting::FittedModel;
 use super::textures::{Material, Shape, Textured, Tint, Veneer, box_uv_mesh};
@@ -246,7 +246,6 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
     /// A Zone's floor at its height, round any sunken floors in it, and deep enough that their
     /// edges are solid all the way down.
     pub fn floor(&mut self, zone: ZoneId, holes: &[Sunken]) {
-        let (lo, hi) = zone.volume();
         let height = zone.floor();
         // A well the Zone's volume reaches down into has a floor solid all the way down its sides;
         // one cut in the floor of a Zone stacked over another (the Sanatorium's stairs) doesn't.
@@ -255,8 +254,8 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let colour = palette(Some(zone)).floor;
         let set = materials(Some(zone));
         let material = set.map(|set| set.floor);
-        let cut: Vec<_> = holes.iter().map(|hole| (hole.min, hole.max)).collect();
-        for (min, max) in rects_around((Vec2::new(lo.x, lo.z), Vec2::new(hi.x, hi.z)), &cut) {
+        let rects = floor_rects(zone, holes);
+        for &(min, max) in &rects {
             let size = Vec3::new(max.x - min.x, thick, max.y - min.y);
             let centre = Vec3::new((min.x + max.x) / 2.0, height - thick / 2.0, (min.y + max.y) / 2.0);
             self.block_in(size, centre, colour, material);
@@ -264,6 +263,12 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                 for stain in stains(min, max) {
                     self.commands.spawn((InRun, DecalPiece(stain.decal), stain_transform(&stain, height)));
                 }
+            }
+        }
+        // Loose pages are scattered over the whole of the Zone's floor at once, so a Zone gets 12 to 30 whatever it's cut into.
+        if set.is_some_and(|set| set.decals == Some(DecalFamily::Pages)) {
+            for page in pages(&rects, &page_keep_out(self.map, height)) {
+                self.commands.spawn((InRun, DecalPiece(Decal::Page), page_transform(&page, height)));
             }
         }
     }
@@ -290,7 +295,8 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let (min, max, height, floor) = (raised.min, raised.max, raised.height, raised.zone.floor());
         let size = Vec3::new(max.x - min.x, height - floor, max.y - min.y);
         let middle = (min + max) / 2.0;
-        let material = materials(Some(raised.zone)).map(|set| set.floor);
+        // The Archive's Causeway is a stone path over its Cellar's brick bed.
+        let material = materials(Some(raised.zone)).map(|set| if raised.zone == ZoneId::FloodedCellar { Material::MonasteryStoneFloor } else { set.floor });
         self.block_in(size, Vec3::new(middle.x, (floor + height) / 2.0, middle.y), raised.colour, material);
         self.edging(min, max, height, palette(Some(raised.zone)).trim);
     }
@@ -1023,6 +1029,13 @@ pub(super) struct Face {
 fn darker(colour: Color) -> Color {
     let c = colour.to_srgba();
     Color::srgb(c.red * 0.72, c.green * 0.72, c.blue * 0.72)
+}
+
+/// The rectangles a Zone's floor is laid in: the Zone's box less the sunken floors in it.
+pub(super) fn floor_rects(zone: ZoneId, holes: &[Sunken]) -> Vec<(Vec2, Vec2)> {
+    let (lo, hi) = zone.volume();
+    let cut: Vec<_> = holes.iter().map(|hole| (hole.min, hole.max)).collect();
+    rects_around((Vec2::new(lo.x, lo.z), Vec2::new(hi.x, hi.z)), &cut)
 }
 
 /// The rectangle `outer` (min, max) less the rectangles `holes`, as rectangles.

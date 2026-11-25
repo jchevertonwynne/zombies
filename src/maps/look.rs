@@ -221,6 +221,30 @@ pub const FOGBOUND: Look = Look {
     probe_tint: 0.5,
 };
 
+/// The Archive (#535): lamplight, with no sky and no sun. Everything is underground, so the sun is
+/// 0 lux (and casts no shadows, so no cascades are rendered) and the sky shows nowhere; the daylight
+/// is faked by emissive panels, cool spots and additive shafts (`archive::daylight`). A warm amber
+/// ambient and grade (the warmest of the Maps), faded-paper saturation, and a lamp-lit dust-brown
+/// fog the far end of a 40 m hall fades into.
+pub const LAMPLIGHT: Look = Look {
+    sun_colour: Color::srgb(1.0, 0.85, 0.65),
+    sun_lux: 0.0,
+    sun_height: 1.0,
+    cascades: None,
+    ambient_colour: Color::srgb(1.0, 0.8, 0.58),
+    ambient_brightness: 110.0,
+    sky: Color::srgb(0.012, 0.01, 0.008),
+    fog: Color::srgb(0.012, 0.01, 0.008),
+    sky_map: None,
+    lamps: 0.9,
+    temperature: 0.08,
+    tint: 0.015,
+    fog_range: (6.0, 30.0),
+    indoor_fog: Color::srgb(0.05, 0.038, 0.026),
+    saturation: 0.9,
+    probe_tint: 0.6,
+};
+
 /// How strongly the sky lights the Map, as a fraction of how bright it shows.
 const SKY_LIGHT: f32 = 0.7;
 
@@ -236,6 +260,11 @@ pub const INDOOR_PROBE_COLOUR: Color = Color::srgb(0.75, 0.7, 0.65);
 const BLOOM: f32 = 0.05;
 
 impl Look {
+    /// Whether the sun casts shadows: not a sunless Look's (no cascades are rendered for it).
+    pub fn casts_sun_shadows(&self) -> bool {
+        self.sun_lux > 0.0
+    }
+
     /// The way the sun shines, given the Layout's `sun`.
     pub fn sun_direction(&self, sun: Vec3) -> Vec3 {
         Vec3::new(sun.x, sun.y * self.sun_height, sun.z)
@@ -276,7 +305,7 @@ impl Plugin for LookPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(post_stack)
             .add_systems(OnEnter(GameState::Playing), set_world)
-            .add_systems(Update, (follow_zone_fog, shadow_nearest_lamps).run_if(in_state(GameState::Playing)));
+            .add_systems(Update, (follow_zone_fog, shadow_nearest_lamps, crate::maps::map::archive::daylight::drift_motes).run_if(in_state(GameState::Playing)));
     }
 }
 
@@ -411,7 +440,7 @@ mod tests {
     /// Every Map but the Sanatorium keeps what its Look did before the four new fields.
     #[test]
     fn other_maps_looks_unchanged_by_the_new_fields() {
-        for map in MapId::ALL.into_iter().filter(|&map| map != MapId::Sanatorium) {
+        for map in MapId::ALL.into_iter().filter(|&map| !matches!(map, MapId::Sanatorium | MapId::Archive)) {
             let look = map.layout().look;
             assert_eq!(look.fog_range, (FOG_START, FOG_END), "{map:?}");
             assert_eq!(look.indoor_fog, INDOOR_FOG, "{map:?}");
@@ -423,8 +452,27 @@ mod tests {
             }
         }
         assert_eq!(MapId::Sanatorium.layout().look, FOGBOUND);
+        assert_eq!(MapId::Archive.layout().look, LAMPLIGHT);
         assert_eq!(FOGBOUND.fog_range, (5.0, 34.0));
         assert_eq!(FOGBOUND.saturation, 0.8);
+    }
+
+    /// The sunless shadow rule touches only the Look with no sun: every other Look, on every other
+    /// Map, still casts its sun's shadows (and keeps the cascades it had).
+    #[test]
+    fn other_maps_looks_unchanged_by_the_sunless_shadow_rule() {
+        for map in MapId::ALL.into_iter().filter(|&map| map != MapId::Archive) {
+            let look = map.layout().look;
+            assert!(look.sun_lux > 0.0, "{map:?}");
+            assert!(look.casts_sun_shadows(), "{map:?}");
+        }
+        assert_eq!(MapId::Polder.layout().look, NORTHERN_DUSK);
+        assert_eq!(MapId::Cove.layout().look, GOLDEN_HOUR);
+        assert_eq!(MapId::Sanatorium.layout().look.sun_lux, 900.0);
+        assert!(!LAMPLIGHT.casts_sun_shadows());
+        assert_eq!(LAMPLIGHT.sun_lux, 0.0);
+        assert!(LAMPLIGHT.sky_map.is_none());
+        assert_eq!((LAMPLIGHT.fog_range, LAMPLIGHT.lamps, LAMPLIGHT.saturation, LAMPLIGHT.probe_tint), ((6.0, 30.0), 0.9, 0.9, 0.6));
     }
 
     #[test]

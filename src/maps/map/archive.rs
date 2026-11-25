@@ -20,7 +20,7 @@
 //! the Zombies gather (the back-of-house; the path nodes there end in `_out`, as the Polder's strips do).
 //!
 //! The lamps, the Ranges, the fixed stacks and the per-Zone tables are in separate items on purpose:
-//! the Look, the Material Sets and the Props each come in a later ticket. Its path
+//! the Material Sets and the Props each come in a later ticket. Its path
 //! nodes, lamps, windows, stairwells and Props (in `data`) are laid out by `tools/archive_layout.py`.
 
 use bevy::prelude::*;
@@ -36,6 +36,8 @@ use super::{DOOR_HEIGHT, Layout, Level, Pool, Prop, RaisedFloor, STOREY, Slope, 
 
 #[path = "archive/data.rs"]
 mod data;
+#[path = "archive/daylight.rs"]
+pub(crate) mod daylight;
 
 pub(in crate::maps::map) use data::WINDOWS;
 
@@ -125,10 +127,11 @@ pub(super) const ARCHIVE: Layout = Layout {
     // Under a university, so there is no outside: the plan's edge is its walls.
     outside: None,
     sun: Vec3::new(0.3, -1.0, 0.5),
-    // The Greybox's look until the Archive has its own.
-    look: crate::maps::look::DUSK,
-    lamp_style: super::LampStyle::Bulb,
-    bulb_zones: &[],
+    // Lamplight: no sky and no sun, the daylight faked by `daylight` (#535).
+    look: crate::maps::look::LAMPLIGHT,
+    // Brass pendants with opal globes; the five cellar Zones keep caged bulbs, which run at half until the Power.
+    lamp_style: super::LampStyle::Pendant,
+    bulb_zones: &[ZoneId::WellStair, ZoneId::FloodedCellar, ZoneId::Undercroft, ZoneId::StrongRoom, ZoneId::PumpRoom],
     plan: (Vec2::new(-36.0, 0.0), Vec2::new(36.0, 36.0)),
     build,
 };
@@ -890,6 +893,55 @@ mod tests {
             assert!((gap - AISLE).abs() < 1e-4, "{}", r.name);
             assert!((r.length() - (f32::from(r.bookcases) * BOOKCASE.x + AISLE)).abs() < 1e-4);
         }
+    }
+
+    #[test]
+    fn no_archive_lamp_hangs_over_a_fixed_stack_or_in_a_sweep() {
+        for &(zone, at) in archive().lamps {
+            assert_eq!(in_a_range(Vec2::new(at.x, at.z), zone.floor()), None, "a lamp in the {} at {at} is in a Range's sweep or mouth strip", zone.name());
+            for stack in data::FIXED_STACKS {
+                let (lo, hi) = (Vec2::new(stack.at.x, stack.at.z) - Vec2::new(stack.size.x, stack.size.z) / 2.0, Vec2::new(stack.at.x, stack.at.z) + Vec2::new(stack.size.x, stack.size.z) / 2.0);
+                let over = at.x > lo.x && at.x < hi.x && at.z > lo.y && at.z < hi.y && (stack.at.y - zone.floor()).abs() < 1.0;
+                assert!(!over, "a lamp in the {} at {at} hangs over a fixed stack at {}", zone.name(), stack.at);
+            }
+            // Hung 0.15 m under the ceiling, or 2.5 m down in the Reading Room's 6 m.
+            let (_, hi) = zone.volume();
+            if zone != ReadingRoom && hi.y - at.y > 0.5 {
+                assert!((at.y - zone.floor()).rem_euclid(STOREY) > STOREY - 0.2, "a lamp in the {} at {at}", zone.name());
+            }
+        }
+        assert_eq!(archive().lamps.iter().filter(|(zone, _)| *zone == ReadingRoom).map(|(_, at)| at.y).fold(0.0, f32::max), 11.5);
+    }
+
+    #[test]
+    fn archive_has_15_probes_covering_every_zone_volume() {
+        use crate::maps::map::{ProbeSpec, probes};
+        let probes = probes(MapId::Archive);
+        assert_eq!(probes.len(), 15);
+        let zone_probes: Vec<&ProbeSpec> = probes.iter().filter(|probe| probe.zone.is_some()).collect();
+        assert_eq!(zone_probes.len(), 14);
+        for &zone in archive().zones {
+            let (lo, hi) = zone.volume();
+            let probe = zone_probes.iter().find(|probe| probe.zone == Some(zone)).unwrap_or_else(|| panic!("no probe in the {}", zone.name()));
+            assert!(probe.lo.cmple(lo).all() && probe.hi.cmpge(hi).all(), "the {}'s probe {:?}..{:?} doesn't cover its volume {lo}..{hi}", zone.name(), probe.lo, probe.hi);
+            // Tinted 60% of the way to its lamps' colour.
+            assert_eq!(probe.colour, archive().look.probe_colour(palette(Some(zone)).light));
+            assert_ne!(probe.colour, crate::maps::look::INDOOR_PROBE_COLOUR);
+        }
+        // The Theatre and the Well Stair are covered through their full height.
+        let height = |zone: ZoneId| zone_probes.iter().find(|probe| probe.zone == Some(zone)).map(|probe| (probe.lo.y, probe.hi.y)).unwrap();
+        assert!(height(LectureTheatre).0 <= 4.0 && height(LectureTheatre).1 >= 12.0);
+        assert!(height(WellStair).0 <= 0.0 && height(WellStair).1 >= 8.0);
+        // The extra one is the lantern's: 6 x 6 m, from the desk to the glazing, cool, at 0.6x.
+        let lantern = probes.iter().find(|probe| probe.zone.is_none()).unwrap();
+        assert_eq!((lantern.hi - lantern.lo).x, 6.0);
+        assert_eq!((lantern.hi - lantern.lo).z, 6.0);
+        assert_eq!(lantern.hi.y, 14.0);
+        assert!(lantern.lo.y >= 9.0 && lantern.lo.y <= 10.0);
+        assert!((lantern.brightness - crate::tuning::INDOOR_PROBE_BRIGHTNESS * 0.6).abs() < 1e-3);
+        assert_eq!(lantern.colour, Color::srgb(0.72, 0.8, 0.95));
+        // Nothing else has one but the indoor Zones.
+        assert_eq!(crate::maps::map::probes(MapId::Greybox).len(), MapId::Greybox.layout().zones.iter().filter(|&&zone| MapId::Greybox.layout().indoor(zone)).count());
     }
 
     #[test]

@@ -52,10 +52,12 @@ def fetch(asset_id, res, workdir):
         sys.exit(f"{asset_id}: not a Poly Haven texture")
     files = get_json(f"{API}/files/{asset_id}")
     maps = {}
+    diffuse = "Diffuse"
     for key, name in (("Diffuse", "color"), ("nor_gl", "normal"), ("arm", "orm")):
         if key == "Diffuse" and key not in files:
-            # Fabrics come as colourways: take the first.
-            key = next(k for k in ("col_1", "col_01") if k in files)
+            # Fabrics come as colourways (`col_1`, `col_01`, or `col1` as `book_pattern` has): take the first.
+            key = next(k for k in ("col_1", "col_01", "col1") if k in files)
+            diffuse = key
         url = files[key][res]["png"]["url"]
         path = workdir / f"{asset_id}_{name}.png"
         path.write_bytes(get(url))
@@ -79,7 +81,7 @@ def fetch(asset_id, res, workdir):
         "source": f"https://polyhaven.com/a/{asset_id}",
         "licence": "CC0",
         "fetched": datetime.date.today().isoformat(),
-        "notes": f"{res} PNG (Diffuse, nor_gl, arm); real-world size {width_mm / 1000:g} m",
+        "notes": f"{res} PNG ({diffuse}, nor_gl, arm); real-world size {width_mm / 1000:g} m",
     }, width_mm / 1000
 
 
@@ -89,12 +91,13 @@ def main():
     parser.add_argument("--res", default="1k")
     args = parser.parse_args()
     manifest = load_manifest()
-    with tempfile.TemporaryDirectory() as tmp:
-        for asset_id in args.ids:
+    for asset_id in args.ids:
+        # Each download gets its own new, empty directory.
+        with tempfile.TemporaryDirectory() as tmp:
             entry, size = fetch(asset_id, args.res, pathlib.Path(tmp))
-            manifest["assets"] = [e for e in manifest["assets"] if e["path"] != entry["path"]] + [entry]
-            save_manifest(manifest)
-            print(f"{asset_id}: tile {size:g} m")
+        manifest["assets"] = [e for e in manifest["assets"] if e["path"] != entry["path"]] + [entry]
+        save_manifest(manifest)
+        print(f"{asset_id}: tile {size:g} m")
 
 
 if __name__ == "__main__":
