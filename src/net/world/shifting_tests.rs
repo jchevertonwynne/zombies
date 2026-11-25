@@ -396,3 +396,189 @@ fn a_client_sees_a_sabotaged_range_refuse_its_wheel_and_roll_again_once_restored
         assert!(matches!(phase(&mut run, on, 0), PiecePhase::Warning { from: 2, to: 0, .. }), "game {on}: it rolls again: {:?}", phase(&mut run, on, 0));
     }
 }
+
+// ---- The Wheels, lamps and dust (#538) ----
+
+/// The Archive with the Ranges' look on every game, and the Sapper's Sabotage and Restore, as a Host runs them.
+fn archive_look(clients: u8) -> Run {
+    Run::on(MapId::Archive, clients, &|app| {
+        use crate::enemies::sapper::{prune_restores, restore_bought};
+        app.add_plugins(crate::maps::stacks_look::StacksLookPlugin)
+            .add_systems(Startup, crate::enemies::sapper::load_assets)
+            .add_systems(Update, (restore_bought, prune_restores).chain().in_set(crate::authority::HostSimulation));
+    })
+}
+
+/// What each Aisle lamp of Range `id` shows on game `on`, by the Rest it opens (two Wheels a Rest), sorted.
+fn lamps(run: &mut Run, on: usize, id: u8) -> Vec<(u8, crate::maps::stacks_look::Bulb)> {
+    use crate::maps::stacks_look::{AisleLamp, Bulb};
+    let world = run.world(on);
+    let mut out: Vec<(u8, Bulb)> = world.query::<&AisleLamp>().iter(world).filter(|lamp| lamp.piece == PieceId(id)).map(|lamp| (lamp.rest, lamp.shows)).collect();
+    out.sort_by_key(|&(rest, bulb)| (rest, bulb as u8));
+    out
+}
+
+/// The Great Range's hand wheels, as game `on` has them turned.
+fn spins(run: &mut Run, on: usize, id: u8) -> Vec<Quat> {
+    use crate::maps::stacks_look::WheelSpin;
+    let world = run.world(on);
+    world.query::<(&WheelSpin, &Transform)>().iter(world).filter(|(spin, _)| spin.piece == PieceId(id)).map(|(_, transform)| transform.rotation).collect()
+}
+
+fn pages(run: &mut Run, on: usize) -> usize {
+    let world = run.world(on);
+    world.query::<&Name>().iter(world).filter(|name| name.as_str() == "Page").count()
+}
+
+/// A client's Aisle lamps and Wheel spin follow the Host's Roll through every phase, and its dust and pages come when the Range
+/// comes to Rest: all drawn from the phase it is told, with nothing of its own on the wire.
+#[test]
+fn a_clients_lamps_and_wheels_follow_the_hosts_roll() {
+    use crate::maps::stacks_look::{Bulb, rail_travel, wheel_angle};
+    let mut run = archive_look(1);
+    run.step(10);
+    // At Rest 2: the two lamps of the open Aisle are green on both, the other eight dark.
+    let idle = (0..5u8).flat_map(|rest| [(rest, if rest == 2 { Bulb::Green } else { Bulb::DarkAmber }); 2]).collect::<Vec<_>>();
+    for on in 0..2 {
+        assert_eq!(lamps(&mut run, on, 0), idle, "game {on}");
+    }
+    let piece = &MapId::Archive.layout().shifting[0];
+    let wheel = run.find::<WheelPost>(1, |wheel| wheel.piece == PieceId(0) && wheel.rest == 0);
+    run.use_buyable(1, wheel, false);
+    run.step(ticks(0.5));
+    for on in 0..2 {
+        assert!(matches!(phase(&mut run, on, 0), PiecePhase::Warning { .. }), "game {on}");
+        // Amber, flashing: lit or dark, never green or red.
+        assert!(lamps(&mut run, on, 0).iter().all(|&(_, bulb)| bulb == Bulb::Amber || bulb == Bulb::DarkAmber), "game {on}: {:?}", lamps(&mut run, on, 0));
+        // The other Ranges stay as they were.
+        assert!(lamps(&mut run, on, 2).contains(&(0, Bulb::Green)), "game {on}");
+    }
+    // Rolling: steady amber, and each Wheel turned to where the Range's rail travel puts it, on its own machine.
+    let mut turned = false;
+    for _ in 0..ticks(SWING_WARN_SECS + SWING_SECS / 2.0) {
+        run.step(1);
+        if phase(&mut run, 1, 0).swinging() && phase(&mut run, 0, 0).swinging() {
+            turned = true;
+            break;
+        }
+    }
+    assert!(turned, "both machines are rolling");
+    run.step(ticks(1.0));
+    for on in 0..2 {
+        let now = phase(&mut run, on, 0);
+        assert!(now.swinging(), "game {on}: {now:?}");
+        assert!(lamps(&mut run, on, 0).iter().all(|&(_, bulb)| bulb == Bulb::Amber), "game {on}: steady amber");
+        let want = Quat::from_rotation_z(wheel_angle(rail_travel(piece, now)));
+        let spun = spins(&mut run, on, 0);
+        assert_eq!(spun.len(), 10);
+        assert!(spun.iter().all(|&rotation| rotation.angle_between(want) < 1e-3), "game {on}: the Wheels follow the rail travel");
+        assert!(want.angle_between(Quat::IDENTITY) > 0.05, "game {on}: the Wheel has turned");
+    }
+    // The two machines' Wheels agree to within a tick or two of the roll.
+    let (host, client) = (spins(&mut run, 0, 0), spins(&mut run, 1, 0));
+    assert!(host.iter().zip(&client).all(|(a, b)| a.angle_between(*b) < 0.8), "{host:?} {client:?}");
+    // It lands: dim amber while it cools, a burst of pages from the Bookcases that moved on both, then green at the new Rest.
+    run.step(ticks(SWING_SECS) + 10);
+    for on in 0..2 {
+        assert!(matches!(phase(&mut run, on, 0), PiecePhase::Cooling { at: 0, .. }), "game {on}");
+        assert!(lamps(&mut run, on, 0).iter().all(|&(_, bulb)| bulb == Bulb::AmberDim), "game {on}");
+        let moved = crate::maps::stacks_look::moved(piece, 2, 0).len();
+        let loose = pages(&mut run, on);
+        assert!((3 * moved..=6 * moved).contains(&loose), "game {on}: {loose} pages from {moved} Bookcases");
+        assert!(spins(&mut run, on, 0).iter().all(|&rotation| rotation.angle_between(Quat::IDENTITY) < 1e-3), "game {on}: landed, a whole number of turns on");
+    }
+    run.step(ticks(RANGE_COOLDOWN_SECS + 0.5));
+    let at_zero = (0..5u8).flat_map(|rest| [(rest, if rest == 0 { Bulb::Green } else { Bulb::DarkAmber }); 2]).collect::<Vec<_>>();
+    for on in 0..2 {
+        assert_eq!(lamps(&mut run, on, 0), at_zero, "game {on}: the open Aisle moved, and so did the green");
+    }
+}
+
+/// A Player who comes back sees every Range's open Aisle green and a Sabotaged Range red, from the phases and the Sabotage they are told.
+#[test]
+fn a_late_joiner_sees_the_open_aisle_green_and_a_sabotaged_range_red() {
+    use crate::enemies::sapper::{Sabotaged, Target, spawn_restore};
+    use crate::maps::stacks_look::{Bulb, WheelChain};
+    let mut run = archive_look(1);
+    run.step(10);
+    // The Host rolled the Folio-Periodical Range (R2) to Rest 1 and Sabotaged the Great Range, with a Restore at its Wheels.
+    show(&mut run, 0, 2, PiecePhase::Rest(1));
+    let range = {
+        let world = run.world(0);
+        world.query::<(Entity, &PieceState)>().iter(world).find(|(_, state)| state.id() == PieceId(0)).unwrap().0
+    };
+    let points: Vec<Vec3> = {
+        let world = run.world(0);
+        world.query::<&WheelPost>().iter(world).filter(|post| post.piece == PieceId(0)).map(|post| post.use_point()).collect()
+    };
+    run.world(0).entity_mut(range).insert(Sabotaged);
+    run.world(0)
+        .run_system_once(move |mut commands: Commands, assets: Res<crate::enemies::sapper::SapperAssets>| {
+            for &at in &points {
+                spawn_restore(&mut commands, &assets, Target::Entity(range), at);
+            }
+        })
+        .unwrap();
+    run.step(20);
+    let red = (0..5u8).flat_map(|rest| [(rest, Bulb::Red); 2]).collect::<Vec<_>>();
+    let rb_at_one = (0..3u8).flat_map(|rest| [(rest, if rest == 1 { Bulb::Green } else { Bulb::DarkAmber }); 2]).collect::<Vec<_>>();
+    for on in 0..2 {
+        assert_eq!(lamps(&mut run, on, 0), red, "game {on}: a Sabotaged Range's lamps are red");
+    }
+    assert_eq!(lamps(&mut run, 0, 2), rb_at_one);
+    // The client forgets, as one that was away would have: every Range at its start Rest, nothing Sabotaged.
+    let client_range = {
+        let world = run.world(1);
+        world.query::<(Entity, &PieceState)>().iter(world).find(|(_, state)| state.id() == PieceId(0)).unwrap().0
+    };
+    run.world(1).entity_mut(client_range).remove::<Sabotaged>();
+    {
+        let world = run.world(1);
+        let restores: Vec<Entity> = world.query_filtered::<Entity, With<crate::enemies::sapper::Restore>>().iter(world).collect();
+        for entity in restores {
+            if let Some(id) = world.get::<NetId>(entity).map(|id| id.0) {
+                world.resource_mut::<NetIds>().by_id.remove(&id);
+            }
+            world.despawn(entity);
+        }
+    }
+    for id in 0..5u8 {
+        show(&mut run, 1, id, PiecePhase::Rest(RANGE_START[usize::from(id)]));
+    }
+    run.step(5);
+    assert_ne!(lamps(&mut run, 1, 0), red, "it no longer knows");
+    assert_ne!(lamps(&mut run, 1, 2), rb_at_one);
+    run.world(0).write_message(SeatReturned { seat: Seat(1) });
+    run.step(10);
+    // Told again: the open Aisle of each Range is green and the Sabotaged one is red, with its chains on and its Wheels still.
+    assert_eq!(lamps(&mut run, 1, 0), red);
+    assert_eq!(lamps(&mut run, 1, 2), rb_at_one);
+    let chained = {
+        let world = run.world(1);
+        world.query::<(&WheelChain, &Visibility)>().iter(world).filter(|(chain, visibility)| chain.piece == PieceId(0) && **visibility != Visibility::Hidden).count()
+    };
+    assert_eq!(chained, 10);
+    // Every other Range at its own open Aisle.
+    for id in [1u8, 3, 4] {
+        let start = RANGE_START[usize::from(id)];
+        let lit: Vec<u8> = lamps(&mut run, 1, id).iter().filter(|&&(_, bulb)| bulb == Bulb::Green).map(|&(rest, _)| rest).collect();
+        assert_eq!(lit, [start, start], "Range {id}");
+    }
+    // Restored, the lamps go back to green at the open Aisle.
+    let restore = run.find::<crate::enemies::sapper::Restore>(1, |_| true);
+    let at = run.world(1).get::<Transform>(restore).unwrap().translation;
+    for on in 0..2 {
+        let player = run.player(on, 1);
+        let spot = at - Vec3::Y * 1.1 + Vec3::Y * crate::players::player::Stance::Standing.half_height();
+        run.world(on).get_mut::<Transform>(player).unwrap().translation = spot;
+        run.world(on).entity_mut(player).insert(avian3d::prelude::Position(spot));
+    }
+    run.give_points(1, 5000);
+    run.step(5);
+    run.use_buyable(1, restore, true);
+    run.step(ticks(4.0));
+    let open = (0..5u8).flat_map(|rest| [(rest, if rest == RANGE_START[0] { Bulb::Green } else { Bulb::DarkAmber }); 2]).collect::<Vec<_>>();
+    for on in 0..2 {
+        assert_eq!(lamps(&mut run, on, 0), open, "game {on}: restored");
+    }
+}

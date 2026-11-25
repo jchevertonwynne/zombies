@@ -47,3 +47,20 @@ python3 -I tools/props/build_props.py --only book_rows
 It writes `assets/props/book_rows/book_rows_{a,b,c}.{gltf,bin}` (no new texture files: they wear `materials/book_pattern`) and
 one manifest entry. Unlike the other kitbashes it is not fitted into a Prop's box by `fitting`: `src/maps/stacks_look.rs` lays it
 over both faces of each stack, whose own size is the one it was modelled for (1.2 x 3.0 x 5.0 m).
+
+## The Archive's Wheels (#538)
+
+`kitbash.py` also makes the three parts of a Range's Wheel: `wheel_post` (a 1.1 m fluted cast-iron post with a brass cap, its
+origin the middle of its foot, with the axle out of its face), `aisle_wheel` (a 0.7 m three-spoke hand wheel with a brass hub, its
+origin the hub, so the game can turn it) and `wheel_chain` (the chain woven through the spokes and padlocked to the post, shown
+only while the Range is Sabotaged). Each faces +z in the game (Blender's -y) and wears `materials/rusty_metal_02` and
+`materials/metal_plate_02`, tinted; no new texture files.
+
+```
+python3 -I tools/props/build_props.py --only wheels        # all three
+python3 -I tools/props/build_props.py --only aisle_wheel   # one
+```
+
+They come out as `assets/props/<name>/<name>.{gltf,bin}` and a manifest entry each. They are not fitted into a Prop's box:
+`src/maps/stacks_look.rs` stands them at each Wheel (`HUB_AT` there is the hub's place in the post's frame; keep the two in step). Headless
+runs, and a game without the files, draw the same parts from code.
