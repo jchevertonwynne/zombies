@@ -1634,6 +1634,14 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.5 m"
     },
     {
+      "path": "materials/book_pattern",
+      "name": "Book Pattern",
+      "source": "https://polyhaven.com/a/book_pattern",
+      "licence": "CC0",
+      "fetched": "2026-11-25",
+      "notes": "1k PNG (col1, nor_gl, arm); real-world size 0.3 m"
+    },
+    {
       "path": "materials/brick_wall_001",
       "name": "Brick Wall 001",
       "source": "https://polyhaven.com/a/brick_wall_001",
@@ -1648,6 +1656,14 @@
       "licence": "CC0",
       "fetched": "2026-11-15",
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 3 m"
+    },
+    {
+      "path": "materials/brown_leather",
+      "name": "Brown Leather",
+      "source": "https://polyhaven.com/a/brown_leather",
+      "licence": "CC0",
+      "fetched": "2026-11-25",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 0.4 m"
     },
     {
       "path": "materials/brushed_concrete_04",
@@ -1802,6 +1818,14 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1.05 m"
     },
     {
+      "path": "materials/dark_paneled_wood",
+      "name": "Dark Paneled Wood",
+      "source": "https://polyhaven.com/a/dark_paneled_wood",
+      "licence": "CC0",
+      "fetched": "2026-11-25",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1.4 m"
+    },
+    {
       "path": "materials/dark_rock",
       "name": "Dark Rock",
       "source": "https://polyhaven.com/a/dark_rock",
@@ -1906,6 +1930,14 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
     },
     {
+      "path": "materials/herringbone_parquet",
+      "name": "Herringbone Parquet",
+      "source": "https://polyhaven.com/a/herringbone_parquet",
+      "licence": "CC0",
+      "fetched": "2026-11-25",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 3.4 m"
+    },
+    {
       "path": "materials/hessian_230",
       "name": "Hessian 230",
       "source": "https://polyhaven.com/a/hessian_230",
@@ -1930,12 +1962,28 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1.27 m"
     },
     {
+      "path": "materials/medieval_blocks_05",
+      "name": "Medieval Blocks 05",
+      "source": "https://polyhaven.com/a/medieval_blocks_05",
+      "licence": "CC0",
+      "fetched": "2026-11-25",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
       "path": "materials/metal_plate_02",
       "name": "Metal Plate 02",
       "source": "https://polyhaven.com/a/metal_plate_02",
       "licence": "CC0",
       "fetched": "2026-11-15",
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
+      "path": "materials/monastery_stone_floor",
+      "name": "Monastery Stone Floor",
+      "source": "https://polyhaven.com/a/monastery_stone_floor",
+      "licence": "CC0",
+      "fetched": "2026-11-25",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1.8 m"
     },
     {
       "path": "materials/mossy_cobblestone",
@@ -1970,6 +2018,14 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
     },
     {
+      "path": "materials/old_wooden_floor_02",
+      "name": "Old Wooden Floor 02",
+      "source": "https://polyhaven.com/a/old_wooden_floor_02",
+      "licence": "CC0",
+      "fetched": "2026-11-25",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.03 m"
+    },
+    {
       "path": "materials/painted_concrete",
       "name": "Painted Concrete",
       "source": "https://polyhaven.com/a/painted_concrete",
@@ -1992,6 +2048,14 @@
       "fetched": "2026-11-23",
       "path": "materials/paintedplaster003",
       "notes": "1K PNG (Color, NormalGL, AmbientOcclusion, Roughness, Metalness packed to an ORM); real-world size 2 m. CC0 per the site licence, https://docs.ambientcg.com/license/"
+    },
+    {
+      "name": "ambientCG Paper006",
+      "source": "https://ambientcg.com/a/Paper006",
+      "licence": "CC0",
+      "fetched": "2026-11-25",
+      "path": "materials/paper006",
+      "notes": "1K PNG (Color, NormalGL, AmbientOcclusion, Roughness, Metalness packed to an ORM); real-world size 0.3 m. CC0 per the site licence, https://docs.ambientcg.com/license/"
     },
     {
       "path": "materials/peeling_painted_wall",
@@ -2146,6 +2210,14 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1.99806 m"
     },
     {
+      "path": "materials/wood_table_worn",
+      "name": "Wood Table Worn",
+      "source": "https://polyhaven.com/a/wood_table_worn",
+      "licence": "CC0",
+      "fetched": "2026-11-25",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 0.55 m"
+    },
+    {
       "path": "materials/worn_brick_floor",
       "name": "Worn Brick Floor",
       "source": "https://polyhaven.com/a/worn_brick_floor",
@@ -2167,6 +2239,14 @@
       "source": "https://polyhaven.com/a/worn_mossy_plasterwall",
       "licence": "CC0",
       "fetched": "2026-11-14",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1.8 m"
+    },
+    {
+      "path": "materials/worn_plaster_wall",
+      "name": "Worn Plaster Wall",
+      "source": "https://polyhaven.com/a/worn_plaster_wall",
+      "licence": "CC0",
+      "fetched": "2026-11-25",
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1.8 m"
     },
     {

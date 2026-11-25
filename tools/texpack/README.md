@@ -31,6 +31,9 @@ runs `texpack`, writes `assets/materials/<id>/`, and adds or replaces the set's 
 `assets/manifest.json`. It prints each set's real-world size, which is the tile size its
 `Material` takes in `src/maps/map/textures.rs`. Use `--res 2k` for a hero floor.
 
+A fabric that comes as colourways (`col_1`, `col_01` or `col1`, as `book_pattern` has) is taken in its first colourway.
+Each id is downloaded into its own new, empty temporary directory.
+
 ## An ambientCG set
 
 ```
