@@ -363,8 +363,8 @@ class Kit:
         made = bmesh.ops.create_cone(self.bm, cap_ends=True, cap_tris=False, segments=segments, radius1=radius, radius2=radius, depth=length, matrix=matrix)
         self._faces(made["verts"], material)
 
-    def finish(self, name):
-        """The mesh object: its materials named for their sets, its foot's middle at the origin."""
+    def finish(self, name, grounded=True):
+        """The mesh object: its materials named for their sets, its foot's middle at the origin (or, ungrounded, its own origin)."""
         mesh = bpy.data.meshes.new(name)
         self.bm.to_mesh(mesh)
         self.bm.free()
@@ -374,7 +374,8 @@ class Kit:
             mesh.materials.append(mat)
         obj = bpy.data.objects.new(name, mesh)
         bpy.context.scene.collection.objects.link(obj)
-        ground(mesh)
+        if grounded:
+            ground(mesh)
         return obj
 
 
@@ -521,6 +522,74 @@ def ambulance():
     return k.finish("ambulance")
 
 
+# ---- The Archive's Wheels (#538): a cast-iron three-spoke hand wheel with a brass hub, the fluted post it stands on and the
+# chain that jams it when the Range is Sabotaged. Three separate units, because the wheel turns and the chain shows only
+# when Sabotaged: all in the game's frame for a Wheel facing +z (Blender's -y), the post's origin the middle of its foot
+# and the wheel's and the chain's the hub, 0.8 m up and 0.2 m out from the post (`HUB_AT` in `src/maps/stacks_look.rs`).
+
+WHEEL_RADIUS = 0.35
+WHEEL_POST_HEIGHT = 1.1
+WHEEL_HUB_OUT = 0.2  # metres from the post's axis, along the way the Wheel faces
+
+
+def wheel_post():
+    k = Kit()
+    iron, brass = "rusty_metal_02", "metal_plate_02"
+    k.cyl((0, 0, 0.05), 0.15, 0.1, "z", iron, segments=12)
+    # A fluted shaft: a core and eight thin ribs round it.
+    k.cyl((0, 0, 0.1 + (WHEEL_POST_HEIGHT - 0.14) / 2), 0.055, WHEEL_POST_HEIGHT - 0.14, "z", iron, segments=10)
+    for i in range(8):
+        a = i * math.tau / 8
+        k.box((0.062 * math.cos(a), 0.062 * math.sin(a), 0.1 + (WHEEL_POST_HEIGHT - 0.14) / 2), (0.02, 0.02, WHEEL_POST_HEIGHT - 0.14), iron, rot=(0.0, 0.0, a))
+    k.cyl((0, 0, WHEEL_POST_HEIGHT - 0.02), 0.1, 0.04, "z", brass, segments=12)
+    # The axle the hand wheel turns on, out of the post's face (Blender -y is the game's +z), to the hub's front.
+    k.cyl((0, -(WHEEL_HUB_OUT + 0.045) / 2, 0.8), 0.025, WHEEL_HUB_OUT + 0.045, "y", iron)
+    return k.finish("wheel_post")
+
+
+def aisle_wheel():
+    k = Kit()
+    iron, brass = "rusty_metal_02", "metal_plate_02"
+    # The rim: a ring of short bars in the x-z plane round the hub; three spokes and three rim handles.
+    segments = 16
+    chord = 2 * WHEEL_RADIUS * math.sin(math.pi / segments) + 0.01
+    for i in range(segments):
+        a = i * math.tau / segments
+        k.box((WHEEL_RADIUS * math.cos(a), 0.0, WHEEL_RADIUS * math.sin(a)), (chord, 0.04, 0.04), iron, rot=(0.0, -(a + math.pi / 2), 0.0))
+    for i in range(3):
+        a = math.pi / 2 + i * math.tau / 3
+        mid = (WHEEL_RADIUS - 0.04) / 2 + 0.02
+        k.box((mid * math.cos(a), 0.0, mid * math.sin(a)), (WHEEL_RADIUS - 0.04, 0.035, 0.04), iron, rot=(0.0, -a, 0.0))
+        k.cyl(((WHEEL_RADIUS + 0.01) * math.cos(a), -0.04, (WHEEL_RADIUS + 0.01) * math.sin(a)), 0.016, 0.1, "y", iron, segments=8)
+    k.cyl((0, 0, 0), 0.06, 0.09, "y", brass, segments=12)
+    return k.finish("aisle_wheel", grounded=False)
+
+
+def wheel_chain():
+    k = Kit()
+    iron, brass = "rusty_metal_02", "metal_plate_02"
+    # A ring of links woven through the spokes: in front of one, behind the next.
+    for i in range(12):
+        a = i * math.tau / 12
+        weave = 0.02 if i % 2 == 0 else -0.02
+        k.box((0.18 * math.cos(a), weave, 0.18 * math.sin(a)), (0.05, 0.022, 0.022), iron, rot=(0.0, -(a + math.pi / 2), 0.0))
+    # The run down to a padlock on the post (the post is behind the wheel: Blender +y).
+    for i in range(3):
+        k.box((0.0, 0.04 * (i + 1), -0.22 - 0.05 * i), (0.022, 0.022, 0.05), iron)
+    k.box((0.0, 0.13, -0.4), (0.07, 0.035, 0.09), brass)
+    return k.finish("wheel_chain", grounded=False)
+
+
+def wheel_report(obj, name):
+    lo, hi = bounds(obj.data)
+    tris = triangles(obj.data)
+    assert tris <= BUDGET, f"{name}: {tris} triangles"
+    print(f"UNIT {json.dumps({'name': name, 'tris': tris, 'size': [round(hi.x - lo.x, 3), round(hi.z - lo.z, 3), round(hi.y - lo.y, 3)]})}")
+
+
+WHEEL_KITS = {"wheel_post": wheel_post, "aisle_wheel": aisle_wheel, "wheel_chain": wheel_chain}
+
+
 # ---- The Archive's book rows (#537): the shelf fill of every Bookcase and fixed stack. One mesh a
 # face (front and top faces of the spines only, no backs, no sides), 6 shelves of about 50 spines,
 # each spine tinted per vertex from a 12-colour library palette over the `book_pattern` cloth, folios
@@ -631,7 +700,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--src", required=True)
     parser.add_argument("--out", required=True)
-    parser.add_argument("--only", choices=["crate", "sandbags", "headstone", *SANATORIUM_KITS, *(f"book_rows_{v}" for v in BOOK_VARIANTS)])
+    parser.add_argument("--only", choices=["crate", "sandbags", "headstone", *SANATORIUM_KITS, *WHEEL_KITS, *(f"book_rows_{v}" for v in BOOK_VARIANTS)])
     parser.add_argument("--headstone", help="a high-poly headstone scan to decimate and bake")
     parser.add_argument("--work", help="where the headstone's baked PNGs go")
     args = parser.parse_args(argv)
@@ -642,6 +711,12 @@ def main():
         obj = book_rows(args.only[len("book_rows_"):])
         export(obj, out, args.only, colours=True)
         book_rows_report(obj, args.only)
+        return
+    if args.only in WHEEL_KITS:
+        reset()
+        obj = WHEEL_KITS[args.only]()
+        export(obj, out, args.only)
+        wheel_report(obj, args.only)
         return
     if args.only in SANATORIUM_KITS:
         reset()

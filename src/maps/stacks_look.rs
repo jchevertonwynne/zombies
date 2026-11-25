@@ -18,15 +18,20 @@
 //! The parts are code-built (they wear their material files once loaded), and the shelf fill is a glTF read only
 //! when it is on disk, so headless runs need no asset files.
 
-use std::collections::HashMap;
-use std::f32::consts::{FRAC_PI_2, PI};
+use std::collections::{HashMap, HashSet};
+use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 use bevy::prelude::*;
 
 use super::map::MapId;
 use super::map::textures::{Material, Polish, Shape, Textured, Tint, box_uv_mesh, on_disk};
-use super::shifting::{Driver, LeafBody};
-use crate::state::world_runs;
+use super::shifting::{Driver, Leaf, LeafBody, Piece, PieceId, PiecePhase, PieceState, WheelPost, pose as shifting_pose};
+use crate::enemies::sapper::Sabotaged;
+use crate::enemies::target::half_height_above_feet;
+use crate::enemies::zombie::{Dying, Zombie};
+use crate::players::player::{Locomotion, Player};
+use crate::state::{InRun, world_runs};
+use crate::weapons::blast::{Shape as BlastShape, envelope};
 use crate::tuning::{BOOKCASE_DEPTH, BOOKCASE_HEIGHT, BOOKCASE_LENGTH};
 
 // ---- Measures ----
@@ -510,11 +515,658 @@ fn dress_bookcases(
     }
 }
 
+// ---- The Wheels and their Aisle lamps (#538) ----
+
+/// One turn of a Wheel for every this many metres of rail the Range rolls.
+pub const WHEEL_PITCH: f32 = 0.5;
+/// How tall a Wheel's post is: its lamp sits on top.
+pub const POST_HEIGHT: f32 = 1.1;
+/// Where the hand wheel's hub is, in its post's frame (up and out along the way the Wheel faces).
+pub const HUB_AT: Vec3 = Vec3::new(0.0, 0.8, 0.2);
+/// A hand wheel's radius.
+pub const WHEEL_RADIUS: f32 = 0.35;
+/// How fast the lamp flashes while the Range warns, in flashes a second.
+pub const FLASH_HZ: f32 = 2.0;
+
+/// How far a Range's rail has carried a Bookcase since Rest 0, in metres: at Rest `k` it is `k` hops of one Aisle's width (one
+/// Bookcase crosses the Aisle from one Rest to the next), and through a Roll it runs on from there, at the pace of the Bookcases'
+/// own smoothstep, one hop whatever the number of Rests the Roll crosses (every Bookcase that moves moves one hop). The same on every
+/// machine from the phase alone.
+pub fn rail_travel(piece: &Piece, phase: PiecePhase) -> f32 {
+    let hop = piece.rests[0].at.iter().sum::<f32>() - piece.rests.get(1).map_or(0.0, |rest| rest.at.iter().sum::<f32>());
+    match phase {
+        PiecePhase::Swinging { from, to, elapsed } => {
+            let toward = if to >= from { 1.0 } else { -1.0 };
+            f32::from(from) * hop + toward * hop * shifting_pose(0.0, 1.0, elapsed)
+        }
+        other => f32::from(other.standing().unwrap_or(0)) * hop,
+    }
+}
+
+/// How far a Wheel is turned when the Range has rolled `travel` metres: one turn per `WHEEL_PITCH`.
+pub fn wheel_angle(travel: f32) -> f32 {
+    travel / WHEEL_PITCH * TAU
+}
+
+/// What an Aisle lamp says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LampState {
+    /// This Aisle is open and the Range idle.
+    Open,
+    /// This Aisle is shut and the Range idle.
+    Shut,
+    /// The Range warns or waits: amber, flashing.
+    Warning,
+    /// The Range rolls: amber, steady.
+    Rolling,
+    /// The Range has just landed: amber, dim.
+    Cooling,
+    /// The Range is Sabotaged: dull red, with a chain through the spokes.
+    Sabotaged,
+}
+
+/// The lamp of the Wheel that opens `rest`, for a Range in `phase`.
+pub fn aisle_lamp(phase: PiecePhase, rest: u8, sabotaged: bool) -> LampState {
+    if sabotaged {
+        return LampState::Sabotaged;
+    }
+    match phase {
+        PiecePhase::Rest(at) if at == rest => LampState::Open,
+        PiecePhase::Rest(_) => LampState::Shut,
+        PiecePhase::Warning { .. } | PiecePhase::Waiting { .. } => LampState::Warning,
+        PiecePhase::Swinging { .. } => LampState::Rolling,
+        PiecePhase::Cooling { .. } => LampState::Cooling,
+    }
+}
+
+/// The bulb materials a lamp swaps between.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bulb {
+    Green,
+    DarkAmber,
+    Amber,
+    AmberDim,
+    Red,
+}
+
+impl Bulb {
+    pub const ALL: [Bulb; 5] = [Bulb::Green, Bulb::DarkAmber, Bulb::Amber, Bulb::AmberDim, Bulb::Red];
+
+    /// The base colour and the emissive glow.
+    pub fn look(self) -> (Color, LinearRgba) {
+        let glow = |c: Color, k: f32| {
+            let LinearRgba { red, green, blue, .. } = c.to_linear();
+            LinearRgba::rgb(red * k, green * k, blue * k)
+        };
+        match self {
+            Bulb::Green => (Color::srgb(0.3, 1.0, 0.45), glow(Color::srgb(0.3, 1.0, 0.45), 8.0)),
+            Bulb::DarkAmber => (Color::srgb(0.22, 0.11, 0.03), LinearRgba::BLACK),
+            Bulb::Amber => (Color::srgb(1.0, 0.6, 0.15), glow(Color::srgb(1.0, 0.6, 0.15), 10.0)),
+            Bulb::AmberDim => (Color::srgb(1.0, 0.6, 0.15), glow(Color::srgb(1.0, 0.6, 0.15), 2.0)),
+            Bulb::Red => (Color::srgb(0.55, 0.06, 0.04), glow(Color::srgb(0.55, 0.06, 0.04), 3.0)),
+        }
+    }
+}
+
+/// Whether a flashing lamp is lit `now` seconds in.
+pub fn flash_on(now: f32) -> bool {
+    (now * FLASH_HZ).fract() < 0.5
+}
+
+/// The bulb a lamp in `state` shows `now` seconds in.
+pub fn bulb(state: LampState, now: f32) -> Bulb {
+    match state {
+        LampState::Open => Bulb::Green,
+        LampState::Shut => Bulb::DarkAmber,
+        LampState::Warning if flash_on(now) => Bulb::Amber,
+        LampState::Warning => Bulb::DarkAmber,
+        LampState::Rolling => Bulb::Amber,
+        LampState::Cooling => Bulb::AmberDim,
+        LampState::Sabotaged => Bulb::Red,
+    }
+}
+
+/// A Wheel's look: its post, hand wheel, lamp and chain stand in a frame at its floor spot, +z the way it faces.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct WheelLook;
+
+/// The systems that draw the Ranges' Wheels, lamps and dust from the Pieces' phases, after the Host's have run.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RangeLookSet;
+
+/// The hand wheel, turned from its Range's rail travel.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct WheelSpin {
+    pub piece: PieceId,
+}
+
+/// The Aisle lamp on a post's top, and the bulb it shows now.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct AisleLamp {
+    pub piece: PieceId,
+    pub rest: u8,
+    pub shows: Bulb,
+}
+
+/// The chain through a Sabotaged Wheel's spokes, padlocked to its post.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct WheelChain {
+    pub piece: PieceId,
+}
+
+/// The glTFs of the Wheel kitbashes (post, hand wheel, chain), under `assets/`.
+pub const WHEEL_MODELS: [&str; 3] = ["props/wheel_post/wheel_post.gltf", "props/aisle_wheel/aisle_wheel.gltf", "props/wheel_chain/wheel_chain.gltf"];
+
+/// What a Wheel is made of (the plain look it keeps with no model files): shared by every Wheel.
+#[derive(Resource)]
+struct WheelKit {
+    iron: Handle<StandardMaterial>,
+    brass: Handle<StandardMaterial>,
+    bulbs: Vec<Handle<StandardMaterial>>,
+    post_base: Handle<Mesh>,
+    post_shaft: Handle<Mesh>,
+    post_cap: Handle<Mesh>,
+    axle: Handle<Mesh>,
+    rim: Handle<Mesh>,
+    spoke: Handle<Mesh>,
+    hub: Handle<Mesh>,
+    link: Handle<Mesh>,
+    lock: Handle<Mesh>,
+    dome: Handle<Mesh>,
+}
+
+fn init_wheel_kit(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
+    let mut mesh = |m: Mesh| meshes.add(m);
+    let metal = |colour: Color, metallic: f32, roughness: f32| StandardMaterial { base_color: colour, metallic, perceptual_roughness: roughness, ..default() };
+    let bulbs = Bulb::ALL
+        .iter()
+        .map(|bulb| {
+            let (colour, emissive) = bulb.look();
+            materials.add(StandardMaterial { base_color: colour, emissive, perceptual_roughness: 0.3, ..default() })
+        })
+        .collect();
+    commands.insert_resource(WheelKit {
+        iron: materials.add(metal(Color::srgb(0.1, 0.1, 0.11), 0.8, 0.55)),
+        brass: materials.add(metal(BRASS, 0.9, 0.4)),
+        bulbs,
+        post_base: mesh(Cylinder::new(0.15, 0.1).into()),
+        post_shaft: mesh(Cylinder::new(0.07, POST_HEIGHT - 0.14).into()),
+        post_cap: mesh(Cylinder::new(0.1, 0.04).into()),
+        axle: mesh(Cylinder::new(0.025, 0.25).into()),
+        rim: mesh(Torus::new(WHEEL_RADIUS - 0.02, WHEEL_RADIUS + 0.02).into()),
+        spoke: mesh(Cuboid::new(0.04, WHEEL_RADIUS - 0.04, 0.03).into()),
+        hub: mesh(Cylinder::new(0.06, 0.08).into()),
+        link: mesh(Cuboid::new(0.05, 0.022, 0.022).into()),
+        lock: mesh(Cuboid::new(0.07, 0.09, 0.035).into()),
+        dome: mesh(Sphere::new(0.08).into()),
+    });
+}
+
+/// Gives every Wheel its look over the plain post the Shifting plugin spawned: that keeps the Buyable and its use point but no
+/// drawing of its own (it stands hidden at the open Aisle); the look stands at every mouth, its lamp telling which is open.
+fn dress_wheels(
+    mut commands: Commands,
+    kit: Res<WheelKit>,
+    asset_server: Option<Res<AssetServer>>,
+    scenes: Option<Res<Assets<WorldAsset>>>,
+    posts: Query<(Entity, &WheelPost, &Transform), Added<WheelPost>>,
+) {
+    for (entity, post, transform) in &posts {
+        commands.entity(entity).remove::<Mesh3d>().despawn_related::<Children>();
+        let root = commands
+            .spawn((
+                InRun,
+                Name::new("Wheel look"),
+                WheelLook,
+                Transform::from_translation(transform.translation - Vec3::Y * 0.5).with_rotation(transform.rotation),
+                Visibility::default(),
+            ))
+            .id();
+        // A kitbash glTF in place of a part's plain look, if it is on disk (and there is a world to load it): spawned under `parent`.
+        let model = |commands: &mut Commands, path: &str, parent: Entity| -> bool {
+            let Some(server) = asset_server.as_ref().filter(|_| scenes.is_some() && on_disk(path)) else { return false };
+            commands.spawn((Name::new("Model"), WorldAssetRoot(server.load(GltfAssetLabel::Scene(0).from_asset(path.to_string()))), Transform::default(), Visibility::default(), ChildOf(parent)));
+            true
+        };
+        let part = |commands: &mut Commands, parent: Entity, mesh: &Handle<Mesh>, material: &Handle<StandardMaterial>, at: Vec3, rot: Quat| {
+            commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material.clone()), Transform::from_translation(at).with_rotation(rot), ChildOf(parent)));
+        };
+        let turn_x = Quat::from_rotation_x(FRAC_PI_2);
+        // The post, with its axle.
+        if !model(&mut commands, WHEEL_MODELS[0], root) {
+            part(&mut commands, root, &kit.post_base, &kit.iron, Vec3::new(0.0, 0.05, 0.0), Quat::IDENTITY);
+            part(&mut commands, root, &kit.post_shaft, &kit.iron, Vec3::new(0.0, 0.1 + (POST_HEIGHT - 0.14) / 2.0, 0.0), Quat::IDENTITY);
+            part(&mut commands, root, &kit.post_cap, &kit.brass, Vec3::new(0.0, POST_HEIGHT - 0.04, 0.0), Quat::IDENTITY);
+            part(&mut commands, root, &kit.axle, &kit.iron, Vec3::new(HUB_AT.x, HUB_AT.y, HUB_AT.z / 2.0 + 0.05), turn_x);
+        }
+        // The hand wheel: a pivot at its hub, turned about the way the Wheel faces.
+        let pivot = commands
+            .spawn((Name::new("Hand wheel"), WheelSpin { piece: post.piece }, Transform::from_translation(HUB_AT), Visibility::default(), ChildOf(root)))
+            .id();
+        if !model(&mut commands, WHEEL_MODELS[1], pivot) {
+            part(&mut commands, pivot, &kit.rim, &kit.iron, Vec3::ZERO, turn_x);
+            part(&mut commands, pivot, &kit.hub, &kit.brass, Vec3::ZERO, turn_x);
+            for k in 0..3 {
+                let a = k as f32 * TAU / 3.0;
+                part(&mut commands, pivot, &kit.spoke, &kit.iron, Quat::from_rotation_z(a) * Vec3::Y * (WHEEL_RADIUS / 2.0 + 0.02), Quat::from_rotation_z(a));
+            }
+        }
+        // The chain through the spokes, padlocked to the post, shown only while Sabotaged.
+        let chain = commands
+            .spawn((Name::new("Wheel chain"), WheelChain { piece: post.piece }, Transform::from_translation(HUB_AT), Visibility::Hidden, ChildOf(root)))
+            .id();
+        if !model(&mut commands, WHEEL_MODELS[2], chain) {
+            // A ring of links woven through the spokes (in front of one, behind the next), and a run down to the lock.
+            for k in 0..12 {
+                let a = k as f32 * TAU / 12.0;
+                let weave = if k % 2 == 0 { 0.02 } else { -0.02 };
+                part(&mut commands, chain, &kit.link, &kit.iron, Quat::from_rotation_z(a) * Vec3::Y * 0.18 + Vec3::Z * weave, Quat::from_rotation_z(a));
+            }
+            for k in 0..3 {
+                part(&mut commands, chain, &kit.link, &kit.iron, Vec3::new(0.0, -0.22 - 0.05 * k as f32, -0.04 * (k + 1) as f32), Quat::from_rotation_z(FRAC_PI_2));
+            }
+            part(&mut commands, chain, &kit.lock, &kit.brass, Vec3::new(0.0, -0.4, -0.13), Quat::IDENTITY);
+        }
+        // The Aisle lamp: an enamel dome on the post's top, emissive only.
+        commands.spawn((
+            Name::new("Aisle lamp"),
+            AisleLamp { piece: post.piece, rest: post.rest, shows: Bulb::DarkAmber },
+            Mesh3d(kit.dome.clone()),
+            MeshMaterial3d(kit.bulbs[Bulb::DarkAmber as usize].clone()),
+            Transform::from_xyz(0.0, POST_HEIGHT + 0.03, 0.0).with_scale(Vec3::new(1.0, 0.8, 1.0)),
+            ChildOf(root),
+        ));
+    }
+}
+
+/// A Piece's phase, and whether it is Sabotaged.
+fn state_of(pieces: &Query<(&PieceState, Has<Sabotaged>)>, piece: PieceId) -> Option<(PiecePhase, bool)> {
+    pieces.iter().find(|(state, _)| state.id() == piece).map(|(state, sabotaged)| (state.phase(), sabotaged))
+}
+
+/// Turns each hand wheel to where its Range's rail travel puts it, the same on every machine from the phase. A Sabotaged
+/// Wheel is jammed and stays where it is.
+fn spin_wheels(pieces: Query<(&PieceState, Has<Sabotaged>)>, mut wheels: Query<(&WheelSpin, &mut Transform)>, map: Res<MapId>) {
+    let layout = map.layout();
+    for (wheel, mut transform) in &mut wheels {
+        let Some((phase, sabotaged)) = state_of(&pieces, wheel.piece) else { continue };
+        let Some(piece) = layout.shifting.get(usize::from(wheel.piece.0)) else { continue };
+        if sabotaged {
+            continue;
+        }
+        transform.rotation = Quat::from_rotation_z(wheel_angle(rail_travel(piece, phase)));
+    }
+}
+
+/// Swaps each Aisle lamp's bulb as its Range's phase, Rest and Sabotage say.
+fn light_aisle_lamps(pieces: Query<(&PieceState, Has<Sabotaged>)>, kit: Res<WheelKit>, time: Res<Time>, mut lamps: Query<(&mut AisleLamp, &mut MeshMaterial3d<StandardMaterial>)>) {
+    for (mut lamp, mut material) in &mut lamps {
+        let Some((phase, sabotaged)) = state_of(&pieces, lamp.piece) else { continue };
+        let want = bulb(aisle_lamp(phase, lamp.rest, sabotaged), time.elapsed_secs());
+        if lamp.shows != want {
+            lamp.shows = want;
+            material.0 = kit.bulbs[want as usize].clone();
+        }
+    }
+}
+
+/// Shows the chain on a Sabotaged Range's Wheels.
+fn show_chains(pieces: Query<(&PieceState, Has<Sabotaged>)>, mut chains: Query<(&WheelChain, &mut Visibility)>) {
+    for (chain, mut visibility) in &mut chains {
+        let sabotaged = state_of(&pieces, chain.piece).is_some_and(|(_, sabotaged)| sabotaged);
+        visibility.set_if_neq(if sabotaged { Visibility::Inherited } else { Visibility::Hidden });
+    }
+}
+
+// ---- The Roll's dust and pages ----
+
+/// A Range has come to Rest: for the sound ticket's thud and this look's dust. `at` is the middle of the Bookcases that moved,
+/// at their tops.
+#[derive(Message, Debug, Clone, Copy, PartialEq)]
+pub struct RangeRested {
+    pub piece: PieceId,
+    pub rest: u8,
+    pub at: Vec3,
+}
+
+/// A body was caught in a Range's sweep and Shoved clear, at its feet: for the sound ticket and this look's puff.
+#[derive(Message, Debug, Clone, Copy, PartialEq)]
+pub struct RangeShoved {
+    pub at: Vec3,
+}
+
+/// The most dust and pages alive at once.
+pub const DUST_CAP: usize = 160;
+/// Puffs along the top of a Bookcase that moved, as it comes to Rest.
+pub const REST_PUFFS: usize = 6;
+/// How many puffs a second a moving Bookcase kicks up at its foot.
+pub const SKIRT_PER_SEC: f32 = 2.0;
+/// How long a fallen page lies on the floor.
+const PAGE_LIES_SECS: f32 = 8.0;
+const DUST_TINT: Color = Color::srgba(0.55, 0.48, 0.38, 0.55);
+
+/// A deterministic value in [0, 1) from `seed`.
+pub fn hash01(seed: u64) -> f32 {
+    let mut z = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^= z >> 31;
+    (z >> 40) as f32 / (1u64 << 24) as f32
+}
+
+fn key(piece: u8, rest: u8, bookcase: usize, k: u32, field: u64) -> u64 {
+    (u64::from(piece) << 56) ^ (u64::from(rest) << 48) ^ ((bookcase as u64) << 36) ^ (u64::from(k) << 20) ^ (field * 0x1_0000_0001)
+}
+
+/// One loose page's fall: where over the Bookcase's top it starts (a fraction of its length and depth from the middle), how it is
+/// turned, its sway, its fall speed and how long it waits.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PageSpec {
+    pub along: f32,
+    pub across: f32,
+    pub turn: f32,
+    pub sway: f32,
+    pub fall: f32,
+    pub delay: f32,
+}
+
+/// The 3 to 6 loose pages that flutter down from Bookcase `bookcase` of Piece `piece` as it comes to Rest `rest`: picked by a hash of
+/// those alone, so every machine sees the same ones.
+pub fn rest_pages(piece: u8, rest: u8, bookcase: usize) -> Vec<PageSpec> {
+    let count = (3 + (hash01(key(piece, rest, bookcase, 99, 1)) * 4.0) as u32).min(6);
+    (0..count)
+        .map(|k| {
+            let at = |field: u64| hash01(key(piece, rest, bookcase, k, field));
+            PageSpec { along: at(2) - 0.5, across: (at(3) - 0.5) * 0.8, turn: at(4) * TAU, sway: at(5) * TAU, fall: 0.5 + at(6) * 0.4, delay: at(7) * 0.5 }
+        })
+        .collect()
+}
+
+/// A Bookcase's top at `pose`: its middle, the way its length runs, and how long it is.
+fn top_of(leaf: &Leaf, pose: f32) -> (Vec3, Vec3, f32) {
+    let centre = leaf.centre(pose);
+    let along = if leaf.size.x >= leaf.size.z { Vec3::X } else { Vec3::Z };
+    (centre + Vec3::Y * leaf.size.y / 2.0, along, leaf.size.x.max(leaf.size.z))
+}
+
+/// The Bookcases of `piece` that move between Rests `from` and `to`.
+pub fn moved(piece: &Piece, from: u8, to: u8) -> Vec<usize> {
+    (0..piece.leaves.len()).filter(|&i| (piece.rests[usize::from(from)].at[i] - piece.rests[usize::from(to)].at[i]).abs() > 1e-4).collect()
+}
+
+/// What dust is drawn with, shared by every puff and page.
+#[derive(Resource)]
+struct DustKit {
+    quad: Handle<Mesh>,
+    puff: Handle<StandardMaterial>,
+    page: Handle<StandardMaterial>,
+}
+
+fn init_dust_kit(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Option<Res<AssetServer>>,
+    images: Option<Res<Assets<Image>>>,
+) {
+    // The `smoke_03` sprite and `Paper006`, once on disk; plain tints without them (and in headless runs).
+    let load = |path: &str| asset_server.as_ref().filter(|_| images.is_some() && on_disk(path)).map(|server| server.load::<Image>(path.to_string()));
+    commands.insert_resource(DustKit {
+        quad: meshes.add(Rectangle::new(1.0, 1.0)),
+        puff: materials.add(StandardMaterial {
+            base_color: DUST_TINT,
+            base_color_texture: load("sprites/smoke_03/color.ktx2"),
+            unlit: true,
+            alpha_mode: AlphaMode::Blend,
+            double_sided: true,
+            cull_mode: None,
+            ..default()
+        }),
+        page: materials.add(StandardMaterial {
+            base_color: Color::srgb(0.82, 0.76, 0.62),
+            base_color_texture: load("materials/paper006/color.ktx2"),
+            perceptual_roughness: 0.95,
+            double_sided: true,
+            cull_mode: None,
+            ..default()
+        }),
+    });
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Bit {
+    /// A billowing puff of dust, rising.
+    Puff { rise: f32 },
+    /// A page falling, swaying; once it reaches `floor` it lies there for `landed` seconds.
+    Page { floor: f32, fall: f32, sway: f32, turn: f32, landed: f32 },
+}
+
+#[derive(Component)]
+struct DustBit {
+    age: f32,
+    delay: f32,
+    life: f32,
+    size: f32,
+    bit: Bit,
+}
+
+fn spawn_puff(commands: &mut Commands, kit: &DustKit, at: Vec3, size: f32, life: f32, rise: f32, delay: f32) {
+    commands.spawn((
+        InRun,
+        Name::new("Dust"),
+        DustBit { age: 0.0, delay, life, size, bit: Bit::Puff { rise } },
+        Mesh3d(kit.quad.clone()),
+        MeshMaterial3d(kit.puff.clone()),
+        Transform::from_translation(at).with_scale(Vec3::splat(0.01)),
+        Visibility::default(),
+    ));
+}
+
+fn spawn_page(commands: &mut Commands, kit: &DustKit, at: Vec3, floor: f32, spec: PageSpec) {
+    commands.spawn((
+        InRun,
+        Name::new("Page"),
+        DustBit { age: 0.0, delay: spec.delay, life: 30.0, size: 1.0, bit: Bit::Page { floor, fall: spec.fall, sway: spec.sway, turn: spec.turn, landed: 0.0 } },
+        Mesh3d(kit.quad.clone()),
+        MeshMaterial3d(kit.page.clone()),
+        Transform::from_translation(at).with_rotation(Quat::from_rotation_y(spec.turn) * Quat::from_rotation_x(-FRAC_PI_2)).with_scale(Vec3::new(0.21, 0.3, 1.0)),
+        Visibility::Hidden,
+    ));
+}
+
+/// Dust and pages as a Range rolls and comes to Rest, drawn on every machine from the phase it shows: a burst of dust along the top of each
+/// Bookcase that moved and 3 to 6 pages fluttering down from it; a skirt of dust at the foot of each moving Bookcase, twice a second. A
+/// Piece is only seen to land if this machine saw it Swing, so a late joiner is not shown a burst for a Roll it was not at.
+fn roll_effects(
+    mut commands: Commands,
+    kit: Res<DustKit>,
+    map: Res<MapId>,
+    pieces: Query<&PieceState>,
+    live: Query<(), With<DustBit>>,
+    mut seen: Local<HashMap<PieceId, PiecePhase>>,
+    mut ticks: Local<HashMap<PieceId, i64>>,
+    mut rested: MessageWriter<RangeRested>,
+) {
+    let layout = map.layout();
+    let mut alive = live.iter().len();
+    for state in &pieces {
+        let id = state.id();
+        let Some(piece) = layout.shifting.get(usize::from(id.0)) else { continue };
+        if !matches!(piece.driver, Driver::Wheels(_)) {
+            continue;
+        }
+        let before = seen.insert(id, state.phase());
+        match (before, state.phase()) {
+            (Some(PiecePhase::Swinging { from, to, .. }), now) if !now.swinging() => {
+                ticks.remove(&id);
+                let rest = now.standing().unwrap_or(to);
+                let bookcases = moved(piece, from, to);
+                let mut middle = Vec3::ZERO;
+                for &i in &bookcases {
+                    let leaf = &piece.leaves[i];
+                    let (top, along, length) = top_of(leaf, piece.rests[usize::from(rest)].at[i]);
+                    middle += top / bookcases.len() as f32;
+                    for k in 0..REST_PUFFS {
+                        if alive >= DUST_CAP {
+                            break;
+                        }
+                        let h = |field: u64| hash01(key(id.0, rest, i, k as u32, field + 20));
+                        let spot = top + along * ((k as f32 + 0.5) / REST_PUFFS as f32 - 0.5) * length + Vec3::new(h(1) - 0.5, 0.0, h(2) - 0.5) * 0.3;
+                        spawn_puff(&mut commands, &kit, spot, 0.6 + h(3) * 0.4, 1.4 + h(4) * 0.6, 0.35 + h(5) * 0.2, h(6) * 0.15);
+                        alive += 1;
+                    }
+                    let across = along.cross(Vec3::Y);
+                    for spec in rest_pages(id.0, rest, i) {
+                        if alive >= DUST_CAP {
+                            break;
+                        }
+                        spawn_page(&mut commands, &kit, top + along * spec.along * length + across * spec.across * leaf.size.x.min(leaf.size.z), leaf.hinge.y + 0.012, spec);
+                        alive += 1;
+                    }
+                }
+                if !bookcases.is_empty() {
+                    rested.write(RangeRested { piece: id, rest, at: middle });
+                }
+            }
+            (_, PiecePhase::Swinging { from, to, elapsed }) => {
+                let tick = (elapsed * SKIRT_PER_SEC).floor() as i64;
+                let last = ticks.insert(id, tick).unwrap_or(tick - 1);
+                let poses = state.phase().poses(piece);
+                for t in (last + 1).max(tick - 1)..=tick {
+                    for i in moved(piece, from, to) {
+                        if alive >= DUST_CAP {
+                            break;
+                        }
+                        let leaf = &piece.leaves[i];
+                        let h = |field: u64| hash01(key(id.0, from, i, t as u32, field + 40) ^ u64::from(to));
+                        let (top, along, length) = top_of(leaf, poses[i]);
+                        let side = if h(1) < 0.5 { -1.0 } else { 1.0 };
+                        let across = along.cross(Vec3::Y);
+                        let foot = Vec3::new(top.x, leaf.hinge.y + 0.1, top.z) + along * (h(2) - 0.5) * length + across * side * leaf.size.x.min(leaf.size.z) / 2.0;
+                        spawn_puff(&mut commands, &kit, foot, 0.4 + h(3) * 0.2, 0.9 + h(4) * 0.4, 0.2, 0.0);
+                        alive += 1;
+                    }
+                }
+            }
+            _ => {
+                ticks.remove(&id);
+            }
+        }
+    }
+}
+
+/// A small puff at the feet of every Player and Zombie a Roll Shoves, as the Roll catches it: seen the same way on every machine, from
+/// who is in the sweep of a Range that is Swinging.
+fn shove_puffs(
+    mut commands: Commands,
+    kit: Res<DustKit>,
+    map: Res<MapId>,
+    pieces: Query<&PieceState>,
+    zombies: Query<(Entity, &Zombie, &Transform), (Without<Dying>, Without<Player>)>,
+    players: Query<(Entity, &Transform, Option<&Locomotion>), With<Player>>,
+    live: Query<(), With<DustBit>>,
+    mut shoved: Local<HashSet<Entity>>,
+    mut shoves: MessageWriter<RangeShoved>,
+) {
+    let layout = map.layout();
+    let mut any = false;
+    let mut alive = live.iter().len();
+    for state in &pieces {
+        let PiecePhase::Swinging { from, to, .. } = state.phase() else { continue };
+        let Some(piece) = layout.shifting.get(usize::from(state.id().0)) else { continue };
+        if !matches!(piece.driver, Driver::Wheels(_)) {
+            continue;
+        }
+        any = true;
+        let bodies = zombies.iter().map(|(entity, zombie, transform)| (entity, transform.translation - Vec3::Y * zombie.half_height())).chain(
+            players.iter().map(|(entity, transform, locomotion)| (entity, transform.translation - Vec3::Y * half_height_above_feet(locomotion))),
+        );
+        for (entity, feet) in bodies {
+            if piece.in_way(feet, from, to) && shoved.insert(entity) {
+                shoves.write(RangeShoved { at: feet });
+                if alive < DUST_CAP {
+                    spawn_puff(&mut commands, &kit, feet + Vec3::Y * 0.15, 0.45, 0.8, 0.3, 0.0);
+                    alive += 1;
+                }
+            }
+        }
+    }
+    if !any {
+        shoved.clear();
+    }
+}
+
+/// Dust billows and thins, and turns to the camera; a page falls swaying and then lies for a while.
+fn update_dust(mut commands: Commands, mut bits: Query<(Entity, &mut DustBit, &mut Transform, &mut Visibility)>, cameras: Query<&GlobalTransform, With<Camera3d>>, time: Res<Time>) {
+    let dt = time.delta_secs();
+    let eye = cameras.iter().next().map(GlobalTransform::translation);
+    for (entity, mut bit, mut transform, mut visibility) in &mut bits {
+        if bit.delay > 0.0 {
+            bit.delay -= dt;
+            continue;
+        }
+        bit.age += dt;
+        match bit.bit {
+            Bit::Puff { rise } => {
+                if bit.age >= bit.life {
+                    commands.entity(entity).despawn();
+                    continue;
+                }
+                transform.translation.y += rise * dt;
+                transform.scale = Vec3::splat(bit.size * envelope(BlastShape::Billow, bit.age / bit.life));
+                if let Some(eye) = eye
+                    && (eye - transform.translation).length_squared() > 1e-6
+                {
+                    transform.rotation = Transform::IDENTITY.looking_to(transform.translation - eye, Vec3::Y).rotation;
+                }
+            }
+            Bit::Page { floor, fall, sway, turn, mut landed } => {
+                visibility.set_if_neq(Visibility::Inherited);
+                if landed > 0.0 {
+                    landed += dt;
+                    if landed >= PAGE_LIES_SECS {
+                        commands.entity(entity).despawn();
+                        continue;
+                    }
+                } else {
+                    let t = bit.age;
+                    transform.translation.y -= fall * dt;
+                    transform.translation.x += (sway + t * 3.0).cos() * 0.25 * dt;
+                    transform.translation.z += (sway + t * 2.3).sin() * 0.25 * dt;
+                    transform.rotation = Quat::from_rotation_y(turn + t * 0.8) * Quat::from_rotation_x(-FRAC_PI_2 + 0.7 * (sway + t * 4.5).sin());
+                    if transform.translation.y <= floor {
+                        transform.translation.y = floor;
+                        transform.rotation = Quat::from_rotation_y(turn) * Quat::from_rotation_x(-FRAC_PI_2);
+                        landed = dt;
+                    }
+                }
+                bit.bit = Bit::Page { floor, fall, sway, turn, landed };
+            }
+        }
+    }
+}
+
 pub struct StacksLookPlugin;
 
 impl Plugin for StacksLookPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (dress_bookcases, load_book_rows).chain().run_if(world_runs).run_if(resource_exists::<MapId>));
+        app.add_message::<RangeRested>()
+            .add_message::<RangeShoved>()
+            .add_systems(Update, (dress_bookcases, load_book_rows).chain().run_if(world_runs).run_if(resource_exists::<MapId>))
+            .add_systems(Update, (init_wheel_kit.run_if(not(resource_exists::<WheelKit>)), init_dust_kit.run_if(not(resource_exists::<DustKit>))).run_if(world_runs).run_if(resource_exists::<MapId>))
+            .add_systems(
+                Update,
+                (dress_wheels, spin_wheels, light_aisle_lamps, show_chains, roll_effects, shove_puffs, update_dust)
+                    .chain()
+                    .in_set(RangeLookSet)
+                    .after(crate::authority::HostSimulation)
+                    .after(init_wheel_kit)
+                    .after(init_dust_kit)
+                    .run_if(world_runs)
+                    .run_if(resource_exists::<MapId>)
+                    .run_if(resource_exists::<WheelKit>)
+                    .run_if(resource_exists::<DustKit>),
+            );
     }
 }
 
@@ -721,5 +1373,250 @@ mod tests {
         assert!((lay(Vec3::new(1.2, 3.0, 5.0)) * Vec3::X - Vec3::NEG_Z).length() < 1e-5);
         assert!((lay(Vec3::new(1.2, 3.0, 5.0)) * Vec3::Z - Vec3::X).length() < 1e-5, "+z stays the rail's high side");
         assert_eq!(lay(Vec3::new(5.0, 3.0, 1.2)), Quat::IDENTITY);
+    }
+
+    // ---- The Wheels, Aisle lamps and the Roll's dust (#538) ----
+
+    use crate::maps::shifting::pieces;
+    use crate::tuning::SWING_SECS;
+
+    #[test]
+    fn aisle_lamp_by_phase_and_rest() {
+        let phases = |at: u8, to: u8| {
+            [
+                PiecePhase::Rest(at),
+                PiecePhase::Warning { from: at, to, elapsed: 0.7 },
+                PiecePhase::Waiting { from: at, to },
+                PiecePhase::Swinging { from: at, to, elapsed: 2.0 },
+                PiecePhase::Cooling { at: to, elapsed: 1.0 },
+            ]
+        };
+        for rest in 0..5u8 {
+            for phase in phases(2, 3) {
+                let lamp = aisle_lamp(phase, rest, false);
+                // Green only at the open Aisle while idle.
+                assert_eq!(lamp == LampState::Open, phase == PiecePhase::Rest(rest), "{phase:?} at the Aisle of Rest {rest}");
+                for now in [0.0, 0.1, 0.3, 0.6, 1.2] {
+                    assert_eq!(bulb(lamp, now) == Bulb::Green, lamp == LampState::Open);
+                }
+                // Amber through Warning, Waiting and Swinging, whichever Aisle it is.
+                let amber = |lamp| matches!(bulb(lamp, 0.0), Bulb::Amber);
+                match phase {
+                    PiecePhase::Warning { .. } | PiecePhase::Waiting { .. } | PiecePhase::Swinging { .. } => {
+                        assert!(amber(lamp) || lamp == LampState::Warning, "{phase:?}");
+                        assert!([Bulb::Amber, Bulb::DarkAmber].contains(&bulb(lamp, 0.3)));
+                    }
+                    PiecePhase::Cooling { .. } => assert_eq!(bulb(lamp, 0.3), Bulb::AmberDim),
+                    PiecePhase::Rest(_) => {}
+                }
+                // Red when Sabotaged, in any phase.
+                let sabotaged = aisle_lamp(phase, rest, true);
+                assert_eq!(sabotaged, LampState::Sabotaged);
+                assert_eq!(bulb(sabotaged, 0.3), Bulb::Red);
+            }
+        }
+        assert_eq!(bulb(aisle_lamp(PiecePhase::Rest(2), 2, false), 0.0), Bulb::Green);
+        // A shut Aisle's lamp is dark amber and unlit.
+        assert_eq!(bulb(aisle_lamp(PiecePhase::Rest(2), 0, false), 0.0), Bulb::DarkAmber);
+        assert_eq!(Bulb::DarkAmber.look().1, LinearRgba::BLACK);
+        // The warning flashes at 2 Hz: lit half of each half-second.
+        let warning = aisle_lamp(PiecePhase::Waiting { from: 2, to: 0 }, 0, false);
+        assert_eq!([0.0, 0.2, 0.3, 0.45, 0.5, 0.7, 0.8, 1.0].map(|now| bulb(warning, now)), [Bulb::Amber, Bulb::Amber, Bulb::DarkAmber, Bulb::DarkAmber, Bulb::Amber, Bulb::Amber, Bulb::DarkAmber, Bulb::Amber]);
+        // Steady amber rolling, dim amber cooling: ten times and twice the glow of the base.
+        assert!(Bulb::Amber.look().1.red > Bulb::AmberDim.look().1.red * 4.0 && Bulb::AmberDim.look().1.red > 0.0);
+        // Every bulb is a distinct look, so a lamp swaps between shared materials.
+        let looks: Vec<_> = Bulb::ALL.iter().map(|bulb| format!("{:?}", bulb.look())).collect();
+        assert!(looks.iter().enumerate().all(|(i, look)| !looks[..i].contains(look)));
+        // At Rest, on every Range, exactly the two Wheels of the open Aisle are green.
+        for (id, piece) in pieces(MapId::Archive.layout()) {
+            for rest in 0..piece.rests.len() as u8 {
+                let green = piece.wheels().iter().filter(|wheel| aisle_lamp(PiecePhase::Rest(rest), wheel.rest, false) == LampState::Open).count();
+                assert_eq!(green, 2, "Range {} at Rest {rest}", id.0);
+            }
+        }
+    }
+
+    #[test]
+    fn wheel_spin_follows_rail_travel() {
+        // One turn for every half metre of rail.
+        assert!((wheel_angle(WHEEL_PITCH) - TAU).abs() < 1e-5 && wheel_angle(0.0) == 0.0 && (wheel_angle(0.25) - PI).abs() < 1e-5);
+        for (id, piece) in pieces(MapId::Archive.layout()) {
+            let travel = |phase| rail_travel(piece, phase);
+            let hop = f32::from(1u8) * (travel(PiecePhase::Rest(1)) - travel(PiecePhase::Rest(0)));
+            // One hop is one Bookcase crossing an Aisle's width, a whole number of turns: so a Wheel lands looking as it did.
+            assert!((hop - crate::tuning::AISLE_WIDTH).abs() < 1e-4, "Range {}", id.0);
+            let turns = wheel_angle(hop) / TAU;
+            assert!((turns - turns.round()).abs() < 1e-4, "{turns} turns a hop");
+            assert_eq!(travel(PiecePhase::Rest(0)), 0.0);
+            // Every Rest sits a hop further; Warning, Waiting and Cooling stand still where they are.
+            for rest in 0..piece.rests.len() as u8 {
+                assert!((travel(PiecePhase::Rest(rest)) - hop * f32::from(rest)).abs() < 1e-4);
+                assert_eq!(travel(PiecePhase::Cooling { at: rest, elapsed: 2.0 }), travel(PiecePhase::Rest(rest)));
+            }
+            let last = piece.rests.len() as u8 - 1;
+            assert_eq!(travel(PiecePhase::Waiting { from: 1, to: last }), travel(PiecePhase::Rest(1)));
+            assert_eq!(travel(PiecePhase::Warning { from: 1, to: last, elapsed: 1.0 }), travel(PiecePhase::Rest(1)));
+            // Rolling on, it follows the Bookcases' own smoothstep from one Rest's travel to the next hop's, and lands exactly.
+            let mut was = travel(PiecePhase::Swinging { from: 0, to: 1, elapsed: 0.0 });
+            assert_eq!(was, 0.0);
+            for step in 1..=20 {
+                let now = travel(PiecePhase::Swinging { from: 0, to: 1, elapsed: SWING_SECS * step as f32 / 20.0 });
+                assert!(now >= was - 1e-6, "forward, never back: {was} then {now}");
+                was = now;
+            }
+            assert!((was - hop).abs() < 1e-4, "lands a hop on");
+            assert!((travel(PiecePhase::Swinging { from: 0, to: 1, elapsed: SWING_SECS / 2.0 }) - hop / 2.0).abs() < 1e-4, "half way through the roll, half a hop");
+            // And back: the Wheel turns the other way.
+            assert!((travel(PiecePhase::Swinging { from: 1, to: 0, elapsed: SWING_SECS / 2.0 }) - hop / 2.0).abs() < 1e-4);
+            assert!(travel(PiecePhase::Swinging { from: 1, to: 0, elapsed: SWING_SECS * 0.75 }) < travel(PiecePhase::Swinging { from: 1, to: 0, elapsed: SWING_SECS * 0.25 }));
+            // A Roll over several Rests is still one hop of each Bookcase that moves.
+            assert!(travel(PiecePhase::Swinging { from: 0, to: last, elapsed: SWING_SECS }) <= hop + 1e-4);
+        }
+    }
+
+    #[test]
+    fn rest_pages_are_the_same_on_every_machine() {
+        let layout = MapId::Archive.layout();
+        let mut seen = std::collections::HashSet::new();
+        for (id, piece) in pieces(layout) {
+            for rest in 0..piece.rests.len() as u8 {
+                for bookcase in 0..piece.leaves.len() {
+                    let pages = rest_pages(id.0, rest, bookcase);
+                    // 3 to 6 pages, from a hash of nothing but where and when.
+                    assert!((3..=6).contains(&pages.len()), "{} pages", pages.len());
+                    assert_eq!(pages, rest_pages(id.0, rest, bookcase));
+                    assert!(pages.iter().all(|page| (-0.5..0.5).contains(&page.along) && (0.0..TAU).contains(&page.turn) && page.fall > 0.0));
+                    seen.insert(format!("{pages:?}"));
+                }
+            }
+        }
+        assert!(seen.len() > 20, "pages differ from Bookcase to Bookcase and Rest to Rest");
+        // The hash is spread over [0, 1).
+        let mean = (0..2000).map(|i| hash01(i as u64)).sum::<f32>() / 2000.0;
+        assert!((mean - 0.5).abs() < 0.05 && (0..2000).all(|i| (0.0..1.0).contains(&hash01(i))));
+    }
+
+    fn show(sim: &mut crate::enemies::zombie::headless::Sim, id: u8, phase: PiecePhase) {
+        use bevy::ecs::system::RunSystemOnce;
+        sim.world_mut()
+            .run_system_once(move |mut states: Query<&mut PieceState>| {
+                for mut state in &mut states {
+                    if state.id() == PieceId(id) {
+                        state.show(phase);
+                    }
+                }
+            })
+            .unwrap();
+    }
+
+    fn named(sim: &mut crate::enemies::zombie::headless::Sim, what: &'static str) -> Vec<String> {
+        use bevy::ecs::system::RunSystemOnce;
+        sim.world_mut()
+            .run_system_once(move |bits: Query<(&Name, &Transform, &Visibility)>| {
+                let mut out: Vec<String> = bits.iter().filter(|(name, ..)| name.as_str() == what).map(|(_, t, v)| format!("{:.4?} {:.4?} {:.4?} {v:?}", t.translation, t.rotation, t.scale)).collect();
+                out.sort();
+                out
+            })
+            .unwrap()
+    }
+
+    fn rolled_range() -> crate::enemies::zombie::headless::Sim {
+        use crate::enemies::zombie::headless::Sim;
+        let mut sim = Sim::on(MapId::Archive, 60.0, |app| {
+            app.add_plugins(StacksLookPlugin);
+        });
+        sim.run(3);
+        show(&mut sim, 0, PiecePhase::Rest(2));
+        sim.run(2);
+        show(&mut sim, 0, PiecePhase::Swinging { from: 2, to: 3, elapsed: SWING_SECS / 2.0 });
+        sim.run(2);
+        show(&mut sim, 0, PiecePhase::Cooling { at: 3, elapsed: 0.0 });
+        sim.run(3);
+        sim
+    }
+
+    #[test]
+    fn every_machine_draws_the_same_lamps_dust_and_pages_from_the_phase() {
+        use bevy::ecs::system::RunSystemOnce;
+        let (mut host, mut client) = (rolled_range(), rolled_range());
+        // The Great Range moved one Bookcase from Rest 2 to Rest 3: it came to Rest with a burst of dust along its top and
+        // 3 to 6 pages, and the same on both.
+        let layout = MapId::Archive.layout();
+        let moved_count = moved(&layout.shifting[0], 2, 3).len();
+        assert_eq!(moved_count, 1);
+        let (pages, other) = (named(&mut host, "Page"), named(&mut client, "Page"));
+        assert!((3..=6).contains(&pages.len()), "{} pages", pages.len());
+        assert_eq!(pages, other);
+        let (dust, other_dust) = (named(&mut host, "Dust"), named(&mut client, "Dust"));
+        assert!(dust.len() >= REST_PUFFS, "{} puffs", dust.len());
+        assert_eq!(dust, other_dust);
+        let wheels = (named(&mut host, "Hand wheel"), named(&mut client, "Hand wheel"));
+        assert_eq!(wheels.0.len(), 38);
+        assert_eq!(wheels.0, wheels.1);
+        // The Aisle lamps: the Range is cooling at Rest 3, so every lamp of it is dim amber and the others are at Rest.
+        let lamps = host
+            .world_mut()
+            .run_system_once(|lamps: Query<&AisleLamp>| lamps.iter().map(|lamp| (lamp.piece.0, lamp.rest, lamp.shows)).collect::<Vec<_>>())
+            .unwrap();
+        assert_eq!(lamps.len(), 38);
+        for (piece, rest, shows) in lamps {
+            let start = MapId::Archive.layout().shifting[usize::from(piece)].start;
+            let want = if piece == 0 { Bulb::AmberDim } else if rest == start { Bulb::Green } else { Bulb::DarkAmber };
+            assert_eq!(shows, want, "Range {piece}'s lamp for Rest {rest}");
+        }
+        // Back at Rest, the lamp of the open Aisle is green.
+        show(&mut host, 0, PiecePhase::Rest(3));
+        host.run(2);
+        let green = host.world_mut().run_system_once(|lamps: Query<&AisleLamp>| lamps.iter().filter(|lamp| lamp.piece.0 == 0 && lamp.shows == Bulb::Green).map(|lamp| lamp.rest).collect::<Vec<_>>()).unwrap();
+        assert_eq!(green, [3, 3]);
+    }
+
+    #[test]
+    fn a_roll_says_when_it_rests_and_who_it_shoved() {
+        use crate::enemies::zombie::headless::Sim;
+        use bevy::ecs::system::RunSystemOnce;
+        let mut sim = Sim::on(MapId::Archive, 60.0, |app| {
+            app.add_plugins(StacksLookPlugin);
+        });
+        sim.run(3);
+        show(&mut sim, 0, PiecePhase::Rest(2));
+        sim.run(2);
+        // A Zombie in the Bookcase's way as it starts to roll.
+        let zombie = sim.spawn(Vec3::new(0.3, 8.0, 12.0), None);
+        sim.world_mut().get_mut::<Transform>(zombie).unwrap().translation = Vec3::new(0.3, 8.0 + 1.0, 12.0);
+        show(&mut sim, 0, PiecePhase::Swinging { from: 2, to: 3, elapsed: 0.1 });
+        sim.run(1);
+        let shoved = sim.world_mut().resource::<Messages<RangeShoved>>().iter_current_update_messages().count();
+        assert_eq!(shoved, 1, "the Zombie in the sweep is Shoved, once");
+        sim.run(5);
+        assert!(sim.world_mut().run_system_once(|dust: Query<&Name>| dust.iter().filter(|name| name.as_str() == "Dust").count()).unwrap() > 0, "dust at its feet and at the Bookcase's foot");
+        show(&mut sim, 0, PiecePhase::Cooling { at: 3, elapsed: 0.0 });
+        sim.run(1);
+        let rested: Vec<_> = sim.world_mut().resource::<Messages<RangeRested>>().iter_current_update_messages().copied().collect();
+        assert_eq!(rested.len(), 1);
+        assert_eq!((rested[0].piece, rested[0].rest), (PieceId(0), 3));
+        // At the top of the Bookcase that moved (3 m up from the Reading level's floor, on the Range's line).
+        assert!((rested[0].at.y - 11.0).abs() < 0.01 && (rested[0].at.z - 12.0).abs() < 0.01, "{:?}", rested[0].at);
+    }
+
+    #[test]
+    fn a_sabotaged_range_shows_its_chain_and_a_red_lamp_and_holds_its_wheel() {
+        use crate::enemies::zombie::headless::Sim;
+        use bevy::ecs::system::RunSystemOnce;
+        let mut sim = Sim::on(MapId::Archive, 60.0, |app| {
+            app.add_plugins(StacksLookPlugin);
+        });
+        sim.run(3);
+        let chains = |sim: &mut Sim| sim.world_mut().run_system_once(|chains: Query<(&WheelChain, &Visibility)>| chains.iter().filter(|(chain, v)| chain.piece == PieceId(0) && **v != Visibility::Hidden).count()).unwrap();
+        assert_eq!(chains(&mut sim), 0, "no chain while it works");
+        let range = sim.world_mut().run_system_once(|states: Query<(Entity, &PieceState)>| states.iter().find(|(_, state)| state.id() == PieceId(0)).unwrap().0).unwrap();
+        sim.world_mut().entity_mut(range).insert(Sabotaged);
+        sim.run(2);
+        assert_eq!(chains(&mut sim), 10, "a chain on each of its ten Wheels");
+        let red = sim.world_mut().run_system_once(|lamps: Query<&AisleLamp>| lamps.iter().filter(|lamp| lamp.piece.0 == 0 && lamp.shows == Bulb::Red).count()).unwrap();
+        assert_eq!(red, 10);
+        sim.world_mut().entity_mut(range).remove::<Sabotaged>();
+        sim.run(2);
+        assert_eq!(chains(&mut sim), 0, "restored, the chain is gone");
     }
 }

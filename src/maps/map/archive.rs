@@ -39,6 +39,8 @@ use super::{DOOR_HEIGHT, Infill, Layout, Level, Pool, Prop, RaisedFloor, STOREY,
 mod data;
 #[path = "archive/daylight.rs"]
 pub(crate) mod daylight;
+#[path = "archive/flood.rs"]
+pub(crate) mod flood;
 
 pub(in crate::maps::map) use data::WINDOWS;
 
@@ -653,6 +655,9 @@ fn build(b: &mut Builder) {
             }
         }
     }
+
+    // The tide mark round the Flooded Cellar's walls, piers and the Causeway's sides (#539).
+    flood::tide_mark(b, super::MapId::Archive.layout());
 
     // The Causeway: the Raised Floor's block floats over the pool's bed, so its core runs down to the bed, and its steps climb at both ends.
     b.block(Vec3::new(32.0, 0.5, 3.0), Vec3::new(0.0, 0.25, 10.0), STONE);

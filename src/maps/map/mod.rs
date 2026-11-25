@@ -1502,6 +1502,7 @@ pub fn spawn_map(
         }
         if *map == MapId::Archive {
             archive::daylight::spawn(&mut commands, &mut meshes, &mut materials);
+            archive::flood::spawn(&mut commands, &mut meshes, &mut materials, layout);
         }
     } else {
         for &(zone, at) in layout.lamps {
