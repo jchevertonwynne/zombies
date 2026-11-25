@@ -30,7 +30,7 @@ use crate::players::player::Player;
 use crate::economy::points::BonusPoints;
 use crate::maps::generator::{GeneratorState, Generators};
 use crate::maps::power::{Power, Powering};
-use crate::maps::shifting::{Lever, PiecePhase, PieceState};
+use crate::maps::shifting::{Lever, PiecePhase, PieceState, WheelPost};
 use crate::maps::trap::trap_zone;
 use crate::economy::power_up::DropPowerUp;
 use crate::run::round::{CarriesOver, ReservedRounds, Round, RoundPhase, zombie_health};
@@ -141,6 +141,8 @@ pub enum SabotageKind {
     PackAPunch,
     /// A Swing Bridge's Levers, one system to it.
     Lever,
+    /// A Range's Wheels, one system to it.
+    Wheels,
 }
 
 /// What the Sapper means to do at its target: take a Generator, which is then Lost, or Sabotage a
@@ -182,7 +184,7 @@ pub fn can_sabotage(kind: SabotageKind, powered: bool, in_use: bool) -> bool {
     match kind {
         SabotageKind::Perk(Perk::QuickRevive) => false,
         SabotageKind::Trap => powered,
-        SabotageKind::Lever => !in_use,
+        SabotageKind::Lever | SabotageKind::Wheels => !in_use,
         SabotageKind::MysteryBox => !in_use,
         SabotageKind::Perk(_) | SabotageKind::Teleporter | SabotageKind::PackAPunch => {
             powered && !in_use
@@ -822,7 +824,7 @@ fn candidates(
     perks: &Query<(Entity, &PerkMachine), Without<Sabotaged>>,
     traps: &Query<(Entity, &Trap, &Transform), Without<Sabotaged>>,
     machines: &Query<(Entity, &PackAPunch, &Transform), Without<Sabotaged>>,
-    bridges: (&Query<(Entity, &PieceState), Without<Sabotaged>>, &Query<&Lever>),
+    bridges: (&Query<(Entity, &PieceState), Without<Sabotaged>>, &Query<&Lever>, &Query<&WheelPost>),
     doors: &Query<&Door>,
     teleporter: Option<&Teleporter>,
     supply: Powering,
@@ -879,6 +881,10 @@ fn candidates(
         let in_use = matches!(state.phase(), PiecePhase::Warning { .. } | PiecePhase::Waiting { .. } | PiecePhase::Swinging { .. });
         for lever in bridges.1.iter().filter(|lever| lever.piece == state.id()) {
             all.push(candidate(Target::Entity(entity), SabotageKind::Lever, lever.use_point(), true, in_use));
+        }
+        // Every Wheel of a Range is a way to it, and the Range is one system.
+        for wheel in bridges.2.iter().filter(|wheel| wheel.piece == state.id()) {
+            all.push(candidate(Target::Entity(entity), SabotageKind::Wheels, wheel.use_point(), true, in_use));
         }
     }
     for (entity, machine, transform) in machines {
@@ -948,7 +954,7 @@ fn sabotage(
     perks: Query<(Entity, &PerkMachine), Without<Sabotaged>>,
     traps: Query<(Entity, &Trap, &Transform), Without<Sabotaged>>,
     machines: Query<(Entity, &PackAPunch, &Transform), Without<Sabotaged>>,
-    (bridges, levers): (Query<(Entity, &PieceState), Without<Sabotaged>>, Query<&Lever>),
+    (bridges, levers, wheels): (Query<(Entity, &PieceState), Without<Sabotaged>>, Query<&Lever>, Query<&WheelPost>),
     doors: Query<&Door>,
     mut teleporter: ResMut<Teleporter>,
     (power, mut generators): (Res<Power>, Option<ResMut<Generators>>),
@@ -964,7 +970,7 @@ fn sabotage(
         &perks,
         &traps,
         &machines,
-        (&bridges, &levers),
+        (&bridges, &levers, &wheels),
         &doors,
         crate::maps::teleporter::stands_on(*map).then_some(&*teleporter),
         Powering::new(power.is_on(), generators.as_deref()),
@@ -1020,6 +1026,15 @@ fn sabotage(
                 {
                     for lever in levers.iter().filter(|lever| lever.piece == state.id()) {
                         spawn_restore(&mut commands, &assets, taken.target, lever.use_point());
+                    }
+                    continue;
+                }
+                // A Range can be restored at any of its Wheels.
+                if let (Job::Sabotage(SabotageKind::Wheels), Target::Entity(piece)) = (taken.job, taken.target)
+                    && let Ok((_, state)) = bridges.get(piece)
+                {
+                    for wheel in wheels.iter().filter(|wheel| wheel.piece == state.id()) {
+                        spawn_restore(&mut commands, &assets, taken.target, wheel.use_point());
                     }
                     continue;
                 }
@@ -1103,7 +1118,7 @@ fn restore(commands: &mut Commands, teleporter: &mut Teleporter, target: Target)
 }
 
 /// Holding the Use key on a Sabotaged system (and paying) restores it.
-fn restore_bought(
+pub(crate) fn restore_bought(
     mut commands: Commands,
     mut holds: MessageReader<HoldPurchased>,
     restores: Query<&Restore>,
@@ -1158,7 +1173,7 @@ fn sapper_deaths(
 }
 
 /// A restore whose system is gone, or no longer Sabotaged, goes too.
-fn prune_restores(
+pub(crate) fn prune_restores(
     mut commands: Commands,
     restores: Query<(Entity, &Restore)>,
     sabotaged: Query<(), With<Sabotaged>>,
@@ -1626,5 +1641,123 @@ mod taking_tests {
         }
         sim.run(sim.frames(0.5));
         assert_eq!(turbine(&mut sim), GeneratorState::Lost);
+    }
+}
+
+/// A Sapper Sabotaging a Range's Wheels on the built Archive.
+#[cfg(test)]
+mod wheel_tests {
+    use super::*;
+    use crate::economy::buy::{Purchased, Refused};
+    use crate::enemies::zombie::headless::Sim;
+    use crate::maps::shifting::{PieceId, WheelPost};
+
+    /// The Archive with the Shifting systems and the Sapper's, a Sapper standing at the first Wheel of the Great Range's Rest 0, and the
+    /// Player beside it.
+    fn sapper_at_a_wheel() -> (Sim, Entity) {
+        let mut sim = Sim::on(MapId::Archive, 60.0, |app| {
+            app.add_plugins(crate::maps::shifting::ShiftingPlugin)
+                .init_resource::<Teleporter>()
+                .init_resource::<Power>()
+                .insert_resource(ActiveZones(ZoneSet::from_iter(ZoneId::ALL)))
+                .add_message::<BonusPoints>()
+                .add_message::<DropPowerUp>()
+                .add_message::<Purchased>()
+                .add_message::<HoldPurchased>()
+                .add_message::<crate::audio::PlayCue>()
+                .add_message::<crate::players::player::Teleport>()
+                .add_systems(Startup, load_assets)
+                .add_systems(Update, (stun_restarts, sabotage, restore_bought, sapper_deaths, prune_restores).chain());
+        });
+        let wheel = MapId::Archive.layout().shifting[0].wheels().iter().find(|wheel| wheel.rest == 0).unwrap();
+        let spot = wheel.at;
+        {
+            let world = sim.world_mut();
+            let mut players = world.query_filtered::<&mut Transform, With<Player>>();
+            let away = Vec3::new(wheel.facing.x, 0.0, wheel.facing.y) * 6.0;
+            players.iter_mut(world).next().unwrap().translation = spot + away + Vec3::Y * 1.0;
+        }
+        let sapper = sim.spawn(spot, None);
+        sim.world_mut().entity_mut(sapper).insert((Zombie::special(SpecialKind::Sapper, 1000.0, spot), Sapper::new(spot), CarriesOver));
+        (sim, sapper)
+    }
+
+    fn range(sim: &mut Sim, id: u8) -> (Entity, bool) {
+        let world = sim.world_mut();
+        let (entity, _) = world.query::<(Entity, &PieceState)>().iter(world).find(|(_, state)| state.id() == PieceId(id)).unwrap();
+        (entity, world.get::<Sabotaged>(entity).is_some())
+    }
+
+    fn restores(sim: &mut Sim) -> Vec<(Entity, Vec3)> {
+        let world = sim.world_mut();
+        world.query::<(Entity, &Restore, &Transform)>().iter(world).map(|(entity, _, transform)| (entity, transform.translation)).collect()
+    }
+
+    fn phase(sim: &mut Sim, id: u8) -> PiecePhase {
+        let world = sim.world_mut();
+        world.query::<&PieceState>().iter(world).find(|state| state.id() == PieceId(id)).unwrap().phase()
+    }
+
+    /// The Range's Wheels are one system to the Sapper: it Sabotages the Range, not a Wheel; a Restore waits at every one of its Wheels
+    /// (and at no other Range's); the Range stands at its Rest while Sabotaged and its Wheels are dead; and holding F at any one restores the
+    /// Range, the other Restores going with it, so a Wheel rolls it again.
+    #[test]
+    fn sapper_targets_a_ranges_wheels_as_one_system() {
+        assert!(can_sabotage(SabotageKind::Wheels, false, false), "a Range needs no Power");
+        assert!(!can_sabotage(SabotageKind::Wheels, true, true), "never mid-roll");
+        let (mut sim, sapper) = sapper_at_a_wheel();
+        // It picks the system nearest the Player, which is a Wheel of the Great Range (the only one near); it works from where that Wheel stands.
+        sim.run(3);
+        let goal = sim.world_mut().get::<Sapper>(sapper).unwrap().goal.expect("it has a goal");
+        assert_eq!(goal.job, Job::Sabotage(SabotageKind::Wheels), "the Great Range's Wheels, as one system");
+        sim.world_mut().get_mut::<Transform>(sapper).unwrap().translation = goal.spot + Vec3::Y * (ZOMBIE_RADIUS + ZOMBIE_CAPSULE_LENGTH / 2.0 + 0.02);
+        sim.run(sim.frames(SAPPER_SABOTAGE_SECS + 1.0));
+        let (_, sabotaged) = range(&mut sim, 0);
+        assert!(sabotaged, "the Great Range is Sabotaged");
+        for other in 1..5 {
+            assert!(!range(&mut sim, other).1, "Range {other} is untouched");
+        }
+        assert_eq!(phase(&mut sim, 0), PiecePhase::Rest(2), "it stands at its Rest");
+        let wheels = MapId::Archive.layout().shifting[0].wheels();
+        let mut pending = restores(&mut sim);
+        assert_eq!(pending.len(), wheels.len(), "a Restore at every one of its Wheels");
+        for wheel in wheels {
+            let use_point = wheel.at + Vec3::Y * 1.1 + Vec3::new(wheel.facing.x, 0.0, wheel.facing.y) * 0.3;
+            assert!(pending.iter().any(|(_, at)| at.distance(use_point) < 0.01), "a Restore at the Wheel for Rest {} at {}", wheel.rest, wheel.at);
+        }
+        // Its Wheels are dead.
+        let dead = {
+            let world = sim.world_mut();
+            let mut posts = world.query::<(Entity, &WheelPost)>();
+            let entities: Vec<Entity> = posts.iter(world).filter(|(_, post)| post.piece == PieceId(0)).map(|(entity, _)| entity).collect();
+            entities
+        };
+        assert!(!dead.is_empty());
+        for wheel in &dead {
+            assert!(sim.world_mut().get::<Buyable>(*wheel).is_none_or(|buyable| buyable.prompt != "Press F to open this aisle"));
+        }
+        let player = {
+            let world = sim.world_mut();
+            world.query_filtered::<Entity, With<Player>>().iter(world).next().unwrap()
+        };
+        sim.send(Purchased { player, buyable: dead[0] });
+        sim.run(sim.frames(0.5));
+        assert_eq!(phase(&mut sim, 0), PiecePhase::Rest(2), "a Sabotaged Range can't be rolled");
+        // Holding F at any one Wheel's Restore (the last, as it might be any) restores the Range, and every other Restore goes.
+        let (restore, _) = pending.pop().unwrap();
+        sim.send(HoldPurchased { player, buyable: restore });
+        sim.run(5);
+        assert!(!range(&mut sim, 0).1, "restored");
+        assert!(restores(&mut sim).is_empty(), "and the Restores at its other Wheels went with it");
+        let world = sim.world_mut();
+        let to_zero = dead
+            .iter()
+            .copied()
+            .find(|&wheel| world.get::<Buyable>(wheel).is_some_and(|buyable| buyable.prompt == "Press F to open this aisle") && world.get::<Refused>(wheel).is_none())
+            .expect("a Wheel offers to open its Aisle again");
+        sim.send(Purchased { player, buyable: to_zero });
+        sim.run(sim.frames(0.5));
+        assert!(matches!(phase(&mut sim, 0), PiecePhase::Warning { from: 2, .. }), "it rolls again: {:?}", phase(&mut sim, 0));
+        assert!(sim.world_mut().get::<Dying>(sapper).is_none(), "the Sapper lived through it");
     }
 }

@@ -285,3 +285,114 @@ fn a_client_walking_into_a_closing_bookcase_is_stopped_by_its_collider() {
 
 /// Where each Range stands at the start of a Run, in order.
 const RANGE_START: [u8; 5] = [2, 0, 0, 3, 2];
+
+// ---- Shoves and Sabotage ----
+
+/// The Archive with the Host's `Teleport`s carried out, as the real game does.
+fn archive_teleporting(clients: u8) -> Run {
+    Run::on(MapId::Archive, clients, &crate::players::player::add_teleport_systems)
+}
+
+/// A client who steps into a Range's sweep after the Roll has started is moved to a mouth by the Host, and sees itself there: the Host's
+/// Teleport reaches its own screen as it does for the Quarantine's sweeps. Nothing but the existing `Teleport` and the snapshot carries it.
+#[test]
+fn a_client_stepping_into_a_closing_sweep_mid_roll_lands_at_the_mouth_on_the_host_and_on_its_own_screen() {
+    use crate::players::player::Stance;
+    let mut run = archive_teleporting(1);
+    run.step(10);
+    let mid = PiecePhase::Swinging { from: 2, to: 0, elapsed: 0.5 };
+    for on in 0..2 {
+        show(&mut run, on, 0, mid);
+    }
+    // In the Aisle that is closing, on the Reading Room's side of the Great Range's line (z 12), so the mouth is the one at z 15.1.
+    let spot = Vec3::new(0.0, 8.0, 12.5);
+    let at = spot + Vec3::Y * Stance::Standing.half_height();
+    for on in 0..2 {
+        let player = run.player(on, 1);
+        run.world(on).get_mut::<Transform>(player).unwrap().translation = at;
+        run.world(on).entity_mut(player).insert(avian3d::prelude::Position(at));
+    }
+    run.step(ticks(1.5));
+    let mouth = Vec3::new(0.0, 8.0, 15.1);
+    for on in 0..2 {
+        let player = run.player(on, 1);
+        let feet = run.world(on).get::<Transform>(player).unwrap().translation - Vec3::Y * Stance::Standing.half_height();
+        assert!(Vec2::new(feet.x - mouth.x, feet.z - mouth.z).length() < 0.8, "game {on}: {feet}, the mouth {mouth}");
+        assert!(matches!(phase(&mut run, on, 0), PiecePhase::Swinging { .. } | PiecePhase::Cooling { .. }), "game {on} still rolls on");
+    }
+}
+
+/// The Host Sabotages the Great Range and a client sees it: its Wheels are dead on its own screen, a use is refused by the Host, and once a
+/// Wheel's Restore is held they offer again and a use rolls the Range on both machines.
+#[test]
+fn a_client_sees_a_sabotaged_range_refuse_its_wheel_and_roll_again_once_restored() {
+    use crate::economy::buy::Buyable;
+    use crate::enemies::sapper::{Restore, Sabotaged, Target, spawn_restore};
+    let mut run = Run::on(MapId::Archive, 1, &|app| {
+        use crate::enemies::sapper::{prune_restores, restore_bought};
+        app.add_systems(Startup, crate::enemies::sapper::load_assets)
+            .add_systems(Update, (restore_bought, prune_restores).chain().in_set(crate::authority::HostSimulation));
+    });
+    run.step(10);
+    let offers = |run: &mut Run, on: usize, rest: u8| -> bool {
+        let wheel = run.find::<WheelPost>(on, |post| post.piece == PieceId(0) && post.rest == rest);
+        run.world(on).get::<Buyable>(wheel).is_some_and(|buyable| buyable.prompt == "Press F to open this aisle")
+    };
+    assert!(offers(&mut run, 0, 0) && offers(&mut run, 1, 0), "an idle Range's Wheels offer on both machines");
+    // The Sapper's work, as the Host does it: the Range is Sabotaged and a Restore waits at each of its Wheels.
+    let range = {
+        let world = run.world(0);
+        world.query::<(Entity, &PieceState)>().iter(world).find(|(_, state)| state.id() == PieceId(0)).unwrap().0
+    };
+    let points: Vec<Vec3> = {
+        let world = run.world(0);
+        world.query::<&WheelPost>().iter(world).filter(|post| post.piece == PieceId(0)).map(|post| post.use_point()).collect()
+    };
+    run.world(0).entity_mut(range).insert(Sabotaged);
+    run.world(0)
+        .run_system_once(move |mut commands: Commands, assets: Res<crate::enemies::sapper::SapperAssets>| {
+            for &at in &points {
+                spawn_restore(&mut commands, &assets, Target::Entity(range), at);
+            }
+        })
+        .unwrap();
+    run.step(20);
+    for on in 0..2 {
+        assert!(!offers(&mut run, on, 0), "game {on}: a Sabotaged Range's Wheels are dead");
+    }
+    let client_range = {
+        let world = run.world(1);
+        world.query::<(Entity, &PieceState)>().iter(world).find(|(_, state)| state.id() == PieceId(0)).unwrap().0
+    };
+    assert!(run.world(1).get::<Sabotaged>(client_range).is_some(), "the client was told the Range is Sabotaged");
+    // The client turns a Wheel anyway: the Host refuses.
+    let wheel = run.find::<WheelPost>(1, |post| post.piece == PieceId(0) && post.rest == 0);
+    run.use_buyable(1, wheel, false);
+    run.step(ticks(1.0));
+    for on in 0..2 {
+        assert_eq!(phase(&mut run, on, 0), PiecePhase::Rest(2), "game {on}: a Sabotaged Range stays at its Rest");
+    }
+    // The client holds F at a Restore (at any Wheel): the Host restores the Range, every Restore goes, and the Wheels offer again.
+    let restore = run.find::<Restore>(1, |_| true);
+    let at = run.world(1).get::<Transform>(restore).unwrap().translation;
+    for on in 0..2 {
+        let player = run.player(on, 1);
+        let spot = at - Vec3::Y * 1.1 + Vec3::Y * crate::players::player::Stance::Standing.half_height();
+        run.world(on).get_mut::<Transform>(player).unwrap().translation = spot;
+        run.world(on).entity_mut(player).insert(avian3d::prelude::Position(spot));
+    }
+    run.give_points(1, 5000);
+    run.step(5);
+    run.use_buyable(1, restore, true);
+    run.step(ticks(4.0));
+    for on in 0..2 {
+        let world = run.world(on);
+        assert!(world.query::<&Restore>().iter(world).next().is_none(), "game {on}: the Restores are gone");
+        assert!(offers(&mut run, on, 0), "game {on}: the Wheels offer again");
+    }
+    run.use_buyable(1, wheel, false);
+    run.step(ticks(0.5));
+    for on in 0..2 {
+        assert!(matches!(phase(&mut run, on, 0), PiecePhase::Warning { from: 2, to: 0, .. }), "game {on}: it rolls again: {:?}", phase(&mut run, on, 0));
+    }
+}
