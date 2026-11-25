@@ -19,6 +19,8 @@ use crate::maps::zone::ZoneId;
 
 /// How lit the lamps are before the Power.
 pub const DORMANT_LEVEL: f32 = 0.6;
+/// How lit the Archive's cellar lamps are before the Power (#535).
+pub const CELLAR_DORMANT_LEVEL: f32 = 0.5;
 /// What a dip drops a lamp to, as a fraction of full.
 pub const DIP_LEVEL: f32 = 0.15;
 /// A burst is this many dips, and each dip (and each gap between them) lasts this many seconds.
@@ -76,6 +78,8 @@ pub struct LampFlicker {
     /// Whether it stutters while Dormant, and whether it bursts once the Power is on.
     stutters: bool,
     bursts: bool,
+    /// How lit it is before the Power.
+    dormant: f32,
     burst: Burst,
     /// Whether the last frame was Powered, so the schedule restarts on the Power.
     powered: Option<bool>,
@@ -110,12 +114,21 @@ impl LampFlicker {
             at,
             stutters: (hash >> 8).is_multiple_of(3),
             bursts: hash.is_multiple_of(6) && zone != ZoneId::OperatingTheatre,
+            dormant: DORMANT_LEVEL,
             burst: Burst::Waiting { until: 0.0 },
             powered: None,
             rng: hash | 1,
             applied: f32::NAN,
             glow,
         }
+    }
+
+    /// An Archive cellar lamp (#535): steady at `CELLAR_DORMANT_LEVEL` before the Power, never
+    /// stuttering, then full once it is on, but for one lamp in eight (picked by a hash of its
+    /// position, so the same lamps on every machine) that gives the same bursts as a Tube.
+    pub fn cellar(zone: ZoneId, at: Vec3, glow: Option<(Handle<StandardMaterial>, LinearRgba)>) -> Self {
+        let hash = position_hash(at);
+        Self { stutters: false, bursts: hash.is_multiple_of(8), dormant: CELLAR_DORMANT_LEVEL, ..Self::new(zone, at, glow) }
     }
 
     #[cfg(test)]
@@ -146,7 +159,7 @@ impl LampFlicker {
     /// The factor on the lamp's light at `now` seconds, from `DIP_LEVEL` to 1, and whether a burst
     /// began just now. Steady at `DORMANT_LEVEL` before the Power and 1 after, but for a burst.
     pub fn factor(&mut self, now: f32, powered: bool) -> (f32, bool) {
-        let steady = if powered { 1.0 } else { DORMANT_LEVEL };
+        let steady = if powered { 1.0 } else { self.dormant };
         let active = if powered { self.bursts } else { self.stutters };
         if !active {
             return (steady, false);

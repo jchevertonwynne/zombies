@@ -21,7 +21,7 @@ mod cove;
 mod door_look;
 pub mod decals;
 mod dam;
-mod archive;
+pub(crate) mod archive;
 mod fitting;
 mod greybox;
 mod polder;
@@ -218,10 +218,10 @@ pub struct Layout {
     pub sun: Vec3,
     /// How the Map is lit and graded.
     pub look: crate::maps::look::Look,
-    /// What the Map's lamps look like (a roofed Map's): a bulb everywhere but the Sanatorium.
+    /// What the Map's lamps look like (a roofed Map's): a bulb everywhere but the Sanatorium (tubes) and the Archive (pendants).
     pub lamp_style: LampStyle,
-    /// The Zones that keep a bulb lamp on a Map whose `lamp_style` is `Tube` (the Sanatorium's
-    /// caged Boiler House). Out-of-doors Zones' lamps are always bulbs.
+    /// The Zones that keep a bulb lamp on a Map whose `lamp_style` is `Tube` or `Pendant` (the Sanatorium's
+    /// caged Boiler House, the Archive's cellar, whose bulbs wear a wire cage). Out-of-doors Zones' lamps are always bulbs.
     pub bulb_zones: &'static [ZoneId],
     /// The corners (x, z) of the part of the world the Map takes up: everything playable is
     /// inside it, and past its edge is Out of Bounds.
@@ -230,11 +230,13 @@ pub struct Layout {
     build: fn(&mut Builder),
 }
 
-/// What a lamp looks like: a glowing bulb, or a fluorescent tube in a housing (the Sanatorium's).
+/// What a lamp looks like: a glowing bulb, a fluorescent tube in a housing (the Sanatorium's), or
+/// a brass-rod pendant with an opal-glass globe (the Archive's).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LampStyle {
     Bulb,
     Tube,
+    Pendant,
 }
 
 /// A group of Zones that the Quarantine seals together.
@@ -245,10 +247,10 @@ pub struct Wing {
 }
 
 impl Layout {
-    /// What the lamps in `zone` look like: a Tube Map's, except its `bulb_zones` and the Zones
+    /// What a lamp looks like: the Map's style, except in its `bulb_zones` and the Zones
     /// out of doors, which keep bulbs.
     pub fn lamp_style_in(&self, zone: ZoneId) -> LampStyle {
-        if self.lamp_style == LampStyle::Tube && self.indoor(zone) && !self.bulb_zones.contains(&zone) { LampStyle::Tube } else { LampStyle::Bulb }
+        if self.indoor(zone) && !self.bulb_zones.contains(&zone) { self.lamp_style } else { LampStyle::Bulb }
     }
 
     /// Whether `zone` is indoors: under a roof (once its Map builds ceilings), not open to the sky.
@@ -1158,6 +1160,50 @@ fn door(a: ZoneId, b: ZoneId, price: u64) -> Gap {
     Gap::Door(Some((a, b)), Some(price))
 }
 
+/// How far under the ceiling a pendant's globe hangs: 2.5 m in the Archive's 6 m Reading Room, else just 0.15.
+fn pendant_drop(zone: ZoneId) -> f32 {
+    if zone == ZoneId::ReadingRoom { 2.5 } else { 0.15 }
+}
+
+/// A light probe: a box from `lo` to `hi`, lit `colour` at `brightness`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ProbeSpec {
+    pub zone: Option<ZoneId>,
+    pub lo: Vec3,
+    pub hi: Vec3,
+    pub colour: Color,
+    pub brightness: f32,
+}
+
+/// The light probes of `map`: one over each indoor Zone's volume (to the top of its storeys), its
+/// colour mixed towards the Zone's lamps by the Look's `probe_tint`; and the Archive's small cool
+/// one under the Reading Room's lantern.
+pub(crate) fn probes(map: MapId) -> Vec<ProbeSpec> {
+    let layout = map.layout();
+    let mut out: Vec<ProbeSpec> = layout
+        .zones
+        .iter()
+        .filter(|&&zone| layout.indoor(zone))
+        .map(|&zone| {
+            let (lo, hi) = zone.volume();
+            let top = (hi.y / STOREY).ceil() * STOREY;
+            ProbeSpec {
+                zone: Some(zone),
+                // The Archive's stairwells run below their Zone's floor (the Map Room's, the Theatre's), so its probes reach the volume's foot.
+                lo: Vec3::new(lo.x, if map == MapId::Archive { (zone.floor() - 0.25).min(lo.y - 0.05) } else { zone.floor() - 0.25 }, lo.z),
+                hi: Vec3::new(hi.x, top + 0.3, hi.z),
+                colour: layout.look.probe_colour(palette(Some(zone)).light),
+                brightness: INDOOR_PROBE_BRIGHTNESS,
+            }
+        })
+        .collect();
+    if map == MapId::Archive {
+        let (lo, hi, colour) = archive::daylight::lantern_probe();
+        out.push(ProbeSpec { zone: None, lo, hi, colour, brightness: INDOOR_PROBE_BRIGHTNESS * archive::daylight::LANTERN_PROBE_FACTOR });
+    }
+    out
+}
+
 /// Builds the Map the Run is played on.
 pub fn spawn_map(
     mut commands: Commands,
@@ -1335,7 +1381,7 @@ pub fn spawn_map(
         InRun,
         DirectionalLight {
             illuminance: look.sun_lux,
-            shadow_maps_enabled: true,
+            shadow_maps_enabled: look.casts_sun_shadows(),
             color: look.sun_colour,
             ..default()
         },
@@ -1352,10 +1398,19 @@ pub fn spawn_map(
         // A street's gas lamp stands on a thin iron post, and lights less far than a room's.
         let post_mesh = meshes.add(Cuboid::new(0.12, 1.0, 0.12));
         let post_mat = materials.add(Color::srgb(0.05, 0.05, 0.055));
+        // The Archive's pendants: a unit brass rod (scaled to its drop) and a 0.32 m globe; and the cellar bulbs' cage.
+        let globe = meshes.add(Sphere::new(0.16));
+        let rod_mesh = meshes.add(Cylinder::new(0.012, 1.0));
+        let brass = materials.add(StandardMaterial { base_color: Color::srgb(0.75, 0.55, 0.25), metallic: 0.9, perceptual_roughness: 0.35, ..default() });
+        let cage_post = meshes.add(Cuboid::new(0.012, 0.3, 0.012));
+        let cage_iron = materials.add(Color::srgb(0.06, 0.06, 0.065));
         for &(zone, at) in layout.lamps {
             let out_of_doors = !layout.indoor(zone);
             let colour = palette(Some(zone)).light;
-            let tube = layout.lamp_style_in(zone) == LampStyle::Tube;
+            let style = layout.lamp_style_in(zone);
+            let tube = style == LampStyle::Tube;
+            // The Archive's cellar bulbs wear a wire cage and run at half until the Power.
+            let caged = layout.lamp_style == LampStyle::Pendant && style == LampStyle::Bulb && !out_of_doors;
             let glow = materials.add(StandardMaterial {
                 base_color: colour,
                 emissive: LinearRgba::from(colour) * 12.0,
@@ -1384,6 +1439,31 @@ pub fn spawn_map(
                     .spawn((light, LampFlicker::new(zone, at, Some((glow.clone(), full)))))
                     .with_child((Mesh3d(tube_housing.clone()), MeshMaterial3d(housing), Transform::from_xyz(0.0, 0.1, 0.0), NotShadowCaster))
                     .with_child((Mesh3d(tube_glass.clone()), MeshMaterial3d(glow), Transform::from_xyz(0.0, 0.05, 0.0), NotShadowCaster));
+            } else if style == LampStyle::Pendant {
+                // A brass rod from the ceiling to an opal-glass globe, which is the lamp's own glow.
+                let drop = pendant_drop(zone);
+                commands.spawn(light);
+                commands.spawn((InRun, Mesh3d(globe.clone()), MeshMaterial3d(glow), Transform::from_translation(at), NotShadowCaster));
+                commands.spawn((
+                    InRun,
+                    Mesh3d(rod_mesh.clone()),
+                    MeshMaterial3d(brass.clone()),
+                    Transform::from_translation(at + Vec3::Y * drop / 2.0).with_scale(Vec3::new(1.0, drop, 1.0)),
+                    NotShadowCaster,
+                ));
+            } else if caged {
+                let full = LinearRgba::from(colour) * 12.0;
+                commands.spawn((light, LampFlicker::cellar(zone, at, Some((glow.clone(), full))))).with_child((Mesh3d(bulb.clone()), MeshMaterial3d(glow), NotShadowCaster));
+                // Four thin boxes round the bulb.
+                for (dx, dz) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+                    commands.spawn((
+                        InRun,
+                        Mesh3d(cage_post.clone()),
+                        MeshMaterial3d(cage_iron.clone()),
+                        Transform::from_translation(at + Vec3::new(dx * 0.1, 0.0, dz * 0.1)),
+                        NotShadowCaster,
+                    ));
+                }
             } else {
                 commands.spawn(light).with_child((Mesh3d(bulb.clone()), MeshMaterial3d(glow), NotShadowCaster));
             }
@@ -1402,19 +1482,18 @@ pub fn spawn_map(
         // not the sky's, however bright the Yard through its Door.
         // (None under Darkness, whose ambient light is zero.)
         if let (Some(mut images), false) = (images, layout.darkness) {
-            for &zone in layout.zones.iter().filter(|&&zone| layout.indoor(zone)) {
-                // The constant probe, or one a Look's `probe_tint` mixes towards the Zone's lamps.
-                let probe = EnvironmentMapLight::solid_color(&mut images, look.probe_colour(palette(Some(zone)).light)).with_intensity(INDOOR_PROBE_BRIGHTNESS);
-                let (lo, hi) = zone.volume();
-                let top = (hi.y / STOREY).ceil() * STOREY;
-                let (lo, hi) = (Vec3::new(lo.x, zone.floor() - 0.25, lo.z), Vec3::new(hi.x, top + 0.3, hi.z));
+            for spec in probes(*map) {
+                let probe = EnvironmentMapLight::solid_color(&mut images, spec.colour).with_intensity(spec.brightness);
                 commands.spawn((
                     InRun,
                     LightProbe::default(),
-                    probe.clone(),
-                    Transform::from_translation((lo + hi) / 2.0).with_scale(hi - lo),
+                    probe,
+                    Transform::from_translation((spec.lo + spec.hi) / 2.0).with_scale(spec.hi - spec.lo),
                 ));
             }
+        }
+        if *map == MapId::Archive {
+            archive::daylight::spawn(&mut commands, &mut meshes, &mut materials);
         }
     } else {
         for &(zone, at) in layout.lamps {

@@ -215,6 +215,8 @@ pub mod lamp_flicker;
 pub mod weapon_light;
 
 #[cfg(test)]
+mod archive_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tube_tests;
