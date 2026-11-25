@@ -376,6 +376,74 @@ fn quads(rects: &[Rect]) -> Mesh {
         .with_inserted_indices(Indices::U32(indices))
 }
 
+/// The colour a pool's surface is drawn in under `look`: the Look's own water if it has one (the
+/// Archive's dark tea), else `depth`'s, which is what every other Map's water wears.
+pub fn water_colour(look: &crate::maps::look::Look, depth: Color) -> Color {
+    look.water.unwrap_or(depth)
+}
+
+/// How fast a floating page drifts, in m/s, and how far it bobs, peak to peak, in m.
+pub const DRIFT_SPEED: f32 = 0.05;
+pub const BOB: f32 = 0.01;
+
+/// Something that floats on a pool and drifts back and forth along a line, bobbing as it goes: a
+/// loose page (#539). Where it is at any moment comes from the clock alone, so every machine
+/// draws it in the same place for the same time.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Drifter {
+    pub from: Vec2,
+    pub to: Vec2,
+    /// How far along its line (and its bob) it starts, as a fraction of a cycle.
+    pub phase: f32,
+    pub yaw: f32,
+}
+
+impl Drifter {
+    /// Where it is at `now` seconds (x, z), and how far it stands over the surface (centred on
+    /// zero, at most half of `BOB` either way).
+    pub fn at(&self, now: f32) -> (Vec2, f32) {
+        let length = self.from.distance(self.to);
+        let cycle = 2.0 * length;
+        let travelled = (now * DRIFT_SPEED + self.phase * cycle).rem_euclid(cycle.max(f32::EPSILON));
+        let along = if travelled < length { travelled } else { cycle - travelled };
+        let spot = if length > 0.0 { self.from.lerp(self.to, along / length) } else { self.from };
+        let bob = BOB / 2.0 * (now * 1.7 + self.phase * std::f32::consts::TAU).sin();
+        (spot, bob)
+    }
+}
+
+/// `count` drifters on `pool`, from the pool's own corner alone: each line runs 1.5 to 3 m, wholly
+/// inside the pool (past its edge by `reach` and a hand's breadth) and clear of every rectangle in
+/// `keep_out` (grown by `reach`). A drifter that finds no place in a few tries is left out.
+pub fn drifters(pool: &Pool, keep_out: &[(Vec2, Vec2)], reach: f32, count: usize) -> Vec<Drifter> {
+    let (lo, hi) = (pool.min + Vec2::splat(reach + 0.15), pool.max - Vec2::splat(reach + 0.15));
+    let mut out = Vec::new();
+    if lo.x >= hi.x || lo.y >= hi.y {
+        return out;
+    }
+    for i in 0..count {
+        for attempt in 0..64u32 {
+            let roll = |salt: u32| {
+                let hash = crate::maps::darkness::lamp_flicker::position_hash(Vec3::new(pool.min.x + i as f32 * 0.37, pool.min.y + attempt as f32 * 0.11, salt as f32));
+                (hash >> 8) as f32 / (1u32 << 24) as f32
+            };
+            let from = Vec2::new(lo.x + (hi.x - lo.x) * roll(1), lo.y + (hi.y - lo.y) * roll(2));
+            let heading = Vec2::from_angle(roll(3) * std::f32::consts::TAU);
+            let to = from + heading * (1.5 + 1.5 * roll(4));
+            if to.cmplt(lo).any() || to.cmpgt(hi).any() {
+                continue;
+            }
+            let (sweep_lo, sweep_hi) = (from.min(to) - Vec2::splat(reach), from.max(to) + Vec2::splat(reach));
+            if keep_out.iter().any(|&(min, max)| sweep_lo.cmplt(max).all() && min.cmplt(sweep_hi).all()) {
+                continue;
+            }
+            out.push(Drifter { from, to, phase: roll(5), yaw: roll(6) * std::f32::consts::TAU });
+            break;
+        }
+    }
+    out
+}
+
 fn surface_material(colour: Color) -> StandardMaterial {
     StandardMaterial {
         base_color: colour,
@@ -509,10 +577,12 @@ pub fn spawn_water(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials
             ],
         );
     }
-    for (rects, colour) in [(shallow, SHALLOW), (deep, DEEP), (foam(layout, tide, None), FOAM)] {
+    let look = &layout.look;
+    for (rects, colour, tinted) in [(shallow, SHALLOW, true), (deep, DEEP, true), (foam(layout, tide, None), FOAM, false)] {
         if rects.is_empty() {
             continue;
         }
+        let colour = if tinted { water_colour(look, colour) } else { colour };
         commands.spawn((
             InRun,
             Mesh3d(meshes.add(quads(&rects))),
@@ -527,7 +597,7 @@ pub fn spawn_water(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials
             InRun,
             CanalSurface { canal, bed },
             Mesh3d(meshes.add(quads(&rects))),
-            MeshMaterial3d(materials.add(surface_material(depth_colour(at - bed)))),
+            MeshMaterial3d(materials.add(surface_material(water_colour(look, depth_colour(at - bed))))),
             Transform::from_xyz(0.0, at, 0.0),
             bevy::light::NotShadowCaster,
         ));
@@ -608,7 +678,7 @@ fn pose_canals(
         let at = tide_now.drawn(&canals[usize::from(surface.canal.0)]);
         transform.translation.y = at;
         if let Some(mut material) = materials.get_mut(&material.0) {
-            material.base_color = depth_colour(at - surface.bed);
+            material.base_color = water_colour(&map.layout().look, depth_colour(at - surface.bed));
         }
     }
     for (foam, mut transform, material, mut visibility) in &mut foams {
@@ -868,8 +938,10 @@ pub struct WaterPlugin;
 impl Plugin for WaterPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<PlayCue>()
+            .add_message::<crate::maps::map::archive::flood::DripLanded>()
             .add_plugins(crate::maps::tide::TidePlugin)
-            .add_systems(Update, (mark_wet, start_rising, finish_rising, animate_splashes, pose_canals, switch_walls));
+            .add_systems(Update, (mark_wet, start_rising, finish_rising, animate_splashes, pose_canals, switch_walls))
+            .add_systems(Update, (crate::maps::map::archive::flood::drift_pages, crate::maps::map::archive::flood::ripple_rings).run_if(in_state(crate::state::GameState::Playing)));
     }
 }
 
