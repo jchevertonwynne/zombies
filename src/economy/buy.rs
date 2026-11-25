@@ -17,7 +17,7 @@ use crate::economy::perk::{Drinking, OncePerPlayer, Perks};
 use crate::players::player::{LocalPlayer, Player, PlayerCamera};
 use crate::economy::points::Points;
 use crate::players::revive::ReviveFocus;
-use crate::state::{GameState, Pause, world_runs};
+use crate::state::{GameState, Pause, Paused, world_runs};
 use crate::weapons::weapon::Loadout;
 use crate::tuning::*;
 
@@ -330,13 +330,20 @@ impl Plugin for BuyPlugin {
     }
 }
 
-fn buyer(points: &Points, down: bool, pause: &State<Pause>) -> Buyer {
+fn buyer(points: &Points, down: bool, paused: bool) -> Buyer {
     Buyer {
         points: points.balance,
         down,
-        // Frozen counts: nothing is bought while the world stands still.
-        paused: *pause.get() != Pause::Running,
+        paused,
     }
+}
+
+/// Whether `player` is paused, for a buy: this machine's Pause state is the `LocalPlayer`'s alone
+/// (Frozen counts: nothing is bought while the world stands still). Anyone else is paused by their
+/// own `Paused` mark, which their game sends; in Co-op the world runs on under the Host's Pause
+/// menu, and so do its teammates' buys (#589).
+fn buyer_paused(local: bool, marked: bool, pause: &State<Pause>) -> bool {
+    if local { *pause.get() != Pause::Running } else { marked }
 }
 
 pub(crate) fn focus(
@@ -351,7 +358,8 @@ pub(crate) fn focus(
     let down = last_stand || awaiting;
     // A Player in a Last Stand is offered only what stays usable Down.
     let only_down = last_stand && !awaiting;
-    let blocked = if only_down { buyer(points, false, &pause).blocked() } else { buyer(points, down, &pause).blocked() };
+    let paused = buyer_paused(true, false, &pause);
+    let blocked = if only_down { buyer(points, false, paused).blocked() } else { buyer(points, down, paused).blocked() };
     // A teammate to Revive takes the Use key before any Buyable.
     let picked = if blocked || reviving.0.is_some() {
         None
@@ -438,6 +446,7 @@ pub(crate) fn resolve_use(
             Option<&Drinking>,
             &mut Points,
             Has<LocalPlayer>,
+            Has<Paused>,
         ),
         With<Player>,
     >,
@@ -451,7 +460,7 @@ pub(crate) fn resolve_use(
     let claimed: Vec<(Entity, Entity)> = claims.read().map(|claim| (claim.player, claim.buyable)).collect();
     for &UseRequest { player, buyable: entity, hold } in requests.read() {
         let Ok((buyable, hold_buy, refused, rebuild, priced_for, once, offers, while_down)) = buyables.get(entity) else { continue };
-        let Ok((last_stand, awaiting, modifiers, loadout, perks, drinking, mut points, local)) = players.get_mut(player)
+        let Ok((last_stand, awaiting, modifiers, loadout, perks, drinking, mut points, local, marked)) = players.get_mut(player)
         else {
             continue;
         };
@@ -492,7 +501,8 @@ pub(crate) fn resolve_use(
         // A Player's own game knows their ammo; if it says the buy is refused, it is.
         refused |= !local && claimed.contains(&(player, entity));
         let price = charged(half_price, &modifiers.0);
-        match decide(buyer(&points, down, &pause), price, true).refused_if(refused) {
+        let paused = buyer_paused(local, marked, &pause);
+        match decide(buyer(&points, down, paused), price, true).refused_if(refused) {
             Decision::Buy => {
                 if let Some(price) = price {
                     points.spend(price);
@@ -769,6 +779,33 @@ mod tests {
         let bought = drained::<Purchased>(&mut app);
         assert_eq!(bought.len(), 1);
         assert_eq!((bought[0].player, bought[0].buyable), (second, door));
+    }
+
+    /// This machine's Pause menu pauses its own Player's buys, not a teammate's: in Co-op the world
+    /// runs on under the Host's menu, and a teammate is paused only by their own `Paused` mark.
+    #[test]
+    fn the_hosts_pause_menu_pauses_its_own_buys_and_no_one_elses() {
+        let mut app = use_app();
+        let host = player_with(&mut app, 1000);
+        app.world_mut().entity_mut(host).insert(LocalPlayer);
+        let (teammate, paused) = (player_with(&mut app, 1000), player_with(&mut app, 1000));
+        app.world_mut().entity_mut(paused).insert(Paused);
+        app.world_mut().resource_mut::<NextState<Pause>>().set(Pause::Paused);
+        app.update();
+        let door = app
+            .world_mut()
+            .spawn(Buyable { use_point: Vec3::ZERO, prompt: String::new(), price: Some(750), range: USE_RANGE })
+            .id();
+        for player in [host, teammate, paused] {
+            app.world_mut().write_message(UseRequest { player, buyable: door, hold: false });
+        }
+        app.update();
+        let balance = |app: &App, player| app.world().get::<Points>(player).unwrap().balance;
+        assert_eq!(balance(&app, teammate), 250, "the teammate's buy goes through");
+        assert_eq!(balance(&app, host), 1000, "the Host's own menu pauses the Host");
+        assert_eq!(balance(&app, paused), 1000, "a teammate with their own menu open is paused");
+        let bought: Vec<Entity> = drained::<Purchased>(&mut app).iter().map(|bought| bought.player).collect();
+        assert_eq!(bought, [teammate]);
     }
 
     #[test]

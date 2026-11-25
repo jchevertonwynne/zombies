@@ -291,6 +291,31 @@ fn a_two_player_run_on_the_archive_opens_a_door_and_the_power_goes_on_for_both()
     }
 }
 
+/// In Co-op the world runs on under the Host's Pause menu, and so does every teammate's Use: the
+/// Host's own menu being open is no reason to drop a client's buy (#589).
+#[test]
+fn a_client_buys_a_door_while_the_hosts_pause_menu_is_open() {
+    let mut run = Run::new(1);
+    for on in 0..2 {
+        run.world(on).insert_resource(crate::state::RunType::Coop);
+    }
+    run.world(0).resource_mut::<NextState<crate::state::Pause>>().set(crate::state::Pause::Paused);
+    run.step(2);
+    assert_eq!(*run.world(0).resource::<State<crate::state::Pause>>().get(), crate::state::Pause::Paused);
+    run.give_points(1, 5000);
+    let door = cheap_door(&mut run, 1);
+    let cost = run.world(1).get::<Door>(door).unwrap().price.unwrap();
+    let id = *run.world(1).get::<NetId>(door).unwrap();
+    run.use_buyable(1, door, false);
+    run.step(20);
+    for on in 0..2 {
+        let door = run.world(on).resource::<NetIds>().entity(id.0).unwrap();
+        assert!(run.world(on).get::<Door>(door).unwrap().open, "game {on} still has the Door shut");
+    }
+    assert_eq!(run.balance(1), 5000 - cost);
+    assert_eq!(run.seen(1).bought, 1, "the buyer is told the buy went through");
+}
+
 #[test]
 fn a_client_who_cant_afford_a_door_gets_the_refusal_and_the_door_stays_shut() {
     let mut run = Run::new(1);
