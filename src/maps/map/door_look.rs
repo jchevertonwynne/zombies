@@ -4,6 +4,8 @@
 
 use bevy::prelude::*;
 
+use super::MapId;
+
 /// How far a piece may stand proud of a Door's faces, so boards and frames read as raised.
 pub const PROUD: f32 = 0.04;
 
@@ -15,6 +17,31 @@ pub enum Part {
     Frame,
     /// A weathered board (a bought Door) or a steel rib (a shutter).
     Cover,
+    /// A brass bar, rail or scroll of a grille.
+    Bar,
+}
+
+/// How a Door is dressed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DoorLook {
+    /// Weathered boards over a trim-paint frame: a bought Door.
+    Boarded,
+    /// A steel shutter: a Power Door.
+    Shutter,
+    /// A brass grille: a Range's gate, the Archive's (#537).
+    Grille,
+}
+
+/// How a Door of `map` looks: a Power Door is a shutter, a gate of the Archive (one of its Ranges') a brass grille, and
+/// every other Door boarded.
+pub fn look(map: Option<MapId>, gate: bool, power: bool) -> DoorLook {
+    if power {
+        DoorLook::Shutter
+    } else if gate && map == Some(MapId::Archive) {
+        DoorLook::Grille
+    } else {
+        DoorLook::Boarded
+    }
 }
 
 /// One box of a Door's look.
@@ -109,6 +136,60 @@ pub fn shutter(size: Vec3) -> Vec<Piece> {
     pieces
 }
 
+/// The grille's bars are this thick and this far apart, centre to centre.
+pub const GRILLE_BAR: f32 = 0.03;
+pub const GRILLE_PITCH: f32 = 0.15;
+const GRILLE_STILE: f32 = 0.08;
+const GRILLE_RAIL: f32 = 0.06;
+const GRILLE_RAIL_DEEP: f32 = 0.05;
+/// How tall the crest over the top rail is.
+const GRILLE_CREST: f32 = 0.5;
+
+/// A Range's gate: a brass grille of 0.03 m bars at 0.15 m pitch between two stiles, with a kick rail, a middle rail, a
+/// top rail and a scrolled crest over it (a diamond finial between two C-scrolls). `size` is the Door's box.
+pub fn grille(size: Vec3) -> Vec<Piece> {
+    use std::f32::consts::{FRAC_PI_4, PI};
+    let (len, height) = (size.x, size.y);
+    let bottom = -height / 2.0;
+    let top_rail = height / 2.0 - GRILLE_CREST;
+    let mut pieces = Vec::new();
+    // Two stiles up to the crest's foot, and the rails across them.
+    let side = (len - GRILLE_STILE) / 2.0;
+    let stile_h = top_rail + GRILLE_RAIL / 2.0 - bottom;
+    for sign in [-1.0, 1.0] {
+        pieces.push(Piece::new(Part::Bar, Vec3::new(GRILLE_STILE, stile_h, GRILLE_RAIL_DEEP), Vec3::new(sign * side, bottom + stile_h / 2.0, 0.0)));
+    }
+    let inner = len - 2.0 * GRILLE_STILE;
+    for y in [bottom + 0.25, bottom + (top_rail - bottom) * 0.45, top_rail] {
+        pieces.push(Piece::new(Part::Bar, Vec3::new(inner, GRILLE_RAIL, GRILLE_RAIL_DEEP), Vec3::new(0.0, y, 0.0)));
+    }
+    // The bars, at the pitch, from the floor to the top rail.
+    let count = ((inner - GRILLE_BAR) / GRILLE_PITCH).floor() as usize + 1;
+    let bar_h = top_rail - bottom;
+    for i in 0..count {
+        let x = (i as f32 - (count - 1) as f32 / 2.0) * GRILLE_PITCH;
+        pieces.push(Piece::new(Part::Bar, Vec3::new(GRILLE_BAR, bar_h, GRILLE_BAR), Vec3::new(x, bottom + bar_h / 2.0, 0.0)));
+    }
+    // The crest: a tall bar with a diamond finial on it, and a C-scroll either side.
+    let base = top_rail + GRILLE_RAIL / 2.0;
+    let post = GRILLE_CREST - GRILLE_RAIL / 2.0;
+    pieces.push(Piece::new(Part::Bar, Vec3::new(GRILLE_BAR, post, GRILLE_BAR), Vec3::new(0.0, base + post / 2.0, 0.0)));
+    pieces.push(Piece { part: Part::Bar, size: Vec3::new(0.12, 0.12, GRILLE_BAR), at: Vec3::new(0.0, base + 0.2, 0.0), tilt: FRAC_PI_4 });
+    let (radius, segments) = (0.13, 8);
+    for sign in [-1.0f32, 1.0] {
+        let centre = Vec2::new(sign * 0.3, base + radius + 0.02);
+        // Three quarters of a circle, open towards the finial.
+        let angle = |k: f32| (0.5 + 1.5 * k / segments as f32) * PI * sign + if sign > 0.0 { 0.0 } else { PI };
+        for k in 0..segments {
+            let (a0, a1) = (angle(k as f32), angle(k as f32 + 1.0));
+            let (p0, p1) = (centre + Vec2::new(a0.cos(), a0.sin()) * radius, centre + Vec2::new(a1.cos(), a1.sin()) * radius);
+            let (mid, d) = ((p0 + p1) / 2.0, p1 - p0);
+            pieces.push(Piece { part: Part::Bar, size: Vec3::new(d.length() + 0.01, GRILLE_BAR, GRILLE_BAR), at: Vec3::new(mid.x, mid.y, 0.0), tilt: d.y.atan2(d.x) });
+        }
+    }
+    pieces
+}
+
 /// How far a window frame's sill and jambs stand out past the wall on each face.
 pub const FRAME_PROUD: f32 = 0.1;
 
@@ -155,6 +236,38 @@ mod tests {
         inside_box(&shutter(DOOR), DOOR, PROUD);
         let thin = Vec3::new(2.4, 3.0, 0.1);
         inside_box(&boarded(thin), thin, PROUD);
+    }
+
+    #[test]
+    fn a_grille_is_brass_bars_at_a_pitch_inside_its_box() {
+        let pieces = grille(DOOR);
+        assert!(pieces.iter().all(|piece| piece.part == Part::Bar));
+        inside_box(&pieces, DOOR, PROUD);
+        // The upright bars: 0.03 m thick, 0.15 m apart, floor to top rail.
+        let mut bars: Vec<&Piece> = pieces.iter().filter(|p| p.size.x == GRILLE_BAR && p.tilt == 0.0 && p.size.y > 1.5).collect();
+        bars.sort_by(|a, b| a.at.x.total_cmp(&b.at.x));
+        assert!(bars.len() >= 14, "{} bars", bars.len());
+        for pair in bars.windows(2) {
+            assert!((pair[1].at.x - pair[0].at.x - GRILLE_PITCH).abs() < 1e-4);
+        }
+        // Rails and a crest: a diamond finial and the scrolls' segments, turned.
+        assert!(pieces.iter().filter(|p| p.tilt != 0.0).count() >= 10);
+        assert!(pieces.iter().any(|p| p.size.x > 2.0 && p.size.y < 0.1), "a rail across the bars");
+        // Even with the wall thin, nothing is proud of its Door.
+        let thin = Vec3::new(2.4, 3.0, 0.1);
+        inside_box(&grille(thin), thin, PROUD);
+    }
+
+    #[test]
+    fn only_the_archives_gates_are_grilles() {
+        assert_eq!(look(Some(MapId::Archive), true, false), DoorLook::Grille);
+        // Its other Doors are boarded, and its Power Door a shutter.
+        assert_eq!(look(Some(MapId::Archive), false, false), DoorLook::Boarded);
+        assert_eq!(look(Some(MapId::Archive), true, true), DoorLook::Shutter);
+        // And the other Maps' gates (the Polder's bridges, the Sanatorium's) keep their boards.
+        for map in MapId::ALL.into_iter().filter(|&map| map != MapId::Archive) {
+            assert_eq!(look(Some(map), true, false), DoorLook::Boarded, "{map:?}");
+        }
     }
 
     #[test]

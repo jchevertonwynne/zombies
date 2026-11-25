@@ -27,6 +27,7 @@ use bevy::prelude::*;
 
 use crate::enemies::sapper::SapperTiming;
 use crate::maps::shifting::{Driver, Leaf, Motion, Piece, Rest, Wheel};
+use crate::maps::stacks_look;
 use crate::maps::zone::ZoneId;
 use crate::tuning::{AISLE_WIDTH, BOOKCASE_DEPTH, BOOKCASE_HEIGHT, BOOKCASE_LENGTH};
 use crate::weapons::arsenal::WeaponId;
@@ -194,7 +195,6 @@ pub(super) const RANGES: [Range; 5] = {
 
 impl Range {
     /// How long its rail is.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn length(&self) -> f32 {
         f32::from(self.bookcases) * BOOKCASE.x + AISLE
     }
@@ -344,6 +344,28 @@ fn range(b: &mut Builder, r: &Range) {
         let (p, q) = (r.point(along, face), r.point(along, plane));
         b.wall(p.min(q), p.max(q), r.floor, DOOR_HEIGHT, &[]);
     }
+    rail_and_soffit(b, r);
+}
+
+/// A Range's look (#537): the iron rail flush in the floor along the whole of its length, and its brass letter on the soffit (the wall
+/// over its 3 m opening) on both faces of the wall.
+fn rail_and_soffit(b: &mut Builder, r: &Range) {
+    let piece = RANGES.iter().position(|other| other.name == r.name).unwrap_or(0);
+    let length = r.length();
+    // The rail's own frame runs along the rail from where it starts, across it from the wall's line.
+    let (at, turn) = if r.along_x {
+        (Vec3::new(r.rail, r.floor, r.line), Quat::IDENTITY)
+    } else {
+        (Vec3::new(r.line, r.floor, r.rail), Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2))
+    };
+    b.look(&format!("rail {length}"), stacks_look::rail(length), at, turn);
+    let mid = r.rail + length / 2.0;
+    for side in [-1.0, 1.0] {
+        let spot = r.point(mid, side * stacks_look::WALL_FACE);
+        let out = if r.along_x { Vec3::Z } else { Vec3::X } * side;
+        let letters = stacks_look::soffit(&stacks_look::soffit_label(piece), stacks_look::soffit_height(piece));
+        b.look(&format!("soffit {piece}"), letters, Vec3::new(spot.x, r.floor, spot.y), stacks_look::facing(out));
+    }
 }
 
 // ---------------------------------------------------------------- The per-Zone tables
@@ -448,7 +470,7 @@ const SLOPES: [Slope; 5] = [
 /// Shallow everywhere and Deep nowhere.
 const POOLS: [Pool; 1] = [Pool { zone: ZoneId::FloodedCellar, min: v(-20.0, 0.0), max: v(20.0, 20.0), level: Level::Still(0.5), bed: 0.0 }];
 
-/// The Props built so far: the fixed stacks of the ring halls (as plain `Shelf` Props) and the Training loops' centres, which are plain
+/// The Props built so far: the fixed stacks of the ring halls (`Stack` Props, drawn by `stacks_look`) and the Training loops' centres, which are plain
 /// boxes now (the Props ticket dresses them).
 const PROPS: [Prop; 29] = concat::<_, 8, 21, 29>(data::FIXED_STACKS, data::LOOP_CENTRES);
 
@@ -582,6 +604,9 @@ mod tests {
     use super::*;
     use crate::enemies::nav::{Gate, NavGraph};
     use crate::maps::map::MapId;
+    use crate::maps::map::PropKind;
+    use crate::maps::map::door_look;
+    use crate::maps::map::textures::{Material, Textured};
     use ZoneId::*;
 
     fn archive() -> &'static Layout {
@@ -911,6 +936,112 @@ mod tests {
             }
         }
         assert_eq!(archive().lamps.iter().filter(|(zone, _)| *zone == ReadingRoom).map(|(_, at)| at.y).fold(0.0, f32::max), 11.5);
+    }
+
+    #[test]
+    fn every_archive_range_has_a_rail_covering_its_whole_length() {
+        use stacks_look::{Part, RAIL_EXTRA, RAIL_GAUGE};
+        for r in &RANGES {
+            let items = stacks_look::rail(r.length());
+            // The strips reach from before the rail's start to after its end, and sit in the rail's gauge across the Bookcases'
+            // length, well inside the sweep's width.
+            let strips: Vec<_> = items.iter().filter(|item| item.part == Part::Rail).collect();
+            assert_eq!(strips.len(), 2, "{}", r.name);
+            for strip in strips {
+                let (from, to) = (r.rail + strip.at.x - strip.size.x / 2.0, r.rail + strip.at.x + strip.size.x / 2.0);
+                assert!(from <= r.rail - RAIL_EXTRA / 2.0 + 1e-4 && to >= r.rail + r.length() + RAIL_EXTRA / 2.0 - 1e-4, "{}: {from} to {to}", r.name);
+                assert!(strip.at.z.abs() + strip.size.z / 2.0 < BOOKCASE.z / 2.0 && (strip.at.z.abs() - RAIL_GAUGE / 2.0).abs() < 1e-5, "{}", r.name);
+            }
+            // A stop block at each end, so a Bookcase never leaves it.
+            let stops: Vec<f32> = items.iter().filter(|item| item.part == Part::Stop).map(|item| r.rail + item.at.x).collect();
+            assert_eq!(stops, [r.rail, r.rail + r.length()], "{}", r.name);
+            // The Bookcases' own rail travel is the rail's length: every Bookcase at every Rest is over the strips.
+            for rest in SHIFTING[RANGES.iter().position(|other| other.name == r.name).unwrap()].rests {
+                for (leaf, at) in SHIFTING[RANGES.iter().position(|other| other.name == r.name).unwrap()].leaves.iter().zip(rest.at) {
+                    let along = if r.along_x { leaf.hinge.x + at } else { leaf.hinge.z + at };
+                    assert!(along - BOOKCASE.x / 2.0 >= r.rail - 1e-4 && along + BOOKCASE.x / 2.0 <= r.rail + r.length() + 1e-4, "{} Bookcase at {along}", r.name);
+                }
+            }
+        }
+        // And each is built, at its Range's start, in the world.
+        use bevy::ecs::system::RunSystemOnce;
+        let mut sim = crate::enemies::zombie::headless::Sim::on(MapId::Archive, 60.0, |_| {});
+        let rails: Vec<Vec3> = sim
+            .world_mut()
+            .run_system_once(|looks: Query<(&Name, &Transform, &Children)>, parts: Query<&Textured>| {
+                looks
+                    .iter()
+                    .filter(|(name, _, children)| name.as_str() == "Stack look" && children.iter().any(|child| parts.get(child).is_ok_and(|p| p.material == Material::RustyMetal02)))
+                    .map(|(_, transform, _)| transform.translation)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap();
+        for r in &RANGES {
+            let start = if r.along_x { Vec3::new(r.rail, r.floor, r.line) } else { Vec3::new(r.line, r.floor, r.rail) };
+            assert!(rails.iter().any(|at| at.distance(start) < 1e-3), "{} has no rail built at {start}", r.name);
+        }
+        assert_eq!(rails.len(), 5);
+    }
+
+    #[test]
+    fn range_gate_doors_use_the_grille() {
+        use crate::maps::door::Door;
+        use bevy::ecs::system::RunSystemOnce;
+        // The rule: a gate of the Archive is a grille, and nothing else of it is.
+        for r in &RANGES {
+            assert_eq!(door_look::look(Some(r.zones.0.map()), true, false), door_look::DoorLook::Grille, "{}", r.name);
+        }
+        assert_eq!(door_look::look(Some(MapId::Archive), false, false), door_look::DoorLook::Boarded);
+        // And as built: each Range's gate Door has no slab to draw but its brass bars, which are children (so they move and hide
+        // with it), and it is still solid.
+        let mut sim = crate::enemies::zombie::headless::Sim::on(MapId::Archive, 60.0, |_| {});
+        let gates: Vec<(Option<(ZoneId, ZoneId)>, bool, usize, bool)> = sim
+            .world_mut()
+            .run_system_once(|doors: Query<(&Door, Has<Mesh3d>, Option<&Children>, Has<avian3d::prelude::Collider>)>, parts: Query<&Textured>| {
+                doors
+                    .iter()
+                    .map(|(door, slab, children, solid)| {
+                        let bars = children.map_or(0, |children| children.iter().filter(|&child| parts.get(child).is_ok_and(|p| p.material == Material::MetalPlate02)).count());
+                        (door.gate, slab, bars, solid)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap();
+        let gated: Vec<_> = gates.iter().filter(|(gate, ..)| gate.is_some()).collect();
+        assert_eq!(gated.len(), 5);
+        for &&(gate, slab, bars, solid) in &gated {
+            assert!(RANGES.iter().any(|r| Some(r.zones) == gate));
+            assert!(!slab, "{gate:?} still has its boarded slab");
+            assert!(bars >= 15, "{gate:?} has {bars} bars");
+            assert!(solid, "{gate:?}");
+        }
+        // The Archive's other Doors keep their boards.
+        assert!(gates.iter().filter(|(gate, ..)| gate.is_none()).all(|&(_, slab, bars, _)| slab && bars == 0));
+    }
+
+    #[test]
+    fn the_fixed_stacks_are_stack_props_and_the_ranges_wear_soffit_letters() {
+        use bevy::ecs::system::RunSystemOnce;
+        // Every fixed stack is a Stack (none a Shelf), a Bookcase's size, so the shared book rows fit it.
+        assert!(archive().props.iter().all(|prop| prop.kind != PropKind::Shelf));
+        let stacks: Vec<_> = archive().props.iter().filter(|prop| prop.kind == PropKind::Stack).collect();
+        assert_eq!(stacks.len(), data::FIXED_STACKS.len());
+        assert!(stacks.iter().all(|prop| prop.size.x.min(prop.size.z) == BOOKCASE.x && prop.size.x.max(prop.size.z) == BOOKCASE.z && prop.size.y == BOOKCASE.y));
+        let mut sim = crate::enemies::zombie::headless::Sim::on(MapId::Archive, 60.0, |_| {});
+        let (fixed, soffits, faces) = sim
+            .world_mut()
+            .run_system_once(|names: Query<(&Name, &Children)>, faces: Query<&stacks_look::BookFace>| {
+                let fixed = names.iter().filter(|(name, _)| name.as_str() == "Fixed stack").collect::<Vec<_>>();
+                let faces = fixed.iter().map(|(_, children)| children.iter().filter(|&child| faces.get(child).is_ok()).count()).collect::<Vec<_>>();
+                // A soffit's lettering is a brass mesh: both faces of the wall over every Range's opening.
+                let soffits = names.iter().filter(|(name, _)| name.as_str() == "Stack look").count();
+                (fixed.len(), soffits, faces)
+            })
+            .unwrap();
+        assert_eq!(fixed, 8);
+        assert!(faces.iter().all(|&n| n == 2), "each fixed stack has the two faces of the shared book rows: {faces:?}");
+        // One rail and two faces of soffit lettering for each of the five Ranges.
+        assert_eq!(soffits, 15);
     }
 
     #[test]
