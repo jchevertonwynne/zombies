@@ -59,6 +59,9 @@ pub struct Look {
     /// How far each indoor Zone's light probe is mixed from `INDOOR_PROBE_COLOUR` towards the
     /// Zone's lamp colour: 0 keeps the constant probe.
     pub probe_tint: f32,
+    /// The colour of the Map's Still water, in place of the one its depth gives it: `None` keeps
+    /// the shallows' and the deep's own. The surface stays glossy either way.
+    pub water: Option<Color>,
 }
 
 /// The look every Map had before Looks: a dim, cold moon over a near-black night, the lamps full.
@@ -79,6 +82,7 @@ pub const NIGHT: Look = Look {
     indoor_fog: INDOOR_FOG,
     saturation: 1.0,
     probe_tint: 0.0,
+    water: None,
 };
 
 /// The Dam (#379): the night, under a dark, starry CC0 sky seen from the Crest Road. Its ambient
@@ -109,6 +113,7 @@ pub const VILLAGE_NIGHT: Look = Look {
     indoor_fog: INDOOR_FOG,
     saturation: 1.0,
     probe_tint: 0.0,
+    water: None,
 };
 
 /// Dusk (#277): a low, warm, shadowed sun, a cool sky ambient, dusky mauve-grey fog, the lamps
@@ -130,6 +135,7 @@ pub const DUSK: Look = Look {
     indoor_fog: INDOOR_FOG,
     saturation: 1.0,
     probe_tint: 0.0,
+    water: None,
 };
 
 /// The Cove (#380): golden hour over the sea. The sun hangs low in the south-west, big and warm, so
@@ -152,6 +158,7 @@ pub const GOLDEN_HOUR: Look = Look {
     indoor_fog: INDOOR_FOG,
     saturation: 1.0,
     probe_tint: 0.0,
+    water: None,
 };
 
 /// The Quarry (#330): an overcast late afternoon. A soft, pale, high sun through cloud, a flat cold
@@ -174,6 +181,7 @@ pub const OVERCAST: Look = Look {
     indoor_fog: INDOOR_FOG,
     saturation: 1.0,
     probe_tint: 0.0,
+    water: None,
 };
 
 /// The Polder (#372): a northern dusk. A low, cool, weak sun behind thick cloud, a flat blue-grey
@@ -195,6 +203,7 @@ pub const NORTHERN_DUSK: Look = Look {
     indoor_fog: INDOOR_FOG,
     saturation: 1.0,
     probe_tint: 0.0,
+    water: None,
 };
 
 /// The Sanatorium (#522): a fogbound hill. A high, diffuse, cold green-grey light through a thick
@@ -219,6 +228,7 @@ pub const FOGBOUND: Look = Look {
     indoor_fog: Color::srgb(0.012, 0.02, 0.016),
     saturation: 0.8,
     probe_tint: 0.5,
+    water: None,
 };
 
 /// The Archive (#535): lamplight, with no sky and no sun. Everything is underground, so the sun is
@@ -243,6 +253,8 @@ pub const LAMPLIGHT: Look = Look {
     indoor_fog: Color::srgb(0.05, 0.038, 0.026),
     saturation: 0.9,
     probe_tint: 0.6,
+    // Dark tea, over a bed it hides (#539).
+    water: Some(Color::srgba(0.09, 0.075, 0.05, 0.8)),
 };
 
 /// How strongly the sky lights the Map, as a fraction of how bright it shows.
@@ -473,6 +485,27 @@ mod tests {
         assert_eq!(LAMPLIGHT.sun_lux, 0.0);
         assert!(LAMPLIGHT.sky_map.is_none());
         assert_eq!((LAMPLIGHT.fog_range, LAMPLIGHT.lamps, LAMPLIGHT.saturation, LAMPLIGHT.probe_tint), ((6.0, 30.0), 0.9, 0.9, 0.6));
+    }
+
+    /// Only the Archive's Look has a water colour of its own: every other Map's water keeps the
+    /// colours its depth gives it, whichever Look it's drawn under.
+    #[test]
+    fn other_maps_looks_unchanged_by_water() {
+        for map in MapId::ALL.into_iter().filter(|&map| map != MapId::Archive) {
+            let look = map.layout().look;
+            assert_eq!(look.water, None, "{map:?}");
+            assert_eq!(look, Look { water: None, ..look }, "{map:?}");
+        }
+        for look in [NIGHT, DAM_NIGHT, VILLAGE_NIGHT, DUSK, GOLDEN_HOUR, OVERCAST, NORTHERN_DUSK, FOGBOUND] {
+            assert_eq!(look.water, None);
+        }
+        assert_eq!(LAMPLIGHT.water, Some(Color::srgba(0.09, 0.075, 0.05, 0.8)));
+        assert_eq!(MapId::Archive.layout().look.water, LAMPLIGHT.water);
+        // The Cove's and the Polder's water is drawn in the colours it always was.
+        let depth = Color::srgba(0.5, 0.78, 0.78, 0.55);
+        assert_eq!(crate::maps::water::water_colour(&GOLDEN_HOUR, depth), depth);
+        assert_eq!(crate::maps::water::water_colour(&NORTHERN_DUSK, depth), depth);
+        assert_eq!(crate::maps::water::water_colour(&LAMPLIGHT, depth), LAMPLIGHT.water.unwrap());
     }
 
     #[test]
