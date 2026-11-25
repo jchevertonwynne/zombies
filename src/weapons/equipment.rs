@@ -503,8 +503,9 @@ pub fn hand_pose(equipment: &Equipment, handling: Option<&Handling>) -> (f32, Op
     }
 }
 
-/// Run condition: the Player's hand isn't busy with Equipment, so the Weapon can fire.
-pub fn arms_free(player: Query<(&Equipment, Has<Handling>), With<Player>>) -> bool {
+/// Run condition: the `LocalPlayer`'s hand isn't busy with Equipment, so the Weapon can fire. A
+/// teammate's throw is theirs alone (#588).
+pub fn arms_free(player: Query<(&Equipment, Has<Handling>), With<LocalPlayer>>) -> bool {
     player.iter().all(|(equipment, handling)| equipment.cooking.is_none() && !handling)
 }
 
