@@ -39,8 +39,9 @@ pub struct Remote {
     used: Option<Tick>,
     /// Ticks to step as before without taking one of theirs, so that more are in hand.
     hold: Tick,
-    /// A Jump pressed in a tick that was never stepped by, for the next that is.
-    owed: bool,
+    /// What was pressed (a Jump, a Zipline's Grab) in ticks that were never stepped by, for the
+    /// next that is (see `Step::presses`).
+    owed: u8,
     /// How many steps running have had none of theirs to step by.
     starved: u32,
     /// How many of their ticks running didn't come in time, and how many times running the
@@ -61,7 +62,7 @@ pub enum Next {
     Nothing,
     /// Their next tick.
     Step(Step),
-    /// The tick before again, with no Jump newly pressed: their next hasn't come.
+    /// The tick before again, with no Jump or Grab newly pressed: their next hasn't come.
     Missing,
     /// The tick before again, while their ticks are taken in hand.
     Held,
@@ -76,7 +77,7 @@ impl Remote {
             fresh: false,
             used: None,
             hold: 0,
-            owed: false,
+            owed: 0,
             starved: 0,
             missed: 0,
             late: 0,
@@ -97,9 +98,9 @@ impl Remote {
         self.used.unwrap_or(0)
     }
 
-    /// A Jump pressed in a tick that won't be stepped by is pressed in the next that is.
+    /// A Jump or Grab pressed in a tick that won't be stepped by is pressed in the next that is.
     fn owe(&mut self, step: &Step) {
-        self.owed |= step.jump();
+        self.owed |= step.presses();
     }
 
     /// Takes in what their game says it pressed, less what was heard before.
@@ -164,8 +165,8 @@ impl Remote {
         match self.queue.front() {
             Some(&(tick, step)) if tick == next => {
                 self.queue.pop_front();
-                let step = step.with_jump(step.jump() || self.owed);
-                self.owed = false;
+                let step = step.with_presses(self.owed);
+                self.owed = 0;
                 if (1..=SHORT).contains(&self.missed) {
                     self.short += 1;
                 }
@@ -285,6 +286,25 @@ mod tests {
         remote.hear(5, &[jump, step(5)]);
         let Next::Step(step) = remote.next() else { panic!("tick 5 should have been stepped by") };
         assert_eq!((step.yaw, step.jump()), (5.0, true));
+    }
+
+    /// A Zipline's Grab, pressed for one tick, is owed as a Jump is: in a tick that comes too late
+    /// to be stepped by, or one stepped past, it is pressed in the next that is.
+    #[test]
+    fn a_grab_pressed_in_a_tick_given_up_is_still_pressed() {
+        let mut remote = Remote::new(1);
+        hear(&mut remote, 3);
+        assert_eq!(driven(&mut remote), Some(2));
+        assert_eq!(driven(&mut remote), Some(3));
+        assert_eq!(driven(&mut remote), None);
+        let grab = step(4).with_grab(true);
+        remote.hear(5, &[grab, step(5)]);
+        let Next::Step(step) = remote.next() else { panic!("tick 5 should have been stepped by") };
+        assert_eq!((step.yaw, step.grab(), step.jump()), (5.0, true, false));
+        // Owed once only.
+        hear(&mut remote, 6);
+        let Next::Step(after) = remote.next() else { panic!("tick 6 should have been stepped by") };
+        assert!(!after.grab());
     }
 
     /// Two little gaps in a second, each of which leaves a tick to be stepped in the place of,

@@ -438,7 +438,7 @@ fn hear_inputs(mut inbox: ResMut<Inbox>, mut remotes: Query<(&mut Remote, &mut P
 }
 
 /// Sets each remote Player's input for the tick to what they pressed in the next of theirs. A tick
-/// that hasn't come is stepped as the last was, with no Jump newly pressed; when none has come for
+/// that hasn't come is stepped as the last was, with no Jump or Grab newly pressed; when none has come for
 /// a while the Player stands still.
 fn drive_remotes(
     mut players: Query<(&PlayerSeat, &mut Remote, &mut MoveInput, &mut Transform, Has<Choosing>, Has<Disconnected>)>,
@@ -460,7 +460,8 @@ fn drive_remotes(
                 }
             }
             Next::Nothing => {}
-            Next::Missing | Next::Held => input.jump = false,
+            // A press is pressed once: the tick it was in is owed it when it comes (see `Remote`).
+            Next::Missing | Next::Held => (input.jump, input.grab) = (false, false),
         }
         // An open Offer stops a Player, whatever their game says.
         if remote.stalled() || choosing || disconnected {

@@ -77,6 +77,29 @@ impl Step {
         self.buttons = self.buttons & !JUMP | (u8::from(jump) * JUMP);
         self
     }
+
+    pub fn grab(self) -> bool {
+        self.buttons & GRAB != 0
+    }
+
+    /// The same, with Grab pressed or not as given.
+    pub fn with_grab(mut self, grab: bool) -> Self {
+        self.buttons = self.buttons & !GRAB | (u8::from(grab) * GRAB);
+        self
+    }
+
+    /// The buttons this tick presses once rather than holds: Jump and Grab (a Zipline's handle).
+    /// A press in a tick the Host never steps by must still be pressed in the next it does, or it
+    /// is lost: the client's game presses Grab for a single tick before it is riding.
+    pub fn presses(self) -> u8 {
+        self.buttons & (JUMP | GRAB)
+    }
+
+    /// The same, with `presses` (as `Step::presses` gives them) pressed as well.
+    pub fn with_presses(mut self, presses: u8) -> Self {
+        self.buttons |= presses & (JUMP | GRAB);
+        self
+    }
 }
 
 /// A Player's datagram to the Host, every tick.

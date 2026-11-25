@@ -92,8 +92,23 @@ impl Run {
 
     /// The same on `map`.
     pub(super) fn on(map: crate::maps::map::MapId, clients: u8, delay: u32, loss: f32, jitter: u32, extra: &dyn Fn(&mut App)) -> Self {
+        Self::stalling(map, clients, delay, loss, jitter, Vec::new(), extra)
+    }
+
+    /// The same, with every datagram sent in one of `stalls`' spans of the network's time (which
+    /// counts the Run's ticks) held up until its end.
+    pub(super) fn stalling(
+        map: crate::maps::map::MapId,
+        clients: u8,
+        delay: u32,
+        loss: f32,
+        jitter: u32,
+        stalls: Vec<(u32, u32)>,
+        extra: &dyn Fn(&mut App),
+    ) -> Self {
         let mut hub = Hub::new(delay, loss);
         hub.jitter = jitter;
+        hub.stalls = std::sync::Arc::new(stalls);
         let seats = clients + 1;
         let host_link = hub.host();
         let links: Vec<_> = (0..clients).map(|_| hub.join()).collect();
@@ -930,4 +945,44 @@ fn a_host_that_does_not_allow_noclip_ignores_the_bit() {
         assert!(highest < 1.5, "{dev:?}: flew {highest} m up");
         assert!(run.at(1, 1).distance(run.at(0, 1)) < 0.05, "{dev:?}");
     }
+}
+
+
+/// A Grab is pressed for a single tick (the client's game is riding by the next), so a Host that
+/// steps that tick in its place, its datagram held up on the way, still grabs with the next it
+/// steps by: the remote Player rides, and lands where their own game has them (#586).
+#[test]
+fn a_zipline_grab_held_up_on_the_way_still_rides() {
+    let line = crate::maps::map::MapId::Cove.layout().ziplines[1];
+    let open = |app: &mut App| {
+        app.insert_resource(crate::maps::zipline::OpenZones(crate::maps::zone::ZoneId::ALL.into_iter().collect()));
+    };
+    // The Run starts 20 ticks in; the grab is pressed at tick 40, and everything sent from then
+    // until tick 48 is held up until 48, long after the Host has had to step tick 40.
+    let grab_at = 40;
+    let mut run = Run::stalling(crate::maps::map::MapId::Cove, 1, 3, 0.0, 0, vec![(grab_at, grab_at + 8)], &open);
+    for on in 0..2 {
+        let world = run.apps[on].world_mut();
+        let mut query = world.query_filtered::<(&Seat, &mut Transform, &mut Position, &mut Locomotion), With<Player>>();
+        for (seat, mut transform, mut position, mut locomotion) in query.iter_mut(world) {
+            if seat.0 == 1 {
+                transform.translation = line.from + Vec3::Y * Stance::Standing.half_height();
+                position.0 = transform.translation;
+                locomotion.velocity = Vec3::ZERO;
+                locomotion.grounded = true;
+            }
+        }
+    }
+    run.step(IDLE, grab_at - 1 - run.tick);
+    let grab = |_: u8, tick: u32| MoveInput { grab: tick == grab_at, ..default() };
+    let mut host_riding = false;
+    while run.tick < grab_at + 400 {
+        run.step(&grab, 1);
+        host_riding |= run.locomotion(0, 1).riding();
+    }
+    assert!(host_riding, "the Host never had the remote Player grab the Zipline");
+    assert!(!run.locomotion(0, 1).riding() && !run.locomotion(1, 1).riding());
+    let feet = |at: Vec3| at - Vec3::Y * Stance::Standing.half_height();
+    assert!(feet(run.at(0, 1)).distance(line.to) < 1.5, "the Host has them at {}", feet(run.at(0, 1)));
+    assert!(run.at(1, 1).distance(run.at(0, 1)) < 0.05, "the client has them at {} for the Host's {}", run.at(1, 1), run.at(0, 1));
 }
