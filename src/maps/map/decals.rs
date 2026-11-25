@@ -24,6 +24,8 @@ pub enum Decal {
     OilStain2,
     /// A black-on-yellow biohazard sign (ambientCG `Sign004`), 0.25 m across, for the Quarantine Doors.
     Biohazard,
+    /// A loose sheet of paper (ambientCG `Paper006`, the same file as its Material Set), 0.21 by 0.3 m, for the Archive's floors.
+    Page,
     /// A Tree's crown: a leaf-cluster alpha card, cut out rather than blended, seen from both sides.
     Foliage,
 }
@@ -41,6 +43,7 @@ impl Decal {
             Decal::OilStain2 => "oil_stain_2",
             Decal::Biohazard => "sign004",
             Decal::Foliage => "foliage",
+            Decal::Page => return "materials/paper006/color.ktx2".to_string(),
         };
         format!("decals/{dir}/color.ktx2")
     }
@@ -52,6 +55,8 @@ impl Decal {
             (0.8, 0.1)
         } else if self == Decal::Foliage {
             (0.95, 0.2)
+        } else if self == Decal::Page {
+            (0.9, 0.2)
         } else {
             (0.7, 0.5)
         }
@@ -65,6 +70,8 @@ pub enum DecalFamily {
     Leaks,
     /// Oil pooled on the floor.
     OilStains,
+    /// Loose pages lying on the floor (the Archive's).
+    Pages,
 }
 
 /// A decal to draw once its file has loaded: a unit quad facing along its `Transform`'s +Z,
@@ -185,6 +192,87 @@ pub fn stain_transform(stain: &Stain, height: f32) -> Transform {
     }
 }
 
+/// How far off the floor a loose page lies: 2 mm, as a sheet would.
+pub const PAGE_OFFSET: f32 = 0.002;
+/// A loose page's size (A-series paper, 0.21 by 0.3 m).
+pub const PAGE_SIZE: Vec2 = Vec2::new(0.21, 0.3);
+
+/// A loose page on a floor: its middle (x, z), and how it's turned.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Page {
+    pub at: Vec2,
+    pub yaw: f32,
+}
+
+/// How much floor each page of a Zone stands for, and the fewest and most a Zone gets.
+const PAGE_AREA: f32 = 25.0;
+const PAGES: (usize, usize) = (12, 30);
+
+/// The loose pages on a Zone's floor, which is the rectangles `rects` (x, z), scattered the way the stains are, from the spot alone:
+/// one per 25 m^2 of floor, never fewer than 12 or more than 30, turned at random, each wholly on the floor (past its edges by a
+/// hand's breadth) and clear of every rectangle in `keep_out`. A page that finds no place in a few tries is left out.
+pub fn pages(rects: &[(Vec2, Vec2)], keep_out: &[(Vec2, Vec2)]) -> Vec<Page> {
+    let areas: Vec<f32> = rects.iter().map(|(min, max)| (max.x - min.x).max(0.0) * (max.y - min.y).max(0.0)).collect();
+    let total: f32 = areas.iter().sum();
+    if total <= 0.0 {
+        return Vec::new();
+    }
+    let count = ((total / PAGE_AREA).round() as usize).clamp(PAGES.0, PAGES.1);
+    let seed = rects[0].0;
+    // Half a page's diagonal: any turn of it lies within this of its middle.
+    let reach = PAGE_SIZE.length() / 2.0;
+    let mut out = Vec::new();
+    for i in 0..count {
+        for attempt in 0..16u32 {
+            let roll = |salt| chance(seed.x + i as f32 * 0.07, seed.y + attempt as f32 * 0.03, salt);
+            // Pick a rectangle by area, then a spot in it.
+            let mut pick = roll(1) * total;
+            let mut index = areas.len() - 1;
+            for (k, &area) in areas.iter().enumerate() {
+                if pick < area {
+                    index = k;
+                    break;
+                }
+                pick -= area;
+            }
+            let (min, max) = rects[index];
+            let (lo, hi) = (min + Vec2::splat(reach + 0.15), max - Vec2::splat(reach + 0.15));
+            if lo.x >= hi.x || lo.y >= hi.y {
+                continue;
+            }
+            let at = Vec2::new(lo.x + (hi.x - lo.x) * roll(2), lo.y + (hi.y - lo.y) * roll(3));
+            let clear = keep_out.iter().all(|&(a, b)| at.x < a.x - reach || at.x > b.x + reach || at.y < a.y - reach || at.y > b.y + reach);
+            if clear {
+                out.push(Page { at, yaw: roll(4) * TAU });
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// A page's transform on a floor at `height`.
+pub fn page_transform(page: &Page, height: f32) -> Transform {
+    Transform {
+        translation: Vec3::new(page.at.x, height + PAGE_OFFSET, page.at.y),
+        rotation: Quat::from_rotation_y(page.yaw) * Quat::from_rotation_x(-FRAC_PI_2),
+        scale: PAGE_SIZE.extend(1.0),
+    }
+}
+
+/// Where no page may lie on `map`'s floor at `height`: each of the Archive's Ranges' sweeps and mouth strips on that level, which a
+/// Bookcase would roll over.
+pub fn page_keep_out(map: super::MapId, height: f32) -> Vec<(Vec2, Vec2)> {
+    if map != super::MapId::Archive {
+        return Vec::new();
+    }
+    super::archive::RANGES
+        .iter()
+        .filter(|range| (range.floor - height).abs() < 1.0)
+        .flat_map(|range| [range.sweep(), range.mouth_strips()[0], range.mouth_strips()[1]])
+        .collect()
+}
+
 /// Each decal asked for so far: its material once its file is loading, or `None` if it's missing.
 #[derive(Resource, Default)]
 pub(super) struct DecalLibrary {
@@ -215,7 +303,13 @@ pub(super) fn request_decals(
             let cut_out = decal == Decal::Foliage;
             let material = materials.add(StandardMaterial {
                 base_color_texture: Some(image.clone()),
-                alpha_mode: if cut_out { AlphaMode::Mask(0.5) } else { AlphaMode::Blend },
+                alpha_mode: if cut_out {
+                    AlphaMode::Mask(0.5)
+                } else if decal == Decal::Page {
+                    AlphaMode::Opaque
+                } else {
+                    AlphaMode::Blend
+                },
                 double_sided: cut_out,
                 cull_mode: if cut_out { None } else { Some(bevy::render::render_resource::Face::Back) },
                 perceptual_roughness,
@@ -308,5 +402,60 @@ mod tests {
         let stain = Stain { at: Vec2::new(1.0, 2.0), size: 1.5, yaw: 0.7, decal: Decal::OilStain1 };
         let t = stain_transform(&stain, 0.0);
         assert!((t.rotation * Vec3::Z).abs_diff_eq(Vec3::Y, 1e-5), "lying face up");
+    }
+
+    /// A page's four corners on the floor.
+    fn corners(page: &Page) -> [Vec2; 4] {
+        let (sin, cos) = page.yaw.sin_cos();
+        [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)].map(|(sx, sy)| {
+            let local = Vec2::new(sx, sy) * PAGE_SIZE / 2.0;
+            page.at + Vec2::new(local.x * cos - local.y * sin, local.x * sin + local.y * cos)
+        })
+    }
+
+    /// Every Archive Zone that wears Pages gets 12 to 30, wholly on its floor, and none is in a Range's sweep or a mouth strip.
+    #[test]
+    fn no_pages_decal_in_a_range_sweep_or_mouth_strip() {
+        use super::super::{MapId, build::floor_rects, materials};
+        let archive = MapId::Archive.layout();
+        let mut dressed = 0;
+        for &zone in archive.zones {
+            if materials(Some(zone)).and_then(|set| set.decals) != Some(DecalFamily::Pages) {
+                continue;
+            }
+            dressed += 1;
+            let holes: Vec<_> = archive.sunken.iter().copied().filter(|sunken| sunken.zone == zone).collect();
+            let rects = floor_rects(zone, &holes);
+            let keep_out = page_keep_out(MapId::Archive, zone.floor());
+            let all = pages(&rects, &keep_out);
+            assert!((12..=30).contains(&all.len()), "{} gets {} pages", zone.name(), all.len());
+            for page in &all {
+                assert!(rects.iter().any(|&(lo, hi)| corners(page).iter().all(|c| c.x > lo.x && c.x < hi.x && c.y > lo.y && c.y < hi.y)), "{} page {page:?} is off the floor", zone.name());
+            }
+            // Against every Range on the Zone's level, not just the ones it joins.
+            for range in super::super::archive::RANGES.iter().filter(|range| (range.floor - zone.floor()).abs() < 1.0) {
+                for (lo, hi) in [range.sweep(), range.mouth_strips()[0], range.mouth_strips()[1]] {
+                    for page in &all {
+                        for c in corners(page) {
+                            assert!(!(c.x > lo.x && c.x < hi.x && c.y > lo.y && c.y < hi.y), "{} page at {:?} is in {}'s sweep or mouth strip", zone.name(), page.at, range.name);
+                        }
+                    }
+                }
+            }
+            // The same Zone is dressed the same way every Run.
+            assert_eq!(all, pages(&rects, &keep_out));
+        }
+        assert_eq!(dressed, 8, "the reading halls and the four stack halls wear Pages");
+        // No other Map has anything to keep pages out of.
+        assert!(page_keep_out(MapId::Polder, 0.0).is_empty());
+    }
+
+    #[test]
+    fn a_page_lies_flat_two_millimetres_over_the_floor_and_wears_the_paper_set() {
+        let t = page_transform(&Page { at: Vec2::new(1.0, 2.0), yaw: 1.1 }, 4.0);
+        assert!((t.translation.y - 4.002).abs() < 1e-5);
+        assert!((t.rotation * Vec3::Z).abs_diff_eq(Vec3::Y, 1e-5), "lying face up");
+        assert!(t.scale.abs_diff_eq(Vec3::new(0.21, 0.3, 1.0), 1e-6));
+        assert_eq!(Decal::Page.file(), "materials/paper006/color.ktx2");
     }
 }

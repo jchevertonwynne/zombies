@@ -102,11 +102,22 @@ pub enum Material {
     Tiles133D,
     Tiles132D,
     Tiles053,
+    // The Archive's: old wood, stone and plaster, leather, book cloth and paper (the last from ambientCG).
+    HerringboneParquet,
+    OldWoodenFloor02,
+    DarkPaneledWood,
+    WoodTableWorn,
+    MedievalBlocks05,
+    MonasteryStoneFloor,
+    WornPlasterWall,
+    BrownLeather,
+    BookPattern,
+    Paper006,
 }
 
 impl Material {
     #[cfg(test)]
-    pub const ALL: [Material; 74] = [
+    pub const ALL: [Material; 84] = [
         Material::DarkWoodenPlanks,
         Material::DamagedPlaster,
         Material::FloorTiles06,
@@ -181,6 +192,16 @@ impl Material {
         Material::Tiles133D,
         Material::Tiles132D,
         Material::Tiles053,
+        Material::HerringboneParquet,
+        Material::OldWoodenFloor02,
+        Material::DarkPaneledWood,
+        Material::WoodTableWorn,
+        Material::MedievalBlocks05,
+        Material::MonasteryStoneFloor,
+        Material::WornPlasterWall,
+        Material::BrownLeather,
+        Material::BookPattern,
+        Material::Paper006,
     ];
 
     /// Its directory under `assets/materials/`, and the real-world size of one repeat in metres,
@@ -261,6 +282,16 @@ impl Material {
             Material::Tiles133D => ("tiles133d", 1.8),
             Material::Tiles132D => ("tiles132d", 1.8),
             Material::Tiles053 => ("tiles053", 1.6),
+            Material::HerringboneParquet => ("herringbone_parquet", 3.4),
+            Material::OldWoodenFloor02 => ("old_wooden_floor_02", 2.03),
+            Material::DarkPaneledWood => ("dark_paneled_wood", 1.4),
+            Material::WoodTableWorn => ("wood_table_worn", 0.55),
+            Material::MedievalBlocks05 => ("medieval_blocks_05", 2.0),
+            Material::MonasteryStoneFloor => ("monastery_stone_floor", 1.8),
+            Material::WornPlasterWall => ("worn_plaster_wall", 1.8),
+            Material::BrownLeather => ("brown_leather", 0.4),
+            Material::BookPattern => ("book_pattern", 0.3),
+            Material::Paper006 => ("paper006", 0.3),
         }
     }
 
@@ -286,12 +317,13 @@ impl Material {
     pub fn family(self) -> FloorFamily {
         use self::Material::*;
         match self {
-            DarkWoodenPlanks | WeatheredPlanks | DiagonalParquet | BlackPaintedPlanks | BarkBrown02 => FloorFamily::Wood,
+            DarkWoodenPlanks | WeatheredPlanks | DiagonalParquet | BlackPaintedPlanks | BarkBrown02 | HerringboneParquet | OldWoodenFloor02
+            | DarkPaneledWood | WoodTableWorn => FloorFamily::Wood,
             FloorTiles06 | TerracottaFloorTiles | CheckeredPavementTiles | OldMosaicFloor | SlateFloor02 | ConcreteTileFacade
-            | OldLinoleumFlooring01 | DirtyTiles | LongWhiteTiles | WornTileFloor | Tiles133D | Tiles132D | Tiles053 => {
+            | OldLinoleumFlooring01 | DirtyTiles | LongWhiteTiles | WornTileFloor | Tiles133D | Tiles132D | Tiles053 | MonasteryStoneFloor => {
                 FloorFamily::Tile
             }
-            WornBrickFloor | BrickWall001 | DarkBrickWall | CastleBrick02Red | WhiteSandstoneBricks03 | ConcreteBlockWall02 => {
+            WornBrickFloor | BrickWall001 | DarkBrickWall | CastleBrick02Red | WhiteSandstoneBricks03 | ConcreteBlockWall02 | MedievalBlocks05 => {
                 FloorFamily::Brick
             }
             RustyCorrugatedIron | RustyMetal02 | BlueMetalPlate | MetalPlate02 | GreenMetalRust | PaintedMetalShutter => FloorFamily::Metal,
@@ -302,7 +334,7 @@ impl Material {
             | DamagedConcreteFloor03 | RibbedConcreteWall | SmoothConcreteFloor | ConcreteLayers02 | BrushedConcrete04
             | ConcreteWall008 | GranularConcrete | RockEmbeddedConcreteWall | HangarConcreteFloor | WornConcreteFloor
             | ConcreteMoss | CrackedConcrete | WhitePlasterRough01 | WhiteStucco | YellowStoneWall | BeigeWall001 | Hessian230 | PaintedPlaster003
-            | DecrepitWallpaper => {
+            | DecrepitWallpaper | WornPlasterWall | BrownLeather | BookPattern | Paper006 => {
                 FloorFamily::Concrete
             }
         }
@@ -707,6 +739,71 @@ mod tests {
         for material in Material::ALL {
             assert!(material.tile() > 0.2 && material.tile() < 10.0, "{material:?}");
             assert!(material.files().iter().all(|f| f.starts_with("materials/") && f.ends_with(".ktx2")));
+        }
+    }
+
+    /// Every Zone of the Archive wears a Material Set, with no outside (it is all indoors).
+    #[test]
+    fn every_archive_zone_has_a_material_set() {
+        use crate::maps::map::{MapId, materials};
+        let archive = MapId::Archive.layout();
+        assert_eq!(archive.zones.len(), 14);
+        assert!(archive.outside.is_none());
+        for &zone in archive.zones {
+            assert!(materials(Some(zone)).is_some(), "{} has no Material Set", zone.name());
+        }
+    }
+
+    /// Two Zones that are joined (by a Door, a Range's gate or the fixed archway) differ in the family of their floor or their wall.
+    #[test]
+    fn archive_joined_neighbours_differ_in_floor_or_wall_family() {
+        use crate::enemies::nav::Gate;
+        use crate::maps::map::{MapId, archive::RANGES, materials};
+        let archive = MapId::Archive.layout();
+        let mut joins: Vec<_> = archive
+            .nav_edges
+            .iter()
+            .filter_map(|&(.., gate)| match gate {
+                Gate::Door(a, b) => Some((a, b)),
+                _ => None,
+            })
+            .collect();
+        joins.extend(archive.fixed_joins.iter().copied());
+        joins.extend(RANGES.iter().map(|range| range.zones));
+        assert!(joins.len() >= 14, "only {} joins", joins.len());
+        for (a, b) in joins {
+            let (ma, mb) = (materials(Some(a)).unwrap(), materials(Some(b)).unwrap());
+            assert!(
+                ma.floor.family() != mb.floor.family() || ma.wall.family() != mb.wall.family(),
+                "{} and {} share floor and wall families",
+                a.name(),
+                b.name()
+            );
+        }
+    }
+
+    /// The Archive's ten new sets are real files on disk, in the families and tile sizes the look plan gives them.
+    #[test]
+    fn archive_material_sets_are_on_disk_with_their_families() {
+        use crate::audio::cues::FloorFamily::*;
+        let sets = [
+            (Material::HerringboneParquet, Wood, 3.4),
+            (Material::OldWoodenFloor02, Wood, 2.03),
+            (Material::DarkPaneledWood, Wood, 1.4),
+            (Material::WoodTableWorn, Wood, 0.55),
+            (Material::MedievalBlocks05, Brick, 2.0),
+            (Material::MonasteryStoneFloor, Tile, 1.8),
+            (Material::WornPlasterWall, Concrete, 1.8),
+            (Material::BrownLeather, Concrete, 0.4),
+            (Material::BookPattern, Concrete, 0.3),
+            (Material::Paper006, Concrete, 0.3),
+        ];
+        for (material, family, tile) in sets {
+            assert_eq!(material.family(), family, "{material:?}");
+            assert!((material.tile() - tile).abs() < 1e-6, "{material:?}");
+            for file in material.files() {
+                assert!(on_disk(&file), "{file} is missing");
+            }
         }
     }
 }

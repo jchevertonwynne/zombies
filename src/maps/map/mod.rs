@@ -724,20 +724,22 @@ pub fn materials(zone: Option<ZoneId>) -> Option<MaterialSet> {
         SunRoof => (AsphaltFloor, ConcreteMoss, None, &[]),
         IsolationWard => (SmoothConcreteFloor, Tiles053, Some(Leaks), &[]),
         ChildrensWard => (WeatheredPlanks, DecrepitWallpaper, Some(Leaks), &[]),
-        // The Archive, for now in the families the Maps already have (its own Material Sets come with its Look): flags, boards and
-        // parquet over plaster and brick in the reading halls and stacks, brick and slate in the cellar.
-        CatalogueHall => (SlateFloor02, DamagedPlaster, None, &[]),
-        ReadingRoom => (DiagonalParquet, WornMossyPlasterwall, None, &[]),
-        MapRoom => (DarkWoodenPlanks, WhitePlasterRough01, None, &[]),
-        LectureTheatre => (WeatheredPlanks, PlasteredStoneWall, None, &[]),
-        OldStacks => (DarkWoodenPlanks, CastleBrick02Red, None, &[]),
-        FolioStacks => (DiagonalParquet, WhitePlasterRough01, None, &[]),
-        PeriodicalStacks => (WeatheredPlanks, CastleBrick02Red, None, &[]),
-        NewStacks => (SmoothConcreteFloor, WhitePlasterRough01, None, &[]),
+        // The Archive (#515 §1): old wood, stone and plaster, each Zone differing from its joined neighbours in the family of its
+        // floor or wall. Pages (loose sheets of Paper006) lie on the reading halls' and stack halls' floors, ink spills in the Bindery,
+        // damp runs down the cellar's walls.
+        CatalogueHall => (MonasteryStoneFloor, DarkPaneledWood, Some(Pages), &[]),
+        ReadingRoom => (HerringboneParquet, DarkPaneledWood, Some(Pages), &[]),
+        MapRoom => (OldWoodenFloor02, WornPlasterWall, Some(Pages), &[]),
+        LectureTheatre => (DarkWoodenPlanks, PlasteredStoneWall, Some(Pages), &[]),
+        OldStacks => (OldWoodenFloor02, CastleBrick02Red, Some(Pages), &[]),
+        // Slate, not the plan's diagonal parquet: the Map Room above has wood over the same plaster, and D3 joins them.
+        FolioStacks => (SlateFloor02, WornPlasterWall, Some(Pages), &[]),
+        PeriodicalStacks => (OldWoodenFloor02, CastleBrick02Red, Some(Pages), &[]),
+        NewStacks => (SmoothConcreteFloor, WhitePlasterRough01, Some(Pages), &[]),
         Bindery => (WornBrickFloor, DamagedPlaster, Some(OilStains), &[]),
-        WellStair => (SlateFloor02, DarkBrickWall, Some(Leaks), &[]),
+        WellStair => (MonasteryStoneFloor, MedievalBlocks05, Some(Leaks), &[]),
         FloodedCellar => (WornBrickFloor, DarkBrickWall, Some(Leaks), &[]),
-        Undercroft => (SlateFloor02, DarkBrickWall, Some(Leaks), &[]),
+        Undercroft => (SlateFloor02, MedievalBlocks05, Some(Leaks), &[]),
         StrongRoom => (SmoothConcreteFloor, MetalPlate02, None, &[]),
         PumpRoom => (HangarConcreteFloor, BrickWall001, Some(OilStains), &[]),
     };
