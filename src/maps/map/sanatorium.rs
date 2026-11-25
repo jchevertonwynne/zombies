@@ -37,7 +37,7 @@ use crate::tuning::QUARANTINE_LEAF_SIZE;
 use crate::weapons::arsenal::WeaponId;
 
 use crate::maps::quarantine::WingId;
-use crate::maps::shifting::{Driver, Leaf, Piece, Rest};
+use crate::maps::shifting::{Driver, Leaf, Motion, Piece, Rest};
 
 use super::build::{Builder, Gap};
 use super::{DOOR_HEIGHT, Infill, Layout, Prop, PropKind, RaisedFloor, STOREY, Slope, Wing, palette, prop};
@@ -200,7 +200,7 @@ const HINGE_ALONG: f32 = 1.2;
 /// A Quarantine Door's Leaf, hinged at `hinge` and lying along its own x at yaw 0.
 const fn q_leaf(hinge: Vec3) -> Leaf {
     let (width, height, thick) = QUARANTINE_LEAF_SIZE;
-    Leaf { hinge, size: Vec3::new(width, height, thick), offset: Vec3::new(width / 2.0, height / 2.0, 0.0) }
+    Leaf { hinge, size: Vec3::new(width, height, thick), offset: Vec3::new(width / 2.0, height / 2.0, 0.0), motion: Motion::Hinge }
 }
 
 /// Where a Quarantine Door's hinge stands: `side` (-1 or 1) of the doorway's centre `at` along the
@@ -219,7 +219,7 @@ macro_rules! quarantine_door {
         Piece {
             zone: $outside,
             leaves: &[q_leaf(hinge($at, $out, -1.0)), q_leaf(hinge($at, $out, 1.0))],
-            rests: &[Rest { yaws: &[$o0, $o1], joins: &[($outside, $inside)] }, Rest { yaws: &[$s0, $s1], joins: &[] }],
+            rests: &[Rest { at: &[$o0, $o1], joins: &[($outside, $inside)] }, Rest { at: &[$s0, $s1], joins: &[] }],
             start: 0,
             driver: Driver::Quarantine(WingId($wing)),
             door: Some(($outside, $inside)),
@@ -1325,7 +1325,7 @@ mod tests {
             assert_eq!(door_edges, 1, "{id:?}'s landing reaches its doorway node through the gate Door");
             for node in &graph.nodes {
                 for rest in piece.rests {
-                    for (leaf, &yaw) in piece.leaves.iter().zip(rest.yaws) {
+                    for (leaf, &yaw) in piece.leaves.iter().zip(rest.at) {
                         assert!(!leaf.over(node.at, yaw, 0.0), "{} is on a Leaf of {id:?}", node.name);
                     }
                 }

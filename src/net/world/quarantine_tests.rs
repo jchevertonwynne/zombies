@@ -128,7 +128,7 @@ fn a_late_joiner_arriving_while_a_wing_is_sealed_gets_the_sealed_pose_and_the_st
     };
     let layout = MapId::Sanatorium.layout();
     for (id, index, rotation) in rotations {
-        let want = Quat::from_rotation_y(layout.shifting[usize::from(id)].rests[1].yaws[index]);
+        let want = Quat::from_rotation_y(layout.shifting[usize::from(id)].rests[1].at[index]);
         assert!(rotation.angle_between(want) < 1e-3, "piece {id} leaf {index}");
     }
 }

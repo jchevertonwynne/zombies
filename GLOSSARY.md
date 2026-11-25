@@ -108,7 +108,7 @@ _Avoid_: grenade (when meaning the slot)
 **Buyable**: Anything in the Map the Player spends Points on with the Use key: a Door, Wall Weapon, Mystery Box, Perk Machine, Pack-a-Punch, Trap, Teleporter Pad or Generator. The Power Switch and a Zipline are used but not bought, so neither is a Buyable.
 _Avoid_: purchasable, trigger
 
-**Use key**: The single key the Player presses to buy a Buyable, flip the Power Switch, ride a Zipline or push a Crash Bar, or holds to put Planks back on a Barrier.
+**Use key**: The single key the Player presses to buy a Buyable, flip the Power Switch, ride a Zipline, push a Crash Bar or turn a Wheel, or holds to put Planks back on a Barrier.
 
 **Prompt**: The on-screen line saying what the Use key will do here and what it costs.
 
@@ -314,9 +314,9 @@ _Avoid_: unlit, blackout
 **Weapon Light**: The torch-wide spotlight every Player carries, always on, on a Map with Dark Zones.
 _Avoid_: flashlight, torch
 
-**Shifting**: A Piece of the Map (one or more Leaves, each a solid deck or gate that turns about its own vertical hinge) moving between fixed Rests. Nothing rises, falls or slides, and nothing is carried: a body on a Leaf while it turns is pushed off by it. The Polder's Swing Bridges are the first Pieces, turned by Levers; its Lock Gates are the second, turned by the Tide; the Sanatorium's Quarantine Doors are the third, turned by the Quarantine.
+**Shifting**: A Piece of the Map (one or more Leaves, each a solid deck or gate that turns about a vertical hinge or slides along a straight floor rail) moving between fixed Rests. Nothing rises or falls, and nothing is carried: a body on a Leaf while it turns is pushed off by it. The Polder's Swing Bridges are the first Pieces, turned by Levers; its Lock Gates are the second, turned by the Tide; the Sanatorium's Quarantine Doors are the third, turned by the Quarantine; the Archive's Ranges are the fourth, rolled by Wheels.
 
-**Rest**: One of the fixed places a Shifting Piece can stand still, each with a yaw for every Leaf and the Zone joins it makes. A Swing Bridge has Span (joins its two banks) and Along (lies along its own bank over the water, joins nothing). Zombies and Active Zones count a Rest's joins only while the Piece stands at that Rest and its gate Door (if it has one) is open.
+**Rest**: One of the fixed places a Shifting Piece can stand still, each with a yaw or rail position for every Leaf and the Zone joins it makes. A Swing Bridge has Span (joins its two banks) and Along (lies along its own bank over the water, joins nothing). Zombies and Active Zones count a Rest's joins only while the Piece stands at that Rest and its gate Door (if it has one) is open.
 
 **Swing Bridge**: A Piece with one Leaf, a deck with rails hinged at one bank, that a Lever turns between Span and Along. It crosses Deep Water. A pen and a gate Door guard its near landing; a gate Door joins no Zones itself.
 
@@ -337,6 +337,17 @@ _Avoid_: flashlight, torch
 **All Clear**: The Quarantine's spell with every Wing open, between one Wing opening and the next Warning.
 
 **Lever**: A Buyable for 500 Points, with no Power and no Co-op scaling, that Swings its bridge to the next Rest. Each bridge has one at each landing, outside the pen, and they share one cooldown. A Lever is not a Trap, so no Trap Boon applies.
+
+**Moving Stacks**: The Archive's hook: Ranges of rolling Bookcases whose open Aisle the Players choose. Only the Archive has them. A Moving Stacks Roll reuses a Swing's Warning, Waiting, turn and cooldown, over a rail instead of a hinge, and never crushes or Tips anyone.
+_Avoid_: stack (a Stack is a copy of a Boon)
+
+**Range**: A row of 2 to 4 Bookcases on one floor rail, a Shifting Piece with exactly one Aisle open. Each Rest is where that Aisle is, so a Range of _n_ Bookcases has _n_ + 1 Rests, and a Range is never fully shut while it stands at a Rest. It joins the same two Zones at every Rest, behind a bought gate Door. A Wheel at an Aisle's mouth rolls it open, once nobody stands in the Aisle that is closing, and then it cools for 8 s, a Cooldown each Range has of its own.
+
+**Bookcase**: One double-sided shelf block of a Range, a Leaf that slides along the rail rather than turning. It is 1.2 m deep, 5 m long and 3 m tall to a soffit, so nothing climbs over it.
+
+**Aisle**: The 3 m lane between two Bookcases, or between a Bookcase and a Range's end wall. Only one Aisle of a Range is open at a time, and Zombies route only through the open one.
+
+**Wheel**: The free hand wheel at each mouth of an Aisle. A Player who is up and Uses it rolls the Range to open that Aisle, after a 2 s warning and once nobody, Down or not, is standing in the Aisle that is closing; it needs no Power and costs no Points. Not a Lever, and never used by Zombies.
 
 **Swing**: One Lever pull's work on a Swing Bridge: a Warning (bell and amber lamps), Waiting while any Player, Down or not, is on a Leaf or in its sweep, the turn itself from Rest to Rest, and the cooldown.
 

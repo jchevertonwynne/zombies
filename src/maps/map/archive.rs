@@ -1,7 +1,7 @@
 //! The Archive Map: a flooded library under a university, in 14 Zones on three levels going down
-//! from the start. Nothing rolls yet: its five Ranges stand as plain walls with their Bookcases as
-//! fixed boxes at their start Rests (the Moving Stacks come in a later ticket), each Range joining
-//! two Zones through its one open 3 m Aisle behind a bought gate Door.
+//! from the start. Its five Ranges are the Moving Stacks: each a Shifting Piece whose Bookcases slide along a
+//! floor rail, joining two Zones through its one open 3 m Aisle behind a bought gate Door, and rolled by the
+//! Wheels at both mouths of every Aisle (`shifting`).
 //!
 //! Built at the world origin (ADR 0009), plan (-36, 0) to (36, 36), with no Zone out of doors:
 //!
@@ -20,13 +20,15 @@
 //! the Zombies gather (the back-of-house; the path nodes there end in `_out`, as the Polder's strips do).
 //!
 //! The lamps, the Ranges, the fixed stacks and the per-Zone tables are in separate items on purpose:
-//! the Look, the Material Sets, the Moving Stacks and the Props each come in a later ticket. Its path
+//! the Look, the Material Sets and the Props each come in a later ticket. Its path
 //! nodes, lamps, windows, stairwells and Props (in `data`) are laid out by `tools/archive_layout.py`.
 
 use bevy::prelude::*;
 
 use crate::enemies::sapper::SapperTiming;
+use crate::maps::shifting::{Driver, Leaf, Motion, Piece, Rest, Wheel};
 use crate::maps::zone::ZoneId;
+use crate::tuning::{AISLE_WIDTH, BOOKCASE_DEPTH, BOOKCASE_HEIGHT, BOOKCASE_LENGTH};
 use crate::weapons::arsenal::WeaponId;
 
 use super::build::{Builder, Gap};
@@ -108,7 +110,7 @@ pub(super) const ARCHIVE: Layout = Layout {
     props: &PROPS,
     lamps: &data::LAMPS,
     fixed_joins: &FIXED_JOINS,
-    shifting: &[],
+    shifting: &SHIFTING,
     wings: &[],
     nav_nodes: data::NODES,
     nav_edges: data::EDGES,
@@ -137,8 +139,8 @@ const FIXED_JOINS: [(ZoneId, ZoneId); 1] = [(ZoneId::WellStair, ZoneId::FloodedC
 // ---------------------------------------------------------------- The Ranges
 
 /// A Range: 2 to 4 Bookcases on one floor rail between fixed end walls, with exactly one 3 m Aisle open. A Range of
-/// `bookcases` Bookcases has `bookcases + 1` Rests (Aisle positions). Here each is a wall with its Bookcases as fixed
-/// boxes at the start Rest; the gate Door stands across its one open Aisle on the `gate` side.
+/// `bookcases` Bookcases has `bookcases + 1` Rests (Aisle positions). Each is a wall opening filled by its Bookcases
+/// (Leaves of a `Piece`, sliding along the rail); its gate Door stands in a grille along the whole `gate_side` face.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Range {
     pub name: &'static str,
@@ -162,10 +164,12 @@ pub(super) struct Range {
 
 /// A Bookcase is 1.2 m deep (along the rail), 5.0 m long (across it) and 3.0 m tall to a soffit; the Aisle is 3.0 m
 /// wide; a clear 0.6 m of floor lies beyond each end of the Aisles, for the mouth nodes and the Wheels' posts.
-pub(super) const BOOKCASE: Vec3 = Vec3::new(1.2, 3.0, 5.0);
-pub(super) const AISLE: f32 = 3.0;
+pub(super) const BOOKCASE: Vec3 = Vec3::new(BOOKCASE_DEPTH, BOOKCASE_HEIGHT, BOOKCASE_LENGTH);
+pub(super) const AISLE: f32 = AISLE_WIDTH;
 #[cfg_attr(not(test), allow(dead_code))]
 pub(super) const MOUTH: f32 = 0.6;
+/// How far from a Bookcase's face a Wheel's post stands, inside the mouth strip.
+const WHEEL_OFF: f32 = 0.3;
 /// How far from a footprint's face its gate Door's wall stands (to its middle).
 const GATE_OFF: f32 = 1.4;
 
@@ -193,8 +197,8 @@ impl Range {
     }
 
     /// Where its Aisle is at `rest`, as the middle of the Aisle along the rail.
-    pub fn aisle_mid(&self, rest: u8) -> f32 {
-        self.rail + BOOKCASE.x * f32::from(rest) + AISLE / 2.0
+    pub const fn aisle_mid(&self, rest: u8) -> f32 {
+        self.rail + BOOKCASE.x * rest as f32 + AISLE / 2.0
     }
 
     /// A rectangle from `along` (a start and end on the rail) and `across` (offsets from the wall).
@@ -207,7 +211,7 @@ impl Range {
     }
 
     /// A point `along` the rail and `across` it from the wall.
-    pub fn point(&self, along: f32, across: f32) -> Vec2 {
+    pub const fn point(&self, along: f32, across: f32) -> Vec2 {
         if self.along_x { Vec2::new(along, self.line + across) } else { Vec2::new(self.line + across, along) }
     }
 
@@ -224,12 +228,6 @@ impl Range {
         [self.rect(rail, (-half - MOUTH, -half)), self.rect(rail, (half, half + MOUTH))]
     }
 
-    /// Where Bookcase `i` stands at Rest `rest`, as its extent along the rail.
-    pub fn bookcase(&self, i: u8, rest: u8) -> (f32, f32) {
-        let lo = self.rail + BOOKCASE.x * f32::from(i) + if i >= rest { AISLE } else { 0.0 };
-        (lo, lo + BOOKCASE.x)
-    }
-
     /// The open Aisle at `rest`, as a rectangle on the floor.
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn aisle(&self, rest: u8) -> (Vec2, Vec2) {
@@ -238,25 +236,110 @@ impl Range {
     }
 }
 
-/// A Range's wall (with its opening) and fixed Bookcases at the start Rest, and its gate: two stubs closing in the Aisle
-/// either side and a plane across it with the Door (2.4 m of 3.4) in the middle, `GATE_OFF` out from the footprint's face.
-fn range(b: &mut Builder, r: &Range) {
-    let mid = r.aisle_mid(r.start);
-    let wood = Color::srgb(0.32, 0.2, 0.11);
-    for i in 0..r.bookcases {
-        let (lo, hi) = r.bookcase(i, r.start);
-        let centre = r.point((lo + hi) / 2.0, 0.0);
-        let size = if r.along_x { Vec3::new(BOOKCASE.x, BOOKCASE.y, BOOKCASE.z) } else { Vec3::new(BOOKCASE.z, BOOKCASE.y, BOOKCASE.x) };
-        b.block(size, Vec3::new(centre.x, r.floor + BOOKCASE.y / 2.0, centre.y), wood);
+/// Where a Range's Bookcases are at Rest `rest`: for each of `N`, how far along its rail from its leftmost place (against
+/// the start of the rail) it stands, which is the Aisle's width for those the Aisle has moved past and none for the rest.
+const fn rest_table<const N: usize, const R: usize>() -> [[f32; N]; R] {
+    let mut out = [[0.0; N]; R];
+    let mut rest = 0;
+    while rest < R {
+        let mut i = 0;
+        while i < N {
+            out[rest][i] = if i >= rest { AISLE } else { 0.0 };
+            i += 1;
+        }
+        rest += 1;
     }
+    out
+}
+
+/// A Range's Bookcases, each a Rail Leaf whose datum is where it stands leftmost along the rail.
+const fn leaves<const N: usize>(r: &Range) -> [Leaf; N] {
+    let blank = Leaf { hinge: Vec3::ZERO, size: Vec3::ZERO, offset: Vec3::ZERO, motion: Motion::Hinge };
+    let (size, dir) = if r.along_x { (Vec3::new(BOOKCASE.x, BOOKCASE.y, BOOKCASE.z), Vec2::X) } else { (Vec3::new(BOOKCASE.z, BOOKCASE.y, BOOKCASE.x), Vec2::Y) };
+    let mut out = [blank; N];
+    let mut i = 0;
+    while i < N {
+        let centre = r.point(r.rail + BOOKCASE.x * i as f32 + BOOKCASE.x / 2.0, 0.0);
+        out[i] = Leaf { hinge: Vec3::new(centre.x, r.floor, centre.y), size, offset: Vec3::new(0.0, BOOKCASE.y / 2.0, 0.0), motion: Motion::Rail(dir) };
+        i += 1;
+    }
+    out
+}
+
+/// A Range's Rests: the Aisle at each, every one joining its Range's Zone pair.
+const fn rests<const N: usize, const R: usize>(table: &'static [[f32; N]; R], joins: &'static [(ZoneId, ZoneId)]) -> [Rest; R] {
+    let mut out = [Rest { at: &[], joins }; R];
+    let mut rest = 0;
+    while rest < R {
+        out[rest] = Rest { at: &table[rest], joins };
+        rest += 1;
+    }
+    out
+}
+
+/// A Range's Wheels, two (one at each mouth) for each of its Aisles: Rest `k`'s at `2k` (the low side) and `2k + 1`, on the
+/// mouth strip in front of the Aisle's middle.
+const fn wheels<const W: usize>(r: &Range) -> [Wheel; W] {
+    let blank = Wheel { zone: r.zones.0, at: Vec3::ZERO, facing: Vec2::ZERO, rest: 0 };
+    let mut out = [blank; W];
+    let mut i = 0;
+    while i < W {
+        let (rest, high) = ((i / 2) as u8, i % 2 == 1);
+        let side = if high { 1.0 } else { -1.0 };
+        let spot = r.point(r.aisle_mid(rest), side * (BOOKCASE.z / 2.0 + WHEEL_OFF));
+        let facing = if r.along_x { Vec2::new(0.0, side) } else { Vec2::new(side, 0.0) };
+        out[i] = Wheel { zone: if high { r.zones.1 } else { r.zones.0 }, at: Vec3::new(spot.x, r.floor, spot.y), facing, rest };
+        i += 1;
+    }
+    out
+}
+
+/// A Range as a Piece: its Bookcases, its Rests and its Wheels, behind its gate Door.
+const fn range_piece(r: &Range, leaves: &'static [Leaf], rests: &'static [Rest], wheels: &'static [Wheel]) -> Piece {
+    Piece { zone: r.zones.0, leaves, rests, start: r.start, driver: Driver::Wheels(wheels), door: Some(r.zones) }
+}
+
+const R0_AT: [[f32; 4]; 5] = rest_table();
+const R0_LEAVES: [Leaf; 4] = leaves(&RANGES[0]);
+const R0_RESTS: [Rest; 5] = rests(&R0_AT, &[(ZoneId::CatalogueHall, ZoneId::ReadingRoom)]);
+const R0_WHEELS: [Wheel; 10] = wheels(&RANGES[0]);
+const RA_AT: [[f32; 3]; 4] = rest_table();
+const RA_LEAVES: [Leaf; 3] = leaves(&RANGES[1]);
+const RA_RESTS: [Rest; 4] = rests(&RA_AT, &[(ZoneId::OldStacks, ZoneId::FolioStacks)]);
+const RA_WHEELS: [Wheel; 8] = wheels(&RANGES[1]);
+const RB_AT: [[f32; 2]; 3] = rest_table();
+const RB_LEAVES: [Leaf; 2] = leaves(&RANGES[2]);
+const RB_RESTS: [Rest; 3] = rests(&RB_AT, &[(ZoneId::FolioStacks, ZoneId::PeriodicalStacks)]);
+const RB_WHEELS: [Wheel; 6] = wheels(&RANGES[2]);
+const RC_AT: [[f32; 3]; 4] = rest_table();
+const RC_LEAVES: [Leaf; 3] = leaves(&RANGES[3]);
+const RC_RESTS: [Rest; 4] = rests(&RC_AT, &[(ZoneId::NewStacks, ZoneId::PeriodicalStacks)]);
+const RC_WHEELS: [Wheel; 8] = wheels(&RANGES[3]);
+const RD_AT: [[f32; 2]; 3] = rest_table();
+const RD_LEAVES: [Leaf; 2] = leaves(&RANGES[4]);
+const RD_RESTS: [Rest; 3] = rests(&RD_AT, &[(ZoneId::OldStacks, ZoneId::NewStacks)]);
+const RD_WHEELS: [Wheel; 6] = wheels(&RANGES[4]);
+
+/// The five Ranges as Shifting Pieces, in `RANGES`' order: R0, RA, RB, RC, RD (`PieceId` 0 to 4).
+const SHIFTING: [Piece; 5] = [
+    range_piece(&RANGES[0], &R0_LEAVES, &R0_RESTS, &R0_WHEELS),
+    range_piece(&RANGES[1], &RA_LEAVES, &RA_RESTS, &RA_WHEELS),
+    range_piece(&RANGES[2], &RB_LEAVES, &RB_RESTS, &RB_WHEELS),
+    range_piece(&RANGES[3], &RC_LEAVES, &RC_RESTS, &RC_WHEELS),
+    range_piece(&RANGES[4], &RD_LEAVES, &RD_RESTS, &RD_WHEELS),
+];
+
+/// A Range's gate: a grille along the whole of its `gate_side` face, `GATE_OFF` out from the Bookcases (closed in at both
+/// ends by caps, so the Bookcases' Aisle is never bypassed at any Rest), with the Door in it across the Aisle's start Rest.
+/// Its Bookcases are the Piece's Leaves (`SHIFTING`), built as bodies by `spawn_pieces`; its Wheels' posts too.
+fn range(b: &mut Builder, r: &Range) {
     let face = r.gate_side * BOOKCASE.z / 2.0;
     let plane = r.gate_side * (BOOKCASE.z / 2.0 + GATE_OFF);
-    let (a, b2) = (r.point(mid - 1.7, plane), r.point(mid + 1.7, plane));
-    b.wall(a, b2, r.floor, DOOR_HEIGHT, &[(1.7, door(r.zones.0, r.zones.1, r.price))]);
-    for along in [mid - 1.7, mid + 1.7] {
+    let (start, end) = (r.rail, r.rail + r.length());
+    b.wall(r.point(start, plane), r.point(end, plane), r.floor, DOOR_HEIGHT, &[(r.aisle_mid(r.start) - r.rail, Gap::Gate(r.zones, r.price))]);
+    for along in [start, end] {
         let (p, q) = (r.point(along, face), r.point(along, plane));
-        let (p, q) = (p.min(q), p.max(q));
-        b.wall(p, q, r.floor, DOOR_HEIGHT, &[]);
+        b.wall(p.min(q), p.max(q), r.floor, DOOR_HEIGHT, &[]);
     }
 }
 
@@ -514,7 +597,8 @@ mod tests {
         assert_eq!(archive().plan, (Vec2::new(-36.0, 0.0), Vec2::new(36.0, 36.0)));
         assert!(archive().outdoor.is_empty() && archive().roofed && archive().outside.is_none());
         assert!(archive().sections.is_empty() && archive().generators.is_empty() && !archive().darkness);
-        assert!(archive().shifting.is_empty() && archive().wings.is_empty());
+        assert_eq!(archive().shifting.len(), 5);
+        assert!(archive().wings.is_empty());
         for zone in [CatalogueHall, ReadingRoom, MapRoom] {
             assert_eq!(zone.floor(), READING, "{}", zone.name());
         }
@@ -734,7 +818,7 @@ mod tests {
     }
 
     #[test]
-    fn archive_nothing_stands_in_a_range_sweep_or_mouth_strip() {
+    fn nothing_else_stands_in_a_range_sweep() {
         use crate::maps::map::{BOX_LOCATIONS, window_spawn};
         use crate::weapons::equipment::equipment_walls;
         let layout = archive();
@@ -766,6 +850,11 @@ mod tests {
         }
         things.push(("Pack-a-Punch".into(), crate::weapons::pack_a_punch::machine_at(MapId::Archive)));
         things.push(("the Power Switch".into(), crate::maps::power::switch_spot(MapId::Archive).unwrap().0));
+        // Each gate Door, a Buyable in its grille (the Wheels' are checked against the sweeps alone: they stand in the mouth strips).
+        for r in &RANGES {
+            let door = r.point(r.aisle_mid(r.start), r.gate_side * (BOOKCASE.z / 2.0 + GATE_OFF));
+            things.push((format!("{}'s gate Door", r.name), Vec3::new(door.x, r.floor, door.y)));
+        }
         for &(zone, at) in layout.lamps {
             things.push((format!("a lamp in the {}", zone.name()), Vec3::new(at.x, zone.floor(), at.z)));
         }
@@ -860,33 +949,201 @@ mod tests {
         assert!(crate::maps::map::WINDOWS.len() <= 256, "a BarrierId is a u8");
     }
 
-    /// The Archive's five Ranges are 38 Wheels' worth of Aisles (4 + 3 + 2 + 3 + 2 Bookcases, plus one Aisle each), each with its chain of nodes
-    /// (mouth, Aisle, mouth) ungated, with its mouth nodes 0.6 m outside the footprint, and one gate Door each across its Aisle.
+    /// The Archive's five Ranges are 38 Wheels' worth of Aisles (4 + 3 + 2 + 3 + 2 Bookcases, plus one Aisle each), each Rest with its own
+    /// chain of nodes (mouth, Aisle, mouth), the mouth nodes 0.6 m outside the footprint, and one gate Door each in the grille on the high side.
     #[test]
-    fn archive_five_ranges_each_with_an_ungated_aisle_chain_and_a_gate_door() {
+    fn archive_five_ranges_each_with_a_chain_for_every_rest_and_a_gate_door() {
         let bookcases: Vec<u8> = RANGES.iter().map(|r| r.bookcases).collect();
         assert_eq!(bookcases, [4, 3, 2, 3, 2]);
         assert_eq!(RANGES.iter().map(|r| usize::from(r.bookcases) + 1).sum::<usize>() * 2, 38);
+        assert_eq!(archive().shifting.iter().map(|piece| piece.wheels().len()).sum::<usize>(), 38);
+        assert_eq!(RANGES.iter().map(|r| r.start).collect::<Vec<_>>(), [2, 0, 0, 3, 2], "the start Rests");
         let graph = NavGraph::new(MapId::Archive);
-        for r in &RANGES {
-            let mid = r.aisle_mid(r.start);
-            let node = |suffix: &str| {
-                let n = graph.node(&format!("{}_{suffix}", r.name)).unwrap_or_else(|| panic!("{} has no {suffix} node", r.name));
-                graph.nodes[n].at
-            };
-            for (suffix, across) in [("m0", -(BOOKCASE.z / 2.0 + MOUTH)), ("ai", 0.0), ("m1", BOOKCASE.z / 2.0 + MOUTH)] {
-                let want = r.point(mid, across);
-                let got = node(suffix);
-                assert!(Vec2::new(got.x, got.z).distance(want) < 0.01, "{}_{suffix} at {got}, wanted {want}", r.name);
-                assert_eq!(got.y, r.floor);
+        for (k, r) in RANGES.iter().enumerate() {
+            let piece = &archive().shifting[k];
+            assert_eq!((piece.rests.len(), piece.leaves.len(), piece.start, piece.door), (usize::from(r.bookcases) + 1, usize::from(r.bookcases), r.start, Some(r.zones)));
+            for rest in 0..=r.bookcases {
+                let mid = r.aisle_mid(rest);
+                for (suffix, across) in [("m0", -(BOOKCASE.z / 2.0 + MOUTH)), ("ai", 0.0), ("m1", BOOKCASE.z / 2.0 + MOUTH)] {
+                    let n = graph.node(&format!("{}_{suffix}_{rest}", r.name)).unwrap_or_else(|| panic!("{} has no {suffix} node at Rest {rest}", r.name));
+                    let got = graph.nodes[n].at;
+                    let want = r.point(mid, across);
+                    assert!(Vec2::new(got.x, got.z).distance(want) < 0.01, "{}_{suffix}_{rest} at {got}, wanted {want}", r.name);
+                    assert_eq!(got.y, r.floor);
+                }
+                // Every Rest's joins are the Range's Zone pair.
+                assert_eq!(piece.rests[usize::from(rest)].joins, [r.zones]);
             }
-            // Ungated: the chain's edges are plain, and the one Door edge is the gate's.
-            let ids: Vec<usize> = ["m0", "ai", "m1"].iter().map(|s| graph.node(&format!("{}_{s}", r.name)).unwrap()).collect();
-            for pair in ids.windows(2) {
-                assert!(graph.edges.iter().any(|e| e.from == pair[0] && e.to == pair[1] && e.gate == Gate::Open), "{}'s chain is gated", r.name);
-            }
+            // The one Door edge is the gate's, from the node beyond the grille to the mouth across the start Rest.
             let gate = graph.node(&format!("{}_g", r.name)).unwrap();
-            assert!(graph.edges.iter().any(|e| e.from == gate && e.to == ids[2] && e.gate == Gate::Door(r.zones.0, r.zones.1)), "{}'s gate", r.name);
+            let start_mouth = graph.node(&format!("{}_m1_{}", r.name, r.start)).unwrap();
+            assert!(graph.edges.iter().any(|e| e.from == gate && e.to == start_mouth && e.gate == Gate::Door(r.zones.0, r.zones.1)), "{}'s gate", r.name);
+            assert_eq!(graph.edges.iter().filter(|e| matches!(e.gate, Gate::Door(a, b) if (a, b) == r.zones) && graph.nodes[e.from].name.starts_with(r.name)).count(), 1);
+        }
+    }
+
+    /// Every Aisle's two chain edges (mouth to Aisle, Aisle to mouth) are gated by their own Rest of their own Range, and nothing else is.
+    #[test]
+    fn every_aisle_edge_is_gated_by_its_own_rest() {
+        let graph = NavGraph::new(MapId::Archive);
+        let mut gated = 0;
+        for (k, r) in RANGES.iter().enumerate() {
+            for rest in 0..=r.bookcases {
+                let ai = graph.node(&format!("{}_ai_{rest}", r.name)).unwrap();
+                let at_aisle: Vec<_> = graph.edges.iter().filter(|e| e.from == ai || e.to == ai).collect();
+                assert_eq!(at_aisle.len(), 2, "{} Rest {rest}: the Aisle node has just its two mouths", r.name);
+                for edge in at_aisle {
+                    assert_eq!(edge.gate, Gate::Rest(crate::maps::shifting::PieceId(k as u8), rest), "{} Rest {rest}", r.name);
+                    gated += 1;
+                    let other = graph.nodes[if edge.from == ai { edge.to } else { edge.from }].name;
+                    assert!(other.starts_with(&format!("{}_m", r.name)), "{other}");
+                }
+            }
+        }
+        assert_eq!(gated, 2 * 19, "an Aisle edge at each of the 19 Rests' two mouths");
+        // And every Rest gate in the graph is one of them.
+        let all: Vec<_> = graph.edges.iter().filter(|e| matches!(e.gate, Gate::Rest(..))).collect();
+        assert_eq!(all.len(), gated);
+        for edge in all {
+            let names = (graph.nodes[edge.from].name, graph.nodes[edge.to].name);
+            assert!(names.0.contains("_ai_") || names.1.contains("_ai_"), "{names:?}");
+        }
+    }
+
+    /// Each Range's mouth nodes stand 0.6 m outside its Bookcases' footprint, so clear of every Range's sweep at every Rest.
+    #[test]
+    fn mouth_nodes_are_outside_every_sweep() {
+        let graph = NavGraph::new(MapId::Archive);
+        let mut mouths = 0;
+        for node in &graph.nodes {
+            let Some((range, rest)) = RANGES.iter().find_map(|r| {
+                let rest = node.name.strip_prefix(r.name)?.strip_prefix("_m")?;
+                Some((r, rest))
+            }) else {
+                continue;
+            };
+            mouths += 1;
+            let _ = rest;
+            for other in &RANGES {
+                let (lo, hi) = other.sweep();
+                let inside = node.at.x > lo.x && node.at.x < hi.x && node.at.z > lo.y && node.at.z < hi.y;
+                assert!(!(inside && (node.at.y - other.floor).abs() < 1.0), "{} is in {}'s sweep", node.name, other.name);
+            }
+            let across = (Vec2::new(node.at.x, node.at.z) - range.point(range.rail, 0.0)).dot(if range.along_x { Vec2::Y } else { Vec2::X }).abs();
+            assert!((across - (BOOKCASE.z / 2.0 + MOUTH)).abs() < 0.01, "{} stands {across} m from the line", node.name);
+        }
+        assert_eq!(mouths, 2 * 19);
+    }
+
+    /// All of the 720 Rest combinations of the five Ranges, with every Door bought: every Zone is reachable from the start, by the nav graph
+    /// (every node bar the Aisle that is shut, and the vents and pens' outsides) and by the Zone joins alone.
+    #[test]
+    fn every_rest_combination_keeps_every_archive_zone_reachable() {
+        let graph = NavGraph::new(MapId::Archive);
+        let zones = archive().zones;
+        let doors: Vec<(ZoneId, ZoneId)> = zones.iter().flat_map(|&a| zones.iter().map(move |&b| (a, b))).collect();
+        let yes = |_: crate::maps::map::BarrierId| true;
+        let start = graph.nearest(archive().seat_start(0));
+        let mut combos = 0;
+        let plain = plain_door_joins();
+        for rests in rest_combinations() {
+            combos += 1;
+            let state = crate::enemies::nav::NavState::new(&doors, &yes).with_rests(&rests);
+            for (to, node) in graph.nodes.iter().enumerate() {
+                if node.zone.is_none() || node.vent || node.name.ends_with("_out") {
+                    continue;
+                }
+                // An Aisle node is only there while its Range stands at it.
+                let shut = RANGES.iter().enumerate().any(|(k, r)| node.name.strip_prefix(r.name).is_some_and(|rest| rest.starts_with("_ai_")) && !node.name.ends_with(&format!("_{}", rests[k].unwrap())));
+                let reached = graph.plan(to, start, state).is_some();
+                assert_eq!(reached, !shut, "{} with Rests {rests:?}", node.name);
+            }
+            // By joins: each Range's Rest joins its Zone pair, so the Zones are one connected whole (the Doors' joins plus the fixed ones).
+            let mut seen = std::collections::HashSet::from([CatalogueHall]);
+            let mut joins: Vec<(ZoneId, ZoneId)> = FIXED_JOINS.to_vec();
+            joins.extend(archive().shifting.iter().enumerate().flat_map(|(k, piece)| piece.open_joins(rests[k], true).iter().copied()));
+            joins.extend(plain.iter().copied());
+            loop {
+                let before = seen.len();
+                for &(a, b) in &joins {
+                    if seen.contains(&a) || seen.contains(&b) {
+                        seen.insert(a);
+                        seen.insert(b);
+                    }
+                }
+                if seen.len() == before {
+                    break;
+                }
+            }
+            assert_eq!(seen.len(), zones.len(), "joins with Rests {rests:?}: {:?}", zones.iter().filter(|z| !seen.contains(z)).collect::<Vec<_>>());
+        }
+        assert_eq!(combos, 5 * 4 * 3 * 4 * 3);
+    }
+
+    /// Every combination of the five Ranges' Rests, 5 x 4 x 3 x 4 x 3 of them.
+    fn rest_combinations() -> Vec<Vec<Option<u8>>> {
+        let mut all: Vec<Vec<Option<u8>>> = vec![vec![]];
+        for r in &RANGES {
+            all = all.into_iter().flat_map(|so_far| (0..=r.bookcases).map(move |rest| so_far.iter().copied().chain([Some(rest)]).collect::<Vec<_>>())).collect();
+        }
+        all
+    }
+
+    /// The plain Doors' joins (the gates guard the Ranges' own, which come from the Rests).
+    fn plain_door_joins() -> Vec<(ZoneId, ZoneId)> {
+        use bevy::ecs::system::RunSystemOnce;
+
+        use crate::enemies::zombie::headless::Sim;
+        use crate::maps::door::Door;
+        let mut sim = Sim::on(MapId::Archive, 60.0, |_| {});
+        sim.world_mut().run_system_once(|doors: Query<&Door>| doors.iter().filter_map(|door| door.joins).collect::<Vec<_>>()).unwrap()
+    }
+
+    /// The Power Switch and Pack-a-Punch are reachable at every Rest combination: with every Door bought, and with only the Doors that are
+    /// not Range gates, since the east route has no Range on it.
+    #[test]
+    fn power_and_pack_a_punch_are_reachable_at_every_rest_combination() {
+        use crate::enemies::zombie::headless::Sim;
+        let graph = NavGraph::new(MapId::Archive);
+        let mut sim = Sim::on(MapId::Archive, 60.0, |_| {});
+        let doors = doors(&mut sim);
+        let all: Vec<(ZoneId, ZoneId)> = doors.iter().filter_map(|&(joins, _)| joins).collect();
+        let bought: Vec<(ZoneId, ZoneId)> = all.iter().copied().filter(|&joins| !is_a_gate(joins)).collect();
+        let yes = |_: crate::maps::map::BarrierId| true;
+        let start = graph.nearest(archive().seat_start(0));
+        let spots = [("the Power Switch", crate::maps::power::switch_spot(MapId::Archive).unwrap().0), ("Pack-a-Punch", crate::weapons::pack_a_punch::machine_at(MapId::Archive))];
+        let mut checked = 0;
+        for rests in rest_combinations() {
+            for open in [&all, &bought] {
+                let state = crate::enemies::nav::NavState::new(open, &yes).with_rests(&rests);
+                for (what, at) in spots {
+                    let near = graph.nearest(Vec3::new(at.x, CELLAR, at.z) + Vec3::Y * 0.1);
+                    assert!(graph.plan(near, start, state).is_some(), "{what} is cut off with Rests {rests:?}");
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, 720 * 2 * 2);
+    }
+
+    /// Every Wheel stands on its Range's mouth strip in front of its Aisle's middle, on the floor of its own Zone, facing away from the Range
+    /// and clear of every sweep; two for every Aisle, one at each mouth.
+    #[test]
+    fn every_wheel_stands_in_a_mouth_strip_in_front_of_its_aisle() {
+        for (k, r) in RANGES.iter().enumerate() {
+            for wheel in archive().shifting[k].wheels() {
+                let high = wheel.facing.dot(if r.along_x { Vec2::Y } else { Vec2::X }) > 0.0;
+                assert_eq!(wheel.zone, if high { r.zones.1 } else { r.zones.0 });
+                assert_eq!(wheel.at.y, r.floor);
+                let want = r.point(r.aisle_mid(wheel.rest), (if high { 1.0 } else { -1.0 }) * (BOOKCASE.z / 2.0 + WHEEL_OFF));
+                assert!(Vec2::new(wheel.at.x, wheel.at.z).distance(want) < 1e-4, "{} Rest {}", r.name, wheel.rest);
+                assert!((wheel.facing.length() - 1.0).abs() < 1e-5);
+                assert_eq!(crate::enemies::nav::zone_at(MapId::Archive, wheel.at + Vec3::Y * 0.1), Some(wheel.zone), "{} Rest {} stands in its Zone", r.name, wheel.rest);
+                for other in &RANGES {
+                    let (lo, hi) = other.sweep();
+                    assert!(!(wheel.at.x > lo.x && wheel.at.x < hi.x && wheel.at.z > lo.y && wheel.at.z < hi.y && (wheel.at.y - other.floor).abs() < 1.0), "{} is in {}'s sweep", r.name, other.name);
+                }
+            }
         }
     }
 

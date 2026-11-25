@@ -27,7 +27,7 @@
 use bevy::prelude::*;
 
 use crate::enemies::sapper::SapperTiming;
-use crate::maps::shifting::{Driver, Leaf, Piece, Rest};
+use crate::maps::shifting::{Driver, Leaf, Motion, Piece, Rest};
 use crate::maps::zone::ZoneId;
 use crate::tuning::*;
 use crate::weapons::arsenal::WeaponId;
@@ -145,7 +145,7 @@ const DECK: Vec3 = Vec3::new(3.5, 0.4, 13.0);
 /// hinged on the deck's east edge (swinging east) or west edge.
 const fn deck_leaf(x: f32, z: f32, east: bool) -> Leaf {
     let side = if east { 1.0 } else { -1.0 };
-    Leaf { hinge: at(x + side * DECK.x / 2.0, GROUND, z), size: DECK, offset: Vec3::new(-side * DECK.x / 2.0, -DECK.y / 2.0, DECK.z / 2.0) }
+    Leaf { hinge: at(x + side * DECK.x / 2.0, GROUND, z), size: DECK, offset: Vec3::new(-side * DECK.x / 2.0, -DECK.y / 2.0, DECK.z / 2.0), motion: Motion::Hinge }
 }
 
 const SPAN_ALONG: f32 = std::f32::consts::FRAC_PI_2;
@@ -159,7 +159,7 @@ const OPEN_GATE: u8 = 1;
 /// a chamber, its top at quay level. `across` is where the box sits from the hinge across the
 /// Leaf's own width, so that folded Open it lies inside the chamber.
 const fn gate_leaf(x: f32, z: f32, across: f32) -> Leaf {
-    Leaf { hinge: at(x, GROUND, z), size: Vec3::new(1.4, 0.4, 3.5), offset: Vec3::new(across, -0.2, 1.75) }
+    Leaf { hinge: at(x, GROUND, z), size: Vec3::new(1.4, 0.4, 3.5), offset: Vec3::new(across, -0.2, 1.75), motion: Motion::Hinge }
 }
 
 /// The four Swing Bridges, in the order Market, Herring, Cheese, Customs: each a single Leaf
@@ -170,8 +170,8 @@ const SHIFTING: [Piece; 6] = [
         zone: ZoneId::TownSquare,
         leaves: &[deck_leaf(-22.0, -12.0, true)],
         rests: &[
-            Rest { yaws: &[0.0], joins: &[(ZoneId::TownSquare, ZoneId::LockYard)] },
-            Rest { yaws: &[SPAN_ALONG], joins: &[] },
+            Rest { at: &[0.0], joins: &[(ZoneId::TownSquare, ZoneId::LockYard)] },
+            Rest { at: &[SPAN_ALONG], joins: &[] },
         ],
         start: 0,
         driver: Driver::Levers(&[
@@ -184,8 +184,8 @@ const SHIFTING: [Piece; 6] = [
         zone: ZoneId::LockYard,
         leaves: &[deck_leaf(-24.0, 24.0, false)],
         rests: &[
-            Rest { yaws: &[0.0], joins: &[(ZoneId::LockYard, ZoneId::HerringQuay)] },
-            Rest { yaws: &[-SPAN_ALONG], joins: &[] },
+            Rest { at: &[0.0], joins: &[(ZoneId::LockYard, ZoneId::HerringQuay)] },
+            Rest { at: &[-SPAN_ALONG], joins: &[] },
         ],
         start: 0,
         driver: Driver::Levers(&[
@@ -198,8 +198,8 @@ const SHIFTING: [Piece; 6] = [
         zone: ZoneId::CheeseMarket,
         leaves: &[deck_leaf(44.0, -12.0, true)],
         rests: &[
-            Rest { yaws: &[0.0], joins: &[(ZoneId::CheeseMarket, ZoneId::Shipyard)] },
-            Rest { yaws: &[SPAN_ALONG], joins: &[] },
+            Rest { at: &[0.0], joins: &[(ZoneId::CheeseMarket, ZoneId::Shipyard)] },
+            Rest { at: &[SPAN_ALONG], joins: &[] },
         ],
         start: 0,
         driver: Driver::Levers(&[
@@ -212,8 +212,8 @@ const SHIFTING: [Piece; 6] = [
         zone: ZoneId::TollQuay,
         leaves: &[deck_leaf(24.0, 24.0, true)],
         rests: &[
-            Rest { yaws: &[0.0], joins: &[(ZoneId::TollQuay, ZoneId::CustomsHouse)] },
-            Rest { yaws: &[SPAN_ALONG], joins: &[] },
+            Rest { at: &[0.0], joins: &[(ZoneId::TollQuay, ZoneId::CustomsHouse)] },
+            Rest { at: &[SPAN_ALONG], joins: &[] },
         ],
         start: 0,
         driver: Driver::Levers(&[
@@ -229,8 +229,8 @@ const SHIFTING: [Piece; 6] = [
         zone: ZoneId::SluiceHouse,
         leaves: &[gate_leaf(-13.0, 3.2, 0.7), gate_leaf(-6.0, 3.2, -0.7)],
         rests: &[
-            Rest { yaws: &[FRAC_PI_2, -FRAC_PI_2], joins: &[(ZoneId::LockYard, ZoneId::SluiceHouse)] },
-            Rest { yaws: &[0.0, 0.0], joins: &[] },
+            Rest { at: &[FRAC_PI_2, -FRAC_PI_2], joins: &[(ZoneId::LockYard, ZoneId::SluiceHouse)] },
+            Rest { at: &[0.0, 0.0], joins: &[] },
         ],
         start: 0,
         driver: Driver::Tide([SHUT, SHUT, OPEN_GATE, OPEN_GATE]),
@@ -242,8 +242,8 @@ const SHIFTING: [Piece; 6] = [
         zone: ZoneId::SluiceHouse,
         leaves: &[gate_leaf(6.0, 20.8, -0.7), gate_leaf(13.0, 20.8, 0.7)],
         rests: &[
-            Rest { yaws: &[FRAC_PI_2, -FRAC_PI_2], joins: &[(ZoneId::TollQuay, ZoneId::SluiceHouse)] },
-            Rest { yaws: &[std::f32::consts::PI, -std::f32::consts::PI], joins: &[] },
+            Rest { at: &[FRAC_PI_2, -FRAC_PI_2], joins: &[(ZoneId::TollQuay, ZoneId::SluiceHouse)] },
+            Rest { at: &[std::f32::consts::PI, -std::f32::consts::PI], joins: &[] },
         ],
         start: 1,
         driver: Driver::Tide([OPEN_GATE, OPEN_GATE, SHUT, SHUT]),
@@ -1041,7 +1041,7 @@ mod tests {
             for piece in SHIFTING.iter() {
                 for (i, leaf) in piece.leaves.iter().enumerate() {
                     for rest in piece.rests {
-                        let yaw = rest.yaws[i];
+                        let yaw = rest.at[i];
                         let centre = leaf.centre(yaw);
                         let (c, n) = (yaw.cos().abs(), yaw.sin().abs());
                         let half = Vec2::new(c * leaf.size.x + n * leaf.size.z, n * leaf.size.x + c * leaf.size.z) / 2.0;
