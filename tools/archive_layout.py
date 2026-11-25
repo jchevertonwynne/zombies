@@ -193,15 +193,16 @@ for name, axis, line, rail, n, start, y, side, (zlo, zhi) in RANGES:
         BLOCKS.append((*rect(axis, line, lo, lo + BOOK, -LONG / 2, LONG / 2), y, 0.3))
     # Nothing but the chain stands in the sweep or on either mouth strip.
     NO_NODE.append((*rect(axis, line, rail - 0.1, rail + BOOK * n + AISLE + 0.1, -LONG / 2 - MOUTH - 0.1, LONG / 2 + MOUTH + 0.1), y, 0.3))
-    # The gate's wall: stubs either side of the Aisle and a plane across it, with the Door (2.4 m) in the middle.
+    # The gate's grille: a plane along the whole face, closed in by a cap at each end, with the Door (2.4 m) across the
+    # Aisle's start Rest (`archive.rs`'s `range`). The Wheels' corridor behind it is the Door's alone.
     face = side * (LONG / 2)
     plane = side * (LONG / 2 + GATE_OFF)
-    for sgn in (-1, 1):
-        a = mid + sgn * 1.7
-        BLOCKS.append((*rect(axis, line, a - 0.2, a + 0.2, min(face, plane), max(face, plane)), y, 0.3))
-        lo, hi = (mid - 1.7 - 0.2, mid - 1.2) if sgn < 0 else (mid + 1.2, mid + 1.7 + 0.2)
+    end = rail + BOOK * n + AISLE
+    for lo, hi in ((rail - 0.2, mid - 1.2), (mid + 1.2, end + 0.2)):
         BLOCKS.append((*rect(axis, line, lo, hi, plane - 0.2, plane + 0.2), y, 0.3))
-    NO_NODE.append((*rect(axis, line, mid - 2.0, mid + 2.0, min(face, plane) - 1.0, max(face, plane) + 1.0), y, 0.3))
+    for along in (rail, end):
+        BLOCKS.append((*rect(axis, line, along - 0.2, along + 0.2, min(face, plane), max(face, plane)), y, 0.3))
+    NO_NODE.append((*rect(axis, line, rail - 0.6, end + 0.6, -LONG / 2 - MOUTH - 0.1, max(face, plane) + 1.0), y, 0.3))
 
 # ---------------------------------------------------------------- Windows: (zone, wall axis, wall line, along, y, out) one pen each
 # `out` is the way from the zone towards its wall. The window stands PEN in from the wall, in a hatch wall 4 m wide,
@@ -399,19 +400,27 @@ for n in ("cw_w_foot", "d9_a"):
     attach(n, "FloodedCellar", 2, within=6.0)
 
 # ---------------------------------------------------------------- the Ranges' chains: mouth - Aisle - mouth
-for name, axis, line, rail, n, start, y, side, (zlo, zhi) in RANGES:
+for k, (name, axis, line, rail, n, start, y, side, (zlo, zhi)) in enumerate(RANGES):
     info = RANGE_INFO[name]
+    pos = lambda along, across: (lambda p: (round(p[0], 2), y, round(p[1], 2)))(at(axis, line, along, across))
+    first_m1 = None
+    # One chain for each Rest: the mouth, the Aisle and the mouth, each edge open only while the Range stands there.
+    for r in range(n + 1):
+        mid_r = rail + BOOK * r + AISLE / 2
+        gate = f"rest({k}, {r})"
+        m_lo = node(f"{name}_m0_{r}", *pos(mid_r, -(LONG / 2 + MOUTH)))
+        ai = node(f"{name}_ai_{r}", *pos(mid_r, 0.0))
+        m_hi = node(f"{name}_m1_{r}", *pos(mid_r, LONG / 2 + MOUTH))
+        edge(m_lo, ai, gate, check=False)
+        edge(ai, m_hi, gate, check=False)
+        attach(m_lo, zlo, 2, within=8.0)
+        # The high mouths stand in the gate's corridor, side by side: along it to the Door.
+        if r > 0:
+            edge(f"{name}_m1_{r - 1}", m_hi, check=False)
+    # The gate is on the high side: a node beyond it, and the Door between that and the mouth across the start Rest.
     mid = info["mid"]
-    # across offsets: low mouth -(LONG/2 + MOUTH), high +(LONG/2 + MOUTH)
-    m_lo = node(f"{name}_m0", *(lambda p: (round(p[0], 2), y, round(p[1], 2)))(at(axis, line, mid, -(LONG / 2 + MOUTH))))
-    ai = node(f"{name}_ai", *(lambda p: (round(p[0], 2), y, round(p[1], 2)))(at(axis, line, mid, 0.0)))
-    m_hi = node(f"{name}_m1", *(lambda p: (round(p[0], 2), y, round(p[1], 2)))(at(axis, line, mid, LONG / 2 + MOUTH)))
-    edge(m_lo, ai, check=False)
-    edge(ai, m_hi, check=False)
-    # The gate is on the high side: a node beyond it, and the Door between that and the mouth.
-    g = node(f"{name}_g", *(lambda p: (round(p[0], 2), y, round(p[1], 2)))(at(axis, line, mid, LONG / 2 + GATE_OFF + 0.2 + 0.9)))
-    edge(g, m_hi, f"Gate::Door(ZoneId::{zlo}, ZoneId::{zhi})", check=False)
-    attach(m_lo, zlo, 2, within=8.0)
+    g = node(f"{name}_g", *pos(mid, LONG / 2 + GATE_OFF + 0.2 + 0.9))
+    edge(g, f"{name}_m1_{start}", f"Gate::Door(ZoneId::{zlo}, ZoneId::{zhi})", check=False)
     attach(g, zhi, 2, within=8.0)
 
 # ---------------------------------------------------------------- Windows
@@ -525,7 +534,7 @@ if os.environ.get("COVERAGE"):
 # ---------------------------------------------------------------- write
 out = []
 out.append("//! The Archive's windows, stairwells, lamps, fixed stacks, loop centres and path-node graph, laid out from\n//! `archive.rs`'s walls and Ranges by `tools/archive_layout.py` (rewritten by it: edit the script, not this file).\n")
-out.append("use bevy::prelude::*;\n\nuse crate::enemies::nav::Gate;\nuse crate::maps::map::{BarrierId, Prop, PropKind, Sunken, prop};\nuse crate::maps::zone::ZoneId;\n\nuse super::W0;\n")
+out.append("use bevy::prelude::*;\n\nuse crate::enemies::nav::Gate;\nuse crate::maps::map::{BarrierId, Prop, PropKind, Sunken, prop};\nuse crate::maps::shifting::PieceId;\nuse crate::maps::zone::ZoneId;\n\nuse super::W0;\n")
 out.append("""const fn v(x: f32, z: f32) -> Vec2 {
     Vec2::new(x, z)
 }
@@ -535,6 +544,10 @@ const fn barrier(i: u8) -> Gate {
 }
 
 const OPEN: Gate = Gate::Open;
+
+const fn rest(piece: u8, rest: u8) -> Gate {
+    Gate::Rest(PieceId(piece), rest)
+}
 
 const fn window(zone: ZoneId, x: f32, y: f32, z: f32, out: Vec2) -> (ZoneId, Vec3, Vec2) {
     (zone, Vec3::new(x, y, z), out)

@@ -1,11 +1,13 @@
-//! Shifting: Pieces of the world that turn about vertical hinges between fixed Rests, and the
-//! Levers, the Tide or the Quarantine that drive them. The Polder's four Swing Bridges are turned by
-//! Levers; its two Lock Gates by the Tide, which gives each the Rest it stands at in every phase and
-//! swings it along with the water; the Sanatorium's six Quarantine Doors by the Quarantine, which
-//! shuts a Wing's pair of them and opens them again.
+//! Shifting: Pieces of the world that turn about vertical hinges, or slide along a straight floor
+//! rail, between fixed Rests, and the Levers, the Tide, the Quarantine or the Wheels that drive them.
+//! The Polder's four Swing Bridges are turned by Levers; its two Lock Gates by the Tide, which gives
+//! each the Rest it stands at in every phase and swings it along with the water; the Sanatorium's six
+//! Quarantine Doors by the Quarantine, which shuts a Wing's pair of them and opens them again; the
+//! Archive's five Ranges (the Moving Stacks) by Wheels, each of which rolls its Range to open its own
+//! Aisle.
 //!
-//! A Piece is one or more Leaves, each a solid box (a deck with rails) that turns about its own
-//! vertical hinge. The Host decides everything: a Lever pull starts a cycle of Warning, Waiting
+//! A Piece is one or more Leaves, each a solid box (a deck with rails, a gate, a Bookcase) that turns
+//! about its own vertical hinge or slides along its rail. The Host decides everything: a Lever pull starts a cycle of Warning, Waiting
 //! (while any Player is on a Leaf or in its sweep), Swinging and Cooling. Every machine poses its
 //! own Leaves from the phase it is told, and nothing is carried: a body on a deck while it turns
 //! is pushed out by the move step.
@@ -40,21 +42,50 @@ use crate::tuning::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct PieceId(pub u8);
 
-/// One solid box that turns about a vertical hinge: a deck with its rails, or a gate leaf.
+/// How a Leaf moves between Rests.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Motion {
+    /// It turns about a vertical hinge: a Rest gives its yaw.
+    Hinge,
+    /// It slides along a straight floor rail, this unit direction (x, z): a Rest gives the metres
+    /// from the `hinge`.
+    Rail(Vec2),
+}
+
+/// One solid box that turns about a vertical hinge or slides along a rail: a deck with its rails, a
+/// gate leaf or a Bookcase.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Leaf {
-    /// The hinge's spot in the world; its height is the Leaf's datum.
+    /// The hinge's spot in the world, or the rail's datum: where the Leaf is at pose 0. Its height
+    /// is the Leaf's datum.
     pub hinge: Vec3,
     /// The box's full size.
     pub size: Vec3,
-    /// The box's centre from the hinge, with the Leaf at yaw 0.
+    /// The box's centre from the hinge, with the Leaf at pose 0 (yaw 0 for a Hinge Leaf).
     pub offset: Vec3,
+    pub motion: Motion,
 }
 
 impl Leaf {
-    /// Where the Leaf's centre is at `yaw`.
-    pub fn centre(&self, yaw: f32) -> Vec3 {
-        self.hinge + Quat::from_rotation_y(yaw) * self.offset
+    /// Where the Leaf's frame (its hinge) is at `pose`: the hinge itself, or along the rail.
+    pub fn origin(&self, pose: f32) -> Vec3 {
+        match self.motion {
+            Motion::Hinge => self.hinge,
+            Motion::Rail(dir) => self.hinge + Vec3::new(dir.x, 0.0, dir.y) * pose,
+        }
+    }
+
+    /// How the Leaf is turned at `pose`: by its yaw, or not at all on a rail.
+    pub fn rotation(&self, pose: f32) -> Quat {
+        match self.motion {
+            Motion::Hinge => Quat::from_rotation_y(pose),
+            Motion::Rail(_) => Quat::IDENTITY,
+        }
+    }
+
+    /// Where the Leaf's centre is at `pose`.
+    pub fn centre(&self, pose: f32) -> Vec3 {
+        self.origin(pose) + self.rotation(pose) * self.offset
     }
 
     /// The height of the top of its deck.
@@ -62,9 +93,9 @@ impl Leaf {
         self.hinge.y + self.offset.y + self.size.y / 2.0
     }
 
-    /// Whether the point `at` (flat) is over the box turned to `yaw`, `margin` out from its edge.
-    pub fn over(&self, at: Vec3, yaw: f32, margin: f32) -> bool {
-        let local = Quat::from_rotation_y(-yaw) * (at - self.hinge) - self.offset;
+    /// Whether the point `at` (flat) is over the box at `pose`, `margin` out from its edge.
+    pub fn over(&self, at: Vec3, pose: f32, margin: f32) -> bool {
+        let local = self.rotation(pose).inverse() * (at - self.origin(pose)) - self.offset;
         local.x.abs() <= self.size.x / 2.0 + margin && local.z.abs() <= self.size.z / 2.0 + margin
     }
 
@@ -84,10 +115,12 @@ impl Leaf {
     }
 }
 
-/// Where a Piece can stand still: one yaw for each Leaf, and the Zone joins it makes.
+/// Where a Piece can stand still: a yaw or a rail position for each Leaf, and the Zone joins it
+/// makes.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Rest {
-    pub yaws: &'static [f32],
+    /// The yaw of a Hinge Leaf, or the metres along the rail from the `hinge` of a Rail Leaf.
+    pub at: &'static [f32],
     pub joins: &'static [(ZoneId, ZoneId)],
 }
 
@@ -105,6 +138,33 @@ pub enum Driver {
     /// It Swings only as the Quarantine's stage says, over `SWING_SECS`, with no Lever, no wait and no
     /// cooldown, and nothing to Sabotage.
     Quarantine(WingId),
+    /// Wheels: each opens its own Rest, free, for any Player who is up, once the Range is idle. A
+    /// Range has no Levers.
+    Wheels(&'static [Wheel]),
+}
+
+/// A hand Wheel at the mouth of an Aisle: where it stands, the way it faces (x, z) and the Rest of
+/// the Range it rolls open.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Wheel {
+    /// The Zone it stands in.
+    pub zone: ZoneId,
+    /// Its spot on the floor.
+    pub at: Vec3,
+    pub facing: Vec2,
+    /// The Rest it rolls the Range to: where its Aisle is open.
+    pub rest: u8,
+}
+
+impl Wheel {
+    /// The Rest a use of this Wheel rolls to, if it does anything now: only an idle Range whose
+    /// Aisle at this Wheel is shut.
+    pub fn opens(&self, phase: PiecePhase) -> Option<u8> {
+        match phase {
+            PiecePhase::Rest(at) if at != self.rest => Some(self.rest),
+            _ => None,
+        }
+    }
 }
 
 /// A Piece of world that shifts between Rests.
@@ -122,7 +182,8 @@ pub struct Piece {
     pub door: Option<(ZoneId, ZoneId)>,
 }
 
-/// The yaw `elapsed` seconds into a Swing from `from` to `to`: a smoothstep that lands exactly.
+/// The pose (a yaw, or metres along a rail) `elapsed` seconds into a Swing from `from` to `to`: a
+/// smoothstep that lands exactly.
 pub fn pose(from: f32, to: f32, elapsed: f32) -> f32 {
     let t = (elapsed / SWING_SECS).clamp(0.0, 1.0);
     if t >= 1.0 {
@@ -140,10 +201,18 @@ impl Piece {
         (rest + 1) % self.rests.len() as u8
     }
 
-    /// Every Leaf's yaw `elapsed` seconds into a Swing from Rest `from` to Rest `to`.
-    pub fn yaws(&self, from: u8, to: u8, elapsed: f32) -> Vec<f32> {
-        let (a, b) = (self.rests[usize::from(from)].yaws, self.rests[usize::from(to)].yaws);
+    /// Every Leaf's pose `elapsed` seconds into a Swing from Rest `from` to Rest `to`.
+    pub fn poses(&self, from: u8, to: u8, elapsed: f32) -> Vec<f32> {
+        let (a, b) = (self.rests[usize::from(from)].at, self.rests[usize::from(to)].at);
         a.iter().zip(b).map(|(&a, &b)| pose(a, b, elapsed)).collect()
+    }
+
+    /// How long its Levers or Wheels are dead after a Swing.
+    pub fn cooldown(&self) -> f32 {
+        match self.driver {
+            Driver::Wheels(_) => RANGE_COOLDOWN_SECS,
+            _ => LEVER_COOLDOWN_SECS,
+        }
     }
 
     /// Whether feet are on a Leaf or in its sweep (the ground it passes over between two Rests),
@@ -153,8 +222,13 @@ impl Piece {
             if !leaf.height_in_reach(feet) {
                 return false;
             }
-            let (a, b) = (self.rests[usize::from(from)].yaws[i], self.rests[usize::from(to)].yaws[i]);
-            let steps = ((b - a).abs() / 0.01).ceil().max(1.0) as u32;
+            let (a, b) = (self.rests[usize::from(from)].at[i], self.rests[usize::from(to)].at[i]);
+            // A turn is sampled every hundredth of a radian, a slide every ten centimetres.
+            let step = match leaf.motion {
+                Motion::Hinge => 0.01,
+                Motion::Rail(_) => 0.1,
+            };
+            let steps = ((b - a).abs() / step).ceil().max(1.0) as u32;
             (0..=steps).any(|step| leaf.over(feet, a + (b - a) * step as f32 / steps as f32, SWING_MARGIN))
         })
     }
@@ -172,7 +246,15 @@ impl Piece {
     pub fn levers(&self) -> &'static [(ZoneId, Vec3, Vec2)] {
         match self.driver {
             Driver::Levers(levers) => levers,
-            Driver::Tide(_) | Driver::Quarantine(_) => &[],
+            Driver::Tide(_) | Driver::Quarantine(_) | Driver::Wheels(_) => &[],
+        }
+    }
+
+    /// The Wheels of a Range. Any other Piece has none.
+    pub fn wheels(&self) -> &'static [Wheel] {
+        match self.driver {
+            Driver::Wheels(wheels) => wheels,
+            _ => &[],
         }
     }
 
@@ -185,7 +267,7 @@ impl Piece {
                 TidePhase::High => 2,
                 TidePhase::Falling => 3,
             }]),
-            Driver::Levers(_) | Driver::Quarantine(_) => None,
+            Driver::Levers(_) | Driver::Quarantine(_) | Driver::Wheels(_) => None,
         }
     }
 
@@ -282,7 +364,8 @@ impl PiecePhase {
     }
 
     /// Advances `dt`. `clear` says nobody is in the way: Waiting only ever moves on with it.
-    pub fn advance(&mut self, dt: f32, clear: bool) -> Beat {
+    /// `cooldown` is how long its Levers or Wheels are dead after it lands.
+    pub fn advance(&mut self, dt: f32, clear: bool, cooldown: f32) -> Beat {
         let mut beat = Beat::default();
         let mut left = dt;
         loop {
@@ -313,24 +396,24 @@ impl PiecePhase {
                     *self = PiecePhase::Cooling { at: to, elapsed: 0.0 };
                 }
                 PiecePhase::Cooling { at, elapsed } => {
-                    if elapsed + left < LEVER_COOLDOWN_SECS {
+                    if elapsed + left < cooldown {
                         *self = PiecePhase::Cooling { at, elapsed: elapsed + left };
                         return beat;
                     }
-                    left -= LEVER_COOLDOWN_SECS - elapsed;
+                    left -= cooldown - elapsed;
                     *self = PiecePhase::Rest(at);
                 }
             }
         }
     }
 
-    /// The yaw of each Leaf of `piece` now.
-    pub fn yaws(self, piece: &Piece) -> Vec<f32> {
+    /// The pose of each Leaf of `piece` now.
+    pub fn poses(self, piece: &Piece) -> Vec<f32> {
         match self {
-            PiecePhase::Swinging { from, to, elapsed } => piece.yaws(from, to, elapsed),
+            PiecePhase::Swinging { from, to, elapsed } => piece.poses(from, to, elapsed),
             other => {
                 let at = other.standing().unwrap_or(0);
-                piece.rests[usize::from(at)].yaws.to_vec()
+                piece.rests[usize::from(at)].at.to_vec()
             }
         }
     }
@@ -371,6 +454,43 @@ impl LeverPrompt {
     }
 }
 
+/// What a Range's Wheel shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WheelPrompt {
+    /// Nothing: the system is Sabotaged, or this Wheel's Aisle is the open one.
+    None,
+    Open,
+    ClearTheAisle,
+    Rolling,
+    Settling,
+}
+
+impl WheelPrompt {
+    /// What the Wheel that opens Rest `rest` shows while the Range is in `phase`. The Wheels of the Aisle
+    /// that stands open show nothing, whatever the Range is doing.
+    pub fn of(phase: PiecePhase, rest: u8, sabotaged: bool) -> Self {
+        if sabotaged || phase.standing() == Some(rest) {
+            return WheelPrompt::None;
+        }
+        match phase {
+            PiecePhase::Rest(_) => WheelPrompt::Open,
+            PiecePhase::Warning { .. } | PiecePhase::Waiting { .. } => WheelPrompt::ClearTheAisle,
+            PiecePhase::Swinging { .. } => WheelPrompt::Rolling,
+            PiecePhase::Cooling { .. } => WheelPrompt::Settling,
+        }
+    }
+
+    pub fn text(self) -> &'static str {
+        match self {
+            WheelPrompt::None => "",
+            WheelPrompt::Open => "Press F to open this aisle",
+            WheelPrompt::ClearTheAisle => "Clear the aisle",
+            WheelPrompt::Rolling => "The stacks are rolling",
+            WheelPrompt::Settling => "The stacks are settling",
+        }
+    }
+}
+
 /// The standing Rest of every Piece, by `PieceId`: what the planners and the Active Zones read.
 pub fn standing_rests(pieces: impl IntoIterator<Item = (PieceId, PiecePhase)>, count: usize) -> Vec<Option<u8>> {
     let mut rests = vec![None; count];
@@ -392,6 +512,8 @@ pub struct PieceState {
     /// Whether the Tide or the Quarantine drives it: it comes to Rest at the end of a Swing, with no
     /// cooldown.
     driven: bool,
+    /// How long its Levers or Wheels are dead after a Swing lands.
+    cooldown: f32,
 }
 
 impl PieceState {
@@ -410,7 +532,7 @@ impl PieceState {
 
     /// Runs the shown phase on until the Host says what comes next: it never leaves Waiting.
     pub fn advance_shown(&mut self, dt: f32) {
-        self.phase.advance(dt, false);
+        self.phase.advance(dt, false, self.cooldown);
         self.settle();
     }
 
@@ -425,7 +547,13 @@ impl PieceState {
 
     /// A Piece standing at its start Rest.
     pub fn at_start(id: PieceId, piece: &Piece) -> Self {
-        Self { id, phase: PiecePhase::Rest(piece.start), activator: None, driven: matches!(piece.driver, Driver::Tide(_) | Driver::Quarantine(_)) }
+        Self {
+            id,
+            phase: PiecePhase::Rest(piece.start),
+            activator: None,
+            driven: matches!(piece.driver, Driver::Tide(_) | Driver::Quarantine(_)),
+            cooldown: piece.cooldown(),
+        }
     }
 }
 
@@ -447,6 +575,15 @@ impl Lever {
     pub fn use_point(&self) -> Vec3 {
         self.use_point
     }
+}
+
+/// One of a Range's Wheels, the free Buyable that rolls it to open `rest`'s Aisle.
+#[derive(Component)]
+pub struct WheelPost {
+    pub piece: PieceId,
+    /// The Rest it rolls the Range to.
+    pub rest: u8,
+    use_point: Vec3,
 }
 
 /// The amber lamp on a Lever's post.
@@ -506,6 +643,7 @@ pub fn spawn_pieces(commands: &mut Commands, meshes: &mut Assets<Mesh>, material
     let post = meshes.add(Cuboid::new(0.4, 1.0, 0.4));
     let arm = meshes.add(Cuboid::new(0.08, 0.6, 0.08));
     let lamp = meshes.add(Sphere::new(0.12));
+    let rim = meshes.add(Torus::new(0.22, 0.28));
     // A Quarantine Door's Leaves are cream-green steel fire doors, drawn as the slab.
     let steel = materials.add(Color::srgb(0.66, 0.72, 0.6));
     for (id, piece) in pieces(layout) {
@@ -516,7 +654,7 @@ pub fn spawn_pieces(commands: &mut Commands, meshes: &mut Assets<Mesh>, material
             Transform::from_translation(piece.leaves[0].hinge),
             Visibility::default(),
         ));
-        let yaws = piece.rests[usize::from(piece.start)].yaws;
+        let poses = piece.rests[usize::from(piece.start)].at;
         for (index, leaf) in piece.leaves.iter().enumerate() {
             let deck = meshes.add(Cuboid::new(leaf.size.x, leaf.size.y, leaf.size.z));
             let rail = meshes.add(Cuboid::new(LEAF_RAIL_THICKNESS, LEAF_RAIL_HEIGHT, leaf.size.z));
@@ -530,7 +668,7 @@ pub fn spawn_pieces(commands: &mut Commands, meshes: &mut Assets<Mesh>, material
                     RigidBody::Kinematic,
                     leaf_collider(leaf),
                     CollisionLayers::new(GameLayer::World, LayerMask::ALL),
-                    Transform::from_translation(leaf.hinge).with_rotation(Quat::from_rotation_y(yaws[index])),
+                    Transform::from_translation(leaf.origin(poses[index])).with_rotation(leaf.rotation(poses[index])),
                     Visibility::default(),
                 ))
                 .with_children(|parent| {
@@ -556,7 +694,7 @@ pub fn spawn_pieces(commands: &mut Commands, meshes: &mut Assets<Mesh>, material
         if matches!(piece.driver, Driver::Tide(_)) {
             for leaf in piece.leaves {
                 // On the rail, behind the hinge: away from where the Leaf lies when Shut.
-                let shut = piece.rests[0].yaws[piece.leaves.iter().position(|other| other == leaf).unwrap_or(0)];
+                let shut = piece.rests[0].at[piece.leaves.iter().position(|other| other == leaf).unwrap_or(0)];
                 let outward = (leaf.hinge - leaf.centre(shut)).with_y(0.0).normalize_or_zero();
                 let side = Vec3::new(0.0, 0.0, 1.2);
                 let at = leaf.hinge + outward * 0.25 + side;
@@ -590,6 +728,26 @@ pub fn spawn_pieces(commands: &mut Commands, meshes: &mut Assets<Mesh>, material
                     parent.spawn((LeverLamp(id), Mesh3d(lamp.clone()), MeshMaterial3d(lamp_off.clone()), Transform::from_xyz(0.0, 0.62, 0.0), Visibility::Hidden));
                 });
         }
+        // A Range's Wheels: a cast-iron post with a spoked hand wheel, no collider (the Aisle's mouth is
+        // clear), shown only where this Aisle is shut.
+        for wheel in piece.wheels() {
+            let normal = Vec3::new(wheel.facing.x, 0.0, wheel.facing.y);
+            let use_point = wheel.at + Vec3::Y * 1.1 + normal * 0.3;
+            commands
+                .spawn((
+                    InRun,
+                    Name::new("Wheel"),
+                    WheelPost { piece: id, rest: wheel.rest, use_point },
+                    Mesh3d(post.clone()),
+                    MeshMaterial3d(iron.clone()),
+                    Transform::from_translation(wheel.at + Vec3::Y * 0.5).looking_to(-normal, Vec3::Y),
+                    Visibility::default(),
+                ))
+                .with_children(|parent| {
+                    parent.spawn((Mesh3d(rim.clone()), MeshMaterial3d(iron.clone()), Transform::from_xyz(0.0, 0.62, 0.2).with_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2))));
+                    parent.spawn((Mesh3d(arm.clone()), MeshMaterial3d(timber.clone()), Transform::from_xyz(0.0, 0.62, 0.2).with_rotation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_2))));
+                });
+        }
     }
 }
 
@@ -608,6 +766,7 @@ impl Plugin for ShiftingPlugin {
                 (
                     (
                         use_levers,
+                        use_wheels,
                         swing_nearest,
                         drive_gates.after(TideTurn),
                         drive_quarantine.after(QuarantineClock),
@@ -618,7 +777,7 @@ impl Plugin for ShiftingPlugin {
                     )
                         .chain()
                         .in_set(HostSimulation),
-                    (prompt_levers, light_lamps, light_gate_lamps, ring_cues).chain(),
+                    (prompt_levers, prompt_wheels, show_wheels, light_lamps, light_gate_lamps, ring_cues).chain(),
                 )
                     .run_if(world_runs),
             );
@@ -631,9 +790,14 @@ fn pose_leaves(pieces: Query<&PieceState>, mut leaves: Query<(&LeafBody, &mut Tr
     for (body, mut transform) in &mut leaves {
         let Some(state) = pieces.iter().find(|state| state.id == body.piece) else { continue };
         let Some(piece) = layout.shifting.get(usize::from(body.piece.0)) else { continue };
-        let rotation = Quat::from_rotation_y(state.phase.yaws(piece)[body.index]);
+        let Some(leaf) = piece.leaves.get(body.index) else { continue };
+        let pose = state.phase.poses(piece)[body.index];
+        let (origin, rotation) = (leaf.origin(pose), leaf.rotation(pose));
         if transform.rotation != rotation {
             transform.rotation = rotation;
+        }
+        if transform.translation != origin {
+            transform.translation = origin;
         }
     }
 }
@@ -651,6 +815,30 @@ fn use_levers(
         for (mut state, sabotaged) in &mut pieces {
             if state.id == lever.piece && !sabotaged && state.phase.idle() {
                 let to = piece.next_rest(state.phase.standing().unwrap_or(0));
+                state.phase.pull(to);
+                state.activator = Some(player);
+            }
+        }
+    }
+}
+
+/// A bought (used) Wheel rolls its Range to open its own Aisle, if the Range is idle, the Aisle is
+/// shut and it isn't Sabotaged. The Host decides: a client's use arrives as the same `Purchased`.
+fn use_wheels(
+    mut purchases: MessageReader<Purchased>,
+    wheels: Query<&WheelPost>,
+    mut pieces: Query<(&mut PieceState, Has<Sabotaged>)>,
+    map: Res<MapId>,
+) {
+    for &Purchased { player, buyable } in purchases.read() {
+        let Ok(post) = wheels.get(buyable) else { continue };
+        let Some(piece) = map.layout().shifting.get(usize::from(post.piece.0)) else { continue };
+        let Some(wheel) = piece.wheels().iter().find(|wheel| wheel.rest == post.rest) else { continue };
+        for (mut state, sabotaged) in &mut pieces {
+            if state.id != post.piece || sabotaged {
+                continue;
+            }
+            if let Some(to) = wheel.opens(state.phase) {
                 state.phase.pull(to);
                 state.activator = Some(player);
             }
@@ -676,7 +864,7 @@ fn run_pieces(
             _ => true,
         };
         let id = state.id;
-        let beat = state.phase.advance(time.delta_secs(), clear);
+        let beat = state.phase.advance(time.delta_secs(), clear, piece.cooldown());
         state.settle();
         if let Some((from, to)) = beat.started {
             swings.write(SwingStarted { piece: id, from, to });
@@ -893,8 +1081,9 @@ fn tip_occupants(
     let layout = map.layout();
     for &SwingStarted { piece: id, from, to } in swings.read() {
         let Some(piece) = layout.shifting.get(usize::from(id.0)) else { continue };
-        // A Quarantine Door is no Trap: it puts bodies outside, it kills none.
-        if matches!(piece.driver, Driver::Quarantine(_)) {
+        // A Quarantine Door is no Trap: it puts bodies outside, it kills none. Nor is a Range: it
+        // never crushes or Tips.
+        if matches!(piece.driver, Driver::Quarantine(_) | Driver::Wheels(_)) {
             continue;
         }
         let activator = pieces.iter().find(|state| state.id == id).and_then(|state| state.activator);
@@ -1013,6 +1202,45 @@ fn prompt_levers(
     }
 }
 
+/// Wheels own their Buyables: a free use where the Range is idle and this Aisle is shut, or why it
+/// can't be used, and nothing at the Aisle that is open.
+fn prompt_wheels(
+    mut commands: Commands,
+    wheels: Query<(Entity, &WheelPost, Option<&Buyable>, Has<Refused>)>,
+    pieces: Query<(&PieceState, Has<Sabotaged>)>,
+) {
+    for (entity, wheel, buyable, refused) in &wheels {
+        let Some((state, sabotaged)) = pieces.iter().find(|(state, _)| state.id == wheel.piece) else { continue };
+        let want = WheelPrompt::of(state.phase, wheel.rest, sabotaged);
+        if want == WheelPrompt::None {
+            if buyable.is_some() || refused {
+                commands.entity(entity).remove::<(Buyable, Refused)>();
+            }
+            continue;
+        }
+        let text = want.text();
+        let usable = want == WheelPrompt::Open;
+        if buyable.is_some_and(|buyable| buyable.prompt == text) && refused == !usable {
+            continue;
+        }
+        let mut wheel_entity = commands.entity(entity);
+        wheel_entity.insert(Buyable { use_point: wheel.use_point, prompt: text.into(), price: None, range: USE_RANGE });
+        if usable {
+            wheel_entity.remove::<Refused>();
+        } else {
+            wheel_entity.insert(Refused);
+        }
+    }
+}
+
+/// A Wheel's post stands only where its Aisle is shut: the open Aisle's is gone from its mouth.
+fn show_wheels(pieces: Query<&PieceState>, mut wheels: Query<(&WheelPost, &mut Visibility)>) {
+    for (wheel, mut visibility) in &mut wheels {
+        let open = pieces.iter().find(|state| state.id == wheel.piece).is_some_and(|state| state.phase.standing() == Some(wheel.rest));
+        visibility.set_if_neq(if open { Visibility::Hidden } else { Visibility::Inherited });
+    }
+}
+
 /// The amber lamps burn from the pull until the Piece is back at Rest.
 fn light_lamps(pieces: Query<&PieceState>, mut lamps: Query<(&LeverLamp, &mut Visibility)>) {
     for (lamp, mut visibility) in &mut lamps {
@@ -1058,8 +1286,8 @@ fn ring_cues(
             continue;
         }
         let Some(piece) = map.layout().shifting.get(usize::from(state.id.0)) else { continue };
-        let yaws = state.phase.yaws(piece);
-        let at = piece.leaves[0].centre(yaws[0]);
+        let poses = state.phase.poses(piece);
+        let at = piece.leaves[0].centre(poses[0]);
         if piece.wing().is_some() {
             if swinging {
                 cues.write(PlayCue::new(Cue::QuarantineSwing, Some(door_centre(piece))));
@@ -1170,24 +1398,24 @@ mod tests {
         assert_eq!(phase, PiecePhase::Warning { from: 0, to: 1, elapsed: 0.0 });
         assert_eq!(phase.heading(), Some((0, 1)));
         assert!(phase.bell() && phase.lamps() && !phase.idle());
-        phase.advance(SWING_WARN_SECS - 0.1, true);
+        phase.advance(SWING_WARN_SECS - 0.1, true, LEVER_COOLDOWN_SECS);
         assert!(matches!(phase, PiecePhase::Warning { .. }));
-        phase.advance(0.1, false);
+        phase.advance(0.1, false, LEVER_COOLDOWN_SECS);
         assert_eq!(phase, PiecePhase::Waiting { from: 0, to: 1 });
         // Waiting has no time limit.
-        assert_eq!(phase.advance(1000.0, false), Beat::default());
+        assert_eq!(phase.advance(1000.0, false, LEVER_COOLDOWN_SECS), Beat::default());
         assert_eq!(phase, PiecePhase::Waiting { from: 0, to: 1 });
-        let beat = phase.advance(0.0, true);
+        let beat = phase.advance(0.0, true, LEVER_COOLDOWN_SECS);
         assert_eq!(beat.started, Some((0, 1)));
         assert_eq!(phase, PiecePhase::Swinging { from: 0, to: 1, elapsed: 0.0 });
         assert_eq!(phase.standing(), None);
-        let beat = phase.advance(SWING_SECS, true);
+        let beat = phase.advance(SWING_SECS, true, LEVER_COOLDOWN_SECS);
         assert_eq!(beat.landed, Some(1));
         assert_eq!(phase, PiecePhase::Cooling { at: 1, elapsed: 0.0 });
         assert_eq!(phase.standing(), Some(1));
-        phase.advance(LEVER_COOLDOWN_SECS - 0.1, true);
+        phase.advance(LEVER_COOLDOWN_SECS - 0.1, true, LEVER_COOLDOWN_SECS);
         assert!(matches!(phase, PiecePhase::Cooling { .. }));
-        phase.advance(0.1, true);
+        phase.advance(0.1, true, LEVER_COOLDOWN_SECS);
         assert_eq!(phase, PiecePhase::Rest(1));
         // Only a Piece at Rest can be pulled; the next pull wraps.
         let mut busy = PiecePhase::Cooling { at: 1, elapsed: 3.0 };
@@ -1221,9 +1449,14 @@ mod tests {
     // ---- Per Map ----
 
     #[test]
-    fn only_the_polder_and_the_sanatorium_have_pieces_the_polders_four_bridges_each_with_span_and_along_and_two_lock_gates() {
+    fn only_the_polder_the_sanatorium_and_the_archive_have_pieces_the_polders_four_bridges_each_with_span_and_along_and_two_lock_gates() {
         for map in MapId::ALL {
-            assert_eq!(map.layout().shifting.len(), if matches!(map, MapId::Polder | MapId::Sanatorium) { 6 } else { 0 }, "{}", map.name());
+            let want = match map {
+                MapId::Polder | MapId::Sanatorium => 6,
+                MapId::Archive => 5,
+                _ => 0,
+            };
+            assert_eq!(map.layout().shifting.len(), want, "{}", map.name());
         }
         for (id, piece) in pieces(polder()).take(4) {
             assert!(matches!(piece.driver, Driver::Levers(_)));
@@ -1243,7 +1476,7 @@ mod tests {
         for (id, piece) in pieces(polder()) {
             for node in &graph.nodes {
                 for rest in piece.rests {
-                    for (leaf, &yaw) in piece.leaves.iter().zip(rest.yaws) {
+                    for (leaf, &yaw) in piece.leaves.iter().zip(rest.at) {
                         assert!(!leaf.over(node.at, yaw, 0.0), "{} is on a Leaf of {id:?}", node.name);
                     }
                 }
@@ -1280,7 +1513,7 @@ mod tests {
                     }
                 }
                 let leaf = piece.leaves[0];
-                let span = piece.rests[0].yaws[0];
+                let span = piece.rests[0].at[0];
                 let off_the_line = (leaf.centre(span).x - at.x).abs();
                 assert!(off_the_line > leaf.size.x / 2.0 + 0.5, "a Lever of {id:?} is inside its pen's width");
             }
@@ -1550,6 +1783,390 @@ mod tests {
         assert_eq!(walked, 6 * 32);
     }
 
+    // ---- Moving Stacks ----
+
+    fn archive() -> &'static Layout {
+        MapId::Archive.layout()
+    }
+
+    /// The Great Range: four Bookcases on a rail along x from x -3.9, five Rests.
+    fn great_range() -> &'static Piece {
+        &archive().shifting[0]
+    }
+
+    #[test]
+    fn rail_pose_lands_exactly_at_each_rest() {
+        for (id, piece) in pieces(archive()) {
+            assert!(piece.leaves.iter().all(|leaf| matches!(leaf.motion, Motion::Rail(_))), "{id:?}");
+            let rests = piece.rests.len() as u8;
+            for from in 0..rests {
+                for to in 0..rests {
+                    assert_eq!(piece.poses(from, to, 0.0), piece.rests[usize::from(from)].at, "{id:?} {from} to {to} starts at its Rest");
+                    assert_eq!(piece.poses(from, to, SWING_SECS), piece.rests[usize::from(to)].at, "{id:?} {from} to {to} lands exactly");
+                    assert_eq!(piece.poses(from, to, SWING_SECS + 3.0), piece.rests[usize::from(to)].at);
+                    for (i, half) in piece.poses(from, to, SWING_SECS / 2.0).into_iter().enumerate() {
+                        let (a, b) = (piece.rests[usize::from(from)].at[i], piece.rests[usize::from(to)].at[i]);
+                        assert!((half - (a + b) / 2.0).abs() < 1e-5, "{id:?} smoothstep is halfway at the middle");
+                    }
+                }
+            }
+            // A phase poses the Leaves where it stands or is.
+            let swinging = PiecePhase::Swinging { from: 0, to: rests - 1, elapsed: SWING_SECS };
+            assert_eq!(swinging.poses(piece), piece.rests[usize::from(rests - 1)].at);
+            assert_eq!(PiecePhase::Rest(piece.start).poses(piece), piece.rests[usize::from(piece.start)].at);
+        }
+        // The Great Range at its middle Rest: Bookcases 0 and 1 at the west end, 2 and 3 at the east, the Aisle between.
+        let range = great_range();
+        let centres: Vec<f32> = range.leaves.iter().zip(range.rests[2].at).map(|(leaf, &pose)| leaf.centre(pose).x).collect();
+        for (got, want) in centres.iter().zip([-3.3, -2.1, 2.1, 3.3]) {
+            assert!((got - want).abs() < 1e-4, "{centres:?}");
+        }
+        for (leaf, &pose) in range.leaves.iter().zip(range.rests[2].at) {
+            assert_eq!(leaf.rotation(pose), Quat::IDENTITY, "a Bookcase never turns");
+            assert_eq!(leaf.centre(pose).y, 8.0 + 1.5, "stands on the Reading level, 3 m tall");
+            assert_eq!(leaf.centre(pose).z, 12.0);
+        }
+        // The other way round: RB's rail runs along z.
+        let rb = &archive().shifting[2];
+        assert_eq!(rb.leaves[0].motion, Motion::Rail(Vec2::Y));
+        let z: Vec<f32> = rb.leaves.iter().zip(rb.rests[0].at).map(|(leaf, &pose)| leaf.centre(pose).z).collect();
+        for (got, want) in z.iter().zip([26.8 + 0.6 + 3.0, 26.8 + 1.8 + 3.0]) {
+            assert!((got - want).abs() < 1e-4, "{z:?}");
+        }
+    }
+
+    #[test]
+    fn rail_in_way_covers_the_closing_aisle_and_not_the_open_one() {
+        let range = great_range();
+        let at = |x: f32, y: f32, z: f32| Vec3::new(x, y, z);
+        // Rolling from Rest 2 (the Aisle in the middle, x -1.5 to 1.5) to Rest 0 (the Aisle at the west end): the middle Aisle is
+        // the one that closes, and a Player standing in it is in the way.
+        assert!(range.in_way(at(0.0, 8.0, 12.0), 2, 0));
+        assert!(range.in_way(at(1.0, 8.0, 11.0), 2, 0));
+        assert!(range.in_way(at(-1.4, 8.0, 14.0), 2, 0), "anywhere along the Bookcase's length");
+        // Standing still at Rest 2, nothing is in the way in the open Aisle: it is clear.
+        assert!(!range.in_way(at(0.0, 8.0, 12.0), 2, 2));
+        assert!(!range.in_way(at(1.0, 8.0, 11.0), 2, 2));
+        // The Bookcases themselves are in the way where they stand.
+        assert!(range.in_way(at(-3.3, 8.0, 12.0), 2, 2));
+        assert!(range.in_way(at(3.3, 8.0, 12.0), 2, 2));
+        // Out past the mouth strips, beyond the rail's ends and a storey up or down are in no one's way.
+        assert!(!range.in_way(at(0.0, 8.0, 12.0 + 3.1), 2, 0));
+        assert!(!range.in_way(at(0.0, 8.0, 12.0 - 3.1), 2, 0));
+        assert!(!range.in_way(at(5.0, 8.0, 12.0), 2, 0));
+        assert!(!range.in_way(at(-5.0, 8.0, 12.0), 2, 0));
+        assert!(!range.in_way(at(0.0, 8.0 + 3.5, 12.0), 2, 0));
+        assert!(!range.in_way(at(0.0, 4.0, 12.0), 2, 0), "the Stacks level below");
+        // Rolling from Rest 0 to Rest 1 moves no Bookcase but the first: the Aisle that closes (x -3.9 to -0.9) is in the way,
+        // and the far end of the rail is only where the Bookcase there stands.
+        assert!(range.in_way(at(-3.0, 8.0, 12.0), 0, 1));
+        assert!(!range.in_way(at(3.0, 8.0, 12.0 + 3.1), 0, 1));
+    }
+
+    #[test]
+    fn a_wheel_opens_its_own_rest() {
+        for (id, piece) in pieces(archive()) {
+            let wheels = piece.wheels();
+            assert_eq!(wheels.len(), 2 * piece.rests.len(), "{id:?}: a Wheel at each mouth of every Aisle");
+            for at in 0..piece.rests.len() as u8 {
+                for wheel in wheels {
+                    if wheel.rest == at {
+                        continue;
+                    }
+                    assert_eq!(wheel.opens(PiecePhase::Rest(at)), Some(wheel.rest), "{id:?}: the Wheel for Rest {} rolls the Range there from {at}", wheel.rest);
+                }
+            }
+            for rest in 0..piece.rests.len() as u8 {
+                assert_eq!(wheels.iter().filter(|wheel| wheel.rest == rest).count(), 2, "{id:?}: two Wheels for Rest {rest}");
+            }
+            assert!(piece.levers().is_empty(), "a Range has no Levers");
+        }
+    }
+
+    #[test]
+    fn a_wheel_at_the_open_aisle_does_nothing() {
+        for (id, piece) in pieces(archive()) {
+            for wheel in piece.wheels() {
+                assert_eq!(wheel.opens(PiecePhase::Rest(wheel.rest)), None, "{id:?}");
+                // Busy, a Range turns to no Wheel at all.
+                for busy in [
+                    PiecePhase::Warning { from: 0, to: 1, elapsed: 0.5 },
+                    PiecePhase::Waiting { from: 0, to: 1 },
+                    PiecePhase::Swinging { from: 0, to: 1, elapsed: 1.0 },
+                    PiecePhase::Cooling { at: 1, elapsed: 1.0 },
+                ] {
+                    assert_eq!(wheel.opens(busy), None, "{id:?}: {busy:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn range_cooldown_is_8_seconds() {
+        assert_eq!(RANGE_COOLDOWN_SECS, 8.0);
+        assert_eq!(great_range().cooldown(), 8.0);
+        assert_eq!(market().cooldown(), LEVER_COOLDOWN_SECS, "a Lever's is still 30 s");
+        let mut phase = PiecePhase::Cooling { at: 0, elapsed: 0.0 };
+        phase.advance(RANGE_COOLDOWN_SECS - 0.1, true, great_range().cooldown());
+        assert!(matches!(phase, PiecePhase::Cooling { .. }));
+        phase.advance(0.1, true, great_range().cooldown());
+        assert_eq!(phase, PiecePhase::Rest(0));
+        // The whole cycle: warning, wait, roll and cooldown.
+        let mut cycle = PiecePhase::Rest(2);
+        cycle.pull(0);
+        let mut left = SWING_WARN_SECS + SWING_SECS + RANGE_COOLDOWN_SECS;
+        while left > 0.0 {
+            cycle.advance(0.5_f32.min(left), true, great_range().cooldown());
+            left -= 0.5;
+        }
+        assert_eq!(cycle, PiecePhase::Rest(0));
+    }
+
+    #[test]
+    fn wheel_prompt_text_by_phase() {
+        let text = |phase, rest| WheelPrompt::of(phase, rest, false).text();
+        // At Rest 2 the Wheel for Rest 0 can open it; the Wheel for Rest 2 is at the open Aisle.
+        assert_eq!(text(PiecePhase::Rest(2), 0), "Press F to open this aisle");
+        assert_eq!(text(PiecePhase::Rest(2), 2), "");
+        assert_eq!(text(PiecePhase::Warning { from: 2, to: 0, elapsed: 0.5 }, 0), "Clear the aisle");
+        assert_eq!(text(PiecePhase::Waiting { from: 2, to: 0 }, 0), "Clear the aisle");
+        assert_eq!(text(PiecePhase::Waiting { from: 2, to: 0 }, 4), "Clear the aisle");
+        assert_eq!(text(PiecePhase::Swinging { from: 2, to: 0, elapsed: 1.0 }, 0), "The stacks are rolling");
+        assert_eq!(text(PiecePhase::Swinging { from: 2, to: 0, elapsed: 1.0 }, 2), "The stacks are rolling");
+        assert_eq!(text(PiecePhase::Cooling { at: 0, elapsed: 1.0 }, 3), "The stacks are settling");
+        assert_eq!(text(PiecePhase::Cooling { at: 0, elapsed: 1.0 }, 0), "", "nothing at the Aisle that is open");
+        assert_eq!(WheelPrompt::of(PiecePhase::Rest(2), 0, true), WheelPrompt::None, "Sabotaged: dead");
+        assert_eq!(WheelPrompt::of(PiecePhase::Rest(2), 0, false), WheelPrompt::Open);
+    }
+
+    /// The Polder's and the Sanatorium's Leaves turn exactly as they did: the yaw they pose at is the Rest's, and the frame, centre and
+    /// footprint come out of the same arithmetic as before the Rail came to be.
+    #[test]
+    fn hinge_pieces_pose_as_before() {
+        let mut leaves = 0;
+        for map in [MapId::Polder, MapId::Sanatorium] {
+            for (id, piece) in pieces(map.layout()) {
+                for (rest, standing) in piece.rests.iter().enumerate() {
+                    assert_eq!(standing.at.len(), piece.leaves.len(), "{id:?}");
+                    for (leaf, &yaw) in piece.leaves.iter().zip(standing.at) {
+                        leaves += 1;
+                        assert_eq!(leaf.motion, Motion::Hinge, "{id:?} rest {rest}");
+                        assert_eq!(leaf.origin(yaw), leaf.hinge);
+                        assert_eq!(leaf.rotation(yaw), Quat::from_rotation_y(yaw));
+                        assert_eq!(leaf.centre(yaw), leaf.hinge + Quat::from_rotation_y(yaw) * leaf.offset);
+                        // Over the box's own centre, and not a world away.
+                        assert!(leaf.over(leaf.centre(yaw), yaw, 0.0));
+                        assert!(!leaf.over(leaf.centre(yaw) + Vec3::new(50.0, 0.0, 0.0), yaw, 0.0));
+                        // The old footprint test, written out.
+                        for probe in [Vec3::new(0.3, 0.0, 0.2), Vec3::new(-1.1, 0.0, 2.2), Vec3::new(4.0, 0.0, -3.0)] {
+                            let at = leaf.centre(yaw) + probe;
+                            let local = Quat::from_rotation_y(-yaw) * (at - leaf.hinge) - leaf.offset;
+                            let before = local.x.abs() <= leaf.size.x / 2.0 + 0.3 && local.z.abs() <= leaf.size.z / 2.0 + 0.3;
+                            assert_eq!(leaf.over(at, yaw, 0.3), before);
+                        }
+                    }
+                }
+            }
+        }
+        assert!(leaves > 30, "{leaves}");
+        // A Swing Bridge still turns a quarter turn, over the same five seconds, and a Lever's cooldown is still 30 s.
+        let bridge = market();
+        assert_eq!(bridge.poses(0, 1, SWING_SECS), [FRAC_PI_2]);
+        assert!((bridge.poses(0, 1, SWING_SECS / 2.0)[0] - FRAC_PI_2 / 2.0).abs() < 1e-5);
+        assert_eq!(bridge.cooldown(), LEVER_COOLDOWN_SECS);
+        assert_eq!(MapId::Sanatorium.layout().shifting[0].cooldown(), LEVER_COOLDOWN_SECS);
+    }
+
+    // ---- Headless: the Archive's Ranges ----
+
+    /// The Archive with the Shifting systems, every Zone Active.
+    fn archive_sim() -> Sim {
+        let mut sim = Sim::on(MapId::Archive, 60.0, |app| {
+            app.add_plugins(ShiftingPlugin)
+                .insert_resource(ActiveZones(Default::default()))
+                .init_resource::<Kills>()
+                .add_message::<Purchased>()
+                .add_message::<PlayCue>()
+                .add_message::<Teleport>()
+                .init_resource::<Swings>()
+                .add_systems(Update, (log_kills, log_swings));
+        });
+        sim.world_mut().resource_mut::<ActiveZones>().0 = crate::maps::zone::ZoneSet::from_iter(ZoneId::ALL);
+        sim
+    }
+
+    /// Every Door of the Map open, as when every one is bought.
+    fn open_every_door(sim: &mut Sim) {
+        let world = sim.world_mut();
+        let mut doors = world.query::<&mut Door>();
+        for mut door in doors.iter_mut(world) {
+            door.open = true;
+        }
+    }
+
+    /// The `nth` (0 the low side, 1 the high) Wheel of Piece `id` that rolls it to `rest`.
+    fn wheel(sim: &mut Sim, id: u8, rest: u8, nth: usize) -> Entity {
+        let world = sim.world_mut();
+        world.query::<(Entity, &WheelPost)>().iter(world).filter(|(_, post)| post.piece == PieceId(id) && post.rest == rest).nth(nth).unwrap().0
+    }
+
+    /// Uses the `nth` Wheel of Piece `id` for `rest`, as the first Player.
+    fn pull_wheel(sim: &mut Sim, id: u8, rest: u8, nth: usize) {
+        let wheel = wheel(sim, id, rest, nth);
+        pull(sim, wheel);
+    }
+
+    /// What the `nth` Wheel of Piece `id` for `rest` says.
+    fn says(sim: &mut Sim, id: u8, rest: u8, nth: usize) -> Option<(String, Option<u64>, bool)> {
+        let wheel = wheel(sim, id, rest, nth);
+        wheel_says(sim, wheel)
+    }
+
+    /// What a Wheel's Buyable says now: its prompt and whether it is refused, or `None` with no Buyable.
+    fn wheel_says(sim: &mut Sim, wheel: Entity) -> Option<(String, Option<u64>, bool)> {
+        let world = sim.world_mut();
+        world.get::<Buyable>(wheel).map(|buyable| (buyable.prompt.clone(), buyable.price, world.get::<Refused>(wheel).is_some()))
+    }
+
+    /// The Range rests at its start, every Wheel shows what it should and a use rolls it through warning, roll and cooldown, to its own Rest.
+    #[test]
+    fn a_wheel_use_rolls_the_range_through_its_whole_cycle_and_the_wheels_follow() {
+        let mut sim = archive_sim();
+        move_player(&mut sim, Vec3::new(-30.0, 8.0, 30.0));
+        sim.run(30);
+        let (to_rest_0, at_open_aisle, other_range) = (wheel(&mut sim, 0, 0, 0), wheel(&mut sim, 0, 2, 0), wheel(&mut sim, 1, 1, 0));
+        assert_eq!(phase(&mut sim, 0), PiecePhase::Rest(2), "the Great Range starts with its Aisle in the middle");
+        assert_eq!(wheel_says(&mut sim, to_rest_0), Some(("Press F to open this aisle".into(), None, false)), "free, and usable");
+        assert_eq!(wheel_says(&mut sim, at_open_aisle), None, "nothing at the open Aisle's Wheels");
+        pull(&mut sim, to_rest_0);
+        sim.run(sim.frames(0.5));
+        assert!(matches!(phase(&mut sim, 0), PiecePhase::Warning { from: 2, to: 0, .. }), "{:?}", phase(&mut sim, 0));
+        assert_eq!(wheel_says(&mut sim, to_rest_0), Some(("Clear the aisle".into(), None, true)));
+        assert_eq!(wheel_says(&mut sim, at_open_aisle), None);
+        sim.run(sim.frames(SWING_WARN_SECS + 0.5));
+        assert!(phase(&mut sim, 0).swinging(), "{:?}", phase(&mut sim, 0));
+        assert_eq!(wheel_says(&mut sim, at_open_aisle), Some(("The stacks are rolling".into(), None, true)));
+        assert_eq!(sim.world_mut().resource::<Swings>().0, [(PieceId(0), 2, 0)]);
+        sim.run(sim.frames(SWING_SECS));
+        assert!(matches!(phase(&mut sim, 0), PiecePhase::Cooling { at: 0, .. }), "{:?}", phase(&mut sim, 0));
+        assert_eq!(says(&mut sim, 0, 3, 1), Some(("The stacks are settling".into(), None, true)));
+        assert_eq!(wheel_says(&mut sim, to_rest_0), None, "the Aisle that opened has no Wheel use now");
+        // The Bookcases stand where Rest 0 has them: all four against the east end.
+        let xs: Vec<f32> = {
+            let world = sim.world_mut();
+            let mut query = world.query::<(&LeafBody, &Transform)>();
+            let mut found: Vec<(usize, f32)> = query.iter(world).filter(|(body, _)| body.piece == PieceId(0)).map(|(body, transform)| (body.index, transform.translation.x)).collect();
+            found.sort_by_key(|&(index, _)| index);
+            found.into_iter().map(|(_, x)| x).collect()
+        };
+        let rest = &MapId::Archive.layout().shifting[0];
+        for (i, x) in xs.iter().enumerate() {
+            assert!((x - (rest.leaves[i].hinge.x + rest.rests[0].at[i])).abs() < 1e-4, "Bookcase {i} at x {x}");
+        }
+        // A Wheel does nothing while the Range cools, and it comes to Rest after 8 s: the cooldown is the Range's alone.
+        pull_wheel(&mut sim, 0, 4, 0);
+        sim.run(5);
+        assert!(matches!(phase(&mut sim, 0), PiecePhase::Cooling { at: 0, .. }), "a Wheel turns nothing while it settles");
+        assert_eq!(phase(&mut sim, 1), PiecePhase::Rest(0), "no other Range moved");
+        assert_eq!(wheel_says(&mut sim, other_range), Some(("Press F to open this aisle".into(), None, false)), "another Range's Wheels are untouched");
+        sim.run(sim.frames(RANGE_COOLDOWN_SECS));
+        assert_eq!(phase(&mut sim, 0), PiecePhase::Rest(0));
+        assert_eq!(says(&mut sim, 0, 4, 0), Some(("Press F to open this aisle".into(), None, false)));
+        assert_eq!(wheel_says(&mut sim, to_rest_0), None);
+    }
+
+    /// A Wheel at the open Aisle, or at a Sabotaged Range, rolls nothing.
+    #[test]
+    fn a_wheel_at_the_open_aisle_or_a_sabotaged_range_rolls_nothing() {
+        let mut sim = archive_sim();
+        move_player(&mut sim, Vec3::new(-30.0, 8.0, 30.0));
+        sim.run(30);
+        pull_wheel(&mut sim, 0, 2, 1);
+        sim.run(sim.frames(1.0));
+        assert_eq!(phase(&mut sim, 0), PiecePhase::Rest(2), "the open Aisle's own Wheel does nothing");
+        let state = {
+            let world = sim.world_mut();
+            world.query::<(Entity, &PieceState)>().iter(world).find(|(_, state)| state.id() == PieceId(0)).unwrap().0
+        };
+        sim.world_mut().entity_mut(state).insert(Sabotaged);
+        sim.run(5);
+        assert_eq!(says(&mut sim, 0, 0, 0), None, "a Sabotaged Range's Wheels are dead");
+        pull_wheel(&mut sim, 0, 0, 0);
+        sim.run(sim.frames(1.0));
+        assert_eq!(phase(&mut sim, 0), PiecePhase::Rest(2), "and turn nothing");
+        sim.world_mut().entity_mut(state).remove::<Sabotaged>();
+        sim.run(5);
+        pull_wheel(&mut sim, 0, 0, 0);
+        sim.run(sim.frames(0.5));
+        assert!(matches!(phase(&mut sim, 0), PiecePhase::Warning { from: 2, to: 0, .. }), "restored, it turns again");
+    }
+
+    /// A Player (Down or not) in the Aisle that is closing holds the Range at Waiting, however long they stand there, and it rolls the moment
+    /// they step out.
+    #[test]
+    fn a_player_in_the_closing_aisle_holds_the_range_at_waiting_and_a_down_player_too() {
+        for down in [false, true] {
+            let mut sim = archive_sim();
+            let in_the_aisle = Vec3::new(0.0, 8.0, 12.0);
+            move_player(&mut sim, in_the_aisle);
+            if down {
+                let world = sim.world_mut();
+                let player = world.query_filtered::<Entity, With<Player>>().iter(world).next().unwrap();
+                world.entity_mut(player).insert(crate::players::last_stand::LastStand::shown(10.0, false));
+            }
+            sim.run(30);
+            // Use the Wheel on the far side, as the Player (up or Down, the test's one body) stands in the middle of the Aisle.
+            pull_wheel(&mut sim, 0, 0, 1);
+            sim.run(sim.frames(SWING_WARN_SECS + 4.0));
+            assert_eq!(phase(&mut sim, 0), PiecePhase::Waiting { from: 2, to: 0 }, "down {down}: no time limit while they stand there");
+            assert!(sim.world_mut().resource::<Swings>().0.is_empty());
+            // Stepping out (to the near mouth, outside the sweep) lets it roll.
+            move_player(&mut sim, Vec3::new(0.0, 8.0, 12.0 + 3.2));
+            sim.run(sim.frames(0.5));
+            assert!(phase(&mut sim, 0).swinging(), "down {down}: {:?}", phase(&mut sim, 0));
+        }
+    }
+
+    /// A Range never kills: a Zombie in the Aisle that closes is not Tipped, not killed and not made an Unpaid Kill.
+    #[test]
+    fn a_range_never_tips_a_zombie() {
+        let mut sim = archive_sim();
+        move_player(&mut sim, Vec3::new(-30.0, 8.0, 30.0));
+        let in_the_aisle = sim.spawn(Vec3::new(0.0, 8.0, 12.0), None);
+        sim.send(SwingStarted { piece: PieceId(0), from: 2, to: 0 });
+        sim.run(10);
+        assert!(sim.world_mut().get::<Dying>(in_the_aisle).is_none());
+        assert!(sim.world_mut().get::<Tipped>(in_the_aisle).is_none());
+        assert!(sim.world_mut().resource::<Kills>().0.is_empty());
+    }
+
+    /// A Wheel use rolls the Great Range, and a Zombie that wants the Player on the far side replans through the Aisle that opened.
+    #[test]
+    fn zombies_replan_through_the_aisle_a_wheel_opens() {
+        let mut sim = archive_sim();
+        open_every_door(&mut sim);
+        // The Player waits in the Reading Room's west, the Zombie in the Catalogue Hall's, both on the Aisle's far side from the middle.
+        let player = Vec3::new(-3.2, 8.0, 20.0);
+        move_player(&mut sim, player);
+        sim.run(30);
+        pull_wheel(&mut sim, 0, 0, 0);
+        // It crosses the Range's line (z 12) only once the Bookcases have rolled, and then through the Aisle that opened (x -3.9 to -0.9).
+        let zombie = sim.spawn(Vec3::new(-16.0, 8.0, 1.0), None);
+        let (mut crossed, mut farthest) = (None, 0.0_f32);
+        for _ in 0..sim.frames(60.0) {
+            sim.run(1);
+            let Some(at) = sim.world_mut().get::<Transform>(zombie).map(|t| t.translation) else { break };
+            farthest = farthest.max(at.z);
+            if at.z > 12.0 && crossed.is_none() {
+                crossed = Some((at, phase(&mut sim, 0)));
+            }
+        }
+        let (at, then) = crossed.expect("the Zombie crossed the Great Range");
+        assert!(matches!(then, PiecePhase::Cooling { at: 0, .. } | PiecePhase::Rest(0)), "it waited for the roll to land, and crossed at {at} with the Range {then:?}");
+        assert!(at.x > -3.9 && at.x < -0.9, "through the new Aisle: {at}");
+        assert!(farthest > 15.0, "and went on to the Player: {farthest}");
+    }
+
     // ---- Lock Gates ----
 
     const INLAND: PieceId = PieceId(4);
@@ -1584,7 +2201,7 @@ mod tests {
         let (inland, sea) = (gates()[0], gates()[1]);
         for (piece, chamber_x, z) in [(inland, (-13.0, -6.0), 2.5), (sea, (6.0, 13.0), 21.5)] {
             let [west, east] = [piece.leaves[0], piece.leaves[1]];
-            let shut = piece.rests[0].yaws;
+            let shut = piece.rests[0].at;
             // They meet in the middle of the chamber.
             let (a, b) = (west.centre(shut[0]), east.centre(shut[1]));
             assert!((a.x - b.x).abs() > 3.4 && (a.x - b.x).abs() < 3.6, "{a} {b}");
@@ -1598,7 +2215,7 @@ mod tests {
             assert!((west.size.x - 2.0 * LEAF_RAIL_THICKNESS - 1.0).abs() < 1e-5, "a 1 m walkway between the rails");
             assert_eq!(west.top(), 0.0, "level with the quay");
             // Open, every part of both Leaves is inside the chamber's own x range.
-            for (leaf, &yaw) in piece.leaves.iter().zip(piece.rests[1].yaws) {
+            for (leaf, &yaw) in piece.leaves.iter().zip(piece.rests[1].at) {
                 let centre = leaf.centre(yaw);
                 assert!(centre.x > chamber_x.0 + 0.1 && centre.x < chamber_x.1 - 0.1, "folded in the chamber: {centre}");
                 assert!(centre.z > 0.0 && centre.z < 24.0);

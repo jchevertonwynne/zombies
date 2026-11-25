@@ -2037,6 +2037,19 @@ pub const SWING_WARN_SECS: f32 = 2.0;
 pub const SWING_SECS: f32 = 5.0;
 /// After a Swing ends, how long until the bridge's Levers can be pulled again.
 pub const LEVER_COOLDOWN_SECS: f32 = 30.0;
+
+// Moving Stacks: the Archive's Ranges of rolling Bookcases (a Roll reuses `SWING_WARN_SECS` and `SWING_SECS`)
+/// How deep a Bookcase is, along its Range's rail (double-sided shelving).
+pub const BOOKCASE_DEPTH: f32 = 1.2;
+/// How long a Bookcase is, across its rail: the length of an Aisle.
+pub const BOOKCASE_LENGTH: f32 = 5.0;
+/// How tall a Bookcase is, up to its soffit: nothing climbs over it.
+pub const BOOKCASE_HEIGHT: f32 = 3.0;
+/// How wide a Range's one open Aisle is.
+pub const AISLE_WIDTH: f32 = 3.0;
+/// After a Range's Roll lands, how long until its Wheels turn again. Per Range, and shorter than a Lever's
+/// 30 s: a Wheel is a free routing tool, not a Trap.
+pub const RANGE_COOLDOWN_SECS: f32 = 8.0;
 /// How far a Leaf's reach goes below its deck, down into the water, for what is in its way.
 pub const SWING_REACH_BELOW: f32 = 5.5;
 /// How far below its foot a door's reach goes: a body a little under the floor it stands on.

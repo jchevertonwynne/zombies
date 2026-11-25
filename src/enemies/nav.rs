@@ -215,6 +215,19 @@ impl NavGraph {
         self.nodes.iter().position(|node| node.name == name)
     }
 
+    /// Whether every edge of node `i` is a Piece's Rest edge, so it is reachable only while that Piece stands at the Rest: a Range's
+    /// Aisle node at a Rest the Range doesn't stand at is shut inside its Bookcases.
+    #[cfg(test)]
+    pub fn only_by_rests(&self, i: usize) -> bool {
+        self.exits[i].iter().all(|&edge| matches!(self.edges[edge].gate, Gate::Rest(..)))
+    }
+
+    /// Whether none of node `i`'s Rest edges is open with the Pieces standing at `rests`.
+    #[cfg(test)]
+    pub fn exits_all_shut(&self, i: usize, rests: &[Option<u8>]) -> bool {
+        self.exits[i].iter().all(|&edge| matches!(self.edges[edge].gate, Gate::Rest(piece, rest) if rests.get(usize::from(piece.0)).copied().flatten() != Some(rest)))
+    }
+
     /// The node a Zombie or the Player standing at `feet` belongs to: the closest in the same
     /// Zone (or outside, if they're outside), with height counting extra so floors don't mix.
     /// Vents are never it.
@@ -491,6 +504,8 @@ mod tests {
                         .edges
                         .iter()
                         .filter(|edge| !matches!(edge.gate, Gate::OneWay | Gate::DoorDrop(..) | Gate::Barrier(_)))
+                        // A Piece's Rest edge is clear only while it stands at that Rest: the world starts at each start Rest.
+                        .filter(|edge| !matches!(edge.gate, Gate::Rest(piece, rest) if map.layout().shifting[usize::from(piece.0)].start != rest))
                         .filter_map(|edge| {
                             let (from, to) = (graph.nodes[edge.from].at + Vec3::Y, graph.nodes[edge.to].at + Vec3::Y);
                             let dir = Dir3::new(to - from).ok()?;
@@ -609,8 +624,10 @@ mod tests {
             let doors = all_doors(map);
             // Each Piece stands at its start Rest.
             let rests: Vec<Option<u8>> = map.layout().shifting.iter().map(|piece| Some(piece.start)).collect();
-            for from in 0..graph.nodes.len() {
-                for to in (0..graph.nodes.len()).filter(|&to| graph.nodes[to].zone.is_some() && !graph.nodes[to].vent && !graph.nodes[to].name.ends_with("_out")) {
+            // A Range's Aisle at a Rest it doesn't stand at has Bookcases in it: nothing reaches it, and it reaches nothing.
+            let shut = |node: usize| graph.only_by_rests(node) && graph.exits_all_shut(node, &rests);
+            for from in (0..graph.nodes.len()).filter(|&from| !shut(from)) {
+                for to in (0..graph.nodes.len()).filter(|&to| graph.nodes[to].zone.is_some() && !graph.nodes[to].vent && !graph.nodes[to].name.ends_with("_out") && !shut(to)) {
                     assert!(graph.plan(from, to, NavState::new(&doors, &windows_open).with_rests(&rests)).is_some(), "{} to {}", graph.nodes[from].name, graph.nodes[to].name);
                 }
             }

@@ -70,7 +70,7 @@ use crate::state::{Choosing, GameState, Paused, world_runs};
 use crate::players::teammate::HeldWeapon;
 use crate::maps::teleporter::{Mainframe, Pad, TeleporterView, mainframe_use_point};
 use crate::maps::quarantine::{Quarantine, Stage as QuarantineStage, WingId};
-use crate::maps::shifting::{Lever, PieceId, PiecePhase, PieceState};
+use crate::maps::shifting::{Lever, PieceId, PiecePhase, PieceState, WheelPost};
 use crate::maps::trap::{Trap, TrapPhase, TrapSwitch};
 use crate::tuning::*;
 use crate::modifier::{Modifiers, Stat, resolve};
@@ -670,6 +670,7 @@ type Machine = Or<(
     With<Trap>,
     With<TrapSwitch>,
     With<Lever>,
+    With<WheelPost>,
     With<PerkMachine>,
     With<Pad>,
     With<Mainframe>,

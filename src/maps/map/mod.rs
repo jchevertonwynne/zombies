@@ -2906,8 +2906,11 @@ pub(crate) mod tests {
             let graph = NavGraph::new(map);
             let all_open: Vec<_> = layout.zones.iter().flat_map(|&a| layout.zones.iter().map(move |&b| (a, b))).collect();
             // Somewhere past the start's Doors.
-            let out = graph.nodes.iter().find(|node| node.zone.is_some_and(|zone| zone != layout.start_zone())).unwrap().at;
+            // (Not a Range's Aisle at a Rest it doesn't stand at: that is shut in its Bookcases.)
+            let out = graph.nodes.iter().enumerate().find(|(i, node)| node.zone.is_some_and(|zone| zone != layout.start_zone()) && !graph.only_by_rests(*i)).unwrap().1.at;
             let start = layout.start_zone();
+            // Each Piece stands at its start Rest.
+            let rests: Vec<Option<u8>> = layout.shifting.iter().map(|piece| Some(piece.start)).collect();
             for (i, &seat) in layout.seats.iter().enumerate() {
                 let (lo, hi) = start.volume();
                 assert!((lo.x + 2.0..=hi.x - 2.0).contains(&seat.x) && (lo.z + 2.0..=hi.z - 2.0).contains(&seat.z), "Seat {i} is by a wall");
@@ -2919,7 +2922,7 @@ pub(crate) mod tests {
                 for &other in &layout.seats[i + 1..] {
                     assert!(seat.distance(other) >= 2.5, "Seats are only {:.2} m apart", seat.distance(other));
                 }
-                assert!(path_distance(&graph, seat, out, crate::enemies::nav::NavState::new(&all_open, &|_| true)).is_some(), "Seat {i} can't walk out on the {}", map.name());
+                assert!(path_distance(&graph, seat, out, crate::enemies::nav::NavState::new(&all_open, &|_| true).with_rests(&rests)).is_some(), "Seat {i} can't walk out on the {}", map.name());
             }
         }
     }

@@ -564,7 +564,7 @@ pub fn spawn_water(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials
             // and Open, the rail's gap leads to Deep Water, which is Out of Bounds like any other.
             if layout.shifting.iter().any(|piece| {
                 let rests = if matches!(piece.driver, crate::maps::shifting::Driver::Tide(_)) { 0..piece.rests.len() } else { usize::from(piece.start)..usize::from(piece.start) + 1 };
-                rests.into_iter().any(|rest| piece.leaves.iter().enumerate().any(|(i, leaf)| leaf.over(at.with_y(leaf.hinge.y), piece.rests[rest].yaws[i], 0.3)))
+                rests.into_iter().any(|rest| piece.leaves.iter().enumerate().any(|(i, leaf)| leaf.over(at.with_y(leaf.hinge.y), piece.rests[rest].at[i], 0.3)))
             }) {
                 continue;
             }
