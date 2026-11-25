@@ -1008,6 +1008,39 @@ mod two_player_tests {
         assert!(!has_upgraded(&mut sim, local, WeaponId::M14));
     }
 
+    /// #588: a Weapon taken out of the machine must fire straight away, whatever the teammate is
+    /// doing with their own hands. A teammate drinking a Perk (often bought on the same trip) or
+    /// throwing Equipment used to hold the whole Weapon chain for every Player: no shot, and the
+    /// raise out of the machine frozen part-way, until their drink or throw ended.
+    #[test]
+    fn a_teammates_drink_or_throw_doesnt_stop_the_packed_weapon_firing() {
+        use bevy::ecs::system::RunSystemOnce;
+        use crate::economy::perk::{Perk, hands_free};
+        use crate::weapons::equipment::{Handled, Handling, arms_free};
+
+        let (mut sim, local, teammate, machine) = setup();
+        sim.world_mut().get_mut::<Loadout>(local).unwrap().give(WeaponId::M14);
+        sim.send(UseRequest { player: local, buyable: machine, hold: false });
+        sim.run(2);
+        sim.run(sim.frames(PAP_PROCESS_SECS + 0.5));
+        sim.world_mut().get_mut::<Buyable>(machine).unwrap().price = None;
+        sim.send(UseRequest { player: local, buyable: machine, hold: false });
+        sim.run(2);
+        assert!(has_upgraded(&mut sim, local, WeaponId::M14), "the Upgraded Weapon wasn't taken");
+
+        // The teammate drinks a Perk and throws a Monkey Bomb meanwhile.
+        sim.world_mut().entity_mut(teammate).insert((Drinking::new(Perk::Juggernog), Handling::new(Handled::MonkeyBomb, 0.0)));
+        assert!(sim.world_mut().run_system_once(hands_free).unwrap(), "the teammate's drink holds the local Weapon");
+        assert!(sim.world_mut().run_system_once(arms_free).unwrap(), "the teammate's throw holds the local Weapon");
+
+        // The local Player's own drink and throw still do.
+        sim.world_mut().entity_mut(teammate).remove::<(Drinking, Handling)>();
+        sim.world_mut().entity_mut(local).insert(Drinking::new(Perk::Juggernog));
+        assert!(!sim.world_mut().run_system_once(hands_free).unwrap());
+        sim.world_mut().entity_mut(local).remove::<Drinking>().insert(Handling::new(Handled::MonkeyBomb, 0.0));
+        assert!(!sim.world_mut().run_system_once(arms_free).unwrap());
+    }
+
     #[test]
     fn a_repack_costs_what_its_owners_weapon_costs() {
         let (mut sim, local, teammate, machine) = setup();

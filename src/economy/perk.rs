@@ -291,10 +291,11 @@ impl Drinking {
     }
 }
 
-/// Run condition: the Player's hands are free for their Weapon and Knife.
-/// A Zipline ride lowers the Weapon too.
+/// Run condition: the `LocalPlayer`'s hands are free for their Weapon and Knife.
+/// A Zipline ride lowers the Weapon too. Only their own drink counts: in Co-op a teammate's
+/// drink is shown on their Player too, and must not hold this Player's Weapon (#588).
 pub fn hands_free(
-    drinking: Query<(), (With<Player>, With<Drinking>)>,
+    drinking: Query<(), (With<LocalPlayer>, With<Drinking>)>,
     riding: Query<(), (With<crate::players::player::LocalPlayer>, With<crate::players::player::Riding>)>,
 ) -> bool {
     drinking.is_empty() && riding.is_empty()
