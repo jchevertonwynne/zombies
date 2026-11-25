@@ -586,6 +586,12 @@ pub struct WheelPost {
     use_point: Vec3,
 }
 
+impl WheelPost {
+    pub fn use_point(&self) -> Vec3 {
+        self.use_point
+    }
+}
+
 /// The amber lamp on a Lever's post.
 #[derive(Component)]
 struct LeverLamp(PieceId);
@@ -760,7 +766,7 @@ impl Plugin for ShiftingPlugin {
             .add_message::<SwingNearest>()
             .add_message::<Teleport>()
             .add_systems(FixedUpdate, (pose_leaves, throw_tipped).run_if(world_runs))
-            .add_systems(FixedUpdate, (move_sappers, move_swept).in_set(HostSimulation).run_if(world_runs))
+            .add_systems(FixedUpdate, (move_sappers, (shove_swinging, move_swept).chain()).in_set(HostSimulation).run_if(world_runs))
             .add_systems(
                 Update,
                 (
@@ -774,6 +780,7 @@ impl Plugin for ShiftingPlugin {
                         tip_occupants,
                         wash_gate_players,
                         sweep_quarantine,
+                        shove_range,
                     )
                         .chain()
                         .in_set(HostSimulation),
@@ -1011,7 +1018,8 @@ pub fn outside_landing(graph: &crate::enemies::nav::NavGraph, id: PieceId, piece
     Some(graph.nodes[landing].at)
 }
 
-/// A Zombie, Hellhound or special a Quarantine Door's Swing has caught, to be put at `to`.
+/// A Zombie, Hellhound, special or Elite a Quarantine Door's Swing has caught, or a Range has Shoved,
+/// to be put at `to`.
 #[derive(Component)]
 pub struct Swept {
     to: Vec3,
@@ -1048,6 +1056,120 @@ fn sweep_quarantine(
         for (entity, zombie, transform) in &zombies {
             let feet = transform.translation - Vec3::Y * zombie.half_height();
             if piece.in_way(feet, from, to) {
+                commands.entity(entity).insert(Swept { to: landing });
+            }
+        }
+    }
+}
+
+/// The two mouth nodes of the Aisle that is open at Rest `rest` of Piece `id`: the ends of its chain
+/// (mouth, Aisle, mouth) of `Gate::Rest` edges, which are the nodes that edges meet only once.
+pub fn mouths(graph: &crate::enemies::nav::NavGraph, id: PieceId, rest: u8) -> Vec<Vec3> {
+    let gate = crate::enemies::nav::Gate::Rest(id, rest);
+    let ends: Vec<usize> = graph.edges.iter().filter(|edge| edge.gate == gate).flat_map(|edge| [edge.from, edge.to]).collect();
+    ends.iter().filter(|&&node| ends.iter().filter(|&&other| other == node).count() == 1).map(|&node| graph.nodes[node].at).collect()
+}
+
+/// The nearest mouth node of the Aisles open at `rests` to `feet`. `None` on a graph with no such Aisle.
+pub fn shove_landing(graph: &crate::enemies::nav::NavGraph, id: PieceId, rests: &[u8], feet: Vec3) -> Option<Vec3> {
+    rests.iter().flat_map(|&rest| mouths(graph, id, rest)).min_by(|a, b| a.distance(feet).total_cmp(&b.distance(feet)))
+}
+
+/// Where a Range Shoves a body standing at `feet` when its Roll starts from Rest `from`: the nearer mouth
+/// of the Aisle that is closing, which is where the body stands. A body in the margin that the sweep
+/// takes beyond the Bookcases' ends, away from that Aisle's column, is not in the Aisle: it is moved to
+/// the nearest mouth of any Aisle of the Range, which is a step across the strip.
+pub fn shove_landing_at_start(graph: &crate::enemies::nav::NavGraph, piece: &Piece, id: PieceId, from: u8, feet: Vec3) -> Option<Vec3> {
+    let own = shove_landing(graph, id, &[from], feet)?;
+    let along = match piece.leaves.first().map(|leaf| leaf.motion) {
+        Some(Motion::Rail(rail)) => Vec2::new(feet.x - own.x, feet.z - own.z).dot(rail).abs(),
+        _ => 0.0,
+    };
+    if along <= AISLE_WIDTH / 2.0 + SWING_MARGIN {
+        return Some(own);
+    }
+    let every: Vec<u8> = (0..piece.rests.len() as u8).collect();
+    shove_landing(graph, id, &every, feet)
+}
+
+/// When a Range's Roll starts, every Player (Down or not) and every Zombie, Hellhound, special and
+/// Elite in its sweep is Shoved to the nearer mouth of the Aisle it was in, unharmed: no damage, no
+/// Down, no death effect (a Napalm doesn't burst), no kill. A Player is moved by `Teleport`, an enemy as
+/// a clean cut that plans its route again. Nothing is ever crushed.
+fn shove_range(
+    mut commands: Commands,
+    mut swings: MessageReader<SwingStarted>,
+    mut players: Query<(Entity, &mut Transform, Option<&Locomotion>), With<Player>>,
+    zombies: Query<(Entity, &Zombie, &Transform), (Without<Dying>, Without<Player>)>,
+    graph: Option<Res<crate::enemies::nav::NavGraph>>,
+    map: Res<MapId>,
+    mut teleport: MessageWriter<Teleport>,
+) {
+    let layout = map.layout();
+    for &SwingStarted { piece: id, from, to } in swings.read() {
+        let Some(piece) = layout.shifting.get(usize::from(id.0)) else { continue };
+        if !matches!(piece.driver, Driver::Wheels(_)) {
+            continue;
+        }
+        let Some(graph) = graph.as_ref().filter(|graph| graph.map == *map) else { continue };
+        for (player, mut transform, locomotion) in &mut players {
+            let feet = transform.translation - Vec3::Y * half_height_above_feet(locomotion);
+            if !piece.in_way(feet, from, to) {
+                continue;
+            }
+            let Some(landing) = shove_landing_at_start(graph, piece, id, from, feet) else { continue };
+            transform.translation = landing + Vec3::Y * (Stance::Standing.half_height() + 0.05);
+            teleport.write(Teleport { player, feet: landing, facing: None });
+        }
+        for (entity, zombie, transform) in &zombies {
+            let feet = transform.translation - Vec3::Y * zombie.half_height();
+            if !piece.in_way(feet, from, to) {
+                continue;
+            }
+            if let Some(landing) = shove_landing_at_start(graph, piece, id, from, feet) {
+                commands.entity(entity).insert(Swept { to: landing });
+            }
+        }
+    }
+}
+
+/// Each fixed tick a Range is Rolling, any Player or Zombie whose feet are in its sweep (they stepped
+/// in after the Roll started) is Shoved the same way, to the nearest mouth of the Range: they came in
+/// from a mouth strip or an Aisle's end, so that is where they are put back, and no body is ever between
+/// two Bookcases as they meet.
+fn shove_swinging(
+    mut commands: Commands,
+    pieces: Query<&PieceState>,
+    mut players: Query<(Entity, &mut Transform, Option<&Locomotion>), With<Player>>,
+    zombies: Query<(Entity, &Zombie, &Transform), (Without<Dying>, Without<Player>, Without<Swept>)>,
+    graph: Option<Res<crate::enemies::nav::NavGraph>>,
+    map: Res<MapId>,
+    mut teleport: MessageWriter<Teleport>,
+) {
+    let layout = map.layout();
+    let Some(graph) = graph.as_ref().filter(|graph| graph.map == *map) else { return };
+    for state in &pieces {
+        let PiecePhase::Swinging { from, to, .. } = state.phase else { continue };
+        let Some(piece) = layout.shifting.get(usize::from(state.id.0)) else { continue };
+        if !matches!(piece.driver, Driver::Wheels(_)) {
+            continue;
+        }
+        let every: Vec<u8> = (0..piece.rests.len() as u8).collect();
+        for (player, mut transform, locomotion) in &mut players {
+            let feet = transform.translation - Vec3::Y * half_height_above_feet(locomotion);
+            if !piece.in_way(feet, from, to) {
+                continue;
+            }
+            let Some(landing) = shove_landing(graph, state.id, &every, feet) else { continue };
+            transform.translation = landing + Vec3::Y * (Stance::Standing.half_height() + 0.05);
+            teleport.write(Teleport { player, feet: landing, facing: None });
+        }
+        for (entity, zombie, transform) in &zombies {
+            let feet = transform.translation - Vec3::Y * zombie.half_height();
+            if !piece.in_way(feet, from, to) {
+                continue;
+            }
+            if let Some(landing) = shove_landing(graph, state.id, &every, feet) {
                 commands.entity(entity).insert(Swept { to: landing });
             }
         }
@@ -1580,6 +1702,14 @@ mod tests {
     #[derive(Resource, Default)]
     struct Kills(Vec<(Attack, Pay)>);
 
+    /// Every Player a `Teleport` was sent for.
+    #[derive(Resource, Default)]
+    struct Teleported(Vec<Entity>);
+
+    fn log_teleports(mut teleported: ResMut<Teleported>, mut heard: MessageReader<Teleport>) {
+        teleported.0.extend(heard.read().map(|teleport| teleport.player));
+    }
+
     fn log_kills(mut kills: ResMut<Kills>, mut heard: MessageReader<ZombieKilled>) {
         kills.0.extend(heard.read().map(|kill| (kill.attack, kill.pay)));
     }
@@ -1989,7 +2119,8 @@ mod tests {
                 .add_message::<PlayCue>()
                 .add_message::<Teleport>()
                 .init_resource::<Swings>()
-                .add_systems(Update, (log_kills, log_swings));
+                .init_resource::<Teleported>()
+                .add_systems(Update, (log_kills, log_swings, log_teleports));
         });
         sim.world_mut().resource_mut::<ActiveZones>().0 = crate::maps::zone::ZoneSet::from_iter(ZoneId::ALL);
         sim
@@ -2127,17 +2258,218 @@ mod tests {
         }
     }
 
-    /// A Range never kills: a Zombie in the Aisle that closes is not Tipped, not killed and not made an Unpaid Kill.
+    /// A Range never kills: `tip_occupants` skips it, so a Zombie, a Napalm and a Sapper in the Aisle that closes are not Tipped, not
+    /// killed, not moved to a spawn point and not made an Unpaid Kill.
     #[test]
-    fn a_range_never_tips_a_zombie() {
+    fn tip_occupants_skips_ranges() {
         let mut sim = archive_sim();
         move_player(&mut sim, Vec3::new(-30.0, 8.0, 30.0));
-        let in_the_aisle = sim.spawn(Vec3::new(0.0, 8.0, 12.0), None);
+        let in_the_aisle = Vec3::new(0.0, 8.0, 12.0);
+        let zombie = sim.spawn(in_the_aisle, None);
+        let napalm = sim.spawn(in_the_aisle, None);
+        sim.world_mut().entity_mut(napalm).insert(Zombie::special(SpecialKind::Napalm, 1000.0, in_the_aisle));
+        let sapper = sim.spawn(in_the_aisle, None);
+        sim.world_mut().entity_mut(sapper).insert((Zombie::special(SpecialKind::Sapper, 1000.0, in_the_aisle), Heavyweight::SAPPER));
+        // The sweep's own start, but with the Shove out of the way: only `tip_occupants` is asked.
         sim.send(SwingStarted { piece: PieceId(0), from: 2, to: 0 });
         sim.run(10);
-        assert!(sim.world_mut().get::<Dying>(in_the_aisle).is_none());
-        assert!(sim.world_mut().get::<Tipped>(in_the_aisle).is_none());
+        for body in [zombie, napalm, sapper] {
+            assert!(sim.world_mut().get::<Dying>(body).is_none());
+            assert!(sim.world_mut().get::<Tipped>(body).is_none());
+            assert!(sim.world_mut().get::<Tossed>(body).is_none());
+        }
         assert!(sim.world_mut().resource::<Kills>().0.is_empty());
+    }
+
+    /// Bodies of every kind in the closing Aisle when a Roll starts, then three frames on: the Sim, the bodies and the mouths of the Aisle that closed.
+    fn shoved_by_a_roll(bodies: &[fn(&mut Sim, Vec3) -> Entity]) -> (Sim, Vec<Entity>, Vec<Vec3>) {
+        let mut sim = archive_sim();
+        move_player(&mut sim, Vec3::new(-30.0, 8.0, 30.0));
+        sim.run(3);
+        let mouths = mouths(&NavGraph::new(MapId::Archive), PieceId(0), 2);
+        let spots = [Vec3::new(0.2, 8.0, 12.6), Vec3::new(-0.3, 8.0, 11.4), Vec3::new(0.4, 8.0, 12.2), Vec3::new(0.0, 8.0, 11.0)];
+        let entities: Vec<Entity> = bodies.iter().zip(spots).map(|(make, at)| make(&mut sim, at)).collect();
+        sim.send(SwingStarted { piece: PieceId(0), from: 2, to: 0 });
+        sim.run(3);
+        (sim, entities, mouths)
+    }
+
+    fn feet_of_zombie(sim: &mut Sim, entity: Entity) -> Vec3 {
+        let world = sim.world_mut();
+        let half = world.get::<Zombie>(entity).unwrap().half_height();
+        world.get::<Transform>(entity).unwrap().translation - Vec3::Y * half
+    }
+
+    fn at_a_mouth(feet: Vec3, mouths: &[Vec3]) -> bool {
+        mouths.iter().any(|mouth| Vec2::new(mouth.x - feet.x, mouth.z - feet.z).length() < 0.5)
+    }
+
+    /// A Zombie and a Napalm in the closing Aisle are Shoved unharmed when the Roll starts: no death, no burst, no kill credit, no Tip.
+    #[test]
+    fn a_zombie_and_a_napalm_in_the_closing_aisle_are_shoved_unharmed() {
+        let plain: fn(&mut Sim, Vec3) -> Entity = |sim, at| sim.spawn(at, None);
+        let napalm: fn(&mut Sim, Vec3) -> Entity = |sim, at| {
+            let napalm = sim.spawn(at, None);
+            sim.world_mut().entity_mut(napalm).insert(Zombie::special(SpecialKind::Napalm, 1000.0, at));
+            napalm
+        };
+        let (mut sim, bodies, mouths) = shoved_by_a_roll(&[plain, napalm]);
+        for body in bodies {
+            assert!(sim.world_mut().get::<Dying>(body).is_none(), "not killed");
+            assert!(sim.world_mut().get::<Tipped>(body).is_none(), "not Tipped");
+            let feet = feet_of_zombie(&mut sim, body);
+            assert!(at_a_mouth(feet, &mouths), "{feet} is at a mouth of the Aisle that closed: {mouths:?}");
+        }
+        assert!(sim.world_mut().resource::<Kills>().0.is_empty(), "no kill, so no credit and no Napalm burst");
+    }
+
+    /// A Hellhound and an Elite are Shoved just the same.
+    #[test]
+    fn a_hellhound_and_an_elite_in_the_closing_aisle_are_shoved() {
+        let hound: fn(&mut Sim, Vec3) -> Entity = |sim, at| {
+            let hound = sim.spawn(at, None);
+            sim.world_mut().entity_mut(hound).insert(Zombie::hellhound(1000.0, at));
+            hound
+        };
+        let elite: fn(&mut Sim, Vec3) -> Entity = |sim, at| {
+            let elite = sim.spawn(at, None);
+            sim.world_mut().entity_mut(elite).insert(crate::run::gauntlet::Elite(crate::run::gauntlet::EliteTrait::Splitter));
+            elite
+        };
+        let (mut sim, bodies, mouths) = shoved_by_a_roll(&[hound, elite]);
+        for body in bodies {
+            assert!(sim.world_mut().get::<Dying>(body).is_none());
+            let feet = feet_of_zombie(&mut sim, body);
+            assert!(at_a_mouth(feet, &mouths), "{feet}: {mouths:?}");
+        }
+        assert!(sim.world_mut().resource::<Kills>().0.is_empty());
+    }
+
+    /// A Zombie that is not in the sweep is left where it stands.
+    #[test]
+    fn a_zombie_outside_the_sweep_is_not_shoved() {
+        let mut sim = archive_sim();
+        move_player(&mut sim, Vec3::new(-30.0, 8.0, 30.0));
+        let outside = Vec3::new(0.0, 8.0, 16.5);
+        let zombie = sim.spawn(outside, None);
+        sim.send(SwingStarted { piece: PieceId(0), from: 2, to: 0 });
+        sim.run(3);
+        assert!(feet_of_zombie(&mut sim, zombie).distance(outside) < 0.3);
+    }
+
+    /// A Player who steps into the sweep after the Roll has started is moved to a mouth by the Host's `Teleport`, Down or not.
+    #[test]
+    fn a_player_who_steps_in_mid_roll_is_moved_to_a_mouth() {
+        for down in [false, true] {
+            let mut sim = archive_sim();
+            sim.run(3);
+            // Under way: the Roll from Rest 2 to Rest 0 is a second in.
+            show(&mut sim, 0, PiecePhase::Swinging { from: 2, to: 0, elapsed: 1.0 });
+            move_player(&mut sim, Vec3::new(0.0, 8.0, 12.5));
+            if down {
+                let world = sim.world_mut();
+                let player = world.query_filtered::<Entity, With<Player>>().iter(world).next().unwrap();
+                world.entity_mut(player).insert(crate::players::last_stand::LastStand::shown(10.0, false));
+            }
+            sim.run(3);
+            let world = sim.world_mut();
+            let mut query = world.query_filtered::<(Entity, &Transform), With<Player>>();
+            let (player, transform) = query.iter(world).next().map(|(entity, transform)| (entity, *transform)).unwrap();
+            let feet = transform.translation - Vec3::Y * Stance::Standing.half_height();
+            let graph = NavGraph::new(MapId::Archive);
+            let mouths: Vec<Vec3> = (0..5).flat_map(|rest| mouths(&graph, PieceId(0), rest)).collect();
+            assert!(mouths.iter().any(|mouth| Vec2::new(mouth.x - feet.x, mouth.z - feet.z).length() < 0.3), "down {down}: {feet} should be at one of {mouths:?}");
+            assert!(feet.z > 14.5, "on the side they came from: {feet}");
+            assert!(world.resource::<Teleported>().0.contains(&player), "the Host told the Player's machine with a Teleport");
+        }
+    }
+
+    /// A Zombie that walks into the sweep mid-Roll is cut to a mouth too, and unharmed.
+    #[test]
+    fn a_zombie_that_enters_the_sweep_mid_roll_is_shoved_to_a_mouth() {
+        let mut sim = archive_sim();
+        move_player(&mut sim, Vec3::new(-30.0, 8.0, 30.0));
+        sim.run(3);
+        show(&mut sim, 0, PiecePhase::Swinging { from: 2, to: 0, elapsed: 1.0 });
+        let zombie = sim.spawn(Vec3::new(-0.2, 8.0, 12.5), None);
+        sim.run(3);
+        let feet = feet_of_zombie(&mut sim, zombie);
+        assert!(feet.z > 14.5, "{feet}");
+        assert!(sim.world_mut().get::<Dying>(zombie).is_none());
+        assert!(sim.world_mut().resource::<Kills>().0.is_empty());
+    }
+
+    // ---- Shoves: where ----
+
+    /// A body in the Aisle that closes goes to the nearer of that Aisle's two mouths, on the side it stands.
+    #[test]
+    fn a_shove_lands_on_the_nearer_mouth_of_the_rest_it_was_on() {
+        let graph = NavGraph::new(MapId::Archive);
+        let piece = &MapId::Archive.layout().shifting[0];
+        let id = PieceId(0);
+        for rest in 0..5u8 {
+            let ends = mouths(&graph, id, rest);
+            assert_eq!(ends.len(), 2, "Rest {rest} has two mouths");
+            // The Range's line is z 12: the mouths are 3.1 m either side of it.
+            let (low, high) = if ends[0].z < ends[1].z { (ends[0], ends[1]) } else { (ends[1], ends[0]) };
+            assert!((high.z - low.z - 6.2).abs() < 0.01, "{low} {high}");
+            let middle = (low + high) / 2.0;
+            for (dz, want) in [(-1.5, low), (-0.2, low), (0.2, high), (1.5, high)] {
+                let feet = middle + Vec3::new(0.0, 0.0, dz);
+                assert_eq!(shove_landing_at_start(&graph, piece, id, rest, feet), Some(want), "Rest {rest}, {dz} m off the line");
+            }
+        }
+        // A Roll's start looks only at the Rest the body was on, though another Rest's mouth may stand nearer.
+        let (mid, west) = (mouths(&graph, id, 2), mouths(&graph, id, 0));
+        let feet = Vec3::new(west[0].x, 8.0, 12.4);
+        let landing = shove_landing(&graph, id, &[2, 0], feet).unwrap();
+        assert!(west.contains(&landing), "the nearest of both Aisles");
+        assert!(mid.contains(&shove_landing_at_start(&graph, piece, id, 2, Vec3::new(mid[0].x + 0.9, 8.0, 12.4)).unwrap()), "at the start, the Aisle it stood in");
+        // In the margin beyond the Bookcases' ends, far along the rail from that Aisle, the nearest mouth of any Aisle instead.
+        let margin = Vec3::new(west[0].x, 8.0, 14.7);
+        assert!(west.contains(&shove_landing_at_start(&graph, piece, id, 2, margin).unwrap()));
+        assert_eq!(shove_landing(&graph, id, &[], feet), None);
+    }
+
+    /// No body of any Range is carried farther than the Bookcase's 2.5 m half length and the 0.6 m of clear floor the mouth stands off,
+    /// across the line (3.1 m), nor farther along it than the Aisle's half width: from any standing place in any closing Aisle, at every Rest
+    /// of every Range. A body cannot clear the shelves in less than the 2.5 m, so that is the 2.5 m of the Shove.
+    #[test]
+    fn a_shove_moves_a_zombie_at_most_2_5_m() {
+        let graph = NavGraph::new(MapId::Archive);
+        let layout = MapId::Archive.layout();
+        let mut worst = 0.0_f32;
+        let mut tried = 0;
+        for (id, piece) in pieces(layout) {
+            let Motion::Rail(rail) = piece.leaves[0].motion else { panic!("a Range's Leaves are on a rail") };
+            let across = Vec2::new(-rail.y, rail.x);
+            let hinge = piece.leaves[0].hinge;
+            for from in 0..piece.rests.len() as u8 {
+                for to in (0..piece.rests.len() as u8).filter(|&to| to != from) {
+                    // Every standing place on a 0.25 m grid around the Range: in the sweep, and clear of the Bookcases where they stand.
+                    let mut x = hinge.x - 8.0;
+                    while x < hinge.x + 8.0 {
+                        let mut z = hinge.z - 8.0;
+                        while z < hinge.z + 8.0 {
+                            let feet = Vec3::new(x, hinge.y, z);
+                            z += 0.25;
+                            let stood_on = piece.leaves.iter().zip(piece.rests[usize::from(from)].at).any(|(leaf, &at)| leaf.over(feet, at, 0.0));
+                            if stood_on || !piece.in_way(feet, from, to) {
+                                continue;
+                            }
+                            let landing = shove_landing_at_start(&graph, piece, id, from, feet).unwrap();
+                            let moved = Vec2::new(landing.x - feet.x, landing.z - feet.z);
+                            assert!(moved.dot(across).abs() <= 2.5 + 0.6 + 0.01, "{id:?} {from}->{to}: {feet} is carried {} m across the line", moved.dot(across).abs());
+                            worst = worst.max(moved.length());
+                            tried += 1;
+                        }
+                        x += 0.25;
+                    }
+                }
+            }
+        }
+        assert!(tried > 1000, "{tried} standing places");
+        assert!(worst <= 3.1_f32.hypot(AISLE_WIDTH / 2.0 + SWING_MARGIN) + 0.01, "{worst} m");
     }
 
     /// A Wheel use rolls the Great Range, and a Zombie that wants the Player on the far side replans through the Aisle that opened.

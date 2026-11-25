@@ -671,6 +671,8 @@ type Machine = Or<(
     With<TrapSwitch>,
     With<Lever>,
     With<WheelPost>,
+    // A Piece is named so a Sapper's Sabotage of its Levers or Wheels can say which Piece it was.
+    With<PieceState>,
     With<PerkMachine>,
     With<Pad>,
     With<Mainframe>,
