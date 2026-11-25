@@ -263,7 +263,7 @@ impl PackAPunch {
 /// on the Village, along the Church's chancel from its south end; on the Dam, up on the Control
 /// Room's dais from its south end; on the Cove, on the Sea Cave's rock shelf from its south end; on the Polder, on the Sluice House's
 /// winch platform from its south end; on the Sanatorium, on the Operating Theatre's floor from its
-/// south end, where the operating table stood.
+/// south end, where the operating table stood; on the Archive, on the Strong Room's reading plinth against its south wall, west of the vault door.
 pub(crate) fn machine_at(map: MapId) -> Vec3 {
     match map {
         MapId::Greybox => Vec3::new(5.0, 0.0, -9.2),
@@ -273,6 +273,7 @@ pub(crate) fn machine_at(map: MapId) -> Vec3 {
         MapId::Cove => Vec3::new(-50.25, 0.6, -10.3),
         MapId::Polder => Vec3::new(0.0, 0.6, 7.8),
         MapId::Sanatorium => Vec3::new(22.0, STOREY, 46.0),
+        MapId::Archive => Vec3::new(4.0, 0.0, 21.0),
     }
 }
 const MACHINE_SIZE: Vec3 = Vec3::new(1.6, 1.6, 0.9);

@@ -584,7 +584,7 @@ mod tests {
                 assert_eq!(edges.len(), 1, "window {}", barrier.0);
                 let (outside, inside) = (&graph.nodes[edges[0].from], &graph.nodes[edges[0].to]);
                 assert!(outside.at.distance(window_spawn(barrier)) < 0.01, "window {}", barrier.0);
-                assert!(outside.zone.is_none() || (map == MapId::Polder && outside.zone == Some(zone)), "window {}", barrier.0);
+                assert!(outside.zone.is_none() || (matches!(map, MapId::Polder | MapId::Archive) && outside.zone == Some(zone)), "window {}", barrier.0);
                 assert_eq!(inside.zone, Some(zone), "window {}", barrier.0);
             }
             assert!(graph.edges.iter().all(|edge| !matches!(edge.gate, Gate::Barrier(b) if WINDOWS[b.0 as usize].0.map() != map)));
@@ -595,8 +595,8 @@ mod tests {
     fn only_window_spawn_points_lie_outside() {
         for map in MapId::ALL {
             for n in &NavGraph::new(map).nodes {
-                // The Polder's strips are walled off inside their own Zone, so its `_out` nodes have one.
-                let outside = n.zone.is_none() || (map == MapId::Polder && n.name.ends_with("_out"));
+                // The Polder's strips and the Archive's pens are walled off inside their own Zone, so their `_out` nodes have one.
+                let outside = n.zone.is_none() || (matches!(map, MapId::Polder | MapId::Archive) && n.name.ends_with("_out"));
                 assert_eq!(outside, n.name.ends_with("_out"), "{}", n.name);
             }
         }

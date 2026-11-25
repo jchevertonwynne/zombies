@@ -167,6 +167,14 @@ impl Perk {
             (MapId::Sanatorium, Perk::DoubleTap) => (Vec3::new(49.2, 0.0, 27.0), Vec3::NEG_X),
             // The Entrance Hall's north wall.
             (MapId::Sanatorium, Perk::QuickRevive) => (Vec3::new(5.0, 0.0, 13.2), Vec3::NEG_Z),
+            // The Bindery's south wall, beside D4, on the Power route.
+            (MapId::Archive, Perk::Juggernog) => (Vec3::new(30.0, STOREY, 24.8), Vec3::Z),
+            // The Reading Room's west wall.
+            (MapId::Archive, Perk::SpeedCola) => (Vec3::new(-19.2, 2.0 * STOREY, 17.0), Vec3::X),
+            // The Undercroft's east wall, off the flood.
+            (MapId::Archive, Perk::DoubleTap) => (Vec3::new(-0.8, 0.0, 28.0), Vec3::NEG_X),
+            // The Catalogue Hall's east wall.
+            (MapId::Archive, Perk::QuickRevive) => (Vec3::new(19.2, 2.0 * STOREY, 7.0), Vec3::NEG_X),
         }
     }
 

@@ -21,6 +21,7 @@ mod cove;
 mod door_look;
 pub mod decals;
 mod dam;
+mod archive;
 mod fitting;
 mod greybox;
 mod polder;
@@ -79,10 +80,14 @@ pub enum MapId {
     /// A hospital on a fogbound hill: wards and corridors ringing a garden court, three Wings off
     /// the ring, the Power in the boiler house and Pack-a-Punch in the operating theatre.
     Sanatorium,
+    /// A flooded library under a university: three levels going down from reading halls through a ring of stack
+    /// halls to a flooded cellar, the Power in its pump room and Pack-a-Punch in its strong room.
+    Archive,
 }
 
 impl MapId {
-    pub const ALL: [MapId; 7] = [MapId::Greybox, MapId::Quarry, MapId::Village, MapId::Dam, MapId::Cove, MapId::Polder, MapId::Sanatorium];
+    pub const ALL: [MapId; 8] =
+        [MapId::Greybox, MapId::Quarry, MapId::Village, MapId::Dam, MapId::Cove, MapId::Polder, MapId::Sanatorium, MapId::Archive];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -93,6 +98,7 @@ impl MapId {
             MapId::Cove => "Cove",
             MapId::Polder => "Polder",
             MapId::Sanatorium => "Sanatorium",
+            MapId::Archive => "Archive",
         }
     }
 
@@ -106,6 +112,7 @@ impl MapId {
             MapId::Cove => "A cliffside town, climbed by stairs from the beach to its lighthouse.",
             MapId::Polder => "A canal town behind a sea dyke, its bridges and its lock leading to the pumping station.",
             MapId::Sanatorium => "A hospital on a fogbound hill, its wards sealed in turn by the Quarantine.",
+            MapId::Archive => "A flooded library under a university, its stacks rolling on rails at the Players' hand.",
         }
     }
 
@@ -119,6 +126,7 @@ impl MapId {
             MapId::Cove => &cove::COVE,
             MapId::Polder => &polder::POLDER,
             MapId::Sanatorium => &sanatorium::SANATORIUM,
+            MapId::Archive => &archive::ARCHIVE,
         }
     }
 }
@@ -299,7 +307,8 @@ const fn concat<T: Copy, const A: usize, const B: usize, const N: usize>(a: [T; 
 /// Every Map's windows, each Map's in a run of its own in `MapId::ALL` order, so a `BarrierId`
 /// names one window in one Map: the Zone it lets into, its centre on the wall line at the height
 /// of the floor it lets onto, and the way out. Each is planked up by its Barrier.
-pub const WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_SANATORIUM_WINDOWS.len() + sanatorium::WINDOWS.len()] = concat(BEFORE_THE_SANATORIUM_WINDOWS, sanatorium::WINDOWS);
+pub const WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_ARCHIVE_WINDOWS.len() + archive::WINDOWS.len()] = concat(BEFORE_THE_ARCHIVE_WINDOWS, archive::WINDOWS);
+const BEFORE_THE_ARCHIVE_WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_SANATORIUM_WINDOWS.len() + sanatorium::WINDOWS.len()] = concat(BEFORE_THE_SANATORIUM_WINDOWS, sanatorium::WINDOWS);
 const BEFORE_THE_SANATORIUM_WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_POLDER_WINDOWS.len() + polder::WINDOWS.len()] = concat(BEFORE_THE_POLDER_WINDOWS, polder::WINDOWS);
 const BEFORE_THE_POLDER_WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_COVE_WINDOWS.len() + cove::WINDOWS.len()] = concat(BEFORE_THE_COVE_WINDOWS, cove::WINDOWS);
 const BEFORE_THE_COVE_WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_DAM_WINDOWS.len() + dam::WINDOWS.len()] = concat(BEFORE_THE_DAM_WINDOWS, dam::WINDOWS);
@@ -309,7 +318,8 @@ const GREYBOX_AND_QUARRY_WINDOWS: [(ZoneId, Vec3, Vec2); greybox::WINDOWS.len() 
 /// Every Map's Box Locations, each Map's in a run of its own, in order: the Zone, where the Box's
 /// centre sits on the floor, and which way its front faces (where the Player stands). Every Run
 /// starts the Box at its Map's first.
-pub const BOX_LOCATIONS: [(ZoneId, Vec3, Vec2); BEFORE_THE_SANATORIUM_BOXES.len() + sanatorium::BOX_LOCATIONS.len()] = concat(BEFORE_THE_SANATORIUM_BOXES, sanatorium::BOX_LOCATIONS);
+pub const BOX_LOCATIONS: [(ZoneId, Vec3, Vec2); BEFORE_THE_ARCHIVE_BOXES.len() + archive::BOX_LOCATIONS.len()] = concat(BEFORE_THE_ARCHIVE_BOXES, archive::BOX_LOCATIONS);
+const BEFORE_THE_ARCHIVE_BOXES: [(ZoneId, Vec3, Vec2); BEFORE_THE_SANATORIUM_BOXES.len() + sanatorium::BOX_LOCATIONS.len()] = concat(BEFORE_THE_SANATORIUM_BOXES, sanatorium::BOX_LOCATIONS);
 const BEFORE_THE_SANATORIUM_BOXES: [(ZoneId, Vec3, Vec2); BEFORE_THE_POLDER_BOXES.len() + polder::BOX_LOCATIONS.len()] = concat(BEFORE_THE_POLDER_BOXES, polder::BOX_LOCATIONS);
 const BEFORE_THE_POLDER_BOXES: [(ZoneId, Vec3, Vec2); BEFORE_THE_COVE_BOXES.len() + cove::BOX_LOCATIONS.len()] = concat(BEFORE_THE_COVE_BOXES, cove::BOX_LOCATIONS);
 const BEFORE_THE_COVE_BOXES: [(ZoneId, Vec3, Vec2); BEFORE_THE_DAM_BOXES.len() + dam::BOX_LOCATIONS.len()] = concat(BEFORE_THE_DAM_BOXES, dam::BOX_LOCATIONS);
@@ -714,6 +724,22 @@ pub fn materials(zone: Option<ZoneId>) -> Option<MaterialSet> {
         SunRoof => (AsphaltFloor, ConcreteMoss, None, &[]),
         IsolationWard => (SmoothConcreteFloor, Tiles053, Some(Leaks), &[]),
         ChildrensWard => (WeatheredPlanks, DecrepitWallpaper, Some(Leaks), &[]),
+        // The Archive, for now in the families the Maps already have (its own Material Sets come with its Look): flags, boards and
+        // parquet over plaster and brick in the reading halls and stacks, brick and slate in the cellar.
+        CatalogueHall => (SlateFloor02, DamagedPlaster, None, &[]),
+        ReadingRoom => (DiagonalParquet, WornMossyPlasterwall, None, &[]),
+        MapRoom => (DarkWoodenPlanks, WhitePlasterRough01, None, &[]),
+        LectureTheatre => (WeatheredPlanks, PlasteredStoneWall, None, &[]),
+        OldStacks => (DarkWoodenPlanks, CastleBrick02Red, None, &[]),
+        FolioStacks => (DiagonalParquet, WhitePlasterRough01, None, &[]),
+        PeriodicalStacks => (WeatheredPlanks, CastleBrick02Red, None, &[]),
+        NewStacks => (SmoothConcreteFloor, WhitePlasterRough01, None, &[]),
+        Bindery => (WornBrickFloor, DamagedPlaster, Some(OilStains), &[]),
+        WellStair => (SlateFloor02, DarkBrickWall, Some(Leaks), &[]),
+        FloodedCellar => (WornBrickFloor, DarkBrickWall, Some(Leaks), &[]),
+        Undercroft => (SlateFloor02, DarkBrickWall, Some(Leaks), &[]),
+        StrongRoom => (SmoothConcreteFloor, MetalPlate02, None, &[]),
+        PumpRoom => (HangarConcreteFloor, BrickWall001, Some(OilStains), &[]),
     };
     let props = if props.is_empty() { zone_props(zone) } else { props };
     Some(MaterialSet { floor, wall, decals, props })
@@ -926,6 +952,35 @@ pub fn palette(zone: Option<ZoneId>) -> Palette {
         Some(IsolationWard) => paints((0.5, 0.5, 0.52), (0.3, 0.55, 0.5), (0.85, 0.88, 0.85), (0.82, 0.95, 0.88)),
         // Pine boards and warm nursery wallpaper.
         Some(ChildrensWard) => paints((0.6, 0.45, 0.28), (0.9, 0.72, 0.5), (0.3, 0.4, 0.6), (0.95, 0.9, 0.75)),
+        // The Archive: a warm, dusty library going down to a flooded cellar.
+        // Worn flagstone, oak card-catalogue drawers and brass pulls, a warm lamp.
+        Some(CatalogueHall) => paints((0.35, 0.38, 0.23), (0.62, 0.43, 0.11), (0.82, 0.66, 0.30), (1.00, 0.80, 0.55)),
+        // Herringbone parquet under sage-green panelling, brass and green-shaded lamps.
+        Some(ReadingRoom) => paints((0.41, 0.20, 0.09), (0.23, 0.33, 0.22), (0.80, 0.72, 0.40), (1.00, 0.84, 0.60)),
+        // Boards, parchment plaster and dark oak plan chests.
+        Some(MapRoom) => paints((0.54, 0.35, 0.27), (0.70, 0.64, 0.37), (0.30, 0.16, 0.10), (1.00, 0.82, 0.55)),
+        // Dark raked boards, oak panelling and brass rails.
+        Some(LectureTheatre) => paints((0.37, 0.11, 0.24), (0.39, 0.20, 0.11), (0.72, 0.62, 0.45), (1.00, 0.78, 0.50)),
+        // Oak boards, oxblood brick and a lamp at the end of each lane.
+        Some(OldStacks) => paints((0.44, 0.20, 0.13), (0.34, 0.11, 0.07), (0.78, 0.70, 0.50), (1.00, 0.76, 0.50)),
+        // Dark boards under pale plaster, cooled by the book-lift core.
+        Some(FolioStacks) => paints((0.34, 0.18, 0.10), (0.55, 0.58, 0.46), (0.28, 0.20, 0.16), (1.00, 0.76, 0.50)),
+        // Olive linoleum under claret brick.
+        Some(PeriodicalStacks) => paints((0.32, 0.40, 0.14), (0.47, 0.12, 0.21), (0.80, 0.72, 0.50), (1.00, 0.76, 0.50)),
+        // The 1930s wing: pale concrete under cream plaster, a whiter lamp.
+        Some(NewStacks) => paints((0.51, 0.50, 0.51), (0.91, 0.87, 0.69), (0.28, 0.30, 0.32), (0.95, 0.88, 0.72)),
+        // Brown boards, glue-stained plaster, black iron presses.
+        Some(Bindery) => paints((0.47, 0.25, 0.12), (0.61, 0.52, 0.32), (0.10, 0.10, 0.12), (1.00, 0.78, 0.50)),
+        // Cold stone and damp stone, lit from below.
+        Some(WellStair) => paints((0.37, 0.42, 0.41), (0.36, 0.30, 0.29), (0.68, 0.64, 0.56), (1.00, 0.66, 0.38)),
+        // Black water over a teal bed, dark brick, a low amber bulb.
+        Some(FloodedCellar) => paints((0.09, 0.21, 0.22), (0.15, 0.22, 0.34), (0.55, 0.52, 0.40), (1.00, 0.66, 0.38)),
+        // Olive flags under sooty vault stone.
+        Some(Undercroft) => paints((0.30, 0.28, 0.14), (0.45, 0.51, 0.29), (0.15, 0.12, 0.10), (1.00, 0.66, 0.38)),
+        // Steel-green floor, violet-grey vault steel and brass.
+        Some(StrongRoom) => paints((0.37, 0.37, 0.21), (0.32, 0.20, 0.40), (0.78, 0.62, 0.30), (1.00, 0.72, 0.45)),
+        // Greasy plate under bottle-green brick and brass.
+        Some(PumpRoom) => paints((0.25, 0.26, 0.11), (0.27, 0.38, 0.21), (0.72, 0.50, 0.20), (1.00, 0.62, 0.32)),
         // Bare ground round weathered brick.
         None => paints((0.15, 0.17, 0.12), (0.3, 0.21, 0.17), (0.42, 0.4, 0.36), (1.0, 0.75, 0.45)),
     }
@@ -1685,7 +1740,7 @@ pub(crate) mod tests {
 
     #[test]
     fn every_point_of_an_indoor_floor_of_a_roofed_map_is_within_reach_of_a_lamp_in_its_zone() {
-        for map in [MapId::Greybox, MapId::Quarry] {
+        for map in [MapId::Greybox, MapId::Quarry, MapId::Archive] {
         let layout = map.layout();
         assert!(layout.roofed, "{map:?}");
         for &zone in layout.zones.iter().filter(|&&zone| layout.indoor(zone)) {
@@ -1750,6 +1805,13 @@ pub(crate) mod tests {
                 assert!(layout.out_of_bounds(crate::maps::water::TideLevel::Low, Vec3::new(past.x, 50.0, past.y)), "{} high over {past}", map.name());
             }
         }
+    }
+
+    /// A `BarrierId` is a `u8`: every Map's windows share its 256 values (the Archive's 28 take it to 198, leaving the
+    /// Refinery about 57).
+    #[test]
+    fn barrier_ids_fit_a_u8() {
+        assert!(WINDOWS.len() <= 256, "{} windows is more than a BarrierId's 256", WINDOWS.len());
     }
 
     /// Nothing a Map places is Out of Bounds: its path nodes, Seats, Spawn Points, Vents, Box
@@ -1865,19 +1927,24 @@ pub(crate) mod tests {
             }
             for prop in layout.props {
                 let (min, max) = (Vec2::new(prop.at.x - prop.size.x / 2.0, prop.at.z - prop.size.z / 2.0), Vec2::new(prop.at.x + prop.size.x / 2.0, prop.at.z + prop.size.z / 2.0));
-                assert!(!in_a_pool(prop.zone, min, max), "a {:?} at {} stands in a pool on the {}", prop.kind, prop.at, map.name());
+                // Unless it stands on the pool's bed, in the water (the Archive's piers).
+                let on_the_bed = layout.water.iter().any(|pool| pool.zone == prop.zone && (prop.at.y - pool.bed).abs() < 1e-3);
+                assert!(!in_a_pool(prop.zone, min, max) || on_the_bed, "a {:?} at {} stands in a pool on the {}", prop.kind, prop.at, map.name());
             }
             for perk in Perk::ALL {
                 let at = perk.machine_spot(map).0;
                 let spot = Vec2::new(at.x, at.z);
-                for &zone in layout.zones {
+                // In its own Zone (a pool on another storey is nowhere near it).
+                for zone in layout.zones.iter().copied().filter(|&zone| crate::enemies::nav::zone_at(map, at + Vec3::Y * 0.1) == Some(zone)) {
                     assert!(!in_a_pool(zone, spot - Vec2::splat(0.7), spot + Vec2::splat(0.7)), "{perk:?} stands in a pool in {} on the {}", zone.name(), map.name());
                 }
             }
             for i in map.box_locations() {
                 let (zone, at, _) = BOX_LOCATIONS[i];
                 let spot = Vec2::new(at.x, at.z);
-                assert!(!in_a_pool(zone, spot - Vec2::splat(0.5), spot + Vec2::splat(0.5)), "Box Location {i} stands in a pool on the {}", map.name());
+                // Unless it stands on a Raised Floor above the water (the Archive's Causeway).
+                let on_a_raised_floor = layout.raised_floors.iter().any(|raised| raised.zone == zone && spot.cmpge(raised.min).all() && spot.cmple(raised.max).all() && (at.y - raised.height).abs() < 1e-3);
+                assert!(!in_a_pool(zone, spot - Vec2::splat(0.5), spot + Vec2::splat(0.5)) || on_a_raised_floor, "Box Location {i} stands in a pool on the {}", map.name());
             }
         }
     }
@@ -1965,7 +2032,7 @@ pub(crate) mod tests {
     fn every_wading_point_is_well_inside_shallow_water_and_on_the_path_graph() {
         for map in MapId::ALL {
             let layout = map.layout();
-            if !matches!(map, MapId::Cove | MapId::Polder) {
+            if !matches!(map, MapId::Cove | MapId::Polder | MapId::Archive) {
                 assert!(layout.wading.is_empty(), "the {} has Wading Points", map.name());
             }
             let nodes: Vec<_> = layout.nav_nodes.iter().map(|&(name, x, y, z)| (name, Vec3::new(x, y, z))).collect();
@@ -2446,7 +2513,9 @@ pub(crate) mod tests {
             .iter()
             .find(|raised| raised.zone == prop.zone && min.cmpge(raised.min).all() && max.cmple(raised.max).all())
             .map(|raised| raised.height);
-        [raised, Some(prop.zone.floor())].into_iter().flatten().find(|&floor| (floor - prop.at.y).abs() < 1e-3)
+        // Or the bed of a sunken floor it stands in (the Archive's piers in its pool).
+        let bed = layout.sunken.iter().find(|sunken| sunken.zone == prop.zone && min.cmpge(sunken.min).all() && max.cmple(sunken.max).all()).map(|sunken| sunken.zone.floor() - sunken.depth);
+        [raised, bed, Some(prop.zone.floor())].into_iter().flatten().find(|&floor| (floor - prop.at.y).abs() < 1e-3)
     }
 
     #[test]
@@ -2897,7 +2966,7 @@ pub(crate) mod tests {
                 // Outside every Zone, or (the Polder's, in a partition's walled strip) in its own.
                 let (own, ..) = WINDOWS[barrier.0 as usize];
                 let there = zone_at(map, window_spawn(barrier) + Vec3::Y * 0.1);
-                assert!(there.is_none() || (map == MapId::Polder && there == Some(own)), "window {}'s Spawn Point is indoors", barrier.0);
+                assert!(there.is_none() || (matches!(map, MapId::Polder | MapId::Archive) && there == Some(own)), "window {}'s Spawn Point is indoors", barrier.0);
             }
         }
     }
