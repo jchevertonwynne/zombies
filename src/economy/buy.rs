@@ -69,6 +69,12 @@ pub struct CantAfford {
 #[derive(Component)]
 pub struct Refused;
 
+/// A Buyable the `LocalPlayer` is offered nothing from for now, like Pack-a-Punch just after they
+/// took a Weapon out: it never takes the Prompt, but stays a Buyable so a teammate's request is
+/// still judged against it (by its `Offers`).
+#[derive(Component)]
+pub struct NoLocalPrompt;
+
 /// A Buyable used by holding the Use key, like a Barrier's Planks. Pressing Use on it isn't a
 /// purchase, so the purchase flow leaves it alone; its owner reads `Focus` and the held key.
 #[derive(Component)]
@@ -348,7 +354,7 @@ fn buyer_paused(local: bool, marked: bool, pause: &State<Pause>) -> bool {
 
 pub(crate) fn focus(
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
-    buyables: Query<(Entity, &Buyable, Has<Nearby>, Has<WhileDown>)>,
+    buyables: Query<(Entity, &Buyable, Has<Nearby>, Has<WhileDown>), Without<NoLocalPrompt>>,
     player: Single<(Has<LastStand>, Has<AwaitingRespawn>, &Points), With<LocalPlayer>>,
     pause: Res<State<Pause>>,
     reviving: Res<ReviveFocus>,

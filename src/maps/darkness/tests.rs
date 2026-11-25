@@ -4,7 +4,7 @@ use bevy::ecs::system::RunSystemOnce;
 use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
 
-use super::weapon_light::WeaponLight;
+use super::weapon_light::{WeaponLight, WeaponSpill};
 use super::*;
 use crate::maps::generator::Generators;
 use crate::maps::map::MapId;
@@ -243,6 +243,41 @@ fn on_other_maps_nobody_carries_a_weapon_light() {
     teammate(&mut app, MapId::Greybox);
     run(&mut app, 0.1);
     assert!(weapon_lights(&mut app).is_empty());
+}
+
+/// The Weapon Light spills in `app`, each with the entity it hangs from and where it is.
+fn spills(app: &mut App) -> Vec<(Entity, PointLight, Vec3)> {
+    let mut query = app.world_mut().query_filtered::<(&ChildOf, &PointLight, &GlobalTransform), With<WeaponSpill>>();
+    query.iter(app.world()).map(|(parent, light, at)| (parent.parent(), *light, at.translation())).collect()
+}
+
+/// #587: in a Dark Zone the view model had no light at all, so aimed, its sights were a black block
+/// over the crosshair. The spill lights it, faintly, and never the far side of a wall.
+#[test]
+fn on_a_dark_map_the_weapon_light_spills_onto_the_view_model_and_no_further() {
+    let mut app = playing(MapId::Dam);
+    let camera = camera(&mut app);
+    teammate(&mut app, MapId::Dam);
+    run(&mut app, 0.1);
+    let spills = spills(&mut app);
+    assert_eq!(spills.len(), 1, "one spill, on the local camera only");
+    let (on, light, at) = spills[0];
+    assert_eq!(on, camera);
+    assert_eq!(at, Vec3::ZERO, "at the eye");
+    assert!(light.intensity > 0.0, "always on");
+    assert!(!light.shadow_maps_enabled, "it casts no shadow");
+    assert!(light.range >= 0.6, "it reaches the Weapon in the hands and its sights: {}", light.range);
+    let far_side = PLAYER_RADIUS + crate::maps::map::WALL_THICKNESS;
+    assert!(light.range < far_side, "{} m never reaches a wall's far side, {far_side} m off", light.range);
+    assert!(light.intensity < WEAPON_LIGHT_INTENSITY / 100.0, "faint beside the Weapon Light: {}", light.intensity);
+}
+
+#[test]
+fn on_other_maps_nothing_spills() {
+    let mut app = playing(MapId::Greybox);
+    camera(&mut app);
+    run(&mut app, 0.1);
+    assert!(spills(&mut app).is_empty());
 }
 
 /// Where `app`'s one Weapon Light hanging from `parent` is, and which way it points, in the world.

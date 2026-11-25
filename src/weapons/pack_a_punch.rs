@@ -16,7 +16,7 @@ use crate::weapons::arsenal::WeaponId;
 use crate::weapons::attachment::attachment_repack_price;
 use crate::authority::HostSimulation;
 use crate::weapons::gun_model::GunModels;
-use crate::economy::buy::{Buyable, HoldBuy, HoldPurchased, Offer, Offers, PricedFor, Purchased, Refused};
+use crate::economy::buy::{Buyable, HoldBuy, HoldPurchased, NoLocalPrompt, Offer, Offers, PricedFor, Purchased, Refused};
 use crate::layers::GameLayer;
 use crate::modifier::{Modifier, Modifiers, Stat, resolve_points};
 use crate::economy::perk::Drinking;
@@ -173,6 +173,9 @@ pub struct Waiting {
 #[derive(Component, Default)]
 pub struct PackAPunch {
     inside: Option<Inside>,
+    /// Players who just took a Weapon out, with the seconds left before the machine answers their
+    /// Use again (see `PAP_REUSE_SECS`).
+    cooling: Vec<(Entity, f32)>,
 }
 
 impl PackAPunch {
@@ -189,7 +192,30 @@ impl PackAPunch {
 
     /// Shows what the Host says is inside: a Weapon already worked on, `elapsed` seconds in.
     pub fn show(&mut self, inside: Option<(WeaponCopy, f32, Option<Entity>)>) {
+        // A Weapon that vanishes while still Ready was taken by its owner, so their game starts the
+        // same window the Host did, to keep the Prompt in step with the Host's judgement.
+        let taken_by = self
+            .inside
+            .as_ref()
+            .filter(|was| inside.is_none() && stage(was.elapsed) == Stage::Ready && was.elapsed < PAP_PROCESS_SECS + PAP_PICKUP_SECS - 0.25)
+            .and_then(|was| was.owner);
+        if let Some(owner) = taken_by {
+            self.cool(owner);
+        }
         self.inside = inside.map(|(weapon, elapsed, owner)| Inside { weapon, elapsed, owner });
+    }
+
+    /// Starts `player`'s window after taking a Weapon out: the machine ignores their Use meanwhile.
+    pub fn cool(&mut self, player: Entity) {
+        match self.cooling.iter_mut().find(|(held, _)| *held == player) {
+            Some((_, left)) => *left = PAP_REUSE_SECS,
+            None => self.cooling.push((player, PAP_REUSE_SECS)),
+        }
+    }
+
+    /// Whether `player` took a Weapon out a moment ago, so the machine ignores their Use.
+    pub fn is_cooling(&self, player: Entity) -> bool {
+        self.cooling.iter().any(|&(held, _)| held == player)
     }
 
     /// Whether `player` may take the Weapon inside out.
@@ -241,6 +267,10 @@ impl PackAPunch {
 
     /// Advance the clock. A Weapon left past its pickup window is lost.
     pub fn advance(&mut self, dt: f32) {
+        self.cooling.retain_mut(|(_, left)| {
+            *left -= dt;
+            *left > 0.0
+        });
         if let Some(inside) = &mut self.inside {
             inside.elapsed += dt;
             if stage(inside.elapsed) == Stage::Lost {
@@ -396,6 +426,10 @@ fn use_machine(
     for (player, entity, hold) in taps.chain(held).collect::<Vec<_>>() {
         let Ok(mut machine) = machines.get_mut(entity) else { continue };
         let Ok((mut loadout, modifiers)) = players.get_mut(player) else { continue };
+        // The Use that took a Weapon out can't also buy the next one.
+        if machine.is_cooling(player) {
+            continue;
+        }
         let slots = ammo_mod_slots(&modifiers.0);
         match machine.stage() {
             None => {
@@ -414,6 +448,7 @@ fn use_machine(
             Some(Stage::Ready) if !hold && machine.is_owned_by(player) => {
                 if let Some(weapon) = machine.take() {
                     loadout.give_copy(weapon);
+                    machine.cool(player);
                 }
             }
             Some(_) => {}
@@ -496,7 +531,7 @@ fn unpowered(supply: &Supply) -> Option<String> {
 /// What the machine shows `hands`, if anything. `unpowered` is the refusal it shows while it waits
 /// for Power, `None` once it's Powered.
 fn shown(machine: &PackAPunch, hands: &Hands, sabotaged: bool, unpowered: Option<&str>) -> Option<Shown> {
-    let want = if sabotaged {
+    let want = if sabotaged || machine.is_cooling(hands.player) {
         MachinePrompt::NoPrompt
     } else {
         machine_prompt(unpowered.is_none(), machine.stage(), hands.held, !hands.drinking)
@@ -563,6 +598,7 @@ fn prompt_machine(
         Option<&mut HoldBuy>,
         Has<Refused>,
         Has<Sabotaged>,
+        Has<NoLocalPrompt>,
     )>,
     player: Single<(Entity, &Loadout, &Modifiers, Has<Drinking>), With<LocalPlayer>>,
     supply: Supply,
@@ -572,13 +608,30 @@ fn prompt_machine(
     let hands = Hands::new(local, loadout, modifiers, drinking);
     let hold_price = hands.hold_price();
     let hold_prompt = "Hold F to Repack an Attachment".to_string();
-    for (entity, machine, transform, buyable, hold_buy, refused, sabotaged) in &mut machines {
+    for (entity, machine, transform, buyable, hold_buy, refused, sabotaged, quiet) in &mut machines {
         let Some(Shown { prompt, price, refuse, hold }) = shown(machine, &hands, sabotaged, unpowered.as_deref()) else {
-            if buyable.is_some() {
-                commands.entity(entity).remove::<(Buyable, HoldBuy, Refused)>();
+            if machine.is_cooling(local) && !sabotaged {
+                // The local Player's window: no Prompt for them, but the Buyable stays for a
+                // teammate to use, who is judged by the Host's Offers.
+                if buyable.is_none() {
+                    commands.entity(entity).insert(Buyable {
+                        use_point: use_point(transform.translation),
+                        prompt: String::new(),
+                        price: None,
+                        range: USE_RANGE,
+                    });
+                }
+                if !quiet {
+                    commands.entity(entity).insert(NoLocalPrompt).remove::<(HoldBuy, Refused)>();
+                }
+            } else if buyable.is_some() {
+                commands.entity(entity).remove::<(Buyable, HoldBuy, Refused, NoLocalPrompt)>();
             }
             continue;
         };
+        if quiet {
+            commands.entity(entity).remove::<NoLocalPrompt>();
+        }
         match (hold, hold_buy) {
             (Some(tap), Some(mut hold_buy)) => {
                 if hold_buy.tap != tap {
@@ -1057,5 +1110,125 @@ mod two_player_tests {
         assert_ne!(repack_price(2), PAP_PRICE);
         assert_eq!(balance(&mut sim, teammate), teammate_before - repack_price(2));
         assert_eq!(balance(&mut sim, local), local_before, "the local Player paid for the teammate's Repack");
+    }
+}
+
+/// #597: the Use that takes a Weapon out of the machine must not also buy the next Pack-a-Punch,
+/// for the Player who took it, whether it's the tap or the hold, locally or from a remote Player
+/// (judged by the Host's Offers). A teammate is never held up by someone else's window.
+#[cfg(test)]
+mod reuse_window_tests {
+    use super::*;
+    use crate::economy::buy::UseRequest;
+    use crate::economy::points::Points;
+    use crate::enemies::zombie::headless::Sim;
+    use crate::maps::power::Power;
+    use crate::players::player::two_players::{balance, two_players_with};
+
+    /// A Powered machine wired the way the game wires it: Prompt for the local Player, Offers for
+    /// the teammate. Both Players hold an M14.
+    fn setup() -> (Sim, Entity, Entity, Entity) {
+        let (mut sim, local, teammate) = two_players_with(|app| {
+            let mut power = Power::default();
+            power.switch_on();
+            app.insert_resource(power);
+            app.add_systems(Update, (offer_machines, use_machine, run_machine, prompt_machine).chain());
+        });
+        let world = sim.world_mut();
+        for player in [local, teammate] {
+            world.get_mut::<Points>(player).unwrap().balance = 20_000;
+            world.get_mut::<Loadout>(player).unwrap().give(WeaponId::M14);
+        }
+        let machine = world
+            .spawn((PackAPunch::default(), PricedFor(Box::new(price_for)), Offers::default(), Transform::default()))
+            .id();
+        sim.run(2);
+        (sim, local, teammate, machine)
+    }
+
+    /// `player` puts the M14 in, waits for it, and takes it out. Returns right after the take.
+    fn pack_and_take(sim: &mut Sim, player: Entity, machine: Entity) {
+        sim.send(UseRequest { player, buyable: machine, hold: false });
+        sim.run(2);
+        assert_eq!(sim.world_mut().get::<PackAPunch>(machine).unwrap().inside(), Some(WeaponId::M14));
+        sim.run(sim.frames(PAP_PROCESS_SECS + 0.5));
+        sim.send(UseRequest { player, buyable: machine, hold: false });
+        sim.run(2);
+        assert_eq!(sim.world_mut().get::<PackAPunch>(machine).unwrap().inside(), None, "the Weapon wasn't taken");
+    }
+
+    fn assert_nothing_bought(sim: &mut Sim, player: Entity, machine: Entity, before: u64) {
+        assert_eq!(sim.world_mut().get::<PackAPunch>(machine).unwrap().inside(), None);
+        assert_eq!(balance(sim, player), before, "points were spent inside the window");
+    }
+
+    #[test]
+    fn a_tap_right_after_taking_a_weapon_out_buys_nothing_for_either_player() {
+        for remote in [false, true] {
+            let (mut sim, local, teammate, machine) = setup();
+            let player = if remote { teammate } else { local };
+            pack_and_take(&mut sim, player, machine);
+            let before = balance(&mut sim, player);
+            sim.send(UseRequest { player, buyable: machine, hold: false });
+            sim.run(2);
+            assert_nothing_bought(&mut sim, player, machine, before);
+        }
+    }
+
+    #[test]
+    fn a_hold_right_after_taking_a_weapon_out_buys_nothing_for_either_player() {
+        for remote in [false, true] {
+            let (mut sim, local, teammate, machine) = setup();
+            let player = if remote { teammate } else { local };
+            pack_and_take(&mut sim, player, machine);
+            let before = balance(&mut sim, player);
+            sim.send(UseRequest { player, buyable: machine, hold: true });
+            sim.run(2);
+            assert_nothing_bought(&mut sim, player, machine, before);
+        }
+    }
+
+    #[test]
+    fn the_machine_answers_again_once_the_window_has_passed() {
+        for remote in [false, true] {
+            let (mut sim, local, teammate, machine) = setup();
+            let player = if remote { teammate } else { local };
+            pack_and_take(&mut sim, player, machine);
+            sim.run(sim.frames(PAP_REUSE_SECS + 0.2));
+            let before = balance(&mut sim, player);
+            sim.send(UseRequest { player, buyable: machine, hold: false });
+            sim.run(2);
+            assert_eq!(sim.world_mut().get::<PackAPunch>(machine).unwrap().inside(), Some(WeaponId::M14));
+            assert_eq!(balance(&mut sim, player), before - repack_price(0));
+        }
+    }
+
+    #[test]
+    fn a_teammate_isnt_held_up_by_your_window() {
+        let (mut sim, local, teammate, machine) = setup();
+        pack_and_take(&mut sim, local, machine);
+        let before = balance(&mut sim, teammate);
+        sim.send(UseRequest { player: teammate, buyable: machine, hold: false });
+        sim.run(2);
+        assert_eq!(sim.world_mut().get::<PackAPunch>(machine).unwrap().inside(), Some(WeaponId::M14));
+        assert_eq!(balance(&mut sim, teammate), before - PAP_PRICE);
+    }
+
+    #[test]
+    fn a_clients_game_starts_the_same_window_when_it_sees_its_weapon_taken() {
+        let player = Entity::from_raw_u32(7).unwrap();
+        let mut machine = PackAPunch::default();
+        machine.insert_for(player, WeaponCopy::new(WeaponId::M14), Work::Upgrade);
+        machine.advance(PAP_PROCESS_SECS + 1.0);
+        let view = machine.view().map(|(weapon, elapsed, owner)| (weapon.clone(), elapsed, owner));
+        machine.show(None);
+        assert!(machine.is_cooling(player), "the Host's take should start the window");
+        machine.advance(PAP_REUSE_SECS + 0.1);
+        assert!(!machine.is_cooling(player));
+        // A Weapon that was lost, not taken, starts no window.
+        let mut lost = PackAPunch::default();
+        lost.show(view);
+        lost.advance(PAP_PROCESS_SECS + PAP_PICKUP_SECS);
+        assert!(!lost.is_cooling(player));
     }
 }
