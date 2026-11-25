@@ -299,7 +299,25 @@ const ARCHIVE: &[View] = &[
     view("bindery-stair", (34.2, 4.0, 33.4), (34.2, 26.0), -0.35, false),
     view("causeway", (-15.2, 0.6, 10.0), (15.0, 10.0), -0.02, false),
     view("lecture-theatre-tiers", (28.0, 4.0, 22.0), (28.0, 2.0), 0.2, false),
+    // The Great Range's Wheels and Aisle lamps, each held at a phase (see `range_hold`): Waiting (amber, flashing), Swinging
+    // (steady amber, the Bookcases part-way), at Rest (green at the open Aisle) and Sabotaged (red, a chain through the spokes).
+    view("range-waiting", (0.0, 8.0, 5.0), (0.0, 14.0), -0.1, true),
+    view("range-swinging", (0.0, 8.0, 5.0), (0.0, 14.0), -0.1, true),
+    view("range-at-rest", (0.0, 8.0, 5.0), (0.0, 14.0), -0.1, true),
+    view("range-sabotaged-wheel", (0.0, 8.0, 6.4), (0.0, 9.2), -0.3, true),
 ];
+
+/// What an Archive view holds the Great Range at: its phase and whether it is Sabotaged.
+fn range_hold(name: &str) -> Option<(crate::maps::shifting::PiecePhase, bool)> {
+    use crate::maps::shifting::PiecePhase;
+    match name {
+        "range-waiting" => Some((PiecePhase::Waiting { from: 2, to: 3 }, false)),
+        "range-swinging" => Some((PiecePhase::Swinging { from: 2, to: 3, elapsed: crate::tuning::SWING_SECS / 2.0 }, false)),
+        "range-at-rest" => Some((PiecePhase::Rest(2), false)),
+        "range-sabotaged-wheel" => Some((PiecePhase::Rest(2), true)),
+        _ => None,
+    }
+}
 
 /// The Polder: a view of each of its 16 Zones, then its bridges, the lock gates, the water and the dyke.
 const POLDER: &[View] = &[
@@ -412,7 +430,12 @@ impl Plugin for TourPlugin {
             .add_systems(Startup, set_window)
             .add_systems(OnEnter(GameState::MainMenu), start_run)
             .add_systems(Update, (clear, shoot, give_boons, hold_generators, throw_switch, hold_tide).run_if(in_state(GameState::Playing)))
-            .add_systems(Update, hold_quarantine.before(crate::maps::quarantine::QuarantineClock).run_if(in_state(GameState::Playing)));
+            .add_systems(Update, hold_quarantine.before(crate::maps::quarantine::QuarantineClock).run_if(in_state(GameState::Playing)))
+            // After the Host's own systems have run on the Pieces, so the Range keeps the phase the view asks for.
+            .add_systems(
+                Update,
+                hold_range.after(crate::authority::HostSimulation).before(crate::maps::stacks_look::RangeLookSet).before(shoot).run_if(in_state(GameState::Playing)),
+            );
     }
 }
 
@@ -432,6 +455,37 @@ fn hold_quarantine(tour: Res<Tour>, mut quarantine: ResMut<crate::maps::quaranti
     }
     if let Some((stage, wing, elapsed)) = quarantine_hold(name) {
         quarantine.show(stage, Some(crate::maps::quarantine::WingId(wing)), elapsed);
+    }
+}
+
+/// While a Range view is up, the Great Range held at the phase it shows, and Sabotaged or not.
+fn hold_range(tour: Res<Tour>, mut commands: Commands, mut pieces: Query<(Entity, &mut crate::maps::shifting::PieceState, Has<crate::enemies::sapper::Sabotaged>)>) {
+    use crate::enemies::sapper::Sabotaged;
+    use crate::maps::shifting::PieceId;
+    if tour.frames < WARM_UP {
+        return;
+    }
+    let hold = tour.views.get(tour.shot).and_then(|&(name, ..)| range_hold(name));
+    for (entity, mut state, sabotaged) in &mut pieces {
+        if state.id() != PieceId(0) {
+            continue;
+        }
+        let Some((phase, wanted)) = hold else {
+            if sabotaged {
+                commands.entity(entity).remove::<Sabotaged>();
+            }
+            continue;
+        };
+        state.show(phase);
+        match (wanted, sabotaged) {
+            (true, false) => {
+                commands.entity(entity).insert(Sabotaged);
+            }
+            (false, true) => {
+                commands.entity(entity).remove::<Sabotaged>();
+            }
+            _ => {}
+        }
     }
 }
 
@@ -535,4 +589,26 @@ fn shoot(
     commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
     tour.settle = 0;
     tour.shot += 1;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::maps::shifting::PiecePhase;
+
+    #[test]
+    fn every_range_hold_names_an_archive_view_and_a_phase_the_great_range_has() {
+        let piece = &MapId::Archive.layout().shifting[0];
+        let held: Vec<_> = ARCHIVE.iter().filter_map(|&(name, ..)| range_hold(name).map(|hold| (name, hold))).collect();
+        assert_eq!(held.len(), 4, "waiting, swinging, at rest and Sabotaged");
+        for (name, (phase, _)) in held {
+            let rests = match phase {
+                PiecePhase::Rest(at) | PiecePhase::Cooling { at, .. } => vec![at],
+                PiecePhase::Warning { from, to, .. } | PiecePhase::Waiting { from, to } | PiecePhase::Swinging { from, to, .. } => vec![from, to],
+            };
+            assert!(rests.iter().all(|&rest| usize::from(rest) < piece.rests.len()), "{name}: {phase:?}");
+        }
+        // Exactly one view shows the chain.
+        assert_eq!(ARCHIVE.iter().filter(|&&(name, ..)| range_hold(name).is_some_and(|(_, sabotaged)| sabotaged)).count(), 1);
+    }
 }

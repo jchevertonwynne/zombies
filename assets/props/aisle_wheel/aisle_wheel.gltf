@@ -1,0 +1,280 @@
+{
+ "asset": {
+  "generator": "Khronos glTF Blender I/O v5.3.43",
+  "version": "2.0"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "name": "Scene",
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "mesh": 0,
+   "name": "aisle_wheel"
+  }
+ ],
+ "materials": [
+  {
+   "doubleSided": false,
+   "name": "rusty_metal_02",
+   "pbrMetallicRoughness": {
+    "baseColorFactor": [
+     0.3,
+     0.3,
+     0.32,
+     1.0
+    ],
+    "metallicFactor": 1.0,
+    "roughnessFactor": 1.0,
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicRoughnessTexture": {
+     "index": 2
+    }
+   },
+   "normalTexture": {
+    "index": 1
+   },
+   "occlusionTexture": {
+    "index": 2
+   }
+  },
+  {
+   "doubleSided": false,
+   "name": "metal_plate_02",
+   "pbrMetallicRoughness": {
+    "baseColorFactor": [
+     0.75,
+     0.55,
+     0.25,
+     1.0
+    ],
+    "metallicFactor": 1.0,
+    "roughnessFactor": 1.0,
+    "baseColorTexture": {
+     "index": 3
+    },
+    "metallicRoughnessTexture": {
+     "index": 5
+    }
+   },
+   "normalTexture": {
+    "index": 4
+   },
+   "occlusionTexture": {
+    "index": 5
+   }
+  }
+ ],
+ "meshes": [
+  {
+   "name": "aisle_wheel",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2
+     },
+     "indices": 3,
+     "material": 0
+    },
+    {
+     "attributes": {
+      "POSITION": 4,
+      "NORMAL": 5,
+      "TEXCOORD_0": 6
+     },
+     "indices": 7,
+     "material": 1
+    }
+   ]
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 600,
+   "max": [
+    0.3700000047683716,
+    0.3760000169277191,
+    0.09000000357627869
+   ],
+   "min": [
+    -0.3700000047683716,
+    -0.3700000047683716,
+    -0.019999999552965164
+   ],
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 600,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 600,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5123,
+   "count": 936,
+   "type": "SCALAR"
+  },
+  {
+   "bufferView": 4,
+   "componentType": 5126,
+   "count": 72,
+   "max": [
+    0.05999999865889549,
+    0.06000000238418579,
+    0.04500000551342964
+   ],
+   "min": [
+    -0.05999999865889549,
+    -0.06000000238418579,
+    -0.04500000551342964
+   ],
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 5,
+   "componentType": 5126,
+   "count": 72,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 6,
+   "componentType": 5126,
+   "count": 72,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 7,
+   "componentType": 5123,
+   "count": 132,
+   "type": "SCALAR"
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteLength": 7200,
+   "byteOffset": 0,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 7200,
+   "byteOffset": 7200,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 4800,
+   "byteOffset": 14400,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 1872,
+   "byteOffset": 19200,
+   "target": 34963
+  },
+  {
+   "buffer": 0,
+   "byteLength": 864,
+   "byteOffset": 21072,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 864,
+   "byteOffset": 21936,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 576,
+   "byteOffset": 22800,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 264,
+   "byteOffset": 23376,
+   "target": 34963
+  }
+ ],
+ "buffers": [
+  {
+   "byteLength": 23640,
+   "uri": "aisle_wheel.bin"
+  }
+ ],
+ "images": [
+  {
+   "uri": "../../materials/rusty_metal_02/color.ktx2"
+  },
+  {
+   "uri": "../../materials/rusty_metal_02/normal.ktx2"
+  },
+  {
+   "uri": "../../materials/rusty_metal_02/orm.ktx2"
+  },
+  {
+   "uri": "../../materials/metal_plate_02/color.ktx2"
+  },
+  {
+   "uri": "../../materials/metal_plate_02/normal.ktx2"
+  },
+  {
+   "uri": "../../materials/metal_plate_02/orm.ktx2"
+  }
+ ],
+ "samplers": [
+  {
+   "magFilter": 9729,
+   "minFilter": 9987,
+   "wrapS": 10497,
+   "wrapT": 10497
+  }
+ ],
+ "textures": [
+  {
+   "sampler": 0,
+   "source": 0
+  },
+  {
+   "sampler": 0,
+   "source": 1
+  },
+  {
+   "sampler": 0,
+   "source": 2
+  },
+  {
+   "sampler": 0,
+   "source": 3
+  },
+  {
+   "sampler": 0,
+   "source": 4
+  },
+  {
+   "sampler": 0,
+   "source": 5
+  }
+ ]
+}

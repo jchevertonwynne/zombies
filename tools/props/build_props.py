@@ -288,15 +288,46 @@ def build_book_rows(blender):
     })
 
 
+# The Archive's Wheels (#538): three kitbashes (post, hand wheel, chain) in cast iron and brass over material sets already
+# under assets/materials. unit -> (name, {material set: base-colour tint}).
+WHEEL_KITS = {
+    "wheel_post": ("Wheel post", {"rusty_metal_02": [0.3, 0.3, 0.32, 1.0], "metal_plate_02": [0.75, 0.55, 0.25, 1.0]}),
+    "aisle_wheel": ("Aisle wheel", {"rusty_metal_02": [0.3, 0.3, 0.32, 1.0], "metal_plate_02": [0.75, 0.55, 0.25, 1.0]}),
+    "wheel_chain": ("Wheel chain", {"rusty_metal_02": [0.22, 0.22, 0.24, 1.0], "metal_plate_02": [0.75, 0.55, 0.25, 1.0]}),
+}
+
+
+def build_wheels(blender, only):
+    for unit, (name, tints) in WHEEL_KITS.items():
+        if only not in (None, "wheels", unit):
+            continue
+        out = ASSETS / "props" / unit
+        shutil.rmtree(out, ignore_errors=True)
+        out.mkdir(parents=True)
+        run_blender(blender, ["--out", out, "--src", out, "--only", unit])
+        patch_sets(out / f"{unit}.gltf", tints)
+        record({
+            "path": f"props/{unit}",
+            "name": f"{name} (kitbash for the Archive's Ranges)",
+            "source": "tools/props/kitbash.py, from " + ", ".join(f"https://polyhaven.com/a/{s}" for s in tints),
+            "licence": "CC0",
+            "fetched": today(),
+            "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/" + " and materials/".join(tints) + " (Poly Haven, CC0), no new texture files. Not fitted into a Prop's box: src/maps/stacks_look.rs stands it at a Wheel",
+        })
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--blender", default=os.environ.get("BLENDER", BLENDER_DEFAULT))
-    parser.add_argument("--only", choices=["crate", "sandbags", "headstone", "sanatorium", *SANATORIUM_KITS, "book_rows"])
+    parser.add_argument("--only", choices=["crate", "sandbags", "headstone", "sanatorium", *SANATORIUM_KITS, "book_rows", "wheels", *WHEEL_KITS])
     parser.add_argument("--headstone-scan")
     parser.add_argument("--headstone-source")
     args = parser.parse_args()
     if args.only == "book_rows":
         build_book_rows(args.blender)
+        return
+    if args.only in ("wheels", *WHEEL_KITS):
+        build_wheels(args.blender, args.only)
         return
     if args.only in ("sanatorium", *SANATORIUM_KITS):
         build_sanatorium(args.blender, args.only)
