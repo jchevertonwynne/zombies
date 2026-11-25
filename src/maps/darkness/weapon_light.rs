@@ -4,7 +4,8 @@
 //!
 //! Each light sits ahead of its Player's muzzle, so it never lights their own Weapon or throws its
 //! shadow, but never inside a wall, or it would light the Zone on the far side. On a dark Map the
-//! view model casts no shadow at all.
+//! view model casts no shadow at all. Its spill, a faint shadowless light at the local Player's eye,
+//! is what lights their own Weapon, so its sights never show as a black block in the dark.
 //!
 //! Every Weapon Light is there from the moment its Player is, shadows and all, and is never
 //! switched: the shadow-casting shaders compile while the Map loads, not mid-Round.
@@ -56,9 +57,28 @@ fn weapon_light(parent: Entity, eye: Vec3, look: Vec3) -> impl Bundle {
     (light, spot(), light.transform(), ChildOf(parent))
 }
 
-/// On a dark Map, the local Player's Weapon Light, on the camera from its first frame.
+/// The Weapon Light's spill back onto the local Player's own Weapon: a faint point light at the
+/// eye that casts no shadow. The Weapon Light itself sits past the muzzle, and a Dark Zone has no
+/// ambient, so without it the view model is pitch black, and aimed, its sights are a black block
+/// right where the crosshair was (#587).
+#[derive(Component, Debug, Clone, Copy)]
+pub struct WeaponSpill;
+
+fn spill() -> PointLight {
+    PointLight {
+        color: WEAPON_LIGHT_COLOR,
+        intensity: WEAPON_SPILL_INTENSITY,
+        range: WEAPON_SPILL_RANGE,
+        radius: 0.0,
+        shadow_maps_enabled: false,
+        ..default()
+    }
+}
+
+/// On a dark Map, the local Player's Weapon Light and its spill, on the camera from its first frame.
 pub(super) fn light_camera(camera: Entity, commands: &mut Commands) {
     commands.spawn(weapon_light(camera, Vec3::ZERO, Vec3::NEG_Z));
+    commands.spawn((WeaponSpill, spill(), Transform::IDENTITY, ChildOf(camera)));
 }
 
 /// On a dark Map, each teammate gets their Weapon Light as they arrive.

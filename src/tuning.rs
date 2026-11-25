@@ -1640,6 +1640,13 @@ pub const WEAPON_LIGHT_OUTER_ANGLE: f32 = 0.42;
 pub const WEAPON_LIGHT_AHEAD: f32 = 1.3;
 /// How far short of a wall within that reach it comes in, so it never lights the far side.
 pub const WEAPON_LIGHT_WALL_GAP: f32 = 0.1;
+/// The Weapon Light's spill back onto the local Player's own Weapon: a faint, shadowless point
+/// light at the eye, so in a Dark Zone the view model (and the sights under the crosshair) reads
+/// as a dim Weapon and not a black block over the middle of the screen (#587). In lumens.
+pub const WEAPON_SPILL_INTENSITY: f32 = 400.0;
+/// How far the spill reaches: past the view model, but short of a wall's far side (the eye is
+/// never nearer a wall than `PLAYER_RADIUS`, and a wall is 0.4 m thick).
+pub const WEAPON_SPILL_RANGE: f32 = 0.7;
 
 // Points
 pub const STARTING_POINTS: u64 = 500;
@@ -1799,6 +1806,9 @@ pub const PAP_PROCESS_SECS: f32 = 3.0;
 pub const PAP_SLIDE_SECS: f32 = 0.6;
 /// How long the Upgraded Weapon waits to be taken before it's lost, with no refund.
 pub const PAP_PICKUP_SECS: f32 = 15.0;
+/// Seconds after a Player takes a Weapon out during which the machine ignores their Use, so the
+/// press (or held key) that took it can't also put a Weapon back in.
+pub const PAP_REUSE_SECS: f32 = 0.6;
 /// Seconds for the glint band to sweep once along an Upgraded Weapon.
 pub const GLINT_SWEEP_SECS: f32 = 1.2;
 
