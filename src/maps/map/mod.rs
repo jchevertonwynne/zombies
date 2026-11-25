@@ -2673,12 +2673,16 @@ pub(crate) mod tests {
                         bad.push(format!("{what} swallows the lamp at {lamp}"));
                     }
                 }
-                // Nor does it stand in water or over a recessed bed or well.
+                // Nor does it stand in water or over a recessed bed or well, unless it stands wholly in a Still pool over its
+                // bed (the Archive's lift pits and sump in the Flooded Cellar), where `Builder::infill` runs it down to the bed.
                 let overlaps = |zone: ZoneId, lo: Vec2, hi: Vec2| zone == infill.zone && lo.x < max.x && min.x < hi.x && lo.y < max.y && min.y < hi.y;
-                for pool in layout.water.iter().filter(|pool| overlaps(pool.zone, pool.min, pool.max)) {
+                let within = |lo: Vec2, hi: Vec2| min.cmpge(lo).all() && max.cmple(hi).all();
+                let in_a_still_bed = layout.water.iter().any(|pool| pool.zone == infill.zone && matches!(pool.level, Level::Still(_)) && within(pool.min, pool.max))
+                    && layout.sunken.iter().any(|sunken| sunken.zone == infill.zone && within(sunken.min, sunken.max));
+                for pool in layout.water.iter().filter(|pool| overlaps(pool.zone, pool.min, pool.max) && !in_a_still_bed) {
                     bad.push(format!("{what} stands in the pool at {}..{}", pool.min, pool.max));
                 }
-                for sunken in layout.sunken.iter().filter(|sunken| overlaps(sunken.zone, sunken.min, sunken.max)) {
+                for sunken in layout.sunken.iter().filter(|sunken| overlaps(sunken.zone, sunken.min, sunken.max) && !in_a_still_bed) {
                     bad.push(format!("{what} stands over the sunken floor at {}..{}", sunken.min, sunken.max));
                 }
                 for &(zone, wading) in layout.wading {
@@ -2744,11 +2748,11 @@ pub(crate) mod tests {
         assert!(bad.is_empty(), "{bad:#?}");
     }
 
-    /// Every indoor Zone of the Greybox, the Quarry, the Cove, the Polder and the Sanatorium has one to three Infills, and no two rooms
+    /// Every indoor Zone of the Greybox, the Quarry, the Cove, the Polder, the Sanatorium and the Archive has one to three Infills, and no two rooms
     /// of a Map come out the same shape: no two have the same set of Infill sizes.
     #[test]
     fn every_indoor_greybox_zone_has_one_to_three_infills_and_no_two_share_a_shape() {
-        for map in [MapId::Greybox, MapId::Quarry, MapId::Cove, MapId::Polder, MapId::Sanatorium] {
+        for map in [MapId::Greybox, MapId::Quarry, MapId::Cove, MapId::Polder, MapId::Sanatorium, MapId::Archive] {
             every_indoor_zone_has_one_to_three_infills_and_no_two_share_a_shape(map);
         }
     }
@@ -2768,6 +2772,10 @@ pub(crate) mod tests {
                 .collect();
             assert!((1..=3).contains(&sizes.len()), "{} has {} Infills", zone.name(), sizes.len());
             sizes.sort();
+            // The Archive also keeps each Zone's own Infills apart: no two of a Zone's share a size.
+            if map == MapId::Archive {
+                assert!(sizes.windows(2).all(|pair| pair[0] != pair[1]), "{} has two Infills of one size", zone.name());
+            }
             if let Some((other, _)) = shapes.iter().find(|(_, other)| *other == sizes) {
                 panic!("{} and {} share a shape", zone.name(), other.name());
             }

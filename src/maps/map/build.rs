@@ -308,8 +308,11 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
     /// (or wall material), with the Zone's skirting round its foot and its cornice round its top,
     /// as the walls have. The trim runs on into the walls it stands against, out of sight.
     pub fn infill(&mut self, infill: &Infill) {
-        let (bottom, top) = infill.span();
+        let (floor, top) = infill.span();
         let (min, max) = (infill.min, infill.max);
+        // One standing in a recessed bed (the Archive's lift pits in the Flooded Cellar's pool) reaches down to it.
+        let sunk = self.map.layout().sunken.iter().find(|sunken| sunken.zone == infill.zone && min.cmpge(sunken.min).all() && max.cmple(sunken.max).all()).map_or(0.0, |sunken| sunken.depth);
+        let bottom = floor - sunk;
         let middle = (min + max) / 2.0;
         let size = Vec3::new(max.x - min.x, top - bottom, max.y - min.y);
         let colours = palette(Some(infill.zone));

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Lays out the Archive's windows, stairwells, lamps, fixed stacks, loop centres and path-node graph
-(#531), from the plan in #513. Writes src/maps/map/archive/data.rs; `archive.rs` builds the walls to
+"""Lays out the Archive's windows, stairwells, lamps, fixed stacks, loop centres, Infills and path-node graph
+(#531, #536), from the plan in #513. Writes src/maps/map/archive/data.rs; `archive.rs` builds the walls to
 match it (its `RANGES` table and the pens round each window follow the numbers here).
 
     python3 tools/archive_layout.py
@@ -177,6 +177,31 @@ for kind, zone, cx, y, cz, w, h, d in LOOP:
     level, tol = (y, 0.3) if zone != "LectureTheatre" else (6.0, 2.5)
     BLOCKS.append((cx - w / 2, cz - d / 2, cx + w / 2, cz + d / 2, level, tol))
 
+# The Infills (#536): 34 solid blocks of the building, from #515 section 7's placement intent moved off every Door, window landing,
+# Buyable, Spawn Point, lamp, Range sweep, mouth strip and gate, the Training loops' 3 m lanes and the stairwells. (zone, name, x0, z0, x1, z1).
+# The book-lift core is the four quarters on the Stacks level (x -3..3, z 17..23) with a pit under each Zone it crosses below; the
+# Undercroft's and the Strong Room's are cut back from the Box Location and Pack-a-Punch.
+INFILLS = [
+    ("CatalogueHall", "quad-stair core", -20, 0, -16.5, 2.9), ("CatalogueHall", "flue breast", 19, 9.8, 20, 11.9),
+    ("ReadingRoom", "wall-case nib", -20, 25.9, -19.2, 29.8), ("ReadingRoom", "stair-tower corner", 16.4, 32, 20, 36), ("ReadingRoom", "chimney breast", 19.2, 18, 20, 21),
+    ("MapRoom", "plan-store cupboard", -24, 30.6, -20, 32.6), ("MapRoom", "pier", -35.8, 35.4, -34.6, 36),
+    ("LectureTheatre", "projection box", 28, 0, 31, 0.5), ("LectureTheatre", "organ-loft nib", 34.7, 21.2, 35.8, 24),
+    ("OldStacks", "core quarter", -3, 17, 0, 20), ("OldStacks", "ring pier", -14.6, 4, -13.1, 5.5), ("OldStacks", "vent riser", -10.5, 4, -9.5, 5),
+    ("FolioStacks", "core quarter", -3, 20, 0, 23), ("FolioStacks", "ring pier", -16.6, 34.5, -15.1, 36), ("FolioStacks", "hoist shaft", -7.2, 34.2, -5.2, 36),
+    ("PeriodicalStacks", "core quarter", 0, 20, 3, 23), ("PeriodicalStacks", "ring pier", 18.5, 34.7, 20, 36), ("PeriodicalStacks", "press chute", 7.1, 35.2, 8.5, 36),
+    ("NewStacks", "core quarter", 0, 17, 3, 20), ("NewStacks", "ring pier", 18.5, 8.4, 20, 9.9), ("NewStacks", "service duct", 19.2, 10.6, 20, 12.6),
+    ("Bindery", "chimney breast", 30.8, 35.2, 33.2, 36), ("Bindery", "stair-bay nib", 31.4, 24, 32.1, 26.5),
+    ("WellStair", "newel wall", -33.5, 11.3, -25.5, 12),
+    ("FloodedCellar", "lift pit", -3, 17, 3, 20), ("FloodedCellar", "culvert head", -20, 3.5, -17.6, 5.3), ("FloodedCellar", "pump sump", 17.5, 11.85, 20, 14.3),
+    ("Undercroft", "lift pit", -3, 20, 0, 20.85), ("Undercroft", "wall respond", -20, 22.6, -19.4, 23.6),
+    ("StrongRoom", "lift pit", 0, 20, 2.55, 23), ("StrongRoom", "vault-door reveal", 6.6, 20, 8.1, 21.2), ("StrongRoom", "book cage", 17, 33.7, 20, 36),
+    ("PumpRoom", "boiler flue", 34.8, 6.8, 36, 10.8), ("PumpRoom", "coal store", 32, 0, 36, 3),
+]
+assert len(INFILLS) == 34
+for zone, _, x0, z0, x1, z1 in INFILLS:
+    level, tol = (ZONES[zone][4], 0.3) if zone != "LectureTheatre" else (6.0, 2.5)
+    BLOCKS.append((x0, z0, x1, z1, level, tol))
+
 # The Causeway (a Raised Floor over the bed) stops anyone walking across it at bed level.
 CAUSEWAY = (-16.0, 8.5, 16.0, 11.5)
 BLOCKS.append((*CAUSEWAY, 0.0, 0.3))
@@ -288,6 +313,18 @@ for zone, name, x, y, z in [
     node(name, x, y, z)
     ZONE_NODES[zone].append(name)
     attach(name, zone, 2, within=6.0)
+
+# The pockets the Infills leave between themselves and a pen: a node in each, walked out of to the grid (the open-floor test).
+node("ch_p0", -15.35, 8.0, 1.5)
+node("ch_p1", -15.35, 8.0, 3.9)
+edge("ch_p0", "ch_p1")
+ZONE_NODES["CatalogueHall"] += ["ch_p0", "ch_p1"]
+attach("ch_p1", "CatalogueHall", 2, within=6.0)
+node("rr_p0", 15.3, 8.0, 34.6)
+node("rr_p1", 15.3, 8.0, 31.4)
+edge("rr_p0", "rr_p1")
+ZONE_NODES["ReadingRoom"] += ["rr_p0", "rr_p1"]
+attach("rr_p1", "ReadingRoom", 2, within=6.0)
 
 # ---------------------------------------------------------------- the Lecture Theatre: crossover, aisles (ramps) and dais
 LT_C = [node("lt_c0", 23.2, 8.0, 2.0), node("lt_c1", 28.5, 8.0, 2.0), node("lt_c2", 34.0, 8.0, 2.0)]
@@ -534,7 +571,7 @@ if os.environ.get("COVERAGE"):
 # ---------------------------------------------------------------- write
 out = []
 out.append("//! The Archive's windows, stairwells, lamps, fixed stacks, loop centres and path-node graph, laid out from\n//! `archive.rs`'s walls and Ranges by `tools/archive_layout.py` (rewritten by it: edit the script, not this file).\n")
-out.append("use bevy::prelude::*;\n\nuse crate::enemies::nav::Gate;\nuse crate::maps::map::{BarrierId, Prop, PropKind, Sunken, prop};\nuse crate::maps::shifting::PieceId;\nuse crate::maps::zone::ZoneId;\n\nuse super::W0;\n")
+out.append("use bevy::prelude::*;\n\nuse crate::enemies::nav::Gate;\nuse crate::maps::map::{BarrierId, Infill, Prop, PropKind, Sunken, infill, prop};\nuse crate::maps::shifting::PieceId;\nuse crate::maps::zone::ZoneId;\n\nuse super::W0;\n")
 out.append("""const fn v(x: f32, z: f32) -> Vec2 {
     Vec2::new(x, z)
 }
@@ -582,6 +619,10 @@ out.append("];\n\n")
 out.append(f"/// The Training loops' centres, as plain boxes: the two catalogue banks, the issue desk, the theatre tiers, the 8 brick piers and the\n/// Undercroft's 3 x 3 columns.\npub(super) const LOOP_CENTRES: [Prop; {len(LOOP)}] = [\n")
 for kind, zone, cx, y, cz, w, h, d in LOOP:
     out.append(f"    p(PropKind::{kind}, ZoneId::{zone}, {rs(cx)}, {rs(y)}, {rs(cz)}, ({rs(w)}, {rs(h)}, {rs(d)})),\n")
+out.append("];\n\n")
+out.append(f"/// The Infills ({len(INFILLS)}: one to three in every Zone, #515 section 7's 34 moved off what the Zone keeps clear; the lift pits stand on the pool's bed).\npub(super) const INFILLS: [Infill; {len(INFILLS)}] = [\n")
+for zone, name, x0, z0, x1, z1 in INFILLS:
+    out.append(f"    // {name}\n    infill(ZoneId::{zone}, ({rs(x0)}, {rs(z0)}), ({rs(x1)}, {rs(z1)})),\n")
 out.append("];\n\n")
 out.append("pub(super) const NODES: &[(&str, f32, f32, f32)] = &[\n")
 for name, x, y, z in NODES:

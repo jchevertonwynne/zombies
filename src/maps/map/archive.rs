@@ -33,7 +33,7 @@ use crate::tuning::{AISLE_WIDTH, BOOKCASE_DEPTH, BOOKCASE_HEIGHT, BOOKCASE_LENGT
 use crate::weapons::arsenal::WeaponId;
 
 use super::build::{Builder, Gap};
-use super::{DOOR_HEIGHT, Layout, Level, Pool, Prop, RaisedFloor, STOREY, Slope, concat, door, palette};
+use super::{DOOR_HEIGHT, Infill, Layout, Level, Pool, Prop, RaisedFloor, STOREY, Slope, concat, door, palette};
 
 #[path = "archive/data.rs"]
 mod data;
@@ -107,7 +107,7 @@ pub(super) const ARCHIVE: Layout = Layout {
     special_spawns: &SPECIAL_SPAWNS,
     vents: &VENTS,
     raised_floors: &RAISED_FLOORS,
-    infills: &[],
+    infills: &data::INFILLS,
     slopes: &SLOPES,
     sunken: &data::SUNKEN,
     water: &POOLS,
@@ -476,6 +476,67 @@ const POOLS: [Pool; 1] = [Pool { zone: ZoneId::FloodedCellar, min: v(-20.0, 0.0)
 /// boxes now (the Props ticket dresses them).
 const PROPS: [Prop; 29] = concat::<_, 8, 21, 29>(data::FIXED_STACKS, data::LOOP_CENTRES);
 
+// ---------------------------------------------------------------- The book-lift core
+
+/// The book-lift core: a 6 x 6 m shaft at x -3..3, z 17..23 that runs from the Strong Room to the Stacks level as a quarter Infill in each
+/// Zone it crosses, and as a half or a cut-back pit in the cellar's three (#515 section 7).
+pub(super) const CORE: (Vec2, Vec2) = (Vec2::new(-3.0, 17.0), Vec2::new(3.0, 23.0));
+
+/// Whether an Infill is part of the core.
+pub(super) fn is_core(infill: &Infill) -> bool {
+    infill.min.cmpge(CORE.0).all() && infill.max.cmple(CORE.1).all()
+}
+
+/// The lattice's flats: how wide and how far proud of the face they stand, how far apart the uprights are, and how far over the floor and
+/// under the cornice they run.
+const FLAT_WIDTH: f32 = 0.04;
+const FLAT_PROUD: f32 = 0.02;
+const UPRIGHT_PITCH: f32 = 0.5;
+const LATTICE_FOOT: f32 = 0.15;
+const LATTICE_HEAD: f32 = 0.35;
+const FLAT_IRON: Color = Color::srgb(0.02, 0.02, 0.025);
+
+/// An iron lattice of black flats on each face of a core quarter that stands free of its Zone's walls: uprights at a half metre and three
+/// cross-bars, drawn only (no collider), so what stands in the Infill's face is what the Infill is.
+fn lift_lattice(b: &mut Builder, infill: &Infill) {
+    let (floor, top) = infill.span();
+    let (lo, hi) = infill.zone.volume();
+    let (bottom, ceiling) = (floor + LATTICE_FOOT, top - LATTICE_HEAD);
+    let height = ceiling - bottom;
+    // Each face: where it lies across its normal, the normal's sign, which way it runs, its run, and the Zone's wall on that side.
+    let faces = [
+        (infill.min.x, -1.0, false, infill.min.y, infill.max.y, lo.x),
+        (infill.max.x, 1.0, false, infill.min.y, infill.max.y, hi.x),
+        (infill.min.y, -1.0, true, infill.min.x, infill.max.x, lo.z),
+        (infill.max.y, 1.0, true, infill.min.x, infill.max.x, hi.z),
+    ];
+    for (across, sign, along_x, start, end, wall) in faces {
+        // A face on the Zone's wall is inside the wall.
+        if (across - wall).abs() < 0.05 {
+            continue;
+        }
+        let out = across + sign * FLAT_PROUD / 2.0;
+        let place = |along: f32, y: f32, run: f32, tall: f32| -> (Vec3, Vec3) {
+            if along_x {
+                (Vec3::new(run, tall, FLAT_PROUD), Vec3::new(along, y, out))
+            } else {
+                (Vec3::new(FLAT_PROUD, tall, run), Vec3::new(out, y, along))
+            }
+        };
+        let uprights = ((end - start) / UPRIGHT_PITCH).round().max(1.0) as u32;
+        for i in 0..=uprights {
+            // The two end uprights sit just inside the face's ends.
+            let along = (start + (end - start) * i as f32 / uprights as f32).clamp(start + FLAT_WIDTH / 2.0, end - FLAT_WIDTH / 2.0);
+            let (size, at) = place(along, (bottom + ceiling) / 2.0, FLAT_WIDTH, height);
+            b.shape(size, at, Quat::IDENTITY, FLAT_IRON);
+        }
+        for k in 1..=3 {
+            let (size, at) = place((start + end) / 2.0, bottom + height * k as f32 / 4.0, end - start, FLAT_WIDTH);
+            b.shape(size, at, Quat::IDENTITY, FLAT_IRON);
+        }
+    }
+}
+
 // ---------------------------------------------------------------- The walls
 
 /// A stretch of wall along x at `z`, from `x0` to `x1`, with gaps at absolute `x`.
@@ -571,6 +632,11 @@ fn build(b: &mut Builder) {
     // The Ranges: their walls (above), their Bookcases and their gates.
     for r in &RANGES {
         range(b, r);
+    }
+
+    // The book-lift core's iron lattice: black flats on the faces of its quarter Infills that stand free of a wall.
+    for infill in data::INFILLS.iter().filter(|infill| is_core(infill)) {
+        lift_lattice(b, infill);
     }
 
     // A pen behind every window, as `WINDOWS` has them.
@@ -1360,6 +1426,170 @@ mod tests {
                         floor.is_none_or(|floor| (floor - spawn.y).abs() > 0.05).then(|| format!("{what} at {spawn}: floor {floor:?}"))
                     })
                     .collect()
+            })
+            .unwrap();
+        assert!(bad.is_empty(), "{bad:#?}");
+    }
+
+    // ---------------------------------------------------------------- Infills (#536)
+
+    /// How far the rectangle `min..max` is from `at` on the plan.
+    fn gap(min: Vec2, max: Vec2, at: Vec2) -> f32 {
+        (min - at).max(at - max).max(Vec2::ZERO).length()
+    }
+
+    /// How far the rectangle `min..max` is from the segment `a`..`b`.
+    fn gap_to_segment(min: Vec2, max: Vec2, a: Vec2, b: Vec2) -> f32 {
+        let steps = ((b - a).length() / 0.05).ceil().max(1.0) as u32;
+        (0..=steps).map(|k| gap(min, max, a.lerp(b, k as f32 / steps as f32))).fold(f32::MAX, f32::min)
+    }
+
+    /// Whether two rectangles on the plan overlap, or touch within `margin`.
+    fn near((alo, ahi): (Vec2, Vec2), (blo, bhi): (Vec2, Vec2), margin: f32) -> bool {
+        alo.x < bhi.x + margin && blo.x < ahi.x + margin && alo.y < bhi.y + margin && blo.y < ahi.y + margin
+    }
+
+    /// A Range's gate corridor: the grille's face along the whole rail, a metre beyond it, and the mouth strip on the same side, where the
+    /// Door and the Wheels' corridor stand.
+    fn gate_corridor(r: &Range) -> (Vec2, Vec2) {
+        let (face, plane) = (r.gate_side * BOOKCASE.z / 2.0, r.gate_side * (BOOKCASE.z / 2.0 + GATE_OFF));
+        let beyond = if r.gate_side > 0.0 { plane + 1.0 } else { plane - 1.0 };
+        r.rect((r.rail - MOUTH, r.rail + r.length() + MOUTH), (face.min(beyond), face.max(beyond)))
+    }
+
+    /// No Archive Infill stands in a Range's sweep, under its soffit (the wall over its opening, along the whole rail), on either mouth strip
+    /// or in its gate's corridor: a Bookcase rolls over none of them and no Wheel or Door is crowded.
+    #[test]
+    fn no_archive_infill_in_a_sweep_soffit_or_mouth_strip() {
+        let mut bad = Vec::new();
+        for infill in archive().infills {
+            let what = format!("the Infill at {}..{} in {}", infill.min, infill.max, infill.zone.name());
+            for r in RANGES.iter().filter(|r| (r.floor - infill.zone.floor()).abs() < 1.0) {
+                let (sweep, strips, gate) = (r.sweep(), r.mouth_strips(), gate_corridor(r));
+                // The soffit is the wall over the sweep's whole run, the Range's line down the middle of it.
+                let soffit = r.rect((r.rail, r.rail + r.length()), (-stacks_look::WALL_FACE, stacks_look::WALL_FACE));
+                for (name, region) in [("sweep", sweep), ("soffit", soffit), ("mouth strip", strips[0]), ("mouth strip", strips[1]), ("gate corridor", gate)] {
+                    if near((infill.min, infill.max), region, 0.0) {
+                        bad.push(format!("{what} is in {}'s {name}", r.name));
+                    }
+                }
+            }
+        }
+        assert!(bad.is_empty(), "{bad:#?}");
+    }
+
+    /// The book-lift core is a quarter Infill in each Zone it crosses, 3 m or more from every Range's sweep on its level (RA and RC 4.7 m,
+    /// RB and RD 3.8 m), and it crosses the Stacks level's four halls and the cellar's Flooded Cellar, Undercroft and Strong Room.
+    #[test]
+    fn the_book_lift_core_is_3_m_from_every_sweep() {
+        let core: Vec<&Infill> = archive().infills.iter().filter(|infill| is_core(infill)).collect();
+        let mut zones: Vec<ZoneId> = core.iter().map(|infill| infill.zone).collect();
+        zones.sort_by_key(|zone| zone.name());
+        let mut wanted = vec![OldStacks, FolioStacks, PeriodicalStacks, NewStacks, FloodedCellar, Undercroft, StrongRoom];
+        wanted.sort_by_key(|zone| zone.name());
+        assert_eq!(zones, wanted, "the core's quarters");
+        for infill in core {
+            for r in RANGES.iter().filter(|r| (r.floor - infill.zone.floor()).abs() < 1.0) {
+                let (lo, hi) = r.sweep();
+                let apart = (lo - infill.max).max(infill.min - hi).max(Vec2::ZERO).length();
+                assert!(apart >= 3.0, "the core in {} is {apart:.2} m from {}'s sweep", infill.zone.name(), r.name);
+            }
+        }
+        // The Stacks level's four quarters meet at the middle of the core: each holds one quadrant of the 6 x 6 m shaft.
+        let quarter_area: f32 = archive().infills.iter().filter(|i| is_core(i) && i.zone.floor() == STACKS).map(|i| (i.max - i.min).element_product()).sum();
+        assert_eq!(quarter_area, 36.0, "the four quarters fill the shaft");
+    }
+
+    /// A Training loop's lane: each leg's centreline, per Zone, that must keep 3 m clear (1.5 m either side). The Catalogue banks, the Issue Desk and the
+    /// Undercroft's columns are ringed 1.5 m off (a lane 3 m wide round each), the Tiers run down both aisles, across the dais and along the crossover,
+    /// the Causeway out and back through the water, the Stack Ring through each hall's lanes between the Ranges' mouths, and the Grand loop's legs the
+    /// others don't cover.
+    const LANE: f32 = 1.5;
+
+    fn ring(centre: Vec2, size: Vec2, off: f32) -> Vec<Vec2> {
+        let h = size / 2.0 + Vec2::splat(off);
+        [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0), (-1.0, -1.0)].map(|(sx, sz)| centre + h * Vec2::new(sx, sz)).to_vec()
+    }
+
+    fn training_loops() -> Vec<(&'static str, ZoneId, Vec<Vec2>)> {
+        let pts = |list: &[(f32, f32)]| list.iter().map(|&(x, z)| Vec2::new(x, z)).collect::<Vec<_>>();
+        vec![
+            ("the west Catalogue bank", CatalogueHall, ring(v(-12.5, 6.5), v(8.0, 1.2), LANE)),
+            ("the east Catalogue bank", CatalogueHall, ring(v(12.5, 6.5), v(8.0, 1.2), LANE)),
+            ("the Issue Desk", ReadingRoom, ring(v(0.0, 24.0), v(6.0, 6.0), LANE)),
+            ("the Tiers", LectureTheatre, pts(&[(21.5, 2.0), (34.5, 2.0), (34.5, 19.5), (21.5, 19.5), (21.5, 2.0)])),
+            ("the Columns (west)", Undercroft, ring(v(-15.0, 28.5), v(0.6, 0.6), 2.5)),
+            ("the Columns (middle)", Undercroft, ring(v(-10.0, 28.5), v(0.6, 0.6), 2.5)),
+            ("the Columns (east)", Undercroft, ring(v(-5.0, 28.5), v(0.6, 0.6), 2.5)),
+            ("the Causeway", FloodedCellar, pts(&[(-16.0, 10.0), (16.0, 10.0), (16.0, 6.7), (-16.0, 6.7), (-16.0, 10.0)])),
+            ("the Stack Ring (Old Stacks)", OldStacks, pts(&[(-3.1, 10.5), (-4.8, 10.5), (-4.8, 15.4), (-9.2, 15.4), (-9.2, 16.9)])),
+            ("the Stack Ring (Folio Stacks)", FolioStacks, pts(&[(-9.2, 23.1), (-9.2, 25.6), (-4.8, 25.6), (-4.8, 28.3), (-3.1, 28.3)])),
+            ("the Stack Ring (Periodical Stacks)", PeriodicalStacks, pts(&[(3.1, 28.3), (5.75, 28.3), (5.75, 25.6), (12.8, 25.6), (12.8, 23.1)])),
+            ("the Stack Ring (New Stacks)", NewStacks, pts(&[(12.8, 16.9), (12.8, 15.4), (5.75, 15.4), (5.75, 10.5), (3.1, 10.5)])),
+            ("the Grand loop (Bindery)", Bindery, pts(&[(26.0, 25.5), (26.0, 29.5), (21.8, 30.0)])),
+            ("the Grand loop (Map Room)", MapRoom, pts(&[(-35.0, 31.2), (-31.0, 31.2), (-31.0, 24.0), (-21.8, 24.0)])),
+        ]
+    }
+
+    /// No Training loop in #513's table is narrowed below 3 m by an Infill: each stays 1.5 m from every lane's centreline in its Zone.
+    #[test]
+    fn no_archive_infill_narrows_a_training_loop_below_3_m() {
+        let mut bad = Vec::new();
+        for (name, zone, lane) in training_loops() {
+            for infill in archive().infills.iter().filter(|infill| infill.zone == zone) {
+                for leg in lane.windows(2) {
+                    let apart = gap_to_segment(infill.min, infill.max, leg[0], leg[1]);
+                    if apart < LANE - 1e-4 {
+                        bad.push(format!("the Infill at {}..{} is {apart:.2} m from {name}'s lane", infill.min, infill.max));
+                    }
+                }
+            }
+        }
+        assert!(bad.is_empty(), "{bad:#?}");
+    }
+
+    /// The Strong Room's vault-door reveal stands on the hinge side of the Power Door PD (the west, the trap switch being on the east), close
+    /// by it but clear of it, and 1.5 x 1.2 m.
+    #[test]
+    fn the_vault_door_reveal_stands_beside_pd_on_its_hinge_side() {
+        let reveal = archive().infills.iter().find(|infill| infill.zone == StrongRoom && (infill.max - infill.min - v(1.5, 1.2)).abs().max_element() < 1e-4).expect("a 1.5 x 1.2 m reveal");
+        let pd = v(10.0, 20.0);
+        assert!(reveal.max.x < pd.x && reveal.min.y == 20.0, "the reveal is on the west side, against the wall");
+        let apart = gap(reveal.min, reveal.max, pd);
+        assert!((1.8..3.5).contains(&apart), "the reveal is {apart:.2} m from PD");
+    }
+
+    /// The core's quarters stand in the Flooded Cellar's pool and run down to its bed, so no gap shows under the water, and every Archive
+    /// Infill is a World collider in the built Map (every peer builds from the same Layout).
+    #[test]
+    fn the_flooded_cellars_infills_run_down_to_the_pools_bed_and_every_infill_is_solid() {
+        use avian3d::prelude::*;
+        use bevy::ecs::system::RunSystemOnce;
+
+        use crate::enemies::zombie::headless::Sim;
+        use crate::layers::GameLayer;
+        let mut sim = Sim::on(MapId::Archive, 60.0, |_| {});
+        let bad: Vec<String> = sim
+            .world_mut()
+            .run_system_once(|spatial: SpatialQuery| -> Vec<String> {
+                let filter = SpatialQueryFilter::from_mask(GameLayer::World);
+                let probe = Collider::sphere(0.1);
+                let mut bad = Vec::new();
+                for infill in archive().infills {
+                    let middle = (infill.min + infill.max) / 2.0;
+                    let (floor, top) = infill.span();
+                    let mut heights = vec![floor + 0.5, (floor + top) / 2.0, top - 0.5];
+                    // In the pool: just over the bed, under the water's face.
+                    if infill.zone == FloodedCellar {
+                        heights.push(floor - 0.4);
+                    }
+                    for y in heights {
+                        if spatial.shape_intersections(&probe, Vec3::new(middle.x, y, middle.y), Quat::IDENTITY, &filter).is_empty() {
+                            bad.push(format!("the Infill at {}..{} in {} is hollow at y {y}", infill.min, infill.max, infill.zone.name()));
+                        }
+                    }
+                }
+                bad
             })
             .unwrap();
         assert!(bad.is_empty(), "{bad:#?}");
