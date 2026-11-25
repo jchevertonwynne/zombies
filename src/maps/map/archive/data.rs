@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 
 use crate::enemies::nav::Gate;
-use crate::maps::map::{BarrierId, Prop, PropKind, Sunken, prop};
+use crate::maps::map::{BarrierId, Infill, Prop, PropKind, Sunken, infill, prop};
 use crate::maps::shifting::PieceId;
 use crate::maps::zone::ZoneId;
 
@@ -201,6 +201,78 @@ pub(super) const LOOP_CENTRES: [Prop; 21] = [
     p(PropKind::Pillar, ZoneId::Undercroft, -5.0, 0.0, 33.5, (0.6, 3.9, 0.6)),
 ];
 
+/// The Infills (34: one to three in every Zone, #515 section 7's 34 moved off what the Zone keeps clear; the lift pits stand on the pool's bed).
+pub(super) const INFILLS: [Infill; 34] = [
+    // quad-stair core
+    infill(ZoneId::CatalogueHall, (-20.0, 0.0), (-16.5, 2.9)),
+    // flue breast
+    infill(ZoneId::CatalogueHall, (19.0, 9.8), (20.0, 11.9)),
+    // wall-case nib
+    infill(ZoneId::ReadingRoom, (-20.0, 25.9), (-19.2, 29.8)),
+    // stair-tower corner
+    infill(ZoneId::ReadingRoom, (16.4, 32.0), (20.0, 36.0)),
+    // chimney breast
+    infill(ZoneId::ReadingRoom, (19.2, 18.0), (20.0, 21.0)),
+    // plan-store cupboard
+    infill(ZoneId::MapRoom, (-24.0, 30.6), (-20.0, 32.6)),
+    // pier
+    infill(ZoneId::MapRoom, (-35.8, 35.4), (-34.6, 36.0)),
+    // projection box
+    infill(ZoneId::LectureTheatre, (28.0, 0.0), (31.0, 0.5)),
+    // organ-loft nib
+    infill(ZoneId::LectureTheatre, (34.7, 21.2), (35.8, 24.0)),
+    // core quarter
+    infill(ZoneId::OldStacks, (-3.0, 17.0), (0.0, 20.0)),
+    // ring pier
+    infill(ZoneId::OldStacks, (-14.6, 4.0), (-13.1, 5.5)),
+    // vent riser
+    infill(ZoneId::OldStacks, (-10.5, 4.0), (-9.5, 5.0)),
+    // core quarter
+    infill(ZoneId::FolioStacks, (-3.0, 20.0), (0.0, 23.0)),
+    // ring pier
+    infill(ZoneId::FolioStacks, (-16.6, 34.5), (-15.1, 36.0)),
+    // hoist shaft
+    infill(ZoneId::FolioStacks, (-7.2, 34.2), (-5.2, 36.0)),
+    // core quarter
+    infill(ZoneId::PeriodicalStacks, (0.0, 20.0), (3.0, 23.0)),
+    // ring pier
+    infill(ZoneId::PeriodicalStacks, (18.5, 34.7), (20.0, 36.0)),
+    // press chute
+    infill(ZoneId::PeriodicalStacks, (7.1, 35.2), (8.5, 36.0)),
+    // core quarter
+    infill(ZoneId::NewStacks, (0.0, 17.0), (3.0, 20.0)),
+    // ring pier
+    infill(ZoneId::NewStacks, (18.5, 8.4), (20.0, 9.9)),
+    // service duct
+    infill(ZoneId::NewStacks, (19.2, 10.6), (20.0, 12.6)),
+    // chimney breast
+    infill(ZoneId::Bindery, (30.8, 35.2), (33.2, 36.0)),
+    // stair-bay nib
+    infill(ZoneId::Bindery, (31.4, 24.0), (32.1, 26.5)),
+    // newel wall
+    infill(ZoneId::WellStair, (-33.5, 11.3), (-25.5, 12.0)),
+    // lift pit
+    infill(ZoneId::FloodedCellar, (-3.0, 17.0), (3.0, 20.0)),
+    // culvert head
+    infill(ZoneId::FloodedCellar, (-20.0, 3.5), (-17.6, 5.3)),
+    // pump sump
+    infill(ZoneId::FloodedCellar, (17.5, 11.85), (20.0, 14.3)),
+    // lift pit
+    infill(ZoneId::Undercroft, (-3.0, 20.0), (0.0, 20.85)),
+    // wall respond
+    infill(ZoneId::Undercroft, (-20.0, 22.6), (-19.4, 23.6)),
+    // lift pit
+    infill(ZoneId::StrongRoom, (0.0, 20.0), (2.55, 23.0)),
+    // vault-door reveal
+    infill(ZoneId::StrongRoom, (6.6, 20.0), (8.1, 21.2)),
+    // book cage
+    infill(ZoneId::StrongRoom, (17.0, 33.7), (20.0, 36.0)),
+    // boiler flue
+    infill(ZoneId::PumpRoom, (34.8, 6.8), (36.0, 10.8)),
+    // coal store
+    infill(ZoneId::PumpRoom, (32.0, 0.0), (36.0, 3.0)),
+];
+
 pub(super) const NODES: &[(&str, f32, f32, f32)] = &[
     ("ch_0_0", -18.0, 8.0, 4.4),
     ("ch_0_1", -18.0, 8.0, 7.8),
@@ -277,7 +349,6 @@ pub(super) const NODES: &[(&str, f32, f32, f32)] = &[
     ("mr_2_1", -22.0, 8.0, 19.0),
     ("mr_2_2", -22.0, 8.0, 23.5),
     ("mr_2_3", -22.0, 8.0, 28.0),
-    ("mr_2_4", -22.0, 8.0, 31.5),
     ("ol_0_1", -18.4, 4.0, 11.4),
     ("ol_1_0", -15.0, 4.0, 6.5),
     ("ol_1_1", -15.0, 4.0, 11.4),
@@ -354,7 +425,6 @@ pub(super) const NODES: &[(&str, f32, f32, f32)] = &[
     ("fc_4_0", 0.0, 0.0, 2.2),
     ("fc_4_1", 0.0, 0.0, 6.8),
     ("fc_4_2", 0.0, 0.0, 13.0),
-    ("fc_4_3", 0.0, 0.0, 17.8),
     ("fc_5_0", 4.5, 0.0, 2.2),
     ("fc_5_1", 4.5, 0.0, 6.8),
     ("fc_5_2", 4.5, 0.0, 13.0),
@@ -368,7 +438,6 @@ pub(super) const NODES: &[(&str, f32, f32, f32)] = &[
     ("fc_7_2", 13.5, 0.0, 13.0),
     ("fc_7_3", 13.5, 0.0, 17.8),
     ("fc_8_1", 18.0, 0.0, 6.8),
-    ("fc_8_2", 18.0, 0.0, 13.0),
     ("un_0_0", -17.5, 0.0, 21.8),
     ("un_0_3", -17.5, 0.0, 34.5),
     ("un_1_0", -12.5, 0.0, 21.8),
@@ -400,7 +469,6 @@ pub(super) const NODES: &[(&str, f32, f32, f32)] = &[
     ("pu_1_1", 28.0, 0.0, 8.0),
     ("pu_1_2", 28.0, 0.0, 13.0),
     ("pu_1_3", 28.0, 0.0, 18.0),
-    ("pu_2_0", 33.0, 0.0, 3.0),
     ("pu_2_1", 33.0, 0.0, 8.0),
     ("pu_2_2", 33.0, 0.0, 13.0),
     ("pu_2_3", 33.0, 0.0, 18.0),
@@ -419,6 +487,10 @@ pub(super) const NODES: &[(&str, f32, f32, f32)] = &[
     ("pu_c", 21.4, 0.0, 22.4),
     ("st_d", 14.5, 0.0, 21.8),
     ("st_c", 18.4, 0.0, 21.4),
+    ("ch_p0", -15.35, 8.0, 1.5),
+    ("ch_p1", -15.35, 8.0, 3.9),
+    ("rr_p0", 15.3, 8.0, 34.6),
+    ("rr_p1", 15.3, 8.0, 31.4),
     ("lt_c0", 23.2, 8.0, 2.0),
     ("lt_c1", 28.5, 8.0, 2.0),
     ("lt_c2", 34.0, 8.0, 2.0),
@@ -783,14 +855,11 @@ pub(super) const EDGES: &[(&str, &str, Gate)] = &[
     ("mr_1_2", "mr_2_1", OPEN),
     ("mr_1_3", "mr_2_3", OPEN),
     ("mr_1_3", "mr_1_4", OPEN),
-    ("mr_1_3", "mr_2_4", OPEN),
     ("mr_1_3", "mr_2_2", OPEN),
-    ("mr_1_4", "mr_2_4", OPEN),
     ("mr_1_4", "mr_2_3", OPEN),
     ("mr_2_0", "mr_2_1", OPEN),
     ("mr_2_1", "mr_2_2", OPEN),
     ("mr_2_2", "mr_2_3", OPEN),
-    ("mr_2_3", "mr_2_4", OPEN),
     ("ol_0_1", "ol_1_1", OPEN),
     ("ol_0_1", "ol_1_0", OPEN),
     ("ol_1_0", "ol_2_0", OPEN),
@@ -875,8 +944,6 @@ pub(super) const EDGES: &[(&str, &str, Gate)] = &[
     ("we_1_0", "we_1_1", OPEN),
     ("we_1_1", "we_1_2", OPEN),
     ("fc_0_0", "fc_1_0", OPEN),
-    ("fc_0_0", "fc_0_1", OPEN),
-    ("fc_0_0", "fc_1_1", OPEN),
     ("fc_0_1", "fc_1_1", OPEN),
     ("fc_0_1", "fc_0_2", OPEN),
     ("fc_0_1", "fc_1_0", OPEN),
@@ -906,19 +973,12 @@ pub(super) const EDGES: &[(&str, &str, Gate)] = &[
     ("fc_3_1", "fc_4_1", OPEN),
     ("fc_3_1", "fc_4_0", OPEN),
     ("fc_3_2", "fc_4_2", OPEN),
-    ("fc_3_2", "fc_4_3", OPEN),
-    ("fc_3_3", "fc_4_3", OPEN),
-    ("fc_3_3", "fc_4_2", OPEN),
     ("fc_4_0", "fc_5_0", OPEN),
     ("fc_4_0", "fc_4_1", OPEN),
     ("fc_4_0", "fc_5_1", OPEN),
     ("fc_4_1", "fc_5_1", OPEN),
     ("fc_4_1", "fc_5_0", OPEN),
     ("fc_4_2", "fc_5_2", OPEN),
-    ("fc_4_2", "fc_4_3", OPEN),
-    ("fc_4_2", "fc_5_3", OPEN),
-    ("fc_4_3", "fc_5_3", OPEN),
-    ("fc_4_3", "fc_5_2", OPEN),
     ("fc_5_0", "fc_6_0", OPEN),
     ("fc_5_0", "fc_6_1", OPEN),
     ("fc_5_1", "fc_6_1", OPEN),
@@ -935,10 +995,7 @@ pub(super) const EDGES: &[(&str, &str, Gate)] = &[
     ("fc_6_3", "fc_7_3", OPEN),
     ("fc_7_0", "fc_7_1", OPEN),
     ("fc_7_1", "fc_8_1", OPEN),
-    ("fc_7_2", "fc_8_2", OPEN),
     ("fc_7_2", "fc_7_3", OPEN),
-    ("fc_7_3", "fc_8_2", OPEN),
-    ("fc_8_1", "fc_8_2", OPEN),
     ("un_0_0", "un_1_0", OPEN),
     ("un_0_3", "un_1_3", OPEN),
     ("un_1_0", "un_2_0", OPEN),
@@ -991,20 +1048,17 @@ pub(super) const EDGES: &[(&str, &str, Gate)] = &[
     ("pu_0_2", "pu_1_1", OPEN),
     ("pu_0_3", "pu_1_3", OPEN),
     ("pu_0_3", "pu_1_2", OPEN),
-    ("pu_1_0", "pu_2_0", OPEN),
     ("pu_1_0", "pu_1_1", OPEN),
     ("pu_1_0", "pu_2_1", OPEN),
     ("pu_1_1", "pu_2_1", OPEN),
     ("pu_1_1", "pu_1_2", OPEN),
     ("pu_1_1", "pu_2_2", OPEN),
-    ("pu_1_1", "pu_2_0", OPEN),
     ("pu_1_2", "pu_2_2", OPEN),
     ("pu_1_2", "pu_1_3", OPEN),
     ("pu_1_2", "pu_2_3", OPEN),
     ("pu_1_2", "pu_2_1", OPEN),
     ("pu_1_3", "pu_2_3", OPEN),
     ("pu_1_3", "pu_2_2", OPEN),
-    ("pu_2_0", "pu_2_1", OPEN),
     ("pu_2_1", "pu_2_2", OPEN),
     ("pu_2_2", "pu_2_3", OPEN),
     ("ol_c0", "ol_1_2", OPEN),
@@ -1025,6 +1079,12 @@ pub(super) const EDGES: &[(&str, &str, Gate)] = &[
     ("pu_c", "pu_0_3", OPEN),
     ("st_d", "st_2_0", OPEN),
     ("st_c", "st_d", OPEN),
+    ("ch_p0", "ch_p1", OPEN),
+    ("ch_p1", "ch_1_0", OPEN),
+    ("ch_p1", "ch_p0", OPEN),
+    ("rr_p0", "rr_p1", OPEN),
+    ("rr_p1", "rr_6_4", OPEN),
+    ("rr_p1", "rr_6_3", OPEN),
     ("lt_c0", "lt_c1", OPEN),
     ("lt_c1", "lt_c2", OPEN),
     ("lt_c0", "lt_w0", OPEN),
@@ -1052,7 +1112,7 @@ pub(super) const EDGES: &[(&str, &str, Gate)] = &[
     ("d2_b", "rr_0_1", OPEN),
     ("d3_a", "d3_b", Gate::Door(ZoneId::MapRoom, ZoneId::FolioStacks)),
     ("d3_b", "fo_0_2", OPEN),
-    ("d3_b", "fo_1_2", OPEN),
+    ("d3_b", "fo_1_1", OPEN),
     ("d4_a", "d4_b", Gate::Door(ZoneId::LectureTheatre, ZoneId::Bindery)),
     ("d4_a", "lt_d1", OPEN),
     ("d4_b", "bi_1_0", OPEN),
@@ -1112,7 +1172,6 @@ pub(super) const EDGES: &[(&str, &str, Gate)] = &[
     ("d9_a", "cw_7", OPEN),
     ("cw_w_foot", "fc_0_2", OPEN),
     ("cw_w_foot", "fc_0_1", OPEN),
-    ("d9_a", "fc_8_2", OPEN),
     ("d9_a", "fc_8_1", OPEN),
     ("r0_m0_0", "r0_ai_0", rest(0, 0)),
     ("r0_ai_0", "r0_m1_0", rest(0, 0)),

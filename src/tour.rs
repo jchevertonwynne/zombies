@@ -276,7 +276,7 @@ fn quarantine_hold(name: &str) -> Option<(crate::maps::quarantine::Stage, u8, f3
     }
 }
 
-/// The Archive: a view of each of its 14 Zones, then the Great Range, the ring's Ranges, the stairs, the Causeway and the Theatre's tiers.
+/// The Archive: a view of each of its 14 Zones, then the Great Range, the ring's Ranges, the stairs, the Causeway, the Theatre's tiers and the Infills.
 const ARCHIVE: &[View] = &[
     view("catalogue-hall", (-15.0, 8.0, 3.2), (15.0, 8.8), -0.02, false),
     view("reading-room", (-17.0, 8.0, 16.5), (10.0, 28.0), -0.05, false),
@@ -299,6 +299,28 @@ const ARCHIVE: &[View] = &[
     view("bindery-stair", (34.2, 4.0, 33.4), (34.2, 26.0), -0.35, false),
     view("causeway", (-15.2, 0.6, 10.0), (15.0, 10.0), -0.02, false),
     view("lecture-theatre-tiers", (28.0, 4.0, 22.0), (28.0, 2.0), 0.2, false),
+    // The Infills (#536) that the room views above leave behind the camera: the book-lift core's quarters top to bottom, then the rest.
+    view("infill-catalogue-hall-quad-stair", (-12.0, 8.0, 7.5), (-19.0, 1.0), -0.05, false),
+    view("infill-catalogue-hall-flue-breast", (12.0, 8.0, 7.0), (19.8, 11.0), -0.05, false),
+    view("infill-reading-room-wall-case-nib", (-14.0, 8.0, 27.0), (-19.8, 27.8), -0.05, false),
+    view("infill-reading-room-stair-tower", (10.0, 8.0, 28.0), (18.0, 34.0), -0.05, false),
+    view("infill-reading-room-chimney-breast", (13.0, 8.0, 19.5), (19.8, 19.5), -0.05, false),
+    view("infill-map-room-plan-store", (-30.0, 8.0, 22.0), (-22.0, 31.5), -0.05, false),
+    view("infill-lecture-theatre-projection-box", (28.0, 8.0, 3.0), (29.5, 0.3), -0.05, false),
+    view("infill-lecture-theatre-organ-loft", (28.0, 4.0, 19.5), (35.2, 22.6), -0.05, false),
+    view("infill-old-stacks-core", (-6.0, 4.0, 12.0), (-1.5, 18.5), -0.05, false),
+    view("infill-folio-stacks-core", (-6.0, 4.0, 26.0), (-1.5, 21.5), -0.05, false),
+    view("infill-periodical-stacks-core", (6.0, 4.0, 26.0), (1.5, 21.5), -0.05, false),
+    view("infill-new-stacks-core", (6.0, 4.0, 12.0), (1.5, 18.5), -0.05, false),
+    view("infill-stacks-piers", (-8.0, 4.0, 8.0), (-14.0, 4.5), -0.05, false),
+    view("infill-bindery-chimney-breast", (27.0, 4.0, 29.0), (32.0, 35.6), -0.05, false),
+    view("infill-well-stair-newel-wall", (-29.0, 4.0, 8.0), (-29.0, 11.7), -0.05, false),
+    view("infill-flooded-cellar-lift-pit", (0.6, 0.6, 10.0), (0.0, 18.5), -0.02, false),
+    view("infill-flooded-cellar-pump-sump", (13.0, 0.0, 9.0), (18.5, 13.0), -0.05, false),
+    view("infill-undercroft-lift-pit", (-8.0, 0.0, 24.0), (-1.5, 20.4), -0.05, false),
+    view("infill-strong-room-lift-pit", (8.0, 0.0, 26.0), (1.3, 21.5), -0.05, false),
+    view("infill-strong-room-vault-door-reveal", (9.0, 0.0, 25.0), (7.5, 20.6), -0.05, false),
+    view("infill-pump-room-boiler-flue", (30.0, 0.0, 8.0), (35.4, 8.8), -0.05, false),
 ];
 
 /// The Polder: a view of each of its 16 Zones, then its bridges, the lock gates, the water and the dyke.
