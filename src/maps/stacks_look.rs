@@ -166,6 +166,7 @@ impl Item {
     }
 
     /// The lowest the box reaches.
+    #[cfg(test)]
     pub fn bottom(&self) -> f32 {
         self.at.y - self.extent().y
     }
