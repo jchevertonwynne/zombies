@@ -106,11 +106,15 @@ pub enum Material {
     HerringboneParquet,
     OldWoodenFloor02,
     DarkPaneledWood,
+    // Worn on the Archive's Bookcases, desks, seats and book fill, which come with its Props (no Zone wears them).
+    #[cfg_attr(not(test), allow(dead_code))]
     WoodTableWorn,
     MedievalBlocks05,
     MonasteryStoneFloor,
     WornPlasterWall,
+    #[cfg_attr(not(test), allow(dead_code))]
     BrownLeather,
+    #[cfg_attr(not(test), allow(dead_code))]
     BookPattern,
     Paper006,
 }

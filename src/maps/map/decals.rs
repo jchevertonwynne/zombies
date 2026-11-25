@@ -43,7 +43,7 @@ impl Decal {
             Decal::OilStain2 => "oil_stain_2",
             Decal::Biohazard => "sign004",
             Decal::Foliage => "foliage",
-            Decal::Page => return "materials/paper006/color.ktx2".to_string(),
+            Decal::Page => return super::textures::Material::Paper006.files()[0].clone(),
         };
         format!("decals/{dir}/color.ktx2")
     }
