@@ -20,7 +20,7 @@ use super::fitting::FittedModel;
 use super::garnish::{FLAME_HEIGHT, FLAME_WIDTH, Flame, Garnish, Garnished, POOL_GLOW, POOL_RADIUS, garnish};
 use super::textures::{Material, Shape, Textured, Tint, Veneer, box_uv_mesh};
 use crate::maps::machine_look::PowerGlow;
-use super::{MapId, DOOR_HEIGHT, DOOR_WIDTH, Infill, Palette, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, WALL_THICKNESS, WINDOW_WIDTH, materials, palette, prop_variant};
+use super::{MapId, DOOR_HEIGHT, DOOR_WIDTH, Infill, Palette, Prop, PropKind, RailStyle, RaisedFloor, STOREY, Slope, Sunken, WALL_THICKNESS, WINDOW_WIDTH, materials, palette, prop_variant};
 use crate::maps::generator::{Generator, PlateDisc};
 use crate::maps::jump_pad::JumpPad;
 use crate::maps::zipline::Zipline;
@@ -99,6 +99,12 @@ pub(super) enum Gap {
 fn reaches_down(zone: ZoneId, hole: &Sunken) -> bool {
     zone.volume().0.y < zone.floor() - hole.depth + 0.5
 }
+
+/// An Open railing's rails (how thick and tall), kick plate (how thick and tall), posts (how thick, and how far apart).
+const OPEN_RAIL: Vec2 = Vec2::new(0.05, 0.05);
+const OPEN_KICK: Vec2 = Vec2::new(0.03, 0.15);
+const OPEN_POST: f32 = 0.07;
+const OPEN_POST_GAP: f32 = 1.5;
 
 /// A stair tread's nosing: how deep (along the climb) and how thick.
 const NOSING: Vec2 = Vec2::new(0.05, 0.03);
@@ -203,6 +209,36 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let shape = self.commands.spawn((InRun, Mesh3d(self.cylinder.clone()), MeshMaterial3d(paint), Transform { translation: at, rotation: Quat::IDENTITY, scale: size })).id();
         self.drawn.push(shape);
         shape
+    }
+
+    /// An upright (or, turned by `rotation`, lying) cylinder `size.x` across and `size.y` long, drawn in `colour` until `material` (if any) has loaded, then in that. Not solid.
+    pub fn cylinder_in(&mut self, size: Vec3, at: Vec3, rotation: Quat, colour: Color, material: Option<Material>) -> Entity {
+        let paint = self.paint(colour);
+        let mut shape = self.commands.spawn((InRun, Mesh3d(self.cylinder.clone()), MeshMaterial3d(paint), Transform { translation: at, rotation, scale: size }));
+        if let Some(material) = material {
+            shape.insert(Textured { material, shape: Shape::Cylinder });
+        }
+        let shape = shape.id();
+        self.drawn.push(shape);
+        shape
+    }
+
+    /// A cone `radius` across its foot and `height` tall (its apex up), centred on `at`, wearing `material` once it has loaded. Not solid.
+    pub fn cone_in(&mut self, radius: f32, height: f32, at: Vec3, colour: Color, material: Option<Material>) -> Entity {
+        let paint = self.paint(colour);
+        let mesh = self.meshes.add(Cone::new(radius, height));
+        let mut shape = self.commands.spawn((InRun, Mesh3d(mesh), MeshMaterial3d(paint), Transform::from_translation(at)));
+        if let Some(material) = material {
+            shape.insert(Textured { material, shape: Shape::Baked });
+        }
+        let shape = shape.id();
+        self.drawn.push(shape);
+        shape
+    }
+
+    /// The Builder's ECS handles, for a look built by hand (the Refinery's lamps and peepholes, which are materials of their own).
+    pub fn assets(&mut self) -> (&mut Commands<'w, 's>, &mut Assets<Mesh>, &mut Assets<StandardMaterial>) {
+        (&mut *self.commands, &mut *self.meshes, &mut *self.materials)
     }
 
     /// Adds `bundle` to an entity the Builder spawned.
@@ -558,14 +594,23 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
     /// A Prop: solid through its whole box (round, for a drum) and drawn as its kind looks, in the
     /// material its Zone's set names for it (`nth` picks between the variants, and varies the look
     /// between Props of a kind). A variant with a unit model lays it over the box once it has loaded.
+    /// A Prop's collider: a cylinder for a Barrel, a box for the rest.
+    fn prop_collider(prop: &Prop) -> Collider {
+        match prop.kind {
+            PropKind::Barrel => Collider::cylinder(prop.size.x / 2.0, prop.size.y),
+            _ => Collider::cuboid(prop.size.x, prop.size.y, prop.size.z),
+        }
+    }
+
+    /// Just a Prop's collider, with nothing drawn: its look is built by hand (the Refinery's plant).
+    pub fn solid_prop(&mut self, prop: &Prop) -> Entity {
+        self.bare(Self::prop_collider(prop), prop.at + Vec3::Y * prop.size.y / 2.0, Quat::IDENTITY)
+    }
+
     pub fn prop(&mut self, prop: &Prop, nth: usize) {
         let Prop { kind, zone, at, size, turn } = *prop;
         let middle = at + Vec3::Y * size.y / 2.0;
-        let collider = match kind {
-            PropKind::Barrel => Collider::cylinder(size.x / 2.0, size.y),
-            _ => Collider::cuboid(size.x, size.y, size.z),
-        };
-        let solid = self.bare(collider, middle, Quat::IDENTITY);
+        let solid = self.bare(Self::prop_collider(prop), middle, Quat::IDENTITY);
         self.drawn.clear();
         // What a unit model covers: all of the Prop, but a Counter's top slab, which stays code-built.
         let covered = if kind == PropKind::Counter { Vec3::new(size.x, size.y - COUNTER_SLAB, size.z) } else { size };
@@ -1105,6 +1150,38 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
             }
         }
         self.piece(a, b, cursor, length, y0, 0.0, height);
+    }
+
+    /// A railing from `a` to `b` (x, z), standing on `y0`, `height` tall: a solid block as a wall of it is, drawn the Map's `rail_style`.
+    pub fn rail(&mut self, a: Vec2, b: Vec2, y0: f32, height: f32) {
+        self.rail_as(self.map.layout().rail_style, a, b, y0, height);
+    }
+
+    /// A railing drawn in `style`. Either way its collider is the same block, `height` tall on `y0`, as `wall` makes it.
+    pub(super) fn rail_as(&mut self, style: RailStyle, a: Vec2, b: Vec2, y0: f32, height: f32) {
+        if style == RailStyle::Solid {
+            self.wall(a, b, y0, height, &[]);
+            return;
+        }
+        let along_x = a.y == b.y;
+        let length = (b - a).length();
+        let (dir, mid) = ((b - a) / length, (a + b) / 2.0);
+        let size = if along_x { Vec3::new(length, height, WALL_THICKNESS) } else { Vec3::new(WALL_THICKNESS, height, length) };
+        self.bare(Collider::cuboid(size.x, size.y, size.z), Vec3::new(mid.x, y0 + height / 2.0, mid.y), Quat::IDENTITY);
+        // The railing's steel is the trim of the Zone it stands in.
+        let zone = wall_faces(self.map, a, b, 0.0, length, y0, y0 + height).into_iter().find_map(|face| face.zone);
+        let colour = self.repaint.unwrap_or_else(|| palette(zone)).trim;
+        let along = |thin: f32, tall: f32| if along_x { Vec3::new(length, tall, thin) } else { Vec3::new(thin, tall, length) };
+        // A top rail, a mid rail and a 0.15 m kick plate.
+        for (thin, tall, up) in [(OPEN_RAIL.x, OPEN_RAIL.x, height - OPEN_RAIL.x / 2.0), (OPEN_RAIL.x, OPEN_RAIL.x, height * 0.5), (OPEN_KICK.x, OPEN_KICK.y, OPEN_KICK.y / 2.0)] {
+            self.shape(along(thin, tall), Vec3::new(mid.x, y0 + up, mid.y), Quat::IDENTITY, colour);
+        }
+        // And a post every 1.5 m, one at each end.
+        let posts = (length / OPEN_POST_GAP).ceil().max(1.0) as usize;
+        for k in 0..=posts {
+            let at = a + dir * (length * k as f32 / posts as f32);
+            self.shape(Vec3::new(OPEN_POST, height, OPEN_POST), Vec3::new(at.x, y0 + height / 2.0, at.y), Quat::IDENTITY, colour);
+        }
     }
 
     /// An outer wall from `a` to `b`, standing on `y0`, with a gap for each window on it at that

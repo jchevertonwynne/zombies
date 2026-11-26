@@ -234,6 +234,8 @@ pub struct Layout {
     pub look: crate::maps::look::Look,
     /// What the Map's lamps look like (a roofed Map's): a bulb everywhere but the Sanatorium (tubes) and the Archive (pendants).
     pub lamp_style: LampStyle,
+    /// What a catwalk's railing looks like: a plain solid block on every Map but the Refinery, whose are open steel (the collider is the same).
+    pub rail_style: RailStyle,
     /// The Zones that keep a bulb lamp on a Map whose `lamp_style` is `Tube` or `Pendant` (the Sanatorium's
     /// caged Boiler House, the Archive's cellar, whose bulbs wear a wire cage). Out-of-doors Zones' lamps are always bulbs.
     pub bulb_zones: &'static [ZoneId],
@@ -252,6 +254,14 @@ pub enum LampStyle {
     Tube,
     Pendant,
     Sodium,
+}
+
+/// How a railing (a wall as tall as `Builder::rail`'s) is drawn. Either way it is the same solid block to a Player, a Zombie and a bullet:
+/// `Open` draws posts, rails and a kick plate over that block's collider (the Refinery's catwalks).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RailStyle {
+    Solid,
+    Open,
 }
 
 /// A floodlight (#568): a metal-halide spot on a mast in `zone`, at `at`, aimed at `aim`.
@@ -1178,7 +1188,9 @@ impl Infill {
     /// indoor Zone's ceiling is).
     pub fn span(&self) -> (f32, f32) {
         let (_, hi) = self.zone.volume();
-        (self.zone.floor(), (hi.y / STOREY).ceil() * STOREY)
+        // The Refinery's sheds' walls and roofs are 3.6 m, not a storey.
+        let top = if self.zone.map() == MapId::Refinery && self.zone.floor() == 0.0 { refinery::FIRE_WALL } else { (hi.y / STOREY).ceil() * STOREY };
+        (self.zone.floor(), top)
     }
 }
 
@@ -1446,7 +1458,12 @@ pub fn spawn_map(
 
     // The Props.
     for (nth, prop) in layout.props.iter().enumerate() {
-        b.prop(prop, nth);
+        // The Refinery's plant is dressed by hand (`refinery::plant`): its Props are colliders here.
+        if *map == MapId::Refinery && refinery::plant::dressed(prop) {
+            b.solid_prop(prop);
+        } else {
+            b.prop(prop, nth);
+        }
     }
 
     // Ceilings over the indoor Zones.
@@ -1752,6 +1769,9 @@ pub fn spawn_map(
 
 #[cfg(test)]
 mod plan;
+
+#[cfg(test)]
+mod rail_tests;
 
 #[cfg(test)]
 pub(crate) mod tests {
@@ -3184,11 +3204,11 @@ pub(crate) mod tests {
         assert!(bad.is_empty(), "{bad:#?}");
     }
 
-    /// Every indoor Zone of the Greybox, the Quarry, the Cove, the Polder, the Sanatorium and the Archive has one to three Infills, and no two rooms
+    /// Every indoor Zone of the Greybox, the Quarry, the Cove, the Polder, the Sanatorium, the Archive and the Refinery has one to three Infills, and no two rooms
     /// of a Map come out the same shape: no two have the same set of Infill sizes.
     #[test]
     fn every_indoor_greybox_zone_has_one_to_three_infills_and_no_two_share_a_shape() {
-        for map in [MapId::Greybox, MapId::Quarry, MapId::Cove, MapId::Polder, MapId::Sanatorium, MapId::Archive] {
+        for map in [MapId::Greybox, MapId::Quarry, MapId::Cove, MapId::Polder, MapId::Sanatorium, MapId::Archive, MapId::Refinery] {
             every_indoor_zone_has_one_to_three_infills_and_no_two_share_a_shape(map);
         }
     }
@@ -3208,8 +3228,8 @@ pub(crate) mod tests {
                 .collect();
             assert!((1..=3).contains(&sizes.len()), "{} has {} Infills", zone.name(), sizes.len());
             sizes.sort();
-            // The Archive also keeps each Zone's own Infills apart: no two of a Zone's share a size.
-            if map == MapId::Archive {
+            // The Archive and the Refinery also keep each Zone's own Infills apart: no two of a Zone's share a size.
+            if matches!(map, MapId::Archive | MapId::Refinery) {
                 assert!(sizes.windows(2).all(|pair| pair[0] != pair[1]), "{} has two Infills of one size", zone.name());
             }
             if let Some((other, _)) = shapes.iter().find(|(_, other)| *other == sizes) {

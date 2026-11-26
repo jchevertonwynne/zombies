@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use crate::enemies::nav::Gate;
 use crate::maps::fire::FuelLineId;
-use crate::maps::map::{BarrierId, Flood, Prop, PropKind, prop};
+use crate::maps::map::{BarrierId, Flood, Infill, Prop, PropKind, infill, prop};
 use crate::maps::zone::ZoneId;
 
 use super::W0;
@@ -163,9 +163,20 @@ pub(super) const FLOODS: [Flood; 6] = [
     Flood { zone: ZoneId::Substation, at: Vec3::new(58.8, 9.0, 62.0), aim: Vec3::new(40.0, 0.0, 76.0) },
 ];
 
-/// The plant structures that are loop centres and Blaze walls (27): the tanks and the column (round), the blast-wall-high things and
-/// the sleepers (plain solid boxes now; their silhouettes come with the Props).
-pub(super) const PLANT: [Prop; 27] = [
+/// The Infills (7, #573): the rooms of the three sheds, laid out clear of the Doors, windows, chalks, lamps and path edges.
+pub(super) const INFILLS: [Infill; 7] = [
+    infill(ZoneId::FittingShop, (51.0, 7.3), (60.0, 11.3)),
+    infill(ZoneId::FittingShop, (45.0, 18.6), (46.4, 20.0)),
+    infill(ZoneId::CompressorHouse, (20.0, 56.2), (29.0, 60.0)),
+    infill(ZoneId::CompressorHouse, (58.8, 36.6), (60.0, 38.4)),
+    infill(ZoneId::CompressorHouse, (20.0, 40.0), (21.4, 42.0)),
+    infill(ZoneId::ControlHouse, (24.0, 62.4), (26.4, 64.8)),
+    infill(ZoneId::ControlHouse, (24.0, 80.4), (27.2, 86.0)),
+];
+
+/// The plant structures that are loop centres and Blaze walls (28): the tanks and the column (round), the blast-wall-high things and
+/// the sleepers, with the heater's stack (the colliders under `plant.rs`'s dressing).
+pub(super) const PLANT: [Prop; 28] = [
     p(PropKind::Machine, ZoneId::Gatehouse, 0.0, 0.0, 11.0, (4.0, 2.5, 12.0)),
     p(PropKind::Machine, ZoneId::Gatehouse, 3.5, 0.0, 15.0, (3.0, 3.0, 4.0)),
     p(PropKind::Machine, ZoneId::TankerDock, -52.0, 0.0, 10.0, (4.0, 3.0, 12.0)),
@@ -180,6 +191,7 @@ pub(super) const PLANT: [Prop; 27] = [
     p(PropKind::Barrel, ZoneId::ColumnYard, 0.0, 0.0, 76.0, (6.0, 12.0, 6.0)),
     p(PropKind::Machine, ZoneId::ColumnYard, 12.0, 0.0, 76.0, (8.0, 2.9, 12.0)),
     p(PropKind::Machine, ZoneId::Substation, 40.0, 0.0, 76.0, (10.0, 2.4, 14.0)),
+    p(PropKind::Pillar, ZoneId::ColumnYard, 12.0, 0.0, 83.0, (1.2, 20.0, 1.2)),
     p(PropKind::Pillar, ZoneId::RackRoad, -3.4, 0.0, 26.0, (0.4, 4.0, 0.4)),
     p(PropKind::Pillar, ZoneId::RackRoad, 3.4, 0.0, 26.0, (0.4, 4.0, 0.4)),
     p(PropKind::Pillar, ZoneId::RackRoad, -3.4, 0.0, 34.0, (0.4, 4.0, 0.4)),
@@ -249,10 +261,8 @@ pub(super) const NODES: &[(&str, f32, f32, f32)] = &[
     ("fs_4_1", 45.67, 0.0, 10.0),
     ("fs_4_2", 45.67, 0.0, 15.0),
     ("fs_5_0", 51.33, 0.0, 5.0),
-    ("fs_5_1", 51.33, 0.0, 10.0),
     ("fs_5_2", 51.33, 0.0, 15.0),
     ("fs_6_0", 57.0, 0.0, 5.0),
-    ("fs_6_1", 57.0, 0.0, 10.0),
     ("tf_0_0", -57.0, 0.0, 23.0),
     ("tf_0_2", -57.0, 0.0, 34.33),
     ("tf_0_3", -57.0, 0.0, 40.0),
@@ -335,14 +345,12 @@ pub(super) const NODES: &[(&str, f32, f32, f32)] = &[
     ("cs_0_3", 23.0, 0.0, 40.0),
     ("cs_0_4", 23.0, 0.0, 45.67),
     ("cs_0_5", 23.0, 0.0, 51.33),
-    ("cs_0_6", 23.0, 0.0, 57.0),
     ("cs_1_0", 28.67, 0.0, 23.0),
     ("cs_1_1", 28.67, 0.0, 28.67),
     ("cs_1_2", 28.67, 0.0, 34.33),
     ("cs_1_3", 28.67, 0.0, 40.0),
     ("cs_1_4", 28.67, 0.0, 45.67),
     ("cs_1_5", 28.67, 0.0, 51.33),
-    ("cs_1_6", 28.67, 0.0, 57.0),
     ("cs_2_0", 34.33, 0.0, 23.0),
     ("cs_2_1", 34.33, 0.0, 28.67),
     ("cs_2_2", 34.33, 0.0, 34.33),
@@ -811,21 +819,11 @@ pub(super) const EDGES: &[(&str, &str, Gate)] = &[
     ("fs_3_2", "fs_4_1", OPEN),
     ("fs_4_0", "fs_5_0", OPEN),
     ("fs_4_0", "fs_4_1", OPEN),
-    ("fs_4_0", "fs_5_1", OPEN),
-    ("fs_4_1", "fs_5_1", OPEN),
     ("fs_4_1", "fs_4_2", OPEN),
     ("fs_4_1", "fs_5_2", OPEN),
     ("fs_4_1", "fs_5_0", OPEN),
     ("fs_4_2", "fs_5_2", OPEN),
-    ("fs_4_2", "fs_5_1", OPEN),
     ("fs_5_0", "fs_6_0", OPEN),
-    ("fs_5_0", "fs_5_1", OPEN),
-    ("fs_5_0", "fs_6_1", OPEN),
-    ("fs_5_1", "fs_6_1", OPEN),
-    ("fs_5_1", "fs_5_2", OPEN),
-    ("fs_5_1", "fs_6_0", OPEN),
-    ("fs_5_2", "fs_6_1", OPEN),
-    ("fs_6_0", "fs_6_1", OPEN),
     ("tf_0_0", "tf_1_0", OPEN),
     ("tf_0_0", "tf_1_1", OPEN),
     ("tf_0_2", "tf_0_3", OPEN),
@@ -1014,11 +1012,7 @@ pub(super) const EDGES: &[(&str, &str, Gate)] = &[
     ("cs_0_4", "cs_1_5", OPEN),
     ("cs_0_4", "cs_1_3", OPEN),
     ("cs_0_5", "cs_1_5", OPEN),
-    ("cs_0_5", "cs_0_6", OPEN),
-    ("cs_0_5", "cs_1_6", OPEN),
     ("cs_0_5", "cs_1_4", OPEN),
-    ("cs_0_6", "cs_1_6", OPEN),
-    ("cs_0_6", "cs_1_5", OPEN),
     ("cs_1_0", "cs_2_0", OPEN),
     ("cs_1_0", "cs_1_1", OPEN),
     ("cs_1_0", "cs_2_1", OPEN),
@@ -1039,11 +1033,8 @@ pub(super) const EDGES: &[(&str, &str, Gate)] = &[
     ("cs_1_4", "cs_2_5", OPEN),
     ("cs_1_4", "cs_2_3", OPEN),
     ("cs_1_5", "cs_2_5", OPEN),
-    ("cs_1_5", "cs_1_6", OPEN),
     ("cs_1_5", "cs_2_6", OPEN),
     ("cs_1_5", "cs_2_4", OPEN),
-    ("cs_1_6", "cs_2_6", OPEN),
-    ("cs_1_6", "cs_2_5", OPEN),
     ("cs_2_0", "cs_3_0", OPEN),
     ("cs_2_0", "cs_2_1", OPEN),
     ("cs_2_0", "cs_3_1", OPEN),
@@ -1739,7 +1730,7 @@ pub(super) const EDGES: &[(&str, &str, Gate)] = &[
     ("w6_in", "fs_3_1", OPEN),
     ("w7_out", "w7_in", barrier(7)),
     ("w7_in", "fs_5_2", OPEN),
-    ("w7_in", "fs_6_1", OPEN),
+    ("w7_in", "fs_4_2", OPEN),
     ("w8_out", "w8_in", barrier(8)),
     ("w8_in", "lp_tf_w1", OPEN),
     ("w8_in", "tf_1_1", OPEN),
