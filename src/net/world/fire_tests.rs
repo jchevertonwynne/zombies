@@ -6,6 +6,8 @@ use bevy::ecs::system::RunSystemOnce;
 use super::tests::Run;
 use super::*;
 use crate::maps::fire::{FirePlugin, LitMask, Valve};
+use crate::maps::fire_look::tests::{Shown, blazes_shown, valve_lamps};
+use crate::maps::fire_look::{FireLookPlugin, FireSprites, Lamp};
 use crate::players::player::Health;
 use crate::maps::map::MapId;
 use crate::players::player::Seat;
@@ -221,7 +223,8 @@ fn a_client_sees_a_sabotaged_line_refuse_its_valve_and_shut_again_once_restored(
     use crate::maps::fire::{LineNode, Valve};
     let mut run = Run::on(MapId::Refinery, 1, &|app| {
         use crate::enemies::sapper::{prune_restores, restore_bought};
-        app.add_plugins(FirePlugin)
+        app.add_plugins((FirePlugin, FireLookPlugin))
+            .insert_resource(FireSprites::stand_in())
             .add_systems(Startup, crate::enemies::sapper::load_assets)
             .add_systems(Update, (restore_bought, prune_restores).chain().in_set(crate::authority::HostSimulation));
     });
@@ -254,6 +257,11 @@ fn a_client_sees_a_sabotaged_line_refuse_its_valve_and_shut_again_once_restored(
     }
     let client_node = run.find::<LineNode>(1, |node| node.line == FuelLineId(3));
     assert!(run.world(1).get::<Sabotaged>(client_node).is_some(), "the client was told the line is Sabotaged");
+    // Its Valve lamps blink red on both machines (the lamp is lit or between blinks), and the others are the steady red-orange of a Lit line.
+    for on in 0..2 {
+        assert!(valve_lamps(run.world(on), 3).iter().all(|lamp| matches!(lamp, Lamp::Alarm | Lamp::Dark)), "game {on}: {:?}", valve_lamps(run.world(on), 3));
+        assert_eq!(valve_lamps(run.world(on), 2), vec![Lamp::RedOrange; 2], "game {on}: another line's Valves");
+    }
     // The client turns a Valve anyway: nothing happens and nothing is charged.
     let valve = run.find::<Valve>(1, |valve| valve.line == FuelLineId(3));
     run.use_buyable(1, valve, false);
@@ -281,5 +289,131 @@ fn a_client_sees_a_sabotaged_line_refuse_its_valve_and_shut_again_once_restored(
     run.step(ticks(0.5));
     for on in 0..2 {
         assert!(matches!(phase(&mut run, on, 3), LinePhase::Shut { .. }), "game {on}: a Valve shuts it again: {:?}", phase(&mut run, on, 3));
+    }
+}
+
+// ---- What the Fuel Lines look like on a client ----
+
+fn refinery_look(clients: u8) -> Run {
+    Run::on(MapId::Refinery, clients, &|app| {
+        app.add_plugins((FirePlugin, FireLookPlugin)).insert_resource(FireSprites::stand_in());
+    })
+}
+
+/// Everything a game shows of every line: each Blaze's light, bed and cards, and each Valve's lamp.
+fn look_of(run: &mut Run, on: usize) -> Vec<(Vec<Shown>, Vec<Lamp>)> {
+    (0..6).map(|line| (blazes_shown(run.world(on), line), valve_lamps(run.world(on), line))).collect()
+}
+
+/// A lamp that blinks is lit or between blinks; the two machines' clocks are not in step, so only the colour it blinks in is compared.
+fn steady(lamp: Lamp) -> Lamp {
+    if lamp == Lamp::Dark { Lamp::Amber } else { lamp }
+}
+
+/// A client's flames, lights, bed and Valve lamps follow the Host's phases, line by line: Lit, in the 1 s shrink to Shut, Shut, and through
+/// a Flare-up with and without its blue pilot, and back to Lit.
+#[test]
+fn a_clients_blazes_and_valves_follow_the_hosts_phases() {
+    let mut run = refinery_look(1);
+    run.step(10);
+    let phases = [
+        (0u8, LinePhase::Lit),
+        (1, LinePhase::Shut { elapsed: 20.0 }),
+        (2, LinePhase::FlareUp { elapsed: 3.0 }),
+        (3, LinePhase::FlareUp { elapsed: 1.0 }),
+        (4, LinePhase::Shut { elapsed: 0.5 }),
+    ];
+    let same = |run: &mut Run| {
+        let (host, client) = (look_of(run, 0), look_of(run, 1));
+        for (line, (a, b)) in host.iter().zip(&client).enumerate() {
+            assert_eq!(a.0, b.0, "line {line}: the Blazes");
+            let blink = |lamps: &[Lamp]| lamps.iter().map(|&lamp| steady(lamp)).collect::<Vec<_>>();
+            assert_eq!(blink(&a.1), blink(&b.1), "line {line}: the Valve lamps");
+        }
+        host
+    };
+    // Every line starts Lit: bright, glowing, red-orange.
+    let at_start = same(&mut run);
+    assert!(at_start.iter().all(|(blazes, lamps)| blazes.iter().all(|shown| shown.level == 2 && shown.glow_bed && shown.flames >= 1) && lamps == &vec![Lamp::RedOrange; 2]));
+    // The Host's lines change phase and the client shows each as the Host does.
+    for (line, phase) in phases {
+        host_shows(&mut run, line, phase);
+    }
+    run.step(10);
+    let shown = same(&mut run);
+    assert!(shown[0].0.iter().all(|blaze| blaze.level == 2 && blaze.glow_bed));
+    for blaze in &shown[1].0 {
+        assert_eq!((blaze.level, blaze.glow_bed, blaze.flames, blaze.pilots), (0, false, 0, 0), "the scorched bed of a Shut line");
+    }
+    assert_eq!(shown[1].1, vec![Lamp::Green; 2]);
+    for blaze in &shown[2].0 {
+        assert_eq!((blaze.level, blaze.flames, blaze.shimmer), (1, 0, 3));
+        assert!(blaze.pilots >= 3, "the blue pilot in the last 1.5 s of a Flare-up");
+    }
+    assert!(shown[3].0.iter().all(|blaze| blaze.pilots == 0 && blaze.shimmer == 3), "no pilot early in the Flare-up");
+    assert!(shown[3].1.iter().all(|lamp| steady(*lamp) == Lamp::Amber));
+    // 0.5 s into the Shut, the flames are half gone and the glow still shows.
+    assert!(shown[4].0.iter().all(|blaze| blaze.glow_bed && blaze.level >= 1));
+    // And through to Lit again.
+    host_shows(&mut run, 2, LinePhase::Lit);
+    run.step(10);
+    let lit = same(&mut run);
+    assert!(lit[2].0.iter().all(|blaze| blaze.level == 2 && blaze.glow_bed && blaze.flames >= 1 && blaze.pilots == 0));
+}
+
+/// A Player who arrives while a line is Shut sees its scorched bed and its green lamp, and the lines the Host is Flaring up as it does.
+#[test]
+fn a_late_joiner_while_a_line_is_shut_sees_the_scorched_bed_and_the_green_lamp() {
+    let mut run = refinery_look(1);
+    run.step(10);
+    host_shows(&mut run, 2, LinePhase::Shut { elapsed: 20.0 });
+    host_shows(&mut run, 4, LinePhase::FlareUp { elapsed: 1.0 });
+    run.step(10);
+    // The client forgets, as one that was away would have: it shows every line Lit until the Host tells it.
+    *run.world(1).resource_mut::<FuelLines>() = FuelLines::start(6);
+    run.step(2);
+    assert!(blazes_shown(run.world(1), 2).iter().all(|blaze| blaze.glow_bed && blaze.level == 2));
+    run.world(0).write_message(SeatReturned { seat: Seat(1) });
+    run.step(10);
+    for blaze in blazes_shown(run.world(1), 2) {
+        assert_eq!((blaze.level, blaze.glow_bed, blaze.flames), (0, false, 0), "the scorched bed");
+    }
+    assert_eq!(valve_lamps(run.world(1), 2), vec![Lamp::Green; 2], "the green lamp");
+    assert_eq!(blazes_shown(run.world(1), 2), blazes_shown(run.world(0), 2));
+    assert!(blazes_shown(run.world(1), 4).iter().all(|blaze| blaze.shimmer == 3 && blaze.flames == 0), "the line the Host is Flaring up");
+    assert!(valve_lamps(run.world(1), 4).iter().all(|lamp| steady(*lamp) == Lamp::Amber));
+    for line in [0, 1, 3, 5] {
+        assert!(blazes_shown(run.world(1), line).iter().all(|blaze| blaze.level == 2 && blaze.glow_bed), "line {line}");
+    }
+}
+
+/// A Zombie in a Lit Blaze burns on every machine alike, by the one feet rule: the Host and the client each draw its two flame cards, and
+/// neither draws them for a Zombie in a Shut line's Blaze.
+#[test]
+fn a_zombie_in_a_lit_blaze_burns_on_the_host_and_the_client_alike() {
+    use crate::maps::fire_look::ZombieFlame;
+    let mut run = refinery_look(1);
+    run.step(10);
+    let blaze = MapId::Refinery.layout().fuel_lines[1].blazes[0];
+    // A Hellhound stands in the Bund Line's Blaze on both machines (a puppet on the client is the same `Zombie` at the same place).
+    let at = blaze.centre();
+    let mut hounds = Vec::new();
+    for on in 0..2usize {
+        let half = crate::enemies::zombie::Zombie::hellhound(1000.0, at).half_height();
+        hounds.push(run.world(on).spawn((crate::enemies::zombie::Zombie::hellhound(1000.0, at), Transform::from_translation(at + Vec3::Y * half))).id());
+    }
+    let flames = |run: &mut Run, on: usize, hound: Entity| {
+        let world = run.world(on);
+        world.query::<&ZombieFlame>().iter(world).filter(|card| card.zombie == hound).count()
+    };
+    run.step(5);
+    for (on, &hound) in hounds.iter().enumerate() {
+        assert_eq!(flames(&mut run, on, hound), 2, "game {on} draws the burning Hound's two flame cards");
+    }
+    // The line is Shut on the Host (and so, told, on the client): 2 s on, no one draws them.
+    host_shows(&mut run, 1, LinePhase::Shut { elapsed: 0.0 });
+    run.step(ticks(2.5));
+    for (on, &hound) in hounds.iter().enumerate() {
+        assert_eq!(flames(&mut run, on, hound), 0, "game {on}: a Shut line burns no one");
     }
 }

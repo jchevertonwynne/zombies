@@ -8,6 +8,7 @@
 
 pub mod coop;
 pub mod damage_indicator;
+pub mod fire;
 pub mod generators;
 pub mod info;
 pub mod overlay;
@@ -286,7 +287,7 @@ pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((OverlayPlugin, DamageIndicatorPlugin, generators::GeneratorHudPlugin, info::InfoPlugin, quarantine::QuarantineHudPlugin))
+        app.add_plugins((OverlayPlugin, DamageIndicatorPlugin, generators::GeneratorHudPlugin, info::InfoPlugin, quarantine::QuarantineHudPlugin, fire::FireHudPlugin))
             .init_resource::<PointsFlash>()
             .init_resource::<LastBalance>()
             .init_resource::<Banner>()

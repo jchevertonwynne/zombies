@@ -120,6 +120,7 @@ fn main() -> AppExit {
         .add_plugins(weapons::gun_model::WeaponAtlasPlugin)
         .add_plugins(maps::machine_look::MachineLookPlugin)
         .add_plugins(maps::stacks_look::StacksLookPlugin)
+        .add_plugins(maps::fire_look::FireLookPlugin)
         .add_plugins(maps::look::LookPlugin);
     if let Some(bench) = bench::Bench::from_env() {
         app.add_plugins(bench::BenchPlugin(bench));

@@ -2938,6 +2938,30 @@
       "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/wood_table_worn and materials/dark_paneled_wood and materials/brown_leather and materials/metal_plate_02 (Poly Haven and ambientCG, CC0), no new texture files; its flat colours are glTF factors"
     },
     {
+      "path": "props/valve_needle",
+      "name": "Valve gauge needle (kitbash for the Refinery's Fuel Lines)",
+      "source": "tools/props/kitbash.py",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); flat glTF colours only, no texture files. Not fitted into a Prop's box: src/maps/fire_look.rs stands it at each Valve, turning the wheel and the needle and drawing the lamp"
+    },
+    {
+      "path": "props/valve_stand",
+      "name": "Valve stand (kitbash for the Refinery's Fuel Lines)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/rusty_metal_02",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/rusty_metal_02 (Poly Haven, CC0) and flat glTF colours, no new texture files. Not fitted into a Prop's box: src/maps/fire_look.rs stands it at each Valve, turning the wheel and the needle and drawing the lamp"
+    },
+    {
+      "path": "props/valve_wheel",
+      "name": "Valve hand wheel (kitbash for the Refinery's Fuel Lines)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/rusty_metal_02",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/rusty_metal_02 (Poly Haven, CC0) and flat glTF colours, no new texture files. Not fitted into a Prop's box: src/maps/fire_look.rs stands it at each Valve, turning the wheel and the needle and drawing the lamp"
+    },
+    {
       "path": "props/wheel_chain",
       "name": "Wheel chain (kitbash for the Archive's Ranges)",
       "source": "tools/props/kitbash.py, from https://polyhaven.com/a/rusty_metal_02, https://polyhaven.com/a/metal_plate_02",

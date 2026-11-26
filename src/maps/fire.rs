@@ -430,81 +430,41 @@ pub struct LineNode {
 #[derive(Component, Default)]
 struct Scorched(Vec<(FuelLineId, u32)>);
 
-/// A Lit Blaze's flat orange quad, until the Look draws it.
-#[derive(Component)]
-struct BlazeQuad(FuelLineId);
-
-/// A Valve's lamp: red while its line is Lit, green while Shut, amber through a Flare-up.
-#[derive(Component)]
-struct ValveLamp(FuelLineId);
-
-/// The lamp and quad materials, by phase.
-#[derive(Resource, Clone)]
-struct FireMaterials {
-    lit: Handle<StandardMaterial>,
-    flare: Handle<StandardMaterial>,
-    shut: Handle<StandardMaterial>,
-}
-
 /// Request to Shut or relight the Fuel Line nearest `at` now, free and with no wait. The Host judges it.
 #[derive(Message, Debug, Clone, Copy, PartialEq)]
 pub struct StepFuelLine {
     pub at: Vec3,
 }
 
-/// Spawns the Map's Valves and Blaze quads. Called by `spawn_map`.
+/// Spawns the Map's Fuel Lines: each line's node, its Valves (their look is `fire_look`'s) and its Blazes' beds, lights and pipe.
 pub fn spawn_fire(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>, layout: &Layout) {
     if layout.fuel_lines.is_empty() {
         return;
     }
-    let emissive = |base: Color, glow: LinearRgba| StandardMaterial { base_color: base, emissive: glow, ..default() };
-    let look = FireMaterials {
-        lit: materials.add(emissive(Color::srgb(0.9, 0.3, 0.05), LinearRgba::rgb(4.0, 1.2, 0.1))),
-        flare: materials.add(emissive(Color::srgb(0.9, 0.7, 0.1), LinearRgba::rgb(2.0, 1.5, 0.1))),
-        shut: materials.add(emissive(Color::srgb(0.1, 0.5, 0.15), LinearRgba::rgb(0.1, 1.2, 0.2))),
-    };
-    let iron = materials.add(Color::srgb(0.13, 0.14, 0.15));
-    let post = meshes.add(Cuboid::new(0.3, 1.0, 0.3));
-    let wheel = meshes.add(Torus::new(0.14, 0.2));
-    let lamp = meshes.add(Sphere::new(0.1));
+    let kit = crate::maps::fire_look::FireKit::new(meshes, materials);
     for (i, line) in layout.fuel_lines.iter().enumerate() {
         let id = FuelLineId(i as u8);
         if let Some(first) = line.blazes.first() {
             commands.spawn((InRun, Name::new(format!("Fuel Line {}", line.name)), LineNode { line: id }, Transform::from_translation(first.centre() + Vec3::Y * 0.5)));
         }
-        for blaze in line.blazes {
-            let size = blaze.max - blaze.min;
-            let at = blaze.centre() + Vec3::Y * 0.03;
-            commands.spawn((
-                InRun,
-                Name::new(format!("Blaze of the {}", line.name)),
-                BlazeQuad(id),
-                Mesh3d(meshes.add(Cuboid::new(size.x, 0.04, size.y))),
-                MeshMaterial3d(look.lit.clone()),
-                Transform::from_translation(at),
-                Visibility::default(),
-            ));
-        }
+        crate::maps::fire_look::spawn_line(commands, meshes, materials, &kit, id, line);
         for &(_, at, facing) in line.valves {
             let normal = Vec3::new(facing.x, 0.0, facing.y);
             let use_point = at + Vec3::Y * 1.1 + normal * 0.3;
-            commands
+            // The Valve stands on the floor, its +z the way it faces; the look hangs its stand, wheel, gauge and lamp on it.
+            let valve = commands
                 .spawn((
                     InRun,
                     Name::new(format!("Valve of the {}", line.name)),
                     Valve { line: id, use_point },
-                    Mesh3d(post.clone()),
-                    MeshMaterial3d(iron.clone()),
-                    Transform::from_translation(at + Vec3::Y * 0.5).looking_to(-normal, Vec3::Y),
+                    Transform::from_translation(at).looking_to(-normal, Vec3::Y),
                     Visibility::default(),
                 ))
-                .with_children(|parent| {
-                    parent.spawn((Mesh3d(wheel.clone()), MeshMaterial3d(iron.clone()), Transform::from_xyz(0.0, 0.7, 0.2).with_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2))));
-                    parent.spawn((ValveLamp(id), Mesh3d(lamp.clone()), MeshMaterial3d(look.lit.clone()), Transform::from_xyz(0.0, 0.62, 0.0)));
-                });
+                .id();
+            crate::maps::fire_look::dress_valve(commands, meshes, materials, &kit, valve, id);
         }
     }
-    commands.insert_resource(look);
+    commands.insert_resource(kit);
 }
 
 /// Every Run starts with every line Lit.
@@ -758,38 +718,13 @@ fn feel_the_heat(
     }
 }
 
-/// Shows each Blaze while its line is Lit or Flaring up, and each Valve's lamp by phase.
-fn show_lines(
-    lines: Res<FuelLines>,
-    look: Option<Res<FireMaterials>>,
-    mut quads: Query<(&BlazeQuad, &mut Visibility, &mut MeshMaterial3d<StandardMaterial>), Without<ValveLamp>>,
-    mut lamps: Query<(&ValveLamp, &mut MeshMaterial3d<StandardMaterial>), Without<BlazeQuad>>,
-) {
-    let Some(look) = look else { return };
-    let material = |phase: LinePhase| match phase {
-        LinePhase::Lit => &look.lit,
-        LinePhase::FlareUp { .. } => &look.flare,
-        LinePhase::Shut { .. } => &look.shut,
-    };
-    for (quad, mut visibility, mut handle) in &mut quads {
-        let phase = lines.phase(quad.0);
-        visibility.set_if_neq(if phase.closed() { Visibility::Inherited } else { Visibility::Hidden });
-        let want = material(phase);
-        if handle.0 != *want {
-            handle.0 = want.clone();
-        }
-    }
-    for (lamp, mut handle) in &mut lamps {
-        let want = material(lines.phase(lamp.0));
-        if handle.0 != *want {
-            handle.0 = want.clone();
-        }
-    }
-}
-
 /// The Host's systems that run the Fuel Lines' clock.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FireClock;
+
+/// What a machine shows of the lines once it has run the seconds on and read the Sabotage: the Fire's look follows it.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FireShown;
 
 pub struct FirePlugin;
 
@@ -819,10 +754,10 @@ impl Plugin for FirePlugin {
                 (
                     (run_shown, sync_sabotage).run_if(not(in_state(Authority::Host))),
                     sync_nav,
-                    show_lines,
                     feel_the_heat,
                 )
                     .chain()
+                    .in_set(FireShown)
                     .after(FireClock)
                     .run_if(world_runs),
             )
