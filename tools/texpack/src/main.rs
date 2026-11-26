@@ -13,7 +13,7 @@
 //! as ambientCG ships them.
 //!
 //! A decal is one file, `color.ktx2` (BC7, sRGB, with its opacity as alpha), from a colour map and
-//! an opacity map (`--color`, `--opacity`), or made here as a procedural oil stain (`--stain <seed>`).
+//! an opacity map (`--color`, `--opacity`), or made here as a procedural oil stain (`--stain <seed>`) or hazard stripe (`--hazard <seed>`).
 //!
 //! See `README.md` next to this crate for fetching a Poly Haven set and recording it in the
 //! manifest.
@@ -43,6 +43,8 @@ enum Job {
     Decal { color: PathBuf, opacity: PathBuf, gain: f32 },
     /// A procedural oil stain, made here, from a seed.
     Stain { seed: u32 },
+    /// A procedural hazard stripe, made here, from a seed.
+    Hazard { seed: u32 },
     /// A sky: an equirectangular HDR image as a cubemap, turned `yaw` degrees about the up axis.
     Sky { hdr: PathBuf, size: u32, yaw: f32 },
 }
@@ -52,6 +54,7 @@ const USAGE: &str = "usage: texpack --color <png> --normal <png> --orm <png> --o
                                                            (the ORM packed from separate greyscale maps)
        texpack --color <png> --opacity <png> [--gain <x>] --out <dir>   (a decal)
        texpack --stain <seed> --out <dir>                  (a procedural oil stain)
+       texpack --hazard <seed> --out <dir>                 (a procedural black-and-yellow hazard stripe)
        texpack --sky <hdr> [--size <face px>] [--yaw <degrees>] --out <dir>   (an HDRI as a cubemap)";
 
 fn parse() -> Result<(Job, PathBuf)> {
@@ -59,7 +62,7 @@ fn parse() -> Result<(Job, PathBuf)> {
     let mut flags = std::collections::HashMap::new();
     while let Some(flag) = args.next() {
         let value = args.next().with_context(|| format!("{flag} needs a value\n{USAGE}"))?;
-        if !["--color", "--normal", "--orm", "--ao", "--roughness", "--metalness", "--opacity", "--gain", "--stain", "--sky", "--size", "--yaw", "--out"].contains(&flag.as_str()) {
+        if !["--color", "--normal", "--orm", "--ao", "--roughness", "--metalness", "--opacity", "--gain", "--stain", "--hazard", "--sky", "--size", "--yaw", "--out"].contains(&flag.as_str()) {
             bail!("unknown flag {flag}\n{USAGE}");
         }
         flags.insert(flag, value);
@@ -74,6 +77,8 @@ fn parse() -> Result<(Job, PathBuf)> {
         Job::Sky { hdr, size: number(take("--size"), 512.0)? as u32, yaw: number(take("--yaw"), 0.0)? }
     } else if let Some(seed) = take("--stain") {
         Job::Stain { seed: seed.to_string_lossy().parse().context("--stain takes a number")? }
+    } else if let Some(seed) = take("--hazard") {
+        Job::Hazard { seed: seed.to_string_lossy().parse().context("--hazard takes a number")? }
     } else if let Some(opacity) = take("--opacity") {
         let gain = match take("--gain") {
             Some(gain) => gain.to_string_lossy().parse().context("--gain takes a number")?,
@@ -162,6 +167,30 @@ fn stain(seed: u32) -> image::RgbaImage {
         let shade = 0.9 + 0.2 * noise(x * 12.0 - 3.0, y * 12.0 + 9.0);
         let (r, g, b) = (14.0 * shade, 11.0 * shade, 8.0 * shade);
         image::Rgba([r as u8, g as u8, b as u8, alpha])
+    })
+}
+
+/// A hazard stripe, 256 pixels square: black and yellow bands at 45 degrees, worn and scuffed by noise so they read as paint on steel or
+/// concrete, with a hand's breadth of unpainted margin fading out round the square. It tiles along its stripes. Made here, so CC0.
+fn hazard(seed: u32) -> image::RgbaImage {
+    const SIZE: u32 = 256;
+    // Eight stripes' width across the diagonal period, so the pattern repeats cleanly over a square.
+    const PERIOD: f32 = SIZE as f32 / 4.0;
+    let noise = |x: f32, y: f32| fbm(x, y, seed);
+    image::RgbaImage::from_fn(SIZE, SIZE, |px, py| {
+        let (x, y) = (px as f32 / SIZE as f32, py as f32 / SIZE as f32);
+        let band = ((px + py) as f32 / PERIOD).fract();
+        let yellow = band < 0.5;
+        // Scuffs: low-frequency wear that dulls the paint, and fine chips that expose the steel.
+        let wear = noise(x * 5.0, y * 5.0);
+        let chips = noise(x * 24.0 + 3.0, y * 24.0 - 7.0);
+        let base = if yellow { (226.0, 168.0, 18.0) } else { (20.0, 18.0, 16.0) };
+        let dull = 0.72 + 0.28 * wear;
+        let (r, g, b) = (base.0 * dull, base.1 * dull, base.2 * dull);
+        // A chip shows bare dark steel and a worn patch of yellow goes translucent, so it's never a clean sticker.
+        let chipped = smoothstep(0.62, 0.72, chips);
+        let alpha = (1.0 - 0.55 * chipped * if yellow { 1.0 } else { 0.4 }) * smoothstep(0.0, 0.03, x.min(1.0 - x).min(y).min(1.0 - y));
+        image::Rgba([r as u8, g as u8, b as u8, (alpha * 255.0).clamp(0.0, 255.0) as u8])
     })
 }
 
@@ -534,6 +563,7 @@ fn main() -> Result<()> {
         }
         Job::Decal { color, opacity, gain } => write(&out, "color", load_with_alpha(&color, &opacity, gain)?, Format::BC7_UNORM_BLOCK, true)?,
         Job::Sky { hdr, size, yaw } => write_sky(&out, &hdr, size, yaw)?,
+        Job::Hazard { seed } => write(&out, "color", image_of(hazard(seed), ColorSpace::Srgb, AlphaMode::Straight), Format::BC7_UNORM_BLOCK, true)?,
         Job::Stain { seed } => write(&out, "color", image_of(stain(seed), ColorSpace::Srgb, AlphaMode::Straight), Format::BC7_UNORM_BLOCK, true)?,
     }
     Ok(())
