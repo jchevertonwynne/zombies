@@ -17,7 +17,7 @@ use crate::maps::zone::ZoneId;
 use super::decals::{Decal, DecalFamily, DecalPiece, Instead, leak_transform, leaks, page_keep_out, page_transform, pages, stain_transform, stains};
 use super::door_look::{self, Part, Piece};
 use super::fitting::FittedModel;
-use super::garnish::{Garnish, Garnished, POOL_GLOW, POOL_RADIUS, garnish};
+use super::garnish::{FLAME_HEIGHT, FLAME_WIDTH, Flame, Garnish, Garnished, POOL_GLOW, POOL_RADIUS, garnish};
 use super::textures::{Material, Shape, Textured, Tint, Veneer, box_uv_mesh};
 use crate::maps::machine_look::PowerGlow;
 use super::{MapId, DOOR_HEIGHT, DOOR_WIDTH, Infill, Palette, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, WALL_THICKNESS, WINDOW_WIDTH, materials, palette, prop_variant};
@@ -63,6 +63,9 @@ const MATTRESS: Color = Color::srgb(0.62, 0.62, 0.56);
 const TUB_ENAMEL: Color = Color::srgb(0.7, 0.72, 0.68);
 const TUB_WATER: Color = Color::srgb(0.06, 0.09, 0.07);
 const GLOBE_SEPIA: Color = Color::srgb(0.7, 0.52, 0.32);
+/// The Archive's window frames and culvert grates: dark iron over `rusty_metal_02`.
+const WINDOW_IRON: Color = Color::srgb(0.3, 0.3, 0.32);
+const SAFE_IRON: Color = Color::srgb(0.2, 0.21, 0.22);
 const CASE_GLASS: Color = Color::srgb(0.55, 0.65, 0.65);
 const WET_FLOOR_YELLOW: Color = Color::srgb(0.8, 0.66, 0.1);
 const HEADSTONE: [Color; 3] = [Color::srgb(0.55, 0.55, 0.53), Color::srgb(0.46, 0.47, 0.46), Color::srgb(0.6, 0.58, 0.52)];
@@ -130,6 +133,8 @@ pub(super) struct Builder<'a, 'w, 's> {
     stacks: stacks_look::Kit,
     /// The one mesh and material every lamp's light pool shares, made when the first is.
     pool: Option<(Handle<Mesh>, Handle<StandardMaterial>)>,
+    /// The one mesh and material every candle flame shares.
+    flame: Option<(Handle<Mesh>, Handle<StandardMaterial>)>,
 }
 
 impl<'a, 'w, 's> Builder<'a, 'w, 's> {
@@ -144,7 +149,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let cylinder = meshes.add(Cylinder::new(0.5, 1.0));
         let door = materials.add(Color::srgb(0.85, 0.45, 0.1));
         let power_door = materials.add(Color::srgb(0.5, 0.3, 0.8));
-        Self { commands, meshes, materials, cube, cylinder, paints: HashMap::new(), door, power_door, repaint: None, repaint_wall: None, outside_wall: None, outside_floor: None, windows, map, drawn: Vec::new(), stacks: stacks_look::Kit::default(), pool: None }
+        Self { commands, meshes, materials, cube, cylinder, paints: HashMap::new(), door, power_door, repaint: None, repaint_wall: None, outside_wall: None, outside_floor: None, windows, map, drawn: Vec::new(), stacks: stacks_look::Kit::default(), pool: None, flame: None }
     }
 
     /// The material for a flat colour.
@@ -762,6 +767,11 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                 piece(self, Vec3::new(size.x * 0.4, stand, size.z * 0.4), 0.0, Vec2::ZERO, SHELF_WOOD, mat);
                 piece(self, Vec3::new(size.x * 0.85, size.y - stand, size.z * 0.85), stand, Vec2::ZERO, GLOBE_SEPIA, None);
             }
+            PropKind::Safe => {
+                // An iron box with a plinth and a brass wheel on its door (the front is +z, turned by `turn`), until its model has loaded.
+                piece(self, size, 0.0, Vec2::ZERO, SAFE_IRON, mat);
+                band(self, 0.1, 0.12, darker(SAFE_IRON));
+            }
             PropKind::Case => {
                 // A table with a glass top box.
                 piece(self, Vec3::new(size.x, size.y * 0.75, size.z), 0.0, Vec2::ZERO, SHELF_WOOD, mat);
@@ -787,8 +797,39 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                     self.commands.spawn((InRun, Garnish { path }, Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw)), Visibility::default()));
                 }
                 Garnished::Pool { at } => self.light_pool(at),
+                Garnished::Flame { at } => self.flame(at),
             }
         }
+    }
+
+    /// A candle flame at `at`: two crossed quads (a diamond tall, narrow) in warm additive light, drawn unlit, whose height `flicker_flames`
+    /// stretches. Every flame shares one mesh and one material.
+    fn flame(&mut self, at: Vec3) {
+        let (mesh, material) = match self.flame.clone() {
+            Some(pair) => pair,
+            None => {
+                // A diamond in the x-y plane and another in the z-y plane, each a unit wide and high, its foot at the origin.
+                let diamond = |along: Vec3| [Vec3::ZERO, along * 0.5 + Vec3::Y * 0.35, Vec3::Y, along * -0.5 + Vec3::Y * 0.35];
+                let mut positions: Vec<[f32; 3]> = Vec::new();
+                for along in [Vec3::X, Vec3::Z] {
+                    positions.extend(diamond(along).map(|p| p.to_array()));
+                }
+                let colours: Vec<[f32; 4]> = (0..2).flat_map(|_| [[1.0, 0.6, 0.2, 0.9], [1.0, 0.8, 0.4, 0.9], [1.0, 0.95, 0.7, 0.0], [1.0, 0.8, 0.4, 0.9]]).collect();
+                let count = positions.len();
+                let indices: Vec<u32> = [0_u32, 4].into_iter().flat_map(|o| [o, o + 1, o + 2, o, o + 2, o + 3, o, o + 2, o + 1, o, o + 3, o + 2]).collect();
+                let mesh = Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, bevy::asset::RenderAssetUsages::default())
+                    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+                    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 1.0, 0.0]; count])
+                    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0, 0.0]; count])
+                    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colours)
+                    .with_inserted_indices(bevy::mesh::Indices::U32(indices));
+                let material = StandardMaterial { base_color: Color::WHITE, unlit: true, alpha_mode: AlphaMode::Add, cull_mode: None, double_sided: true, ..default() };
+                let pair = (self.meshes.add(mesh), self.materials.add(material));
+                self.flame = Some(pair.clone());
+                pair
+            }
+        };
+        self.commands.spawn((InRun, Flame { at }, Mesh3d(mesh), MeshMaterial3d(material), Transform::from_translation(at).with_scale(Vec3::new(FLAME_WIDTH, FLAME_HEIGHT, FLAME_WIDTH)), NotShadowCaster));
     }
 
     /// A warm, soft pool of lamplight lying on a table top at `at`: a fan of triangles whose colour fades to nothing at its rim,
@@ -947,10 +988,19 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
     fn window_frame(&mut self, mid: Vec3, along_x: bool, zone: Option<ZoneId>) {
         let opening = WINDOW_HEIGHT - WINDOW_SILL_HEIGHT;
         let centre = mid + Vec3::Y * (WINDOW_SILL_HEIGHT + opening / 2.0);
-        let trim = palette(zone).trim;
+        // The Archive's frames are iron (`rusty_metal_02`, painted dark); its Flooded Cellar's windows are the culvert grates, with iron bars
+        // behind their boards too (#541).
+        let archive = self.map == MapId::Archive;
+        let (cover, trim) = if archive { (Material::RustyMetal02, WINDOW_IRON) } else { (Material::WeatheredPlanks, palette(zone).trim) };
         for piece in door_look::window_frame(WINDOW_WIDTH, opening, WALL_THICKNESS) {
-            let id = self.veneer(&piece, centre, along_x, Material::WeatheredPlanks, Some(trim), true);
+            let id = self.veneer(&piece, centre, along_x, cover, Some(trim), true);
             self.commands.entity(id).insert(InRun);
+        }
+        if archive && zone == Some(ZoneId::FloodedCellar) {
+            for piece in door_look::grate_bars(WINDOW_WIDTH, opening) {
+                let id = self.veneer(&piece, centre, along_x, cover, Some(trim), true);
+                self.commands.entity(id).insert(InRun);
+            }
         }
     }
 

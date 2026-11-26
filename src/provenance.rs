@@ -123,3 +123,25 @@ fn the_archives_reading_level_models_and_kitbashes_have_manifest_entries_and_the
     }
     assert!((15_000_000..=25_000_000).contains(&model_bytes), "the eight models weigh {:.1} MB", model_bytes as f64 / 1e6);
 }
+
+/// The Archive's stacks level and cellar (#541): nine kitbashes, each with its own CC0 manifest entry and its files under `assets/`. They reuse
+/// the Material Sets and Poly Haven models already there (no new download), so both Props tickets' kitbashes together stay within the 4.5 MB the
+/// look decision budgets.
+#[test]
+fn the_archives_stacks_and_cellar_kitbashes_have_manifest_entries_and_both_props_tickets_stay_within_4_5_mb() {
+    let manifest = manifest();
+    let files = all_files();
+    let reading = ["card_catalogue", "issue_desk", "reading_lamp", "lectern", "theatre_bench", "projector", "display_case", "globe"];
+    let stacks = ["book_trolley", "book_pile", "book_press", "guillotine", "safe", "deed_boxes", "pump_engine", "bucket", "candles"];
+    let mut kitbash_bytes = 0;
+    for id in reading.iter().chain(&stacks) {
+        let entry = format!("props/{id}");
+        let found = manifest.assets.iter().find(|e| e.path == entry).unwrap_or_else(|| panic!("no manifest entry for {entry}"));
+        assert_eq!(found.licence, "CC0", "{entry}");
+        assert!(found.source.contains("tools/props/kitbash.py"), "{entry}: source {}", found.source);
+        let mine: Vec<_> = files.iter().filter(|(path, _)| covers(&entry, path)).collect();
+        assert!(mine.iter().any(|(path, _)| path.ends_with(".gltf")) && mine.iter().any(|(path, _)| path.ends_with(".bin")), "{entry} lacks its glTF or its buffer");
+        kitbash_bytes += mine.iter().map(|(_, size)| size).sum::<u64>();
+    }
+    assert!(kitbash_bytes <= 4_500_000, "the Archive's seventeen kitbashes weigh {:.2} MB", kitbash_bytes as f64 / 1e6);
+}

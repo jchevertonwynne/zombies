@@ -177,6 +177,7 @@ for x in (-15.0, -10.0, -5.0):
 # Clear of every Door, window landing, Buyable, Spawn Point, Infill, Range sweep, soffit and mouth strip, and of the Training loops' 3 m lanes.
 READING = []
 TABLE = (4.5, 0.88, 1.39)
+BOOK_TROLLEY = (1.02, 1.2, 0.51)
 PLINTH = (0.5, 1.1, 0.5)
 
 
@@ -186,8 +187,8 @@ def reading(kind, zone, cx, cz, size, turn=0, y=None):
 
 # Catalogue Hall: a grandfather clock on the south wall, two book trolleys on the north strip, a bust on its plinth in the north-west corner.
 reading("Shelf", "CatalogueHall", -8.0, 0.5, (1.0, 2.19, 0.8))
-reading("Trolley", "CatalogueHall", -14.0, 11.3, (0.9, 0.968, 0.53))
-reading("Trolley", "CatalogueHall", 15.0, 11.3, (0.9, 0.968, 0.53))
+reading("Trolley", "CatalogueHall", -14.0, 11.3, BOOK_TROLLEY)
+reading("Trolley", "CatalogueHall", 15.0, 11.3, BOOK_TROLLEY)
 reading("Pillar", "CatalogueHall", -18.4, 11.0, PLINTH, 2)
 # Reading Room: six reading tables in two rows of three, a clock and two busts on the south wall, two display cases on the east wall, two ladders.
 for x in (-11.0, 11.0):
@@ -214,12 +215,83 @@ reading("Sign", "LectureTheatre", 27.5, 21.45, (0.92, 1.51, 0.76), 2)
 # The projector stands on the crossover (a Raised Floor) against the south wall, its box 0.5 deep so the crossover loop keeps its 3 m.
 reading("Table", "LectureTheatre", 24.5, 0.25, (0.9, 1.4, 0.5), 0, y=8.0)
 
+
+# The stacks level's and the cellar's Props (#541 section 9): what stands in the ring halls, the Bindery, the Well Stair and the four cellar
+# Zones beside the loops' centres and the fixed stacks. (kind, zone, cx, y, cz, w, h, d, turn), the unit sizes the kitbashes were built at; a
+# ladder stands against a fixed stack's outer face (never a Bookcase), the rest against walls or in the open where a Range, Door, Wheel, window
+# pen, Infill, Buyable or Spawn Point isn't, and clear of the Training loops' 3 m lanes.
+STACKS = []
+LADDER = (0.5, 1.335, 0.96)
+TROLLEY = BOOK_TROLLEY
+PILE = (1.023, 0.84, 0.759)
+PRESS = (1.4, 1.77, 0.8)
+GUILLOTINE = (1.21, 1.342, 0.8)
+SAFE = (0.92, 1.5, 0.89)
+DEED = (1.01, 1.025, 0.6)
+ENGINE = (2.83, 1.86, 1.0)
+DRUM = (0.66, 0.95, 0.66)
+BUCKET = (0.414, 0.567, 0.41)
+CRATE_3 = (1.179, 1.59, 1.175)
+CRATE_2 = (1.179, 1.06, 1.175)
+
+
+def stacks(kind, zone, cx, cz, size, turn=0, y=None):
+    STACKS.append((kind, zone, cx, ZONES[zone][4] if y is None else y, cz, *size, turn))
+
+
+def along_z(size):
+    return (size[2], size[1], size[0])
+
+
+# Each ring hall: a ladder against the outer face of a fixed stack, a book trolley and a book pile on a wall.
+stacks("Ladder", "OldStacks", -12.15, 11.4, along_z(LADDER), 2)
+stacks("Trolley", "OldStacks", -12.0, 4.3, TROLLEY)
+stacks("Crate", "OldStacks", -7.0, 4.5, PILE)
+stacks("Ladder", "FolioStacks", -12.15, 29.6, along_z(LADDER), 2)
+stacks("Trolley", "FolioStacks", -0.35, 24.6, along_z(TROLLEY), 2)
+stacks("Crate", "FolioStacks", -13.5, 35.55, PILE, 2)
+stacks("Ladder", "PeriodicalStacks", 13.05, 29.6, along_z(LADDER))
+stacks("Trolley", "PeriodicalStacks", 14.5, 35.65, TROLLEY, 2)
+stacks("Crate", "PeriodicalStacks", 4.6, 35.55, PILE, 2)
+stacks("Ladder", "NewStacks", 13.05, 11.4, along_z(LADDER))
+stacks("Trolley", "NewStacks", 14.5, 4.3, TROLLEY)
+stacks("Crate", "NewStacks", 6.0, 4.5, PILE)
+# The Bindery: two presses, the guillotine, two work benches and the drying rack.
+stacks("Machine", "Bindery", 35.45, 34.7, along_z(PRESS), 2)
+stacks("Machine", "Bindery", 23.3, 24.5, PRESS)
+stacks("Machine", "Bindery", 23.5, 27.4, GUILLOTINE)
+stacks("Bench", "Bindery", 28.7, 27.9, (1.1, 0.8, 0.8))
+stacks("Bench", "Bindery", 30.1, 27.9, (1.1, 0.8, 0.8))
+stacks("Shelf", "Bindery", 30.8, 26.5, (0.95, 2.0, 0.6))
+# The Well Stair's landing: a book pile.
+stacks("Crate", "WellStair", -23.3, 11.45, PILE)
+# The Flooded Cellar: three crates and a bucket beside them, on the pool's bed in the water (a Prop in a pool stands on its bed).
+stacks("Crate", "FloodedCellar", -5.2, 19.3, CRATE_3, y=0.0)
+stacks("Crate", "FloodedCellar", -14.0, 19.3, CRATE_2, y=0.0)
+stacks("Crate", "FloodedCellar", -6.9, 0.7, CRATE_2, y=0.0)
+stacks("Barrel", "FloodedCellar", -8.3, 0.5, BUCKET, y=0.0)
+# The Undercroft: two deed-box racks (the stack laid twice), a candle on each (`garnish`).
+stacks("Crate", "Undercroft", -14.5, 35.6, (2.02, 1.025, 0.6), 2)
+stacks("Crate", "Undercroft", -6.5, 35.6, (2.02, 1.025, 0.6), 2)
+# The Strong Room: four safes and a display case along the south wall, three deed-box stacks by Pack-a-Punch (a candle on each).
+for x in (4.0, 6.6, 12.0, 14.6):
+    stacks("Safe", "StrongRoom", x, 35.55, SAFE, 2)
+stacks("Case", "StrongRoom", 9.3, 35.65, (1.2, 1.02, 0.7), 2)
+for z in (24.3, 25.7, 27.1):
+    stacks("Crate", "StrongRoom", 0.35, z, along_z(DEED))
+# The Pump Room: two engines on the south wall, three drums in the corner, the tool rack on the east wall.
+stacks("Machine", "PumpRoom", 24.0, 0.55, ENGINE)
+stacks("Machine", "PumpRoom", 28.4, 0.55, ENGINE)
+for x, z in ((20.9, 0.9), (20.9, 1.9), (20.9, 3.0)):
+    stacks("Barrel", "PumpRoom", x, z, DRUM)
+stacks("Shelf", "PumpRoom", 35.65, 17.5, (0.6, 2.0, 0.95), 2)
+
 for zone, cx, cz in FIXED:
     BLOCKS.append((cx - STACK_W / 2, cz - STACK_L / 2, cx + STACK_W / 2, cz + STACK_L / 2, ZONES[zone][4], 0.3))
 for kind, zone, cx, y, cz, w, h, d in LOOP:
     level, tol = (y, 0.3) if zone != "LectureTheatre" else (6.0, 2.5)
     BLOCKS.append((cx - w / 2, cz - d / 2, cx + w / 2, cz + d / 2, level, tol))
-for kind, zone, cx, y, cz, w, h, d, turn in READING:
+for kind, zone, cx, y, cz, w, h, d, turn in READING + STACKS:
     BLOCKS.append((cx - w / 2, cz - d / 2, cx + w / 2, cz + d / 2, y, 0.3))
 
 # The Infills (#536): 34 solid blocks of the building, from #515 section 7's placement intent moved off every Door, window landing,
@@ -671,6 +743,10 @@ for kind, zone, cx, y, cz, w, h, d in LOOP:
 out.append("];\n\n")
 out.append(f"/// The reading level's Props ({len(READING)}: the Catalogue Hall's, Reading Room's, Map Room's and Lecture Theatre's, #540 section 9), each with its model turned to face the room.\npub(super) const READING_PROPS: [Prop; {len(READING)}] = [\n")
 for kind, zone, cx, y, cz, w, h, d, turn in READING:
+    out.append(f"    p(PropKind::{kind}, ZoneId::{zone}, {rs(cx)}, {rs(y)}, {rs(cz)}, ({rs(w)}, {rs(h)}, {rs(d)})){'.turned(' + str(turn) + ')' if turn else ''},\n")
+out.append("];\n\n")
+out.append(f"/// The stacks level's and the cellar's Props ({len(STACKS)}: the ring halls', Bindery's, Well Stair's and the four cellar Zones', #541 section 9), each with its model turned to face the room.\npub(super) const STACKS_PROPS: [Prop; {len(STACKS)}] = [\n")
+for kind, zone, cx, y, cz, w, h, d, turn in STACKS:
     out.append(f"    p(PropKind::{kind}, ZoneId::{zone}, {rs(cx)}, {rs(y)}, {rs(cz)}, ({rs(w)}, {rs(h)}, {rs(d)})){'.turned(' + str(turn) + ')' if turn else ''},\n")
 out.append("];\n\n")
 out.append(f"/// The Infills ({len(INFILLS)}: one to three in every Zone, #515 section 7's 34 moved off what the Zone keeps clear; the lift pits stand on the pool's bed).\npub(super) const INFILLS: [Infill; {len(INFILLS)}] = [\n")

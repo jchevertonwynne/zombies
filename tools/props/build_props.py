@@ -381,9 +381,27 @@ def patch_mixed(path, specs):
     path.write_text(json.dumps(doc, indent=1) + "\n")
 
 
+# The Archive's stacks-and-cellar kitbashes (#541): the same kind of spec, `--only archive_stacks` for all nine.
+IRON_GREY = [0.3, 0.3, 0.32, 1.0]
+WOOD_WORN = [0.7, 0.62, 0.55, 1.0]
+ARCHIVE_STACKS_KITS = {
+    "book_trolley": ("Book trolley", {"wood_table_worn": WOOD_WORN, "dark_paneled_wood": None, "brown_leather": [0.7, 0.45, 0.35, 1.0], "paper006": [0.9, 0.85, 0.75, 1.0], "rusty_metal_02": IRON_GREY}),
+    "book_pile": ("Book pile", {"brown_leather": [0.7, 0.45, 0.35, 1.0], "paper006": [0.9, 0.85, 0.75, 1.0]}),
+    "book_press": ("Book press", {"wood_table_worn": WOOD_WORN, "dark_paneled_wood": None, "rusty_metal_02": IRON_GREY, "paper006": [0.9, 0.85, 0.75, 1.0], "metal_plate_02": BRASS}),
+    "guillotine": ("Guillotine (paper cutter)", {"wood_table_worn": WOOD_WORN, "dark_paneled_wood": None, "rusty_metal_02": IRON_GREY, "paper006": [0.9, 0.85, 0.75, 1.0], "metal_plate_02": BRASS}),
+    "safe": ("Safe", {"rusty_metal_02": IRON_GREY, "dark_paneled_wood": None, "metal_plate_02": BRASS}),
+    "deed_boxes": ("Deed boxes", {"green_metal_rust": [0.35, 0.38, 0.36, 1.0], "metal_plate_02": BRASS, "paper006": [0.9, 0.85, 0.75, 1.0], "wood_table_worn": WOOD_WORN}),
+    "pump_engine": ("Pump engine", {"green_metal_rust": None, "rusty_metal_02": IRON_GREY, "metal_plate_02": BRASS}),
+    "bucket": ("Bucket", {"metal_plate_02": [0.6, 0.62, 0.64, 1.0]}),
+    "candles": ("Candles", {"metal_plate_02": BRASS, "candle_wax": {"color": [0.9, 0.84, 0.66, 1.0], "metallic": 0.0, "roughness": 0.6}}),
+}
+
+
 def build_archive(blender, only):
-    for unit, (name, specs) in ARCHIVE_KITS.items():
-        if only not in (None, "archive", unit):
+    for unit, (name, specs) in {**ARCHIVE_KITS, **ARCHIVE_STACKS_KITS}.items():
+        if only not in (None, "archive", unit) and not (only == "archive_stacks" and unit in ARCHIVE_STACKS_KITS):
+            continue
+        if only == "archive" and unit in ARCHIVE_STACKS_KITS:
             continue
         out = ASSETS / "props" / unit
         shutil.rmtree(out, ignore_errors=True)
@@ -399,6 +417,7 @@ def build_archive(blender, only):
             "fetched": today(),
             "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/" + " and materials/".join(sets) + " (Poly Haven and ambientCG, CC0), no new texture files; its flat colours are glTF factors"
             + (", its lamp emissive (KHR_materials_emissive_strength)" if unit == "reading_lamp" else "")
+            + ("; the candle flames are drawn in code (src/maps/map/garnish.rs)" if unit == "candles" else "")
             + (". No CC0 globe exists (#514): the sphere is Paper006 tinted sepia with a lat/long graticule modelled as thin ink quads, no continents" if unit == "globe" else ""),
         })
 
@@ -406,14 +425,14 @@ def build_archive(blender, only):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--blender", default=os.environ.get("BLENDER", BLENDER_DEFAULT))
-    parser.add_argument("--only", choices=["crate", "sandbags", "headstone", "sanatorium", *SANATORIUM_KITS, "book_rows", "wheels", *WHEEL_KITS, "archive", *ARCHIVE_KITS])
+    parser.add_argument("--only", choices=["crate", "sandbags", "headstone", "sanatorium", *SANATORIUM_KITS, "book_rows", "wheels", *WHEEL_KITS, "archive", "archive_stacks", *ARCHIVE_KITS, *ARCHIVE_STACKS_KITS])
     parser.add_argument("--headstone-scan")
     parser.add_argument("--headstone-source")
     args = parser.parse_args()
     if args.only == "book_rows":
         build_book_rows(args.blender)
         return
-    if args.only in ("archive", *ARCHIVE_KITS):
+    if args.only in ("archive", "archive_stacks", *ARCHIVE_KITS, *ARCHIVE_STACKS_KITS):
         build_archive(args.blender, args.only)
         return
     if args.only in ("wheels", *WHEEL_KITS):

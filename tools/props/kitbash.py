@@ -332,6 +332,8 @@ SET_TILE = {
     "lamp_bulb": 1.0,
     "glass": 1.0,
     "ink": 1.0,
+    # The Archive's stacks and cellar (#541).
+    "candle_wax": 1.0,
 }
 
 
@@ -380,6 +382,12 @@ class Kit:
         along = {"x": Euler((0.0, math.pi / 2, 0.0)), "y": Euler((-math.pi / 2, 0.0, 0.0)), "z": Euler((0.0, 0.0, 0.0))}[axis]
         matrix = Matrix.Translation(Vector(centre)) @ along.to_matrix().to_4x4()
         made = bmesh.ops.create_cone(self.bm, cap_ends=True, cap_tris=False, segments=segments, radius1=radius, radius2=radius, depth=length, matrix=matrix)
+        self._faces(made["verts"], material)
+
+    def cone(self, centre, radius_low, radius_high, length, material, segments=12):
+        """A cylinder along z whose foot has `radius_low` and top `radius_high` (a bucket, a candle), centred `centre`."""
+        matrix = Matrix.Translation(Vector(centre))
+        made = bmesh.ops.create_cone(self.bm, cap_ends=True, cap_tris=False, segments=segments, radius1=radius_low, radius2=radius_high, depth=length, matrix=matrix)
         self._faces(made["verts"], material)
 
     def finish(self, name, grounded=True):
@@ -924,7 +932,208 @@ def globe():
     return k.finish("globe")
 
 
+# ---- The Archive's stacks and cellar kitbashes (#541): the book trolley, the book pile, the book press, the guillotine, the safe, the
+# deed boxes, the pump engine, the bucket and the candles. As the reading level's: material sets already under assets/materials (and
+# the candles' wax, a flat factor), facing +z in the game (Blender's -y), one mesh of at most 2k triangles on its foot.
+
+def book_trolley():
+    """A library book trolley: a wooden frame on four casters, three book shelves and a push handle at one end. About 1.0 x 1.2 x 0.55 m."""
+    k = Kit()
+    wood, panel, leather, paper, iron = "wood_table_worn", "dark_paneled_wood", "brown_leather", "paper006", "rusty_metal_02"
+    for x in (-0.46, 0.46):
+        for y in (-0.22, 0.22):
+            k.box((x, y, 0.47), (0.05, 0.05, 0.84), wood)
+            k.cyl((x, y, 0.05), 0.05, 0.03, "y", iron, segments=8)
+    # The handle end (-x) stands taller, with a bar across.
+    for y in (-0.22, 0.22):
+        k.box((-0.46, y, 1.0), (0.05, 0.05, 0.4), wood)
+    k.cyl((-0.46, 0, 1.18), 0.02, 0.5, "y", iron, segments=8)
+    for z in (0.14, 0.52, 0.86):
+        k.box((0, 0, z), (0.96, 0.5, 0.03), panel)
+        for y in (-0.245, 0.245):
+            k.box((0, y, z + 0.04), (0.96, 0.02, 0.06), panel)
+    # Books on each shelf: standing rows of leather and cloth spines, leaning at the end.
+    for n, z in enumerate((0.14, 0.52, 0.86)):
+        x = -0.38
+        for i in range(9):
+            w = 0.06 + 0.01 * ((i + n) % 3)
+            h = 0.2 + 0.03 * ((i * 2 + n) % 3)
+            k.box((x + w / 2, 0.0, z + 0.015 + h / 2), (w, 0.2, h), leather if (i + n) % 2 == 0 else paper, rot=(0.0, 0.06 * (1 if i == 8 else 0), 0.0))
+            x += w + 0.005
+    return k.finish("book_trolley")
+
+
+def book_pile():
+    """A heap of books on the floor: three stacks, each layer turned a little off the one below. About 0.9 x 0.8 x 0.7 m."""
+    k = Kit()
+    leather, paper = "brown_leather", "paper006"
+    stacks = [((-0.22, 0.0), 8, 0.1), ((0.2, -0.08), 6, 0.35), ((0.05, 0.2), 4, -0.6)]
+    for (cx, cy), layers, turn in stacks:
+        z = 0.0
+        for i in range(layers):
+            h = 0.075 + 0.015 * ((i * 3 + layers) % 3)
+            w, d = 0.42 - 0.02 * (i % 3), 0.3 - 0.015 * (i % 2)
+            yaw = turn + 0.25 * ((i * 5) % 4 - 1.5) * 0.4
+            k.box((cx + 0.015 * (i % 3), cy, z + h / 2), (w, d, h), leather if i % 2 == 0 else paper, rot=(0.0, 0.0, yaw))
+            z += h
+    # A few loose books slid down the side.
+    k.box((0.38, 0.12, 0.04), (0.3, 0.22, 0.06), leather, rot=(0.0, 0.0, 0.5))
+    k.box((-0.3, 0.2, 0.035), (0.26, 0.2, 0.05), paper, rot=(0.0, 0.0, -0.4))
+    return k.finish("book_pile")
+
+
+def book_press():
+    """A standing screw press: a timber base, two uprights and a cross-head, an iron screw with a lever through its head over a platen
+    and a stack of folded sheets. About 1.3 x 1.8 x 0.8 m, its screw facing up."""
+    k = Kit()
+    wood, panel, iron, paper, brass = "wood_table_worn", "dark_paneled_wood", "rusty_metal_02", "paper006", "metal_plate_02"
+    k.box((0, 0, 0.12), (1.3, 0.8, 0.24), panel)
+    for x in (-0.5, 0.5):
+        k.box((x, 0, 0.9), (0.16, 0.5, 1.5), wood)
+        k.box((x, 0, 0.3), (0.3, 0.6, 0.12), wood)
+    k.box((0, 0, 1.55), (1.16, 0.5, 0.22), panel)
+    k.cyl((0, 0, 1.2), 0.07, 0.9, "z", iron, segments=10)
+    k.cyl((0, 0, 1.55), 0.11, 0.26, "z", iron, segments=10)
+    # The lever through the screw's head.
+    k.cyl((0, 0, 1.72), 0.025, 1.3, "x", iron, segments=8)
+    for x in (-0.66, 0.66):
+        k.cyl((x, 0, 1.72), 0.05, 0.08, "x", brass, segments=8)
+    k.box((0, 0, 0.88), (0.7, 0.5, 0.06), wood)
+    k.box((0, 0, 0.45), (0.62, 0.42, 0.42), paper)
+    k.box((0, 0, 0.7), (0.66, 0.46, 0.06), wood)
+    return k.finish("book_press")
+
+
+def guillotine():
+    """A paper guillotine on a work bench: a bed, a stack of paper, a long blade arm pivoting at one end and a clamp. About 1.2 x 1.2 x 0.8 m."""
+    k = Kit()
+    wood, panel, iron, paper, brass = "wood_table_worn", "dark_paneled_wood", "rusty_metal_02", "paper006", "metal_plate_02"
+    for x in (-0.5, 0.5):
+        for y in (-0.3, 0.3):
+            k.box((x, y, 0.4), (0.08, 0.08, 0.8), wood)
+    k.box((0, 0, 0.82), (1.2, 0.8, 0.06), panel)
+    k.box((0, 0, 0.45), (1.0, 0.7, 0.04), wood)
+    # The cutting bed and the paper on it.
+    k.box((0, 0.05, 0.9), (1.0, 0.5, 0.1), iron)
+    k.box((0, 0.0, 0.98), (0.5, 0.36, 0.06), paper)
+    # The blade arm: a pivot post at the left, a long wooden arm swung half up, the blade along its foot.
+    k.box((-0.52, 0.28, 1.0), (0.1, 0.1, 0.4), iron)
+    k.cyl((-0.52, 0.28, 1.2), 0.04, 0.16, "y", brass, segments=8)
+    k.box((0.0, 0.28, 1.2), (1.2, 0.07, 0.07), wood, rot=(0.0, -0.18, 0.0))
+    k.box((0.1, 0.22, 1.12), (0.7, 0.02, 0.1), iron, rot=(0.0, -0.18, 0.0))
+    k.cyl((0.58, 0.28, 1.12), 0.03, 0.25, "z", wood, segments=8)
+    # The clamp wheel over the paper.
+    k.cyl((0.0, 0.0, 1.07), 0.025, 0.2, "z", iron, segments=8)
+    k.cyl((0.0, 0.0, 1.2), 0.07, 0.03, "z", brass, segments=10)
+    return k.finish("guillotine")
+
+
+def safe():
+    """An iron safe: a squat riveted body, a heavy door with a brass wheel handle and dial, hinges and plinth feet. About 0.9 x 1.5 x 0.8 m."""
+    k = Kit()
+    iron, brass, panel = "rusty_metal_02", "metal_plate_02", "dark_paneled_wood"
+    k.box((0, 0, 0.06), (0.9, 0.8, 0.12), iron)
+    k.box((0, 0, 0.8), (0.86, 0.76, 1.36), iron)
+    k.box((0, 0, 1.46), (0.92, 0.82, 0.08), iron)
+    # The door's raised panel, on its face (the front is Blender -y).
+    k.box((0, -0.395, 0.8), (0.7, 0.03, 1.1), panel)
+    k.box((0, -0.41, 0.8), (0.6, 0.02, 1.0), iron)
+    for z in (0.35, 1.25):
+        k.box((-0.4, -0.4, z), (0.06, 0.06, 0.2), brass)
+    # The wheel handle: a hub, a rim and four spokes; and a dial above it.
+    k.cyl((0, -0.44, 0.78), 0.05, 0.08, "y", brass, segments=10)
+    k.cyl((0, -0.44, 0.78), 0.16, 0.025, "y", brass, segments=14)
+    for a in range(4):
+        ang = a * math.pi / 4
+        k.box((0, -0.44, 0.78), (0.3, 0.025, 0.02), brass, rot=(0.0, ang, 0.0))
+    k.cyl((0, -0.425, 1.12), 0.07, 0.03, "y", brass, segments=12)
+    for x in (-0.42, 0.42):
+        k.box((x, 0, 0.8), (0.04, 0.78, 1.38), iron)
+    return k.finish("safe")
+
+
+def deed_boxes():
+    """Japanned tin deed boxes stacked three high, three to a tier on a plank base, each with a brass hasp and a paper label. About 1.0 x 1.0 x 0.6 m."""
+    k = Kit()
+    tin, brass, paper, wood = "green_metal_rust", "metal_plate_02", "paper006", "wood_table_worn"
+    k.box((0, 0, 0.03), (1.0, 0.6, 0.06), wood)
+    for tier in range(3):
+        z = 0.06 + tier * 0.31
+        for i in (-1, 0, 1):
+            x = i * 0.33 + (0.02 if tier == 1 else 0.0)
+            k.box((x, 0, z + 0.15), (0.31, 0.5, 0.29), tin)
+            k.box((x, 0, z + 0.3), (0.32, 0.51, 0.02), tin)
+            k.box((x, -0.255, z + 0.2), (0.06, 0.012, 0.07), brass)
+            k.box((x, -0.26, z + 0.12), (0.2, 0.01, 0.07), paper)
+            k.box((x, 0.0, z + 0.33), (0.1, 0.04, 0.03), brass)
+    return k.finish("deed_boxes")
+
+
+def pump_engine():
+    """A cellar pump engine: a cast bed with a horizontal steam cylinder, a crosshead and connecting rod to a big spoked flywheel, a vertical
+    boiler stack and a standpipe. About 2.2 x 2.0 x 1.4 m, the flywheel on its +x end."""
+    k = Kit()
+    green, brass, iron = "green_metal_rust", "metal_plate_02", "rusty_metal_02"
+    k.box((0, 0, 0.12), (2.2, 1.0, 0.24), iron)
+    k.box((-0.3, 0, 0.45), (1.1, 0.7, 0.42), green)
+    k.cyl((-0.35, 0, 0.9), 0.3, 1.1, "x", green, segments=12)
+    k.cyl((-0.95, 0, 0.9), 0.34, 0.08, "x", brass, segments=12)
+    k.cyl((0.6, 0, 0.9), 0.05, 0.9, "x", iron, segments=8)
+    k.box((0.2, 0, 0.9), (0.2, 0.2, 0.2), brass)
+    # The flywheel (on its axle past the +x end): a rim, a hub and spokes.
+    k.cyl((0.95, 0.0, 1.0), 0.08, 0.4, "y", iron, segments=10)
+    k.cyl((0.95, -0.08, 1.0), 0.78, 0.07, "y", green, segments=16)
+    k.cyl((0.95, -0.08, 1.0), 0.62, 0.03, "y", iron, segments=16)
+    for a in range(6):
+        ang = a * math.pi / 3
+        k.box((0.95, -0.08, 1.0), (1.2, 0.04, 0.05), iron, rot=(0.0, ang, 0.0))
+    k.cyl((0.95, -0.08, 1.0), 0.12, 0.1, "y", brass, segments=10)
+    # The boiler stack and standpipe, and a gauge.
+    k.cyl((-0.7, 0.3, 1.4), 0.12, 0.8, "z", green, segments=10)
+    k.cyl((-0.7, 0.3, 1.82), 0.17, 0.08, "z", iron, segments=10)
+    k.cyl((-0.05, 0.38, 1.1), 0.05, 0.7, "z", brass, segments=8)
+    k.cyl((-0.05, 0.38, 1.5), 0.1, 0.05, "y", brass, segments=10)
+    for x in (-0.8, 0.0):
+        k.box((x, 0.0, 0.24), (0.14, 0.9, 0.12), iron)
+    return k.finish("pump_engine")
+
+
+def bucket():
+    """A galvanised bucket, slightly tapered, with a wire bail. About 0.4 x 0.36 x 0.4 m."""
+    k = Kit()
+    zinc = "metal_plate_02"
+    k.cone((0, 0, 0.18), 0.15, 0.2, 0.36, zinc, segments=14)
+    k.cone((0, 0, 0.36), 0.205, 0.205, 0.025, zinc, segments=14)
+    for i in range(8):
+        a0, a1 = math.pi * i / 8, math.pi * (i + 1) / 8
+        (x0, z0), (x1, z1) = ((0.2 * math.cos(a), 0.36 + 0.2 * math.sin(a)) for a in (a0, a1))
+        k.box(((x0 + x1) / 2, 0.0, (z0 + z1) / 2), (math.hypot(x1 - x0, z1 - z0) + 0.01, 0.012, 0.012), zinc, rot=(0.0, -math.atan2(z1 - z0, x1 - x0), 0.0))
+    return k.finish("bucket")
+
+
+def candles():
+    """Three candle stubs of different heights in a brass dish, wax run down their sides. About 0.24 x 0.17 x 0.24 m. The flames are drawn in code."""
+    k = Kit()
+    wax, brass = "candle_wax", "metal_plate_02"
+    k.cone((0, 0, 0.012), 0.12, 0.12, 0.024, brass, segments=14)
+    k.cone((0, 0, 0.028), 0.1, 0.1, 0.008, brass, segments=14)
+    for (x, y, h, r) in ((-0.05, 0.03, 0.11, 0.022), (0.06, -0.02, 0.16, 0.02), (0.01, 0.07, 0.07, 0.025)):
+        k.cone((x, y, 0.03 + h / 2), r, r * 0.9, h, wax, segments=8)
+        k.box((x, y, 0.03 + h + 0.012), (0.004, 0.004, 0.024), brass)
+        k.cone((x + r * 0.6, y, 0.03 + h * 0.6), 0.008, 0.005, h * 0.5, wax, segments=6)
+    return k.finish("candles")
+
+
 ARCHIVE_KITS = {
+    "book_trolley": book_trolley,
+    "book_pile": book_pile,
+    "book_press": book_press,
+    "guillotine": guillotine,
+    "safe": safe,
+    "deed_boxes": deed_boxes,
+    "pump_engine": pump_engine,
+    "bucket": bucket,
+    "candles": candles,
     "card_catalogue": card_catalogue,
     "issue_desk": issue_desk,
     "reading_lamp": reading_lamp,

@@ -91,3 +91,19 @@ They come out as `assets/props/<name>/<name>.{gltf,bin}` and a manifest entry ea
 `src/maps/map/mod.rs` (and `garnish.rs`'s `READING_LAMP`); keep the two in step. The issue desk is an octagon 6 m across its flats, so it stays
 within its Prop's 6 x 6 m box. The Lecture Theatre's seven tier benches (a side) are modelled in the one `theatre_bench` unit that fits the tiers'
 single Prop, since splitting the tiers into stepped Props would make them climbable.
+
+## The Archive's stacks and cellar (#541)
+
+No new Poly Haven model: the ring halls' ladders, the Bindery's work benches and drying rack, the Pump Room's drums and tool rack reuse
+`wooden_ladder`, `wooden_table_02`, `worn_metal_rack` and `Barrel_01`/`barrel_03`. `kitbash.py` makes nine more kitbashes in the same way as the
+reading level's, from material sets already under `assets/materials` (`green_metal_rust` for the deed boxes and the pump engine): `book_trolley`,
+`book_pile`, `book_press`, `guillotine`, `safe`, `deed_boxes`, `pump_engine`, `bucket` and `candles` (wax is a flat glTF factor; the flames are
+not modelled, `src/maps/map/garnish.rs` draws and flickers them).
+
+```
+python3 -I tools/props/build_props.py --only archive_stacks   # all nine
+python3 -I tools/props/build_props.py --only safe             # one
+```
+
+Their sizes are declared by the `kitbash(..)` constants in `src/maps/map/mod.rs` (and `CANDLES`): the build prints each unit's size, copy it there.
+The Props that wear them are laid by `tools/archive_layout.py` (its `STACKS` list, which writes `STACKS_PROPS` in `archive/data.rs`).
