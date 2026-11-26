@@ -277,6 +277,13 @@ impl Layout {
         zones.chain(sunken).fold(f32::INFINITY, f32::min)
     }
 
+    /// Where the Map's pump engines run, each the middle of its box: the Archive's Pump Room's two Machines (#541), for the sound ticket's
+    /// `BoilerDrone` to play from. Every other Map's Layout has none. Built from the Layout, so every machine has the same.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn pump_engines(&self) -> impl Iterator<Item = Vec3> + '_ {
+        self.props.iter().filter(|prop| prop.zone == ZoneId::PumpRoom && prop.kind == PropKind::Machine).map(|prop| prop.at + Vec3::Y * prop.size.y / 2.0)
+    }
+
     /// Whether `at` is Out of Bounds: outside the Map's plan, in Deep Water, or more than
     /// `OUT_OF_BOUNDS_DROP` below its lowest floor.
     pub fn out_of_bounds(&self, tide: TideLevel, at: Vec3) -> bool {
@@ -462,6 +469,7 @@ fn default_variants(kind: PropKind) -> &'static [PropVariant] {
         // Built by `stacks_look`, not fitted; the wood is its carcass's.
         PropKind::Stack => STACK,
         PropKind::Catalogue | PropKind::Ladder | PropKind::Globe | PropKind::Case => PLANKS,
+        PropKind::Safe => STEEL,
     }
 }
 
@@ -543,6 +551,20 @@ const DISPLAY_CASE: PropVariant = kitbash("props/display_case/display_case.gltf"
 const GLOBE: PropVariant = kitbash("props/globe/globe.gltf", Vec3::new(0.708, 1.284, 0.604), textures::Material::WoodTableWorn);
 const PANEL_BOX: PropVariant = boxed(textures::Material::DarkPaneledWood);
 
+// The Archive's stacks and cellar (#541): nine more kitbashes, and the reading level's wooden ladder, drawers, shelves and drums reused.
+const BOOK_TROLLEY: PropVariant = kitbash("props/book_trolley/book_trolley.gltf", Vec3::new(1.02, 1.2, 0.51), textures::Material::WoodTableWorn);
+const BOOK_PILE: PropVariant = kitbash("props/book_pile/book_pile.gltf", Vec3::new(1.023, 0.84, 0.759), textures::Material::BrownLeather);
+const BOOK_PRESS: PropVariant = kitbash("props/book_press/book_press.gltf", Vec3::new(1.4, 1.77, 0.8), textures::Material::WoodTableWorn);
+const GUILLOTINE: PropVariant = kitbash("props/guillotine/guillotine.gltf", Vec3::new(1.21, 1.342, 0.8), textures::Material::WoodTableWorn);
+const SAFE: PropVariant = kitbash("props/safe/safe.gltf", Vec3::new(0.92, 1.5, 0.89), textures::Material::RustyMetal02);
+const DEED_BOXES: PropVariant = kitbash("props/deed_boxes/deed_boxes.gltf", Vec3::new(1.01, 1.025, 0.6), textures::Material::GreenMetalRust);
+const PUMP_ENGINE: PropVariant = kitbash("props/pump_engine/pump_engine.gltf", Vec3::new(2.83, 1.86, 1.0), textures::Material::GreenMetalRust);
+/// The bucket and the candles are dressing too (`garnish` stands the candles; the bucket is a Barrel the cellar's set names).
+const BUCKET: PropVariant = kitbash("props/bucket/bucket.gltf", Vec3::new(0.414, 0.567, 0.41), textures::Material::MetalPlate02);
+pub(crate) const CANDLES: (&str, Vec3) = ("props/candles/candles.gltf", Vec3::new(0.234, 0.214, 0.24));
+const BRICK_PIER: PropVariant = boxed(textures::Material::CastleBrick02Red);
+const BLOCK_COLUMN: PropVariant = boxed(textures::Material::MedievalBlocks05);
+
 // Textured boxes the Sanatorium's sets name (a call can't sit in a promoted constant).
 const STONE_BOX: PropVariant = boxed(textures::Material::RockWall08);
 const PLANK_BOX: PropVariant = boxed(textures::Material::WeatheredPlanks);
@@ -615,12 +637,12 @@ fn zone_props(zone: ZoneId) -> &'static [(PropKind, &'static [PropVariant])] {
         ChildrensWard => &[(PropKind::Bed, &[COT]), (PropKind::Bench, &[ROCKING_HORSE])],
         UpperLanding => &[(PropKind::Shelf, &[STEEL_SHELVES]), (PropKind::Trolley, &[WHEELCHAIR])],
         OperatingTheatre => &[(PropKind::Trolley, &[DRESSING_TROLLEY])],
-        // The Archive's reading level (#540 section 9): what each Zone's Props wear. The Catalogue Hall's trolleys are the Sanatorium's
-        // dressing trolley until the stacks half brings the book trolley; a plinth (a Pillar) carries a bust (`garnish`).
+        // The Archive's reading level (#540 section 9): what each Zone's Props wear. The Catalogue Hall's trolleys are book trolleys (#541);
+        // a plinth (a Pillar) carries a bust (`garnish`).
         CatalogueHall => &[
             (PropKind::Catalogue, &[CARD_CATALOGUE]),
             (PropKind::Shelf, &[GRANDFATHER_CLOCK]),
-            (PropKind::Trolley, &[DRESSING_TROLLEY]),
+            (PropKind::Trolley, &[BOOK_TROLLEY]),
             (PropKind::Pillar, &[PANEL_BOX]),
         ],
         ReadingRoom => &[
@@ -641,6 +663,21 @@ fn zone_props(zone: ZoneId) -> &'static [(PropKind, &'static [PropVariant])] {
             (PropKind::Table, &[LECTERN, PROJECTOR]),
             (PropKind::Sign, &[CHALKBOARD]),
         ],
+        // The stacks level and the cellar (#541 section 9). A ring hall's ladder stands against a fixed stack, its trolley and its book pile (a
+        // Crate) on a wall; the Bindery's presses and guillotine are Machines, its work benches the small table laid once and its drying rack a
+        // metal rack; the cellar's piers are castle brick and the Undercroft's columns medieval blocks (the Zone's wall, named so the Pillar
+        // keeps them); the deed boxes are Crates (a rack laid twice, a stack once); the Pump Room's engines are Machines.
+        OldStacks | FolioStacks | PeriodicalStacks | NewStacks => &[
+            (PropKind::Ladder, &[WOODEN_LADDER]),
+            (PropKind::Trolley, &[BOOK_TROLLEY]),
+            (PropKind::Crate, &[BOOK_PILE]),
+        ],
+        Bindery => &[(PropKind::Machine, &[BOOK_PRESS, GUILLOTINE]), (PropKind::Bench, &[WOODEN_TABLE]), (PropKind::Shelf, &[METAL_RACK])],
+        WellStair => &[(PropKind::Crate, &[BOOK_PILE])],
+        FloodedCellar => &[(PropKind::Pillar, &[BRICK_PIER]), (PropKind::Barrel, &[BUCKET])],
+        Undercroft => &[(PropKind::Pillar, &[BLOCK_COLUMN]), (PropKind::Crate, &[DEED_BOXES])],
+        StrongRoom => &[(PropKind::Safe, &[SAFE]), (PropKind::Crate, &[DEED_BOXES]), (PropKind::Case, &[DISPLAY_CASE])],
+        PumpRoom => &[(PropKind::Machine, &[PUMP_ENGINE]), (PropKind::Barrel, &[BARREL_01, BARREL_03]), (PropKind::Shelf, &[METAL_RACK])],
         _ => &[],
     }
 }
@@ -1157,6 +1194,8 @@ pub enum PropKind {
     Globe,
     /// A glass-topped display case.
     Case,
+    /// One of the Strong Room's iron safes.
+    Safe,
 }
 
 /// Something standing on a floor, for the Player to weave round or jump onto and for Zombies to
@@ -1804,7 +1843,7 @@ pub(crate) mod tests {
         };
         assert_eq!(wearing(CatalogueHall, PropKind::Catalogue), ["props/card_catalogue/card_catalogue.gltf"; 2]);
         assert_eq!(wearing(CatalogueHall, PropKind::Shelf), ["models/vintage_grandfather_clock_01/model.gltf"]);
-        assert_eq!(wearing(CatalogueHall, PropKind::Trolley), ["props/dressing_trolley/dressing_trolley.gltf"; 2]);
+        assert_eq!(wearing(CatalogueHall, PropKind::Trolley), ["props/book_trolley/book_trolley.gltf"; 2]);
         let mut tables = wearing(ReadingRoom, PropKind::Table);
         tables.sort_unstable();
         assert_eq!(tables, ["models/dining_table/model.gltf"; 6].into_iter().chain(["props/issue_desk/issue_desk.gltf"]).collect::<Vec<_>>());
@@ -1826,6 +1865,96 @@ pub(crate) mod tests {
         assert_eq!(fitting::fit(CARD_CATALOGUE.model.unwrap().1, bank.size).unwrap().copies, 4);
         let reading = layout.props.iter().find(|prop| prop.zone == ZoneId::ReadingRoom && prop.kind == PropKind::Table && prop.size.x < 5.0).unwrap();
         assert_eq!(fitting::fit(DINING_TABLE.model.unwrap().1, reading.size).unwrap().copies, 2);
+    }
+
+    /// The Archive's stacks level and cellar Props (#515 section 9's rows for the ring halls, the Bindery, the Well Stair and the four cellar Zones):
+    /// so many of each kind in each Zone, and every one fits a variant its Zone's set names, scaled within 15% on every axis (none stays a box).
+    #[test]
+    fn the_archives_stacks_and_cellar_props_each_fit_a_variant_within_15_percent() {
+        use PropKind::*;
+        use ZoneId::*;
+        let layout = MapId::Archive.layout();
+        let ring: &[(PropKind, usize)] = &[(Ladder, 1), (Trolley, 1), (Crate, 1)];
+        let table: [(ZoneId, &[(PropKind, usize)]); 10] = [
+            (OldStacks, ring),
+            (FolioStacks, ring),
+            (PeriodicalStacks, ring),
+            (NewStacks, ring),
+            (Bindery, &[(Machine, 3), (Bench, 2), (Shelf, 1)]),
+            (WellStair, &[(Crate, 1)]),
+            (FloodedCellar, &[(Crate, 3), (Barrel, 1)]),
+            (Undercroft, &[(Crate, 2)]),
+            (StrongRoom, &[(Safe, 4), (Case, 1), (Crate, 3)]),
+            (PumpRoom, &[(Machine, 2), (Barrel, 3), (Shelf, 1)]),
+        ];
+        let mut fitted = 0;
+        for (zone, kinds) in table {
+            let mine = |kind: PropKind| layout.props.iter().filter(move |prop| prop.zone == zone && prop.kind == kind && !prop_is_loop_or_stack(prop)).count();
+            for &(kind, count) in kinds {
+                assert_eq!(mine(kind), count, "{kind:?} in the {}", zone.name());
+            }
+            let (all, listed) = (layout.props.iter().filter(|prop| prop.zone == zone && !prop_is_loop_or_stack(prop)).count(), kinds.iter().map(|(_, n)| n).sum::<usize>());
+            assert_eq!(all, listed, "the {}'s Props", zone.name());
+        }
+        for (nth, prop) in layout.props.iter().enumerate().filter(|(_, prop)| table.iter().any(|(zone, _)| *zone == prop.zone) && !prop_is_loop_or_stack(prop)) {
+            let variant = prop_variant(prop.zone, prop.kind, nth, prop.size).unwrap_or_else(|| panic!("the {:?} at {} has no look", prop.kind, prop.at));
+            let Some(fit) = variant.model.and_then(|(_, unit)| fitting::fit(unit, prop.size)) else {
+                panic!("the {:?} at {} in the {} fits none of its Zone's variants and would stay a box", prop.kind, prop.at, prop.zone.name());
+            };
+            assert!(fit.scale.to_array().into_iter().all(|s| (1.0 - fitting::MAX_STRETCH..=1.0 + fitting::MAX_STRETCH).contains(&s)), "{:?} at {}: {fit:?}", prop.kind, prop.at);
+            fitted += 1;
+        }
+        assert_eq!(fitted, 39);
+        // The cellar's 8 piers are castle brick and the Undercroft's 9 columns medieval blocks, even though the Pillar's own look names none.
+        let wall = |zone: ZoneId, material: textures::Material| {
+            let piers: Vec<_> = layout.props.iter().enumerate().filter(|(_, prop)| prop.zone == zone && prop.kind == Pillar).collect();
+            assert!(piers.iter().all(|(nth, prop)| prop_variant(zone, Pillar, *nth, prop.size).unwrap().material == material), "{}", zone.name());
+            piers.len()
+        };
+        assert_eq!((wall(FloodedCellar, textures::Material::CastleBrick02Red), wall(Undercroft, textures::Material::MedievalBlocks05)), (8, 9));
+    }
+
+    /// The Archive's loop centres (the piers and columns) and fixed stacks, which have their own tests and looks.
+    fn prop_is_loop_or_stack(prop: &Prop) -> bool {
+        prop.kind == PropKind::Stack || (prop.kind == PropKind::Pillar && matches!(prop.zone, ZoneId::FloodedCellar | ZoneId::Undercroft))
+    }
+
+    /// What the stacks level's and cellar's Props wear: the ring halls' ladders, trolleys and book piles, the Bindery's presses and guillotine, the
+    /// deed boxes (a rack laid twice, a stack laid once), the safes and the pump engines.
+    #[test]
+    fn the_archives_stacks_and_cellar_props_wear_the_variants_the_look_decision_names() {
+        use ZoneId::*;
+        let layout = MapId::Archive.layout();
+        let wearing = |zone: ZoneId, kind: PropKind| -> Vec<&'static str> {
+            let mut out: Vec<_> = layout.props.iter().enumerate().filter(|(_, prop)| prop.zone == zone && prop.kind == kind).map(|(nth, prop)| prop_variant(zone, kind, nth, prop.size).unwrap().model.map_or("box", |(path, _)| path)).collect();
+            out.sort_unstable();
+            out
+        };
+        for zone in [OldStacks, FolioStacks, PeriodicalStacks, NewStacks] {
+            assert_eq!(wearing(zone, PropKind::Ladder), ["models/wooden_ladder/model.gltf"]);
+            assert_eq!(wearing(zone, PropKind::Trolley), ["props/book_trolley/book_trolley.gltf"]);
+            assert_eq!(wearing(zone, PropKind::Crate), ["props/book_pile/book_pile.gltf"]);
+        }
+        assert_eq!(wearing(CatalogueHall, PropKind::Trolley), ["props/book_trolley/book_trolley.gltf"; 2]);
+        assert_eq!(wearing(Bindery, PropKind::Machine), ["props/book_press/book_press.gltf"; 2].into_iter().chain(["props/guillotine/guillotine.gltf"]).collect::<Vec<_>>());
+        assert_eq!(wearing(Bindery, PropKind::Bench), ["models/wooden_table_02/model.gltf"; 2]);
+        assert_eq!(wearing(Bindery, PropKind::Shelf), ["models/worn_metal_rack/model.gltf"]);
+        assert_eq!(wearing(WellStair, PropKind::Crate), ["props/book_pile/book_pile.gltf"]);
+        assert_eq!(wearing(FloodedCellar, PropKind::Barrel), ["props/bucket/bucket.gltf"]);
+        assert_eq!(wearing(Undercroft, PropKind::Crate), ["props/deed_boxes/deed_boxes.gltf"; 2]);
+        assert_eq!(wearing(StrongRoom, PropKind::Safe), ["props/safe/safe.gltf"; 4]);
+        assert_eq!(wearing(StrongRoom, PropKind::Crate), ["props/deed_boxes/deed_boxes.gltf"; 3]);
+        assert_eq!(wearing(StrongRoom, PropKind::Case), ["props/display_case/display_case.gltf"]);
+        assert_eq!(wearing(PumpRoom, PropKind::Machine), ["props/pump_engine/pump_engine.gltf"; 2]);
+        assert_eq!(wearing(PumpRoom, PropKind::Barrel).len(), 3);
+        assert_eq!(wearing(PumpRoom, PropKind::Shelf), ["models/worn_metal_rack/model.gltf"]);
+        // The Undercroft's racks are the deed-box stack laid twice (2.02 m); the pump engines, the Pump Room's two, are exposed for the sound ticket.
+        let rack = layout.props.iter().find(|prop| prop.zone == Undercroft && prop.kind == PropKind::Crate).unwrap();
+        assert_eq!(fitting::fit(DEED_BOXES.model.unwrap().1, rack.size).unwrap().copies, 2);
+        let engines: Vec<Vec3> = layout.pump_engines().collect();
+        assert_eq!(engines.len(), 2);
+        assert!(engines.iter().all(|at| PumpRoom.volume().0.cmple(*at).all() && at.cmple(PumpRoom.volume().1).all()));
+        assert_eq!(MapId::Sanatorium.layout().pump_engines().count(), 0);
     }
 
     /// A Prop's `turn` swings its model's front (the unit's +z) half a turn, so a model against a north or east wall can face the room: a Prop long
@@ -1948,9 +2077,10 @@ pub(crate) mod tests {
         let named = |variants: &[PropVariant]| variants.iter().map(|variant| variant.model.unwrap().0).collect::<std::collections::BTreeSet<_>>();
         let (sanatorium, archive) = (kitbashes_of(MapId::Sanatorium), kitbashes_of(MapId::Archive));
         assert_eq!(named(&sanatorium).len(), 8, "the Sanatorium names eight kitbashes");
-        // The card catalogue, issue desk, lectern, theatre tiers, projector, display case and globe, and the Sanatorium's dressing trolley as the book trolley.
-        assert_eq!(named(&archive).len(), 8, "the Archive's reading level names seven kitbashes and borrows the dressing trolley");
-        let lamp = [kitbash(READING_LAMP.0, READING_LAMP.1,textures::Material::MetalPlate02)];
+        // The reading level's card catalogue, issue desk, lectern, theatre tiers, projector, display case and globe, and the stacks half's book trolley,
+        // book pile, book press, guillotine, safe, deed boxes, pump engine and bucket.
+        assert_eq!(named(&archive).len(), 15, "the Archive's two Props tickets name fifteen kitbashes (and the lamp and candles dress other Props)");
+        let lamp = [kitbash(READING_LAMP.0, READING_LAMP.1, textures::Material::MetalPlate02), kitbash(CANDLES.0, CANDLES.1, textures::Material::MetalPlate02)];
         let others: Vec<PropVariant> = [PropKind::Crate, PropKind::Sandbags, PropKind::Headstone].into_iter().flat_map(|kind| default_variants(kind).iter().copied()).collect();
         for variant in others.iter().chain(&sanatorium).chain(&archive).chain(&lamp) {
             {

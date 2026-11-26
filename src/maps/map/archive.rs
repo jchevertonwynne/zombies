@@ -472,10 +472,10 @@ const SLOPES: [Slope; 5] = [
 /// Shallow everywhere and Deep nowhere.
 const POOLS: [Pool; 1] = [Pool { zone: ZoneId::FloodedCellar, min: v(-20.0, 0.0), max: v(20.0, 20.0), level: Level::Still(0.5), bed: 0.0 }];
 
-/// The Props built so far: the fixed stacks of the ring halls (`Stack` Props, drawn by `stacks_look`), the Training loops' centres (the first
-/// four, the card-catalogue banks, the issue desk and the theatre's tiers, wear their Zone's variants; the cellar's piers and columns are still
-/// boxes) and the reading level's Props (#540). New ones go last, so the others keep their `nth`.
-const PROPS: [Prop; 58] = concat::<_, 29, 29, 58>(concat::<_, 8, 21, 29>(data::FIXED_STACKS, data::LOOP_CENTRES), data::READING_PROPS);
+/// The Props: the fixed stacks of the ring halls (`Stack` Props, drawn by `stacks_look`), the Training loops' centres (the first four, the
+/// card-catalogue banks, the issue desk and the theatre's tiers, wear their Zone's variants; the cellar's piers and columns wear castle brick and
+/// medieval blocks), the reading level's Props (#540) and the stacks level's and cellar's (#541). New ones go last, so the others keep their `nth`.
+const PROPS: [Prop; 97] = concat::<_, 58, 39, 97>(concat::<_, 29, 29, 58>(concat::<_, 8, 21, 29>(data::FIXED_STACKS, data::LOOP_CENTRES), data::READING_PROPS), data::STACKS_PROPS);
 
 // ---------------------------------------------------------------- The book-lift core
 
@@ -1612,6 +1612,133 @@ mod tests {
                 assert!(against < 0.1, "the Ladder at {} is {against:.2} m from every wall", prop.at);
             }
         }
+    }
+
+    // ---------------------------------------------------------------- Props (#541)
+
+    /// Every stacks-level and cellar Prop stands on a floor (its Zone's, the cellar's bed, or the top of the Prop under it: the bucket on its
+    /// crate), wholly inside its Zone and under its ceiling, and faces the room by half turns. A Ladder leans on a wall or on a fixed stack's
+    /// outer face, never on a Bookcase.
+    #[test]
+    fn every_stacks_and_cellar_prop_stands_on_a_floor_inside_its_zone_and_ladders_lean_on_walls_or_fixed_stacks() {
+        for prop in data::STACKS_PROPS {
+            let (lo, hi) = prop.zone.volume();
+            let (min, max) = footprint_of(&prop);
+            let floor = if prop.zone == FloodedCellar { 0.0 } else { prop.zone.floor() };
+            let under = data::STACKS_PROPS.iter().find(|other| other.zone == prop.zone && other.at.y < prop.at.y && footprint_of(other).0.x <= min.x + 1e-3 && footprint_of(other).1.x >= max.x - 1e-3 && footprint_of(other).0.y <= min.y + 1e-3 && footprint_of(other).1.y >= max.y - 1e-3);
+            match under {
+                Some(under) => assert!((under.at.y + under.size.y - prop.at.y).abs() < 1e-3, "the {:?} at {} floats over its support", prop.kind, prop.at),
+                None => assert!((prop.at.y - floor).abs() < 1e-3, "the {:?} at {} is not on the floor {floor}", prop.kind, prop.at),
+            }
+            assert!(min.x >= lo.x && max.x <= hi.x && min.y >= lo.z && max.y <= hi.z, "the {:?} at {} sticks out of {}", prop.kind, prop.at, prop.zone.name());
+            assert!(prop.at.y + prop.size.y < hi.y, "the {:?} at {} reaches the ceiling", prop.kind, prop.at);
+            assert!(prop.turn == 0 || prop.turn == 2, "the {:?} at {}: only half turns face a wall", prop.kind, prop.at);
+            if prop.kind == PropKind::Ladder {
+                let wall = (min.x - lo.x).min(hi.x - max.x).min(min.y - lo.z).min(hi.z - max.y);
+                let stack = data::FIXED_STACKS.iter().filter(|stack| stack.zone == prop.zone).map(|stack| {
+                    let (smin, smax) = footprint_of(stack);
+                    gap_between(min, max, smin, smax)
+                }).fold(f32::MAX, f32::min);
+                assert!(wall < 0.1 || stack < 0.1, "the Ladder at {} is {wall:.2} m from every wall and {stack:.2} m from every fixed stack", prop.at);
+                // On a fixed stack's face it faces away from the stack: a long-along-z Ladder west of it has its model's front west (turn 2).
+                if stack < 0.1 && wall >= 0.1 {
+                    let nearest = data::FIXED_STACKS.iter().filter(|stack| stack.zone == prop.zone).min_by(|a, b| (a.at.x - prop.at.x).abs().total_cmp(&(b.at.x - prop.at.x).abs())).unwrap();
+                    assert_eq!(prop.turn == 2, prop.at.x < nearest.at.x, "the Ladder at {} faces its stack", prop.at);
+                }
+            }
+        }
+    }
+
+    /// The gap between two rectangles on the plan (zero if they touch or overlap).
+    fn gap_between(amin: Vec2, amax: Vec2, bmin: Vec2, bmax: Vec2) -> f32 {
+        (bmin - amax).max(amin - bmax).max(Vec2::ZERO).length()
+    }
+
+    /// Every Prop of the stacks level and the cellar keeps clear: of every Door (1.5 m), Wheel, Buyable (perk machines, Pack-a-Punch, the Power
+    /// Switch, Box Locations, wall weapons, equipment walls, Traps and their switches), Spawn Point, Wading Point, Vent, window pen and window's
+    /// landing, Infill, lamp (its top stays a metre under the pendant) and the Causeway with its steps and Training lane.
+    #[test]
+    fn no_stacks_or_cellar_prop_crowds_a_door_wheel_buyable_spawn_infill_window_lamp_or_the_causeway() {
+        use bevy::ecs::system::RunSystemOnce;
+
+        use crate::maps::door::Door;
+        let layout = archive();
+        let mut sim = crate::enemies::zombie::headless::Sim::on(MapId::Archive, 60.0, |_| {});
+        let doors: Vec<Vec3> = sim.world_mut().run_system_once(|doors: Query<&Transform, With<Door>>| doors.iter().map(|t| t.translation).collect::<Vec<_>>()).unwrap();
+        assert!(doors.len() >= 15, "{} Doors", doors.len());
+        // (what, where, clearance in metres)
+        let mut points: Vec<(String, Vec3, f32)> = doors.iter().map(|&at| ("a Door".into(), at, 1.5)).collect();
+        for (k, r) in RANGES.iter().enumerate() {
+            for wheel in layout.shifting[k].wheels() {
+                points.push((format!("{}'s Wheel", r.name), wheel.at, 1.0));
+            }
+        }
+        for barrier in MapId::Archive.barriers() {
+            points.push(("a window's landing".into(), crate::maps::map::window_spawn(barrier), 1.0));
+            points.push(("a window".into(), crate::maps::map::window_centre(barrier), 1.5));
+        }
+        for &(zone, at) in layout.hellhound_spawns.iter().chain(layout.special_spawns).chain(layout.wading).chain(layout.vents) {
+            points.push((format!("a Spawn Point in the {}", zone.name()), at, 1.0));
+        }
+        for i in MapId::Archive.box_locations() {
+            points.push(("a Box Location".into(), crate::maps::map::BOX_LOCATIONS[i].1, 1.6));
+        }
+        for &(weapon, _, at, _) in layout.wall_weapons {
+            points.push((format!("the {weapon:?} wall"), at, 1.5));
+        }
+        for &(_, at, _) in crate::maps::trap::traps(MapId::Archive) {
+            points.push(("a Trap".into(), at, 1.5));
+        }
+        for at in crate::maps::trap::switch_spots(MapId::Archive) {
+            points.push(("a Trap switch".into(), at, 1.5));
+        }
+        for perk in crate::economy::perk::Perk::ALL {
+            points.push((format!("{perk:?}'s machine"), perk.machine_spot(MapId::Archive).0, 1.3));
+        }
+        for &(wall, _, at, _) in crate::weapons::equipment::equipment_walls(MapId::Archive) {
+            points.push((format!("{wall:?}"), at, 1.5));
+        }
+        points.push(("Pack-a-Punch".into(), crate::weapons::pack_a_punch::machine_at(MapId::Archive), 1.0));
+        points.push(("the Power Switch".into(), crate::maps::power::switch_spot(MapId::Archive).unwrap().0, 1.5));
+        let mut bad = Vec::new();
+        for prop in data::STACKS_PROPS {
+            let (min, max) = footprint_of(&prop);
+            let what = format!("the {:?} at {} in {}", prop.kind, prop.at, prop.zone.name());
+            // Only what is in the Prop's own Zone and storey: a Buyable on the far side of a wall is no crowd.
+            for (name, at, clearance) in &points {
+                let beside = crate::enemies::nav::zone_at(MapId::Archive, *at + Vec3::Y * 0.1).is_none_or(|zone| zone == prop.zone);
+                if beside && (at.y - prop.at.y).abs() < 2.5 && gap(min, max, Vec2::new(at.x, at.z)) < *clearance {
+                    bad.push(format!("{what} is within {clearance} m of {name} at {at}"));
+                }
+            }
+            for infill in layout.infills.iter().filter(|infill| infill.zone == prop.zone) {
+                if near((min, max), (infill.min, infill.max), 0.0) {
+                    bad.push(format!("{what} overlaps the Infill at {}..{}", infill.min, infill.max));
+                }
+            }
+            // A window's pen (its hatch wall, two metres each side, and the pen of floor behind it).
+            for &(zone, centre, out) in &data::WINDOWS {
+                if zone != prop.zone {
+                    continue;
+                }
+                let along = Vec2::new(out.y.abs(), out.x.abs());
+                let (a, b) = (Vec2::new(centre.x, centre.z) - along * PEN_HALF, Vec2::new(centre.x, centre.z) + along * PEN_HALF + out * PEN);
+                if near((min, max), (a.min(b), a.max(b)), 0.0) {
+                    bad.push(format!("{what} is in the pen of the window at {centre}"));
+                }
+            }
+            for &(zone, lamp) in layout.lamps.iter().filter(|(zone, _)| *zone == prop.zone) {
+                let _ = zone;
+                if gap(min, max, Vec2::new(lamp.x, lamp.z)) < 0.5 && prop.at.y + prop.size.y > lamp.y - 1.0 {
+                    bad.push(format!("{what} reaches the lamp at {lamp}"));
+                }
+            }
+            // The Causeway, its steps and its Training lane (z 6.7 to 10, x -16 to 16), with the lane's 1.5 m of room.
+            if prop.zone == FloodedCellar && near((min, max), (v(-17.5, 5.2), v(17.5, 11.5)), 0.0) {
+                bad.push(format!("{what} crowds the Causeway"));
+            }
+        }
+        assert!(bad.is_empty(), "{bad:#?}");
     }
 
     /// The Strong Room's vault-door reveal stands on the hinge side of the Power Door PD (the west, the trap switch being on the east), close

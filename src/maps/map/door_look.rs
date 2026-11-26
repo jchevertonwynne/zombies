@@ -208,9 +208,46 @@ pub fn window_frame(width: f32, opening: f32, depth: f32) -> Vec<Piece> {
     ]
 }
 
+/// How thick a culvert grate's bar is, and how far apart they stand.
+pub const GRATE_BAR: f32 = 0.04;
+pub const GRATE_PITCH: f32 = 0.2;
+
+/// The Archive's culvert grates' iron bars (#541): uprights at a pitch across the window's opening and a rail near its head and sill, in the
+/// wall's own plane so they stand behind the boards. Drawn only, inside the frame; the opening stays as it is.
+pub fn grate_bars(width: f32, opening: f32) -> Vec<Piece> {
+    let inner = width - 0.3;
+    let count = (inner / GRATE_PITCH).floor().max(1.0);
+    let mut pieces: Vec<Piece> = (0..=count as i32)
+        .map(|k| Piece::new(Part::Bar, Vec3::new(GRATE_BAR, opening - 0.1, GRATE_BAR), Vec3::new(-inner / 2.0 + k as f32 * inner / count, 0.0, 0.0)))
+        .collect();
+    for side in [-1.0, 1.0] {
+        pieces.push(Piece::new(Part::Bar, Vec3::new(inner, GRATE_BAR, GRATE_BAR), Vec3::new(0.0, side * (opening / 2.0 - 0.1), 0.0)));
+    }
+    pieces
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_culvert_grates_bars_stand_inside_the_window_frame_at_a_pitch() {
+        let (width, opening) = (2.4, 2.0);
+        let pieces = grate_bars(width, opening);
+        assert!(pieces.iter().all(|piece| piece.part == Part::Bar));
+        let uprights: Vec<&Piece> = pieces.iter().filter(|piece| piece.size.y > 1.0).collect();
+        assert!(uprights.len() >= 10, "{} bars", uprights.len());
+        for piece in &pieces {
+            let extent = piece.half_extent() + piece.at.abs();
+            assert!(extent.x <= width / 2.0 - 0.12 + 1e-4 && extent.y <= opening / 2.0 + 1e-4, "{piece:?} sticks out of the opening");
+        }
+        // Even spacing, near the pitch.
+        let mut xs: Vec<f32> = uprights.iter().map(|piece| piece.at.x).collect();
+        xs.sort_by(f32::total_cmp);
+        for pair in xs.windows(2) {
+            assert!((pair[1] - pair[0] - GRATE_PITCH).abs() < 0.03, "{pair:?}");
+        }
+    }
 
     const DOOR: Vec3 = Vec3::new(2.4, 3.0, 0.25);
 
