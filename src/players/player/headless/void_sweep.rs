@@ -178,6 +178,7 @@ per_map! {
     void_sweep_polder: Polder,
     void_sweep_sanatorium: Sanatorium,
     void_sweep_archive: Archive,
+    void_sweep_refinery: Refinery,
 }
 
 /// Dense running jumps off every slope's sides and top.
@@ -243,6 +244,7 @@ per_map_slopes! {
     void_slopes_polder: Polder,
     void_slopes_sanatorium: Sanatorium,
     void_slopes_archive: Archive,
+    void_slopes_refinery: Refinery,
 }
 
 /// A Player who somehow reaches the Rail Yard's window ledge can't jump, bunny-hop or run over its

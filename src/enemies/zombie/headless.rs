@@ -999,6 +999,23 @@ fn sanatorium_a_zombie_walks_off_the_sun_roofs_drop_once_d13_is_bought() {
     assert!(arrived, "stalled at the drop: last seen at {last}");
 }
 
+/// The Refinery's one drop: a Zombie on the Rack Walk walks off the gap in its east railing at z 30, over the 1 m cantilever, once S1 is
+/// bought, and lands in the Rack Road's east lane after a Player standing under it. Until S1 is bought (every Door shut) it stays on the Walk.
+#[test]
+fn a_zombie_walks_off_the_rack_walk_ledge() {
+    let layout = MapId::Refinery.layout();
+    let node = |name: &str| {
+        let &(_, x, y, z) = layout.nav_nodes.iter().find(|(n, ..)| *n == name).unwrap();
+        Vec3::new(x, y, z)
+    };
+    let (top, bottom) = (node("rw_drop"), node("rr_drop"));
+    assert!(top.y - bottom.y >= 3.9 && bottom.x >= 5.0, "the Ledge is a 4 m drop into the east lane, landing at x >= 5");
+    let (arrived, last) = drops_after_with(MapId::Refinery, top, bottom, bottom.y + 1.0, ZOMBIE_CLEANUP_SECS - 3.0, true);
+    assert!(arrived, "stalled at the Ledge once S1 is bought: last seen at {last}");
+    // The edge is gated on S1: the drop runs beside that Door and doesn't join its Zones on its own.
+    assert!(layout.nav_edges.iter().any(|&(a, b, gate)| (a, b) == ("rw_drop", "rr_drop") && gate == crate::enemies::nav::Gate::DoorDrop(crate::maps::zone::ZoneId::RackRoad, crate::maps::zone::ZoneId::RackWalk)));
+}
+
 /// Three Zombies crossing the Greybox to a Player in the Start Room, every Door open: their
 /// feet every frame until each is within a body or two of the Player.
 fn greybox_crossing() -> Vec<(&'static str, Vec<Vec3>)> {

@@ -817,11 +817,11 @@ fn a_zipline_ride_replays_to_the_same_place_on_the_host() {
     assert_eq!(run.pose_of(2, 1).0.action, Action::None);
 }
 
-/// On the Dam, the Cove, the Polder, the Sanatorium and the Archive (whose plan is 72 by 36 m, told from its middle in `i16`s), a client has the Host's Player and a Zombie where the
+/// On the Dam, the Cove, the Polder, the Sanatorium, the Archive (whose plan is 72 by 36 m, told from its middle in `i16`s) and the Refinery (120 by 90 m, the widest), a client has the Host's Player and a Zombie where the
 /// Host has them.
 #[test]
 fn far_maps_show_the_hosts_player_and_zombie_where_they_are() {
-    for map in [crate::maps::map::MapId::Dam, crate::maps::map::MapId::Cove, crate::maps::map::MapId::Polder, crate::maps::map::MapId::Sanatorium, crate::maps::map::MapId::Archive] {
+    for map in [crate::maps::map::MapId::Dam, crate::maps::map::MapId::Cove, crate::maps::map::MapId::Polder, crate::maps::map::MapId::Sanatorium, crate::maps::map::MapId::Archive, crate::maps::map::MapId::Refinery] {
         let mut run = Run::on(map, 2, 2, 0.0, 0, &|_| {});
         let at = run.at(0, 0);
         let zombie = run.zombie(at + Vec3::new(6.0, -Stance::Standing.half_height(), 2.0));

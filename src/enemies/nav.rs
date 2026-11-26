@@ -127,10 +127,7 @@ pub fn floor_ledge(spatial: &SpatialQuery, from: Vec3, to: Vec3, filter: &Spatia
 /// The Zone a point is in on `map`, or `None` outside the building. Only `map`'s own Zones are
 /// looked at, so two Maps' Zones may overlap in space.
 pub fn zone_at(map: MapId, point: Vec3) -> Option<ZoneId> {
-    ZoneId::ALL.into_iter().filter(|zone| zone.map() == map).find(|zone| {
-        let (lo, hi) = zone.volume();
-        point.cmpge(lo).all() && point.cmple(hi).all()
-    })
+    ZoneId::ALL.into_iter().filter(|zone| zone.map() == map).find(|zone| zone.has(point))
 }
 
 
@@ -599,7 +596,7 @@ mod tests {
                 assert_eq!(edges.len(), 1, "window {}", barrier.0);
                 let (outside, inside) = (&graph.nodes[edges[0].from], &graph.nodes[edges[0].to]);
                 assert!(outside.at.distance(window_spawn(barrier)) < 0.01, "window {}", barrier.0);
-                assert!(outside.zone.is_none() || (matches!(map, MapId::Polder | MapId::Archive) && outside.zone == Some(zone)), "window {}", barrier.0);
+                assert!(outside.zone.is_none() || (matches!(map, MapId::Polder | MapId::Archive | MapId::Refinery) && outside.zone == Some(zone)), "window {}", barrier.0);
                 assert_eq!(inside.zone, Some(zone), "window {}", barrier.0);
             }
             assert!(graph.edges.iter().all(|edge| !matches!(edge.gate, Gate::Barrier(b) if WINDOWS[b.0 as usize].0.map() != map)));
@@ -611,7 +608,7 @@ mod tests {
         for map in MapId::ALL {
             for n in &NavGraph::new(map).nodes {
                 // The Polder's strips and the Archive's pens are walled off inside their own Zone, so their `_out` nodes have one.
-                let outside = n.zone.is_none() || (matches!(map, MapId::Polder | MapId::Archive) && n.name.ends_with("_out"));
+                let outside = n.zone.is_none() || (matches!(map, MapId::Polder | MapId::Archive | MapId::Refinery) && n.name.ends_with("_out"));
                 assert_eq!(outside, n.name.ends_with("_out"), "{}", n.name);
             }
         }

@@ -291,6 +291,42 @@ fn a_two_player_run_on_the_archive_opens_a_door_and_the_power_goes_on_for_both()
     }
 }
 
+/// Every peer builds the Refinery from the same `Layout`, and nothing about the Map goes on the wire but what a Door and the Power already do: a
+/// client buys one of its Doors (D1, from the Gatehouse to the Tanker Dock, one of the three 750s), and the Power Switch (in the Control House) is
+/// thrown, and both reach the Host and the other client alike, each of whom has the same Doors by `NetId`. The plan (120 by 90 m) fits the wire's
+/// `i16` positions (`far_maps_show_the_hosts_player_and_zombie_where_they_are`), and no wire format changes.
+#[test]
+fn a_two_player_run_on_the_refinery_opens_a_door_and_the_power_goes_on_for_both() {
+    use crate::maps::map::MapId;
+    use crate::maps::power::{Power, PowerSwitch};
+    use crate::maps::zone::ZoneId;
+    let mut run = Run::on(MapId::Refinery, 2, &|_| {});
+    run.give_points(1, 5000);
+    for on in 0..3 {
+        assert!(!run.world(on).resource::<Power>().is_on(), "game {on}");
+        let world = run.world(on);
+        let doors = world.query::<&Door>().iter(world).count();
+        assert_eq!(doors, 21, "game {on} builds all 21 Doors from the Layout");
+    }
+    // D1, the Gatehouse to the Tanker Dock.
+    let door = run.find::<Door>(1, |door| door.price == Some(750) && door.route() == Some((ZoneId::Gatehouse, ZoneId::TankerDock)));
+    let id = *run.world(1).get::<NetId>(door).unwrap();
+    run.use_buyable(1, door, false);
+    run.step(20);
+    for on in 0..3 {
+        let door = run.world(on).resource::<NetIds>().entity(id.0).expect("every game names the Door alike");
+        assert!(run.world(on).get::<Door>(door).unwrap().open, "game {on} still has the Door shut");
+    }
+    // The Power Switch is thrown on the Host, and the Power goes on in every game.
+    let switch = run.find::<PowerSwitch>(0, |_| true);
+    let player = run.player(0, 0);
+    run.world(0).write_message(crate::economy::buy::Purchased { player, buyable: switch });
+    run.step(400);
+    for on in 0..3 {
+        assert!(run.world(on).resource::<Power>().is_on(), "game {on} didn't see the Power go on");
+    }
+}
+
 /// In Co-op the world runs on under the Host's Pause menu, and so does every teammate's Use: the
 /// Host's own menu being open is no reason to drop a client's buy (#589).
 #[test]

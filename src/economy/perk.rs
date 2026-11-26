@@ -175,6 +175,14 @@ impl Perk {
             (MapId::Archive, Perk::DoubleTap) => (Vec3::new(-0.8, 0.0, 28.0), Vec3::NEG_X),
             // The Catalogue Hall's east wall.
             (MapId::Archive, Perk::QuickRevive) => (Vec3::new(19.2, 2.0 * STOREY, 7.0), Vec3::NEG_X),
+            // The Rack Walk's south end wall, on the Power route.
+            (MapId::Refinery, Perk::Juggernog) => (Vec3::new(0.0, STOREY, 20.8), Vec3::Z),
+            // The Fitting Shop's south wall.
+            (MapId::Refinery, Perk::SpeedCola) => (Vec3::new(50.0, 0.0, 0.8), Vec3::Z),
+            // The Substation's north blast wall.
+            (MapId::Refinery, Perk::DoubleTap) => (Vec3::new(40.0, 0.0, 89.2), Vec3::NEG_Z),
+            // The Gatehouse's south blast wall, between the two cheap guns.
+            (MapId::Refinery, Perk::QuickRevive) => (Vec3::new(0.0, 0.0, 0.8), Vec3::Z),
         }
     }
 

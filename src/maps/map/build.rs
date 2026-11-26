@@ -292,7 +292,8 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
     pub fn ceiling(&mut self, zone: ZoneId, holes: &[Sunken]) {
         const THICKNESS: f32 = 0.2;
         let (lo, hi) = zone.volume();
-        let top = (hi.y / STOREY).ceil() * STOREY;
+        // The Refinery's sheds' roofs sit at their walls' height, under the Pipe Bridge's deck.
+        let top = if zone.map() == MapId::Refinery && zone.floor() == 0.0 { super::refinery::FIRE_WALL } else { (hi.y / STOREY).ceil() * STOREY };
         let material = materials(Some(zone)).map(|set| set.wall);
         // Open over water and stairwells a storey deep or more, which the roof leaves to the sky.
         let cut: Vec<_> = holes.iter().filter(|hole| hole.zone == zone && hole.depth >= 1.5 && reaches_down(zone, hole)).map(|hole| (hole.min, hole.max)).collect();
@@ -1214,7 +1215,9 @@ fn darker(colour: Color) -> Color {
 /// The rectangles a Zone's floor is laid in: the Zone's box less the sunken floors in it.
 pub(super) fn floor_rects(zone: ZoneId, holes: &[Sunken]) -> Vec<(Vec2, Vec2)> {
     let (lo, hi) = zone.volume();
-    let cut: Vec<_> = holes.iter().map(|hole| (hole.min, hole.max)).collect();
+    // A catwalk's notches are nothing built (the Tank Walk's gaps); a ground Zone's floor runs on under its stair bays.
+    let notches = if zone.floor() >= STOREY { zone.notches() } else { &[] };
+    let cut: Vec<_> = holes.iter().map(|hole| (hole.min, hole.max)).chain(notches.iter().copied()).collect();
     rects_around((Vec2::new(lo.x, lo.z), Vec2::new(hi.x, hi.z)), &cut)
 }
 
