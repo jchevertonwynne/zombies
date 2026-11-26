@@ -15,7 +15,7 @@ use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::maps::darkness::lamp_flicker::position_hash;
-use crate::maps::map::textures::on_disk;
+use crate::maps::map::textures::{Material, Shape as Fit, Textured, Tint, on_disk};
 use crate::state::InRun;
 use crate::weapons::blast::tint;
 use crate::weapons::explosive::BlastKind;
@@ -291,7 +291,12 @@ pub fn spawn(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &mut
     let part = |mesh: &Handle<Mesh>, material: &Handle<StandardMaterial>, size: Vec3, at: Vec3| {
         (InRun, Mesh3d(mesh.clone()), MeshMaterial3d(material.clone()), Transform { translation: at, scale: size, ..default() })
     };
-    commands.spawn(part(&cylinder, &rust, Vec3::new(STACK_RADIUS * 2.0, STACK_TOP, STACK_RADIUS * 2.0), Vec3::new(STACK_AT.x, STACK_TOP / 2.0, STACK_AT.y)));
+    // Its skin is `rusty_metal_04` once that has loaded (#573), in the rust paint till then.
+    commands.spawn((
+        part(&cylinder, &rust, Vec3::new(STACK_RADIUS * 2.0, STACK_TOP, STACK_RADIUS * 2.0), Vec3::new(STACK_AT.x, STACK_TOP / 2.0, STACK_AT.y)),
+        Textured { material: Material::RustyMetal04, shape: Fit::Cylinder },
+        Tint(Color::srgb(0.85, 0.7, 0.62)),
+    ));
     for height in RINGS {
         commands.spawn(part(&cylinder, &trim, Vec3::new(RING_RADIUS * 2.0, 0.15, RING_RADIUS * 2.0), Vec3::new(STACK_AT.x, height, STACK_AT.y)));
     }
@@ -429,9 +434,23 @@ pub fn drift_plume(
     }
 }
 
-/// The flare light flickers with the flame, and the aviation lamp blinks.
-pub fn flicker_flare(time: Res<Time>, mut lights: Query<&mut PointLight, With<FlareLight>>, mut lamps: Query<(&mut Visibility, &Transform), With<Aviation>>) {
+/// The flare light flickers with the flame, the aviation lamps blink (the flare's, the column's and the heater stack's), and the heater's
+/// peepholes flutter, each on a hash of where it stands.
+pub fn flicker_flare(
+    time: Res<Time>,
+    mut lights: Query<&mut PointLight, With<FlareLight>>,
+    mut lamps: Query<(&mut Visibility, &Transform), With<Aviation>>,
+    peepholes: Query<(&Transform, &MeshMaterial3d<StandardMaterial>), With<super::plant::Peephole>>,
+    materials: Option<ResMut<Assets<StandardMaterial>>>,
+) {
     let now = time.elapsed_secs();
+    if let Some(mut materials) = materials {
+        for (at, material) in &peepholes {
+            if let Some(mut paint) = materials.get_mut(&material.0) {
+                paint.emissive = super::plant::peephole_emissive(super::plant::peephole_strength(at.translation, now));
+            }
+        }
+    }
     for mut light in &mut lights {
         light.intensity = flare_intensity(now);
     }

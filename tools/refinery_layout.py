@@ -182,6 +182,7 @@ PLANT = [
     ("Barrel", "ColumnYard", 0.0, 0.0, 76.0, 6.0, 12.0, 6.0),          # the column's base
     ("Machine", "ColumnYard", 12.0, 0.0, 76.0, 8.0, 2.9, 12.0),        # the fired heater (its roof, to 4 m, is a block `refinery.rs` adds under S6)
     ("Machine", "Substation", 40.0, 0.0, 76.0, 10.0, 2.4, 14.0),       # the transformer pen
+    ("Pillar", "ColumnYard", 12.0, 0.0, 83.0, 1.2, 20.0, 1.2),         # the heater's stack, against its north face, to y 20 (#573)
 ]
 for z in (26.0, 34.0, 42.0, 50.0):                                     # the rack's bents, under the Rack Walk
     for x in (-3.4, 3.4):
@@ -197,6 +198,21 @@ BLOCKS += [
     (-54, 34, -42, 46, 4.0, 0.3), (-3, 73, 3, 79, 4.0, 0.3), (-3, 73, 3, 79, 8.0, 0.3),
     (-1.0, 20.0, 1.0, 21.2, 4.0, 0.3), (-1.0, 79.1, 1.0, 80.1, 8.0, 0.3),
 ]
+# ---------------------------------------------------------------- Infills (#573, #510 section 6): solid rooms of the three sheds, from the Zone's floor to the top of its walls.
+# (zone, (x0, z0), (x1, z1)); #510's rects moved clear of the Doors (D2, D5, D7, D10, F1), the S4 bay, the windows' landings, the chalks,
+# the Power Switch and the lamp grids. The Infills are solid to the nodes and edges of the graph below (`BLOCKS`).
+INFILLS = [
+    ("FittingShop", (51.0, 7.3), (60.0, 11.3)),       # the tool store, boxed off against the east wall
+    ("FittingShop", (45.0, 18.6), (46.4, 20.0)),      # the stanchion pier, on the north wall
+    ("CompressorHouse", (20.0, 56.2), (29.0, 60.0)),  # the motor-control room, in the north-west corner
+    ("CompressorHouse", (58.8, 36.6), (60.0, 38.4)),  # the window pier, on the east wall between the windows
+    ("CompressorHouse", (20.0, 40.0), (21.4, 42.0)),  # the duct casing, on the west wall
+    ("ControlHouse", (24.0, 62.4), (26.4, 64.8)),     # the cable riser, in the south-west corner
+    ("ControlHouse", (24.0, 80.4), (27.2, 86.0)),     # the shift office, in the north-west corner (clear of the Substation post lamp at (24, 80))
+]
+for zone, (x0, z0), (x1, z1) in INFILLS:
+    BLOCKS.append((x0, z0, x1, z1, ZONES[zone][4], 0.3))
+
 # The Raised Floor in the Tanker Dock, seen from the ground.
 BLOCKS.append((-32, 4, -24, 16, 0.0, 0.3))
 BLOCKS.append((-29.5, 1.6, -26.5, 4, 0.0, 0.3))
@@ -621,7 +637,7 @@ if fail:
 # ---------------------------------------------------------------- write
 out = []
 out.append("//! The Refinery's windows, lamps, plant structures and path-node graph, laid out from `refinery.rs`'s walls by\n//! `tools/refinery_layout.py` (rewritten by it: edit the script, not this file).\n")
-out.append("use bevy::prelude::*;\n\nuse crate::enemies::nav::Gate;\nuse crate::maps::fire::FuelLineId;\nuse crate::maps::map::{BarrierId, Prop, PropKind, prop};\nuse crate::maps::zone::ZoneId;\n\nuse super::W0;\n")
+out.append("use bevy::prelude::*;\n\nuse crate::enemies::nav::Gate;\nuse crate::maps::fire::FuelLineId;\nuse crate::maps::map::{BarrierId, Flood, Infill, Prop, PropKind, infill, prop};\nuse crate::maps::zone::ZoneId;\n\nuse super::W0;\n")
 out.append("""const fn v(x: f32, z: f32) -> Vec2 {
     Vec2::new(x, z)
 }
@@ -649,7 +665,23 @@ out.append(f"/// The lamps ({len(LAMPS)}: 28 sodium posts, 17 catwalk lamps and 
 for zone, x, y, z in LAMPS:
     out.append(f"    (ZoneId::{zone}, Vec3::new({rs(x)}, {rs(y)}, {rs(z)})),\n")
 out.append("];\n\n")
-out.append(f"/// The plant structures that are loop centres and Blaze walls ({len(PLANT)}): the tanks and the column (round), the blast-wall-high things and\n/// the sleepers (plain solid boxes now; their silhouettes come with the Props).\npub(super) const PLANT: [Prop; {len(PLANT)}] = [\n")
+out.append("""/// The floodlights (#568, #510 §3): one over each of the Gatehouse, the Tanker Dock, the Tank Farm, the Rack Road's north end, the Column Yard
+/// and the Substation, on a mast 9 m up against the blast wall, aimed in over the yard. They come on with the Power.
+pub(super) const FLOODS: [Flood; 6] = [
+    Flood { zone: ZoneId::Gatehouse, at: Vec3::new(-16.0, 9.0, 1.2), aim: Vec3::new(-4.0, 0.0, 12.0) },
+    Flood { zone: ZoneId::TankerDock, at: Vec3::new(-56.0, 9.0, 1.2), aim: Vec3::new(-40.0, 0.0, 12.0) },
+    Flood { zone: ZoneId::TankFarm, at: Vec3::new(-58.8, 9.0, 40.0), aim: Vec3::new(-40.0, 0.0, 40.0) },
+    Flood { zone: ZoneId::RackRoad, at: Vec3::new(-18.8, 9.0, 57.0), aim: Vec3::new(0.0, 0.0, 44.0) },
+    Flood { zone: ZoneId::ColumnYard, at: Vec3::new(18.8, 9.0, 88.5), aim: Vec3::new(6.0, 0.0, 74.0) },
+    Flood { zone: ZoneId::Substation, at: Vec3::new(58.8, 9.0, 62.0), aim: Vec3::new(40.0, 0.0, 76.0) },
+];
+
+""")
+out.append(f"/// The Infills ({len(INFILLS)}, #573): the rooms of the three sheds, laid out clear of the Doors, windows, chalks, lamps and path edges.\npub(super) const INFILLS: [Infill; {len(INFILLS)}] = [\n")
+for zone, (x0, z0), (x1, z1) in INFILLS:
+    out.append(f"    infill(ZoneId::{zone}, ({rs(x0)}, {rs(z0)}), ({rs(x1)}, {rs(z1)})),\n")
+out.append("];\n\n")
+out.append(f"/// The plant structures that are loop centres and Blaze walls ({len(PLANT)}): the tanks and the column (round), the blast-wall-high things and\n/// the sleepers, with the heater's stack (the colliders under `plant.rs`'s dressing).\npub(super) const PLANT: [Prop; {len(PLANT)}] = [\n")
 for kind, zone, cx, y, cz, w, h, d in PLANT:
     out.append(f"    p(PropKind::{kind}, ZoneId::{zone}, {rs(cx)}, {rs(y)}, {rs(cz)}, ({rs(w)}, {rs(h)}, {rs(d)})),\n")
 out.append("];\n\n")

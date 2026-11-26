@@ -151,6 +151,7 @@ pub(super) const DAM: Layout = Layout {
     sun: Vec3::new(1.0, -3.0, -1.0),
     look: crate::maps::look::DAM_NIGHT,
     lamp_style: super::LampStyle::Bulb,
+    rail_style: super::RailStyle::Solid,
     bulb_zones: &[],
     plan: (Vec2::new(-52.0, -68.0), Vec2::new(52.0, 36.0)),
     build,

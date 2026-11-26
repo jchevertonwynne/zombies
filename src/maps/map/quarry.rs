@@ -107,6 +107,7 @@ pub(super) const QUARRY: Layout = Layout {
     sun: Vec3::new(1.0, -3.0, -1.5),
     look: crate::maps::look::OVERCAST,
     lamp_style: super::LampStyle::Bulb,
+    rail_style: super::RailStyle::Solid,
     bulb_zones: &[],
     plan: (Vec2::new(-36.0, -38.0), Vec2::new(38.0, 44.0)),
     build,

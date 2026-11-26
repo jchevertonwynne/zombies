@@ -14,9 +14,10 @@
 //! top, its Door at the foot. The one drop is the gap in the Rack Walk's east railing at z 30, on a 1 m cantilever, a 4 m fall into the Rack
 //! Road's east lane, gated on S1.
 //!
-//! The lamps, the plant structures (the tanks, the column, the heater, the sleepers: Props, plain solids for now), the Fuel Lines and the
-//! per-Zone tables are in separate items on purpose: the Fire, the Look, the Infills and the Props each come in a later ticket. Its path
-//! nodes, lamps, windows and plant (in `data`) are laid out by `tools/refinery_layout.py`.
+//! The lamps, the plant structures (the tanks, the column, the heater, the sleepers: Props that are colliders alone, dressed by `plant`), the
+//! Open railings (`Layout.rail_style`), the three sheds' Infills, the Fuel Lines and the per-Zone tables are in separate items on purpose.
+//! Its path nodes, lamps, windows, Infills and plant (in `data`) are laid out by `tools/refinery_layout.py`, which steers every node and edge
+//! round the plant, the Infills, the pens and the bays. Every machine builds all of it from the same Layout: nothing is on the wire.
 
 use bevy::prelude::*;
 
@@ -32,6 +33,7 @@ use super::{DOOR_HEIGHT, Layout, RaisedFloor, STOREY, Slope, palette};
 
 #[path = "refinery/data.rs"]
 mod data;
+pub(crate) mod plant;
 pub(crate) mod sky;
 
 pub(in crate::maps::map) use data::WINDOWS;
@@ -115,7 +117,7 @@ pub(super) const REFINERY: Layout = Layout {
     special_spawns: &SPECIAL_SPAWNS,
     vents: &[],
     raised_floors: &RAISED_FLOORS,
-    infills: &[],
+    infills: &data::INFILLS,
     slopes: &SLOPES,
     sunken: &[],
     water: &[],
@@ -157,6 +159,8 @@ pub(super) const REFINERY: Layout = Layout {
     sun: Vec3::new(0.4, -1.0, -0.6),
     look: crate::maps::look::FLARE_NIGHT,
     lamp_style: super::LampStyle::Sodium,
+    // The catwalks' railings are open: posts, a top rail, a mid rail and a kick plate over the solid railing's collider.
+    rail_style: super::RailStyle::Open,
     // The Fitting Shop and the Compressor House keep caged bulbs; the Control House is tubes; the yards are sodium and the catwalks caged bulbs.
     bulb_zones: &[ZoneId::FittingShop, ZoneId::CompressorHouse],
     plan: (Vec2::new(-60.0, 0.0), Vec2::new(60.0, 90.0)),
@@ -327,7 +331,17 @@ fn arch(width: f32) -> Gap {
 
 /// A railing along x or z (a block 1.1 m high on `y0`, as every catwalk's edge has).
 fn rail(b: &mut Builder, a: Vec2, c: Vec2, y0: f32) {
-    b.wall(a, c, y0, RAIL, &[]);
+    b.rail(a, c, y0, RAIL);
+}
+
+/// A railing along x at `z`, from `x0` to `x1`.
+fn xrail(b: &mut Builder, (x0, x1): (f32, f32), z: f32, y0: f32) {
+    rail(b, v(x0, z), v(x1, z), y0);
+}
+
+/// A railing along z at `x`, from `z0` to `z1`.
+fn zrail(b: &mut Builder, x: f32, (z0, z1): (f32, f32), y0: f32) {
+    rail(b, v(x, z0), v(x, z1), y0);
 }
 
 /// The back-of-house behind the window at `centre` (looking `out` toward the wall): its hatch wall, `PEN_HALF` either side of the window, and
@@ -410,6 +424,7 @@ fn build(b: &mut Builder) {
     stair_bays(b);
     catwalks(b);
     control_house(b);
+    plant::dress(b);
 }
 
 /// The six stair bays: each fenced all round to a storey and a railing, its Door in the wall at its foot, its landing a solid block.
@@ -468,15 +483,15 @@ fn catwalks(b: &mut Builder) {
     // The Rack Walk (x -4..4, z 20..64): a wall at its south end (Juggernog stands against it), railings along its sides but for S1's landing on
     // the west, G3's wall, G1's wall and the one gap in the east railing at z 28.5..31.5 (the Ledge), and G2's wall at its north end.
     xwall(b, (-4.0, 4.0), 20.0, CATWALK, CAGE, vec![]);
-    zwall(b, -4.0, (20.0, 32.0), CATWALK, RAIL, vec![]);
-    zwall(b, -4.0, (44.0, 50.0), CATWALK, RAIL, vec![]);
+    zrail(b, -4.0, (20.0, 32.0), CATWALK);
+    zrail(b, -4.0, (44.0, 50.0), CATWALK);
     zwall(b, -4.0, (50.0, 54.0), CATWALK, CAGE, vec![(52.0, door(TankWalk, RackWalk, G3))]);
-    zwall(b, -4.0, (54.0, 64.0), CATWALK, RAIL, vec![]);
-    zwall(b, 4.0, (20.0, 28.5), CATWALK, RAIL, vec![]);
-    zwall(b, 4.0, (31.5, 34.0), CATWALK, RAIL, vec![]);
-    zwall(b, 4.0, (38.0, 52.0), CATWALK, RAIL, vec![]);
+    zrail(b, -4.0, (54.0, 64.0), CATWALK);
+    zrail(b, 4.0, (20.0, 28.5), CATWALK);
+    zrail(b, 4.0, (31.5, 34.0), CATWALK);
+    zrail(b, 4.0, (38.0, 52.0), CATWALK);
     zwall(b, 4.0, (52.0, 62.0), CATWALK, CAGE, vec![(57.0, door(RackWalk, PipeBridge, G1))]);
-    zwall(b, 4.0, (62.0, 64.0), CATWALK, RAIL, vec![]);
+    zrail(b, 4.0, (62.0, 64.0), CATWALK);
     xwall(b, (-4.0, 4.0), 64.0, CATWALK, CAGE, vec![(0.0, door(RackWalk, ColumnPlatform, G2))]);
     // The Ledge: a 1 m cantilever through the gap, railed down its two sides, its end open.
     b.block(Vec3::new(1.0, 0.3, 3.0), Vec3::new(4.5, CATWALK - 0.15, 30.0), palette(Some(RackWalk)).floor);
@@ -484,41 +499,41 @@ fn catwalks(b: &mut Builder) {
     rail(b, v(4.0, 31.5), v(5.0, 31.5), CATWALK);
 
     // The Pipe Bridge (x 4..36, z 52..62): railings all round but G1's wall, the cage on its south side and the Control House's wall (F1's arch).
-    xwall(b, (4.0, 24.0), 62.0, CATWALK, RAIL, vec![]);
-    zwall(b, 36.0, (52.0, 62.0), CATWALK, RAIL, vec![]);
-    xwall(b, (4.0, 10.0), 52.0, CATWALK, RAIL, vec![]);
-    xwall(b, (14.0, 36.0), 52.0, CATWALK, RAIL, vec![]);
+    xrail(b, (4.0, 24.0), 62.0, CATWALK);
+    zrail(b, 36.0, (52.0, 62.0), CATWALK);
+    xrail(b, (4.0, 10.0), 52.0, CATWALK);
+    xrail(b, (14.0, 36.0), 52.0, CATWALK);
 
     // The Tank Walk: the Girder Ring (x -58..-38, z 30..50) round Tank A, with S2's flight arriving in the middle of its south side, and the
     // North Gantry (x -58..-4, z 50..54) running east from it to G3, with S3's landing at its west end on the north.
-    xwall(b, (-58.0, -50.0), 30.0, CATWALK, RAIL, vec![]);
-    xwall(b, (-46.0, -44.0), 30.0, CATWALK, RAIL, vec![]);
-    xwall(b, (-40.0, -38.0), 30.0, CATWALK, RAIL, vec![]);
-    zwall(b, -58.0, (30.0, 34.0), CATWALK, RAIL, vec![]);
+    xrail(b, (-58.0, -50.0), 30.0, CATWALK);
+    xrail(b, (-46.0, -44.0), 30.0, CATWALK);
+    xrail(b, (-40.0, -38.0), 30.0, CATWALK);
+    zrail(b, -58.0, (30.0, 34.0), CATWALK);
     // The Claymore's wall, on the ring's west side.
     zwall(b, -58.0, (34.0, 38.0), CATWALK, CAGE, vec![]);
-    zwall(b, -58.0, (38.0, 54.0), CATWALK, RAIL, vec![]);
-    zwall(b, -38.0, (30.0, 50.0), CATWALK, RAIL, vec![]);
-    xwall(b, (-38.0, -4.0), 50.0, CATWALK, RAIL, vec![]);
-    xwall(b, (-54.0, -14.0), 54.0, CATWALK, RAIL, vec![]);
-    xwall(b, (-10.0, -4.0), 54.0, CATWALK, RAIL, vec![]);
+    zrail(b, -58.0, (38.0, 54.0), CATWALK);
+    zrail(b, -38.0, (30.0, 50.0), CATWALK);
+    xrail(b, (-38.0, -4.0), 50.0, CATWALK);
+    xrail(b, (-54.0, -14.0), 54.0, CATWALK);
+    xrail(b, (-10.0, -4.0), 54.0, CATWALK);
 
     // The Column Platform (x -12..12, z 64..88): railings but for G2's wall, S5's and S6's walls and landings, and the two cages.
-    xwall(b, (-12.0, -4.0), 64.0, CATWALK, RAIL, vec![]);
-    xwall(b, (4.0, 12.0), 64.0, CATWALK, RAIL, vec![]);
-    zwall(b, -12.0, (64.0, 68.0), CATWALK, RAIL, vec![]);
-    zwall(b, -12.0, (78.0, 82.0), CATWALK, RAIL, vec![]);
-    zwall(b, -12.0, (86.0, 88.0), CATWALK, RAIL, vec![]);
-    xwall(b, (-12.0, 12.0), 88.0, CATWALK, RAIL, vec![]);
-    zwall(b, 12.0, (64.0, 70.0), CATWALK, RAIL, vec![]);
-    zwall(b, 12.0, (82.0, 84.0), CATWALK, RAIL, vec![]);
+    xrail(b, (-12.0, -4.0), 64.0, CATWALK);
+    xrail(b, (4.0, 12.0), 64.0, CATWALK);
+    zrail(b, -12.0, (64.0, 68.0), CATWALK);
+    zrail(b, -12.0, (78.0, 82.0), CATWALK);
+    zrail(b, -12.0, (86.0, 88.0), CATWALK);
+    xrail(b, (-12.0, 12.0), 88.0, CATWALK);
+    zrail(b, 12.0, (64.0, 70.0), CATWALK);
+    zrail(b, 12.0, (82.0, 84.0), CATWALK);
 
     // The Tower Deck (x -8..8, z 68..84): railings all round but the cage on the north side and S6's landing on the east.
-    xwall(b, (-8.0, 8.0), 68.0, DECK, RAIL, vec![]);
-    zwall(b, -8.0, (68.0, 84.0), DECK, RAIL, vec![]);
-    xwall(b, (-4.0, 8.0), 84.0, DECK, RAIL, vec![]);
-    zwall(b, 8.0, (68.0, 80.0), DECK, RAIL, vec![]);
-    zwall(b, 8.0, (82.0, 84.0), DECK, RAIL, vec![]);
+    xrail(b, (-8.0, 8.0), 68.0, DECK);
+    zrail(b, -8.0, (68.0, 84.0), DECK);
+    xrail(b, (-4.0, 8.0), 84.0, DECK);
+    zrail(b, 8.0, (68.0, 80.0), DECK);
+    zrail(b, 8.0, (82.0, 84.0), DECK);
 }
 
 /// The Control House's walls (y 4..8) on its stilts: F1's archway in the south wall, its two north windows, its east doorway from S4's
