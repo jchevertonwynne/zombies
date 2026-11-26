@@ -123,11 +123,6 @@ pub fn lamp_flicker_due(last: Option<f32>, now: f32) -> bool {
     last.is_none_or(|last| now - last >= LAMP_FLICKER_GAP_SECS)
 }
 
-/// Seconds until the next phantom squeak, for a `roll` in `[0, 1)`.
-pub fn next_squeak_secs(roll: f32) -> f32 {
-    super::mix::within(&SQUEAK_EVERY_SECS, roll)
-}
-
 /// Where the Sanatorium's looping sounds come from, found once from its layout.
 #[derive(Debug, Default)]
 pub struct Emitters {
@@ -385,6 +380,7 @@ pub(super) fn drips(
 
 #[cfg(test)]
 mod tests {
+    use super::super::mix;
     use super::*;
 
     fn sanatorium() -> Emitters {
@@ -497,9 +493,9 @@ mod tests {
         let squeaks = sanatorium().squeaks;
         assert!(squeaks.len() >= 8, "{}", squeaks.len());
         assert!(squeaks.iter().all(|at| at.y > 0.0 && at.y < 8.0));
-        assert_eq!(next_squeak_secs(0.0), 30.0);
-        assert_eq!(next_squeak_secs(1.0), 90.0);
-        assert!((30.0..=90.0).contains(&next_squeak_secs(0.37)));
+        assert_eq!(mix::within(&SQUEAK_EVERY_SECS, 0.0), 30.0);
+        assert_eq!(mix::within(&SQUEAK_EVERY_SECS, 1.0), 90.0);
+        assert!((30.0..=90.0).contains(&mix::within(&SQUEAK_EVERY_SECS, 0.37)));
     }
 
     #[test]

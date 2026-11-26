@@ -59,7 +59,7 @@ pub fn range_beats(piece: &Piece, before: PiecePhase, now: PiecePhase) -> Vec<(C
     match (before, now) {
         (PiecePhase::Swinging { from, to, .. }, now) if !now.swinging() => {
             let rest = now.standing().unwrap_or(to);
-            if let Some(at) = bookcases_centre(piece, from, to, &piece.rests[usize::from(rest)].at) {
+            if let Some(at) = bookcases_centre(piece, from, to, piece.rests[usize::from(rest)].at) {
                 beats.push((Cue::RangeThud, at));
                 beats.push((Cue::BookFall, at + Vec3::Y * 1.5));
             }
