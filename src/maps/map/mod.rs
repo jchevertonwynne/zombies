@@ -284,9 +284,8 @@ impl Layout {
         zones.chain(sunken).fold(f32::INFINITY, f32::min)
     }
 
-    /// Where the Map's pump engines run, each the middle of its box: the Archive's Pump Room's two Machines (#541), for the sound ticket's
-    /// `BoilerDrone` to play from. Every other Map's Layout has none. Built from the Layout, so every machine has the same.
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// Where the Map's pump engines run, each the middle of its box: the Archive's Pump Room's two Machines (#541), for `BoilerDrone` (`audio::ambience`)
+    /// to play from. Every other Map's Layout has none. Built from the Layout, so every machine has the same.
     pub fn pump_engines(&self) -> impl Iterator<Item = Vec3> + '_ {
         self.props.iter().filter(|prop| prop.zone == ZoneId::PumpRoom && prop.kind == PropKind::Machine).map(|prop| prop.at + Vec3::Y * prop.size.y / 2.0)
     }

@@ -49,12 +49,36 @@
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
+      "path": "audio/archive_tone_1.ogg",
+      "name": "Freesound 635727, room tone medium quiet library carpeted empty with heavy building ambience +distant sounds (kyles)",
+      "source": "https://freesound.org/people/kyles/sounds/635727/",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-26); 10-37 s cross-faded (3 s) into a seamless 24 s loop; the reading and stack levels' room tone; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/archive_sounds.py)"
+    },
+    {
       "path": "audio/boiler_drone_1.ogg",
       "name": "Freesound 567148, Steel mill low frequency drone (sarana)",
       "source": "https://freesound.org/people/sarana/sounds/567148/",
       "licence": "CC0",
       "fetched": "2026-11-24",
       "notes": "Freesound HQ preview (mp3), CC0 on its page; 12-24 s cross-faded (1 s) into a seamless 11 s loop, normalised, mono, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/book_fall_1.ogg",
+      "name": "Freesound 836521, Book dropped on table (Valerie-Vivegnis), 1.15-2.45 s",
+      "source": "https://freesound.org/people/Valerie-Vivegnis/sounds/836521/",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-26); a book falling at a Range's Rest; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/archive_sounds.py)"
+    },
+    {
+      "path": "audio/book_fall_2.ogg",
+      "name": "Freesound 667384, book pullout (MasterSuite), whole clip",
+      "source": "https://freesound.org/people/MasterSuite/sounds/667384/",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-26); a book pulled from a shelf and falling; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/archive_sounds.py)"
     },
     {
       "path": "audio/boon_offer.ogg",
@@ -143,6 +167,14 @@
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Trimmed, normalised to -20 LUFS (ui), stereo, OGG q4, via tools/audio/process.py"
+    },
+    {
+      "path": "audio/cellar_bed_1.ogg",
+      "name": "Freesound 553080, Ambiance_Atmosphere_Cave_Loop_Stereo (Nox_Sound)",
+      "source": "https://freesound.org/people/Nox_Sound/sounds/553080/",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-26); 4-46 s cross-faded (2 s) into a seamless 40 s loop (its own loop point is lost to the preview's encoder padding); the five cellar Zones' bed; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/archive_sounds.py)"
     },
     {
       "path": "audio/challenge_breach.ogg",
@@ -271,6 +303,30 @@
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/drip_1.ogg",
+      "name": "Freesound 177958, Water Dripping in Cave (Sclolex), 24.95-26.35 s",
+      "source": "https://freesound.org/people/Sclolex/sounds/177958/",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-26); one drip falling in the Archive's cellar; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/archive_sounds.py)"
+    },
+    {
+      "path": "audio/drip_2.ogg",
+      "name": "Freesound 162116, Water Dripping (Large Echo) (editor_adp), 19.95-22.15 s",
+      "source": "https://freesound.org/people/editor_adp/sounds/162116/",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-26); one drip falling in the Archive's cellar; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/archive_sounds.py)"
+    },
+    {
+      "path": "audio/drip_3.ogg",
+      "name": "Freesound 607071, Water droplets falling in a cave (radioscoopfi), 1.7-3.4 s",
+      "source": "https://freesound.org/people/radioscoopfi/sounds/607071/",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-26); one drip falling in the Archive's cellar; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/archive_sounds.py)"
     },
     {
       "path": "audio/duo_taken.ogg",
@@ -801,6 +857,38 @@
       "notes": "Pact offer: low strings swelling on D, A and Eb, muted brass on Ab, a dull bell out of tune. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
     },
     {
+      "path": "audio/page_rustle_1.ogg",
+      "name": "Freesound 856497, Turning page (heavy paper) (xkeril), 0.2-1.2 s",
+      "source": "https://freesound.org/people/xkeril/sounds/856497/",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-26); a phantom page turn from the stacks or the Reading Room; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/archive_sounds.py)"
+    },
+    {
+      "path": "audio/page_rustle_2.ogg",
+      "name": "Freesound 382651, Paper Page Turn (bbrocer), 2.5-4.9 s",
+      "source": "https://freesound.org/people/bbrocer/sounds/382651/",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-26); a phantom page turn from the stacks or the Reading Room; band-passed and denoised (afftdn), the recording is very quiet; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/archive_sounds.py)"
+    },
+    {
+      "path": "audio/page_rustle_3.ogg",
+      "name": "Freesound 656546, Page Turn (IENBA), 2.7-3.6 s",
+      "source": "https://freesound.org/people/IENBA/sounds/656546/",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-26); a phantom page turn from the stacks or the Reading Room; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/archive_sounds.py)"
+    },
+    {
+      "path": "audio/page_rustle_4.ogg",
+      "name": "Freesound 632220, paper, thin, tracing, blueprint, rustle (golovlev.sound), 1.4-3.4 s",
+      "source": "https://freesound.org/people/golovlev.sound/sounds/632220/",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-26); a phantom page turn from the stacks or the Reading Room; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/archive_sounds.py)"
+    },
+    {
       "path": "audio/pap_process_1.ogg",
       "name": "Freesound 871231, Short Machine Sound 7 (qubodup)",
       "source": "https://freesound.org/people/qubodup/sounds/871231/",
@@ -1001,6 +1089,38 @@
       "notes": "Freesound HQ preview (mp3), CC0 on its page; the door-motion section 5.9-8.4 s, normalised, mono, OGG q4 via tools/audio/process.py"
     },
     {
+      "path": "audio/range_rattle_1.ogg",
+      "name": "Freesound 849796, Low Old Wagon Metal Rattles (IENBA), chain-and-rattle section as a loop",
+      "source": "https://freesound.org/people/IENBA/sounds/849796/",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-26); 2.0-11.0 s cross-faded (1 s) into a seamless 8 s loop; the Range's Warning and Waiting; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/archive_sounds.py)"
+    },
+    {
+      "path": "audio/range_roll_1.ogg",
+      "name": "Freesound 591883, Train Passing By 15 Pitch Change Deep Rumble with Horn (FunWithSound) low-passed 260 Hz and pitched down five semitones, under Freesound 844329, Stone Slab Door Grinding - Heavy Rock Scrape (Mono) (NahuelMartinez) (scrape, 5.2-12.2 s) and Freesound 849796, Low Old Wagon Metal Rattles (IENBA) (wheels, 14-21 s)",
+      "source": "https://freesound.org/people/FunWithSound/sounds/591883/ ; https://freesound.org/people/NahuelMartinez/sounds/844329/ ; https://freesound.org/people/IENBA/sounds/849796/",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-26); three 6 s cross-faded loops layered into one seamless 6 s loop; the moving Bookcases' roll; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/archive_sounds.py)"
+    },
+    {
+      "path": "audio/range_thud_1.ogg",
+      "name": "Freesound 648959, Heavy Book (IENBA) (thud, 1.4-2.45 s) + Freesound 743262, Stone Sliding (qubodup) (stone tail) + Freesound 836521, Book dropped on table (Valerie-Vivegnis) (a book dropped, for the wood hit), at natural speed, run through Freesound 648945, IR_Cathedral_5m_Stereo (Nox_Sound) offline with ffmpeg afir at -8 dB under the dry",
+      "source": "https://freesound.org/people/IENBA/sounds/648959/ ; https://freesound.org/people/qubodup/sounds/743262/ ; https://freesound.org/people/Valerie-Vivegnis/sounds/836521/ ; https://freesound.org/people/Nox_Sound/sounds/648945/",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-26); a Range's Bookcases coming to Rest; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/archive_sounds.py)"
+    },
+    {
+      "path": "audio/range_thud_2.ogg",
+      "name": "Freesound 648959, Heavy Book (IENBA) (thud, 1.4-2.45 s) + Freesound 743262, Stone Sliding (qubodup) (stone tail) + Freesound 836521, Book dropped on table (Valerie-Vivegnis) (a book dropped, for the wood hit), slowed to 0.9x, run through Freesound 648945, IR_Cathedral_5m_Stereo (Nox_Sound) offline with ffmpeg afir at -8 dB under the dry",
+      "source": "https://freesound.org/people/IENBA/sounds/648959/ ; https://freesound.org/people/qubodup/sounds/743262/ ; https://freesound.org/people/Valerie-Vivegnis/sounds/836521/ ; https://freesound.org/people/Nox_Sound/sounds/648945/",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-26); a Range's Bookcases coming to Rest; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/archive_sounds.py)"
+    },
+    {
       "path": "audio/ray_gun_1.ogg",
       "name": "Freesound 635426, Freesound - Futuristic shot #3 (BloodPixelHero)",
       "source": "https://freesound.org/people/BloodPixelHero/sounds/635426/",
@@ -1151,6 +1271,30 @@
       "licence": "CC0 (composed for this project)",
       "fetched": "2026-11-20",
       "notes": "Set Bonus tier two: one short brass fifth on D with a celesta D. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
+    },
+    {
+      "path": "audio/shelf_creak_1.ogg",
+      "name": "Freesound 506665, Wood Creak Single V10 (Rudmer_Rotteveel), 0.0-1.19 s",
+      "source": "https://freesound.org/people/Rudmer_Rotteveel/sounds/506665/",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-26); a stack's shelf creaking, at a Roll's start or as a phantom; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/archive_sounds.py)"
+    },
+    {
+      "path": "audio/shelf_creak_2.ogg",
+      "name": "Freesound 572645, Wood Floor Creak (sthran), 0.0-0.83 s",
+      "source": "https://freesound.org/people/sthran/sounds/572645/",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-26); a stack's shelf creaking, at a Roll's start or as a phantom; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/archive_sounds.py)"
+    },
+    {
+      "path": "audio/shelf_creak_3.ogg",
+      "name": "Freesound 456814, Creaking Wood (Breviceps), 1.0-2.19 s",
+      "source": "https://freesound.org/people/Breviceps/sounds/456814/",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-26); a stack's shelf creaking, at a Roll's start or as a phantom; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/archive_sounds.py)"
     },
     {
       "path": "audio/shellshock_1.ogg",
@@ -1335,6 +1479,22 @@
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/wheel_turn_1.ogg",
+      "name": "Freesound 456814, Creaking Wood (Breviceps), 0.1-1.35 s at 1.15x speed",
+      "source": "https://freesound.org/people/Breviceps/sounds/456814/",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-26); a hand Wheel's creak as it is turned; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/archive_sounds.py)"
+    },
+    {
+      "path": "audio/wheel_turn_2.ogg",
+      "name": "Freesound 456814, Creaking Wood (Breviceps), 0.85-2.1 s at 0.95x speed",
+      "source": "https://freesound.org/people/Breviceps/sounds/456814/",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-26); a hand Wheel's creak as it is turned; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/archive_sounds.py)"
     },
     {
       "path": "audio/zipline_land_1.ogg",

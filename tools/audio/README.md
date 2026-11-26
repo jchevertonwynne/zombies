@@ -30,3 +30,8 @@ python3 tools/audio/compose.py round_start --render-only --keep /tmp/wav   # jus
 A piece marked `layer=True` (`quarantine_release_chime`) is not a slot: render it with `--render-only --keep DIR`
 and mix it under its recording with ffmpeg before handing the mix to `process.py` (the Quarantine's release
 cue is the airlock hiss with that chime on it).
+
+`archive_sounds.py` builds the Archive's twenty files (#542) from CC0 Freesound previews in a folder of `<id>.mp3`s: it cuts, loops
+(equal-power cross-fade), layers and, for the Range's thud, convolves with a cathedral impulse response (`afir`), then hands each slot to
+`process.py`. Its docstring lists the sources and where it departs from the look decision (no recording of a shelf on rails exists, and
+Kenney's sounds have no direct download).
