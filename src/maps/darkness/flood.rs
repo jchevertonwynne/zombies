@@ -12,7 +12,6 @@ use crate::maps::map::{Flood, Layout};
 use crate::maps::map::MapId;
 use crate::maps::power::Power;
 use crate::maps::zone::ZoneId;
-use crate::tuning::*;
 
 /// How long after the Power each flood comes on after the one before it.
 pub const FLOOD_GAP_SECS: f32 = 0.3;
