@@ -582,3 +582,56 @@ fn a_late_joiner_sees_the_open_aisle_green_and_a_sabotaged_range_red() {
         assert_eq!(lamps(&mut run, on, 0), open, "game {on}: restored");
     }
 }
+
+// ---- The Ranges' sounds (#542) ----
+
+/// What a game's Range sounds have asked for: each cue as it was asked, and each loop as it began.
+#[derive(Resource, Default)]
+struct RangeHeard {
+    cues: Vec<crate::audio::cues::Cue>,
+    loops: Vec<crate::audio::cues::Cue>,
+}
+
+/// The Archive with the Ranges' sounds on every game, noting what they ask for. The sound systems are the real ones: a cue is a `PlayCue`,
+/// and a loop is what `range_loop` says the phase is playing.
+fn archive_heard(clients: u8) -> Run {
+    fn note(mut cues: MessageReader<crate::audio::PlayCue>, pieces: Query<&PieceState>, map: Res<MapId>, mut heard: ResMut<RangeHeard>) {
+        heard.cues.extend(cues.read().map(|cue| cue.cue));
+        for state in &pieces {
+            let piece = &map.layout().shifting[usize::from(state.id().0)];
+            if let Some((cue, _)) = crate::audio::range::range_loop(piece, state.phase())
+                && heard.loops.last() != Some(&cue)
+            {
+                heard.loops.push(cue);
+            }
+        }
+    }
+    Run::on(MapId::Archive, clients, &|app| {
+        app.init_resource::<RangeHeard>().add_systems(Update, (crate::audio::range::range_cues, note).chain());
+    })
+}
+
+/// A Host-side Roll, started at a Wheel by the Host's own Player, is heard in full by the Host and by a client, from the phase each shows
+/// and nothing else: the Wheel's turn, the rattle through the Warning, the creak and the roll as it Swings and the thud as it comes to Rest.
+#[test]
+fn a_client_hears_the_rattle_roll_and_thud_of_a_host_side_roll() {
+    use crate::audio::cues::Cue;
+    let mut run = archive_heard(1);
+    run.step(10);
+    let wheel = run.find::<WheelPost>(0, |post| post.piece == PieceId(0) && post.rest == 0);
+    run.use_buyable(0, wheel, false);
+    for _ in 0..ticks(20.0) {
+        run.step(1);
+        if matches!(phase(&mut run, 1, 0), PiecePhase::Cooling { .. }) {
+            break;
+        }
+    }
+    run.step(10);
+    for on in 0..2 {
+        let heard = run.world(on).resource::<RangeHeard>();
+        assert_eq!(heard.loops, [Cue::RangeRattle, Cue::RangeRoll], "game {on}: the rattle through the Warning, then the roll");
+        let cues: Vec<Cue> = heard.cues.iter().copied().filter(|cue| !matches!(cue, Cue::ZombieRiser)).collect();
+        assert_eq!(cues, [Cue::WheelTurn, Cue::ShelfCreak, Cue::RangeThud, Cue::BookFall], "game {on}");
+        assert!(!heard.cues.contains(&Cue::BridgeClunk), "game {on}: a Range's Rest is not a Bridge's");
+    }
+}

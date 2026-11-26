@@ -7,6 +7,7 @@
 //! [`mix`].
 
 mod ambience;
+pub mod range;
 pub mod cues;
 pub mod mix;
 pub mod slots;
@@ -204,6 +205,7 @@ impl Plugin for AudioPlugin {
 
         app.add_message::<PlayCue>()
             .add_message::<crate::maps::darkness::lamp_flicker::LampBurst>()
+            .add_message::<crate::maps::map::archive::flood::DripLanded>()
             .add_systems(Startup, load_sounds)
             .add_systems(OnEnter(GameState::GameOver), |mut commands: Commands, mut sounds: ResMut<Sounds>| {
                 sounds.play(&mut commands, Cue::GameOver, None);
@@ -213,6 +215,8 @@ impl Plugin for AudioPlugin {
                 (
                     add_listener,
                     muffle,
+                    // Before `play_cues`, so a Range's thud sounds the frame its phase shows.
+                    range::range_cues,
                     play_cues,
                     play_round_sounds,
                     play_buy_sounds,
@@ -227,10 +231,15 @@ impl Plugin for AudioPlugin {
                     crawler_drag,
                     entity_loops,
                     flat_loops,
-                    ambience::ambience,
-                    ambience::point_loops,
-                    ambience::lamp_flicker_clicks,
-                    ambience::phantom_squeaks,
+                    (
+                        ambience::ambience,
+                        ambience::point_loops,
+                        ambience::lamp_flicker_clicks,
+                        ambience::phantom_sounds,
+                        ambience::drips,
+                        range::range_loops,
+                    )
+                        .chain(),
                     cap_voices,
                 )
                     .chain(),
@@ -1015,8 +1024,10 @@ fn entity_loops(
     quarantine: Option<Res<crate::maps::quarantine::Quarantine>>,
     map: Option<Res<crate::maps::map::MapId>>,
 ) {
+    // A Range's own cues (`range.rs`) sound in place of a Bridge's bell and grind.
+    let bridge = |state: &crate::maps::shifting::PieceState| !map.as_deref().is_some_and(|map| range::is_range_id(map.layout(), state.id()));
     // The klaxon sounds from each of the Wing's doors through its Warning and Sealing.
-    let klaxon: Vec<Entity> = match (quarantine, map) {
+    let klaxon: Vec<Entity> = match (quarantine, map.as_deref()) {
         (Some(quarantine), Some(map)) if quarantine.stage().alarm() => pieces
             .iter()
             .filter(|(_, state)| map.layout().shifting.get(usize::from(state.id().0)).is_some_and(|piece| piece.wing().is_some() && piece.wing() == quarantine.wing()))
@@ -1038,9 +1049,9 @@ fn entity_loops(
         (Cue::MonkeyBomb, all(bombs.iter().filter(|(_, bomb)| bomb.landed()).map(|(entity, _)| entity).collect())),
         (Cue::PowerupHum, all(dropped.iter().collect())),
         (Cue::TrapActive, all(traps.iter().filter(|(_, trap)| trap.running()).map(|(entity, _)| entity).collect())),
-        (Cue::BridgeBell, all(pieces.iter().filter(|(_, state)| state.phase().bell()).map(|(entity, _)| entity).collect())),
+        (Cue::BridgeBell, all(pieces.iter().filter(|(_, state)| state.phase().bell() && bridge(state)).map(|(entity, _)| entity).collect())),
         (Cue::QuarantineKlaxon, all(klaxon)),
-        (Cue::BridgeGrind, all(pieces.iter().filter(|(_, state)| state.phase().swinging()).map(|(entity, _)| entity).collect())),
+        (Cue::BridgeGrind, all(pieces.iter().filter(|(_, state)| state.phase().swinging() && bridge(state)).map(|(entity, _)| entity).collect())),
         (
             Cue::FireSale,
             all(boxes.iter().filter(|(_, mystery_box)| fire_sale && mystery_box.present()).map(|(entity, _)| entity).collect()),

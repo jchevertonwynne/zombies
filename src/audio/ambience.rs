@@ -10,6 +10,12 @@
 //!   while the Power is on.
 //! - `TrolleySqueak`: a phantom from a random corridor or ward point every 30 to 90 s.
 //!
+//! The Archive (#542) has the same kind of ambience, with its own files: `ArchiveTone` on the reading and stack levels and
+//! `CellarBed` in the five cellar Zones, crossfading in the same half second as the eye changes level; `Drip` at the cellar's
+//! drip points (the four nearest the eye play); `BoilerDrone` at the Pump Room's engines while the Power is on; and three local
+//! phantoms: `PageRustle` every 20 to 60 s from a stack hall or the Reading Room, `ShelfCreak` every 30 to 90 s from a fixed stack
+//! and, rarely, `BookFall` from one. Its Ranges' cues are in `range.rs`.
+//!
 //! Every machine runs these from its own eye and clock: the Zone, the Power and the layout are the
 //! same on all of them, so a Co-op client hears the same cues from the same places. The phantom
 //! squeaks and the lamp bursts' timing are local and cosmetic by design. The pure rules are here
@@ -23,6 +29,7 @@ use bevy::prelude::*;
 use super::Sounds;
 use super::cues::Cue;
 use crate::maps::darkness::lamp_flicker::LampBurst;
+use crate::maps::map::archive::flood::{DRIPS, DripLanded};
 use crate::maps::map::{Layout, MapId, PropKind};
 use crate::maps::power::Power;
 use crate::maps::zone::{PlayerZone, ZoneId};
@@ -43,6 +50,49 @@ const SQUEAK_ZONES: [ZoneId; 5] =
 const SQUEAK_HEIGHT: f32 = 0.6;
 /// A lamp hangs this far over its floor.
 const LAMP_HEIGHT: f32 = 3.85;
+/// How many drips play at once: the nearest to the eye.
+pub const DRIP_VOICES: usize = 4;
+/// The seconds between one phantom page turn and the next, one shelf creak and the next, and one fallen book and the next.
+pub const RUSTLE_EVERY: RangeInclusive<f32> = 20.0..=60.0;
+pub const CREAK_EVERY: RangeInclusive<f32> = 30.0..=90.0;
+pub const FALL_EVERY: RangeInclusive<f32> = 120.0..=300.0;
+/// The Zones a phantom page turn sounds in: the four stack halls and the Reading Room.
+const RUSTLE_ZONES: [ZoneId; 5] = [ZoneId::OldStacks, ZoneId::FolioStacks, ZoneId::PeriodicalStacks, ZoneId::NewStacks, ZoneId::ReadingRoom];
+/// How high above a floor a phantom page turn sounds, and how high up a fixed stack its creak or fallen book does (a share of its height).
+const RUSTLE_HEIGHT: f32 = 1.4;
+const STACK_HEIGHT_SHARE: f32 = 0.5;
+/// The five Zones below the stacks: the cellar, where the bed plays in place of the tone.
+const CELLAR_ZONES: [ZoneId; 5] = [ZoneId::WellStair, ZoneId::FloodedCellar, ZoneId::Undercroft, ZoneId::StrongRoom, ZoneId::PumpRoom];
+
+/// Whether `zone` is one of the Archive's five cellar Zones.
+pub fn cellar(zone: ZoneId) -> bool {
+    CELLAR_ZONES.contains(&zone)
+}
+
+/// The two flat loops `map` keeps under it (see `Ambient`), if it has any: the Sanatorium's room tone and wind, the Archive's tone and bed.
+pub fn ambient_cues(map: MapId) -> Option<[Cue; 2]> {
+    match map {
+        MapId::Sanatorium => Some([Cue::RoomTone, Cue::FogWind]),
+        MapId::Archive => Some([Cue::ArchiveTone, Cue::CellarBed]),
+        _ => None,
+    }
+}
+
+/// How loud the flat ambience `cue` wants to be with the eye in `zone` of `layout`, from 0 to 1: the Sanatorium's by indoors or out, the
+/// Archive's tone above the cellar and its bed in it.
+pub fn zone_target(cue: Cue, layout: &Layout, zone: ZoneId) -> f32 {
+    match cue {
+        Cue::ArchiveTone => (!cellar(zone)).into(),
+        Cue::CellarBed => cellar(zone).into(),
+        _ => ambience_target(cue, layout.indoor(zone)),
+    }
+}
+
+/// Whether the drip that has landed at `at` plays for an eye at `eye`: only the `DRIP_VOICES` drip points nearest it do.
+pub fn drip_plays(eye: Vec3, at: Vec3) -> bool {
+    let points: Vec<Vec3> = DRIPS.iter().map(|drip| drip.at).collect();
+    nearest(eye, &points, DRIP_VOICES).into_iter().any(|i| points[i] == at)
+}
 
 /// How loud the flat ambience `cue` wants to be, from 0 to 1, with the eye indoors or out: the room
 /// tone only indoors, the wind only out of doors.
@@ -89,30 +139,58 @@ pub struct Emitters {
     pub monitors: Vec<Vec3>,
     /// Where a phantom trolley may squeak.
     pub squeaks: Vec<Vec3>,
+    /// Where a phantom page turn may sound: over the stack halls' and the Reading Room's floors.
+    pub rustles: Vec<Vec3>,
+    /// Where a phantom shelf creak or fallen book may sound: the middles of the fixed stacks.
+    pub stacks: Vec<Vec3>,
 }
 
-/// The emitters of `layout`: a hum in each indoor Zone, the boilers and the electrotherapy machine
-/// (the Machine Props of the Boiler House and the Treatment Room), and the squeak points.
-pub fn emitters(layout: &Layout) -> Emitters {
-    let machines = |zone: ZoneId| -> Vec<Vec3> {
-        layout.props.iter().filter(|prop| prop.zone == zone && prop.kind == PropKind::Machine).map(|prop| prop.at).collect()
-    };
-    Emitters {
-        hums: layout
-            .zones
-            .iter()
-            .copied()
-            .filter(|&zone| layout.indoor(zone))
-            .filter_map(|zone| layout.lamps.iter().find(|(lamp_zone, _)| *lamp_zone == zone).map(|&(_, at)| (zone, at)))
-            .collect(),
-        boilers: machines(ZoneId::BoilerHouse),
-        monitors: machines(ZoneId::TreatmentRoom),
-        squeaks: layout
-            .lamps
-            .iter()
-            .filter(|(zone, _)| SQUEAK_ZONES.contains(zone))
-            .map(|&(_, at)| Vec3::new(at.x, at.y - LAMP_HEIGHT + SQUEAK_HEIGHT, at.z))
-            .collect(),
+/// The emitters of `map`: on the Sanatorium a hum in each indoor Zone, the boilers and the electrotherapy machine (the Machine Props of
+/// the Boiler House and the Treatment Room), and the squeak points; on the Archive its pump engines, and the points a page turn, a
+/// creak or a fallen book may sound from. Every other Map has none.
+pub fn emitters(map: MapId) -> Emitters {
+    let layout = map.layout();
+    match map {
+        MapId::Sanatorium => {
+            let machines = |zone: ZoneId| -> Vec<Vec3> {
+                layout.props.iter().filter(|prop| prop.zone == zone && prop.kind == PropKind::Machine).map(|prop| prop.at).collect()
+            };
+            Emitters {
+                hums: layout
+                    .zones
+                    .iter()
+                    .copied()
+                    .filter(|&zone| layout.indoor(zone))
+                    .filter_map(|zone| layout.lamps.iter().find(|(lamp_zone, _)| *lamp_zone == zone).map(|&(_, at)| (zone, at)))
+                    .collect(),
+                boilers: machines(ZoneId::BoilerHouse),
+                monitors: machines(ZoneId::TreatmentRoom),
+                squeaks: layout
+                    .lamps
+                    .iter()
+                    .filter(|(zone, _)| SQUEAK_ZONES.contains(zone))
+                    .map(|&(_, at)| Vec3::new(at.x, at.y - LAMP_HEIGHT + SQUEAK_HEIGHT, at.z))
+                    .collect(),
+                ..default()
+            }
+        }
+        MapId::Archive => Emitters {
+            boilers: layout.pump_engines().collect(),
+            rustles: layout
+                .lamps
+                .iter()
+                .filter(|(zone, _)| RUSTLE_ZONES.contains(zone))
+                .map(|&(zone, at)| Vec3::new(at.x, zone.floor() + RUSTLE_HEIGHT, at.z))
+                .collect(),
+            stacks: layout
+                .props
+                .iter()
+                .filter(|prop| prop.kind == PropKind::Stack)
+                .map(|prop| prop.at + Vec3::Y * prop.size.y * STACK_HEIGHT_SHARE)
+                .collect(),
+            ..default()
+        },
+        _ => Emitters::default(),
     }
 }
 
@@ -146,9 +224,10 @@ pub(super) struct PointLoop {
     key: usize,
 }
 
-/// Whether this is a Run on the Sanatorium.
-fn on_sanatorium(map: &Option<Res<MapId>>, state: &State<GameState>) -> bool {
-    *state.get() == GameState::Playing && map.as_deref().is_some_and(|map| *map == MapId::Sanatorium)
+/// The Map this Run is being played on, if it has ambience (see `ambient_cues`) and it is being played.
+fn ambient_map(map: &Option<Res<MapId>>, state: &State<GameState>) -> Option<MapId> {
+    let map = map.as_deref().copied()?;
+    (*state.get() == GameState::Playing && ambient_cues(map).is_some()).then_some(map)
 }
 
 /// Keeps the room tone and the wind looping, and fades each to what the eye's Zone wants.
@@ -161,17 +240,16 @@ pub(super) fn ambience(
     zones: Query<&PlayerZone, With<LocalPlayer>>,
     mut playing: Query<(Entity, &mut Ambient, Option<&mut AudioSink>)>,
 ) {
-    if !on_sanatorium(&map, &state) {
+    let Some(map) = ambient_map(&map, &state) else {
         for (entity, ..) in &playing {
             commands.entity(entity).despawn();
         }
         return;
-    }
-    let Some(map) = map else { return };
+    };
     let layout = map.layout();
     // Before the eye has a Zone it is where the Run begins.
-    let indoors = layout.indoor(zones.iter().next().map_or_else(|| layout.start_zone(), |zone| zone.0));
-    for cue in [Cue::RoomTone, Cue::FogWind] {
+    let zone = zones.iter().next().map_or_else(|| layout.start_zone(), |zone| zone.0);
+    for cue in ambient_cues(map).into_iter().flatten() {
         if !playing.iter().any(|(_, ambient, _)| ambient.cue == cue)
             && let Some(sound) = sounds.looping(cue, 0.0)
         {
@@ -179,7 +257,7 @@ pub(super) fn ambience(
         }
     }
     for (_, mut ambient, sink) in &mut playing {
-        let level = fade_toward(ambient.level, ambience_target(ambient.cue, indoors), time.delta_secs());
+        let level = fade_toward(ambient.level, zone_target(ambient.cue, layout, zone), time.delta_secs());
         ambient.level = level;
         if let Some(mut sink) = sink {
             sink.set_volume(Volume::Linear(sounds.gain(ambient.cue) * level));
@@ -197,16 +275,15 @@ pub(super) fn point_loops(
     power: Res<Power>,
     eyes: Query<&GlobalTransform, With<PlayerCamera>>,
     playing: Query<(Entity, &PointLoop)>,
-    mut found: Local<Option<Emitters>>,
+    mut found: Local<Option<(MapId, Emitters)>>,
 ) {
-    if !on_sanatorium(&map, &state) {
+    let Some(map) = ambient_map(&map, &state) else {
         for (entity, _) in &playing {
             commands.entity(entity).despawn();
         }
         return;
-    }
-    let Some(map) = map else { return };
-    let emitters = found.get_or_insert_with(|| emitters(map.layout()));
+    };
+    let emitters = found_emitters(&mut found, map);
     let wanted = wanted_loops(emitters, eyes.iter().next().map(GlobalTransform::translation), power.is_on());
     for (entity, sound) in &playing {
         if !wanted.iter().any(|&(cue, key, _)| cue == sound.cue && key == sound.key) {
@@ -241,34 +318,69 @@ pub(super) fn lamp_flicker_clicks(
     }
 }
 
-/// Now and then a trolley squeaks from somewhere in a corridor or a ward, though none is there.
-/// Each machine rolls its own: it is for atmosphere, not a fact of the game.
-pub(super) fn phantom_squeaks(
+/// The emitters of `map`, found once and kept in `found`.
+fn found_emitters(found: &mut Option<(MapId, Emitters)>, map: MapId) -> &Emitters {
+    if found.as_ref().is_none_or(|(kept, _)| *kept != map) {
+        *found = Some((map, emitters(map)));
+    }
+    &found.as_ref().expect("just set").1
+}
+
+/// The phantom sounds `emitters` has places for, each as (cue, the seconds between one and the next, where it may sound from).
+pub fn phantoms(emitters: &Emitters) -> [(Cue, RangeInclusive<f32>, &[Vec3]); 4] {
+    [
+        (Cue::TrolleySqueak, SQUEAK_EVERY_SECS, &emitters.squeaks),
+        (Cue::PageRustle, RUSTLE_EVERY, &emitters.rustles),
+        (Cue::ShelfCreak, CREAK_EVERY, &emitters.stacks),
+        (Cue::BookFall, FALL_EVERY, &emitters.stacks),
+    ]
+}
+
+/// Now and then a trolley squeaks from somewhere in a corridor or a ward, or a page turns, a shelf creaks or a book falls somewhere in the
+/// Archive, though no one is there. Each machine rolls its own: it is for atmosphere, not a fact of the game.
+pub(super) fn phantom_sounds(
     mut commands: Commands,
     mut sounds: ResMut<Sounds>,
     map: Option<Res<MapId>>,
     state: Res<State<GameState>>,
     time: Res<Time>,
-    mut found: Local<Option<Emitters>>,
-    mut next: Local<Option<f32>>,
+    mut found: Local<Option<(MapId, Emitters)>>,
+    mut next: Local<[Option<f32>; 4]>,
 ) {
-    if !on_sanatorium(&map, &state) {
-        *next = None;
+    let Some(map) = ambient_map(&map, &state) else {
+        *next = [None; 4];
         return;
-    }
-    let Some(map) = map else { return };
+    };
     let now = time.elapsed_secs();
-    let due = *next.get_or_insert_with(|| now + next_squeak_secs(rand::random()));
-    if now < due {
-        return;
+    let emitters = found_emitters(&mut found, map);
+    for (slot, (cue, every, points)) in phantoms(emitters).into_iter().enumerate() {
+        if points.is_empty() {
+            continue;
+        }
+        let due = *next[slot].get_or_insert_with(|| now + super::mix::within(&every, rand::random()));
+        if now < due {
+            continue;
+        }
+        next[slot] = Some(now + super::mix::within(&every, rand::random()));
+        let pick = ((rand::random::<f32>() * points.len() as f32) as usize).min(points.len() - 1);
+        sounds.play(&mut commands, cue, Some(points[pick]));
     }
-    *next = Some(now + next_squeak_secs(rand::random()));
-    let emitters = found.get_or_insert_with(|| emitters(map.layout()));
-    if emitters.squeaks.is_empty() {
-        return;
+}
+
+/// A drip falling at one of the cellar's drip points sounds there, if it is one of the four nearest the eye. Each machine's drips fall on
+/// its own clock (`maps::map::archive::flood`), so this is a cosmetic, like the ripple it goes with.
+pub(super) fn drips(
+    mut commands: Commands,
+    mut sounds: ResMut<Sounds>,
+    mut landed: MessageReader<DripLanded>,
+    eyes: Query<&GlobalTransform, With<PlayerCamera>>,
+) {
+    let eye = eyes.iter().next().map(GlobalTransform::translation);
+    for drip in landed.read() {
+        if eye.is_some_and(|eye| drip_plays(eye, drip.at)) {
+            sounds.play(&mut commands, Cue::Drip, Some(drip.at));
+        }
     }
-    let pick = ((rand::random::<f32>() * emitters.squeaks.len() as f32) as usize).min(emitters.squeaks.len() - 1);
-    sounds.play(&mut commands, Cue::TrolleySqueak, Some(emitters.squeaks[pick]));
 }
 
 #[cfg(test)]
@@ -276,7 +388,7 @@ mod tests {
     use super::*;
 
     fn sanatorium() -> Emitters {
-        emitters(MapId::Sanatorium.layout())
+        emitters(MapId::Sanatorium)
     }
 
     #[test]
@@ -405,5 +517,161 @@ mod tests {
             total += variants.iter().map(|file| std::fs::metadata(dir.join(file)).unwrap().len()).sum::<u64>();
         }
         assert!(total < 2_000_000, "the Sanatorium's sounds are {total} bytes");
+    }
+
+    fn archive() -> Emitters {
+        emitters(MapId::Archive)
+    }
+
+    /// The tone is under the reading and stack levels and the bed under the five cellar Zones, one or the other everywhere: the two are
+    /// each other's mirror, so the crossfade is always one rising as the other falls.
+    #[test]
+    fn archive_tone_and_cellar_bed_split_by_level() {
+        let layout = MapId::Archive.layout();
+        let mut cellar_zones = Vec::new();
+        for &zone in layout.zones {
+            let (tone, bed) = (zone_target(Cue::ArchiveTone, layout, zone), zone_target(Cue::CellarBed, layout, zone));
+            assert_eq!(tone + bed, 1.0, "{zone:?}: one plays, not both, not neither");
+            if bed == 1.0 {
+                cellar_zones.push(zone);
+            }
+        }
+        cellar_zones.sort_by_key(|zone| format!("{zone:?}"));
+        let mut want = vec![ZoneId::WellStair, ZoneId::FloodedCellar, ZoneId::Undercroft, ZoneId::StrongRoom, ZoneId::PumpRoom];
+        want.sort_by_key(|zone| format!("{zone:?}"));
+        assert_eq!(cellar_zones, want, "the five cellar Zones");
+        for zone in [
+            ZoneId::CatalogueHall,
+            ZoneId::ReadingRoom,
+            ZoneId::MapRoom,
+            ZoneId::LectureTheatre,
+            ZoneId::OldStacks,
+            ZoneId::FolioStacks,
+            ZoneId::PeriodicalStacks,
+            ZoneId::NewStacks,
+            ZoneId::Bindery,
+        ] {
+            assert_eq!(zone_target(Cue::ArchiveTone, layout, zone), 1.0, "{zone:?} is a reading or stack Zone");
+        }
+        // Each Map keeps its own pair, and nothing else keeps any.
+        assert_eq!(ambient_cues(MapId::Archive), Some([Cue::ArchiveTone, Cue::CellarBed]));
+        assert_eq!(ambient_cues(MapId::Sanatorium), Some([Cue::RoomTone, Cue::FogWind]));
+        assert_eq!(ambient_cues(MapId::Cove), None);
+        // The crossfade between them takes the same half second.
+        let mut level = 0.0;
+        let mut secs = 0.0;
+        while level < 1.0 {
+            level = fade_toward(level, zone_target(Cue::CellarBed, layout, ZoneId::FloodedCellar), 1.0 / 60.0);
+            secs += 1.0 / 60.0;
+        }
+        assert!((secs - AMBIENCE_FADE_SECS).abs() < 0.05, "{secs}");
+        // The Sanatorium's pair still goes by indoors and out.
+        let sanatorium = MapId::Sanatorium.layout();
+        assert_eq!(zone_target(Cue::RoomTone, sanatorium, ZoneId::EntranceHall), 1.0);
+        assert_eq!(zone_target(Cue::FogWind, sanatorium, ZoneId::Forecourt), 1.0);
+    }
+
+    #[test]
+    fn only_the_four_nearest_drips_play() {
+        let points: Vec<Vec3> = DRIPS.iter().map(|drip| drip.at).collect();
+        assert_eq!(points.len(), 6);
+        // From each drip point, from the middle of the cellar and from far off: exactly four of the six play, the four nearest.
+        let mut eyes: Vec<Vec3> = points.iter().map(|&at| at + Vec3::Y * 1.6).collect();
+        eyes.extend([Vec3::new(0.0, 2.0, 10.0), Vec3::new(-30.0, 8.0, 2.0), Vec3::new(30.0, 8.0, 30.0), Vec3::new(-12.0, 1.6, 28.0)]);
+        for eye in eyes {
+            let playing: Vec<usize> = (0..points.len()).filter(|&i| drip_plays(eye, points[i])).collect();
+            assert_eq!(playing.len(), DRIP_VOICES, "eye {eye}: {playing:?}");
+            let reach = playing.iter().map(|&i| points[i].distance(eye)).fold(0.0, f32::max);
+            assert!((0..points.len()).filter(|i| !playing.contains(i)).all(|i| points[i].distance(eye) >= reach), "eye {eye}: a nearer drip is silent");
+        }
+        // Standing at the foot of the Well Stair its own drip is heard, and the Pool's far one is not.
+        let stair = Vec3::new(-22.5, 1.6, 1.0);
+        assert!(drip_plays(stair, DRIPS[5].at) && !drip_plays(stair, DRIPS[2].at));
+    }
+
+    #[test]
+    fn boiler_drone_plays_only_with_the_power_on_the_archive() {
+        let emitters = archive();
+        let engines: Vec<Vec3> = MapId::Archive.layout().pump_engines().collect();
+        assert_eq!(engines.len(), 2, "the Pump Room's two engines");
+        assert_eq!(emitters.boilers, engines);
+        let eye = Some(Vec3::new(0.0, 2.0, 10.0));
+        let without = wanted_loops(&emitters, eye, false);
+        assert!(without.is_empty(), "no hum, no monitor, no drone before the Power: {without:?}");
+        let with = wanted_loops(&emitters, eye, true);
+        assert_eq!(with.len(), 2);
+        assert!(with.iter().all(|(cue, _, at)| *cue == Cue::BoilerDrone && engines.contains(at)), "{with:?}");
+        // They are the Pump Room's.
+        let (low, high) = ZoneId::PumpRoom.volume();
+        assert!(engines.iter().all(|at| low.x <= at.x && at.x <= high.x && low.z <= at.z && at.z <= high.z), "{engines:?}");
+    }
+
+    #[test]
+    fn the_archives_phantoms_have_places_and_their_own_timings() {
+        let emitters = archive();
+        assert!(emitters.rustles.len() >= 20, "{}", emitters.rustles.len());
+        assert_eq!(emitters.stacks.len(), 8, "two fixed stacks in each of the four stack halls");
+        assert!(emitters.hums.is_empty() && emitters.squeaks.is_empty() && emitters.monitors.is_empty(), "nothing of the Sanatorium's");
+        let kinds = phantoms(&emitters);
+        let secs: Vec<_> = kinds.iter().map(|(cue, every, points)| (*cue, *every.start(), *every.end(), !points.is_empty())).collect();
+        assert_eq!(secs[1], (Cue::PageRustle, 20.0, 60.0, true));
+        assert_eq!(secs[2], (Cue::ShelfCreak, 30.0, 90.0, true));
+        assert_eq!(secs[3].0, Cue::BookFall);
+        assert!(secs[3].1 > secs[2].2, "a fallen book is rarer than a creak");
+        assert!(!secs[0].3, "no trolley in the Archive");
+        let sanatorium = sanatorium();
+        assert!(phantoms(&sanatorium).iter().all(|(cue, _, points)| *cue == Cue::TrolleySqueak || points.is_empty()));
+    }
+
+    /// Footsteps come from `Material::family`, so the Archive's new Material Sets step on the families that have files: the wooden floors
+    /// on wood, the stone floors on tile, the brick and slate of the cellar on brick or tile, and the concrete of the Strong Room.
+    #[test]
+    fn the_archives_floors_step_on_wood_stone_and_tile_with_files() {
+        use super::super::cues::FloorFamily;
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets").join(super::super::cues::AUDIO_DIR);
+        let files = super::super::slots::list_files(&dir);
+        let mut heard = std::collections::HashSet::new();
+        for &zone in MapId::Archive.layout().zones {
+            let (low, high) = zone.volume();
+            let feet = Vec3::new((low.x + high.x) / 2.0, zone.floor(), (low.z + high.z) / 2.0);
+            let family = crate::maps::map::floor_family(MapId::Archive, feet).unwrap_or_else(|| panic!("{zone:?} has no floor at {feet}"));
+            let slot = super::super::slots::variants(family.slot(), &files).unwrap_or_else(|error| panic!("{zone:?}: {error}"));
+            assert!(!slot.is_empty(), "{zone:?} steps on {family:?}, which has no files");
+            heard.insert(family);
+        }
+        for family in [FloorFamily::Wood, FloorFamily::Tile, FloorFamily::Brick, FloorFamily::Concrete] {
+            assert!(heard.contains(&family), "no Archive Zone steps on {family:?}");
+        }
+        // The Material Sets the look decision names: wood for the parquet and boards, stone and slate for tile.
+        use crate::maps::map::textures::Material;
+        assert_eq!(Material::HerringboneParquet.family(), FloorFamily::Wood);
+        assert_eq!(Material::OldWoodenFloor02.family(), FloorFamily::Wood);
+        assert_eq!(Material::MonasteryStoneFloor.family(), FloorFamily::Tile);
+        assert_eq!(Material::SlateFloor02.family(), FloorFamily::Tile);
+    }
+
+    #[test]
+    fn the_archives_sounds_total_under_two_megabytes() {
+        const SLOTS: [(&str, usize); 10] = [
+            ("range_rattle", 1),
+            ("range_roll", 1),
+            ("range_thud", 2),
+            ("wheel_turn", 2),
+            ("archive_tone", 1),
+            ("cellar_bed", 1),
+            ("drip", 3),
+            ("page_rustle", 4),
+            ("shelf_creak", 3),
+            ("book_fall", 2),
+        ];
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets").join(super::super::cues::AUDIO_DIR);
+        let files = super::super::slots::list_files(&dir);
+        let mut total = 0;
+        for (slot, want) in SLOTS {
+            let variants = super::super::slots::variants(slot, &files).unwrap_or_else(|error| panic!("{error}"));
+            assert_eq!(variants.len(), want, "{slot}");
+            total += variants.iter().map(|file| std::fs::metadata(dir.join(file)).unwrap().len()).sum::<u64>();
+        }
+        assert!(total < 2_000_000, "the Archive's sounds are {total} bytes");
     }
 }

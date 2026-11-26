@@ -145,3 +145,39 @@ fn the_archives_stacks_and_cellar_kitbashes_have_manifest_entries_and_both_props
     }
     assert!(kitbash_bytes <= 4_500_000, "the Archive's seventeen kitbashes weigh {:.2} MB", kitbash_bytes as f64 / 1e6);
 }
+
+/// The Archive's sound (#542): twenty Freesound files, each with its own manifest entry that names the pages it was made from (each read for its
+/// CC0 link), and the Archive's sounds together under the 2 MB the look decision budgets. `BoilerDrone` is the Sanatorium's file, reused.
+#[test]
+fn the_archives_sound_files_have_cc0_manifest_entries_and_stay_under_2_mb() {
+    let manifest = manifest();
+    let files = all_files();
+    let slots: [(&str, u8); 10] = [
+        ("range_rattle", 1),
+        ("range_roll", 1),
+        ("range_thud", 2),
+        ("wheel_turn", 2),
+        ("archive_tone", 1),
+        ("cellar_bed", 1),
+        ("drip", 3),
+        ("page_rustle", 4),
+        ("shelf_creak", 3),
+        ("book_fall", 2),
+    ];
+    let mut bytes = 0;
+    let mut count = 0;
+    for (slot, variants) in slots {
+        for n in 1..=variants {
+            let entry = format!("audio/{slot}_{n}.ogg");
+            let found = manifest.assets.iter().find(|e| e.path == entry).unwrap_or_else(|| panic!("no manifest entry for {entry}"));
+            assert_eq!(found.licence, "CC0", "{entry}");
+            assert!(found.source.split(" ; ").all(|page| page.starts_with("https://freesound.org/people/") && page.contains("/sounds/")), "{entry}: source {}", found.source);
+            let notes = found.notes.as_deref().unwrap_or_default();
+            assert!(notes.contains("CC0 on each page"), "{entry}: the licence was read on the page: {notes}");
+            bytes += files.iter().find(|(path, _)| *path == entry).unwrap_or_else(|| panic!("{entry} is not under assets/")).1;
+            count += 1;
+        }
+    }
+    assert_eq!(count, 20);
+    assert!(bytes < 2_000_000, "the Archive's sounds weigh {bytes} bytes");
+}

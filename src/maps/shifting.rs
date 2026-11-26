@@ -1416,7 +1416,8 @@ fn ring_cues(
             } else if state.phase.standing() == Some(1) {
                 cues.write(PlayCue::new(Cue::QuarantineSlam, Some(door_centre(piece))));
             }
-        } else if !swinging {
+        } else if !swinging && !matches!(piece.driver, Driver::Wheels(_)) {
+            // (A Range's Bookcases thud, and its Wheels creak, in `audio::range`.)
             cues.write(PlayCue::new(Cue::BridgeClunk, Some(at)));
         }
     }

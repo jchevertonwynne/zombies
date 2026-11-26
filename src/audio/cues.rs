@@ -212,6 +212,21 @@ cues! {
     BoilerDrone => "boiler_drone", Root, Spatial, 0.5;
     HeartMonitor => "heart_monitor", Root, Spatial, 0.25;
     TrolleySqueak => "trolley_squeak", Root, Spatial, 0.4;
+    // The Archive's Ranges (#542): a chain's rattle through a Range's Warning and Waiting, the roll of its moving Bookcases
+    // while it Swings, their thud as they come to Rest, and a hand Wheel's creak as it is turned.
+    RangeRattle => "range_rattle", Root, Spatial, 0.8;
+    RangeRoll => "range_roll", Root, Spatial, 0.9;
+    RangeThud => "range_thud", Root, Spatial, 1.0;
+    WheelTurn => "wheel_turn", Root, Spatial, 0.7;
+    // The Archive's ambience: a room tone on the reading and stack levels and a bed in the five cellar Zones, crossfading as the
+    // eye changes level; a drip in the cellar (the four nearest play), phantom page turns, shelf creaks and fallen books, and the
+    // creak of a shelf as a Roll starts. The pump engines' drone is `BoilerDrone`.
+    ArchiveTone => "archive_tone", Root, Flat, 0.22;
+    CellarBed => "cellar_bed", Root, Flat, 0.25;
+    Drip => "drip", Root, Spatial, 0.35;
+    PageRustle => "page_rustle", Root, Spatial, 0.3;
+    ShelfCreak => "shelf_creak", Root, Spatial, 0.3;
+    BookFall => "book_fall", Root, Spatial, 0.5;
     TeleporterCharge => "teleporter_charge", Root, Spatial, 0.9;
     TeleporterFire => "teleporter_fire", Root, Spatial, 1.0;
     TeleporterArrive => "teleporter_arrive", Root, Spatial, 1.0;
@@ -387,6 +402,9 @@ mod tests {
             "crash_bar", "door_pound",
             // The Sanatorium's ambience and Props.
             "room_tone", "fog_wind", "fluorescent_hum", "lamp_flicker", "boiler_drone", "heart_monitor", "trolley_squeak",
+            // The Archive's Ranges and ambience.
+            "range_rattle", "range_roll", "range_thud", "wheel_turn", "archive_tone", "cellar_bed", "drip", "page_rustle",
+            "shelf_creak", "book_fall",
             // Gauntlet v2's Proc cues (spec #182, Appendix C6).
             "proc_frost", "proc_blast",
             "set_bonus_tier_two", "set_bonus_tier_four", "set_bonus_tier_six", "duo_taken",
