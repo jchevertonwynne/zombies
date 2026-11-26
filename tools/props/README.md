@@ -107,3 +107,20 @@ python3 -I tools/props/build_props.py --only safe             # one
 
 Their sizes are declared by the `kitbash(..)` constants in `src/maps/map/mod.rs` (and `CANDLES`): the build prints each unit's size, copy it there.
 The Props that wear them are laid by `tools/archive_layout.py` (its `STACKS` list, which writes `STACKS_PROPS` in `archive/data.rs`).
+
+## The Refinery's Valve (#572)
+
+`kitbash.py` makes the three parts of a Fuel Line's Valve: `valve_stand` (a riser to 1.1 m on a foot, a gauge case with a white face, a 2.4 m
+mast of alternating yellow and black hazard bands with a cage for the lamp), `valve_wheel` (a 0.6 m red hand wheel, an 8-segment rim with four
+spokes, its origin the hub) and `valve_needle` (the gauge's red needle, its origin the pivot). Each faces +z in the game (Blender's -y) and wears
+`materials/rusty_metal_02`, tinted, with flat glTF colours for the paint; no new texture files. The Valve lamp is not modelled: the game draws it,
+as it changes colour.
+
+```
+python3 -I tools/props/build_props.py --only valves        # all three
+python3 -I tools/props/build_props.py --only valve_stand   # one
+```
+
+They come out as `assets/props/<name>/<name>.{gltf,bin}` and a manifest entry each. They are not fitted into a Prop's box: `src/maps/fire_look.rs`
+stands them at each Valve (`HUB_AT`, `GAUGE_AT`, `MAST_AT` and `LAMP_AT` there are the places in the stand's frame; keep them in step with
+`VALVE_*` in `kitbash.py`), turning the wheel and the needle. Headless runs, and a game without the files, draw the same parts from code.

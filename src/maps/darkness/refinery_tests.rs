@@ -50,9 +50,24 @@ fn the_built_refinery_has_its_lamps_floods_and_flare() {
     let mut app = refinery();
     let mut points = app.world_mut().query::<&PointLight>();
     let mut spots = app.world_mut().query::<&SpotLight>();
-    // The flare is the one point light (the Blazes' come with the Blaze look); every lamp and flood is a spot.
-    assert_eq!(points.iter(app.world()).count(), 1);
+    // The flare and a light for each of the seven Blazes are point lights; every lamp and flood is a spot.
+    assert_eq!(points.iter(app.world()).count(), 1 + 7);
     assert_eq!(spots.iter(app.world()).count(), 87 + 6);
+}
+
+/// The Blazes' lights bring the spawned count from 94 (87 lamps, 6 floods, the flare) to the 101 the look decision budgets, which the
+/// light budget (110) holds: every light a built Refinery has, counted on the built Map.
+#[test]
+fn the_built_refinerys_light_count_is_101_with_the_blazes_and_within_the_budget() {
+    let mut app = refinery();
+    let lights = app.world_mut().query::<&PointLight>().iter(app.world()).count() + app.world_mut().query::<&SpotLight>().iter(app.world()).count();
+    assert_eq!(lights, 101);
+    assert!(lights <= 110);
+    // Each Blaze's light is shadowless and flickering, never one of the lamps that `shadow_nearest_lamps` might shadow.
+    let mut blazes = app.world_mut().query::<(&PointLight, &crate::maps::fire_look::BlazeSite, Has<Lamp>)>();
+    let all: Vec<_> = blazes.iter(app.world()).collect();
+    assert_eq!(all.len(), 7);
+    assert!(all.iter().all(|(light, _, is_lamp)| !light.shadow_maps_enabled && !is_lamp));
 }
 
 #[test]

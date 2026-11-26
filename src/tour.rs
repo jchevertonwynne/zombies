@@ -362,7 +362,28 @@ const REFINERY: &[View] = &[
     view("girder-ring", (-56.0, 4.0, 48.0), (-48.0, 38.0), -0.1, false),
     view("s3-stair", (-56.0, 0.0, 66.5), (-56.0, 56.0), 0.3, false),
     view("weighbridge", (-14.0, 0.0, 4.0), (0.0, 12.0), 0.0, false),
+    // The Fire (#572): a Rack Line Blaze Lit, Flaring up (the blue pilot) and Shut (the scorched bed); the Rack Line's Valve close up in each of
+    // its phases (lamp, gauge and wheel); and the Furnace Blaze under the Column Platform, from the transfer lane and from the platform
+    // above. Each holds the Rack Line at the phase it shows (see `fire_hold`).
+    view("fire-rack-blaze-lit", (0.0, 0.0, 21.0), (0.0, 30.0), 0.05, false),
+    view("fire-rack-blaze-flaring", (0.0, 0.0, 21.0), (0.0, 30.0), 0.05, false),
+    view("fire-rack-blaze-shut", (0.0, 0.0, 21.0), (0.0, 30.0), 0.05, false),
+    view("fire-valve-lit", (-4.5, 0.0, 27.0), (-4.5, 24.0), 0.12, false),
+    view("fire-valve-shut", (-4.5, 0.0, 27.0), (-4.5, 24.0), 0.12, false),
+    view("fire-valve-flare-up", (-4.5, 0.0, 27.0), (-4.5, 24.0), 0.12, false),
+    view("fire-furnace-blaze", (5.5, 0.0, 68.0), (5.5, 76.0), 0.25, false),
+    view("fire-furnace-from-column-platform", (5.5, 4.0, 70.0), (5.5, 76.0), -0.08, false),
 ];
+
+/// The Fuel Line and phase a Fire view holds it at, from its name: the Rack Line (0) in all of them.
+fn fire_hold(name: &str) -> Option<(crate::maps::fire::FuelLineId, crate::maps::fire::LinePhase)> {
+    use crate::maps::fire::{FuelLineId, LinePhase};
+    match name {
+        "fire-rack-blaze-flaring" | "fire-valve-flare-up" => Some((FuelLineId(0), LinePhase::FlareUp { elapsed: 3.2 })),
+        "fire-rack-blaze-shut" | "fire-valve-shut" => Some((FuelLineId(0), LinePhase::Shut { elapsed: 12.0 })),
+        _ => None,
+    }
+}
 
 /// The Polder: a view of each of its 16 Zones, then its bridges, the lock gates, the water and the dyke.
 const POLDER: &[View] = &[
@@ -477,6 +498,11 @@ impl Plugin for TourPlugin {
             .add_systems(OnEnter(GameState::MainMenu), start_run)
             .add_systems(Update, (clear, shoot, give_boons, hold_generators, throw_switch, hold_tide).run_if(in_state(GameState::Playing)))
             .add_systems(Update, hold_quarantine.before(crate::maps::quarantine::QuarantineClock).run_if(in_state(GameState::Playing)))
+            // After the Host's clock and before the Fire's look reads the lines, so the Rack Line shows the phase the view asks for.
+            .add_systems(
+                Update,
+                hold_fire.after(crate::maps::fire::FireClock).before(crate::maps::fire::FireShown).run_if(in_state(GameState::Playing)).run_if(resource_exists::<crate::maps::fire::FuelLines>),
+            )
             // After the Host's own systems have run on the Pieces, so the Range keeps the phase the view asks for.
             .add_systems(
                 Update,
@@ -501,6 +527,23 @@ fn hold_quarantine(tour: Res<Tour>, mut quarantine: ResMut<crate::maps::quaranti
     }
     if let Some((stage, wing, elapsed)) = quarantine_hold(name) {
         quarantine.show(stage, Some(crate::maps::quarantine::WingId(wing)), elapsed);
+    }
+}
+
+/// While a Fire view is up, the Rack Line held at the phase it shows; in every other view it is Lit.
+fn hold_fire(tour: Res<Tour>, mut lines: ResMut<crate::maps::fire::FuelLines>) {
+    use crate::maps::fire::{FuelLineId, LinePhase};
+    if tour.map != MapId::Refinery || lines.count() == 0 {
+        return;
+    }
+    match tour.views.get(tour.shot).and_then(|&(name, ..)| fire_hold(name)) {
+        Some((line, phase)) if tour.frames >= WARM_UP => lines.show(line, phase),
+        Some(_) => {}
+        None => {
+            if lines.phase(FuelLineId(0)) != LinePhase::Lit {
+                lines.show(FuelLineId(0), LinePhase::Lit);
+            }
+        }
     }
 }
 
@@ -641,6 +684,25 @@ fn shoot(
 mod tests {
     use super::*;
     use crate::maps::shifting::PiecePhase;
+
+    #[test]
+    fn every_fire_hold_names_a_refinery_view_and_a_phase_its_line_has() {
+        use crate::maps::fire::LinePhase;
+        let held: Vec<_> = REFINERY.iter().filter_map(|&(name, ..)| fire_hold(name).map(|hold| (name, hold))).collect();
+        assert_eq!(held.len(), 4, "flaring and shut, for the Blaze and the Valve");
+        for (name, (line, phase)) in held {
+            assert!(usize::from(line.0) < MapId::Refinery.layout().fuel_lines.len(), "{name}");
+            match phase {
+                LinePhase::Shut { elapsed } => assert!((0.0..=crate::tuning::SHUT_SECS).contains(&elapsed)),
+                LinePhase::FlareUp { elapsed } => assert!((0.0..=crate::tuning::FLARE_UP_SECS).contains(&elapsed)),
+                LinePhase::Lit => {}
+            }
+        }
+        // The shots the ticket asks for are all there: a Blaze Lit, Flaring and Shut, a Valve close-up and the Furnace Blaze from the platform.
+        for name in ["fire-rack-blaze-lit", "fire-rack-blaze-flaring", "fire-rack-blaze-shut", "fire-valve-lit", "fire-furnace-from-column-platform"] {
+            assert!(REFINERY.iter().any(|&(view, ..)| view == name), "{name}");
+        }
+    }
 
     #[test]
     fn every_range_hold_names_an_archive_view_and_a_phase_the_great_range_has() {

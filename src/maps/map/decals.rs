@@ -32,7 +32,6 @@ pub enum Decal {
     Soot,
     /// Black and yellow hazard stripes (procedural, `tools/texpack --hazard 1`), 256 px: for the Blazes' kerbs, stair nosings, Valve masts and the
     /// Gatehouse barrier, which the Refinery's later tickets place.
-    #[cfg_attr(not(test), allow(dead_code))]
     HazardStripe,
 }
 

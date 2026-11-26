@@ -316,6 +316,44 @@ def build_wheels(blender, only):
         })
 
 
+# The Refinery's Valve (#572): a stand, a hand wheel and a gauge needle in `rusty_metal_02` and flat colours. unit -> (name, {material: spec}).
+VALVE_KITS = {
+    "valve_stand": ("Valve stand", {
+        "rusty_metal_02": [0.28, 0.27, 0.27, 1.0],
+        "hazard_yellow": {"color": [0.9, 0.7, 0.05, 1.0], "metallic": 0.0, "roughness": 0.6},
+        "hazard_black": {"color": [0.03, 0.03, 0.03, 1.0], "metallic": 0.0, "roughness": 0.7},
+        "gauge_white": {"color": [0.92, 0.92, 0.88, 1.0], "metallic": 0.0, "roughness": 0.4},
+    }),
+    "valve_wheel": ("Valve hand wheel", {
+        "valve_red": {"color": [0.7, 0.05, 0.04, 1.0], "metallic": 0.3, "roughness": 0.5},
+        "rusty_metal_02": [0.28, 0.27, 0.27, 1.0],
+    }),
+    "valve_needle": ("Valve gauge needle", {"needle_red": {"color": [0.9, 0.03, 0.02, 1.0], "metallic": 0.0, "roughness": 0.4}}),
+}
+
+
+def build_valves(blender, only):
+    for unit, (name, specs) in VALVE_KITS.items():
+        if only not in (None, "valves", unit):
+            continue
+        out = ASSETS / "props" / unit
+        shutil.rmtree(out, ignore_errors=True)
+        out.mkdir(parents=True)
+        run_blender(blender, ["--out", out, "--src", out, "--only", unit])
+        patch_mixed(out / f"{unit}.gltf", specs)
+        sets = [m for m, spec in specs.items() if not isinstance(spec, dict)]
+        record({
+            "path": f"props/{unit}",
+            "name": f"{name} (kitbash for the Refinery's Fuel Lines)",
+            "source": "tools/props/kitbash.py" + "".join(f", from https://polyhaven.com/a/{s}" for s in sets),
+            "licence": "CC0",
+            "fetched": today(),
+            "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); "
+            + ("it wears materials/rusty_metal_02 (Poly Haven, CC0) and flat glTF colours, no new texture files" if sets else "flat glTF colours only, no texture files")
+            + ". Not fitted into a Prop's box: src/maps/fire_look.rs stands it at each Valve, turning the wheel and the needle and drawing the lamp",
+        })
+
+
 # The Archive's reading-level kitbashes (#540): each wears material sets already under assets/materials (tinted) and, for its glass,
 # its lamp and its globe's ink, flat colours with no texture. unit -> (name, {material: spec}), where a spec is a tint (a set from
 # assets/materials) or a dict of glTF factors (a flat colour): `color`, `metallic`, `roughness`, and optionally `emissive` (a linear
@@ -425,7 +463,7 @@ def build_archive(blender, only):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--blender", default=os.environ.get("BLENDER", BLENDER_DEFAULT))
-    parser.add_argument("--only", choices=["crate", "sandbags", "headstone", "sanatorium", *SANATORIUM_KITS, "book_rows", "wheels", *WHEEL_KITS, "archive", "archive_stacks", *ARCHIVE_KITS, *ARCHIVE_STACKS_KITS])
+    parser.add_argument("--only", choices=["crate", "sandbags", "headstone", "sanatorium", *SANATORIUM_KITS, "book_rows", "wheels", *WHEEL_KITS, "valves", *VALVE_KITS, "archive", "archive_stacks", *ARCHIVE_KITS, *ARCHIVE_STACKS_KITS])
     parser.add_argument("--headstone-scan")
     parser.add_argument("--headstone-source")
     args = parser.parse_args()
@@ -437,6 +475,9 @@ def main():
         return
     if args.only in ("wheels", *WHEEL_KITS):
         build_wheels(args.blender, args.only)
+        return
+    if args.only in ("valves", *VALVE_KITS):
+        build_valves(args.blender, args.only)
         return
     if args.only in ("sanatorium", *SANATORIUM_KITS):
         build_sanatorium(args.blender, args.only)

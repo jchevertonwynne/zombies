@@ -334,6 +334,12 @@ SET_TILE = {
     "ink": 1.0,
     # The Archive's stacks and cellar (#541).
     "candle_wax": 1.0,
+    # The Refinery's Valve stand (#572): flat colours with no texture of their own.
+    "hazard_yellow": 1.0,
+    "hazard_black": 1.0,
+    "gauge_white": 1.0,
+    "valve_red": 1.0,
+    "needle_red": 1.0,
 }
 
 
@@ -615,6 +621,80 @@ def wheel_report(obj, name):
 
 
 WHEEL_KITS = {"wheel_post": wheel_post, "aisle_wheel": aisle_wheel, "wheel_chain": wheel_chain}
+
+
+# ---- The Refinery's Valve (#572): a stand, its hand wheel and its gauge needle. All three are in the stand's own frame with
+# Blender's -y facing the approach (the game's +z). The stand's origin is the middle of its foot; the wheel's and the needle's
+# are their pivots, so the game can turn them. `HUB_AT`, `GAUGE_AT`, `MAST_AT` and the measures below are repeated in
+# `src/maps/fire_look.rs`: keep the two in step. The Valve lamp is not modelled: the game draws it, as it changes colour.
+
+VALVE_RISER = 1.1
+VALVE_WHEEL_RADIUS = 0.3
+VALVE_HUB_AT = (0.0, 1.1, 0.16)  # game x, y, z
+VALVE_GAUGE_AT = (-0.34, 1.0, 0.06)
+VALVE_MAST_AT = (0.4, -0.12)  # game x, z
+VALVE_MAST_HEIGHT = 2.4
+VALVE_STRIPE = 0.2
+
+
+def g(x, y, z):
+    """A point in the game's axes (x right, y up, z towards the approach) in Blender's (x, y, z up)."""
+    return (x, -z, y)
+
+
+def valve_stand():
+    k = Kit()
+    iron, yellow, black, white = "rusty_metal_02", "hazard_yellow", "hazard_black", "gauge_white"
+    # The foot and the riser, up to the wheel's height.
+    k.cyl(g(0, 0.03, 0), 0.2, 0.06, "z", iron, segments=12)
+    k.cyl(g(0, VALVE_RISER / 2, 0), 0.075, VALVE_RISER, "z", iron, segments=10)
+    # The valve body at the top, and the spindle the wheel turns on, out of its face to the hub's back.
+    k.box(g(0, VALVE_RISER - 0.05, 0), (0.2, 0.14, 0.2), iron)
+    k.cyl(g(0, VALVE_HUB_AT[1], VALVE_HUB_AT[2] / 2 - 0.02), 0.022, VALVE_HUB_AT[2] + 0.04, "y", iron, segments=8)
+    # The gauge: a stub off the riser, the case, a white face and a dark bezel ring.
+    gx, gy, gz = VALVE_GAUGE_AT
+    k.cyl(g(gx / 2, gy, 0), 0.02, abs(gx), "x", iron, segments=8)
+    k.cyl(g(gx, gy, gz), 0.09, 0.05, "y", iron, segments=14)
+    k.cyl(g(gx, gy, gz + 0.027), 0.082, 0.006, "y", white, segments=14)
+    k.cyl(g(gx, gy, gz + 0.026), 0.095, 0.01, "y", black, segments=14)
+    # The mast beside it: alternating hazard bands from the floor to 2.4 m, a collar and a cage round the lamp on top.
+    mx, mz = VALVE_MAST_AT
+    for i in range(round(VALVE_MAST_HEIGHT / VALVE_STRIPE)):
+        k.box(g(mx, VALVE_STRIPE * (i + 0.5), mz), (0.1, VALVE_STRIPE, 0.1), yellow if i % 2 == 0 else black)
+    k.cyl(g(mx, VALVE_MAST_HEIGHT + 0.03, mz), 0.07, 0.06, "z", iron, segments=10)
+    for dx, dz in ((-0.1, 0), (0.1, 0), (0, -0.1), (0, 0.1)):
+        k.box(g(mx + dx, VALVE_MAST_HEIGHT + 0.16, mz + dz), (0.016, 0.2, 0.016), iron)
+    k.cyl(g(mx, VALVE_MAST_HEIGHT + 0.27, mz), 0.12, 0.02, "z", iron, segments=10)
+    return k.finish("valve_stand", grounded=False)
+
+
+def valve_wheel():
+    k = Kit()
+    red, iron = "valve_red", "rusty_metal_02"
+    # An 8-segment rim in the game's x-y plane (Blender's x-z) round the hub, four spokes and a hub.
+    segments = 8
+    chord = 2 * VALVE_WHEEL_RADIUS * math.sin(math.pi / segments) + 0.012
+    for i in range(segments):
+        a = i * math.tau / segments + math.pi / segments
+        k.box((VALVE_WHEEL_RADIUS * math.cos(a), 0.0, VALVE_WHEEL_RADIUS * math.sin(a)), (chord, 0.05, 0.05), red, rot=(0.0, -(a + math.pi / 2), 0.0))
+    for i in range(4):
+        a = i * math.tau / 4
+        mid = (VALVE_WHEEL_RADIUS - 0.03) / 2
+        k.box((mid * math.cos(a), 0.0, mid * math.sin(a)), (VALVE_WHEEL_RADIUS - 0.03, 0.035, 0.04), red, rot=(0.0, -a, 0.0))
+    k.cyl((0, 0, 0), 0.05, 0.08, "y", iron, segments=10)
+    return k.finish("valve_wheel", grounded=False)
+
+
+def valve_needle():
+    k = Kit()
+    red = "needle_red"
+    # Pointing up (the game's +y) from its pivot at the gauge's middle; it turns about the depth axis.
+    k.box((0, 0, 0.035), (0.012, 0.006, 0.075), red)
+    k.cyl((0, 0, 0), 0.012, 0.01, "y", red, segments=8)
+    return k.finish("valve_needle", grounded=False)
+
+
+VALVE_KITS = {"valve_stand": valve_stand, "valve_wheel": valve_wheel, "valve_needle": valve_needle}
 
 
 # ---- The Archive's book rows (#537): the shelf fill of every Bookcase and fixed stack. One mesh a
@@ -1162,7 +1242,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--src", required=True)
     parser.add_argument("--out", required=True)
-    parser.add_argument("--only", choices=["crate", "sandbags", "headstone", *SANATORIUM_KITS, *ARCHIVE_KITS, *WHEEL_KITS, *(f"book_rows_{v}" for v in BOOK_VARIANTS)])
+    parser.add_argument("--only", choices=["crate", "sandbags", "headstone", *SANATORIUM_KITS, *ARCHIVE_KITS, *WHEEL_KITS, *VALVE_KITS, *(f"book_rows_{v}" for v in BOOK_VARIANTS)])
     parser.add_argument("--headstone", help="a high-poly headstone scan to decimate and bake")
     parser.add_argument("--work", help="where the headstone's baked PNGs go")
     args = parser.parse_args(argv)
@@ -1174,9 +1254,9 @@ def main():
         export(obj, out, args.only, colours=True)
         book_rows_report(obj, args.only)
         return
-    if args.only in WHEEL_KITS:
+    if args.only in WHEEL_KITS or args.only in VALVE_KITS:
         reset()
-        obj = WHEEL_KITS[args.only]()
+        obj = {**WHEEL_KITS, **VALVE_KITS}[args.only]()
         export(obj, out, args.only)
         wheel_report(obj, args.only)
         return
