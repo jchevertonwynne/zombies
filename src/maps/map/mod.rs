@@ -195,6 +195,9 @@ pub struct Layout {
     /// The Fuel Lines: groups of Blazes that the Valves Shut and relight, in order (a `FuelLineId` is its place in this list, at
     /// most 8). Empty on every Map but the Refinery.
     pub fuel_lines: &'static [crate::maps::fire::FuelLine],
+    /// The floodlights: a lens on a mast, a spot aimed at `aim` that never casts shadows and comes on with the Power, one by one (the
+    /// `darkness::flood` beat). Empty on every Map but the Refinery.
+    pub floods: &'static [Flood],
     /// The path nodes: a name, then where a Zombie's feet stand there (x, y, z).
     pub nav_nodes: &'static [(&'static str, f32, f32, f32)],
     /// The path-node edges, by node name. Barrier and one-way edges run from the first node to
@@ -241,13 +244,22 @@ pub struct Layout {
     build: fn(&mut Builder),
 }
 
-/// What a lamp looks like: a glowing bulb, a fluorescent tube in a housing (the Sanatorium's), or
-/// a brass-rod pendant with an opal-glass globe (the Archive's).
+/// What a lamp looks like: a glowing bulb, a fluorescent tube in a housing (the Sanatorium's), a
+/// brass-rod pendant with an opal-glass globe (the Archive's), or a sodium cobra head on a post (the Refinery's yards).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LampStyle {
     Bulb,
     Tube,
     Pendant,
+    Sodium,
+}
+
+/// A floodlight (#568): a metal-halide spot on a mast in `zone`, at `at`, aimed at `aim`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Flood {
+    pub zone: ZoneId,
+    pub at: Vec3,
+    pub aim: Vec3,
 }
 
 /// A group of Zones that the Quarantine seals together.
@@ -260,7 +272,19 @@ pub struct Wing {
 impl Layout {
     /// What a lamp looks like: the Map's style, except in its `bulb_zones` and the Zones
     /// out of doors, which keep bulbs.
+    ///
+    /// A `Sodium` Map (the Refinery) has sodium posts in its ground-level yards, caged bulbs on its catwalks and in its `bulb_zones`, and
+    /// tubes in its other roofed Zones.
     pub fn lamp_style_in(&self, zone: ZoneId) -> LampStyle {
+        if self.lamp_style == LampStyle::Sodium {
+            return if self.indoor(zone) {
+                if self.bulb_zones.contains(&zone) { LampStyle::Bulb } else { LampStyle::Tube }
+            } else if zone.floor() > self.lowest_floor() + 1.0 {
+                LampStyle::Bulb
+            } else {
+                LampStyle::Sodium
+            };
+        }
         if self.indoor(zone) && !self.bulb_zones.contains(&zone) { self.lamp_style } else { LampStyle::Bulb }
     }
 
@@ -1367,6 +1391,13 @@ pub(crate) fn probes(map: MapId) -> Vec<ProbeSpec> {
     out
 }
 
+/// The horizontal vector, 1 m long, from a sodium post out to its lamp at `at` in `zone`: away from the Zone's middle.
+fn sodium_arm(zone: ZoneId, at: Vec3) -> Vec3 {
+    let (lo, hi) = zone.volume();
+    let away = Vec3::new(at.x - (lo.x + hi.x) / 2.0, 0.0, at.z - (lo.z + hi.z) / 2.0);
+    away.try_normalize().unwrap_or(Vec3::X)
+}
+
 /// Builds the Map the Run is played on.
 pub fn spawn_map(
     mut commands: Commands,
@@ -1571,13 +1602,18 @@ pub fn spawn_map(
         let brass = materials.add(StandardMaterial { base_color: Color::srgb(0.75, 0.55, 0.25), metallic: 0.9, perceptual_roughness: 0.35, ..default() });
         let cage_post = meshes.add(Cuboid::new(0.012, 0.3, 0.012));
         let cage_iron = materials.add(Color::srgb(0.06, 0.06, 0.065));
+        // The Refinery's sodium cobra head (housing, lens) and its 1 m arm.
+        let cobra_head = meshes.add(Cuboid::new(0.7, 0.12, 0.3));
+        let cobra_lens = meshes.add(Cuboid::new(0.5, 0.05, 0.22));
+        let arm_mesh = meshes.add(Cuboid::new(0.08, 0.08, 1.0));
         for &(zone, at) in layout.lamps {
             let out_of_doors = !layout.indoor(zone);
             let colour = palette(Some(zone)).light;
             let style = layout.lamp_style_in(zone);
             let tube = style == LampStyle::Tube;
             // The Archive's cellar bulbs wear a wire cage and run at half until the Power.
-            let caged = layout.lamp_style == LampStyle::Pendant && style == LampStyle::Bulb && !out_of_doors;
+            let sodium_map = layout.lamp_style == LampStyle::Sodium;
+            let caged = style == LampStyle::Bulb && (sodium_map || layout.lamp_style == LampStyle::Pendant && !out_of_doors);
             let glow = materials.add(StandardMaterial {
                 base_color: colour,
                 emissive: LinearRgba::from(colour) * 12.0,
@@ -1603,9 +1639,32 @@ pub fn spawn_map(
                 let housing = housings.entry(zone).or_insert_with(|| materials.add(palette(Some(zone)).trim)).clone();
                 let full = LinearRgba::from(colour) * 12.0;
                 commands
-                    .spawn((light, LampFlicker::new(zone, at, Some((glow.clone(), full)))))
+                    .spawn((light, if sodium_map { LampFlicker::steady(zone, at, Some((glow.clone(), full))) } else { LampFlicker::new(zone, at, Some((glow.clone(), full))) }))
                     .with_child((Mesh3d(tube_housing.clone()), MeshMaterial3d(housing), Transform::from_xyz(0.0, 0.1, 0.0), NotShadowCaster))
                     .with_child((Mesh3d(tube_glass.clone()), MeshMaterial3d(glow), Transform::from_xyz(0.0, 0.05, 0.0), NotShadowCaster));
+            } else if style == LampStyle::Sodium {
+                // A cobra head: a dark housing over the glowing lens, on an arm 1 m out from the post (built below), pointing away from the Zone's middle.
+                let away = sodium_arm(zone, at);
+                commands
+                    .spawn(light)
+                    .with_child((Mesh3d(cobra_head.clone()), MeshMaterial3d(post_mat.clone()), Transform::from_xyz(0.0, 0.1, 0.0), NotShadowCaster))
+                    .with_child((Mesh3d(cobra_lens.clone()), MeshMaterial3d(glow), Transform::from_xyz(0.0, 0.03, 0.0), NotShadowCaster));
+                let post = at - away;
+                commands.spawn((
+                    InRun,
+                    Mesh3d(arm_mesh.clone()),
+                    MeshMaterial3d(post_mat.clone()),
+                    Transform::from_translation(Vec3::new(at.x - away.x / 2.0, at.y + 0.05, at.z - away.z / 2.0)).looking_to(away, Vec3::Y),
+                    NotShadowCaster,
+                ));
+                let height = at.y - zone.floor();
+                commands.spawn((
+                    InRun,
+                    Mesh3d(post_mesh.clone()),
+                    MeshMaterial3d(post_mat.clone()),
+                    Transform::from_translation(Vec3::new(post.x, zone.floor() + height / 2.0, post.z)).with_scale(Vec3::new(1.5, height, 1.5)),
+                    NotShadowCaster,
+                ));
             } else if style == LampStyle::Pendant {
                 // A brass rod from the ceiling to an opal-glass globe, which is the lamp's own glow.
                 let drop = pendant_drop(zone);
@@ -1620,7 +1679,12 @@ pub fn spawn_map(
                 ));
             } else if caged {
                 let full = LinearRgba::from(colour) * 12.0;
-                commands.spawn((light, LampFlicker::cellar(zone, at, Some((glow.clone(), full))))).with_child((Mesh3d(bulb.clone()), MeshMaterial3d(glow), NotShadowCaster));
+                let mut lamp = commands.spawn(light);
+                // The Archive's cellar bulbs keep their bursts; the Refinery's caged bulbs are steady (no idle flicker anywhere on that Map).
+                if !sodium_map {
+                    lamp.insert(LampFlicker::cellar(zone, at, Some((glow.clone(), full))));
+                }
+                lamp.with_child((Mesh3d(bulb.clone()), MeshMaterial3d(glow), NotShadowCaster));
                 // Four thin boxes round the bulb.
                 for (dx, dz) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
                     commands.spawn((
@@ -1634,7 +1698,7 @@ pub fn spawn_map(
             } else {
                 commands.spawn(light).with_child((Mesh3d(bulb.clone()), MeshMaterial3d(glow), NotShadowCaster));
             }
-            if out_of_doors && !layout.darkness {
+            if out_of_doors && !layout.darkness && style != LampStyle::Sodium {
                 let height = at.y - zone.floor() - 0.15;
                 commands.spawn((
                     InRun,
@@ -1678,6 +1742,7 @@ pub fn spawn_map(
             ));
         }
     }
+    crate::maps::darkness::flood::spawn(&mut commands, &mut meshes, &mut materials, layout);
     // The Refinery's sky: the flare stack, its flame and plume, and the plant past the wall.
     if *map == MapId::Refinery {
         let sprites = refinery::sky::load_sprites(asset_server.as_deref().filter(|_| can_load_images));

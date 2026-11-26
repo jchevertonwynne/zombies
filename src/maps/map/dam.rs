@@ -136,6 +136,7 @@ pub(super) const DAM: Layout = Layout {
     shifting: &[],
     wings: &[],
     fuel_lines: &[],
+    floods: &[],
     nav_nodes: NODES,
     nav_edges: EDGES,
     jump_pads: &[],

@@ -154,6 +154,7 @@ pub(super) const SANATORIUM: Layout = Layout {
     shifting: &SHIFTING,
     wings: &WINGS,
     fuel_lines: &[],
+    floods: &[],
     nav_nodes: data::NODES,
     nav_edges: data::EDGES,
     jump_pads: &[],

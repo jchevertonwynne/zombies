@@ -126,6 +126,7 @@ pub(super) const REFINERY: Layout = Layout {
     shifting: &[],
     wings: &[],
     fuel_lines: &FUEL_LINES,
+    floods: &data::FLOODS,
     nav_nodes: data::NODES,
     nav_edges: data::EDGES,
     jump_pads: &[],
@@ -155,8 +156,9 @@ pub(super) const REFINERY: Layout = Layout {
     outside: Some(super::Outside { floor: super::textures::Material::TarredGravel, wall: super::textures::Material::RebarReinforcedConcrete }),
     sun: Vec3::new(0.4, -1.0, -0.6),
     look: crate::maps::look::FLARE_NIGHT,
-    lamp_style: super::LampStyle::Bulb,
-    bulb_zones: &[],
+    lamp_style: super::LampStyle::Sodium,
+    // The Fitting Shop and the Compressor House keep caged bulbs; the Control House is tubes; the yards are sodium and the catwalks caged bulbs.
+    bulb_zones: &[ZoneId::FittingShop, ZoneId::CompressorHouse],
     plan: (Vec2::new(-60.0, 0.0), Vec2::new(60.0, 90.0)),
     build,
 };

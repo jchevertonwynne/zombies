@@ -118,6 +118,7 @@ pub(super) const ARCHIVE: Layout = Layout {
     shifting: &SHIFTING,
     wings: &[],
     fuel_lines: &[],
+    floods: &[],
     nav_nodes: data::NODES,
     nav_edges: data::EDGES,
     jump_pads: &[],

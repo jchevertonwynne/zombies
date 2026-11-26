@@ -385,8 +385,8 @@ fn follow_zone_fog(
     }
 }
 
-/// Only the spot lamps nearest the eye cast shadows.
-fn shadow_nearest_lamps(eyes: Query<&GlobalTransform, With<PlayerCamera>>, mut lamps: Query<(&GlobalTransform, &mut SpotLight), With<Lamp>>) {
+/// Only the spot lamps nearest the eye cast shadows (never a floodlight, which keeps none).
+pub(crate) fn shadow_nearest_lamps(eyes: Query<&GlobalTransform, With<PlayerCamera>>, mut lamps: Query<(&GlobalTransform, &mut SpotLight), (With<Lamp>, Without<crate::maps::darkness::flood::FloodLight>)>) {
     let Some(eye) = eyes.iter().next().map(GlobalTransform::translation) else { return };
     let mut by_distance: Vec<_> = lamps.iter_mut().map(|(at, light)| (at.translation().distance_squared(eye), light)).collect();
     by_distance.sort_by(|a, b| a.0.total_cmp(&b.0));

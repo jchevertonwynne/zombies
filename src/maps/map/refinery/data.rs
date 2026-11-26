@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use crate::enemies::nav::Gate;
 use crate::maps::fire::FuelLineId;
-use crate::maps::map::{BarrierId, Prop, PropKind, prop};
+use crate::maps::map::{BarrierId, Flood, Prop, PropKind, prop};
 use crate::maps::zone::ZoneId;
 
 use super::W0;
@@ -150,6 +150,17 @@ pub(super) const LAMPS: [(ZoneId, Vec3); 87] = [
     (ZoneId::ControlHouse, Vec3::new(52.0, 7.85, 66.0)),
     (ZoneId::ControlHouse, Vec3::new(52.0, 7.85, 74.0)),
     (ZoneId::ControlHouse, Vec3::new(52.0, 7.85, 82.0)),
+];
+
+/// The floodlights (#568, #510 §3): one over each of the Gatehouse, the Tanker Dock, the Tank Farm, the Rack Road's north end, the Column Yard
+/// and the Substation, on a mast 9 m up against the blast wall, aimed in over the yard. They come on with the Power.
+pub(super) const FLOODS: [Flood; 6] = [
+    Flood { zone: ZoneId::Gatehouse, at: Vec3::new(-16.0, 9.0, 1.2), aim: Vec3::new(-4.0, 0.0, 12.0) },
+    Flood { zone: ZoneId::TankerDock, at: Vec3::new(-56.0, 9.0, 1.2), aim: Vec3::new(-40.0, 0.0, 12.0) },
+    Flood { zone: ZoneId::TankFarm, at: Vec3::new(-58.8, 9.0, 40.0), aim: Vec3::new(-40.0, 0.0, 40.0) },
+    Flood { zone: ZoneId::RackRoad, at: Vec3::new(-18.8, 9.0, 57.0), aim: Vec3::new(0.0, 0.0, 44.0) },
+    Flood { zone: ZoneId::ColumnYard, at: Vec3::new(18.8, 9.0, 88.5), aim: Vec3::new(6.0, 0.0, 74.0) },
+    Flood { zone: ZoneId::Substation, at: Vec3::new(58.8, 9.0, 62.0), aim: Vec3::new(40.0, 0.0, 76.0) },
 ];
 
 /// The plant structures that are loop centres and Blaze walls (27): the tanks and the column (round), the blast-wall-high things and
