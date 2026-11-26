@@ -208,10 +208,11 @@ reading("Table", "MapRoom", -32.8, 12.4, (0.7, 1.24, 0.589))
 reading("Shelf", "MapRoom", -22.3, 12.65, (1.72, 2.36, 1.13))
 reading("Shelf", "MapRoom", -35.0, 12.4, (1.2, 2.3, 0.6))
 reading("Shelf", "MapRoom", -35.65, 22.0, (0.6, 2.3, 1.2))
-# Lecture Theatre: the lectern, the chalkboard and the projector on the dais, facing the tiers (south).
-reading("Table", "LectureTheatre", 27.4, 22.0, (0.7, 1.24, 0.589), 2)
-reading("Sign", "LectureTheatre", 25.9, 21.45, (0.92, 1.51, 0.76), 2)
-reading("Table", "LectureTheatre", 28.7, 22.2, (0.9, 1.4, 0.58), 2)
+# Lecture Theatre: the lectern, the chalkboard and the projector on the dais east of D4's way in (x 26), facing the tiers (south).
+reading("Table", "LectureTheatre", 28.9, 22.0, (0.7, 1.24, 0.589), 2)
+reading("Sign", "LectureTheatre", 27.5, 21.45, (0.92, 1.51, 0.76), 2)
+# The projector stands on the crossover (a Raised Floor) against the south wall, its box 0.5 deep so the crossover loop keeps its 3 m.
+reading("Table", "LectureTheatre", 24.5, 0.25, (0.9, 1.4, 0.5), 0, y=8.0)
 
 for zone, cx, cz in FIXED:
     BLOCKS.append((cx - STACK_W / 2, cz - STACK_L / 2, cx + STACK_W / 2, cz + STACK_L / 2, ZONES[zone][4], 0.3))

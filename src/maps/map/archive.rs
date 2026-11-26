@@ -1601,7 +1601,7 @@ mod tests {
     fn every_reading_level_prop_stands_on_its_zones_floor_inside_its_zone() {
         for prop in data::READING_PROPS {
             let (lo, hi) = prop.zone.volume();
-            assert_eq!(prop.at.y, prop.zone.floor(), "the {:?} at {}", prop.kind, prop.at);
+            assert!(prop.at.y == prop.zone.floor() || archive().raised_floors.iter().any(|r| r.zone == prop.zone && (r.height - prop.at.y).abs() < 1e-3), "the {:?} at {}", prop.kind, prop.at);
             let (min, max) = footprint_of(&prop);
             assert!(min.x >= lo.x && max.x <= hi.x && min.y >= lo.z && max.y <= hi.z, "the {:?} at {} sticks out of {}", prop.kind, prop.at, prop.zone.name());
             assert!(prop.at.y + prop.size.y < hi.y, "the {:?} at {} reaches the ceiling", prop.kind, prop.at);

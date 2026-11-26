@@ -229,9 +229,9 @@ pub(super) const READING_PROPS: [Prop; 29] = [
     p(PropKind::Shelf, ZoneId::MapRoom, -22.3, 8.0, 12.65, (1.72, 2.36, 1.13)),
     p(PropKind::Shelf, ZoneId::MapRoom, -35.0, 8.0, 12.4, (1.2, 2.3, 0.6)),
     p(PropKind::Shelf, ZoneId::MapRoom, -35.65, 8.0, 22.0, (0.6, 2.3, 1.2)),
-    p(PropKind::Table, ZoneId::LectureTheatre, 27.4, 4.0, 22.0, (0.7, 1.24, 0.59)).turned(2),
-    p(PropKind::Sign, ZoneId::LectureTheatre, 25.9, 4.0, 21.45, (0.92, 1.51, 0.76)).turned(2),
-    p(PropKind::Table, ZoneId::LectureTheatre, 28.7, 4.0, 22.2, (0.9, 1.4, 0.58)).turned(2),
+    p(PropKind::Table, ZoneId::LectureTheatre, 28.9, 4.0, 22.0, (0.7, 1.24, 0.59)).turned(2),
+    p(PropKind::Sign, ZoneId::LectureTheatre, 27.5, 4.0, 21.45, (0.92, 1.51, 0.76)).turned(2),
+    p(PropKind::Table, ZoneId::LectureTheatre, 24.5, 8.0, 0.25, (0.9, 1.4, 0.5)),
 ];
 
 /// The Infills (34: one to three in every Zone, #515 section 7's 34 moved off what the Zone keeps clear; the lift pits stand on the pool's bed).
