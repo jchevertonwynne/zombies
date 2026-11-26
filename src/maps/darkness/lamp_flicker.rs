@@ -131,6 +131,12 @@ impl LampFlicker {
         Self { stutters: false, bursts: hash.is_multiple_of(8), dormant: CELLAR_DORMANT_LEVEL, ..Self::new(zone, at, glow) }
     }
 
+    /// A Refinery Control House tube (#568): steady at `CELLAR_DORMANT_LEVEL` (0.5) before the Power and full after it, and never stuttering or
+    /// bursting. The Refinery has no idle flicker; only its Blazes and the flare move.
+    pub fn steady(zone: ZoneId, at: Vec3, glow: Option<(Handle<StandardMaterial>, LinearRgba)>) -> Self {
+        Self { stutters: false, bursts: false, dormant: CELLAR_DORMANT_LEVEL, ..Self::new(zone, at, glow) }
+    }
+
     #[cfg(test)]
     /// Whether this lamp is one of the few that flicker once the Power is on.
     pub fn flickers_when_idle(&self) -> bool {
