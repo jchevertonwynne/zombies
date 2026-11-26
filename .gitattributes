@@ -1,3 +1,4 @@
 # Assets ship byte for byte as committed, so their hash in a release is the same whichever OS
 # checked them out (see .github/workflows/release.yml). No line-ending conversion.
 assets/** -text
+tests/map_files/** -text

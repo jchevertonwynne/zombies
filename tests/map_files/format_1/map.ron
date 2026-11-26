@@ -1,0 +1,54 @@
+// A Map File as format 1 wrote it, frozen: it must keep loading as formats move on.
+(
+    format: 1,
+    id: "7f9c1b52-3d0e-4c8a-9b1e-2a6d5f4c3b10",
+    creator: "Ada",
+    lineage: [
+        (id: "0a1b2c3d-0000-4000-8000-000000000001", creator: "Bo", name: "Old Yard"),
+    ],
+    name: "Frozen Yard",
+    description: "Two Zones, a Wall, a window, a lamp and a texture.",
+    thumbnail: Some("2360a5d458789b1914bd40086b35f400c295ee6f5dbfef0a013fa1c9ad0eb2c4"),
+    assets: [
+        (hash: "2360a5d458789b1914bd40086b35f400c295ee6f5dbfef0a013fa1c9ad0eb2c4", kind: Texture, ext: "png"),
+    ],
+    zones: [
+        (
+            name: "Yard",
+            floor: (
+                vertices: [(0.0, 0.0, 0.0), (8.0, 0.0, 0.0), (8.0, 8.0, 0.0), (0.0, 8.0, 0.0)],
+                triangles: [(0, 1, 2), (0, 2, 3)],
+            ),
+            top: 4.0,
+            indoor: false,
+        ),
+        (
+            name: "Shed",
+            floor: (
+                vertices: [(8.0, 0.0, 0.0), (12.0, 0.0, 0.0), (12.0, 4.0, 0.5)],
+                triangles: [(0, 1, 2)],
+            ),
+            top: 3.0,
+            indoor: true,
+            material: Some("planks"),
+        ),
+    ],
+    walls: [
+        (from: (8.0, 0.0), to: (8.0, 8.0), base: (0.0, 0.0), height: 3.0, thickness: 0.3),
+    ],
+    windows: [
+        (on: (wall: 0, at: 2.0), boards: 3),
+    ],
+    spawn_points: [
+        (at: (at: (1.0, 0.0, 1.0), yaw: 0.0), zone: 0),
+    ],
+    lamps: [
+        (at: (4.0, 3.0, 4.0), color: (1.0, 0.9, 0.7), intensity: 800.0, range: 12.0, shadows: true),
+    ],
+    machines: (
+        perk_machines: [(at: (at: (2.0, 0.0, 6.0), yaw: 1.5), kind: "Juggernog", cost: 2500)],
+    ),
+    mechanics: (
+        darkness: Some((numbers: [("dim", 0.2)])),
+    ),
+)
