@@ -105,6 +105,7 @@ pub const SILHOUETTES: [Silhouette; 11] = [
     sil(Shape::Tanker, 4.0, -22.0, (14.0, 3.2, 12.0), 0.9),
 ];
 
+#[cfg(test)]
 impl Silhouette {
     /// How far its footprint reaches from `at` on the ground, at most.
     pub fn reach(&self) -> f32 {
@@ -476,7 +477,7 @@ mod tests {
         // It flickers between 85% and full, and never casts shadows.
         for step in 0..200 {
             let k = flare_intensity(step as f32 * 0.37);
-            assert!(k <= FLARE_LUMENS && k >= FLARE_LUMENS * 0.85);
+            assert!((FLARE_LUMENS * 0.85..=FLARE_LUMENS).contains(&k));
         }
         // And it's the only light the sky adds.
         assert_eq!(world.query::<&PointLight>().iter(&world).count(), 1);
