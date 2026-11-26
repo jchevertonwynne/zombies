@@ -51,7 +51,7 @@ _Avoid_: stuck Zombie, cleaned-up Zombie
 **Sapper**: A mini-boss on a counter of its own, not part of the Horde, that comes through a Barrier after a warning and walks to a system near the Player to Sabotage it, slamming any Player in its way.
 _Avoid_: saboteur, bruiser
 
-**Sabotage**: A Sapper putting a system out of action: the Mystery Box, a working Perk Machine other than Quick Revive, a Trap, the Teleporter, Pack-a-Punch or a Swing Bridge's Levers (all of a bridge's Levers are one system, restored at any of them) or a Range's Wheels (all of a Range's Wheels are one system, restored at any of them, and the Range stands at its Rest while they are dead). A Lock Gate has no Lever, so it can't be Sabotaged. A Sabotaged system stays dead until a Player restores it for Points or the Sapper dies, which brings back everything it Sabotaged.
+**Sabotage**: A Sapper putting a system out of action: the Mystery Box, a working Perk Machine other than Quick Revive, a Trap, the Teleporter, Pack-a-Punch or a Swing Bridge's Levers (all of a bridge's Levers are one system, restored at any of them) a Range's Wheels (all of a Range's Wheels are one system, restored at any of them, and the Range stands at its Rest while they are dead) or a Fuel Line (both of its Valves are one system, restored at either; a Shut line goes straight into Flare-up and stays Lit, even through a Boss Round, until it is restored or the Sapper dies). A Lock Gate has no Lever, so it can't be Sabotaged. A Sabotaged system stays dead until a Player restores it for Points or the Sapper dies, which brings back everything it Sabotaged.
 
 **Intermission**: The short pause after a Round ends and before the next one begins spawning. On the Polder, the Tide turns during it.
 
@@ -115,7 +115,7 @@ _Avoid_: purchasable, trigger
 **Points Earned**: All the Points gained during a Run, before any spending.
 _Avoid_: score
 
-**Unpaid Kill**: A kill made by the Map or an effect rather than the Player's own attack, such as a Trap, the Teleporter or a Nuke. It pays no kill Points and drops no Power-up, but still counts toward the Round and the Run Record's Kills.
+**Unpaid Kill**: A kill made by the Map or an effect rather than the Player's own attack, such as a Trap, the Teleporter, a Nuke or a Blaze. It pays no kill Points and drops no Power-up, but still counts toward the Round and the Run Record's Kills.
 _Avoid_: free kill, trap kill
 
 **Power-up**: A temporary pickup dropped by a dying Zombie that gives an instant or timed effect to every Player.
@@ -349,13 +349,15 @@ _Avoid_: stack (a Stack is a copy of a Boon)
 
 **Wheel**: The free hand wheel at each mouth of an Aisle. A Player who is up and Uses it rolls the Range to open that Aisle, after a 2 s warning and once nobody, Down or not, is standing in the Aisle that is closing; it needs no Power and costs no Points. Not a Lever, and never used by Zombies.
 
-**Blaze**: A patch of fire on the Refinery's floor, part of a Fuel Line. While it is Lit, Zombies route round it; it never spreads. (What it does to bodies comes later.) Only the Refinery has Blazes.
+**Blaze**: A patch of fire on the Refinery's floor, part of a Fuel Line. While it is Lit, Zombies route round it; it never spreads. A Player with their feet in a Lit Blaze takes 15 every 0.5 s (the first tick 0.5 s after stepping in, Hit Grace or not) and moves at 80% speed. A Zombie, Hellhound, Shrieker, Nova Crawler or Elite in one is set alight for 80% of its health and slowed to 60%, and a kill it makes is an Unpaid Kill; a Napalm takes no harm; the Sapper and a Boss lose one Trap's share of their health each time a Lit spell catches them. Nothing burns while the line is Shut or Flaring up. Only the Refinery has Blazes.
 
 **Fuel Line**: A group of Blazes that are Lit and Shut together by their Valves. Every Fuel Line is Lit when the Run starts. A Gauntlet Boss Round Shuts every one, and holds them Shut until it is cleared.
 
 **Valve**: A Buyable wheel on a Fuel Line, two to a line, one each side of its Blazes: 250 Points shuts a Lit line, and once the line has been Shut for 10 s, the Valve relights it for free. It does nothing during a Flare-up. It is not a Lever or a Trap, so no Trap Boon applies, and it needs no Power; Zombies never use it.
 
 **Shut**: A Fuel Line that has been put out. It burns nothing, Zombies can cross it, and after 45 s it Flares up.
+
+**Dragged Clear**: Moved out of a Blaze on going Down, to the nearest ground outside the fire, with the Last Stand kept. The Host's `Teleport` takes a Player who is Down with their feet in a Lit Blaze (whether they went Down in it or the line lit under them) to the nearest path node outside every Lit Blaze in an open Zone, as Washed Up does. A Revive, a Respawn and a Washed Up never land a Player in a Lit Blaze either.
 
 **Flare-up**: The 4 s of hissing gas before a Fuel Line lights again, whether it ran out of Shut or was relit. Zombies already avoid it, but it doesn't burn yet.
 

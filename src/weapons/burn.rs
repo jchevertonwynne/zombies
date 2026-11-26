@@ -28,6 +28,8 @@ pub struct Burning {
     elapsed: f32,
     /// Ticks already dealt.
     ticks: u32,
+    /// Whether it is a Blaze's, not a Player's: no Player is credited and its kills are Unpaid (`Attack::Blaze`).
+    blaze: bool,
 }
 
 impl Burning {
@@ -37,7 +39,13 @@ impl Burning {
             burn,
             elapsed: 0.0,
             ticks: 0,
+            blaze: false,
         }
+    }
+
+    /// A Lit Blaze's Burn: no Player is credited, and a kill it makes is Unpaid.
+    pub fn of_a_blaze(burn: Burn) -> Self {
+        Self { blaze: true, ..Self::new(burn) }
     }
 
     /// Ticks a Burn deals in all. The first lands one tick after ignition.
@@ -122,7 +130,7 @@ fn burn(
                 zombie,
                 damage: due,
                 zone: HitZone::Torso,
-                attack: Attack::Burn,
+                attack: if burning.blaze { Attack::Blaze } else { Attack::Burn },
             });
         }
         if dying || burning.done() {

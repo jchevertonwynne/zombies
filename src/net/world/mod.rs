@@ -678,7 +678,8 @@ type Machine = Or<(
     With<TrapSwitch>,
     With<Lever>,
     With<WheelPost>,
-    With<crate::maps::fire::Valve>,
+    // A Fuel Line's Valves, and the line itself, which a Sapper's Sabotage of both Valves names.
+    Or<(With<crate::maps::fire::Valve>, With<crate::maps::fire::LineNode>)>,
     // A Piece is named so a Sapper's Sabotage of its Levers or Wheels can say which Piece it was.
     With<PieceState>,
     With<PerkMachine>,

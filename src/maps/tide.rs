@@ -610,7 +610,7 @@ mod tests {
         for level in TideLevel::ALL {
             for &(zone, feet) in layout.wading {
                 let feet = feet + Vec3::Y * 0.1;
-                let to = washed_up_target(&graph, layout, level, feet, Some(zone), None).expect("somewhere to go");
+                let to = washed_up_target(&graph, layout, level, feet, Some(zone), None, Default::default()).expect("somewhere to go");
                 assert_ne!(water_at(layout, level, to), Some(Wading::Deep), "{to} at {level:?}");
             }
         }
@@ -618,7 +618,7 @@ mod tests {
         let in_the_channel = Vec3::new(-47.0, -2.2, -6.0);
         assert!(layout.out_of_bounds(TideLevel::Mid, in_the_channel));
         assert!(!layout.out_of_bounds(TideLevel::Low, in_the_channel));
-        let to = washed_up_target(&graph, layout, TideLevel::Mid, in_the_channel, Some(ZoneId::WeighHouse), None).unwrap();
+        let to = washed_up_target(&graph, layout, TideLevel::Mid, in_the_channel, Some(ZoneId::WeighHouse), None, Default::default()).unwrap();
         assert_eq!(crate::enemies::nav::zone_at(MapId::Polder, to + Vec3::Y * 0.1), Some(ZoneId::WeighHouse));
     }
 

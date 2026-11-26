@@ -9,6 +9,7 @@ use crate::authority::HostSimulation;
 use crate::enemies::nav::{NavGraph, zone_at};
 use crate::enemies::target::half_height_above_feet;
 use crate::economy::power_up::Dropped;
+use crate::maps::fire::{FuelLines, LitMask, outside_every_blaze};
 use crate::maps::map::MapId;
 use crate::maps::tide::{Tide, TideLanded};
 use crate::maps::water::{TideLevel, Wading, swamped, water_at};
@@ -108,12 +109,14 @@ pub fn wade_into_deep(
     tide: Option<Res<Tide>>,
     graph: Option<Res<NavGraph>>,
     open: Option<Res<ActiveZones>>,
+    lines: Option<Res<FuelLines>>,
     mut teleport: MessageWriter<Teleport>,
 ) {
     let layout = map.layout();
     if layout.water.is_empty() {
         return;
     }
+    let lit = lines.map_or(LitMask::NONE, |lines| lines.burning());
     let level = tide.map_or_else(TideLevel::default, |tide| tide.level());
     let Some(graph) = graph.filter(|graph| graph.map == *map) else { return };
     for (player, mut transform, locomotion) in &mut players {
@@ -124,14 +127,15 @@ pub fn wade_into_deep(
         if water_at(layout, level, feet) != Some(Wading::Deep) || in_holding_space(feet) {
             continue;
         }
-        let Some(to) = washed_up_target(&graph, layout, level, feet, zone_at(*map, feet + Vec3::Y * 0.1), open.as_deref()) else { continue };
+        let Some(to) = washed_up_target(&graph, layout, level, feet, zone_at(*map, feet + Vec3::Y * 0.1), open.as_deref(), lit) else { continue };
         transform.translation = to + Vec3::Y * (Stance::Standing.half_height() + 0.05);
         teleport.write(Teleport { player, feet: to, facing: None });
     }
 }
 
 /// The path node a Washed Up body at `feet` goes to with the Tide at `tide`: the nearest in an open
-/// Zone that is dry or Shallow, their own Zone (`own`) winning ties. `None` if there is no such.
+/// Zone that is dry or Shallow and outside every Blaze of the lines in `lit`, their own Zone (`own`) winning ties. `None` if there is no
+/// such. A Dragged Clear out of a Lit Blaze takes the same search.
 pub fn washed_up_target(
     graph: &NavGraph,
     layout: &crate::maps::map::Layout,
@@ -139,6 +143,7 @@ pub fn washed_up_target(
     feet: Vec3,
     own: Option<ZoneId>,
     open: Option<&ActiveZones>,
+    lit: LitMask,
 ) -> Option<Vec3> {
     graph
         .nodes
@@ -146,6 +151,8 @@ pub fn washed_up_target(
         .filter(|node| !node.vent)
         .filter(|node| node.zone.is_some_and(|zone| open.is_none_or(|open| open.0.contains(zone))))
         .filter(|node| water_at(layout, tide, node.at) != Some(Wading::Deep))
+        // Never into a Lit Blaze: the same search is the Dragged Clear's.
+        .filter(|node| outside_every_blaze(layout, lit, node.at))
         .map(|node| {
             // Ties are within a few centimetres of one another.
             let distance = (node.at.distance(feet) * 20.0).round();
@@ -167,9 +174,11 @@ pub fn washed_up(
     map: Res<MapId>,
     graph: Option<Res<NavGraph>>,
     open: Option<Res<ActiveZones>>,
+    lines: Option<Res<FuelLines>>,
     mut teleport: MessageWriter<Teleport>,
 ) {
     let Some(TideLanded { level }) = landed.read().last().copied() else { return };
+    let lit = lines.map_or(LitMask::NONE, |lines| lines.burning());
     let layout = map.layout();
     let Some(graph) = graph.filter(|graph| graph.map == *map) else { return };
     for (player, mut transform, locomotion) in &mut players {
@@ -183,14 +192,14 @@ pub fn washed_up(
         if !caught {
             continue;
         }
-        let Some(to) = washed_up_target(&graph, layout, level, feet, zone_at(*map, feet + Vec3::Y * 0.1), open.as_deref()) else { continue };
+        let Some(to) = washed_up_target(&graph, layout, level, feet, zone_at(*map, feet + Vec3::Y * 0.1), open.as_deref(), lit) else { continue };
         transform.translation = to + Vec3::Y * (Stance::Standing.half_height() + 0.05);
         teleport.write(Teleport { player, feet: to, facing: None });
     }
     for mut dropped in &mut drops {
         let feet = dropped.at() - Vec3::Y * crate::tuning::POWER_UP_FLOAT_HEIGHT;
         if swamped(layout, level, feet)
-            && let Some(to) = washed_up_target(&graph, layout, level, feet, zone_at(*map, feet + Vec3::Y * 0.1), open.as_deref())
+            && let Some(to) = washed_up_target(&graph, layout, level, feet, zone_at(*map, feet + Vec3::Y * 0.1), open.as_deref(), lit)
         {
             dropped.wash_to(to + Vec3::Y * crate::tuning::POWER_UP_FLOAT_HEIGHT);
         }

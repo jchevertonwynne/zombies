@@ -968,6 +968,8 @@ pub struct MoveContext<'a> {
     pub layout: Option<&'static crate::maps::map::Layout>,
     /// The Tide level the Map's water stands at.
     pub tide: crate::maps::water::TideLevel,
+    /// The Fuel Lines that burn now (Lit), to slow a Player whose feet are in a Blaze of one.
+    pub lit: crate::maps::fire::LitMask,
 }
 
 /// Runs this tick's `MoveInput` for every Player but a client's puppets, which move as the Host
@@ -984,14 +986,15 @@ pub(crate) fn move_player(
     move_and_slide: MoveAndSlide,
     time: Res<Time>,
     (map, power, open): (Option<Res<MapId>>, Option<Res<Power>>, Option<Res<OpenZones>>),
-    tide: Option<Res<crate::maps::tide::Tide>>,
+    (tide, lines): (Option<Res<crate::maps::tide::Tide>>, Option<Res<crate::maps::fire::FuelLines>>),
 ) {
     let tide = tide.map_or_else(Default::default, |tide| tide.level());
+    let lit = lines.map_or(crate::maps::fire::LitMask::NONE, |lines| lines.burning());
     let jump_pads = map.as_ref().map_or(&[][..], |map| crate::maps::jump_pad::working(**map, power.is_some_and(|power| power.is_on())));
     let ziplines = map.as_ref().map_or(Vec::new(), |map| crate::maps::zipline::working(**map, open.as_ref().map_or(Default::default(), |open| open.0)));
     let layout = map.map(|map| map.layout());
     for (entity, mut transform, mut locomotion, input, loadout, modifiers, drinking, last_stand) in &mut players {
-        let mut context = MoveContext { entity, loadout, modifiers, drinking, last_stand, jump_pads, ziplines: &ziplines, layout, tide };
+        let mut context = MoveContext { entity, loadout, modifiers, drinking, last_stand, jump_pads, ziplines: &ziplines, layout, tide, lit };
         if let Some(stance) = step_move(&mut transform.translation, &mut locomotion, input, &mut context, time.delta(), &move_and_slide) {
             commands.entity(entity).insert(stance.collider());
             if let Ok(mut easing) = easings.get_mut(entity) {
@@ -1032,7 +1035,7 @@ pub fn step_move(
     delta: Duration,
     move_and_slide: &MoveAndSlide,
 ) -> Option<Stance> {
-    let MoveContext { entity, loadout, modifiers, drinking, last_stand, jump_pads, ziplines, layout, tide } = *context;
+    let MoveContext { entity, loadout, modifiers, drinking, last_stand, jump_pads, ziplines, layout, tide, lit } = *context;
     let dt = delta.as_secs_f32();
     let rotation = Quat::from_rotation_y(input.yaw);
 
@@ -1041,7 +1044,10 @@ pub fn step_move(
     // Wading: feet in Shallow Water slow every step, and there's no lying down in it (the camera
     // would be under the surface). It's worked out here from where the feet are, as the Jump Pads
     // are, so a client replaying its inputs wades exactly where the Host does.
-    let wading = layout.is_some_and(|layout| crate::maps::water::wading(layout, tide, *position - Vec3::Y * locomotion.shape().half_height()));
+    let feet_now = *position - Vec3::Y * locomotion.shape().half_height();
+    let wading = layout.is_some_and(|layout| crate::maps::water::wading(layout, tide, feet_now));
+    // A Lit Blaze slows the same way, worked out from the same feet and the Fuel Lines the Host last told.
+    let scorched = layout.is_some_and(|layout| crate::maps::fire::blaze_at(layout, lit, feet_now).is_some());
 
     let mut changed = None;
     // The Down pose: a Down from any Stance, on the ground or in the air, lays the body down at
@@ -1181,7 +1187,7 @@ pub fn step_move(
     } else {
         PLAYER_WALK_SPEED * moving_as.speed_mult()
     };
-    let speed = loadout.move_speed(base, &modifiers.0) * if wading { WADE_SPEED_MULT } else { 1.0 };
+    let speed = loadout.move_speed(base, &modifiers.0) * if wading { WADE_SPEED_MULT } else { 1.0 } * if scorched { BLAZE_SPEED_MULT } else { 1.0 };
 
     let wish_world = rotation * Vec3::new(wish.x, 0.0, -wish.y) * speed;
     let horizontal = Vec3::new(locomotion.velocity.x, 0.0, locomotion.velocity.z);

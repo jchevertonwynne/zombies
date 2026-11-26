@@ -8,14 +8,35 @@
 //! Flare-up; no Valve works during a Flare-up. Through a Gauntlet Boss Round every line is Shut and the clocks hold. Zombies route
 //! round a Lit or Flaring line and across a Shut one (`Gate::Fire`, and a straight walk that would cross a closed Blaze is no walk).
 //!
-//! What a Blaze does to bodies, Dragged Clear and Sabotage are later tickets; here a Lit Blaze is a flat orange quad.
+//! What a Lit Blaze does to bodies: a Player whose feet are in it takes `BLAZE_PLAYER_DAMAGE` every `BLAZE_PLAYER_TICK_SECS` (through
+//! `PlayerHit`, Hit Grace or not, the first tick that long after stepping in) and moves at `BLAZE_SPEED_MULT` (worked out in `step_move`
+//! from the `LitMask`, so a client predicts it); a Player who goes Down in one is Dragged Clear, Last Stand kept; a Zombie is set
+//! alight with an uncredited Burn of `BLAZE_BURN_SHARE` of its max health per tick (80% in all, Unpaid kills) and slowed
+//! (`ZombieMoveFactor`); a Napalm takes no harm; the Sapper and a Boss lose one Trap's share of health per Lit spell that catches them.
+//! The Sapper can Sabotage a line: a Shut line flares up and then stays Lit until a Player restores it at a Valve, or the Sapper dies,
+//! even through a Boss Round. The Host judges all of it; a client sees the result in the snapshot, the `Teleport` and the Sabotage
+//! events, and predicts only its own slow.
+
+use std::collections::{HashMap, HashSet};
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::audio::PlayCue;
+use crate::audio::cues::Cue;
 use crate::authority::{Authority, HostSimulation};
 use crate::economy::buy::{Buyable, Purchased, Refused};
-use crate::enemies::nav::Route;
+use crate::enemies::nav::{NavGraph, Route, zone_at};
+use crate::enemies::sapper::Sabotaged;
+use crate::enemies::target::{Players, half_height_above_feet};
+use crate::enemies::zombie::{Attack, DamageZombie, Dying, Heavyweight, HitZone, Rising, Zombie, burns_in_a_blaze};
+use crate::maps::zone::ActiveZones;
+use crate::players::last_stand::LastStand;
+use crate::players::player::{Locomotion, Player, PlayerHit, Stance, Teleport};
+use crate::players::respawn::AwaitingRespawn;
+use crate::ui::hud::overlay::{Overlay, Overlays};
+use crate::weapons::arsenal::Burn;
+use crate::weapons::burn::Burning;
 use crate::maps::map::{Layout, MapId};
 use crate::maps::zone::ZoneId;
 use crate::run::mode::Mode;
@@ -38,7 +59,7 @@ impl LitMask {
     pub const NONE: LitMask = LitMask(0);
 
     /// The first `count` lines.
-    #[cfg_attr(not(test), allow(dead_code, reason = "what a Blaze does to bodies is the next ticket"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "the tests light the first few lines"))]
     pub fn first(count: usize) -> LitMask {
         LitMask(((1u16 << count.min(MAX_LINES)) - 1) as u8)
     }
@@ -51,7 +72,7 @@ impl LitMask {
         LitMask(self.0 | (1 << line.0))
     }
 
-    #[cfg_attr(not(test), allow(dead_code, reason = "what a Blaze does to bodies is the next ticket"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "the tests take a line out of a mask"))]
     pub fn without(self, line: FuelLineId) -> LitMask {
         LitMask(self.0 & !(1 << line.0))
     }
@@ -94,7 +115,6 @@ impl Blaze {
 
 /// The Fuel Line whose Blaze (one of those in `lit`) a body with its feet at `feet` stands in, if any. The only question anything
 /// asks of a Blaze. The edges of a rectangle are in it.
-#[cfg_attr(not(test), allow(dead_code, reason = "what a Blaze does to bodies is the next ticket"))]
 pub fn blaze_at(layout: &Layout, lit: LitMask, feet: Vec3) -> Option<FuelLineId> {
     layout
         .fuel_lines
@@ -104,6 +124,12 @@ pub fn blaze_at(layout: &Layout, lit: LitMask, feet: Vec3) -> Option<FuelLineId>
         .filter(|&(id, _)| lit.contains(id))
         .find(|(_, line)| line.blazes.iter().any(|blaze| blaze.holds(feet, 0.0)))
         .map(|(id, _)| id)
+}
+
+/// Whether `at` is clear of every Blaze of the lines in `lit` by `BLAZE_CLEAR_MARGIN`: where a Dragged Clear, a Washed Up or a Respawn may
+/// put a body down.
+pub fn outside_every_blaze(layout: &Layout, lit: LitMask, at: Vec3) -> bool {
+    walk_crosses(layout, lit, at, at, BLAZE_CLEAR_MARGIN).is_none()
 }
 
 /// The first closed line (in `lit`) whose Blaze a straight walk from `from` to `to` (feet, the height eased between them) comes within
@@ -144,7 +170,6 @@ impl LinePhase {
     }
 
     /// Whether it burns.
-    #[cfg_attr(not(test), allow(dead_code, reason = "what a Blaze does to bodies is the next ticket"))]
     pub fn burning(self) -> bool {
         self == LinePhase::Lit
     }
@@ -172,6 +197,8 @@ pub enum ValveOffer {
     FlaringUp,
     /// A Boss Round holds every line Shut: no relight.
     Held,
+    /// The Sapper has Sabotaged the line: its Valves are dead until a Player restores it.
+    Sabotaged,
 }
 
 impl ValveOffer {
@@ -183,6 +210,7 @@ impl ValveOffer {
             ValveOffer::Cooling => format!("The {line} is too hot to relight yet"),
             ValveOffer::FlaringUp => format!("The {line} is flaring up"),
             ValveOffer::Held => format!("The {line} is held shut"),
+            ValveOffer::Sabotaged => format!("The {line} is sabotaged"),
         }
     }
 
@@ -203,18 +231,37 @@ impl ValveOffer {
 pub struct FuelLines {
     count: u8,
     phases: [LinePhase; MAX_LINES],
+    /// The lines the Sapper has Sabotaged (one bit each), read off the `Sabotaged` marker on each line's `LineNode`, on every machine.
+    sabotaged: u8,
+    /// How many times each line has lit since the Run began (the Host's count): a body caught in one Lit spell is caught once.
+    spells: [u32; MAX_LINES],
 }
 
 impl Default for FuelLines {
     fn default() -> Self {
-        Self { count: 0, phases: [LinePhase::Lit; MAX_LINES] }
+        Self { count: 0, phases: [LinePhase::Lit; MAX_LINES], sabotaged: 0, spells: [0; MAX_LINES] }
     }
 }
 
 impl FuelLines {
     /// A Map's `count` lines, every one Lit: how every Run starts.
     pub fn start(count: usize) -> Self {
-        Self { count: count.min(MAX_LINES) as u8, phases: [LinePhase::Lit; MAX_LINES] }
+        Self { count: count.min(MAX_LINES) as u8, ..Self::default() }
+    }
+
+    /// The lines the Sapper has Sabotaged.
+    pub fn sabotaged(&self) -> LitMask {
+        LitMask(self.sabotaged)
+    }
+
+    /// Notes which lines are Sabotaged (the Host reads it off the world, a client the same, from the Sabotage it was told).
+    pub fn set_sabotaged(&mut self, lines: LitMask) {
+        self.sabotaged = lines.0 & (((1u16 << self.count) - 1) as u8);
+    }
+
+    /// Which Lit spell `line` is in: it goes up each time the line lights, so a body that a spell has caught once is not caught again by it.
+    pub fn spell(&self, line: FuelLineId) -> u32 {
+        self.spells.get(usize::from(line.0)).copied().unwrap_or(0)
     }
 
     pub fn count(&self) -> usize {
@@ -231,7 +278,6 @@ impl FuelLines {
     }
 
     /// The lines that burn: Lit.
-    #[cfg_attr(not(test), allow(dead_code, reason = "what a Blaze does to bodies is the next ticket"))]
     pub fn burning(&self) -> LitMask {
         self.mask(LinePhase::burning)
     }
@@ -259,11 +305,17 @@ impl FuelLines {
     }
 
     /// Runs the clocks `dt` seconds on. In a Boss Round every line is Shut and the clocks hold (no Flare-up, no relight) until it is
-    /// cleared. (The Sapper's Sabotage of a line, which stays Lit through it, is a later ticket.) Returns whether any line changed phase.
+    /// cleared, except a Sabotaged line, which stays Lit through it. A Sabotaged line that is Shut goes straight into Flare-up, and
+    /// once Lit it stays Lit. Returns whether any line changed phase.
     pub fn advance(&mut self, dt: f32, boss: bool) -> bool {
         let before: Vec<u8> = self.phases[..usize::from(self.count)].iter().map(|phase| phase.kind()).collect();
-        for phase in &mut self.phases[..usize::from(self.count)] {
-            if boss {
+        for i in 0..usize::from(self.count) {
+            let sabotaged = self.sabotaged & (1 << i) != 0;
+            let phase = &mut self.phases[i];
+            if sabotaged && matches!(phase, LinePhase::Shut { .. }) {
+                *phase = LinePhase::FlareUp { elapsed: 0.0 };
+            }
+            if boss && !sabotaged {
                 if !matches!(phase, LinePhase::Shut { .. }) {
                     *phase = LinePhase::Shut { elapsed: 0.0 };
                 }
@@ -288,6 +340,7 @@ impl FuelLines {
                         }
                         left -= FLARE_UP_SECS - elapsed;
                         *phase = LinePhase::Lit;
+                        self.spells[i] += 1;
                     }
                 }
             }
@@ -298,6 +351,9 @@ impl FuelLines {
 
     /// What a Valve of `line` offers now.
     pub fn offer(&self, line: FuelLineId, boss: bool) -> ValveOffer {
+        if self.sabotaged().contains(line) {
+            return ValveOffer::Sabotaged;
+        }
         match self.phase(line) {
             LinePhase::Lit => ValveOffer::Shut,
             LinePhase::FlareUp { .. } => ValveOffer::FlaringUp,
@@ -327,7 +383,10 @@ impl FuelLines {
         self.phases[usize::from(line.0)] = match self.phase(line) {
             LinePhase::Lit => LinePhase::Shut { elapsed: 0.0 },
             LinePhase::Shut { .. } => LinePhase::FlareUp { elapsed: 0.0 },
-            LinePhase::FlareUp { .. } => LinePhase::Lit,
+            LinePhase::FlareUp { .. } => {
+                self.spells[usize::from(line.0)] += 1;
+                LinePhase::Lit
+            }
         };
     }
 }
@@ -352,6 +411,24 @@ pub struct Valve {
     pub line: FuelLineId,
     use_point: Vec3,
 }
+
+impl Valve {
+    /// Where the Valve is used from, and so where a Restore for a Sabotaged line waits.
+    pub fn use_point(&self) -> Vec3 {
+        self.use_point
+    }
+}
+
+/// A Fuel Line as one system, for the Sapper to Sabotage and a Player to restore: it stands over the line's first Blaze and is named like
+/// every machine, so the Sabotage can say which line. Both Valves of the line are ways to it.
+#[derive(Component)]
+pub struct LineNode {
+    pub line: FuelLineId,
+}
+
+/// A Zombie's, Sapper's or Boss's record of the Lit spells that have scorched it, `(line, spell)`: one spell takes one share.
+#[derive(Component, Default)]
+struct Scorched(Vec<(FuelLineId, u32)>);
 
 /// A Lit Blaze's flat orange quad, until the Look draws it.
 #[derive(Component)]
@@ -392,6 +469,9 @@ pub fn spawn_fire(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials:
     let lamp = meshes.add(Sphere::new(0.1));
     for (i, line) in layout.fuel_lines.iter().enumerate() {
         let id = FuelLineId(i as u8);
+        if let Some(first) = line.blazes.first() {
+            commands.spawn((InRun, Name::new(format!("Fuel Line {}", line.name)), LineNode { line: id }, Transform::from_translation(first.centre() + Vec3::Y * 0.5)));
+        }
         for blaze in line.blazes {
             let size = blaze.max - blaze.min;
             let at = blaze.centre() + Vec3::Y * 0.03;
@@ -465,6 +545,13 @@ fn prompt_valves(
     for (entity, valve, buyable, refused) in &valves {
         let Some(line) = map.layout().fuel_lines.get(usize::from(valve.line.0)) else { continue };
         let offer = lines.offer(valve.line, boss);
+        // A Sabotaged line's Valves are dead: the Restore waiting at each shows its own Prompt.
+        if offer == ValveOffer::Sabotaged {
+            if buyable.is_some() || refused {
+                commands.entity(entity).remove::<(Buyable, Refused)>();
+            }
+            continue;
+        }
         let (text, price) = (offer.prompt(line.name), offer.price());
         if buyable.is_some_and(|buyable| buyable.prompt == text && buyable.price == price) && refused == !offer.usable() {
             continue;
@@ -524,6 +611,153 @@ fn sync_nav(lines: Res<FuelLines>, mut last: Local<LitMask>, mut routes: Query<&
     }
 }
 
+/// Reads which lines the Sapper has Sabotaged off the `Sabotaged` marker on each `LineNode`, the same on every machine.
+fn sync_sabotage(nodes: Query<(&LineNode, Has<Sabotaged>)>, mut lines: ResMut<FuelLines>) {
+    let sabotaged = nodes.iter().filter(|(_, sabotaged)| *sabotaged).fold(LitMask::NONE, |mask, (node, _)| mask.with(node.line));
+    if sabotaged != lines.sabotaged() {
+        lines.set_sabotaged(sabotaged);
+    }
+}
+
+/// A Player whose feet are in a Lit Blaze takes `BLAZE_PLAYER_DAMAGE` every `BLAZE_PLAYER_TICK_SECS`, the first tick that long after
+/// stepping in, as a hit from nowhere: Hit Grace, which holds off a Zombie's melee, doesn't stop it. Stepping out starts the count over.
+fn blaze_players(
+    players: Players,
+    lines: Res<FuelLines>,
+    map: Option<Res<MapId>>,
+    mut heat: Local<HashMap<Entity, f32>>,
+    mut hits: MessageWriter<PlayerHit>,
+    time: Res<Time>,
+) {
+    let lit = lines.burning();
+    let Some(layout) = map.map(|map| map.layout()).filter(|_| lit != LitMask::NONE) else {
+        heat.clear();
+        return;
+    };
+    let mut inside = HashSet::new();
+    for spot in players.iter().filter(|spot| spot.up) {
+        if blaze_at(layout, lit, spot.feet).is_none() {
+            continue;
+        }
+        inside.insert(spot.entity);
+        let held = heat.entry(spot.entity).or_insert(0.0);
+        *held += time.delta_secs();
+        while *held >= BLAZE_PLAYER_TICK_SECS {
+            *held -= BLAZE_PLAYER_TICK_SECS;
+            hits.write(PlayerHit { player: spot.entity, damage: BLAZE_PLAYER_DAMAGE, from: None });
+        }
+    }
+    heat.retain(|player, _| inside.contains(player));
+}
+
+/// A Player who is Down with their feet in a Lit Blaze, whether they went Down in it or it lit under them, is moved by the Host's
+/// `Teleport` to the nearest path node outside every Lit Blaze in an open Zone (Washed Up's search), their Last Stand carrying on there.
+/// So no Player lies Down in the fire and no reviver has to stand in it, and nothing here Downs anyone again.
+fn drag_clear(
+    mut players: Query<(Entity, &mut Transform, Option<&Locomotion>), (With<Player>, With<LastStand>, Without<AwaitingRespawn>)>,
+    lines: Res<FuelLines>,
+    map: Option<Res<MapId>>,
+    graph: Option<Res<NavGraph>>,
+    open: Option<Res<ActiveZones>>,
+    mut teleport: MessageWriter<Teleport>,
+) {
+    let lit = lines.burning();
+    let Some(map) = map.filter(|_| lit != LitMask::NONE) else { return };
+    let layout = map.layout();
+    let Some(graph) = graph.filter(|graph| graph.map == *map) else { return };
+    for (player, mut transform, locomotion) in &mut players {
+        if locomotion.is_some_and(Locomotion::flying) {
+            continue;
+        }
+        let feet = transform.translation - Vec3::Y * half_height_above_feet(locomotion);
+        if blaze_at(layout, lit, feet).is_none() {
+            continue;
+        }
+        let own = zone_at(*map, feet + Vec3::Y * 0.1);
+        let Some(to) = crate::players::out_of_bounds::washed_up_target(&graph, layout, Default::default(), feet, own, open.as_deref(), lit) else { continue };
+        transform.translation = to + Vec3::Y * (Stance::Standing.half_height() + 0.05);
+        teleport.write(Teleport { player, feet: to, facing: None });
+    }
+}
+
+/// What a Lit Blaze does to the bodies of the Zombies. A Zombie that burns (a Zombie, Hellhound, Shrieker, Nova Crawler or Elite) is set
+/// alight, uncredited, with a Burn of `BLAZE_BURN_SHARE` of its max health per tick for `BLAZE_BURN_SECS`, and set alight again once it
+/// runs out if it is still inside; its kills are Unpaid. A Napalm takes no harm. The Sapper and a Boss (a `Heavyweight`) aren't set
+/// alight: each loses `TRAP_SAPPER_HEALTH_FRACTION` of its max health once per Lit spell that catches it.
+fn blaze_zombies(
+    mut commands: Commands,
+    mut zombies: Query<(Entity, &Zombie, &Transform, Has<Burning>, Option<&mut Scorched>, Has<Heavyweight>), (Without<Dying>, Without<Rising>)>,
+    lines: Res<FuelLines>,
+    map: Option<Res<MapId>>,
+    mut damage: MessageWriter<DamageZombie>,
+) {
+    let lit = lines.burning();
+    let Some(layout) = map.map(|map| map.layout()).filter(|_| lit != LitMask::NONE) else { return };
+    for (entity, zombie, transform, alight, scorched, heavyweight) in &mut zombies {
+        let feet = transform.translation - Vec3::Y * zombie.half_height();
+        let Some(line) = blaze_at(layout, lit, feet) else { continue };
+        if heavyweight {
+            let spell = (line, lines.spell(line));
+            let new = match scorched {
+                Some(scorched) if scorched.0.contains(&spell) => false,
+                Some(mut scorched) => {
+                    scorched.0.push(spell);
+                    true
+                }
+                None => {
+                    commands.entity(entity).insert(Scorched(vec![spell]));
+                    true
+                }
+            };
+            if new {
+                damage.write(DamageZombie {
+                    player: None,
+                    zombie: entity,
+                    damage: zombie.max_health() * TRAP_SAPPER_HEALTH_FRACTION,
+                    zone: HitZone::Torso,
+                    attack: Attack::Blaze,
+                });
+            }
+        } else if burns_in_a_blaze(zombie, false) && !alight {
+            let burn = Burn { damage: zombie.max_health() * BLAZE_BURN_SHARE, tick_secs: BLAZE_BURN_TICK_SECS, secs: BLAZE_BURN_SECS };
+            commands.entity(entity).insert(Burning::of_a_blaze(burn));
+        }
+    }
+}
+
+/// How strongly the heat overlay shows with the feet in a Lit Blaze.
+const BLAZE_HEAT_STRENGTH: f32 = 0.5;
+
+/// On the Player's own screen: the heat overlay and the burn sound while their feet are in a Lit Blaze, as in a Napalm's pool. Worked out
+/// locally from the same `LitMask` and feet, so no message is needed.
+fn feel_the_heat(
+    players: Players,
+    lines: Res<FuelLines>,
+    map: Option<Res<MapId>>,
+    overlays: Option<ResMut<Overlays>>,
+    mut cues: MessageWriter<PlayCue>,
+    mut since: Local<f32>,
+    time: Res<Time>,
+) {
+    let lit = lines.burning();
+    let in_it = map
+        .filter(|_| lit != LitMask::NONE)
+        .zip(players.iter().find(|spot| spot.local && spot.up))
+        .is_some_and(|(map, spot)| blaze_at(map.layout(), lit, spot.feet).is_some());
+    if !in_it {
+        *since = 0.0;
+        return;
+    }
+    if let Some(mut overlays) = overlays {
+        overlays.hold(Overlay::NapalmHeat, BLAZE_HEAT_STRENGTH);
+    }
+    *since += time.delta_secs();
+    if *since >= BLAZE_PLAYER_TICK_SECS {
+        *since -= BLAZE_PLAYER_TICK_SECS;
+        cues.write(PlayCue::new(Cue::FireBurn, None));
+    }
+}
+
 /// Shows each Blaze while its line is Lit or Flaring up, and each Valve's lamp by phase.
 fn show_lines(
     lines: Res<FuelLines>,
@@ -564,14 +798,33 @@ impl Plugin for FirePlugin {
         app.init_resource::<FuelLines>()
             .add_message::<StepFuelLine>()
             .add_message::<Purchased>()
+            .add_message::<PlayerHit>()
+            .add_message::<Teleport>()
+            .add_message::<DamageZombie>()
+            .add_message::<PlayCue>()
             .add_systems(OnEnter(GameState::Playing), reset)
             .add_systems(
                 Update,
-                (use_valves, step_nearest, run_lines).chain().in_set(FireClock).in_set(HostSimulation).run_if(world_runs),
+                (sync_sabotage, use_valves, step_nearest, run_lines).chain().in_set(FireClock).in_set(HostSimulation).run_if(world_runs),
             )
             .add_systems(
                 Update,
-                (run_shown.run_if(not(in_state(Authority::Host))), sync_nav, show_lines).chain().after(FireClock).run_if(world_runs),
+                (blaze_players.before(crate::players::player::take_hits), blaze_zombies, drag_clear.after(crate::players::last_stand::go_down))
+                    .after(FireClock)
+                    .in_set(HostSimulation)
+                    .run_if(world_runs),
+            )
+            .add_systems(
+                Update,
+                (
+                    (run_shown, sync_sabotage).run_if(not(in_state(Authority::Host))),
+                    sync_nav,
+                    show_lines,
+                    feel_the_heat,
+                )
+                    .chain()
+                    .after(FireClock)
+                    .run_if(world_runs),
             )
             .add_systems(Update, prompt_valves.before(crate::economy::buy::focus).run_if(world_runs));
     }
@@ -769,7 +1022,12 @@ mod tests {
     use crate::players::player::{Player, Stance};
 
     fn refinery_sim() -> Sim {
+        refinery_sim_with(|_| {})
+    }
+
+    fn refinery_sim_with(extra: impl FnOnce(&mut App)) -> Sim {
         let mut sim = Sim::on(MapId::Refinery, 60.0, |app| {
+            extra(app);
             app.add_plugins(FirePlugin)
                 .insert_resource(ActiveZones(Default::default()))
                 .add_message::<UseRequest>()
@@ -902,5 +1160,387 @@ mod tests {
         sim.send(UseRequest { player, buyable: valve, hold: false });
         sim.run(5);
         assert_eq!(sim.world_mut().get::<Points>(player).unwrap().balance, 750);
+    }
+
+    // ---- What a Lit Blaze does to bodies ----
+
+    use crate::enemies::zombie::{ZombieKilled, ZombieMoveFactor, BLAZE};
+    use crate::enemies::special::SpecialKind;
+    use crate::players::last_stand::LastStand;
+    use crate::players::player::HitGrace;
+    use crate::run::gauntlet::{Elite, EliteTrait};
+
+    #[derive(Resource, Default)]
+    struct Hits(Vec<(f32, f32)>);
+
+    #[derive(Resource, Default)]
+    struct Killed(Vec<(Attack, crate::enemies::zombie::Pay)>);
+
+    #[derive(Resource, Default)]
+    struct Teleports(Vec<Vec3>);
+
+    fn record(
+        mut hits: ResMut<Hits>,
+        mut killed: ResMut<Killed>,
+        mut teleports: ResMut<Teleports>,
+        mut hit: MessageReader<PlayerHit>,
+        mut kill: MessageReader<ZombieKilled>,
+        mut teleport: MessageReader<Teleport>,
+        time: Res<Time>,
+    ) {
+        hits.0.extend(hit.read().map(|hit| (time.elapsed_secs(), hit.damage)));
+        killed.0.extend(kill.read().map(|kill| (kill.attack, kill.pay)));
+        teleports.0.extend(teleport.read().map(|teleport| teleport.feet));
+    }
+
+    /// The Refinery with the Burn, the kill messages and the recorders, and the Player somewhere harmless.
+    fn burning_sim() -> Sim {
+        let mut sim = refinery_sim_with(|app| {
+            app.add_plugins(crate::weapons::burn::BurnPlugin)
+                .add_message::<ZombieKilled>()
+                .init_resource::<Hits>()
+                .init_resource::<Killed>()
+                .init_resource::<Teleports>()
+                .add_systems(Update, record);
+        });
+        move_player(&mut sim, Vec3::new(-40.0, 0.0, 70.0));
+        sim
+    }
+
+    /// Where a line's first Blaze has its middle, on the floor.
+    fn middle_of(line: u8) -> Vec3 {
+        MapId::Refinery.layout().fuel_lines[usize::from(line)].blazes[0].centre()
+    }
+
+    fn feet_of(sim: &mut Sim, entity: Entity) -> Vec3 {
+        let world = sim.world_mut();
+        world.get::<Transform>(entity).unwrap().translation - Vec3::Y * world.get::<Zombie>(entity).unwrap().half_height()
+    }
+
+    fn secs(sim: &mut Sim) -> f32 {
+        sim.world_mut().resource::<Time>().elapsed_secs()
+    }
+
+    /// A Player in a Lit Blaze takes 15 every 0.5 s through Hit Grace, the first tick 0.5 s after stepping in; a hop in and out costs
+    /// nothing, and standing in a Shut line costs nothing at all.
+    #[test]
+    fn blaze_player_damage_is_15_per_half_second_with_the_first_tick_after_0_5_s() {
+        assert_eq!((BLAZE_PLAYER_DAMAGE, BLAZE_PLAYER_TICK_SECS), (15.0, 0.5));
+        let mut sim = burning_sim();
+        let player = {
+            let world = sim.world_mut();
+            world.query_filtered::<Entity, With<Player>>().iter(world).next().unwrap()
+        };
+        // In Hit Grace: it holds off a Zombie's melee, and fire still hurts.
+        assert!(sim.world_mut().entity_mut(player).insert(HitGrace::default()).get_mut::<HitGrace>().unwrap().try_land(std::time::Duration::ZERO));
+        let spot = middle_of(1);
+        move_player(&mut sim, spot);
+        let stepped_in = secs(&mut sim);
+        sim.run(sim.frames(2.2));
+        let hits = std::mem::take(&mut sim.world_mut().resource_mut::<Hits>().0);
+        assert_eq!(hits.len(), 4, "four ticks in 2.2 s: {hits:?}");
+        assert!(hits.iter().all(|&(_, damage)| damage == 15.0), "{hits:?}");
+        let first = hits[0].0 - stepped_in;
+        assert!((0.5 - 0.04..=0.5 + 0.06).contains(&first), "the first tick came {first} s after stepping in");
+        for pair in hits.windows(2) {
+            assert!((pair[1].0 - pair[0].0 - 0.5).abs() < 0.04, "ticks 0.5 s apart: {hits:?}");
+        }
+        // A hop in and out costs nothing.
+        move_player(&mut sim, spot + Vec3::new(20.0, 0.0, 0.0));
+        sim.run(sim.frames(1.0));
+        move_player(&mut sim, spot);
+        sim.run(sim.frames(0.3));
+        move_player(&mut sim, spot + Vec3::new(20.0, 0.0, 0.0));
+        sim.run(sim.frames(1.0));
+        assert!(sim.world_mut().resource::<Hits>().0.len() <= 1, "a hop of 0.3 s is at most no hit: {:?}", sim.world_mut().resource::<Hits>().0);
+        // Shut, it burns nothing.
+        lines(&mut sim).use_valve(FuelLineId(1), false).unwrap();
+        sim.world_mut().resource_mut::<Hits>().0.clear();
+        move_player(&mut sim, spot);
+        sim.run(sim.frames(2.0));
+        assert!(sim.world_mut().resource::<Hits>().0.is_empty(), "a Shut line is harmless");
+        // A Flare-up burns nothing yet either.
+        lines(&mut sim).step_now(FuelLineId(1));
+        assert!(matches!(lines(&mut sim).phase(FuelLineId(1)), LinePhase::FlareUp { .. }));
+        sim.run(sim.frames(1.0));
+        assert!(sim.world_mut().resource::<Hits>().0.is_empty(), "a Flare-up is harmless");
+    }
+
+    /// Four ticks of a fifth of max health: 80% in all, whatever the health.
+    #[test]
+    fn blaze_burn_share_totals_80_percent() {
+        for max in [100.0_f32, 1000.0, 50_000.0] {
+            let burn = Burn { damage: max * BLAZE_BURN_SHARE, tick_secs: BLAZE_BURN_TICK_SECS, secs: BLAZE_BURN_SECS };
+            let mut burning = Burning::of_a_blaze(burn);
+            let total: f32 = (0..8).map(|_| burning.advance(0.25)).sum();
+            assert!((total - max * 0.8).abs() < max * 1e-4, "{max}: {total}");
+            assert!(burning.done());
+        }
+    }
+
+    /// From any Blaze the Dragged Clear's search lands on the nearest path node outside every Lit Blaze, and with fewer lines Lit a
+    /// node beside a Shut one is as good.
+    #[test]
+    fn dragged_clear_lands_on_the_nearest_node_outside_every_lit_blaze() {
+        use crate::players::out_of_bounds::washed_up_target;
+        let layout = MapId::Refinery.layout();
+        let graph = NavGraph::new(MapId::Refinery);
+        let all = LitMask::first(6);
+        for (i, line) in layout.fuel_lines.iter().enumerate() {
+            for blaze in line.blazes {
+                let feet = blaze.centre();
+                let to = washed_up_target(&graph, layout, Default::default(), feet, None, None, all).expect("somewhere to go");
+                assert!(outside_every_blaze(layout, all, to), "line {i}: {to} is in a Blaze");
+                let nearest = graph
+                    .nodes
+                    .iter()
+                    .filter(|node| !node.vent && node.zone.is_some() && outside_every_blaze(layout, all, node.at))
+                    .map(|node| node.at.distance(feet))
+                    .fold(f32::INFINITY, f32::min);
+                assert!((to.distance(feet) - nearest).abs() < 0.06, "line {i}: {} m to {to}, the nearest clear node is {nearest} m", to.distance(feet));
+                // With only this line Lit, it's no further.
+                let alone = washed_up_target(&graph, layout, Default::default(), feet, None, None, LitMask::NONE.with(id(i as u8))).unwrap();
+                assert!(alone.distance(feet) <= to.distance(feet) + 0.06);
+            }
+        }
+    }
+
+    /// The Player Down in a Lit Blaze, or in a line that lights under them, is Dragged Clear by the Host's `Teleport` with the Last Stand
+    /// kept; Down in a Shut line, they stay put; and a Revive stands them up outside it.
+    #[test]
+    fn a_down_in_a_blaze_is_dragged_clear_with_the_last_stand_kept() {
+        let layout = MapId::Refinery.layout();
+        let mut sim = burning_sim();
+        let player = {
+            let world = sim.world_mut();
+            world.query_filtered::<Entity, With<Player>>().iter(world).next().unwrap()
+        };
+        let feet_of_player = |sim: &mut Sim| {
+            let world = sim.world_mut();
+            world.get::<Transform>(player).unwrap().translation - Vec3::Y * Stance::Standing.half_height()
+        };
+        // Down in a Lit Blaze.
+        move_player(&mut sim, middle_of(1));
+        sim.world_mut().entity_mut(player).insert(LastStand::shown(20.0, true));
+        sim.run(5);
+        let to = feet_of_player(&mut sim);
+        assert!(blaze_at(layout, LitMask::first(6), to).is_none() && outside_every_blaze(layout, LitMask::first(6), to), "Dragged Clear to {to}");
+        assert!(sim.world_mut().get::<LastStand>(player).is_some(), "the Last Stand is kept");
+        assert_eq!(sim.world_mut().resource::<Teleports>().0.len(), 1, "one Teleport, no loop");
+        sim.run(sim.frames(2.0));
+        assert_eq!(sim.world_mut().resource::<Teleports>().0.len(), 1, "and nothing more");
+        assert!(sim.world_mut().resource::<Hits>().0.is_empty(), "nothing hurts a Player who is Down");
+        // The Revive stands them up where they lie: outside every Blaze.
+        sim.world_mut().entity_mut(player).remove::<LastStand>();
+        sim.run(5);
+        assert!(outside_every_blaze(layout, LitMask::first(6), feet_of_player(&mut sim)));
+        // Down in a Shut line: left alone, until it lights under them.
+        sim.world_mut().resource_mut::<Teleports>().0.clear();
+        lines(&mut sim).use_valve(FuelLineId(1), false).unwrap();
+        move_player(&mut sim, middle_of(1));
+        sim.world_mut().entity_mut(player).insert(LastStand::shown(20.0, true));
+        sim.run(sim.frames(1.0));
+        assert!(sim.world_mut().resource::<Teleports>().0.is_empty(), "a Shut line doesn't move anyone");
+        lines(&mut sim).show(FuelLineId(1), LinePhase::Lit);
+        sim.run(5);
+        assert_eq!(sim.world_mut().resource::<Teleports>().0.len(), 1, "it lit under them: Dragged Clear");
+        assert!(outside_every_blaze(layout, LitMask::first(6), feet_of_player(&mut sim)));
+        assert!(sim.world_mut().get::<LastStand>(player).is_some());
+    }
+
+    /// No Revive, Respawn or Washed Up puts a body down in a Lit Blaze: a Respawn spot in one moves to the nearest node outside every Lit
+    /// Blaze, and the Washed Up search skips any node inside.
+    #[test]
+    fn a_revive_a_respawn_and_washed_up_never_land_in_a_lit_blaze() {
+        use crate::players::respawn::clear_of_fire;
+        let layout = MapId::Refinery.layout();
+        let graph = NavGraph::new(MapId::Refinery);
+        let map = MapId::Refinery;
+        let all = FuelLines::start(6);
+        let half = PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0;
+        for line in 0..6u8 {
+            let in_it = middle_of(line) + Vec3::Y * half;
+            let spot = clear_of_fire(in_it, Some(&map), Some(&graph), Some(&all));
+            let feet = spot - Vec3::Y * half;
+            assert!(spot != in_it && outside_every_blaze(layout, all.burning(), feet), "line {line}: a Respawn at {in_it} lands at {spot}");
+            // With that line Shut, the same spot is fine.
+            let mut shut = all;
+            shut.use_valve(id(line), false).unwrap();
+            assert_eq!(clear_of_fire(in_it, Some(&map), Some(&graph), Some(&shut)), in_it, "line {line}");
+            // Washed Up from the Blaze.
+            let washed = crate::players::out_of_bounds::washed_up_target(&graph, layout, Default::default(), middle_of(line), None, None, all.burning()).unwrap();
+            assert!(outside_every_blaze(layout, all.burning(), washed), "line {line}: Washed Up to {washed}");
+        }
+    }
+
+    /// A Zombie caught in a Lit Blaze burns for 80% of its health, is slowed to ×0.6 only while inside, walks out and doesn't stick.
+    #[test]
+    fn a_zombie_caught_by_a_relight_burns_walks_out_and_doesnt_stick() {
+        let layout = MapId::Refinery.layout();
+        let mut sim = burning_sim();
+        // The line is Shut, a Zombie stands in it, and it relights under them: Flare-up, then Lit.
+        lines(&mut sim).use_valve(FuelLineId(1), false).unwrap();
+        let spot = middle_of(1);
+        let zombie = sim.spawn(spot, None);
+        sim.run(sim.frames(1.0));
+        assert!(sim.world_mut().get::<Burning>(zombie).is_none(), "a Shut line burns nothing");
+        lines(&mut sim).show(FuelLineId(1), LinePhase::Lit);
+        sim.run(3);
+        assert!(sim.world_mut().get::<Burning>(zombie).is_some(), "set alight");
+        let factor = sim.world_mut().get::<ZombieMoveFactor>(zombie).expect("slowed in the Blaze");
+        assert!(factor.has(BLAZE) && (factor.factor() - BLAZE_ZOMBIE_SPEED_MULT).abs() < 1e-4);
+        let mut left_the_fire_by = None;
+        for frame in 0..sim.frames(12.0) {
+            sim.run(1);
+            let Some(health) = sim.world_mut().get::<Zombie>(zombie).map(Zombie::health) else { break };
+            let feet = feet_of(&mut sim, zombie);
+            if left_the_fire_by.is_none() && blaze_at(layout, LitMask::first(6), feet).is_none() {
+                left_the_fire_by = Some(frame as f32 * sim.frame_secs);
+                assert!(health < 1000.0, "it burned on the way out");
+            }
+        }
+        let zombie_gone = sim.world_mut().get::<Zombie>(zombie).is_none() || sim.world_mut().get::<Dying>(zombie).is_some();
+        if !zombie_gone {
+            let health = sim.world_mut().get::<Zombie>(zombie).unwrap().health();
+            assert!(left_the_fire_by.is_some(), "it walked out of the Blaze");
+            assert!((health - 200.0).abs() < 1.0, "one Burn is 80% of 1000: {health} left");
+            assert!(sim.world_mut().get::<Burning>(zombie).is_none(), "the Burn ran out");
+            assert!(sim.world_mut().get::<ZombieMoveFactor>(zombie).is_none_or(|factor| !factor.has(BLAZE)), "the slow went with it");
+        }
+    }
+
+    /// A kill by a Blaze counts, is Unpaid (and so drops no Power-up), and names no Player.
+    #[test]
+    fn a_fire_kill_is_unpaid_and_drops_nothing() {
+        use crate::enemies::zombie::Pay;
+        assert_eq!(Attack::Blaze.pay(), Pay::Unpaid);
+        let mut sim = burning_sim();
+        let zombie = sim.spawn(middle_of(1), None);
+        sim.world_mut().get_mut::<Zombie>(zombie).unwrap().set_health_for_test(30.0);
+        sim.run(sim.frames(3.0));
+        let kills = sim.world_mut().resource::<Killed>().0.clone();
+        assert_eq!(kills, [(Attack::Blaze, Pay::Unpaid)], "{kills:?}");
+        // The drop meter only rolls for a Paid kill.
+        let mut meter = crate::economy::power_up::DropMeter { armed: true, ..default() };
+        assert!(!meter.roll(Attack::Blaze.pay() == Pay::Paid, 0.0, true));
+    }
+
+    /// A Napalm walks through unharmed; a Hellhound and an Elite burn like any Zombie.
+    #[test]
+    fn a_napalm_is_unharmed_and_a_hellhound_and_an_elite_burn() {
+        let mut sim = burning_sim();
+        let spot = middle_of(1);
+        // A Player right beside them, so they stand and fight instead of walking out.
+        move_player(&mut sim, spot + Vec3::new(0.0, 0.0, 1.2));
+        let napalm = sim.spawn(spot, None);
+        sim.world_mut().entity_mut(napalm).insert(Zombie::special(SpecialKind::Napalm, 1000.0, spot));
+        let hound = sim.spawn(spot + Vec3::X, None);
+        sim.world_mut().entity_mut(hound).insert(Zombie::hellhound(1000.0, spot + Vec3::X));
+        let elite = sim.spawn(spot - Vec3::X, None);
+        sim.world_mut().entity_mut(elite).insert(Elite(EliteTrait::Volatile));
+        sim.run(sim.frames(0.3));
+        assert!(sim.world_mut().get::<Burning>(napalm).is_none(), "a Napalm is not set alight");
+        assert!(sim.world_mut().get::<ZombieMoveFactor>(napalm).is_none(), "nor slowed");
+        assert!(sim.world_mut().get::<Burning>(hound).is_some(), "a Hellhound burns");
+        assert!(sim.world_mut().get::<Burning>(elite).is_some(), "an Elite burns");
+        sim.run(sim.frames(2.5));
+        assert_eq!(sim.world_mut().get::<Zombie>(napalm).unwrap().health(), 1000.0, "a Napalm takes no harm");
+        for burned in [hound, elite] {
+            let health = sim.world_mut().get::<Zombie>(burned).map_or(0.0, Zombie::health);
+            assert!(health <= 200.5, "{burned:?} has {health} left");
+        }
+    }
+
+    /// The Sapper and a Boss aren't set alight: each loses one Trap's share of its health per Lit spell that catches it, and keeps
+    /// its pace; a fresh spell takes another.
+    #[test]
+    fn the_sapper_and_a_boss_lose_one_trap_share_per_spell() {
+        let mut sim = burning_sim();
+        let spot = middle_of(1);
+        // A Player right beside them, so they stand and fight instead of walking out.
+        move_player(&mut sim, spot + Vec3::new(0.0, 0.0, 1.2));
+        let sapper = sim.spawn(spot, None);
+        sim.world_mut().entity_mut(sapper).insert((Zombie::special(SpecialKind::Sapper, 1000.0, spot), Heavyweight::SAPPER));
+        let boss = sim.spawn(spot + Vec3::X, None);
+        sim.world_mut().entity_mut(boss).insert(Heavyweight { trap_share: TRAP_SAPPER_HEALTH_FRACTION, ammo_mod_share: 0.05, knife_kill_share: 0.02 });
+        let health = |sim: &mut Sim, who| sim.world_mut().get::<Zombie>(who).unwrap().health();
+        sim.run(sim.frames(0.5));
+        for who in [sapper, boss] {
+            assert!(sim.world_mut().get::<Burning>(who).is_none(), "not set alight");
+            assert!(sim.world_mut().get::<ZombieMoveFactor>(who).is_none_or(|factor| !factor.has(BLAZE)), "no slow");
+            assert!((health(&mut sim, who) - 800.0).abs() < 1.0, "lost one Trap share: {}", health(&mut sim, who));
+        }
+        // The same spell takes no more, however often they are put back into it.
+        let was = (health(&mut sim, sapper), health(&mut sim, boss));
+        for _ in 0..3 {
+            put_back(&mut sim, [(sapper, spot), (boss, spot + Vec3::X)]);
+            sim.run(sim.frames(0.3));
+        }
+        assert_eq!(was, (health(&mut sim, sapper), health(&mut sim, boss)));
+        // A fresh spell: Shut, Flare-up, Lit again, with them put back in.
+        let before = lines(&mut sim).spell(FuelLineId(1));
+        lines(&mut sim).use_valve(FuelLineId(1), false).unwrap();
+        lines(&mut sim).step_now(FuelLineId(1));
+        lines(&mut sim).step_now(FuelLineId(1));
+        assert_eq!(lines(&mut sim).phase(FuelLineId(1)), LinePhase::Lit);
+        assert_eq!(lines(&mut sim).spell(FuelLineId(1)), before + 1);
+        put_back(&mut sim, [(sapper, spot), (boss, spot + Vec3::X)]);
+        sim.run(sim.frames(0.3));
+        for who in [sapper, boss] {
+            let feet = feet_of(&mut sim, who);
+            assert!((health(&mut sim, who) - 600.0).abs() < 1.0, "a second share: {} for {who:?} at {feet}, scorched {:?}", health(&mut sim, who), sim.world_mut().get::<Scorched>(who).map(|s| s.0.clone()));
+        }
+    }
+
+    /// Puts each Zombie back on the floor at its spot, a clean cut as a Shove makes one, and has it plan again.
+    fn put_back(sim: &mut Sim, who: impl IntoIterator<Item = (Entity, Vec3)>) {
+        for (zombie, feet) in who {
+            let world = sim.world_mut();
+            let at = feet + Vec3::Y * (world.get::<Zombie>(zombie).unwrap().half_height() + 0.02);
+            world.get_mut::<Transform>(zombie).unwrap().translation = at;
+            world.entity_mut(zombie).insert(avian3d::prelude::Position(at));
+            world.get_mut::<bevy_transform_interpolation::TranslationEasingState>(zombie).unwrap().start = Some(at);
+            *world.get_mut::<Route>(zombie).unwrap() = Route::default();
+        }
+    }
+
+    // ---- Sabotage ----
+
+    /// A Sabotaged line goes straight into Flare-up from Shut, stays Lit, refuses its Valves, and stays Lit through a Boss Round; once
+    /// restored it is an ordinary line again.
+    #[test]
+    fn a_sabotaged_line_goes_to_flare_up_stays_lit_and_refuses_its_valves() {
+        let mut lines = FuelLines::start(2);
+        lines.use_valve(id(0), false).unwrap();
+        lines.advance(5.0, false);
+        assert!(matches!(lines.phase(id(0)), LinePhase::Shut { .. }));
+        lines.set_sabotaged(LitMask::NONE.with(id(0)));
+        assert!(lines.advance(0.0, false), "a Shut line goes straight into Flare-up");
+        assert_eq!(lines.phase(id(0)), LinePhase::FlareUp { elapsed: 0.0 });
+        assert_eq!(lines.closed(), LitMask::first(2));
+        assert_eq!(lines.burning(), LitMask::NONE.with(id(1)), "it isn't burning yet");
+        lines.advance(FLARE_UP_SECS, false);
+        assert_eq!(lines.phase(id(0)), LinePhase::Lit);
+        assert_eq!(lines.offer(id(0), false), ValveOffer::Sabotaged);
+        assert!(!ValveOffer::Sabotaged.usable());
+        assert_eq!(lines.use_valve(id(0), false), None, "its Valves are dead");
+        assert_eq!(lines.phase(id(0)), LinePhase::Lit, "and it stays Lit");
+        lines.advance(500.0, false);
+        assert_eq!(lines.phase(id(0)), LinePhase::Lit);
+        // A Boss Round shuts every line but the Sabotaged one.
+        lines.advance(0.0, true);
+        assert_eq!(lines.phase(id(0)), LinePhase::Lit, "a Sabotaged line stays Lit through a Boss Round");
+        assert!(matches!(lines.phase(id(1)), LinePhase::Shut { .. }), "the other is Shut");
+        lines.advance(100.0, true);
+        assert_eq!(lines.phase(id(0)), LinePhase::Lit);
+        // Restored: the Valve works again.
+        lines.set_sabotaged(LitMask::NONE);
+        assert_eq!(lines.offer(id(0), false), ValveOffer::Shut);
+        assert_eq!(lines.use_valve(id(0), false), Some(ValveOffer::Shut));
+        // A line that is sabotaged while already Lit just stays Lit.
+        let mut lines = FuelLines::start(1);
+        lines.set_sabotaged(LitMask::NONE.with(id(0)));
+        lines.advance(100.0, false);
+        assert_eq!(lines.phase(id(0)), LinePhase::Lit);
     }
 }

@@ -642,7 +642,7 @@ fn replaying_the_same_inputs_from_the_same_start_reaches_the_same_position_and_s
             move |player: Single<(Entity, &Loadout, &Modifiers), With<Player>>,
                   move_and_slide: MoveAndSlide| {
                 let (entity, loadout, modifiers) = *player;
-                let mut context = MoveContext { entity, loadout, modifiers, drinking: false, last_stand: false, jump_pads: &[], ziplines: &[], layout: None, tide: Default::default() };
+                let mut context = MoveContext { entity, loadout, modifiers, drinking: false, last_stand: false, jump_pads: &[], ziplines: &[], layout: None, tide: Default::default(), lit: Default::default() };
                 let (mut position, mut locomotion, inputs) = args.clone();
                 for input in &inputs {
                     step_move(&mut position, &mut locomotion, input, &mut context, Duration::from_secs_f64(1.0 / 64.0), &move_and_slide);
@@ -1313,7 +1313,7 @@ fn step_once(sim: &mut Sim, position: Vec3, locomotion: Locomotion, input: MoveI
     let id = world.register_system(
         move |player: Single<(Entity, &Loadout, &Modifiers), With<Player>>, move_and_slide: MoveAndSlide| {
             let (entity, loadout, modifiers) = *player;
-            let mut context = MoveContext { entity, loadout, modifiers, drinking: false, last_stand: false, jump_pads: &[], ziplines: &[], layout: None, tide: Default::default() };
+            let mut context = MoveContext { entity, loadout, modifiers, drinking: false, last_stand: false, jump_pads: &[], ziplines: &[], layout: None, tide: Default::default(), lit: Default::default() };
             let (mut position, mut locomotion, input) = args.clone();
             step_move(&mut position, &mut locomotion, &input, &mut context, Duration::from_secs_f64(1.0 / 64.0), &move_and_slide);
             locomotion
@@ -1969,4 +1969,51 @@ fn a_rider_counts_as_standing_at_the_landing_for_targeting() {
     let spot = world.run_system_once(|players: crate::enemies::target::Players| players.first().unwrap()).unwrap();
     assert!(spot.stand.distance(line.to) < 0.01, "counted at {}", spot.stand);
     assert!(spot.feet.distance(line.to) > 3.0, "the real feet were already there");
+}
+
+/// A Lit Blaze on the Refinery's ground.
+mod blaze {
+    use super::*;
+    use crate::maps::fire::LitMask;
+
+    /// How fast, level, a Player starting with their feet at `feet` and holding forward is going after `steps` ticks of `step_move` with
+    /// the Fuel Lines in `lit` burning.
+    fn walked_in(sim: &mut Sim, feet: Vec3, lit: LitMask, steps: usize) -> f32 {
+        sim.place(feet, 0.0);
+        let start = sim.frame().pos;
+        let locomotion = sim.locomotion();
+        let world = sim.app.world_mut();
+        let id = world.register_system(
+            move |player: Single<(Entity, &Loadout, &Modifiers), With<Player>>, move_and_slide: MoveAndSlide, map: Res<MapId>| {
+                let (entity, loadout, modifiers) = *player;
+                let mut context = MoveContext { entity, loadout, modifiers, drinking: false, last_stand: false, jump_pads: &[], ziplines: &[], layout: Some(map.layout()), tide: Default::default(), lit };
+                let (mut position, mut locomotion) = (start, locomotion.clone());
+                let input = MoveInput { axes: Vec2::Y, ..default() };
+                for _ in 0..steps {
+                    step_move(&mut position, &mut locomotion, &input, &mut context, Duration::from_secs_f64(1.0 / 64.0), &move_and_slide);
+                }
+                locomotion.velocity.with_y(0.0).length()
+            },
+        );
+        let walked = world.run_system(id).unwrap();
+        world.unregister_system(id).unwrap();
+        walked
+    }
+
+    /// Feet in a Lit Blaze slow every step to ×`BLAZE_SPEED_MULT`; the same Blaze Shut (out of the mask), or the same walk on bare
+    /// floor, is the usual pace. It is worked out inside the step from the mask, so a client replaying its inputs slows where the Host does.
+    #[test]
+    fn step_move_slows_to_0_8_in_a_lit_blaze_and_not_in_a_shut_one() {
+        assert_eq!(BLAZE_SPEED_MULT, 0.8);
+        let mut sim = Sim::on(MapId::Refinery, 60.0);
+        // The Bund Line's Blaze is (-42, 38) to (-38, 42): start at its south edge, walking north (-z).
+        let in_it = Vec3::new(-40.0, 0.0, 41.8);
+        let lit = walked_in(&mut sim, in_it, LitMask::first(6), 20);
+        let shut = walked_in(&mut sim, in_it, LitMask::first(6).without(crate::maps::fire::FuelLineId(1)), 20);
+        let bare = walked_in(&mut sim, in_it, LitMask::NONE, 20);
+        assert!(shut > 5.0, "{shut} m/s");
+        assert!((shut - bare).abs() < 0.05, "a Shut line is bare floor: {shut} m/s against {bare} m/s");
+        let ratio = lit / shut;
+        assert!((ratio - BLAZE_SPEED_MULT).abs() < 0.02, "in the Blaze: {lit} m/s against a dry {shut} m/s: ×{ratio}");
+    }
 }
