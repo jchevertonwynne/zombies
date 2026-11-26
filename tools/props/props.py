@@ -52,6 +52,16 @@ UNITS = {
     "drawer_cabinet": (1.1, 1.8, 0.5),
     "WetFloorSign_01": (0.36, 0.63, 0.3),
     "vintage_day_bed": (2.0, 1.1, 0.85),
+    # The Archive's reading level (#540). The table is laid twice by the fitting as a 4.5 m reading table; the chairs and the
+    # encyclopedias dress it (no collider of their own).
+    "dining_table": (2.25, 0.88, 1.39),
+    "SchoolChair_01": (0.68, 1.0, 0.57),
+    "wooden_ladder": (0.96, 1.335, 0.5),
+    "vintage_grandfather_clock_01": (1.0, 2.19, 0.8),
+    "marble_bust_01": (0.3, 0.515, 0.27),
+    "standing_chalkboard_01": (0.92, 1.51, 0.76),
+    "book_encyclopedia_set_01": (0.55, 0.24, 0.16),
+    "GothicCabinet_01": (1.72, 2.36, 1.13),
 }
 
 
@@ -73,11 +83,22 @@ def fetch(asset_id, workdir):
     return gltf
 
 
-def texture(workdir, suffix):
+def texture(workdir, suffix, required=True):
     found = sorted((workdir / "textures").glob(f"*_{suffix}_1k.*"))
     if not found:
-        sys.exit(f"no {suffix} texture in {workdir}")
+        if required:
+            sys.exit(f"no {suffix} texture in {workdir}")
+        return None
     return found[0]
+
+
+def orm_args(workdir):
+    """texpack's arguments for a model's occlusion-roughness-metal map: its `arm` texture, or, for a model that has only a
+    roughness map (the marble bust), that, unoccluded and non-metallic."""
+    arm = texture(workdir, "arm", required=False)
+    if arm is not None:
+        return ["--orm", str(arm)]
+    return ["--roughness", str(texture(workdir, "rough"))]
 
 
 def build(asset_id, unit):
@@ -103,9 +124,10 @@ def build(asset_id, unit):
         subprocess.run(
             ["cargo", "run", "--quiet", "--release", "-p", "texpack", "--",
              "--color", str(texture(source, "diff")), "--normal", str(texture(source, "nor_gl")),
-             "--orm", str(texture(source, "arm")), "--out", str(out)],
+             *orm_args(source), "--out", str(out)],
             cwd=ROOT, check=True,
         )
+        rough_only = texture(source, "arm", required=False) is None
         shutil.copy(work / "model.bin", out / "model.bin")
         doc = json.loads((work / "model.gltf").read_text())
         doc["buffers"][0]["uri"] = "model.bin"
@@ -136,7 +158,7 @@ def build(asset_id, unit):
         "source": f"https://polyhaven.com/a/{asset_id}",
         "licence": "CC0",
         "fetched": datetime.date.today().isoformat(),
-        "notes": f"1K glTF decimated by tools/props to {tris} triangles, unit {size[0]:g} x {size[1]:g} x {size[2]:g} m (length, height, depth); textures as KTX2 via texpack",
+        "notes": f"1K glTF decimated by tools/props to {tris} triangles, unit {size[0]:g} x {size[1]:g} x {size[2]:g} m (length, height, depth); textures as KTX2 via texpack" + ("; the model has only a roughness map, so its ORM is roughness alone (unoccluded, non-metal)" if rough_only else ""),
     }
 
 

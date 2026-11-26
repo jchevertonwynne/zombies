@@ -2274,6 +2274,22 @@
       "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 0.66 x 0.95 x 0.66 m (length, height, depth); textures as KTX2 via texpack"
     },
     {
+      "path": "models/GothicCabinet_01",
+      "name": "Gothic Cabinet 01",
+      "source": "https://polyhaven.com/a/GothicCabinet_01",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "1K glTF decimated by tools/props to 1939 triangles, unit 1.72 x 2.36 x 1.13 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "models/SchoolChair_01",
+      "name": "School Chair 01",
+      "source": "https://polyhaven.com/a/SchoolChair_01",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 0.68 x 1 x 0.57 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
       "path": "models/WetFloorSign_01",
       "name": "Wet Floor Sign 01",
       "source": "https://polyhaven.com/a/WetFloorSign_01",
@@ -2290,6 +2306,22 @@
       "notes": "1K glTF decimated by tools/props to 1473 triangles, unit 0.66 x 0.95 x 0.66 m (length, height, depth); textures as KTX2 via texpack"
     },
     {
+      "path": "models/book_encyclopedia_set_01",
+      "name": "Book Encyclopedia Set 01",
+      "source": "https://polyhaven.com/a/book_encyclopedia_set_01",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 0.55 x 0.24 x 0.16 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "models/dining_table",
+      "name": "Dining Table",
+      "source": "https://polyhaven.com/a/dining_table",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "1K glTF decimated by tools/props to 1048 triangles, unit 2.25 x 0.88 x 1.39 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
       "path": "models/drawer_cabinet",
       "name": "Drawer Cabinet",
       "source": "https://polyhaven.com/a/drawer_cabinet",
@@ -2304,6 +2336,14 @@
       "licence": "CC0 (made in this repo); hide texture CC0 from Poly Haven brown_leather",
       "fetched": "2026-11-20",
       "notes": "Our own Blender model (tools/hellhound/build_hellhound.py), hide from https://polyhaven.com/a/brown_leather as KTX2 via texpack"
+    },
+    {
+      "path": "models/marble_bust_01",
+      "name": "Marble Bust 01",
+      "source": "https://polyhaven.com/a/marble_bust_01",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 0.3 x 0.515 x 0.27 m (length, height, depth); textures as KTX2 via texpack; the model has only a roughness map, so its ORM is roughness alone (unoccluded, non-metal)"
     },
     {
       "path": "models/metal_office_desk",
@@ -2338,6 +2378,14 @@
       "notes": "1K glTF decimated by tools/props to 600 triangles, unit 2.5 x 0.8 x 1.1 m (length, height, depth); textures as KTX2 via texpack"
     },
     {
+      "path": "models/standing_chalkboard_01",
+      "name": "Standing Chalkboard 01",
+      "source": "https://polyhaven.com/a/standing_chalkboard_01",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 0.92 x 1.51 x 0.76 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
       "path": "models/steel_frame_shelves_01",
       "name": "Steel Frame Shelves 01",
       "source": "https://polyhaven.com/a/steel_frame_shelves_01",
@@ -2360,6 +2408,14 @@
       "licence": "CC0",
       "fetched": "2026-11-23",
       "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 2 x 1.1 x 0.85 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "models/vintage_grandfather_clock_01",
+      "name": "Vintage Grandfather Clock 01",
+      "source": "https://polyhaven.com/a/vintage_grandfather_clock_01",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 1 x 2.19 x 0.8 m (length, height, depth); textures as KTX2 via texpack"
     },
     {
       "path": "models/vintage_wooden_drawer_01",
@@ -2392,6 +2448,14 @@
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "1K glTF decimated by tools/props to 1938 triangles, unit 1.2 x 2.3 x 0.6 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "models/wooden_ladder",
+      "name": "Wooden Ladder",
+      "source": "https://polyhaven.com/a/wooden_ladder",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 0.96 x 1.335 x 0.5 m (length, height, depth); textures as KTX2 via texpack"
     },
     {
       "path": "models/wooden_table_02",
@@ -2442,6 +2506,14 @@
       "notes": "Three variants (a, b mirrored, c offset) of one face of book spines, front and top faces only, 6 shelves of about 50 spines, built by tools/props/kitbash.py in headless Blender (about 1.1k triangles each) with a 12-colour library palette in per-vertex colour; it wears materials/book_pattern (Poly Haven, CC0), no new texture files"
     },
     {
+      "path": "props/card_catalogue",
+      "name": "Card catalogue (kitbash for the Archive)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/wood_table_worn, https://polyhaven.com/a/dark_paneled_wood, https://polyhaven.com/a/metal_plate_02",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/wood_table_worn and materials/dark_paneled_wood and materials/metal_plate_02 (Poly Haven and ambientCG, CC0), no new texture files; its flat colours are glTF factors"
+    },
+    {
       "path": "props/cot",
       "name": "Cot (kitbash for the Sanatorium)",
       "source": "tools/props/kitbash.py, from https://polyhaven.com/a/dark_wooden_planks, https://polyhaven.com/a/fabric_pattern_07",
@@ -2458,6 +2530,14 @@
       "notes": "2- and 3-high stacks of wooden_crate_02 (1K glTF), each crate decimated to ~325 triangles and stretched to a 0.53 m layer, joined into one mesh by tools/props/kitbash.py. Textures are the model's 1K diffuse, nor_gl and arm via texpack"
     },
     {
+      "path": "props/display_case",
+      "name": "Display case (kitbash for the Archive)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/wood_table_worn, https://polyhaven.com/a/dark_paneled_wood, https://ambientcg.com/a/Paper006, https://polyhaven.com/a/metal_plate_02",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/wood_table_worn and materials/dark_paneled_wood and materials/paper006 and materials/metal_plate_02 (Poly Haven and ambientCG, CC0), no new texture files; its flat colours are glTF factors"
+    },
+    {
       "path": "props/dressing_trolley",
       "name": "Dressing trolley (kitbash for the Sanatorium)",
       "source": "tools/props/kitbash.py, from https://polyhaven.com/a/rusty_metal_02, https://polyhaven.com/a/metal_plate_02",
@@ -2466,12 +2546,36 @@
       "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/rusty_metal_02 and materials/metal_plate_02 (Poly Haven, CC0), no new texture files"
     },
     {
+      "path": "props/globe",
+      "name": "Globe (kitbash for the Archive)",
+      "source": "tools/props/kitbash.py, from https://ambientcg.com/a/Paper006, https://polyhaven.com/a/wood_table_worn, https://polyhaven.com/a/metal_plate_02",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/paper006 and materials/wood_table_worn and materials/metal_plate_02 (Poly Haven and ambientCG, CC0), no new texture files; its flat colours are glTF factors. No CC0 globe exists (#514): the sphere is Paper006 tinted sepia with a lat/long graticule modelled as thin ink quads, no continents"
+    },
+    {
       "path": "props/gurney",
       "name": "Gurney (kitbash for the Sanatorium)",
       "source": "tools/props/kitbash.py, from https://polyhaven.com/a/rusty_metal_02, https://polyhaven.com/a/fabric_pattern_07",
       "licence": "CC0",
       "fetched": "2026-11-23",
       "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/rusty_metal_02 and materials/fabric_pattern_07 (Poly Haven, CC0), no new texture files"
+    },
+    {
+      "path": "props/issue_desk",
+      "name": "Issue desk (kitbash for the Archive)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/wood_table_worn, https://polyhaven.com/a/dark_paneled_wood, https://polyhaven.com/a/metal_plate_02",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/wood_table_worn and materials/dark_paneled_wood and materials/metal_plate_02 (Poly Haven and ambientCG, CC0), no new texture files; its flat colours are glTF factors"
+    },
+    {
+      "path": "props/lectern",
+      "name": "Lectern (kitbash for the Archive)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/wood_table_worn, https://polyhaven.com/a/dark_paneled_wood, https://polyhaven.com/a/metal_plate_02",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/wood_table_worn and materials/dark_paneled_wood and materials/metal_plate_02 (Poly Haven and ambientCG, CC0), no new texture files; its flat colours are glTF factors"
     },
     {
       "path": "props/locker_bank",
@@ -2490,6 +2594,22 @@
       "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/metal_plate_02 and materials/rusty_metal_02 (Poly Haven, CC0), no new texture files"
     },
     {
+      "path": "props/projector",
+      "name": "Lantern-slide projector (kitbash for the Archive)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/wood_table_worn, https://polyhaven.com/a/metal_plate_02, https://polyhaven.com/a/rusty_metal_02",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/wood_table_worn and materials/metal_plate_02 and materials/rusty_metal_02 (Poly Haven and ambientCG, CC0), no new texture files; its flat colours are glTF factors"
+    },
+    {
+      "path": "props/reading_lamp",
+      "name": "Reading lamp (kitbash for the Archive)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/metal_plate_02",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/metal_plate_02 (Poly Haven and ambientCG, CC0), no new texture files; its flat colours are glTF factors, its lamp emissive (KHR_materials_emissive_strength)"
+    },
+    {
       "path": "props/rocking_horse",
       "name": "Rocking horse (kitbash for the Sanatorium)",
       "source": "tools/props/kitbash.py, from https://polyhaven.com/a/dark_wooden_planks, https://polyhaven.com/a/fabric_pattern_07",
@@ -2504,6 +2624,14 @@
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "3- and 5-course walls of cement_bag (1K glTF) decimated to ~165 triangles a bag and joined into one mesh by tools/props/kitbash.py. The sack's branded texture is dropped: its UVs are rebuilt as box-projected burlap and it wears materials/hessian_230 (Poly Haven, CC0), tinted khaki"
+    },
+    {
+      "path": "props/theatre_bench",
+      "name": "Theatre tiers (kitbash for the Archive)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/wood_table_worn, https://polyhaven.com/a/dark_paneled_wood, https://polyhaven.com/a/brown_leather, https://polyhaven.com/a/metal_plate_02",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/wood_table_worn and materials/dark_paneled_wood and materials/brown_leather and materials/metal_plate_02 (Poly Haven and ambientCG, CC0), no new texture files; its flat colours are glTF factors"
     },
     {
       "path": "props/wheel_chain",

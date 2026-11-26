@@ -472,9 +472,10 @@ const SLOPES: [Slope; 5] = [
 /// Shallow everywhere and Deep nowhere.
 const POOLS: [Pool; 1] = [Pool { zone: ZoneId::FloodedCellar, min: v(-20.0, 0.0), max: v(20.0, 20.0), level: Level::Still(0.5), bed: 0.0 }];
 
-/// The Props built so far: the fixed stacks of the ring halls (`Stack` Props, drawn by `stacks_look`) and the Training loops' centres, which are plain
-/// boxes now (the Props ticket dresses them).
-const PROPS: [Prop; 29] = concat::<_, 8, 21, 29>(data::FIXED_STACKS, data::LOOP_CENTRES);
+/// The Props built so far: the fixed stacks of the ring halls (`Stack` Props, drawn by `stacks_look`), the Training loops' centres (the first
+/// four, the card-catalogue banks, the issue desk and the theatre's tiers, wear their Zone's variants; the cellar's piers and columns are still
+/// boxes) and the reading level's Props (#540). New ones go last, so the others keep their `nth`.
+const PROPS: [Prop; 58] = concat::<_, 29, 29, 58>(concat::<_, 8, 21, 29>(data::FIXED_STACKS, data::LOOP_CENTRES), data::READING_PROPS);
 
 // ---------------------------------------------------------------- The book-lift core
 
@@ -1093,8 +1094,8 @@ mod tests {
     #[test]
     fn the_fixed_stacks_are_stack_props_and_the_ranges_wear_soffit_letters() {
         use bevy::ecs::system::RunSystemOnce;
-        // Every fixed stack is a Stack (none a Shelf), a Bookcase's size, so the shared book rows fit it.
-        assert!(archive().props.iter().all(|prop| prop.kind != PropKind::Shelf));
+        // Every fixed stack is a Stack (none of the stack halls' Props a Shelf), a Bookcase's size, so the shared book rows fit it.
+        assert!(archive().props.iter().filter(|prop| [OldStacks, FolioStacks, PeriodicalStacks, NewStacks].contains(&prop.zone)).all(|prop| prop.kind != PropKind::Shelf));
         let stacks: Vec<_> = archive().props.iter().filter(|prop| prop.kind == PropKind::Stack).collect();
         assert_eq!(stacks.len(), data::FIXED_STACKS.len());
         assert!(stacks.iter().all(|prop| prop.size.x.min(prop.size.z) == BOOKCASE.x && prop.size.x.max(prop.size.z) == BOOKCASE.z && prop.size.y == BOOKCASE.y));
@@ -1546,6 +1547,71 @@ mod tests {
             }
         }
         assert!(bad.is_empty(), "{bad:#?}");
+    }
+
+    // ---------------------------------------------------------------- Props (#540)
+
+    /// A Prop's footprint on the plan.
+    fn footprint_of(prop: &Prop) -> (Vec2, Vec2) {
+        let half = Vec2::new(prop.size.x, prop.size.z) / 2.0;
+        let at = Vec2::new(prop.at.x, prop.at.z);
+        (at - half, at + half)
+    }
+
+    /// No Archive Prop stands in a Range's sweep, under its soffit (the wall over the sweep's whole run), on either mouth strip or in its gate's
+    /// corridor: a Bookcase rolls over none of them, and no Wheel or Door is crowded. (A Range only reaches the Props on its own floor.)
+    #[test]
+    fn no_archive_prop_in_a_sweep_soffit_or_mouth_strip() {
+        let mut bad = Vec::new();
+        for prop in archive().props {
+            let what = format!("the {:?} at {} in {}", prop.kind, prop.at, prop.zone.name());
+            for r in RANGES.iter().filter(|r| (r.floor - prop.at.y).abs() < 1.0) {
+                let (sweep, strips, gate) = (r.sweep(), r.mouth_strips(), gate_corridor(r));
+                let soffit = r.rect((r.rail, r.rail + r.length()), (-stacks_look::WALL_FACE, stacks_look::WALL_FACE));
+                for (name, region) in [("sweep", sweep), ("soffit", soffit), ("mouth strip", strips[0]), ("mouth strip", strips[1]), ("gate corridor", gate)] {
+                    if near(footprint_of(prop), region, 0.0) {
+                        bad.push(format!("{what} is in {}'s {name}", r.name));
+                    }
+                }
+            }
+        }
+        assert!(bad.is_empty(), "{bad:#?}");
+    }
+
+    /// No Prop narrows a Training loop below 3 m: each stays 1.5 m from every lane's centreline in its Zone (the loop's own centre is 1.5 m inside).
+    #[test]
+    fn no_archive_prop_narrows_a_training_loop_below_3_m() {
+        let mut bad = Vec::new();
+        for (name, zone, lane) in training_loops() {
+            for prop in archive().props.iter().filter(|prop| prop.zone == zone) {
+                let (min, max) = footprint_of(prop);
+                for leg in lane.windows(2) {
+                    let apart = gap_to_segment(min, max, leg[0], leg[1]);
+                    if apart < LANE - 1e-4 {
+                        bad.push(format!("the {:?} at {} is {apart:.2} m from {name}'s lane", prop.kind, prop.at));
+                    }
+                }
+            }
+        }
+        assert!(bad.is_empty(), "{bad:#?}");
+    }
+
+    /// Every reading-level Prop stands on its Zone's floor, wholly inside its Zone and under its ceiling, and turns its model a half turn at most.
+    #[test]
+    fn every_reading_level_prop_stands_on_its_zones_floor_inside_its_zone() {
+        for prop in data::READING_PROPS {
+            let (lo, hi) = prop.zone.volume();
+            assert_eq!(prop.at.y, prop.zone.floor(), "the {:?} at {}", prop.kind, prop.at);
+            let (min, max) = footprint_of(&prop);
+            assert!(min.x >= lo.x && max.x <= hi.x && min.y >= lo.z && max.y <= hi.z, "the {:?} at {} sticks out of {}", prop.kind, prop.at, prop.zone.name());
+            assert!(prop.at.y + prop.size.y < hi.y, "the {:?} at {} reaches the ceiling", prop.kind, prop.at);
+            assert!(prop.turn == 0 || prop.turn == 2, "the {:?} at {}: only half turns face a wall", prop.kind, prop.at);
+            // Ladders only stand against a wall (a Zone's edge), never in the open.
+            if prop.kind == PropKind::Ladder {
+                let against = (min.x - lo.x).min(hi.x - max.x).min(min.y - lo.z).min(hi.z - max.y);
+                assert!(against < 0.1, "the Ladder at {} is {against:.2} m from every wall", prop.at);
+            }
+        }
     }
 
     /// The Strong Room's vault-door reveal stands on the hinge side of the Power Door PD (the west, the trap switch being on the east), close

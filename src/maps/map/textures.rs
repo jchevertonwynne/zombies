@@ -508,7 +508,7 @@ impl Plugin for TexturesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Library>()
             .init_resource::<super::decals::DecalLibrary>()
-            .add_systems(Update, ((request, put_on, reveal).chain(), (super::decals::request_decals, super::decals::place_decals).chain(), (super::fitting::request_models, super::fitting::put_on_models).chain()));
+            .add_systems(Update, ((request, put_on, reveal).chain(), (super::decals::request_decals, super::decals::place_decals).chain(), (super::fitting::request_models, super::fitting::put_on_models).chain(), super::garnish::put_on_garnish));
     }
 }
 

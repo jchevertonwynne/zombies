@@ -161,7 +161,7 @@ for zone, xs in STACKS_X.items():
 
 LOOP = []   # (kind, zone, cx, y, cz, w, h, d)
 for x in (-12.5, 12.5):
-    LOOP.append(("Counter", "CatalogueHall", x, 8.0, 6.5, 8.0, 1.5, 1.2))      # the two card-catalogue banks
+    LOOP.append(("Catalogue", "CatalogueHall", x, 8.0, 6.5, 8.0, 1.5, 1.2))    # the two card-catalogue banks
 LOOP.append(("Table", "ReadingRoom", 0.0, 8.0, 24.0, 6.0, 1.6, 6.0))           # the issue desk
 LOOP.append(("Bench", "LectureTheatre", 28.0, 4.0, 11.0, 10.0, 5.4, 14.0))     # the theatre tiers
 for x in (-12.0, -4.0, 4.0, 12.0):
@@ -171,11 +171,55 @@ for x in (-15.0, -10.0, -5.0):
     for z in (23.5, 28.5, 33.5):
         LOOP.append(("Pillar", "Undercroft", x, 0.0, z, 0.6, 3.9, 0.6))        # the 3 x 3 columns
 
+# The reading level's Props (#540 section 9): what stands in the Catalogue Hall, Reading Room, Map Room and Lecture Theatre beside the loops'
+# centres, low and against walls. (kind, zone, cx, y, cz, w, h, d, turn): `turn` quarter turns face the unit model (see `Prop::turn`): a
+# Prop long along x has its front (+z) to the south unturned and the north at 2; one long along z has it to the east unturned and the west at 2.
+# Clear of every Door, window landing, Buyable, Spawn Point, Infill, Range sweep, soffit and mouth strip, and of the Training loops' 3 m lanes.
+READING = []
+TABLE = (4.5, 0.88, 1.39)
+PLINTH = (0.5, 1.1, 0.5)
+
+
+def reading(kind, zone, cx, cz, size, turn=0, y=None):
+    READING.append((kind, zone, cx, ZONES[zone][4] if y is None else y, cz, *size, turn))
+
+
+# Catalogue Hall: a grandfather clock on the south wall, two book trolleys on the north strip, a bust on its plinth in the north-west corner.
+reading("Shelf", "CatalogueHall", -8.0, 0.5, (1.0, 2.19, 0.8))
+reading("Trolley", "CatalogueHall", -14.0, 11.3, (0.9, 0.968, 0.53))
+reading("Trolley", "CatalogueHall", 15.0, 11.3, (0.9, 0.968, 0.53))
+reading("Pillar", "CatalogueHall", -18.4, 11.0, PLINTH, 2)
+# Reading Room: six reading tables in two rows of three, a clock and two busts on the south wall, two display cases on the east wall, two ladders.
+for x in (-11.0, 11.0):
+    for z in (15.5, 19.65, 26.9):
+        reading("Table", "ReadingRoom", x, z, TABLE)
+reading("Shelf", "ReadingRoom", -8.0, 12.5, (1.0, 2.19, 0.8))
+reading("Pillar", "ReadingRoom", -14.5, 12.5, PLINTH)
+reading("Pillar", "ReadingRoom", 14.5, 12.5, PLINTH)
+reading("Case", "ReadingRoom", 19.6, 24.5, (0.7, 1.02, 1.2), 2)
+reading("Case", "ReadingRoom", 19.6, 28.5, (0.7, 1.02, 1.2), 2)
+reading("Ladder", "ReadingRoom", -19.7, 31.5, (0.5, 1.335, 0.96))
+reading("Ladder", "ReadingRoom", 19.7, 14.5, (0.5, 1.335, 0.96), 2)
+# Map Room: four plan chests, the globe, the atlas lectern, the Gothic cabinet and two wall shelves.
+for x in (-28.2, -26.8, -24.2, -22.8):
+    reading("Counter", "MapRoom", x, 27.4, (1.4, 1.05, 0.85))
+reading("Globe", "MapRoom", -28.5, 19.5, (0.708, 1.284, 0.604))
+reading("Table", "MapRoom", -32.8, 12.4, (0.7, 1.24, 0.589))
+reading("Shelf", "MapRoom", -22.3, 12.65, (1.72, 2.36, 1.13))
+reading("Shelf", "MapRoom", -35.0, 12.4, (1.2, 2.3, 0.6))
+reading("Shelf", "MapRoom", -35.65, 22.0, (0.6, 2.3, 1.2))
+# Lecture Theatre: the lectern, the chalkboard and the projector on the dais, facing the tiers (south).
+reading("Table", "LectureTheatre", 27.4, 22.0, (0.7, 1.24, 0.589), 2)
+reading("Sign", "LectureTheatre", 25.9, 21.45, (0.92, 1.51, 0.76), 2)
+reading("Table", "LectureTheatre", 28.7, 22.2, (0.9, 1.4, 0.58), 2)
+
 for zone, cx, cz in FIXED:
     BLOCKS.append((cx - STACK_W / 2, cz - STACK_L / 2, cx + STACK_W / 2, cz + STACK_L / 2, ZONES[zone][4], 0.3))
 for kind, zone, cx, y, cz, w, h, d in LOOP:
     level, tol = (y, 0.3) if zone != "LectureTheatre" else (6.0, 2.5)
     BLOCKS.append((cx - w / 2, cz - d / 2, cx + w / 2, cz + d / 2, level, tol))
+for kind, zone, cx, y, cz, w, h, d, turn in READING:
+    BLOCKS.append((cx - w / 2, cz - d / 2, cx + w / 2, cz + d / 2, y, 0.3))
 
 # The Infills (#536): 34 solid blocks of the building, from #515 section 7's placement intent moved off every Door, window landing,
 # Buyable, Spawn Point, lamp, Range sweep, mouth strip and gate, the Training loops' 3 m lanes and the stairwells. (zone, name, x0, z0, x1, z1).
@@ -287,7 +331,11 @@ HALL_XS_NEW = [18.4, 15.0, 10.1, 5.75]
 
 CH = grid("CatalogueHall", "ch", [-18, -14, -10, -6, -2, 2, 6, 10, 14, 18], [4.4, 7.8, 9.6], 8.0)
 RR = grid("ReadingRoom", "rr", [-17, -11, -5.5, 0, 5.5, 11, 17], [17.8, 21.5, 25.0, 28.8, 31.5], 8.0)
-MR = grid("MapRoom", "mr", [-31, -26, -22], [14.5, 19.0, 23.5, 28.0, 31.5], 8.0)
+# The strip between the Reading Room's south wall and its first row of tables (the plinths and the clock stand in it).
+RRS = grid("ReadingRoom", "rs", [-17, -14.5, -11, -7, 7, 11, 14.5, 17], [13.4], 8.0)
+for name in RRS:
+    attach(name, "ReadingRoom", 3, within=6.0)
+MR = grid("MapRoom","mr", [-31, -26, -22], [14.5, 19.0, 23.5, 28.0, 31.5], 8.0)
 OLD = grid("OldStacks", "ol", HALL_XS_OLD, [6.5, 11.4, 15.4], 4.0)
 FOL = grid("FolioStacks", "fo", HALL_XS_OLD, [25.6, 29.6, 33.6], 4.0)
 PER = grid("PeriodicalStacks", "pe", HALL_XS_NEW, [25.6, 29.6, 33.6], 4.0)
@@ -616,9 +664,13 @@ out.append(f"/// The fixed stacks: tall shelves, 1.2 x 5 m, bolted down in the r
 for zone, cx, cz in FIXED:
     out.append(f"    p(PropKind::Stack, ZoneId::{zone}, {rs(cx)}, {rs(ZONES[zone][4])}, {rs(cz)}, ({rs(STACK_W)}, {rs(STACK_H)}, {rs(STACK_L)})),\n")
 out.append("];\n\n")
-out.append(f"/// The Training loops' centres, as plain boxes: the two catalogue banks, the issue desk, the theatre tiers, the 8 brick piers and the\n/// Undercroft's 3 x 3 columns.\npub(super) const LOOP_CENTRES: [Prop; {len(LOOP)}] = [\n")
+out.append(f"/// The Training loops' centres, as plain boxes: the two catalogue banks, the issue desk, the theatre tiers, the 8 brick piers and the\n/// Undercroft's 3 x 3 columns (the first four are dressed by their Zone's set, #540).\npub(super) const LOOP_CENTRES: [Prop; {len(LOOP)}] = [\n")
 for kind, zone, cx, y, cz, w, h, d in LOOP:
     out.append(f"    p(PropKind::{kind}, ZoneId::{zone}, {rs(cx)}, {rs(y)}, {rs(cz)}, ({rs(w)}, {rs(h)}, {rs(d)})),\n")
+out.append("];\n\n")
+out.append(f"/// The reading level's Props ({len(READING)}: the Catalogue Hall's, Reading Room's, Map Room's and Lecture Theatre's, #540 section 9), each with its model turned to face the room.\npub(super) const READING_PROPS: [Prop; {len(READING)}] = [\n")
+for kind, zone, cx, y, cz, w, h, d, turn in READING:
+    out.append(f"    p(PropKind::{kind}, ZoneId::{zone}, {rs(cx)}, {rs(y)}, {rs(cz)}, ({rs(w)}, {rs(h)}, {rs(d)})){'.turned(' + str(turn) + ')' if turn else ''},\n")
 out.append("];\n\n")
 out.append(f"/// The Infills ({len(INFILLS)}: one to three in every Zone, #515 section 7's 34 moved off what the Zone keeps clear; the lift pits stand on the pool's bed).\npub(super) const INFILLS: [Infill; {len(INFILLS)}] = [\n")
 for zone, name, x0, z0, x1, z1 in INFILLS:

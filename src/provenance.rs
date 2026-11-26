@@ -100,3 +100,26 @@ fn an_entry_covers_its_file_or_directory_only() {
     assert!(covers("audio/footstep.ogg", "audio/footstep.ogg"));
     assert!(!covers("materials/brick", "materials/brick_wall/color.ktx2"));
 }
+
+/// The Archive's reading level (#540): eight Poly Haven models (about 20 MB between them) and eight kitbashes, each with its own manifest entry,
+/// every file of them under `assets/`.
+#[test]
+fn the_archives_reading_level_models_and_kitbashes_have_manifest_entries_and_the_models_weigh_about_20_mb() {
+    let manifest = manifest();
+    let files = all_files();
+    let models = ["dining_table", "SchoolChair_01", "wooden_ladder", "vintage_grandfather_clock_01", "marble_bust_01", "standing_chalkboard_01", "book_encyclopedia_set_01", "GothicCabinet_01"];
+    let kitbashes = ["card_catalogue", "issue_desk", "reading_lamp", "lectern", "theatre_bench", "projector", "display_case", "globe"];
+    let mut model_bytes = 0;
+    for (dir, id, licence_source) in models.iter().map(|id| ("models", *id, "polyhaven.com")).chain(kitbashes.iter().map(|id| ("props", *id, "tools/props/kitbash.py"))) {
+        let entry = format!("{dir}/{id}");
+        let found = manifest.assets.iter().find(|e| e.path == entry).unwrap_or_else(|| panic!("no manifest entry for {entry}"));
+        assert_eq!(found.licence, "CC0", "{entry}");
+        assert!(found.source.contains(licence_source), "{entry}: source {}", found.source);
+        let mine: Vec<_> = files.iter().filter(|(path, _)| covers(&entry, path)).collect();
+        assert!(mine.iter().any(|(path, _)| path.ends_with(".gltf")), "{entry} has no glTF");
+        if dir == "models" {
+            model_bytes += mine.iter().map(|(_, size)| size).sum::<u64>();
+        }
+    }
+    assert!((15_000_000..=25_000_000).contains(&model_bytes), "the eight models weigh {:.1} MB", model_bytes as f64 / 1e6);
+}

@@ -23,6 +23,7 @@ pub mod decals;
 mod dam;
 pub(crate) mod archive;
 mod fitting;
+mod garnish;
 mod greybox;
 mod polder;
 mod quarry;
@@ -460,6 +461,7 @@ fn default_variants(kind: PropKind) -> &'static [PropVariant] {
         PropKind::Tub => TILE,
         // Built by `stacks_look`, not fitted; the wood is its carcass's.
         PropKind::Stack => STACK,
+        PropKind::Catalogue | PropKind::Ladder | PropKind::Globe | PropKind::Case => PLANKS,
     }
 }
 
@@ -519,6 +521,27 @@ const MORTUARY_SLAB: PropVariant = kitbash("props/mortuary_slab/mortuary_slab.gl
 const BATH_TUB: PropVariant = kitbash("props/bath_tub/bath_tub.gltf", Vec3::new(1.74, 0.72, 0.82), textures::Material::LongWhiteTiles);
 const ROCKING_HORSE: PropVariant = kitbash("props/rocking_horse/rocking_horse.gltf", Vec3::new(1.192, 1.025, 0.38), textures::Material::DarkWoodenPlanks);
 const AMBULANCE: PropVariant = kitbash("props/ambulance/ambulance.gltf", Vec3::new(5.12, 2.26, 2.14), textures::Material::GreenMetalRust);
+
+// The Archive's reading level (#540): eight Poly Haven models and eight kitbashes (tools/props), for the card catalogues, the issue
+// desk, the reading tables' lamps, the lecterns, the theatre's tiers, the projector, the display cases and the Map Room's globe.
+const DINING_TABLE: PropVariant = model("models/dining_table/model.gltf", (2.25, 0.88, 1.39), textures::Material::DarkPaneledWood);
+const WOODEN_LADDER: PropVariant = model("models/wooden_ladder/model.gltf", (0.96, 1.335, 0.5), textures::Material::WoodTableWorn);
+const GRANDFATHER_CLOCK: PropVariant = model("models/vintage_grandfather_clock_01/model.gltf", (1.0, 2.19, 0.8), textures::Material::DarkPaneledWood);
+const CHALKBOARD: PropVariant = model("models/standing_chalkboard_01/model.gltf", (0.92, 1.51, 0.76), textures::Material::BlackPaintedPlanks);
+const GOTHIC_CABINET: PropVariant = model("models/GothicCabinet_01/model.gltf", (1.72, 2.36, 1.13), textures::Material::DarkPaneledWood);
+/// The chairs, the busts and the encyclopedias dress other Props (`garnish`): no Prop of their own, so no variant.
+pub(crate) const SCHOOL_CHAIR: (&str, Vec3) = ("models/SchoolChair_01/model.gltf", Vec3::new(0.68, 1.0, 0.57));
+pub(crate) const MARBLE_BUST: (&str, Vec3) = ("models/marble_bust_01/model.gltf", Vec3::new(0.3, 0.515, 0.27));
+pub(crate) const ENCYCLOPEDIAS: (&str, Vec3) = ("models/book_encyclopedia_set_01/model.gltf", Vec3::new(0.55, 0.24, 0.16));
+pub(crate) const READING_LAMP: (&str, Vec3) = ("props/reading_lamp/reading_lamp.gltf", Vec3::new(0.3, 0.431, 0.25));
+const CARD_CATALOGUE: PropVariant = kitbash("props/card_catalogue/card_catalogue.gltf", Vec3::new(2.0, 1.5, 1.2), textures::Material::WoodTableWorn);
+const ISSUE_DESK: PropVariant = kitbash("props/issue_desk/issue_desk.gltf", Vec3::new(6.141, 1.6, 6.141), textures::Material::DarkPaneledWood);
+const LECTERN: PropVariant = kitbash("props/lectern/lectern.gltf", Vec3::new(0.7, 1.24, 0.589), textures::Material::DarkPaneledWood);
+const THEATRE_TIERS: PropVariant = kitbash("props/theatre_bench/theatre_bench.gltf", Vec3::new(10.0, 5.4, 13.9), textures::Material::DarkPaneledWood);
+const PROJECTOR: PropVariant = kitbash("props/projector/projector.gltf", Vec3::new(0.9, 1.4, 0.58), textures::Material::WoodTableWorn);
+const DISPLAY_CASE: PropVariant = kitbash("props/display_case/display_case.gltf", Vec3::new(1.2, 1.02, 0.7), textures::Material::DarkPaneledWood);
+const GLOBE: PropVariant = kitbash("props/globe/globe.gltf", Vec3::new(0.708, 1.284, 0.604), textures::Material::WoodTableWorn);
+const PANEL_BOX: PropVariant = boxed(textures::Material::DarkPaneledWood);
 
 // Textured boxes the Sanatorium's sets name (a call can't sit in a promoted constant).
 const STONE_BOX: PropVariant = boxed(textures::Material::RockWall08);
@@ -592,6 +615,32 @@ fn zone_props(zone: ZoneId) -> &'static [(PropKind, &'static [PropVariant])] {
         ChildrensWard => &[(PropKind::Bed, &[COT]), (PropKind::Bench, &[ROCKING_HORSE])],
         UpperLanding => &[(PropKind::Shelf, &[STEEL_SHELVES]), (PropKind::Trolley, &[WHEELCHAIR])],
         OperatingTheatre => &[(PropKind::Trolley, &[DRESSING_TROLLEY])],
+        // The Archive's reading level (#540 section 9): what each Zone's Props wear. The Catalogue Hall's trolleys are the Sanatorium's
+        // dressing trolley until the stacks half brings the book trolley; a plinth (a Pillar) carries a bust (`garnish`).
+        CatalogueHall => &[
+            (PropKind::Catalogue, &[CARD_CATALOGUE]),
+            (PropKind::Shelf, &[GRANDFATHER_CLOCK]),
+            (PropKind::Trolley, &[DRESSING_TROLLEY]),
+            (PropKind::Pillar, &[PANEL_BOX]),
+        ],
+        ReadingRoom => &[
+            (PropKind::Table, &[DINING_TABLE, ISSUE_DESK]),
+            (PropKind::Pillar, &[PANEL_BOX]),
+            (PropKind::Case, &[DISPLAY_CASE]),
+            (PropKind::Shelf, &[GRANDFATHER_CLOCK]),
+            (PropKind::Ladder, &[WOODEN_LADDER]),
+        ],
+        MapRoom => &[
+            (PropKind::Counter, &[DRAWER]),
+            (PropKind::Globe, &[GLOBE]),
+            (PropKind::Table, &[LECTERN]),
+            (PropKind::Shelf, &[GOTHIC_CABINET, BOOKSHELF]),
+        ],
+        LectureTheatre => &[
+            (PropKind::Bench, &[THEATRE_TIERS]),
+            (PropKind::Table, &[LECTERN, PROJECTOR]),
+            (PropKind::Sign, &[CHALKBOARD]),
+        ],
         _ => &[],
     }
 }
@@ -1100,6 +1149,14 @@ pub enum PropKind {
     /// One of the Archive's fixed stacks: a tall double-sided shelf block bolted to a stone plinth on no rail, which
     /// shares its books with the Bookcases of a Range but not their foot, ends or plate (`stacks_look`).
     Stack,
+    /// One of the Archive's card-catalogue banks: runs of shallow drawers, laid end to end.
+    Catalogue,
+    /// A library ladder, or a step ladder, standing against a wall or a fixed stack.
+    Ladder,
+    /// The Map Room's globe on its stand.
+    Globe,
+    /// A glass-topped display case.
+    Case,
 }
 
 /// Something standing on a floor, for the Player to weave round or jump onto and for Zombies to
@@ -1111,6 +1168,10 @@ pub struct Prop {
     pub zone: ZoneId,
     pub at: Vec3,
     pub size: Vec3,
+    /// How many quarter turns about Y (counter-clockwise from above) its unit model is turned past the way the fitting lays it,
+    /// so a model faces the room from a wall: a Prop long along x has its model's front (+z) to the south unturned and to the
+    /// north at 2, one long along z has it to the east unturned and to the west at 2.
+    pub turn: u8,
 }
 
 const fn prop(kind: PropKind, zone: ZoneId, at: (f32, f32, f32), size: (f32, f32, f32)) -> Prop {
@@ -1119,6 +1180,15 @@ const fn prop(kind: PropKind, zone: ZoneId, at: (f32, f32, f32), size: (f32, f32
         zone,
         at: Vec3::new(at.0, at.1, at.2),
         size: Vec3::new(size.0, size.1, size.2),
+        turn: 0,
+    }
+}
+
+impl Prop {
+    /// This Prop with its model turned `quarters` quarter turns (see `turn`).
+    const fn turned(mut self, quarters: u8) -> Self {
+        self.turn = quarters;
+        self
     }
 }
 
@@ -1682,6 +1752,100 @@ pub(crate) mod tests {
         }
     }
 
+    /// The Archive's reading level's Props (#515 section 9's table for the Catalogue Hall, Reading Room, Map Room and Lecture Theatre): so many of each
+    /// kind in each Zone, and every one either fits a variant its Zone's set names, scaled within 15% on every axis, or has none and stays a textured
+    /// box (only the three bust plinths, whose bust is dressing).
+    #[test]
+    fn the_archives_reading_level_props_each_fit_a_variant_within_15_percent_or_stay_a_textured_box() {
+        use PropKind::*;
+        use ZoneId::*;
+        let layout = MapId::Archive.layout();
+        let table: [(ZoneId, &[(PropKind, usize)]); 4] = [
+            (CatalogueHall, &[(Catalogue, 2), (Shelf, 1), (Trolley, 2), (Pillar, 1)]),
+            (ReadingRoom, &[(Table, 7), (Shelf, 1), (Pillar, 2), (Case, 2), (Ladder, 2)]),
+            (MapRoom, &[(Counter, 4), (Globe, 1), (Table, 1), (Shelf, 3)]),
+            (LectureTheatre, &[(Bench, 1), (Table, 2), (Sign, 1)]),
+        ];
+        for (zone, kinds) in table {
+            for &(kind, count) in kinds {
+                assert_eq!(layout.props.iter().filter(|prop| prop.zone == zone && prop.kind == kind).count(), count, "{kind:?} in the {}", zone.name());
+            }
+            assert_eq!(layout.props.iter().filter(|prop| prop.zone == zone).count(), kinds.iter().map(|(_, n)| n).sum::<usize>(), "the {}'s Props", zone.name());
+        }
+        let (mut fitted, mut boxes) = (0, 0);
+        for (nth, prop) in layout.props.iter().enumerate().filter(|(_, prop)| table.iter().any(|(zone, _)| *zone == prop.zone)) {
+            let covered = if prop.kind == PropKind::Counter { Vec3::new(prop.size.x, prop.size.y - 0.05, prop.size.z) } else { prop.size };
+            let variant = prop_variant(prop.zone, prop.kind, nth, covered).unwrap_or_else(|| panic!("the {:?} at {} has no look", prop.kind, prop.at));
+            match variant.model.and_then(|(_, unit)| fitting::fit(unit, covered)) {
+                Some(fit) => {
+                    assert!(fit.scale.to_array().into_iter().all(|s| (1.0 - fitting::MAX_STRETCH..=1.0 + fitting::MAX_STRETCH).contains(&s)), "{:?} at {}: {fit:?}", prop.kind, prop.at);
+                    fitted += 1;
+                }
+                None => {
+                    assert!(prop.kind == PropKind::Pillar, "the {:?} at {} in the {} stays a box, and it is no plinth", prop.kind, prop.at, prop.zone.name());
+                    boxes += 1;
+                }
+            }
+        }
+        assert_eq!((fitted, boxes), (30, 3));
+    }
+
+    /// What each of the reading level's Props wears: the card catalogue banks laid four to a bank, the issue desk, the reading tables laid twice, and
+    /// the rest.
+    #[test]
+    fn the_archives_reading_level_props_wear_the_variants_the_look_decision_names() {
+        use ZoneId::*;
+        let layout = MapId::Archive.layout();
+        let wearing = |zone: ZoneId, kind: PropKind| -> Vec<&'static str> {
+            layout.props.iter().enumerate().filter(|(_, prop)| prop.zone == zone && prop.kind == kind).map(|(nth, prop)| {
+                let covered = if prop.kind == PropKind::Counter { Vec3::new(prop.size.x, prop.size.y - 0.05, prop.size.z) } else { prop.size };
+                prop_variant(zone, kind, nth, covered).unwrap().model.map_or("box", |(path, _)| path)
+            }).collect()
+        };
+        assert_eq!(wearing(CatalogueHall, PropKind::Catalogue), ["props/card_catalogue/card_catalogue.gltf"; 2]);
+        assert_eq!(wearing(CatalogueHall, PropKind::Shelf), ["models/vintage_grandfather_clock_01/model.gltf"]);
+        assert_eq!(wearing(CatalogueHall, PropKind::Trolley), ["props/dressing_trolley/dressing_trolley.gltf"; 2]);
+        let mut tables = wearing(ReadingRoom, PropKind::Table);
+        tables.sort_unstable();
+        assert_eq!(tables, ["models/dining_table/model.gltf"; 6].into_iter().chain(["props/issue_desk/issue_desk.gltf"]).collect::<Vec<_>>());
+        assert_eq!(wearing(ReadingRoom, PropKind::Case), ["props/display_case/display_case.gltf"; 2]);
+        assert_eq!(wearing(ReadingRoom, PropKind::Ladder), ["models/wooden_ladder/model.gltf"; 2]);
+        assert_eq!(wearing(MapRoom, PropKind::Counter), ["models/vintage_wooden_drawer_01/model.gltf"; 4]);
+        assert_eq!(wearing(MapRoom, PropKind::Globe), ["props/globe/globe.gltf"]);
+        assert_eq!(wearing(MapRoom, PropKind::Table), ["props/lectern/lectern.gltf"]);
+        let mut shelves = wearing(MapRoom, PropKind::Shelf);
+        shelves.sort_unstable();
+        assert_eq!(shelves, ["models/GothicCabinet_01/model.gltf", "models/wooden_bookshelf_worn/model.gltf", "models/wooden_bookshelf_worn/model.gltf"]);
+        assert_eq!(wearing(LectureTheatre, PropKind::Bench), ["props/theatre_bench/theatre_bench.gltf"]);
+        let mut theatre_tables = wearing(LectureTheatre, PropKind::Table);
+        theatre_tables.sort_unstable();
+        assert_eq!(theatre_tables, ["props/lectern/lectern.gltf", "props/projector/projector.gltf"]);
+        assert_eq!(wearing(LectureTheatre, PropKind::Sign), ["models/standing_chalkboard_01/model.gltf"]);
+        // Two copies of the dining table make a 4.5 m reading table; four card drawers' runs make a bank.
+        let bank = layout.props.iter().find(|prop| prop.kind == PropKind::Catalogue).unwrap();
+        assert_eq!(fitting::fit(CARD_CATALOGUE.model.unwrap().1, bank.size).unwrap().copies, 4);
+        let reading = layout.props.iter().find(|prop| prop.zone == ZoneId::ReadingRoom && prop.kind == PropKind::Table && prop.size.x < 5.0).unwrap();
+        assert_eq!(fitting::fit(DINING_TABLE.model.unwrap().1, reading.size).unwrap().copies, 2);
+    }
+
+    /// A Prop's `turn` swings its model's front (the unit's +z) half a turn, so a model against a north or east wall can face the room: a Prop long
+    /// along x faces north unturned and south at 2; one long along z faces east unturned and west at 2.
+    #[test]
+    fn a_turned_prop_faces_its_models_front_the_other_way() {
+        let size = Vec3::new(1.0, 2.0, 0.5);
+        let unturned = fitting::fit(size, size).unwrap().placements(Vec3::ZERO, size, 0)[0];
+        let turned = fitting::fit(size, size).unwrap().placements(Vec3::ZERO, size, 2)[0];
+        // The unit's front is +z: unturned, a Prop long along x faces north; at 2 it faces south.
+        assert!((unturned.rotation * Vec3::Z).abs_diff_eq(Vec3::Z, 1e-5));
+        assert!((turned.rotation * Vec3::Z).abs_diff_eq(Vec3::NEG_Z, 1e-5));
+        // Along z the model faces east unturned and west at 2.
+        let tall = Vec3::new(0.5, 2.0, 1.0);
+        let east = fitting::fit(Vec3::new(1.0, 2.0, 0.5), tall).unwrap().placements(Vec3::ZERO, tall, 0)[0];
+        let west = fitting::fit(Vec3::new(1.0, 2.0, 0.5), tall).unwrap().placements(Vec3::ZERO, tall, 2)[0];
+        assert!((east.rotation * Vec3::Z).abs_diff_eq(Vec3::X, 1e-5));
+        assert!((west.rotation * Vec3::Z).abs_diff_eq(Vec3::NEG_X, 1e-5));
+    }
+
     #[test]
     fn footsteps_follow_the_floor_family_of_the_zone_under_the_feet() {
         use crate::audio::cues::FloorFamily::*;
@@ -1770,11 +1934,25 @@ pub(crate) mod tests {
         // Headless runs have no asset files and skip this; with them, the constants in
         // `default_variants` must be the unit's real size, since the fit relies on them.
         let mut seen = 0;
-        // The Crates, Sandbags and Headstone, and the Sanatorium's eight (named by its Zones' sets).
-        let sanatorium: Vec<PropVariant> = ZoneId::ALL.into_iter().filter_map(|zone| materials(Some(zone))).flat_map(|set| set.props.iter().flat_map(|(_, variants)| variants.iter().copied()).collect::<Vec<_>>()).filter(|variant| variant.model.is_some_and(|(path, _)| path.starts_with("props/"))).collect();
-        assert_eq!(sanatorium.iter().map(|variant| variant.model.unwrap().0).collect::<std::collections::BTreeSet<_>>().len(), 8, "the Sanatorium names eight kitbashes");
+        // The Crates, Sandbags and Headstone, the Sanatorium's eight and the Archive's reading level's (named by their Zones' sets), and the
+        // reading lamp, which dresses the reading tables.
+        let kitbashes_of = |map: MapId| -> Vec<PropVariant> {
+            ZoneId::ALL
+                .into_iter()
+                .filter(|zone| zone.map() == map)
+                .filter_map(|zone| materials(Some(zone)))
+                .flat_map(|set| set.props.iter().flat_map(|(_, variants)| variants.iter().copied()).collect::<Vec<_>>())
+                .filter(|variant| variant.model.is_some_and(|(path, _)| path.starts_with("props/")))
+                .collect()
+        };
+        let named = |variants: &[PropVariant]| variants.iter().map(|variant| variant.model.unwrap().0).collect::<std::collections::BTreeSet<_>>();
+        let (sanatorium, archive) = (kitbashes_of(MapId::Sanatorium), kitbashes_of(MapId::Archive));
+        assert_eq!(named(&sanatorium).len(), 8, "the Sanatorium names eight kitbashes");
+        // The card catalogue, issue desk, lectern, theatre tiers, projector, display case and globe, and the Sanatorium's dressing trolley as the book trolley.
+        assert_eq!(named(&archive).len(), 8, "the Archive's reading level names seven kitbashes and borrows the dressing trolley");
+        let lamp = [kitbash(READING_LAMP.0, READING_LAMP.1,textures::Material::MetalPlate02)];
         let others: Vec<PropVariant> = [PropKind::Crate, PropKind::Sandbags, PropKind::Headstone].into_iter().flat_map(|kind| default_variants(kind).iter().copied()).collect();
-        for variant in others.iter().chain(&sanatorium) {
+        for variant in others.iter().chain(&sanatorium).chain(&archive).chain(&lamp) {
             {
                 let Some((path, unit)) = variant.model else { continue };
                 let Some((lo, hi, tris, images)) = read_unit(path) else { continue };
@@ -2855,7 +3033,8 @@ pub(crate) mod tests {
                     .map(|(i, prop)| {
                         climbable[i]
                             || props.iter().enumerate().any(|(j, from)| {
-                                climbable[j] && j != i && gap(prop, from) <= 1.0 && top(prop) - top(from) <= clamber
+                                // Close beside is on the same floor: a Prop on the storey above isn't a step up from one below it.
+                                climbable[j] && j != i && gap(prop, from) <= 1.0 && (prop.at.y - from.at.y).abs() < 1.0 && top(prop) - top(from) <= clamber
                             })
                     })
                     .collect();

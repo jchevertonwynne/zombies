@@ -316,15 +316,105 @@ def build_wheels(blender, only):
         })
 
 
+# The Archive's reading-level kitbashes (#540): each wears material sets already under assets/materials (tinted) and, for its glass,
+# its lamp and its globe's ink, flat colours with no texture. unit -> (name, {material: spec}), where a spec is a tint (a set from
+# assets/materials) or a dict of glTF factors (a flat colour): `color`, `metallic`, `roughness`, and optionally `emissive` (a linear
+# colour), `strength` (KHR_materials_emissive_strength) and `alpha` (blended).
+BRASS = [0.75, 0.55, 0.25, 1.0]
+ARCHIVE_KITS = {
+    "card_catalogue": ("Card catalogue", {"wood_table_worn": [0.7, 0.62, 0.55, 1.0], "dark_paneled_wood": None, "metal_plate_02": BRASS}),
+    "issue_desk": ("Issue desk", {"wood_table_worn": [0.7, 0.62, 0.55, 1.0], "dark_paneled_wood": None, "metal_plate_02": BRASS}),
+    "reading_lamp": ("Reading lamp", {
+        "metal_plate_02": BRASS,
+        "lamp_shade": {"color": [0.05, 0.3, 0.12, 1.0], "metallic": 0.0, "roughness": 0.3, "emissive": [0.3, 0.9, 0.45], "strength": 3.0},
+        "lamp_bulb": {"color": [1.0, 0.8, 0.5, 1.0], "metallic": 0.0, "roughness": 0.4, "emissive": [1.0, 0.78, 0.45], "strength": 10.0},
+    }),
+    "lectern": ("Lectern", {"wood_table_worn": [0.7, 0.62, 0.55, 1.0], "dark_paneled_wood": None, "metal_plate_02": BRASS}),
+    "theatre_bench": ("Theatre tiers", {"wood_table_worn": [0.7, 0.62, 0.55, 1.0], "dark_paneled_wood": None, "brown_leather": [0.7, 0.45, 0.35, 1.0], "metal_plate_02": BRASS}),
+    "projector": ("Lantern-slide projector", {"wood_table_worn": [0.7, 0.62, 0.55, 1.0], "metal_plate_02": BRASS, "rusty_metal_02": [0.3, 0.3, 0.32, 1.0]}),
+    "display_case": ("Display case", {
+        "wood_table_worn": [0.7, 0.62, 0.55, 1.0], "dark_paneled_wood": None, "paper006": [0.9, 0.85, 0.75, 1.0], "metal_plate_02": BRASS,
+        "glass": {"color": [0.75, 0.88, 0.9, 0.18], "metallic": 0.0, "roughness": 0.05, "alpha": True},
+    }),
+    "globe": ("Globe", {
+        "paper006": [0.85, 0.62, 0.38, 1.0], "wood_table_worn": [0.55, 0.45, 0.4, 1.0], "metal_plate_02": BRASS,
+        "ink": {"color": [0.1, 0.06, 0.03, 1.0], "metallic": 0.0, "roughness": 0.8},
+    }),
+}
+
+
+def patch_mixed(path, specs):
+    """Gives each of a unit's materials either a set's textures from `assets/materials/<set>` and its tint, or (for a flat colour) the
+    glTF factors in its spec dict: a colour, metallic and roughness, an emissive colour and strength, and blending."""
+    doc = json.loads(path.read_text())
+    sets = [name for name, spec in specs.items() if not isinstance(spec, dict) and any(m["name"] == name for m in doc["materials"])]
+    doc["images"] = [{"uri": f"../../materials/{name}/{kind}.ktx2"} for name in sets for kind in ("color", "normal", "orm")]
+    doc["samplers"] = [{"magFilter": 9729, "minFilter": 9987, "wrapS": 10497, "wrapT": 10497}]
+    doc["textures"] = [{"sampler": 0, "source": i} for i in range(len(doc["images"]))]
+    for material in doc["materials"]:
+        spec = specs[material["name"]]
+        material["doubleSided"] = False
+        pbr = material["pbrMetallicRoughness"]
+        if isinstance(spec, dict):
+            pbr.pop("baseColorTexture", None)
+            pbr["baseColorFactor"] = spec["color"]
+            pbr["metallicFactor"] = spec["metallic"]
+            pbr["roughnessFactor"] = spec["roughness"]
+            if "emissive" in spec:
+                material["emissiveFactor"] = spec["emissive"]
+                if "strength" in spec:
+                    material.setdefault("extensions", {})["KHR_materials_emissive_strength"] = {"emissiveStrength": spec["strength"]}
+                    if "KHR_materials_emissive_strength" not in doc.setdefault("extensionsUsed", []):
+                        doc["extensionsUsed"].append("KHR_materials_emissive_strength")
+            if spec.get("alpha"):
+                material["alphaMode"] = "BLEND"
+            continue
+        k = sets.index(material["name"])
+        pbr["baseColorTexture"] = {"index": 3 * k}
+        pbr["metallicRoughnessTexture"] = {"index": 3 * k + 2}
+        pbr["metallicFactor"] = 1.0
+        pbr["roughnessFactor"] = 1.0
+        if spec:
+            pbr["baseColorFactor"] = spec
+        material["normalTexture"] = {"index": 3 * k + 1}
+        material["occlusionTexture"] = {"index": 3 * k + 2}
+    path.write_text(json.dumps(doc, indent=1) + "\n")
+
+
+def build_archive(blender, only):
+    for unit, (name, specs) in ARCHIVE_KITS.items():
+        if only not in (None, "archive", unit):
+            continue
+        out = ASSETS / "props" / unit
+        shutil.rmtree(out, ignore_errors=True)
+        out.mkdir(parents=True)
+        run_blender(blender, ["--out", out, "--src", out, "--only", unit])
+        patch_mixed(out / f"{unit}.gltf", specs)
+        sets = [m for m, spec in specs.items() if not isinstance(spec, dict)]
+        record({
+            "path": f"props/{unit}",
+            "name": f"{name} (kitbash for the Archive)",
+            "source": "tools/props/kitbash.py, from " + ", ".join(f"https://polyhaven.com/a/{s}" if s != "paper006" else "https://ambientcg.com/a/Paper006" for s in sets),
+            "licence": "CC0",
+            "fetched": today(),
+            "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/" + " and materials/".join(sets) + " (Poly Haven and ambientCG, CC0), no new texture files; its flat colours are glTF factors"
+            + (", its lamp emissive (KHR_materials_emissive_strength)" if unit == "reading_lamp" else "")
+            + (". No CC0 globe exists (#514): the sphere is Paper006 tinted sepia with a lat/long graticule modelled as thin ink quads, no continents" if unit == "globe" else ""),
+        })
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--blender", default=os.environ.get("BLENDER", BLENDER_DEFAULT))
-    parser.add_argument("--only", choices=["crate", "sandbags", "headstone", "sanatorium", *SANATORIUM_KITS, "book_rows", "wheels", *WHEEL_KITS])
+    parser.add_argument("--only", choices=["crate", "sandbags", "headstone", "sanatorium", *SANATORIUM_KITS, "book_rows", "wheels", *WHEEL_KITS, "archive", *ARCHIVE_KITS])
     parser.add_argument("--headstone-scan")
     parser.add_argument("--headstone-source")
     args = parser.parse_args()
     if args.only == "book_rows":
         build_book_rows(args.blender)
+        return
+    if args.only in ("archive", *ARCHIVE_KITS):
+        build_archive(args.blender, args.only)
         return
     if args.only in ("wheels", *WHEEL_KITS):
         build_wheels(args.blender, args.only)
