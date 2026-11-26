@@ -22,7 +22,7 @@ mod door_look;
 pub mod decals;
 mod dam;
 pub(crate) mod archive;
-mod refinery;
+pub(crate) mod refinery;
 mod fitting;
 mod garnish;
 mod greybox;
@@ -1365,8 +1365,11 @@ pub fn spawn_map(
     mut materials: ResMut<Assets<StandardMaterial>>,
     map: Res<MapId>,
     images: Option<ResMut<Assets<Image>>>,
+    asset_server: Option<Res<AssetServer>>,
 ) {
     let layout = map.layout();
+    // A headless app has an asset server but no Image assets to load sprites into.
+    let can_load_images = images.is_some();
     let mut b = Builder::new(&mut commands, &mut meshes, &mut materials, layout.windows, *map);
     b.outside_floor = layout.outside.map(|outside| outside.floor);
     b.outside_wall = layout.outside.map(|outside| outside.wall);
@@ -1664,6 +1667,11 @@ pub fn spawn_map(
                 Transform::from_translation(at),
             ));
         }
+    }
+    // The Refinery's sky: the flare stack, its flame and plume, and the plant past the wall.
+    if *map == MapId::Refinery {
+        let sprites = refinery::sky::load_sprites(asset_server.as_deref().filter(|_| can_load_images));
+        refinery::sky::spawn(&mut commands, &mut meshes, &mut materials, sprites);
     }
 }
 
