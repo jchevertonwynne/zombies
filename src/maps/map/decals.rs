@@ -28,6 +28,12 @@ pub enum Decal {
     Page,
     /// A Tree's crown: a leaf-cluster alpha card, cut out rather than blended, seen from both sides.
     Foliage,
+    /// A soot streak up a wall (Kenney `scorch_01`, the file the blasts' scorch uses, tinted near black), for the Refinery's walls by its fires.
+    Soot,
+    /// Black and yellow hazard stripes (procedural, `tools/texpack --hazard 1`), 256 px: for the Blazes' kerbs, stair nosings, Valve masts and the
+    /// Gatehouse barrier, which the Refinery's later tickets place.
+    #[cfg_attr(not(test), allow(dead_code))]
+    HazardStripe,
 }
 
 const LEAKS: [Decal; 3] = [Decal::Leak003, Decal::Leak004, Decal::Leak005];
@@ -43,9 +49,19 @@ impl Decal {
             Decal::OilStain2 => "oil_stain_2",
             Decal::Biohazard => "sign004",
             Decal::Foliage => "foliage",
+            Decal::HazardStripe => "hazard_stripe",
+            Decal::Soot => return "sprites/scorch_01/color.ktx2".to_string(),
             Decal::Page => return super::textures::Material::Paper006.files()[0].clone(),
         };
         format!("decals/{dir}/color.ktx2")
+    }
+
+    /// What the image is multiplied by: white, but for the soot, whose image is a grey blot that is made black here.
+    fn tint(self) -> Color {
+        match self {
+            Decal::Soot => Color::srgba(0.012, 0.011, 0.01, 0.85),
+            _ => Color::WHITE,
+        }
     }
 
     /// How rough it leaves the surface, and how much it reflects head on. Oil soaked into
@@ -57,6 +73,8 @@ impl Decal {
             (0.95, 0.2)
         } else if self == Decal::Page {
             (0.9, 0.2)
+        } else if self == Decal::Soot {
+            (0.95, 0.1)
         } else {
             (0.7, 0.5)
         }
@@ -72,6 +90,8 @@ pub enum DecalFamily {
     OilStains,
     /// Loose pages lying on the floor (the Archive's).
     Pages,
+    /// Soot streaked up the walls by the Refinery's fires: the flare and the furnace Blaze, and the heater.
+    Soot,
 }
 
 /// A decal to draw once its file has loaded: a unit quad facing along its `Transform`'s +Z,
@@ -273,6 +293,68 @@ pub fn page_keep_out(map: super::MapId, height: f32) -> Vec<(Vec2, Vec2)> {
         .collect()
 }
 
+/// What soots a Map's walls: the rects (x, z) of its fires, which streak the wall faces within `SOOT_REACH` of them.
+pub fn soot_sources(map: super::MapId) -> &'static [(Vec2, Vec2)] {
+    const REFINERY: [(Vec2, Vec2); 3] = [(Vec2::new(-34.0, 85.0), Vec2::new(-30.0, 90.0)), (Vec2::new(3.0, 74.0), Vec2::new(8.0, 78.0)), (Vec2::new(8.0, 70.0), Vec2::new(16.0, 82.0))];
+    match map {
+        // The Flare Line's and the Furnace Line's Blazes (`BLAZE_RECTS` in `refinery.rs`) and the heater's body (x 8..16, z 70..82).
+        super::MapId::Refinery => &REFINERY,
+        _ => &[],
+    }
+}
+
+/// How far from a fire a wall is sooted (m).
+pub const SOOT_REACH: f32 = 6.0;
+
+/// How far (m) from `point` (x, z) the nearest of `rects` is: 0 inside one.
+pub fn distance_to_rects(point: Vec2, rects: &[(Vec2, Vec2)]) -> f32 {
+    rects.iter().map(|&(min, max)| (point.clamp(min, max) - point).length()).fold(f32::MAX, f32::min)
+}
+
+/// A soot streak on a wall: its middle along the wall, the height it starts at, and its width and height.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Streak {
+    pub along: f32,
+    pub base: f32,
+    pub size: Vec2,
+}
+
+/// The soot streaks on a stretch of wall face from `from` to `to` along it, standing from `bottom` and never past `top`, where the wall's
+/// surface is at `surface` (the other coordinate) and runs `along_x` or not. A streak is made only where its middle is within `SOOT_REACH`
+/// of one of `sources` (so none on a wall away from the fires), a thin run of them, 0.6 to 1.4 m wide and 1.2 to 2.6 m up, from the spot alone.
+pub fn soot(from: f32, to: f32, bottom: f32, top: f32, surface: f32, along_x: bool, sources: &[(Vec2, Vec2)]) -> Vec<Streak> {
+    let room = top - bottom - 0.2;
+    if room < 0.8 {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let mut cursor = from + 0.2;
+    while cursor < to - 0.2 {
+        let roll = |salt: u32| chance(cursor, surface, salt + 40);
+        let width = 0.6 + 0.8 * roll(1);
+        let height = (1.2 + 1.4 * roll(2)).min(room);
+        if cursor + width > to - 0.1 {
+            break;
+        }
+        let along = cursor + width / 2.0;
+        let spot = if along_x { Vec2::new(along, surface) } else { Vec2::new(surface, along) };
+        // Thicker the nearer the fire.
+        let near = 1.0 - distance_to_rects(spot, sources) / SOOT_REACH;
+        if near > 0.0 && roll(3) < 0.35 + 0.6 * near {
+            out.push(Streak { along, base: bottom + 0.1 * roll(4), size: Vec2::new(width, height) });
+        }
+        cursor += width + 0.15 + 0.5 * roll(5);
+    }
+    out
+}
+
+/// A soot streak's transform on the wall face at `surface`, looking along `normal`.
+pub fn soot_transform(streak: &Streak, surface: f32, along_x: bool, normal: Vec3) -> Transform {
+    let centre_y = streak.base + streak.size.y / 2.0;
+    let on_wall = if along_x { Vec3::new(streak.along, centre_y, surface) } else { Vec3::new(surface, centre_y, streak.along) };
+    Transform { translation: on_wall + normal * DECAL_OFFSET, rotation: Quat::from_rotation_arc(Vec3::Z, normal), scale: streak.size.extend(1.0) }
+}
+
 /// Each decal asked for so far: its material once its file is loading, or `None` if it's missing.
 #[derive(Resource, Default)]
 pub(super) struct DecalLibrary {
@@ -302,6 +384,7 @@ pub(super) fn request_decals(
             let (perceptual_roughness, reflectance) = decal.finish();
             let cut_out = decal == Decal::Foliage;
             let material = materials.add(StandardMaterial {
+                base_color: decal.tint(),
                 base_color_texture: Some(image.clone()),
                 alpha_mode: if cut_out {
                     AlphaMode::Mask(0.5)
@@ -448,6 +531,62 @@ mod tests {
         assert_eq!(dressed, 8, "the reading halls and the four stack halls wear Pages");
         // No other Map has anything to keep pages out of.
         assert!(page_keep_out(MapId::Polder, 0.0).is_empty());
+    }
+
+    /// Every soot streak the Refinery builds stands on a wall of the Flare Yard or the Column Yard, within 6 m of the Flare Line's or Furnace Line's Blaze or the
+    /// heater, wholly inside its wall face; and the two yards get some.
+    #[test]
+    fn soot_decals_stand_within_6_m_of_the_flare_or_furnace_blaze_or_the_heater() {
+        use bevy::ecs::system::RunSystemOnce;
+
+        use super::super::MapId;
+        use crate::enemies::zombie::headless::Sim;
+        use crate::maps::zone::ZoneId;
+
+        let mut sim = Sim::on(MapId::Refinery, 60.0, |_| {});
+        let found = sim
+            .world_mut()
+            .run_system_once(|pieces: Query<(&DecalPiece, &Transform)>| {
+                pieces.iter().filter(|(piece, _)| piece.0 == Decal::Soot).map(|(_, transform)| *transform).collect::<Vec<_>>()
+            })
+            .unwrap();
+        assert!(found.len() >= 6, "{} soot streaks", found.len());
+        let sources = soot_sources(MapId::Refinery);
+        let (mut flare_yard, mut column_yard) = (0, 0);
+        for transform in &found {
+            let at = Vec2::new(transform.translation.x, transform.translation.z);
+            let d = distance_to_rects(at, sources);
+            assert!(d <= SOOT_REACH, "a streak at {at} is {d:.2} m from a fire");
+            // Standing on a wall, upright, wholly between the floor and the wall's top.
+            let (bottom, top) = (transform.translation.y - transform.scale.y / 2.0, transform.translation.y + transform.scale.y / 2.0);
+            assert!(bottom >= 0.0 && top <= 3.6, "{transform:?}");
+            assert!((transform.rotation * Vec3::Z).y.abs() < 1e-4, "a streak faces sideways");
+            let zone = [ZoneId::FlareYard, ZoneId::ColumnYard].into_iter().find(|zone| {
+                let (lo, hi) = zone.volume();
+                at.x > lo.x - 0.5 && at.x < hi.x + 0.5 && at.y > lo.z - 0.5 && at.y < hi.z + 0.5
+            });
+            match zone {
+                Some(ZoneId::FlareYard) => flare_yard += 1,
+                Some(_) => column_yard += 1,
+                None => panic!("a streak at {at} is on no sooted Zone's wall"),
+            }
+        }
+        assert!(flare_yard > 0 && column_yard > 0, "streaks: Flare Yard {flare_yard}, Column Yard {column_yard}");
+        // A wall far from every fire has none, and the same wall is sooted the same way every Run.
+        assert!(soot(-20.0, 20.0, 0.2, 3.0, 0.0, true, soot_sources(MapId::Refinery)).is_empty());
+        assert!(soot(-40.0, -20.0, 0.2, 3.0, 90.0, true, soot_sources(MapId::Refinery)).len() > 1);
+        assert_eq!(soot(-40.0, -20.0, 0.2, 3.0, 90.0, true, soot_sources(MapId::Refinery)), soot(-40.0, -20.0, 0.2, 3.0, 90.0, true, soot_sources(MapId::Refinery)));
+        assert!(soot_sources(MapId::Polder).is_empty());
+    }
+
+    /// The Soot decal wears the scorch sprite and the hazard stripe is its own 256 px file; both are on disk.
+    #[test]
+    fn the_soot_and_hazard_stripe_decals_are_on_disk() {
+        assert_eq!(Decal::Soot.file(), "sprites/scorch_01/color.ktx2");
+        assert_eq!(Decal::HazardStripe.file(), "decals/hazard_stripe/color.ktx2");
+        for decal in [Decal::Soot, Decal::HazardStripe] {
+            assert!(super::super::textures::on_disk(&decal.file()), "{decal:?}");
+        }
     }
 
     #[test]
