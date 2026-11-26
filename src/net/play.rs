@@ -648,9 +648,10 @@ fn reconcile(
     mut points: Query<(&PlayerSeat, &mut Points), With<Player>>,
     move_and_slide: MoveAndSlide,
     (map, power, open): (Res<crate::maps::map::MapId>, Option<Res<crate::maps::power::Power>>, Option<Res<crate::maps::zipline::OpenZones>>),
-    tide: Option<Res<crate::maps::tide::Tide>>,
+    (tide, lines): (Option<Res<crate::maps::tide::Tide>>, Option<Res<crate::maps::fire::FuelLines>>),
 ) {
     let tide = tide.map_or_else(Default::default, |tide| tide.level());
+    let lit = lines.map_or(crate::maps::fire::LitMask::NONE, |lines| lines.burning());
     let jump_pads = crate::maps::jump_pad::working(*map, power.is_some_and(|power| power.is_on()));
     let ziplines = crate::maps::zipline::working(*map, open.map_or(Default::default(), |open| open.0));
     let layout = Some(map.layout());
@@ -695,7 +696,7 @@ fn reconcile(
         *locomotion = after_used.clone();
     }
     snapshot.own.put(&mut position, &mut locomotion);
-    let mut context = MoveContext { entity, loadout, modifiers, drinking, last_stand, jump_pads, ziplines: &ziplines, layout, tide };
+    let mut context = MoveContext { entity, loadout, modifiers, drinking, last_stand, jump_pads, ziplines: &ziplines, layout, tide, lit };
     for (_, step, _) in &prediction.sent {
         step_move(&mut position, &mut locomotion, &step.input(), &mut context, time.delta(), &move_and_slide);
     }

@@ -30,6 +30,7 @@ use crate::players::player::Player;
 use crate::economy::points::BonusPoints;
 use crate::maps::generator::{GeneratorState, Generators};
 use crate::maps::power::{Power, Powering};
+use crate::maps::fire::{LineNode, Valve};
 use crate::maps::shifting::{Lever, PiecePhase, PieceState, WheelPost};
 use crate::maps::trap::trap_zone;
 use crate::economy::power_up::DropPowerUp;
@@ -143,6 +144,8 @@ pub enum SabotageKind {
     Lever,
     /// A Range's Wheels, one system to it.
     Wheels,
+    /// A Fuel Line's Valves, one system to it.
+    FuelLine,
 }
 
 /// What the Sapper means to do at its target: take a Generator, which is then Lost, or Sabotage a
@@ -184,7 +187,7 @@ pub fn can_sabotage(kind: SabotageKind, powered: bool, in_use: bool) -> bool {
     match kind {
         SabotageKind::Perk(Perk::QuickRevive) => false,
         SabotageKind::Trap => powered,
-        SabotageKind::Lever | SabotageKind::Wheels => !in_use,
+        SabotageKind::Lever | SabotageKind::Wheels | SabotageKind::FuelLine => !in_use,
         SabotageKind::MysteryBox => !in_use,
         SabotageKind::Perk(_) | SabotageKind::Teleporter | SabotageKind::PackAPunch => {
             powered && !in_use
@@ -825,6 +828,7 @@ fn candidates(
     traps: &Query<(Entity, &Trap, &Transform), Without<Sabotaged>>,
     machines: &Query<(Entity, &PackAPunch, &Transform), Without<Sabotaged>>,
     bridges: (&Query<(Entity, &PieceState), Without<Sabotaged>>, &Query<&Lever>, &Query<&WheelPost>),
+    fuel_lines: (&Query<(Entity, &LineNode), Without<Sabotaged>>, &Query<&Valve>),
     doors: &Query<&Door>,
     teleporter: Option<&Teleporter>,
     supply: Powering,
@@ -885,6 +889,12 @@ fn candidates(
         // Every Wheel of a Range is a way to it, and the Range is one system.
         for wheel in bridges.2.iter().filter(|wheel| wheel.piece == state.id()) {
             all.push(candidate(Target::Entity(entity), SabotageKind::Wheels, wheel.use_point(), true, in_use));
+        }
+    }
+    // Every Valve of a Fuel Line is a way to it, and the line is one system. It needs no Power and is never in use.
+    for (entity, node) in fuel_lines.0 {
+        for valve in fuel_lines.1.iter().filter(|valve| valve.line == node.line) {
+            all.push(candidate(Target::Entity(entity), SabotageKind::FuelLine, valve.use_point(), true, false));
         }
     }
     for (entity, machine, transform) in machines {
@@ -955,6 +965,7 @@ fn sabotage(
     traps: Query<(Entity, &Trap, &Transform), Without<Sabotaged>>,
     machines: Query<(Entity, &PackAPunch, &Transform), Without<Sabotaged>>,
     (bridges, levers, wheels): (Query<(Entity, &PieceState), Without<Sabotaged>>, Query<&Lever>, Query<&WheelPost>),
+    (fuel_lines, valves): (Query<(Entity, &LineNode), Without<Sabotaged>>, Query<&Valve>),
     doors: Query<&Door>,
     mut teleporter: ResMut<Teleporter>,
     (power, mut generators): (Res<Power>, Option<ResMut<Generators>>),
@@ -971,6 +982,7 @@ fn sabotage(
         &traps,
         &machines,
         (&bridges, &levers, &wheels),
+        (&fuel_lines, &valves),
         &doors,
         crate::maps::teleporter::stands_on(*map).then_some(&*teleporter),
         Powering::new(power.is_on(), generators.as_deref()),
@@ -1035,6 +1047,15 @@ fn sabotage(
                 {
                     for wheel in wheels.iter().filter(|wheel| wheel.piece == state.id()) {
                         spawn_restore(&mut commands, &assets, taken.target, wheel.use_point());
+                    }
+                    continue;
+                }
+                // A Fuel Line can be restored at either of its Valves.
+                if let (Job::Sabotage(SabotageKind::FuelLine), Target::Entity(node)) = (taken.job, taken.target)
+                    && let Ok((_, node)) = fuel_lines.get(node)
+                {
+                    for valve in valves.iter().filter(|valve| valve.line == node.line) {
+                        spawn_restore(&mut commands, &assets, taken.target, valve.use_point());
                     }
                     continue;
                 }
@@ -1759,5 +1780,134 @@ mod wheel_tests {
         sim.run(sim.frames(0.5));
         assert!(matches!(phase(&mut sim, 0), PiecePhase::Warning { from: 2, .. }), "it rolls again: {:?}", phase(&mut sim, 0));
         assert!(sim.world_mut().get::<Dying>(sapper).is_none(), "the Sapper lived through it");
+    }
+}
+
+/// A Sapper Sabotaging a Fuel Line's Valves on the built Refinery.
+#[cfg(test)]
+mod fuel_line_tests {
+    use super::*;
+    use crate::economy::buy::{HoldPurchased, Purchased};
+    use crate::enemies::zombie::headless::Sim;
+    use crate::maps::fire::{FirePlugin, FuelLineId, FuelLines, LineNode, Valve};
+
+    /// The Refinery with the Fire and the Sapper's systems, a Sapper standing at the first Valve of the Bund Line (1), and the Player
+    /// a few metres from it.
+    fn sapper_at_a_valve() -> (Sim, Entity) {
+        let mut sim = Sim::on(MapId::Refinery, 60.0, |app| {
+            app.add_plugins(FirePlugin)
+                .init_resource::<Teleporter>()
+                .init_resource::<Power>()
+                .insert_resource(ActiveZones(ZoneSet::from_iter(ZoneId::ALL)))
+                .add_message::<BonusPoints>()
+                .add_message::<DropPowerUp>()
+                .add_message::<HoldPurchased>()
+                .add_message::<crate::audio::PlayCue>()
+                .add_message::<crate::players::player::Teleport>()
+                .add_systems(Startup, load_assets)
+                .add_systems(Update, (stun_restarts, sabotage, restore_bought, sapper_deaths, prune_restores).chain());
+        });
+        let valve = MapId::Refinery.layout().fuel_lines[1].valves[0];
+        let (spot, facing) = (valve.1, Vec3::new(valve.2.x, 0.0, valve.2.y));
+        {
+            let world = sim.world_mut();
+            let mut players = world.query_filtered::<&mut Transform, With<Player>>();
+            players.iter_mut(world).next().unwrap().translation = spot + facing * 4.0 + Vec3::Y * 1.0;
+        }
+        let sapper = sim.spawn(spot, None);
+        sim.world_mut().entity_mut(sapper).insert((Zombie::special(SpecialKind::Sapper, 1000.0, spot), Sapper::new(spot), CarriesOver));
+        (sim, sapper)
+    }
+
+    fn node_of(sim: &mut Sim, line: u8) -> (Entity, bool) {
+        let world = sim.world_mut();
+        let (entity, _) = world.query::<(Entity, &LineNode)>().iter(world).find(|(_, node)| node.line == FuelLineId(line)).unwrap();
+        (entity, world.get::<Sabotaged>(entity).is_some())
+    }
+
+    fn restores(sim: &mut Sim) -> Vec<(Entity, Vec3)> {
+        let world = sim.world_mut();
+        world.query::<(Entity, &Restore, &Transform)>().iter(world).map(|(entity, _, transform)| (entity, transform.translation)).collect()
+    }
+
+    fn valves_of(sim: &mut Sim, line: u8) -> Vec<Entity> {
+        let world = sim.world_mut();
+        world.query::<(Entity, &Valve)>().iter(world).filter(|(_, valve)| valve.line == FuelLineId(line)).map(|(entity, _)| entity).collect()
+    }
+
+    /// The line's Valves are one system to the Sapper: it Sabotages the line, not a Valve; a Restore waits at both of its Valves (and at
+    /// no other line's); the Valves are dead and the line goes Lit and stays Lit; and holding at either Valve restores the line, the
+    /// other Restore going with it, so a Valve shuts it again.
+    #[test]
+    fn sapper_targets_a_fuel_lines_valves_as_one_system() {
+        assert!(can_sabotage(SabotageKind::FuelLine, false, false), "a Fuel Line needs no Power");
+        assert!(!can_sabotage(SabotageKind::FuelLine, true, true), "never in use");
+        let (mut sim, sapper) = sapper_at_a_valve();
+        // Shut the line first, so that the Sabotage has something to undo.
+        sim.world_mut().resource_mut::<FuelLines>().use_valve(FuelLineId(1), false).unwrap();
+        sim.run(3);
+        let goal = sim.world_mut().get::<Sapper>(sapper).unwrap().goal.expect("it has a goal");
+        assert_eq!(goal.job, Job::Sabotage(SabotageKind::FuelLine), "the Bund Line's Valves, as one system");
+        sim.world_mut().get_mut::<Transform>(sapper).unwrap().translation = goal.spot + Vec3::Y * (ZOMBIE_RADIUS + ZOMBIE_CAPSULE_LENGTH / 2.0 + 0.02);
+        sim.run(sim.frames(SAPPER_SABOTAGE_SECS + 1.0));
+        assert!(node_of(&mut sim, 1).1, "the Bund Line is Sabotaged");
+        for other in [0, 2, 3, 4, 5] {
+            assert!(!node_of(&mut sim, other).1, "line {other} is untouched");
+        }
+        let valves = MapId::Refinery.layout().fuel_lines[1].valves;
+        let mut pending = restores(&mut sim);
+        assert_eq!(pending.len(), valves.len(), "a Restore at every one of its Valves");
+        for &(_, at, facing) in valves {
+            let use_point = at + Vec3::Y * 1.1 + Vec3::new(facing.x, 0.0, facing.y) * 0.3;
+            assert!(pending.iter().any(|(_, spot)| spot.distance(use_point) < 0.01), "a Restore at the Valve at {at}");
+        }
+        // The line went straight into Flare-up, then Lit, and stays Lit; its Valves are dead.
+        sim.run(sim.frames(FLARE_UP_SECS + 1.0));
+        let lines = *sim.world_mut().resource::<FuelLines>();
+        assert_eq!(lines.phase(FuelLineId(1)), crate::maps::fire::LinePhase::Lit);
+        assert!(lines.sabotaged().contains(FuelLineId(1)));
+        for valve in valves_of(&mut sim, 1) {
+            assert!(sim.world_mut().get::<Buyable>(valve).is_none(), "a Sabotaged line's Valve offers nothing");
+        }
+        for valve in valves_of(&mut sim, 0) {
+            assert!(sim.world_mut().get::<Buyable>(valve).is_some(), "another line's Valve is untouched");
+        }
+        // Holding at one Restore restores the line, and the other Restore goes.
+        let player = {
+            let world = sim.world_mut();
+            world.query_filtered::<Entity, With<Player>>().iter(world).next().unwrap()
+        };
+        let (restore, _) = pending.pop().unwrap();
+        sim.send(HoldPurchased { player, buyable: restore });
+        sim.run(5);
+        assert!(!node_of(&mut sim, 1).1, "restored");
+        assert!(restores(&mut sim).is_empty(), "and the Restore at its other Valve went with it");
+        assert!(!sim.world_mut().resource::<FuelLines>().sabotaged().contains(FuelLineId(1)));
+        for valve in valves_of(&mut sim, 1) {
+            let buyable = sim.world_mut().get::<Buyable>(valve).expect("a Valve offers again");
+            assert_eq!(buyable.prompt, "Press Use to shut the Bund Line");
+        }
+        // A Valve shuts it again.
+        let valve = valves_of(&mut sim, 1)[0];
+        sim.send(Purchased { player, buyable: valve });
+        sim.run(5);
+        assert!(matches!(sim.world_mut().resource::<FuelLines>().phase(FuelLineId(1)), crate::maps::fire::LinePhase::Shut { .. }));
+        assert!(sim.world_mut().get::<Dying>(sapper).is_none(), "the Sapper lived through it");
+    }
+
+    /// The Sapper's death restores the line it Sabotaged.
+    #[test]
+    fn the_sappers_death_restores_the_line() {
+        let (mut sim, sapper) = sapper_at_a_valve();
+        sim.run(3);
+        let goal = sim.world_mut().get::<Sapper>(sapper).unwrap().goal.expect("it has a goal");
+        sim.world_mut().get_mut::<Transform>(sapper).unwrap().translation = goal.spot + Vec3::Y * (ZOMBIE_RADIUS + ZOMBIE_CAPSULE_LENGTH / 2.0 + 0.02);
+        sim.run(sim.frames(SAPPER_SABOTAGE_SECS + 1.0));
+        let sabotaged = (0..6).filter(|&line| node_of(&mut sim, line).1).count();
+        assert_eq!(sabotaged, 1);
+        sim.send(DamageZombie { player: None, zombie: sapper, damage: 1.0e9, zone: HitZone::Torso, attack: Attack::Trap });
+        sim.run(10);
+        assert_eq!((0..6).filter(|&line| node_of(&mut sim, line).1).count(), 0, "the Sapper's death restores it");
+        assert!(sim.world_mut().resource::<FuelLines>().sabotaged() == crate::maps::fire::LitMask::NONE);
     }
 }

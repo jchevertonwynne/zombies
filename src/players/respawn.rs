@@ -209,6 +209,7 @@ fn respawn(
     mut commands: Commands,
     spatial: SpatialQuery,
     round: Res<Round>,
+    (map, graph, lines): (Option<Res<crate::maps::map::MapId>>, Option<Res<crate::enemies::nav::NavGraph>>, Option<Res<crate::maps::fire::FuelLines>>),
     mut players: Query<
         (
             Entity,
@@ -246,7 +247,7 @@ fn respawn(
         if !awaiting || disconnected {
             continue;
         }
-        let spot = respawn_spot(&beside, &spatial);
+        let spot = clear_of_fire(respawn_spot(&beside, &spatial), map.as_deref(), graph.as_deref(), lines.as_deref());
         transform.translation = spot;
         // The body's physics position moves with it, or the old one wins when it's enabled again.
         commands.entity(entity).insert(Position(spot));
@@ -266,6 +267,26 @@ fn respawn(
             .remove::<(AwaitingRespawn, ColliderDisabled)>();
         respawned.write(Respawned { player: entity });
     }
+}
+
+/// Where a Respawn at `spot` (a capsule centre) actually lands: the same, unless it is in a Lit Blaze, when it is the nearest path node
+/// outside every Lit Blaze in the Dragged Clear's search. So no Respawn is ever in a Lit Blaze.
+pub(crate) fn clear_of_fire(
+    spot: Vec3,
+    map: Option<&crate::maps::map::MapId>,
+    graph: Option<&crate::enemies::nav::NavGraph>,
+    lines: Option<&crate::maps::fire::FuelLines>,
+) -> Vec3 {
+    use crate::maps::fire::{LitMask, outside_every_blaze};
+    let lit = lines.map_or(LitMask::NONE, |lines| lines.burning());
+    let (Some(map), Some(graph)) = (map, graph) else { return spot };
+    let half_height = PLAYER_RADIUS + PLAYER_CAPSULE_LENGTH / 2.0;
+    let feet = spot - Vec3::Y * half_height;
+    if lit == LitMask::NONE || outside_every_blaze(map.layout(), lit, feet) || graph.map != *map {
+        return spot;
+    }
+    crate::players::out_of_bounds::washed_up_target(graph, map.layout(), Default::default(), feet, crate::enemies::nav::zone_at(*map, feet + Vec3::Y * 0.1), None, lit)
+        .map_or(spot, |node| node + Vec3::Y * half_height)
 }
 
 /// A Respawn places the Player Standing, the Stance they want included, in every game: on a

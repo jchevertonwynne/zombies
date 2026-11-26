@@ -2114,6 +2114,22 @@ pub const RELIGHT_AFTER_SECS: f32 = 10.0;
 pub const BLAZE_REACH: f32 = 0.5;
 /// How far a Zombie's straight walk keeps from a closed Blaze's rectangle.
 pub const BLAZE_WALK_MARGIN: f32 = 0.3;
+/// What a Lit Blaze takes from a Player standing in it, every `BLAZE_PLAYER_TICK_SECS`, the first tick that long after stepping in.
+pub const BLAZE_PLAYER_DAMAGE: f32 = 15.0;
+/// Seconds between a Lit Blaze's ticks on a Player.
+pub const BLAZE_PLAYER_TICK_SECS: f32 = 0.5;
+/// A Player's move speed with their feet in a Lit Blaze.
+pub const BLAZE_SPEED_MULT: f32 = 0.8;
+/// The share of a Zombie's max health each tick of a Blaze's Burn takes (four ticks: 80% in all).
+pub const BLAZE_BURN_SHARE: f32 = 0.2;
+/// Seconds between the ticks of a Blaze's Burn.
+pub const BLAZE_BURN_TICK_SECS: f32 = 0.5;
+/// How long a Blaze's Burn lasts, and is lit again while the Zombie is still inside.
+pub const BLAZE_BURN_SECS: f32 = 2.0;
+/// A burning Zombie's move speed with its feet in a Lit Blaze.
+pub const BLAZE_ZOMBIE_SPEED_MULT: f32 = 0.6;
+/// How far outside every Lit Blaze a Dragged Clear, a Washed Up or a Respawn must land a body.
+pub const BLAZE_CLEAR_MARGIN: f32 = 0.5;
 
 // Teleporter
 /// After activating a Pad, the Player has this long to use the Mainframe and Link it.

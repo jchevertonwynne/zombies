@@ -83,6 +83,8 @@ pub enum Attack {
     /// A Swing Bridge tipping it into the canal. The Map's kill, Unpaid; the canal puts out a
     /// Napalm and a Shrieker, so there is no death effect.
     Swing,
+    /// A Lit Blaze's Burn, or the share it takes from the Sapper or a Boss. The Map's kill, Unpaid.
+    Blaze,
 }
 
 impl Attack {
@@ -98,6 +100,7 @@ impl Attack {
             | Attack::NovaBlast
             | Attack::Napalm
             | Attack::Swing
+            | Attack::Blaze
             | Attack::Scream => Pay::Unpaid,
         }
     }
@@ -276,6 +279,48 @@ fn wade(
             }
             (Some(mut factor), false) if !factor.is_empty() => {
                 factor.clear(WADING);
+                if factor.is_empty() {
+                    commands.entity(entity).remove::<ZombieMoveFactor>();
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The source a Zombie's slow in a Lit Blaze goes on its `ZombieMoveFactor` under.
+pub const BLAZE: Source = Source("Blaze");
+
+/// Whether a Lit Blaze sets this Zombie alight and slows it: not a Napalm, which takes no harm, nor a `Heavyweight` (the Sapper or a
+/// Boss), which loses a share of its health once per Lit spell and keeps its pace.
+pub fn burns_in_a_blaze(zombie: &Zombie, heavyweight: bool) -> bool {
+    zombie.special_kind() != Some(SpecialKind::Napalm) && !heavyweight
+}
+
+/// Zombies that burn in a Lit Blaze walk through it at `BLAZE_ZOMBIE_SPEED_MULT`: set from their feet every tick, and cleared as they
+/// step out. Nav costs don't change (they route round a Lit line anyway).
+fn blaze_slow(
+    mut commands: Commands,
+    mut zombies: Query<(Entity, &Zombie, &Transform, Option<&mut ZombieMoveFactor>, Has<Heavyweight>), (Without<Dying>, Without<Rising>)>,
+    map: Option<Res<MapId>>,
+    lines: Option<Res<crate::maps::fire::FuelLines>>,
+) {
+    let Some(layout) = map.map(|map| map.layout()).filter(|layout| !layout.fuel_lines.is_empty()) else {
+        return;
+    };
+    let lit = lines.map_or(crate::maps::fire::LitMask::NONE, |lines| lines.burning());
+    for (entity, zombie, transform, factor, heavyweight) in &mut zombies {
+        let feet = transform.translation - Vec3::Y * zombie.half_height();
+        let inside = burns_in_a_blaze(zombie, heavyweight) && crate::maps::fire::blaze_at(layout, lit, feet).is_some();
+        match (factor, inside) {
+            (Some(mut factor), true) => factor.set(BLAZE, BLAZE_ZOMBIE_SPEED_MULT),
+            (None, true) => {
+                let mut factor = ZombieMoveFactor::default();
+                factor.set(BLAZE, BLAZE_ZOMBIE_SPEED_MULT);
+                commands.entity(entity).insert(factor);
+            }
+            (Some(mut factor), false) if factor.has(BLAZE) => {
+                factor.clear(BLAZE);
                 if factor.is_empty() {
                     commands.entity(entity).remove::<ZombieMoveFactor>();
                 }
@@ -905,7 +950,7 @@ impl Plugin for ZombiePlugin {
             )
             .add_systems(
                 FixedUpdate,
-                (rise, wade.before(chase), stranded::relocate_stranded.before(chase), chase, tumble, sink).in_set(HostSimulation).run_if(world_runs),
+                (rise, (wade, blaze_slow).chain().before(chase), stranded::relocate_stranded.before(chase), chase, tumble, sink).in_set(HostSimulation).run_if(world_runs),
             )
             .add_systems(
                 RunFixedMainLoop,
@@ -1959,7 +2004,7 @@ pub fn apply_damage(
         };
         if zombie.health > 0.0 {
             // A Burn's ticks pay no hit Points, nor does a torn Plank.
-            if !matches!(request.attack, Attack::Burn | Attack::Barrier) {
+            if !matches!(request.attack, Attack::Burn | Attack::Blaze | Attack::Barrier) {
                 zombie.hits = zombie.hits.saturating_add(1);
                 hits.write(ZombieHit {
                     player: request.player,
@@ -2125,6 +2170,39 @@ mod tests {
     use super::*;
 
     const STEP: f32 = 0.1;
+
+    /// Zombies that burn (a Zombie, a Hellhound) are slowed to ×0.6 while their feet are in a Lit Blaze and freed the moment the line is
+    /// Shut; a Napalm, the Sapper and a Boss keep their pace.
+    #[test]
+    fn a_zombie_in_a_lit_blaze_is_slowed_to_0_6_and_freed_when_the_line_goes_out() {
+        use crate::maps::fire::{FuelLineId, FuelLines};
+        let mut sim = headless::Sim::on(MapId::Refinery, 60.0, |app| {
+            app.insert_resource(FuelLines::start(6));
+        });
+        let world = sim.world_mut();
+        for mut transform in world.query_filtered::<&mut Transform, With<crate::players::player::Player>>().iter_mut(world) {
+            transform.translation = Vec3::new(-40.0, 1.0, 70.0);
+        }
+        // The Bund Line's Blaze is (-42, 38) to (-38, 42).
+        let spot = MapId::Refinery.layout().fuel_lines[1].blazes[0].centre();
+        let plain = sim.spawn(spot, None);
+        let hound = sim.spawn(spot + Vec3::X, None);
+        sim.world_mut().entity_mut(hound).insert(Zombie::hellhound(1000.0, spot + Vec3::X));
+        let napalm = sim.spawn(spot - Vec3::X, None);
+        sim.world_mut().entity_mut(napalm).insert(Zombie::special(SpecialKind::Napalm, 1000.0, spot - Vec3::X));
+        let sapper = sim.spawn(spot + Vec3::Z, None);
+        sim.world_mut().entity_mut(sapper).insert(Heavyweight::SAPPER);
+        sim.run(2);
+        let factor = |sim: &mut headless::Sim, zombie| sim.world_mut().get::<ZombieMoveFactor>(zombie).map(ZombieMoveFactor::factor);
+        assert_eq!(factor(&mut sim, plain), Some(BLAZE_ZOMBIE_SPEED_MULT));
+        assert_eq!(factor(&mut sim, hound), Some(BLAZE_ZOMBIE_SPEED_MULT), "a Hellhound is slowed too");
+        assert_eq!(factor(&mut sim, napalm), None, "a Napalm takes no harm");
+        assert_eq!(factor(&mut sim, sapper), None, "the Sapper keeps its pace");
+        sim.world_mut().resource_mut::<FuelLines>().use_valve(FuelLineId(1), false).unwrap();
+        sim.run(2);
+        assert_eq!(factor(&mut sim, plain), None, "freed the moment the line is Shut");
+        assert_eq!(factor(&mut sim, hound), None);
+    }
 
     /// Zombies of every kind wade through Shallow Water at ×0.7, the Sapper included, and are
     /// freed the moment they step out.

@@ -18,7 +18,7 @@ use crate::run::stats::{RunStats, StatsPlugin};
 
 /// What a game has been told of Downs.
 #[derive(Resource, Default)]
-struct Downs(u32);
+pub(super) struct Downs(pub(super) u32);
 
 fn count_downs(mut downs: ResMut<Downs>, mut told: MessageReader<WentDown>) {
     downs.0 += told.read().count() as u32;
