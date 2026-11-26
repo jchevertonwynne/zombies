@@ -257,6 +257,31 @@ pub const LAMPLIGHT: Look = Look {
     water: Some(Color::srgba(0.09, 0.075, 0.05, 0.8)),
 };
 
+/// The Refinery (#565): a night lit from below. A cool, low moon over a warm, smoky ambient, a
+/// brown-black sky and a smoky brown fog the 70 m down the rack fades into, graded warm and a
+/// little over-saturated (the only Look above 1) so hot orange stands out on black steel. The flare
+/// stack (`refinery::sky`) is the key light; it reuses the Dam's night sky at half strength, which
+/// the smoke dims. Indoors the fog is a warm black, and each shed's probe leans 40% to its lamp.
+pub const FLARE_NIGHT: Look = Look {
+    sun_colour: Color::srgb(0.55, 0.65, 1.0),
+    sun_lux: 900.0,
+    sun_height: 0.7,
+    cascades: Some((2, 50.0)),
+    ambient_colour: Color::srgb(0.75, 0.55, 0.42),
+    ambient_brightness: 55.0,
+    sky: Color::srgb(0.035, 0.018, 0.012),
+    fog: Color::srgb(0.09, 0.05, 0.03),
+    sky_map: Some(("skies/qwantani_night_puresky/sky.ktx2", 90.0)),
+    lamps: 1.0,
+    temperature: 0.03,
+    tint: 0.0,
+    fog_range: (18.0, 130.0),
+    indoor_fog: Color::srgb(0.03, 0.022, 0.016),
+    saturation: 1.1,
+    probe_tint: 0.4,
+    water: None,
+};
+
 /// How strongly the sky lights the Map, as a fraction of how bright it shows.
 const SKY_LIGHT: f32 = 0.7;
 
@@ -317,7 +342,7 @@ impl Plugin for LookPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(post_stack)
             .add_systems(OnEnter(GameState::Playing), set_world)
-            .add_systems(Update, (follow_zone_fog, shadow_nearest_lamps, crate::maps::map::archive::daylight::drift_motes).run_if(in_state(GameState::Playing)));
+            .add_systems(Update, (follow_zone_fog, shadow_nearest_lamps, crate::maps::map::archive::daylight::drift_motes, crate::maps::map::refinery::sky::sway_flames, crate::maps::map::refinery::sky::drift_plume, crate::maps::map::refinery::sky::flicker_flare).run_if(in_state(GameState::Playing)));
     }
 }
 
@@ -452,7 +477,7 @@ mod tests {
     /// Every Map but the Sanatorium keeps what its Look did before the four new fields.
     #[test]
     fn other_maps_looks_unchanged_by_the_new_fields() {
-        for map in MapId::ALL.into_iter().filter(|&map| !matches!(map, MapId::Sanatorium | MapId::Archive)) {
+        for map in MapId::ALL.into_iter().filter(|&map| !matches!(map, MapId::Sanatorium | MapId::Archive | MapId::Refinery)) {
             let look = map.layout().look;
             assert_eq!(look.fog_range, (FOG_START, FOG_END), "{map:?}");
             assert_eq!(look.indoor_fog, INDOOR_FOG, "{map:?}");
@@ -465,8 +490,33 @@ mod tests {
         }
         assert_eq!(MapId::Sanatorium.layout().look, FOGBOUND);
         assert_eq!(MapId::Archive.layout().look, LAMPLIGHT);
+        assert_eq!(MapId::Refinery.layout().look, FLARE_NIGHT);
         assert_eq!(FOGBOUND.fog_range, (5.0, 34.0));
         assert_eq!(FOGBOUND.saturation, 0.8);
+        // Every other Map's Look is the one it had, not the Refinery's.
+        for map in MapId::ALL.into_iter().filter(|&map| map != MapId::Refinery) {
+            assert_ne!(map.layout().look, FLARE_NIGHT, "{map:?}");
+        }
+    }
+
+    /// The Refinery's Look is #510's table, and its Layout's moon stands where the ticket put it.
+    #[test]
+    fn the_refinerys_look_is_flare_night() {
+        let look = MapId::Refinery.layout().look;
+        assert_eq!(look, FLARE_NIGHT);
+        assert_eq!((look.sun_lux, look.sun_height, look.cascades), (900.0, 0.7, Some((2, 50.0))));
+        assert_eq!((look.ambient_brightness, look.fog_range, look.saturation, look.probe_tint), (55.0, (18.0, 130.0), 1.1, 0.4));
+        assert_eq!((look.lamps, look.temperature, look.tint, look.water), (1.0, 0.03, 0.0, None));
+        assert_eq!(look.sky_map, Some(("skies/qwantani_night_puresky/sky.ktx2", 90.0)));
+        assert_eq!(MapId::Refinery.layout().sun, Vec3::new(0.4, -1.0, -0.6));
+        assert!(look.casts_sun_shadows());
+        // The only Look above full saturation; the fog is brown, the moon cold over a warm ambient.
+        for map in MapId::ALL.into_iter().filter(|&map| map != MapId::Refinery) {
+            assert!(map.layout().look.saturation <= 1.0, "{map:?}");
+        }
+        let (fog, moon, ambient) = (look.fog.to_srgba(), look.sun_colour.to_srgba(), look.ambient_colour.to_srgba());
+        assert!(fog.red > fog.green && fog.green > fog.blue);
+        assert!(moon.blue > moon.red && ambient.red > ambient.blue);
     }
 
     /// The sunless shadow rule touches only the Look with no sun: every other Look, on every other
