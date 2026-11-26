@@ -117,11 +117,20 @@ pub enum Material {
     #[cfg_attr(not(test), allow(dead_code))]
     BookPattern,
     Paper006,
+    // The Refinery's, all Poly Haven: blast-wall concrete, oily and burnt ground, grating, tread plate and steel sheet.
+    RebarReinforcedConcrete,
+    TarredGravel,
+    BurnedGround01,
+    MetalGrateRusty,
+    MetalPlate,
+    RustyMetal04,
+    ContainerSide,
+    CorrugatedIron03,
 }
 
 impl Material {
     #[cfg(test)]
-    pub const ALL: [Material; 84] = [
+    pub const ALL: [Material; 92] = [
         Material::DarkWoodenPlanks,
         Material::DamagedPlaster,
         Material::FloorTiles06,
@@ -206,6 +215,14 @@ impl Material {
         Material::BrownLeather,
         Material::BookPattern,
         Material::Paper006,
+        Material::RebarReinforcedConcrete,
+        Material::TarredGravel,
+        Material::BurnedGround01,
+        Material::MetalGrateRusty,
+        Material::MetalPlate,
+        Material::RustyMetal04,
+        Material::ContainerSide,
+        Material::CorrugatedIron03,
     ];
 
     /// Its directory under `assets/materials/`, and the real-world size of one repeat in metres,
@@ -296,6 +313,14 @@ impl Material {
             Material::BrownLeather => ("brown_leather", 0.4),
             Material::BookPattern => ("book_pattern", 0.3),
             Material::Paper006 => ("paper006", 0.3),
+            Material::RebarReinforcedConcrete => ("rebar_reinforced_concrete", 2.0),
+            Material::TarredGravel => ("tarred_gravel", 2.2),
+            Material::BurnedGround01 => ("burned_ground_01", 1.0),
+            Material::MetalGrateRusty => ("metal_grate_rusty", 0.5),
+            Material::MetalPlate => ("metal_plate", 0.5),
+            Material::RustyMetal04 => ("rusty_metal_04", 2.0),
+            Material::ContainerSide => ("container_side", 1.94),
+            Material::CorrugatedIron03 => ("corrugated_iron_03", 2.0),
         }
     }
 
@@ -330,15 +355,16 @@ impl Material {
             WornBrickFloor | BrickWall001 | DarkBrickWall | CastleBrick02Red | WhiteSandstoneBricks03 | ConcreteBlockWall02 | MedievalBlocks05 => {
                 FloorFamily::Brick
             }
-            RustyCorrugatedIron | RustyMetal02 | BlueMetalPlate | MetalPlate02 | GreenMetalRust | PaintedMetalShutter => FloorFamily::Metal,
+            RustyCorrugatedIron | RustyMetal02 | BlueMetalPlate | MetalPlate02 | GreenMetalRust | PaintedMetalShutter | MetalGrateRusty | MetalPlate
+            | RustyMetal04 | ContainerSide | CorrugatedIron03 => FloorFamily::Metal,
             MossyCobblestone | CobblestoneFloor02 | CobblestoneFloor06 | RockWall08 | RockWall05 | DarkRock => FloorFamily::Cobble,
-            MuddyTracks | LeafyGrass | GrassGround | CoastSand04 | SandyGravel02 | GravelGround01 | GrayRocks => FloorFamily::Dirt,
+            MuddyTracks | LeafyGrass | GrassGround | CoastSand04 | SandyGravel02 | GravelGround01 | GrayRocks | TarredGravel | BurnedGround01 => FloorFamily::Dirt,
             DamagedPlaster | WornMossyPlasterwall | PeelingPaintedWall | PlasteredStoneWall | ConcreteFloor02 | FabricPattern07
             | BrokenWall | AsphaltFloor | ConcreteSlabWall02 | ConcreteWall006 | PaintedConcrete | ConcreteWall007
             | DamagedConcreteFloor03 | RibbedConcreteWall | SmoothConcreteFloor | ConcreteLayers02 | BrushedConcrete04
             | ConcreteWall008 | GranularConcrete | RockEmbeddedConcreteWall | HangarConcreteFloor | WornConcreteFloor
             | ConcreteMoss | CrackedConcrete | WhitePlasterRough01 | WhiteStucco | YellowStoneWall | BeigeWall001 | Hessian230 | PaintedPlaster003
-            | DecrepitWallpaper | WornPlasterWall | BrownLeather | BookPattern | Paper006 => {
+            | DecrepitWallpaper | WornPlasterWall | BrownLeather | BookPattern | Paper006 | RebarReinforcedConcrete => {
                 FloorFamily::Concrete
             }
         }
@@ -816,6 +842,105 @@ mod tests {
             (Material::BrownLeather, Concrete, 0.4),
             (Material::BookPattern, Concrete, 0.3),
             (Material::Paper006, Concrete, 0.3),
+        ];
+        for (material, family, tile) in sets {
+            assert_eq!(material.family(), family, "{material:?}");
+            assert!((material.tile() - tile).abs() < 1e-6, "{material:?}");
+            for file in material.files() {
+                assert!(on_disk(&file), "{file} is missing");
+            }
+        }
+    }
+
+    /// The Refinery's Doors, stairs' feet and fixed joins (and the one drop's Door), as pairs of Zones.
+    fn refinery_joins() -> Vec<(crate::maps::zone::ZoneId, crate::maps::zone::ZoneId)> {
+        use crate::enemies::nav::Gate;
+        use crate::maps::map::MapId;
+        let refinery = MapId::Refinery.layout();
+        let mut joins: Vec<_> = refinery
+            .nav_edges
+            .iter()
+            .filter_map(|&(.., gate)| match gate {
+                Gate::Door(a, b) | Gate::DoorDrop(a, b) => Some((a, b)),
+                _ => None,
+            })
+            .collect();
+        joins.extend(refinery.fixed_joins.iter().copied());
+        joins
+    }
+
+    /// Every Zone of the Refinery wears a Material Set, and the plan's edge has an outside (oily gravel under the blast wall's concrete).
+    #[test]
+    fn every_refinery_zone_has_a_material_set() {
+        use crate::maps::map::{MapId, materials};
+        let refinery = MapId::Refinery.layout();
+        assert_eq!(refinery.zones.len(), 15);
+        for &zone in refinery.zones {
+            assert!(materials(Some(zone)).is_some(), "{} has no Material Set", zone.name());
+        }
+        let outside = refinery.outside.expect("the Refinery has an outside");
+        assert_eq!((outside.floor, outside.wall), (Material::TarredGravel, Material::RebarReinforcedConcrete));
+    }
+
+    /// Two Zones that are joined (by a Door, a stair's foot or the fixed join) differ in the material of their floor or their wall, and where either is on the
+    /// ground (the yards and the sheds) in the family of their floor or their wall. The catwalks' joins are all steel, so there it is the material that differs.
+    #[test]
+    fn refinery_joined_neighbours_differ_in_floor_or_wall_material_and_in_family_on_the_ground() {
+        use crate::maps::map::materials;
+        let joins = refinery_joins();
+        assert!(joins.len() >= 20, "only {} joins", joins.len());
+        for (a, b) in joins {
+            let (ma, mb) = (materials(Some(a)).unwrap(), materials(Some(b)).unwrap());
+            assert!(ma.floor != mb.floor || ma.wall != mb.wall, "{} and {} share floor and wall", a.name(), b.name());
+            if a.floor() == 0.0 || b.floor() == 0.0 {
+                assert!(
+                    ma.floor.family() != mb.floor.family() || ma.wall.family() != mb.wall.family(),
+                    "{} and {} share floor and wall families",
+                    a.name(),
+                    b.name()
+                );
+            }
+        }
+    }
+
+    /// The yards form a checkerboard: across every Door between two of them, one's floor is Concrete and the other's Dirt. The sheds differ in their walls
+    /// instead, steel against the blast wall's concrete.
+    #[test]
+    fn refinery_yards_checkerboard_concrete_and_dirt() {
+        use crate::audio::cues::FloorFamily::{Concrete, Dirt, Metal};
+        use crate::maps::map::materials;
+        use crate::maps::zone::ZoneId::*;
+        let floor = |zone| materials(Some(zone)).unwrap().floor.family();
+        let yards = [Gatehouse, TankerDock, TankFarm, RackRoad, FlareYard, ColumnYard, Substation];
+        for zone in yards {
+            assert!(matches!(floor(zone), Concrete | Dirt), "{}", zone.name());
+        }
+        let mut grid_doors = 0;
+        for (a, b) in refinery_joins() {
+            if yards.contains(&a) && yards.contains(&b) {
+                grid_doors += 1;
+                assert_ne!(floor(a), floor(b), "{} and {} are the same ground", a.name(), b.name());
+            }
+        }
+        assert!(grid_doors >= 6, "{grid_doors} yard-to-yard Doors");
+        for shed in [FittingShop, CompressorHouse, ControlHouse] {
+            assert_eq!(materials(Some(shed)).unwrap().wall.family(), Metal, "{}", shed.name());
+        }
+    }
+
+    /// The Refinery's eight new sets are real files on disk, in the families and tile sizes the look plan gives them.
+    #[test]
+    fn refinery_material_sets_are_on_disk_with_their_families() {
+        use crate::audio::cues::FloorFamily::*;
+        let sets = [
+            (Material::RebarReinforcedConcrete, Concrete, 2.0),
+            (Material::TarredGravel, Dirt, 2.2),
+            (Material::BurnedGround01, Dirt, 1.0),
+            (Material::MetalGrateRusty, Metal, 0.5),
+            (Material::MetalPlate, Metal, 0.5),
+            (Material::RustyMetal04, Metal, 2.0),
+            (Material::ContainerSide, Metal, 1.94),
+            (Material::CorrugatedIron03, Metal, 2.0),
         ];
         for (material, family, tile) in sets {
             assert_eq!(material.family(), family, "{material:?}");

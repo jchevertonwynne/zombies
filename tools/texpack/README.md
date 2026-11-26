@@ -67,6 +67,7 @@ cargo run --release -p texpack -- --stain 1 --out assets/decals/oil_stain_1
 `--gain` scales the opacity, for decals that are too faint to read in game (the ambientCG leaks
 take 3.5). `--stain <seed>` makes a procedural oil stain here, so it's CC0 with
 `tools/texpack --stain <seed>` as its source. Add each decal to the manifest by hand.
+`--hazard <seed>` likewise makes the Refinery's 256 px black-and-yellow hazard stripe (`decals/hazard_stripe`).
 
 ## A sky
 

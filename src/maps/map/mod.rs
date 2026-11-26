@@ -844,19 +844,25 @@ pub fn materials(zone: Option<ZoneId>) -> Option<MaterialSet> {
         Undercroft => (SlateFloor02, MedievalBlocks05, Some(Leaks), &[]),
         StrongRoom => (SmoothConcreteFloor, MetalPlate02, None, &[]),
         PumpRoom => (HangarConcreteFloor, BrickWall001, Some(OilStains), &[]),
-        // The Refinery, for now in the families the Maps already have (its own Material Sets come with its Look): gravel, asphalt and concrete in
-        // the yards, tin and plate in the sheds, steel grating and plate on the catwalks. No decals yet.
-        Gatehouse => (AsphaltFloor, ConcreteBlockWall02, None, &[]),
-        TankerDock => (GravelGround01, ConcreteWall006, None, &[]),
-        FittingShop => (ConcreteFloor02, RustyCorrugatedIron, None, &[]),
-        TankFarm => (WornConcreteFloor, ConcreteWall007, None, &[]),
-        RackRoad => (SandyGravel02, RustyMetal02, None, &[]),
-        CompressorHouse => (HangarConcreteFloor, GreenMetalRust, None, &[]),
-        FlareYard => (DamagedConcreteFloor03, BrickWall001, None, &[]),
-        ColumnYard => (SmoothConcreteFloor, ConcreteWall008, None, &[]),
-        Substation => (GranularConcrete, ConcreteSlabWall02, None, &[]),
-        RackWalk | TankWalk | PipeBridge | ColumnPlatform | TowerDeck => (MetalPlate02, BlueMetalPlate, None, &[]),
-        ControlHouse => (BrushedConcrete04, PaintedMetalShutter, None, &[]),
+        // The Refinery (#510 §1): the blast wall is one rebar concrete all round, so the nine yards and sheds checkerboard across their Doors
+        // by their floors (Concrete over Dirt over Concrete...) and the sheds by their walls (steel). The catwalk web is all steel, so there
+        // joined Zones differ by material, not family. Oil on the yards' and Compressor House's floors, damp in the Tank Farm, soot where the
+        // flare and the furnace burn.
+        Gatehouse => (AsphaltFloor, RebarReinforcedConcrete, Some(OilStains), &[]),
+        TankerDock => (TarredGravel, RebarReinforcedConcrete, Some(OilStains), &[]),
+        FittingShop => (ConcreteFloor02, CorrugatedIron03, Some(OilStains), &[]),
+        TankFarm => (CrackedConcrete, RebarReinforcedConcrete, Some(Leaks), &[]),
+        RackRoad => (TarredGravel, RebarReinforcedConcrete, Some(OilStains), &[]),
+        CompressorHouse => (MetalPlate, RustyCorrugatedIron, Some(OilStains), &[]),
+        FlareYard => (BurnedGround01, RebarReinforcedConcrete, Some(Soot), &[]),
+        ColumnYard => (WornConcreteFloor, RebarReinforcedConcrete, Some(Soot), &[]),
+        Substation => (GravelGround01, RebarReinforcedConcrete, None, &[]),
+        RackWalk => (MetalPlate, RustyMetal04, None, &[]),
+        TankWalk => (MetalGrateRusty, RustyMetal02, None, &[]),
+        PipeBridge => (MetalGrateRusty, GreenMetalRust, None, &[]),
+        ColumnPlatform => (MetalGrateRusty, RustyMetal04, None, &[]),
+        TowerDeck => (MetalPlate, BlueMetalPlate, None, &[]),
+        ControlHouse => (PaintedConcrete, ContainerSide, None, &[]),
     };
     let props = if props.is_empty() { zone_props(zone) } else { props };
     Some(MaterialSet { floor, wall, decals, props })

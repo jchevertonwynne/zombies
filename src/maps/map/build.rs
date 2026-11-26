@@ -14,7 +14,7 @@ use crate::state::InRun;
 use crate::tuning::*;
 use crate::maps::zone::ZoneId;
 
-use super::decals::{Decal, DecalFamily, DecalPiece, Instead, leak_transform, leaks, page_keep_out, page_transform, pages, stain_transform, stains};
+use super::decals::{Decal, DecalFamily, DecalPiece, Instead, leak_transform, leaks, page_keep_out, page_transform, pages, soot, soot_sources, soot_transform, stain_transform, stains};
 use super::door_look::{self, Part, Piece};
 use super::fitting::FittedModel;
 use super::garnish::{FLAME_HEIGHT, FLAME_WIDTH, Flame, Garnish, Garnished, POOL_GLOW, POOL_RADIUS, garnish};
@@ -1189,6 +1189,14 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                     let face = if along_x { Vec3::new(leak.along, leak.top, surface) } else { Vec3::new(surface, leak.top, leak.along) };
                     self.commands.spawn((InRun, DecalPiece(leak.decal), leak_transform(&leak, face, normal)));
                 }
+            }
+        }
+        // Soot streaked up from the foot of the wall where a fire is near, whatever the wall's height.
+        if self.repaint.is_none() && materials(face.zone).and_then(|set| set.decals) == Some(DecalFamily::Soot) {
+            let normal = if along_x { Vec3::Z * out } else { Vec3::X * out };
+            let base = if foot == Some(bottom) { bottom + SKIRTING.x } else { bottom };
+            for streak in soot(from, to, base, top, line + out * half, along_x, soot_sources(self.map)) {
+                self.commands.spawn((InRun, DecalPiece(Decal::Soot), soot_transform(&streak, line + out * half, along_x, normal)));
             }
         }
     }
