@@ -29,6 +29,7 @@ use super::{DOOR_HEIGHT, Layout, RaisedFloor, STOREY, Slope, palette};
 
 #[path = "refinery/data.rs"]
 mod data;
+pub(crate) mod sky;
 
 pub(in crate::maps::map) use data::WINDOWS;
 
@@ -145,12 +146,11 @@ pub(super) const REFINERY: Layout = Layout {
         ZoneId::TowerDeck,
     ],
     roofed: true,
-    // The plan's edge is the blast wall: the ground round it is oily gravel and its outer faces are the blast wall's concrete (the Look ticket
-    // draws the silhouettes beyond it).
+    // The plan's edge is the blast wall: the ground round it is oily gravel and its outer faces are the blast wall's concrete (`sky` draws the
+    // silhouettes beyond it).
     outside: Some(super::Outside { floor: super::textures::Material::TarredGravel, wall: super::textures::Material::RebarReinforcedConcrete }),
-    sun: Vec3::new(0.3, -1.0, 0.5),
-    // A copy of the Village's night until the Refinery's own Look (#510).
-    look: crate::maps::look::VILLAGE_NIGHT,
+    sun: Vec3::new(0.4, -1.0, -0.6),
+    look: crate::maps::look::FLARE_NIGHT,
     lamp_style: super::LampStyle::Bulb,
     bulb_zones: &[],
     plan: (Vec2::new(-60.0, 0.0), Vec2::new(60.0, 90.0)),
