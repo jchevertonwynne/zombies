@@ -22,6 +22,7 @@ mod door_look;
 pub mod decals;
 mod dam;
 pub(crate) mod archive;
+mod refinery;
 mod fitting;
 mod garnish;
 mod greybox;
@@ -84,11 +85,14 @@ pub enum MapId {
     /// A flooded library under a university: three levels going down from reading halls through a ring of stack
     /// halls to a flooded cellar, the Power in its pump room and Pack-a-Punch in its strong room.
     Archive,
+    /// An oil refinery at night: a grid of yards and sheds under a web of catwalks, its lanes cut by burning Fuel Lines, the Power in its
+    /// control house and Pack-a-Punch on the deck at the top of its column.
+    Refinery,
 }
 
 impl MapId {
-    pub const ALL: [MapId; 8] =
-        [MapId::Greybox, MapId::Quarry, MapId::Village, MapId::Dam, MapId::Cove, MapId::Polder, MapId::Sanatorium, MapId::Archive];
+    pub const ALL: [MapId; 9] =
+        [MapId::Greybox, MapId::Quarry, MapId::Village, MapId::Dam, MapId::Cove, MapId::Polder, MapId::Sanatorium, MapId::Archive, MapId::Refinery];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -100,6 +104,7 @@ impl MapId {
             MapId::Polder => "Polder",
             MapId::Sanatorium => "Sanatorium",
             MapId::Archive => "Archive",
+            MapId::Refinery => "Refinery",
         }
     }
 
@@ -114,6 +119,7 @@ impl MapId {
             MapId::Polder => "A canal town behind a sea dyke, its bridges and its lock leading to the pumping station.",
             MapId::Sanatorium => "A hospital on a fogbound hill, its wards sealed in turn by the Quarantine.",
             MapId::Archive => "A flooded library under a university, its stacks rolling on rails at the Players' hand.",
+            MapId::Refinery => "An oil refinery at night, its lanes cut by burning Fuel Lines.",
         }
     }
 
@@ -128,6 +134,7 @@ impl MapId {
             MapId::Polder => &polder::POLDER,
             MapId::Sanatorium => &sanatorium::SANATORIUM,
             MapId::Archive => &archive::ARCHIVE,
+            MapId::Refinery => &refinery::REFINERY,
         }
     }
 }
@@ -310,7 +317,8 @@ const fn concat<T: Copy, const A: usize, const B: usize, const N: usize>(a: [T; 
 /// Every Map's windows, each Map's in a run of its own in `MapId::ALL` order, so a `BarrierId`
 /// names one window in one Map: the Zone it lets into, its centre on the wall line at the height
 /// of the floor it lets onto, and the way out. Each is planked up by its Barrier.
-pub const WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_ARCHIVE_WINDOWS.len() + archive::WINDOWS.len()] = concat(BEFORE_THE_ARCHIVE_WINDOWS, archive::WINDOWS);
+pub const WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_REFINERY_WINDOWS.len() + refinery::WINDOWS.len()] = concat(BEFORE_THE_REFINERY_WINDOWS, refinery::WINDOWS);
+const BEFORE_THE_REFINERY_WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_ARCHIVE_WINDOWS.len() + archive::WINDOWS.len()] = concat(BEFORE_THE_ARCHIVE_WINDOWS, archive::WINDOWS);
 const BEFORE_THE_ARCHIVE_WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_SANATORIUM_WINDOWS.len() + sanatorium::WINDOWS.len()] = concat(BEFORE_THE_SANATORIUM_WINDOWS, sanatorium::WINDOWS);
 const BEFORE_THE_SANATORIUM_WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_POLDER_WINDOWS.len() + polder::WINDOWS.len()] = concat(BEFORE_THE_POLDER_WINDOWS, polder::WINDOWS);
 const BEFORE_THE_POLDER_WINDOWS: [(ZoneId, Vec3, Vec2); BEFORE_THE_COVE_WINDOWS.len() + cove::WINDOWS.len()] = concat(BEFORE_THE_COVE_WINDOWS, cove::WINDOWS);
@@ -321,7 +329,8 @@ const GREYBOX_AND_QUARRY_WINDOWS: [(ZoneId, Vec3, Vec2); greybox::WINDOWS.len() 
 /// Every Map's Box Locations, each Map's in a run of its own, in order: the Zone, where the Box's
 /// centre sits on the floor, and which way its front faces (where the Player stands). Every Run
 /// starts the Box at its Map's first.
-pub const BOX_LOCATIONS: [(ZoneId, Vec3, Vec2); BEFORE_THE_ARCHIVE_BOXES.len() + archive::BOX_LOCATIONS.len()] = concat(BEFORE_THE_ARCHIVE_BOXES, archive::BOX_LOCATIONS);
+pub const BOX_LOCATIONS: [(ZoneId, Vec3, Vec2); BEFORE_THE_REFINERY_BOXES.len() + refinery::BOX_LOCATIONS.len()] = concat(BEFORE_THE_REFINERY_BOXES, refinery::BOX_LOCATIONS);
+const BEFORE_THE_REFINERY_BOXES: [(ZoneId, Vec3, Vec2); BEFORE_THE_ARCHIVE_BOXES.len() + archive::BOX_LOCATIONS.len()] = concat(BEFORE_THE_ARCHIVE_BOXES, archive::BOX_LOCATIONS);
 const BEFORE_THE_ARCHIVE_BOXES: [(ZoneId, Vec3, Vec2); BEFORE_THE_SANATORIUM_BOXES.len() + sanatorium::BOX_LOCATIONS.len()] = concat(BEFORE_THE_SANATORIUM_BOXES, sanatorium::BOX_LOCATIONS);
 const BEFORE_THE_SANATORIUM_BOXES: [(ZoneId, Vec3, Vec2); BEFORE_THE_POLDER_BOXES.len() + polder::BOX_LOCATIONS.len()] = concat(BEFORE_THE_POLDER_BOXES, polder::BOX_LOCATIONS);
 const BEFORE_THE_POLDER_BOXES: [(ZoneId, Vec3, Vec2); BEFORE_THE_COVE_BOXES.len() + cove::BOX_LOCATIONS.len()] = concat(BEFORE_THE_COVE_BOXES, cove::BOX_LOCATIONS);
@@ -796,6 +805,19 @@ pub fn materials(zone: Option<ZoneId>) -> Option<MaterialSet> {
         Undercroft => (SlateFloor02, MedievalBlocks05, Some(Leaks), &[]),
         StrongRoom => (SmoothConcreteFloor, MetalPlate02, None, &[]),
         PumpRoom => (HangarConcreteFloor, BrickWall001, Some(OilStains), &[]),
+        // The Refinery, for now in the families the Maps already have (its own Material Sets come with its Look): gravel, asphalt and concrete in
+        // the yards, tin and plate in the sheds, steel grating and plate on the catwalks. No decals yet.
+        Gatehouse => (AsphaltFloor, ConcreteBlockWall02, None, &[]),
+        TankerDock => (GravelGround01, ConcreteWall006, None, &[]),
+        FittingShop => (ConcreteFloor02, RustyCorrugatedIron, None, &[]),
+        TankFarm => (WornConcreteFloor, ConcreteWall007, None, &[]),
+        RackRoad => (SandyGravel02, RustyMetal02, None, &[]),
+        CompressorHouse => (HangarConcreteFloor, GreenMetalRust, None, &[]),
+        FlareYard => (DamagedConcreteFloor03, BrickWall001, None, &[]),
+        ColumnYard => (SmoothConcreteFloor, ConcreteWall008, None, &[]),
+        Substation => (GranularConcrete, ConcreteSlabWall02, None, &[]),
+        RackWalk | TankWalk | PipeBridge | ColumnPlatform | TowerDeck => (MetalPlate02, BlueMetalPlate, None, &[]),
+        ControlHouse => (BrushedConcrete04, PaintedMetalShutter, None, &[]),
     };
     let props = if props.is_empty() { zone_props(zone) } else { props };
     Some(MaterialSet { floor, wall, decals, props })
@@ -1037,6 +1059,22 @@ pub fn palette(zone: Option<ZoneId>) -> Palette {
         Some(StrongRoom) => paints((0.37, 0.37, 0.21), (0.32, 0.20, 0.40), (0.78, 0.62, 0.30), (1.00, 0.72, 0.45)),
         // Greasy plate under bottle-green brick and brass.
         Some(PumpRoom) => paints((0.25, 0.26, 0.11), (0.27, 0.38, 0.21), (0.72, 0.50, 0.20), (1.00, 0.62, 0.32)),
+        // The Refinery, at night under sodium and flare light: dark ground, assorted steel and paint, hazard trim, a cold control house.
+        Some(Gatehouse) => paints((0.11, 0.08, 0.17), (0.13, 0.31, 0.25), (0.85, 0.5, 0.1), (1.0, 0.62, 0.28)),
+        Some(TankerDock) => paints((0.17, 0.12, 0.15), (0.13, 0.12, 0.18), (0.85, 0.5, 0.1), (1.0, 0.62, 0.28)),
+        Some(FittingShop) => paints((0.08, 0.14, 0.06), (0.37, 0.41, 0.33), (0.85, 0.5, 0.1), (1.0, 0.8, 0.55)),
+        Some(TankFarm) => paints((0.12, 0.22, 0.23), (0.16, 0.17, 0.19), (0.85, 0.5, 0.1), (1.0, 0.62, 0.28)),
+        Some(RackRoad) => paints((0.15, 0.06, 0.15), (0.49, 0.45, 0.38), (0.85, 0.5, 0.1), (1.0, 0.62, 0.28)),
+        Some(CompressorHouse) => paints((0.1, 0.12, 0.08), (0.41, 0.31, 0.41), (0.85, 0.5, 0.1), (1.0, 0.8, 0.55)),
+        Some(FlareYard) => paints((0.16, 0.22, 0.13), (0.47, 0.3, 0.31), (0.85, 0.5, 0.1), (1.0, 0.58, 0.25)),
+        Some(ColumnYard) => paints((0.19, 0.05, 0.16), (0.28, 0.11, 0.23), (0.85, 0.5, 0.1), (1.0, 0.62, 0.28)),
+        Some(Substation) => paints((0.06, 0.1, 0.18), (0.38, 0.37, 0.22), (0.85, 0.5, 0.1), (1.0, 0.62, 0.28)),
+        Some(RackWalk) => paints((0.24, 0.1, 0.17), (0.22, 0.32, 0.26), (0.85, 0.5, 0.1), (1.0, 0.72, 0.4)),
+        Some(TankWalk) => paints((0.18, 0.23, 0.09), (0.11, 0.24, 0.27), (0.85, 0.5, 0.1), (1.0, 0.72, 0.4)),
+        Some(PipeBridge) => paints((0.23, 0.11, 0.21), (0.19, 0.19, 0.4), (0.85, 0.5, 0.1), (1.0, 0.72, 0.4)),
+        Some(ControlHouse) => paints((0.23, 0.09, 0.12), (0.43, 0.43, 0.27), (0.85, 0.5, 0.1), (0.85, 0.95, 1.0)),
+        Some(ColumnPlatform) => paints((0.11, 0.1, 0.23), (0.35, 0.2, 0.39), (0.85, 0.5, 0.1), (1.0, 0.72, 0.4)),
+        Some(TowerDeck) => paints((0.22, 0.1, 0.09), (0.22, 0.38, 0.44), (0.85, 0.5, 0.1), (1.0, 0.72, 0.4)),
         // Bare ground round weathered brick.
         None => paints((0.15, 0.17, 0.12), (0.3, 0.21, 0.17), (0.42, 0.4, 0.36), (1.0, 0.75, 0.45)),
     }
@@ -2006,7 +2044,7 @@ pub(crate) mod tests {
 
     #[test]
     fn every_point_of_an_indoor_floor_of_a_roofed_map_is_within_reach_of_a_lamp_in_its_zone() {
-        for map in [MapId::Greybox, MapId::Quarry, MapId::Archive] {
+        for map in [MapId::Greybox, MapId::Quarry, MapId::Archive, MapId::Refinery] {
         let layout = map.layout();
         assert!(layout.roofed, "{map:?}");
         for &zone in layout.zones.iter().filter(|&&zone| layout.indoor(zone)) {
@@ -2073,11 +2111,14 @@ pub(crate) mod tests {
         }
     }
 
-    /// A `BarrierId` is a `u8`: every Map's windows share its 256 values (the Archive's 28 take it to 198, leaving the
-    /// Refinery about 57).
+    /// A `BarrierId` is a `u8`: every Map's windows share its 256 values (the Archive's 28 took it to 198, and the Refinery's 29 take it to
+    /// 227, leaving 29).
     #[test]
     fn barrier_ids_fit_a_u8() {
         assert!(WINDOWS.len() <= 256, "{} windows is more than a BarrierId's 256", WINDOWS.len());
+        // The Refinery's 29 take it to 227 of 256: 144 + 26 + 28 + 29.
+        assert_eq!(WINDOWS.len(), 227);
+        assert_eq!(MapId::Refinery.barriers().count(), 29);
     }
 
     /// Nothing a Map places is Out of Bounds: its path nodes, Seats, Spawn Points, Vents, Box
@@ -2386,8 +2427,13 @@ pub(crate) mod tests {
                 }
                 overlaps += 1;
                 let at = (alo.max(blo) + ahi.min(bhi)) / 2.0;
-                assert_eq!(zone_at(a.map(), at).map(ZoneId::map), Some(a.map()));
-                assert_eq!(zone_at(b.map(), at).map(ZoneId::map), Some(b.map()));
+                // (Unless the point is in one of the Zone's notches, where the Refinery's stair bays and catwalk gaps are no one's.)
+                if a.has(at) {
+                    assert_eq!(zone_at(a.map(), at).map(ZoneId::map), Some(a.map()));
+                }
+                if b.has(at) {
+                    assert_eq!(zone_at(b.map(), at).map(ZoneId::map), Some(b.map()));
+                }
             }
         }
         assert!(overlaps > 0, "no two Maps' Zones overlap");
@@ -3244,7 +3290,7 @@ pub(crate) mod tests {
                 // Outside every Zone, or (the Polder's, in a partition's walled strip) in its own.
                 let (own, ..) = WINDOWS[barrier.0 as usize];
                 let there = zone_at(map, window_spawn(barrier) + Vec3::Y * 0.1);
-                assert!(there.is_none() || (matches!(map, MapId::Polder | MapId::Archive) && there == Some(own)), "window {}'s Spawn Point is indoors", barrier.0);
+                assert!(there.is_none() || (matches!(map, MapId::Polder | MapId::Archive | MapId::Refinery) && there == Some(own)), "window {}'s Spawn Point is indoors", barrier.0);
             }
         }
     }

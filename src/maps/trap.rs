@@ -98,6 +98,16 @@ pub(crate) fn traps(map: MapId) -> &'static [((ZoneId, ZoneId), Vec3, f32)] {
             ];
             &SPOTS
         }
+        // The inner gate (D3) from the Gatehouse to the Rack Road, the Rack Road's door to the Column Yard (D9) and the Compressor House's to the
+        // Substation (D10), all in fire walls along x. None is at a Blaze, and a Valve is not a Trap.
+        MapId::Refinery => {
+            const SPOTS: [((ZoneId, ZoneId), Vec3, f32); 3] = [
+                ((ZoneId::Gatehouse, ZoneId::RackRoad), Vec3::new(-10.5, 0.0, 20.0), -8.3),
+                ((ZoneId::RackRoad, ZoneId::ColumnYard), Vec3::new(11.5, 0.0, 60.0), 13.7),
+                ((ZoneId::CompressorHouse, ZoneId::Substation), Vec3::new(40.0, 0.0, 60.0), 42.2),
+            ];
+            &SPOTS
+        }
     }
 }
 

@@ -405,6 +405,17 @@ pub(crate) fn equipment_walls(map: MapId) -> &'static [(EquipmentWall, ZoneId, V
             ];
             &SPOTS
         }
+        MapId::Refinery => {
+            const SPOTS: [(EquipmentWall, ZoneId, Vec3, Vec3); 3] = [
+                // On the Fitting Shop's east wall.
+                (EquipmentWall::Frags, ZoneId::FittingShop, Vec3::new(59.8, 1.5, 6.0), Vec3::NEG_X),
+                // On the Girder Ring's west cage wall (a narrow catwalk).
+                (EquipmentWall::Claymore, ZoneId::TankWalk, Vec3::new(-57.8, STOREY + 1.5, 36.0), Vec3::X),
+                // On the Flare Yard's north blast wall.
+                (EquipmentWall::BowieKnife, ZoneId::FlareYard, Vec3::new(-38.0, 1.5, 89.8), Vec3::NEG_Z),
+            ];
+            &SPOTS
+        }
     }
 }
 

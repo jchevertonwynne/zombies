@@ -227,10 +227,40 @@ pub enum ZoneId {
     StrongRoom,
     /// The pump room under the Lecture Theatre, with the Power Switch.
     PumpRoom,
+    /// The Refinery's start: the gate, the booth and the weighbridge island, out of doors, with Quick Revive and the first Wall Weapons.
+    Gatehouse,
+    /// The Refinery's two parked tankers and a 1.2 m loading platform, out of doors, with the Dock Line's Blaze.
+    TankerDock,
+    /// The Refinery's fitting shed, with Speed Cola.
+    FittingShop,
+    /// The Refinery's two tanks, 12 m across and 10 m tall, out of doors, with the Box at the start.
+    TankFarm,
+    /// The Refinery's pipe rack road: two lanes either side of the channel under the Rack Walk, out of doors.
+    RackRoad,
+    /// The Refinery's compressor house, indoors.
+    CompressorHouse,
+    /// The Refinery's flare stack and knockout drum, out of doors.
+    FlareYard,
+    /// The Refinery's cracking column and fired heater, out of doors.
+    ColumnYard,
+    /// The Refinery's fenced transformer pen under the Control House's stilts, out of doors, with Double Tap.
+    Substation,
+    /// The catwalk along the top of the pipe rack, with Juggernog at its south end.
+    RackWalk,
+    /// The catwalks over the Tank Farm: the Girder Ring round Tank A and the North Gantry.
+    TankWalk,
+    /// The catwalk over the Rack Road and the Compressor House's roof to the Control House.
+    PipeBridge,
+    /// The Refinery's control house on stilts, indoors, with the Power Switch.
+    ControlHouse,
+    /// The catwalk ring round the cracking column.
+    ColumnPlatform,
+    /// The deck at the top of the column's stair, with Pack-a-Punch.
+    TowerDeck,
 }
 
 impl ZoneId {
-    pub const ALL: [ZoneId; 110] = [
+    pub const ALL: [ZoneId; 125] = [
         ZoneId::StartRoom,
         ZoneId::WestHall,
         ZoneId::Balcony,
@@ -341,6 +371,21 @@ impl ZoneId {
         ZoneId::Undercroft,
         ZoneId::StrongRoom,
         ZoneId::PumpRoom,
+        ZoneId::Gatehouse,
+        ZoneId::TankerDock,
+        ZoneId::FittingShop,
+        ZoneId::TankFarm,
+        ZoneId::RackRoad,
+        ZoneId::CompressorHouse,
+        ZoneId::FlareYard,
+        ZoneId::ColumnYard,
+        ZoneId::Substation,
+        ZoneId::RackWalk,
+        ZoneId::TankWalk,
+        ZoneId::PipeBridge,
+        ZoneId::ControlHouse,
+        ZoneId::ColumnPlatform,
+        ZoneId::TowerDeck,
     ];
 
     pub fn name(self) -> &'static str {
@@ -455,6 +500,21 @@ impl ZoneId {
             ZoneId::Undercroft => "Undercroft",
             ZoneId::StrongRoom => "Strong Room",
             ZoneId::PumpRoom => "Pump Room",
+            ZoneId::Gatehouse => "Gatehouse",
+            ZoneId::TankerDock => "Tanker Dock",
+            ZoneId::FittingShop => "Fitting Shop",
+            ZoneId::TankFarm => "Tank Farm",
+            ZoneId::RackRoad => "Rack Road",
+            ZoneId::CompressorHouse => "Compressor House",
+            ZoneId::FlareYard => "Flare Yard",
+            ZoneId::ColumnYard => "Column Yard",
+            ZoneId::Substation => "Substation",
+            ZoneId::RackWalk => "Rack Walk",
+            ZoneId::TankWalk => "Tank Walk",
+            ZoneId::PipeBridge => "Pipe Bridge",
+            ZoneId::ControlHouse => "Control House",
+            ZoneId::ColumnPlatform => "Column Platform",
+            ZoneId::TowerDeck => "Tower Deck",
         }
     }
 
@@ -475,6 +535,8 @@ impl ZoneId {
             | UpperLanding | OperatingTheatre | SunRoof | IsolationWard | ChildrensWard => MapId::Sanatorium,
             CatalogueHall | ReadingRoom | MapRoom | LectureTheatre | OldStacks | FolioStacks | PeriodicalStacks | NewStacks | Bindery | WellStair | FloodedCellar | Undercroft
             | StrongRoom | PumpRoom => MapId::Archive,
+            Gatehouse | TankerDock | FittingShop | TankFarm | RackRoad | CompressorHouse | FlareYard | ColumnYard | Substation | RackWalk | TankWalk | PipeBridge | ControlHouse
+            | ColumnPlatform | TowerDeck => MapId::Refinery,
         }
     }
 
@@ -508,6 +570,10 @@ impl ZoneId {
             LectureTheatre | OldStacks | FolioStacks | PeriodicalStacks | NewStacks | Bindery | WellStair => STOREY,
             FloodedCellar => 0.5,
             Undercroft | StrongRoom | PumpRoom => 0.0,
+            // The Refinery's three levels: the ground, the catwalks a storey up and the Tower Deck two.
+            Gatehouse | TankerDock | FittingShop | TankFarm | RackRoad | CompressorHouse | FlareYard | ColumnYard | Substation => 0.0,
+            RackWalk | TankWalk | PipeBridge | ControlHouse | ColumnPlatform => STOREY,
+            TowerDeck => 2.0 * STOREY,
         }
     }
 
@@ -528,6 +594,8 @@ impl ZoneId {
         const ROOF: f32 = 2.0 * STOREY + 1.0;
         /// The Archive's Reading level, a shade under its floor so a Player standing on it is inside (and the top of the Stacks level).
         const READING: f32 = 2.0 * STOREY - 0.25;
+        /// The Refinery's catwalks' top: a storey over their floors, a shade under the Tower Deck's.
+        const CATWALKS: f32 = 2.0 * STOREY - 0.25;
         let (x0, x1, y0, y1, z0, z1) = match self {
             ZoneId::StartRoom => (-14.0, 14.0, LOW, UPPER, 14.0, 26.0),
             ZoneId::WestHall => (-26.0, -14.0, LOW, TOP, -14.0, 26.0),
@@ -641,6 +709,24 @@ impl ZoneId {
             ZoneId::Undercroft => (-20.0, 0.0, LOW, UPPER, 20.0, 36.0),
             ZoneId::StrongRoom => (0.0, 20.0, LOW, UPPER, 20.0, 36.0),
             ZoneId::PumpRoom => (20.0, 36.0, LOW, UPPER, 0.0, 24.0),
+            // The Refinery: a 3 x 3 grid of yards and sheds on the ground, the catwalks a storey over them (their boxes stacked on the
+            // ground Zones'), and the Tower Deck a storey over the Column Platform. The Tank Walk's box is the bounding box of its three
+            // rectangles (`notches`).
+            ZoneId::Gatehouse => (-20.0, 20.0, LOW, UPPER, 0.0, 20.0),
+            ZoneId::TankerDock => (-60.0, -20.0, LOW, UPPER, 0.0, 20.0),
+            ZoneId::FittingShop => (20.0, 60.0, LOW, UPPER, 0.0, 20.0),
+            ZoneId::TankFarm => (-60.0, -20.0, LOW, UPPER, 20.0, 60.0),
+            ZoneId::RackRoad => (-20.0, 20.0, LOW, UPPER, 20.0, 60.0),
+            ZoneId::CompressorHouse => (20.0, 60.0, LOW, UPPER, 20.0, 60.0),
+            ZoneId::FlareYard => (-60.0, -20.0, LOW, UPPER, 60.0, 90.0),
+            ZoneId::ColumnYard => (-20.0, 20.0, LOW, UPPER, 60.0, 90.0),
+            ZoneId::Substation => (20.0, 60.0, LOW, UPPER, 60.0, 90.0),
+            ZoneId::RackWalk => (-4.0, 4.0, UPPER, CATWALKS, 20.0, 64.0),
+            ZoneId::TankWalk => (-58.0, -4.0, UPPER, CATWALKS, 30.0, 64.0),
+            ZoneId::PipeBridge => (4.0, 36.0, UPPER, CATWALKS, 52.0, 62.0),
+            ZoneId::ControlHouse => (24.0, 56.0, UPPER, CATWALKS, 62.0, 86.0),
+            ZoneId::ColumnPlatform => (-12.0, 12.0, UPPER, CATWALKS, 64.0, 88.0),
+            ZoneId::TowerDeck => (-8.0, 8.0, CATWALKS, 3.0 * STOREY, 68.0, 84.0),
         };
         // The Sanatorium's Upper Landing and Sun Roof are stacked over a ground Zone, so their
         // volumes can't reach down into the stairwells (Main Stair, Fire Escape) cut in their
@@ -653,10 +739,58 @@ impl ZoneId {
         (Vec3::new(x0, y0 - sunk, z0), Vec3::new(x1, y1, z1))
     }
 
+    /// The rectangles (x, z) cut out of the Zone's box, where no point counts as in it. The Refinery's stair bays are cut out of the
+    /// ground Zones' boxes they stand in (a bay stands in no ground Zone, as the Sanatorium's wells do), and its Tank Walk, three
+    /// rectangles of catwalk, is the bounding box of them less two gaps and the stair of S3. Every other Zone has none.
+    pub fn notches(self) -> &'static [(Vec2, Vec2)] {
+        match self {
+            ZoneId::TankFarm => &TANK_FARM_NOTCHES,
+            ZoneId::FlareYard => &FLARE_YARD_NOTCHES,
+            ZoneId::RackRoad => &RACK_ROAD_NOTCHES,
+            ZoneId::ColumnYard => &COLUMN_YARD_NOTCHES,
+            ZoneId::Substation => &SUBSTATION_NOTCHES,
+            ZoneId::TankWalk => &TANK_WALK_NOTCHES,
+            _ => &[],
+        }
+    }
+
+    /// Whether the body `min`..`max` is wholly inside the Zone: inside its box and clear of its notches.
+    pub fn holds(self, min: Vec3, max: Vec3) -> bool {
+        let (lo, hi) = self.volume();
+        min.cmpge(lo).all() && max.cmple(hi).all() && !self.notches().iter().any(|&(a, b)| min.x < b.x && a.x < max.x && min.z < b.y && a.y < max.z)
+    }
+
+    /// Whether the point `at` is inside the Zone: inside its box and in none of its notches.
+    pub fn has(self, at: Vec3) -> bool {
+        let (lo, hi) = self.volume();
+        at.cmpge(lo).all() && at.cmple(hi).all() && !self.notches().iter().any(|&(a, b)| at.x > a.x && at.x < b.x && at.z > a.y && at.z < b.y)
+    }
+
     fn bit(self) -> u128 {
         1 << self as u32
     }
 }
+
+/// The Refinery's six stair bays, as rectangles (x, z): each climbs from a Door at its foot to a catwalk (S1 to S5) or to the Tower Deck (S6).
+pub const REFINERY_S1: (Vec2, Vec2) = (Vec2::new(-8.0, 32.0), Vec2::new(-4.0, 44.0));
+pub const REFINERY_S2: (Vec2, Vec2) = (Vec2::new(-50.0, 22.0), Vec2::new(-46.0, 30.0));
+pub const REFINERY_S3: (Vec2, Vec2) = (Vec2::new(-58.0, 54.0), Vec2::new(-54.0, 64.0));
+pub const REFINERY_S4: (Vec2, Vec2) = (Vec2::new(56.0, 66.0), Vec2::new(60.0, 76.0));
+pub const REFINERY_S5: (Vec2, Vec2) = (Vec2::new(-16.0, 68.0), Vec2::new(-12.0, 78.0));
+pub const REFINERY_S6: (Vec2, Vec2) = (Vec2::new(12.0, 70.0), Vec2::new(16.0, 82.0));
+
+const TANK_FARM_NOTCHES: [(Vec2, Vec2); 2] = [REFINERY_S2, REFINERY_S3];
+const FLARE_YARD_NOTCHES: [(Vec2, Vec2); 1] = [REFINERY_S3];
+const RACK_ROAD_NOTCHES: [(Vec2, Vec2); 1] = [REFINERY_S1];
+const COLUMN_YARD_NOTCHES: [(Vec2, Vec2); 2] = [REFINERY_S5, REFINERY_S6];
+const SUBSTATION_NOTCHES: [(Vec2, Vec2); 1] = [REFINERY_S4];
+/// The Tank Walk's box is the bounding box of the Girder Ring, the North Gantry and S3's landing: these are the three gaps in it (east of the
+/// Ring, north of the Gantry, and S3's flight).
+const TANK_WALK_NOTCHES: [(Vec2, Vec2); 3] = [
+    (Vec2::new(-38.0, 30.0), Vec2::new(-4.0, 50.0)),
+    (Vec2::new(-54.0, 54.0), Vec2::new(-4.0, 64.0)),
+    (Vec2::new(-58.0, 56.0), Vec2::new(-54.0, 64.0)),
+];
 
 /// A set of Zones.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -695,10 +829,7 @@ impl FromIterator<ZoneId> for ZoneSet {
 /// (`min`..`max`) is inside the new one; until then they stay in the old Zone. Only the Zones of
 /// `current`'s own Map are looked at.
 pub fn track_zone(current: ZoneId, min: Vec3, max: Vec3) -> ZoneId {
-    let fully_inside = |zone: ZoneId| {
-        let (lo, hi) = zone.volume();
-        min.cmpge(lo).all() && max.cmple(hi).all()
-    };
+    let fully_inside = |zone: ZoneId| zone.holds(min, max);
     if fully_inside(current) {
         return current;
     }
@@ -874,15 +1005,16 @@ mod tests {
             assert!((zone as u32) < 128);
             assert!(ZoneSet::from_iter([zone]).contains(zone));
         }
-        assert_eq!(ZoneId::ALL.len(), 110);
+        assert_eq!(ZoneId::ALL.len(), 125);
     }
 
-    /// The Archive's 14 Zones take the ZoneSet to 110 of its 128 bits, leaving 18 for the Refectory's Map.
+    /// The Archive's 14 Zones took the ZoneSet to 110 of its 128 bits and the Refinery's 15 to 125, leaving 3 for the next Map (no widening).
     #[test]
     fn zone_ids_fit_the_zone_set() {
         assert!(ZoneId::ALL.len() <= 128, "{} Zones is more than a ZoneSet's 128 bits", ZoneId::ALL.len());
-        assert_eq!(ZoneId::ALL.len(), 110);
+        assert_eq!(ZoneId::ALL.len(), 125);
         assert_eq!(ZoneId::ALL.into_iter().filter(|zone| zone.map() == MapId::Archive).count(), 14);
+        assert_eq!(ZoneId::ALL.into_iter().filter(|zone| zone.map() == MapId::Refinery).count(), 15);
     }
 
     #[test]

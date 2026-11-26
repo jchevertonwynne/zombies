@@ -1,4 +1,4 @@
-//! The screenshot tour, for approving a Map's look: `ZOMBIES_TOUR=<map>` (`greybox`, `quarry`, `village`, `dam`, `cove`, `polder`, `sanatorium` or `archive`) skips the menu, stands the Player at each of the Map's views in turn with no Zombies about,
+//! The screenshot tour, for approving a Map's look: `ZOMBIES_TOUR=<map>` (`greybox`, `quarry`, `village`, `dam`, `cove`, `polder`, `sanatorium`, `archive` or `refinery`) skips the menu, stands the Player at each of the Map's views in turn with no Zombies about,
 //! saves a 1920×1080 shot of the game window for each into `ZOMBIES_TOUR_OUT` (default `tour/`),
 //! and quits. The route views look from Zone to Zone through the Doors, which are hidden for them.
 //! `ZOMBIES_TOUR_TIDE=low|rising|high|falling` holds the Polder's Tide at that phase.
@@ -341,6 +341,29 @@ fn range_hold(name: &str) -> Option<(crate::maps::shifting::PiecePhase, bool)> {
     }
 }
 
+/// The Refinery: a view of each of its 15 Zones, then the Ledge, the Girder Ring, S3's flight and the weighbridge loop.
+const REFINERY: &[View] = &[
+    view("gatehouse", (-8.0, 0.0, 3.5), (0.0, 14.0), -0.03, false),
+    view("tanker-dock", (-28.0, 0.0, 2.5), (-44.0, 12.0), -0.03, false),
+    view("fitting-shop", (24.0, 0.0, 3.0), (48.0, 12.0), -0.03, false),
+    view("tank-farm", (-26.0, 0.0, 24.0), (-44.0, 40.0), 0.05, false),
+    view("rack-road", (-12.0, 0.0, 23.0), (-12.0, 50.0), 0.0, false),
+    view("compressor-house", (26.0, 0.0, 24.0), (48.0, 44.0), -0.03, false),
+    view("flare-yard", (-24.0, 0.0, 64.0), (-40.0, 84.0), 0.05, false),
+    view("column-yard", (-14.0, 0.0, 64.0), (0.0, 80.0), 0.1, false),
+    view("substation", (24.0, 0.0, 64.0), (40.0, 76.0), 0.0, false),
+    view("rack-walk", (0.0, 4.0, 22.0), (0.0, 60.0), -0.02, false),
+    view("tank-walk", (-48.0, 4.0, 32.0), (-30.0, 52.0), -0.05, false),
+    view("pipe-bridge", (6.0, 4.0, 57.0), (34.0, 57.0), -0.03, false),
+    view("control-house", (28.0, 4.0, 66.0), (50.0, 80.0), -0.03, false),
+    view("column-platform", (-9.0, 4.0, 67.0), (5.0, 82.0), 0.05, false),
+    view("tower-deck", (-5.0, 8.0, 71.0), (0.0, 82.0), -0.05, false),
+    view("rack-ledge", (2.0, 4.0, 30.0), (9.0, 30.0), -0.25, false),
+    view("girder-ring", (-56.0, 4.0, 48.0), (-48.0, 38.0), -0.1, false),
+    view("s3-stair", (-56.0, 0.0, 66.5), (-56.0, 56.0), 0.3, false),
+    view("weighbridge", (-14.0, 0.0, 4.0), (0.0, 12.0), 0.0, false),
+];
+
 /// The Polder: a view of each of its 16 Zones, then its bridges, the lock gates, the water and the dyke.
 const POLDER: &[View] = &[
     view("town-square-pump", (-12.0, 0.0, -34.0), (-4.0, -24.0), -0.05, false),
@@ -425,7 +448,8 @@ impl Tour {
             "polder" => (MapId::Polder, POLDER),
             "sanatorium" => (MapId::Sanatorium, SANATORIUM),
             "archive" => (MapId::Archive, ARCHIVE),
-            other => panic!("ZOMBIES_TOUR={other}: only greybox, dam, cove, village, quarry, polder, sanatorium and archive have views"),
+            "refinery" => (MapId::Refinery, REFINERY),
+            other => panic!("ZOMBIES_TOUR={other}: only greybox, dam, cove, village, quarry, polder, sanatorium, archive and refinery have views"),
         };
         let dir = std::env::var("ZOMBIES_TOUR_OUT").unwrap_or_else(|_| "tour".into());
         std::fs::create_dir_all(&dir).expect("ZOMBIES_TOUR_OUT is writable");

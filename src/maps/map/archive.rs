@@ -1200,7 +1200,7 @@ mod tests {
         }
         // The Archive's windows are a run of their own after the other Maps', each the size of its own table.
         assert_eq!(data::WINDOWS.len(), 28);
-        assert_eq!(usize::from(W0) + 28, crate::maps::map::WINDOWS.len());
+        assert_eq!(usize::from(W0) + 28 + crate::maps::map::refinery::WINDOWS.len(), crate::maps::map::WINDOWS.len());
         assert!(crate::maps::map::WINDOWS.len() <= 256, "a BarrierId is a u8");
     }
 
