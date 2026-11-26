@@ -218,6 +218,7 @@ pub struct WorldCheats<'w, 's> {
     barriers: Option<Res<'w, Barriers>>,
     doors: Query<'w, 's, &'static Door>,
     pieces: Query<'w, 's, &'static PieceState>,
+    lines: Option<Res<'w, crate::maps::fire::FuelLines>>,
     players: Players<'w, 's>,
     bodies: Query<'w, 's, &'static Transform, With<Player>>,
     begin: MessageWriter<'w, BeginRound>,
@@ -231,6 +232,7 @@ pub struct WorldCheats<'w, 's> {
     swing: MessageWriter<'w, SwingNearest>,
     tide: MessageWriter<'w, TurnTide>,
     quarantine: MessageWriter<'w, StepQuarantine>,
+    fuel_line: MessageWriter<'w, crate::maps::fire::StepFuelLine>,
     unlock_all: MessageWriter<'w, ToggleUnlockAll>,
     generators: Option<Res<'w, Generators>>,
     map: Option<Res<'w, MapId>>,
@@ -250,7 +252,7 @@ impl WorldCheats<'_, '_> {
         let open_doors: Vec<_> = self.doors.iter().filter(|door| door.open).filter_map(Door::route).collect();
         let rests = standing_rests(self.pieces.iter().map(|state| (state.id(), state.phase())), graph.map.layout().shifting.len());
         let barrier_open = |barrier| self.barriers.as_ref().is_some_and(|barriers| barriers.is_open(barrier));
-        spot_ahead(graph, spot.feet, forward, NavState::new(&open_doors, &barrier_open).with_rests(&rests))
+        spot_ahead(graph, spot.feet, forward, NavState::new(&open_doors, &barrier_open).with_rests(&rests).with_lit(self.lines.as_ref().map_or(crate::maps::fire::LitMask::NONE, |lines| lines.closed())))
     }
 
     /// Does a world one-shot for `player`, if `cheat` is one. `None` if it is not, `Some(true)` if
@@ -314,6 +316,14 @@ impl WorldCheats<'_, '_> {
                 self.quarantine.write(StepQuarantine);
                 true
             }
+            Cheat::StepFuelLine => {
+                if !self.map.as_ref().is_some_and(|map| !map.layout().fuel_lines.is_empty()) {
+                    return Some(false);
+                }
+                let Ok(body) = self.bodies.get(player) else { return Some(false) };
+                self.fuel_line.write(crate::maps::fire::StepFuelLine { at: body.translation });
+                true
+            }
             Cheat::UnlockAll => {
                 if !self.gauntlet() {
                     return Some(false);
@@ -358,6 +368,7 @@ pub fn add_messages(app: &mut App) {
         .add_message::<SwingNearest>()
         .add_message::<TurnTide>()
         .add_message::<StepQuarantine>()
+        .add_message::<crate::maps::fire::StepFuelLine>()
         .add_message::<ToggleUnlockAll>();
 }
 

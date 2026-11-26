@@ -110,8 +110,18 @@ mod tests {
     /// 21, is refused.
     #[test]
     fn a_player_on_the_version_before_the_quarantine_is_refused() {
-        assert_eq!(PROTOCOL, 22);
         let ToPlayer::Refused(why) = join_with(21) else {
+            panic!("expected a refusal");
+        };
+        assert_eq!(why, Refusal::Version);
+    }
+
+    /// The Fuel Lines' `WorldEvent` (and the Developer step's `Cheat`) broke the wire format again (#560), so a game on the version
+    /// before it, 22, is refused.
+    #[test]
+    fn a_player_on_the_version_before_the_fuel_lines_is_refused() {
+        assert_eq!(PROTOCOL, 23);
+        let ToPlayer::Refused(why) = join_with(22) else {
             panic!("expected a refusal");
         };
         assert_eq!(why, Refusal::Version);

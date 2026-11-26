@@ -108,6 +108,7 @@ pub(super) const POLDER: Layout = Layout {
     fixed_joins: &[],
     shifting: &SHIFTING,
     wings: &[],
+    fuel_lines: &[],
     nav_nodes: data::NODES,
     nav_edges: data::EDGES,
     jump_pads: &[],

@@ -2101,6 +2101,20 @@ pub const QUARANTINE_POUND_REACH: f32 = 1.6;
 /// How often a Zombie's route to the Players is checked for being cut off.
 pub const QUARANTINE_STRAND_CHECK_SECS: f32 = 0.5;
 
+// Fire (the Refinery's Fuel Lines)
+/// A Valve's price to Shut a Lit Fuel Line. Flat: no Power, no Co-op scaling, and no Trap Boon applies.
+pub const VALVE_PRICE: u64 = 250;
+/// How long a Fuel Line stays Shut before its gas comes back.
+pub const SHUT_SECS: f32 = 45.0;
+/// How long the gas hisses before a Fuel Line lights again. It burns nothing, but Zombies still avoid it.
+pub const FLARE_UP_SECS: f32 = 4.0;
+/// How long a Fuel Line must have been Shut before either of its Valves relights it, for free, straight into a Flare-up.
+pub const RELIGHT_AFTER_SECS: f32 = 10.0;
+/// How far a body's feet may be above or below a Blaze's floor and still be in it: a hop over a Blaze is out of it.
+pub const BLAZE_REACH: f32 = 0.5;
+/// How far a Zombie's straight walk keeps from a closed Blaze's rectangle.
+pub const BLAZE_WALK_MARGIN: f32 = 0.3;
+
 // Teleporter
 /// After activating a Pad, the Player has this long to use the Mainframe and Link it.
 pub const TELEPORTER_LINK_SECS: f32 = 30.0;

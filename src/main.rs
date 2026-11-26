@@ -104,6 +104,7 @@ fn main() -> AppExit {
             weapons::pack_a_punch::PackAPunchPlugin,
             weapons::burn::BurnPlugin,
             maps::trap::TrapPlugin,
+            maps::fire::FirePlugin,
             maps::teleporter::TeleporterPlugin,
             weapons::ammo_mod::AmmoModPlugin,
             economy::power_up::PowerUpPlugin,

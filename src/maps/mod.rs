@@ -3,6 +3,7 @@
 pub mod barrier;
 pub mod darkness;
 pub mod door;
+pub mod fire;
 pub mod generator;
 pub mod jump_pad;
 pub mod look;

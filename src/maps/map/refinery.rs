@@ -1,5 +1,5 @@
-//! The Refinery Map: an oil refinery at night, in 15 Zones on three levels, with no Fire yet (a plain, playable slice: the Fuel Lines and
-//! their Blazes come in a later ticket, which replaces `BLAZE_RECTS` below with `Layout.fuel_lines`).
+//! The Refinery Map: an oil refinery at night, in 15 Zones on three levels, with its six Fuel Lines (`FUEL_LINES`: seven Blazes and twelve
+//! Valves, #507 and #508).
 //!
 //! Built at the world origin (ADR 0009), plan (-60, 0) to (60, 90), north +z. Two networks laid over each other:
 //!
@@ -14,13 +14,16 @@
 //! top, its Door at the foot. The one drop is the gap in the Rack Walk's east railing at z 30, on a 1 m cantilever, a 4 m fall into the Rack
 //! Road's east lane, gated on S1.
 //!
-//! The lamps, the plant structures (the tanks, the column, the heater, the sleepers: Props, plain solids for now), the Blazes' rects and the
+//! The lamps, the plant structures (the tanks, the column, the heater, the sleepers: Props, plain solids for now), the Fuel Lines and the
 //! per-Zone tables are in separate items on purpose: the Fire, the Look, the Infills and the Props each come in a later ticket. Its path
 //! nodes, lamps, windows and plant (in `data`) are laid out by `tools/refinery_layout.py`.
 
 use bevy::prelude::*;
 
 use crate::enemies::sapper::SapperTiming;
+use crate::maps::fire::{Blaze, FuelLine};
+#[cfg(test)]
+use crate::maps::fire::{FuelLineId, LitMask, blaze_at, walk_crosses};
 use crate::maps::zone::ZoneId;
 use crate::weapons::arsenal::WeaponId;
 
@@ -122,6 +125,7 @@ pub(super) const REFINERY: Layout = Layout {
     fixed_joins: &FIXED_JOINS,
     shifting: &[],
     wings: &[],
+    fuel_lines: &FUEL_LINES,
     nav_nodes: data::NODES,
     nav_edges: data::EDGES,
     jump_pads: &[],
@@ -160,35 +164,52 @@ pub(super) const REFINERY: Layout = Layout {
 /// The one fixed join: the archway from the Pipe Bridge into the Control House (F1).
 const FIXED_JOINS: [(ZoneId, ZoneId); 1] = [(ZoneId::PipeBridge, ZoneId::ControlHouse)];
 
-/// The seven Blazes of #508's six Fuel Lines (the Rack Line's two, the Bund, Gantry, Flare, Furnace and Dock Lines'): (name, zone, min, max,
-/// the floor's y). No path node stands in one and nothing placed stands within 1.5 m of one. The Fire ticket replaces this table with
-/// `Layout.fuel_lines` and its Blazes; until then it is what the tests check against.
-#[cfg(test)]
-const BLAZE_RECTS: [(&str, ZoneId, Vec2, Vec2, f32); 7] = [
-    ("Rack Line south", ZoneId::RackRoad, v(-3.5, 28.0), v(3.5, 32.0), GROUND),
-    ("Rack Line north", ZoneId::RackRoad, v(-3.5, 44.0), v(3.5, 48.0), GROUND),
-    ("Bund Line", ZoneId::TankFarm, v(-42.0, 38.0), v(-38.0, 42.0), GROUND),
-    ("Gantry Line", ZoneId::TankWalk, v(-30.0, 50.0), v(-26.0, 54.0), CATWALK),
-    ("Flare Line", ZoneId::FlareYard, v(-34.0, 85.0), v(-30.0, 90.0), GROUND),
-    ("Furnace Line", ZoneId::ColumnYard, v(3.0, 74.0), v(8.0, 78.0), GROUND),
-    ("Dock Line", ZoneId::TankerDock, v(-40.0, 7.0), v(-34.0, 11.0), GROUND),
-];
+/// The six Fuel Lines (#507, #508): seven Blazes and twelve Valves, two Valves a line, one each side of its Blazes. No path node stands in a
+/// Blaze, every nav edge that crosses one is `Gate::Fire` (`tools/refinery_layout.py`), and nothing placed stands within 1.5 m of one.
+const fn blaze(zone: ZoneId, min: Vec2, max: Vec2, floor: f32) -> Blaze {
+    Blaze { zone, min, max, floor }
+}
 
-/// The twelve Valves' spots (two a Fuel Line, one each side of its Blazes), also kept clear: (x, y, z).
-#[cfg(test)]
-const VALVE_SPOTS: [Vec3; 12] = [
-    at(-4.5, GROUND, 24.0),
-    at(4.5, GROUND, 56.0),
-    at(-40.0, GROUND, 35.0),
-    at(-40.0, GROUND, 45.0),
-    at(-33.5, CATWALK, 52.0),
-    at(-22.5, CATWALK, 52.0),
-    at(-37.5, GROUND, 87.5),
-    at(-26.5, GROUND, 87.5),
-    at(5.5, GROUND, 71.5),
-    at(5.5, GROUND, 80.5),
-    at(-37.0, GROUND, 4.0),
-    at(-37.0, GROUND, 14.0),
+const FUEL_LINES: [FuelLine; 6] = [
+    // The channel under the Rack Walk, from D3 to D9: the way round is either side lane.
+    FuelLine {
+        name: "Rack Line",
+        blazes: &[
+            blaze(ZoneId::RackRoad, v(-3.5, 28.0), v(3.5, 32.0), GROUND),
+            blaze(ZoneId::RackRoad, v(-3.5, 44.0), v(3.5, 48.0), GROUND),
+        ],
+        valves: &[(ZoneId::RackRoad, at(-4.5, GROUND, 24.0), Vec2::Y), (ZoneId::RackRoad, at(4.5, GROUND, 56.0), Vec2::NEG_Y)],
+    },
+    // The 4 m gap between the tanks: the way round is outside either tank.
+    FuelLine {
+        name: "Bund Line",
+        blazes: &[blaze(ZoneId::TankFarm, v(-42.0, 38.0), v(-38.0, 42.0), GROUND)],
+        valves: &[(ZoneId::TankFarm, at(-40.0, GROUND, 35.0), Vec2::Y), (ZoneId::TankFarm, at(-40.0, GROUND, 45.0), Vec2::NEG_Y)],
+    },
+    // The high crossing from the Rack Walk to the tanks: the way round is S2 or S3 from the ground.
+    FuelLine {
+        name: "Gantry Line",
+        blazes: &[blaze(ZoneId::TankWalk, v(-30.0, 50.0), v(-26.0, 54.0), CATWALK)],
+        valves: &[(ZoneId::TankWalk, at(-33.5, CATWALK, 52.0), Vec2::X), (ZoneId::TankWalk, at(-22.5, CATWALK, 52.0), Vec2::NEG_X)],
+    },
+    // The north lane behind the stack and the drum: the way round is the open yard to the south.
+    FuelLine {
+        name: "Flare Line",
+        blazes: &[blaze(ZoneId::FlareYard, v(-34.0, 85.0), v(-30.0, 90.0), GROUND)],
+        valves: &[(ZoneId::FlareYard, at(-37.5, GROUND, 87.5), Vec2::X), (ZoneId::FlareYard, at(-26.5, GROUND, 87.5), Vec2::NEG_X)],
+    },
+    // The transfer lane, under the Column Platform's grating: the way round is west of the column or east of the heater.
+    FuelLine {
+        name: "Furnace Line",
+        blazes: &[blaze(ZoneId::ColumnYard, v(3.0, 74.0), v(8.0, 78.0), GROUND)],
+        valves: &[(ZoneId::ColumnYard, at(5.5, GROUND, 71.5), Vec2::Y), (ZoneId::ColumnYard, at(5.5, GROUND, 80.5), Vec2::NEG_Y)],
+    },
+    // The east tanker bay: the way round is the west bay or over the platform.
+    FuelLine {
+        name: "Dock Line",
+        blazes: &[blaze(ZoneId::TankerDock, v(-40.0, 7.0), v(-34.0, 11.0), GROUND)],
+        valves: &[(ZoneId::TankerDock, at(-37.0, GROUND, 4.0), Vec2::Y), (ZoneId::TankerDock, at(-37.0, GROUND, 14.0), Vec2::NEG_Y)],
+    },
 ];
 
 /// The chalk outlines: the cheap guns either side of the Gatehouse's Quick Revive, the MP40 on the Tanker Dock's south wall, the Trench Gun in
@@ -625,23 +646,167 @@ mod tests {
         assert!(ColumnYard.notches().len() == 2 && Substation.notches().len() == 1);
     }
 
-    /// The seven Blazes stay clear of every path node (their floor's own), whatever Zone it is in.
+    /// Every Blaze of every line as (line, name, blaze).
+    fn blazes() -> Vec<(FuelLineId, &'static str, &'static Blaze)> {
+        refinery().fuel_lines.iter().enumerate().flat_map(|(i, line)| line.blazes.iter().map(move |blaze| (FuelLineId(i as u8), line.name, blaze))).collect()
+    }
+
+    /// How far (flat) a point is from a Blaze's rectangle: 0 inside it.
+    fn rect_distance(blaze: &Blaze, at: Vec3) -> f32 {
+        Vec2::new((blaze.min.x - at.x).max(0.0).max(at.x - blaze.max.x), (blaze.min.y - at.z).max(0.0).max(at.z - blaze.max.y)).length()
+    }
+
+    fn every_line() -> LitMask {
+        LitMask::first(refinery().fuel_lines.len())
+    }
+
+    /// Every Door bought and every drop open, as `NavState` joins.
+    fn every_door() -> Vec<(ZoneId, ZoneId)> {
+        refinery()
+            .nav_edges
+            .iter()
+            .filter_map(|&(_, _, gate)| match gate {
+                crate::enemies::nav::Gate::Door(a, b) | crate::enemies::nav::Gate::DoorDrop(a, b) => Some((a, b)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The Refinery has six Fuel Lines of seven Blazes and twelve Valves in the order of #508, and every other Map has none.
     #[test]
-    fn refinery_no_path_node_in_a_blaze_rect() {
-        for &(name, nodes) in &[("nodes", refinery().nav_nodes)] {
-            for &(node, x, y, z) in nodes {
-                for (blaze, _, lo, hi, floor) in BLAZE_RECTS {
-                    let inside = x > lo.x && x < hi.x && z > lo.y && z < hi.y && (y - floor).abs() < 1.0;
-                    assert!(!inside, "the {name}' node {node} at ({x}, {y}, {z}) is in the {blaze}");
+    fn refinery_has_six_fuel_lines_seven_blazes_and_twelve_valves_and_no_other_map_has_any() {
+        let names: Vec<_> = refinery().fuel_lines.iter().map(|line| line.name).collect();
+        assert_eq!(names, ["Rack Line", "Bund Line", "Gantry Line", "Flare Line", "Furnace Line", "Dock Line"]);
+        assert_eq!(blazes().len(), 7);
+        assert_eq!(refinery().fuel_lines.iter().map(|line| line.valves.len()).sum::<usize>(), 12);
+        assert!(refinery().fuel_lines.len() <= crate::maps::fire::MAX_LINES);
+        for map in MapId::ALL.into_iter().filter(|&map| map != MapId::Refinery) {
+            assert!(map.layout().fuel_lines.is_empty(), "{map:?}");
+            assert!(!map.layout().nav_edges.iter().any(|&(_, _, gate)| matches!(gate, crate::enemies::nav::Gate::Fire(_))), "{map:?}");
+        }
+    }
+
+    /// No path node stands in a Blaze (the edges of the rectangle count as in).
+    #[test]
+    fn no_path_node_in_a_blaze() {
+        for &(node, x, y, z) in refinery().nav_nodes {
+            assert_eq!(blaze_at(refinery(), every_line(), Vec3::new(x, y, z)), None, "node {node} at ({x}, {y}, {z})");
+        }
+    }
+
+    /// Every edge whose straight walk crosses a Blaze is `Gate::Fire` of that very line, and every `Gate::Fire` edge crosses a Blaze of its line.
+    #[test]
+    fn every_edge_across_a_blaze_is_fire_gated_by_its_line() {
+        let graph = NavGraph::new(MapId::Refinery);
+        let (mut gated, mut crossing) = (0, 0);
+        for edge in &graph.edges {
+            let (a, b) = (graph.nodes[edge.from].at, graph.nodes[edge.to].at);
+            let crosses = walk_crosses(refinery(), every_line(), a, b, 0.0);
+            if crosses.is_some() {
+                crossing += 1;
+            }
+            match (crosses, edge.gate) {
+                (Some(line), crate::enemies::nav::Gate::Fire(gate)) => {
+                    assert_eq!(line, gate, "{} - {}", graph.nodes[edge.from].name, graph.nodes[edge.to].name);
+                    gated += 1;
+                }
+                (None, crate::enemies::nav::Gate::Fire(_)) => panic!("{} - {} is Fire-gated but crosses no Blaze", graph.nodes[edge.from].name, graph.nodes[edge.to].name),
+                (Some(_), gate) => panic!("{} - {} crosses a Blaze with gate {gate:?}", graph.nodes[edge.from].name, graph.nodes[edge.to].name),
+                (None, _) => {}
+            }
+        }
+        assert_eq!((gated, crossing), (7, 7), "one edge across each of the seven Blazes");
+        // Each line has an edge across each of its Blazes.
+        for (i, line) in refinery().fuel_lines.iter().enumerate() {
+            let n = graph.edges.iter().filter(|edge| edge.gate == crate::enemies::nav::Gate::Fire(FuelLineId(i as u8))).count();
+            assert_eq!(n, line.blazes.len(), "{}", line.name);
+        }
+    }
+
+    /// With every line Lit and every Door open, every path node reaches every other (but a window's outside node, which is only entered
+    /// the one way, through its Barrier).
+    #[test]
+    fn every_zone_is_reachable_with_every_line_lit() {
+        let graph = NavGraph::new(MapId::Refinery);
+        let doors = every_door();
+        let yes = |_: crate::maps::map::BarrierId| true;
+        let state = crate::enemies::nav::NavState::new(&doors, &yes).with_lit(every_line());
+        let start = graph.nearest(refinery().seat_start(0));
+        let inside: Vec<usize> = (0..graph.nodes.len()).filter(|&i| !graph.nodes[i].name.ends_with("_out")).collect();
+        assert!(inside.len() > 400);
+        for &node in &inside {
+            assert!(graph.plan(start, node, state).is_some(), "{} is cut off from the start with every line Lit", graph.nodes[node].name);
+            assert!(graph.plan(node, start, state).is_some(), "{} can't reach the start with every line Lit", graph.nodes[node].name);
+        }
+        // And the Rack Line's pocket between its Blazes is among them.
+        let pocket = graph.node("rr_3_3").unwrap();
+        assert!(graph.plan(start, pocket, state).is_some());
+        // Whereas the same walk is shorter with a line Shut (the Fire gate is a real gate).
+        let shut = crate::enemies::nav::NavState::new(&doors, &yes);
+        let (a, b) = (graph.node("tf_3_2").unwrap(), graph.node("tf_3_4").unwrap());
+        let length = |state| graph.plan(a, b, state).unwrap().len();
+        assert_eq!(length(shut), 2, "straight through the Bund Line's gap when it is Shut");
+        assert!(length(state) > 4, "round the tank when it is Lit");
+    }
+
+    #[test]
+    fn power_and_pack_a_punch_are_reachable_from_the_start_with_every_line_lit() {
+        let graph = NavGraph::new(MapId::Refinery);
+        let doors = every_door();
+        let yes = |_: crate::maps::map::BarrierId| true;
+        let state = crate::enemies::nav::NavState::new(&doors, &yes).with_lit(every_line());
+        let start = graph.nearest(refinery().seat_start(0));
+        for (what, at) in [("the Power Switch", crate::maps::power::switch_spot(MapId::Refinery).unwrap().0), ("Pack-a-Punch", crate::weapons::pack_a_punch::machine_at(MapId::Refinery))] {
+            let near = graph.nearest(at);
+            assert!(graph.plan(start, near, state).is_some(), "{what} is cut off from the start with every line Lit");
+            assert!(graph.plan(near, start, state).is_some(), "{what} can't reach the start with every line Lit");
+        }
+    }
+
+    /// The shortest ways to the Power Switch and to Pack-a-Punch (with every line Shut, so nothing is closed) cross no Fire-gated edge: the
+    /// Power route never depends on a Valve.
+    #[test]
+    fn refinery_power_and_pack_a_punch_routes_cross_no_fire_gated_edge() {
+        let graph = NavGraph::new(MapId::Refinery);
+        let doors = every_door();
+        let yes = |_: crate::maps::map::BarrierId| true;
+        let open = crate::enemies::nav::NavState::new(&doors, &yes);
+        let start = graph.nearest(refinery().seat_start(0));
+        for (what, at) in [("the Power Switch", crate::maps::power::switch_spot(MapId::Refinery).unwrap().0), ("Pack-a-Punch", crate::weapons::pack_a_punch::machine_at(MapId::Refinery))] {
+            let path = graph.plan(start, graph.nearest(at), open).unwrap();
+            for pair in path.windows(2) {
+                let gated = graph.edges.iter().any(|edge| matches!(edge.gate, crate::enemies::nav::Gate::Fire(_)) && ((edge.from, edge.to) == (pair[0], pair[1]) || (edge.to, edge.from) == (pair[0], pair[1])));
+                assert!(!gated, "the route to {what} crosses a Blaze at {} - {}", graph.nodes[pair[0]].name, graph.nodes[pair[1]].name);
+            }
+        }
+    }
+
+    /// Each Blaze stands in its own Zone on that Zone's floor, never in the Gatehouse (where every Run starts) and never in a doorway.
+    #[test]
+    fn no_blaze_in_the_starting_zone_or_a_doorway() {
+        for (_, name, blaze) in blazes() {
+            assert_ne!(blaze.zone, refinery().start_zone(), "the {name}");
+            assert_eq!(blaze.floor, blaze.zone.floor(), "the {name} burns on its Zone's floor");
+            for corner in [blaze.min, blaze.max, Vec2::new(blaze.min.x, blaze.max.y), Vec2::new(blaze.max.x, blaze.min.y)] {
+                assert!(blaze.zone.has(Vec3::new(corner.x, blaze.floor + 0.1, corner.y)), "the {name}'s corner {corner} is in {}", blaze.zone.name());
+            }
+        }
+        // A doorway is the middle of every Door edge's two nodes (they stand 1.8 m either side of the wall gap).
+        let graph = NavGraph::new(MapId::Refinery);
+        for edge in graph.edges.iter().filter(|edge| matches!(edge.gate, crate::enemies::nav::Gate::Door(..))) {
+            let mid = (graph.nodes[edge.from].at + graph.nodes[edge.to].at) / 2.0;
+            for (_, name, blaze) in blazes() {
+                if (mid.y - blaze.floor).abs() < 1.0 {
+                    assert!(rect_distance(blaze, mid) >= 1.5, "the {name} is {} m from the Door at {mid}", rect_distance(blaze, mid));
                 }
             }
         }
     }
 
-    /// Nothing placed stands within 1.5 m of a Blaze: no Spawn Point, Barrier, Buyable, Box Location, Trap or Valve spot (a Valve's spot is also
+    /// Nothing placed stands within 1.5 m of a Blaze: no Spawn Point, Barrier, Buyable, Box Location, Trap or Valve (a Valve's spot is also
     /// clear of the plant and of the Blaze itself).
     #[test]
-    fn refinery_nothing_stands_within_1_5_m_of_a_blaze_rect() {
+    fn nothing_stands_within_1_5_m_of_a_blaze() {
         use crate::economy::perk::Perk;
         let layout = refinery();
         let mut things: Vec<(String, Vec3)> = Vec::new();
@@ -671,8 +836,10 @@ mod tests {
             things.push((format!("the Trap at {} / {}", a.name(), b.name()), at));
             things.push(("a Trap switch".into(), Vec3::new(switch_x, at.y, at.z)));
         }
-        for (i, spot) in VALVE_SPOTS.iter().enumerate() {
-            things.push((format!("Valve spot {i}"), *spot));
+        for line in layout.fuel_lines {
+            for &(_, spot, _) in line.valves {
+                things.push((format!("a Valve of the {}", line.name), spot));
+            }
         }
         // The Doors: every wall gap in the Layout's nav graph (its `d<n>_a` and `_b` nodes stand 1.8 m either side of a Door).
         for &(node, x, y, z) in layout.nav_nodes.iter().filter(|(n, ..)| n.ends_with("_a") || n.ends_with("_b")) {
@@ -680,18 +847,107 @@ mod tests {
         }
         let mut bad = Vec::new();
         for (what, at) in &things {
-            for (blaze, _, lo, hi, floor) in BLAZE_RECTS {
+            for (_, name, blaze) in blazes() {
                 // The one on a catwalk is judged against catwalk fixtures only, and the ground ones against the ground's.
-                if (at.y - floor).abs() > 1.0 {
+                if (at.y - blaze.floor).abs() > 1.0 {
                     continue;
                 }
-                let d = Vec2::new((lo.x - at.x).max(0.0).max(at.x - hi.x), (lo.y - at.z).max(0.0).max(at.z - hi.y));
-                if d.length() < 1.5 {
-                    bad.push(format!("{what} at {at} is {:.2} m from the {blaze}", d.length()));
+                let d = rect_distance(blaze, *at);
+                if d < 1.5 {
+                    bad.push(format!("{what} at {at} is {d:.2} m from the {name}"));
                 }
             }
         }
         assert!(bad.is_empty(), "{bad:#?}");
+    }
+
+    /// Each line has two Valves, one each side of its Blazes, on its Blazes' floor, outside them and clear of the plant.
+    #[test]
+    fn every_fuel_line_has_two_valves_outside_its_blazes() {
+        for line in refinery().fuel_lines {
+            assert_eq!(line.valves.len(), 2, "the {}", line.name);
+            assert!((1..=3).contains(&line.blazes.len()), "the {}", line.name);
+            for &(zone, spot, facing) in line.valves {
+                assert!(zone.has(spot + Vec3::Y * 0.1), "the {}'s Valve at {spot} is in {}", line.name, zone.name());
+                assert!((facing.length() - 1.0).abs() < 1e-5);
+                for blaze in line.blazes {
+                    assert!(rect_distance(blaze, spot) >= 1.5, "the {}'s Valve at {spot} is {} m from its Blaze", line.name, rect_distance(blaze, spot));
+                    // It looks at the Blaze: the way it faces gets nearer to it.
+                    let ahead = spot + Vec3::new(facing.x, 0.0, facing.y);
+                    assert!(rect_distance(blaze, ahead) < rect_distance(blaze, spot), "the {}'s Valve at {spot} faces away", line.name);
+                }
+            }
+            // One each side: the two Valves are on opposite sides of the line's Blazes' middle.
+            let middle = line.blazes.iter().map(|blaze| blaze.centre()).sum::<Vec3>() / line.blazes.len() as f32;
+            let (a, b) = (line.valves[0].1 - middle, line.valves[1].1 - middle);
+            assert!(a.x * b.x + a.z * b.z < 0.0, "the {}'s Valves are on one side", line.name);
+        }
+    }
+
+    /// #508's six Training loops that "survive" with every line Lit: each is a ring of path nodes round its centre that winds right round
+    /// it by edges that are not Fire-gated, every node 3 m or more from every Blaze. (A winding cycle: walking a spanning tree and
+    /// unwrapping the angle about the centre, some edge closes it up a full turn out.)
+    #[test]
+    fn refinery_training_loops_survive_every_line_lit() {
+        use crate::enemies::nav::Gate;
+        let graph = NavGraph::new(MapId::Refinery);
+        // (name, centre x, z, half extent x, z of what it winds round, level y)
+        let loops: [(&str, f32, f32, f32, f32, f32); 6] = [
+            ("Weighbridge", 0.5, 11.0, 2.5, 6.0, 0.0),
+            ("Rack loop", 0.0, 40.0, 4.1, 16.0, 0.0),
+            ("Twin Tanks", -40.0, 40.0, 14.0, 6.0, 0.0),
+            ("Girder Ring", -48.0, 40.0, 6.0, 6.0, 4.0),
+            ("Column and Heater", 6.5, 76.0, 9.5, 6.0, 0.0),
+            ("Transformer pen", 40.0, 76.0, 5.0, 7.0, 0.0),
+        ];
+        let mut failed = Vec::new();
+        for (name, cx, cz, hx, hz, level) in &loops {
+            let (name, cx, cz, hx, hz, level) = (name, *cx, *cz, *hx, *hz, *level);
+            let outside = |at: Vec3| Vec2::new((at.x - cx).abs() - hx, (at.z - cz).abs() - hz).max(Vec2::ZERO).length();
+            let ring: Vec<usize> = (0..graph.nodes.len())
+                .filter(|&i| {
+                    let node = &graph.nodes[i];
+                    (node.at.y - level).abs() < 0.5
+                        && outside(node.at) > 0.0
+                        && outside(node.at) <= 14.0
+                        && blazes().iter().all(|(_, _, blaze)| (blaze.floor - node.at.y).abs() > 1.0 || rect_distance(blaze, node.at) >= 3.0)
+                })
+                .collect();
+            let angle = |i: usize| (graph.nodes[i].at.z - cz).atan2(graph.nodes[i].at.x - cx);
+            let wrap = |a: f32| (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+            let mut adjacent: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
+            for edge in &graph.edges {
+                if matches!(edge.gate, Gate::Open) && ring.contains(&edge.from) && ring.contains(&edge.to) {
+                    adjacent.entry(edge.from).or_default().push(edge.to);
+                    adjacent.entry(edge.to).or_default().push(edge.from);
+                }
+            }
+            let mut unwrapped: std::collections::HashMap<usize, f32> = std::collections::HashMap::new();
+            let mut winds = false;
+            for &root in &ring {
+                if unwrapped.contains_key(&root) {
+                    continue;
+                }
+                unwrapped.insert(root, angle(root));
+                let mut queue = std::collections::VecDeque::from([root]);
+                while let Some(u) = queue.pop_front() {
+                    for &v in adjacent.get(&u).into_iter().flatten() {
+                        let want = unwrapped[&u] + wrap(angle(v) - angle(u));
+                        match unwrapped.get(&v) {
+                            None => {
+                                unwrapped.insert(v, want);
+                                queue.push_back(v);
+                            }
+                            Some(&have) => winds |= (want - have).abs() > std::f32::consts::PI,
+                        }
+                    }
+                }
+            }
+            if !winds {
+                failed.push(*name);
+            }
+        }
+        assert!(failed.is_empty(), "these loops do not survive with every line Lit: {failed:?}");
     }
 
     /// The Rack Walk's one drop, the sleepers, the heater and the tanks are solid where a Zombie walks: the sleepers and the heater stop a

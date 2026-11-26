@@ -6,8 +6,8 @@ Writes src/maps/map/refinery/data.rs; `refinery.rs` builds the walls, stairs and
 
 Every grid of nodes is laid out inside a Zone's box, and each edge between two of them is kept only if the straight walk between
 them clears the rectangles in `BLOCKS` (the plant, the pens, the stair bays). The Doors, stairs, windows and the one drop are
-listed by hand below. The seven Blazes' rects (#507, #508) are kept clear of every node; the Fire ticket replaces that table with
-`Layout.fuel_lines`."""
+listed by hand below. The seven Blazes' rects (#507, #508; `BLAZES` below, which `refinery.rs`'s `FUEL_LINES` repeats) are kept clear of
+every node, and every edge that crosses one is written `Gate::Fire(line)` (open only while that line is Shut)."""
 import math
 import os
 
@@ -95,7 +95,8 @@ def attach(name, zone, count=2, within=14.0):
         if math.hypot(BY_NAME[c][0] - x, BY_NAME[c][2] - z) > within:
             break
         if abs(BY_NAME[c][1] - y) < 0.3 and clear(name, c):
-            EDGES.append((name, c, "OPEN"))
+            if not any({a, b} == {name, c} for a, b, _ in EDGES):
+                EDGES.append((name, c, "OPEN"))
             done += 1
             if done == count:
                 return
@@ -159,6 +160,7 @@ BLAZES = [
     (3, 74, 8, 78, 0),                                  # the Furnace Line
     (-40, 7, -34, 11, 0),                               # the Dock Line
 ]
+BLAZE_LINE = [0, 0, 1, 2, 3, 4, 5]                      # each Blaze's Fuel Line, by `Layout.fuel_lines` order
 VALVES = [(-4.5, 0, 24), (4.5, 0, 56), (-40, 0, 35), (-40, 0, 45), (-33.5, 4, 52), (-22.5, 4, 52),
           (-37.5, 0, 87.5), (-26.5, 0, 87.5), (5.5, 0, 71.5), (5.5, 0, 80.5), (-37, 0, 4), (-37, 0, 14)]
 
@@ -172,7 +174,9 @@ PLANT = [
     ("Barrel", "TankFarm", -48.0, 0.0, 40.0, 12.0, 10.0, 12.0),        # Tank A
     ("Barrel", "TankFarm", -32.0, 0.0, 40.0, 12.0, 10.0, 12.0),        # Tank B
     ("Sandbags", "RackRoad", -3.9, 0.0, 40.0, 0.4, 1.0, 32.0),         # the west sleeper line
-    ("Sandbags", "RackRoad", 3.9, 0.0, 40.0, 0.4, 1.0, 32.0),          # the east sleeper line
+    ("Sandbags", "RackRoad", 3.9, 0.0, 31.25, 0.4, 1.0, 14.5),         # the east sleeper line, south of the gap
+    ("Sandbags", "RackRoad", 3.9, 0.0, 48.25, 0.4, 1.0, 15.5),         # and north of it: a 2 m gap at z 38.5 to 40.5 lets the channel's pocket between
+                                                                       # the Rack Line's two Blazes be walked to and from the east lane with every line Lit
     ("Machine", "FlareYard", -40.0, 0.0, 82.0, 6.0, 4.0, 6.0),         # the flare stack's base
     ("Machine", "FlareYard", -31.5, 0.0, 82.0, 11.0, 3.5, 4.0),        # the knockout drum
     ("Barrel", "ColumnYard", 0.0, 0.0, 76.0, 6.0, 12.0, 6.0),          # the column's base
@@ -282,6 +286,20 @@ G("PipeBridge", "pb", space(7, 33, 5.2), [55.0, 59.0], 4.0)
 G("ControlHouse", "cx", space(28, 52, 8), [66.0, 72.0, 78.0, 83.0], 4.0)
 G("ColumnPlatform", "cp", space(-9.5, 9.5, 4.75), space(66.5, 85.5, 4.75), 4.0)
 G("TowerDeck", "tk", space(-6, 6, 6), [70.0, 76.0, 82.0], 8.0)
+
+# Loop nodes (#508's Training loops survive with every line Lit, as node cycles): the strips round the Weighbridge island, where the grid
+# has no row, the lane between Tank A and the Tank Farm's west wall, where the windows' pens take the grid's two nodes, and the 4 m strip between
+# S2's stair bay and Tank A.
+for i, x in enumerate((-5.67, 0.0, 5.67)):
+    for tag, z in (("s", 2.5), ("n", 18.5)):
+        n = f"lp_gh_{tag}{i}"
+        node(n, x, 0.0, z)
+        ZONE_NODES["Gatehouse"].append(n)
+        attach(n, "Gatehouse", count=4, within=8.0)
+for n, x, z in (("lp_tf_w1", -55.6, 28.67), ("lp_tf_w2", -55.6, 45.67), ("lp_tf_s0", -52.0, 32.0), ("lp_tf_s1", -48.0, 32.0), ("lp_tf_s2", -44.0, 32.0)):
+    node(n, x, 0.0, z)
+    ZONE_NODES["TankFarm"].append(n)
+    attach(n, "TankFarm", count=5, within=8.0)
 
 # The Tanker Dock's Raised Floor (x -32..-24, z 4..16, 1.2 m up) with a flight of steps on its north and its south side.
 G("TankerDock", "pf", [-30.0, -26.0], [6.0, 10.0, 14.0], 1.2)
@@ -523,6 +541,47 @@ if missing:
     fail.append(("unreachable", missing[:20]))
 
 
+# Every edge that crosses a Blaze (at its level) is gated on its line, and with every line Lit every node still reaches every other.
+def crossing(a, b):
+    (ax, ay, az), (bx, by, bz) = BY_NAME[a], BY_NAME[b]
+    steps = max(2, int(math.hypot(bx - ax, bz - az) / 0.05))
+    for i in range(steps + 1):
+        t = i / steps
+        x, y, z = ax + (bx - ax) * t, ay + (by - ay) * t, az + (bz - az) * t
+        for k, (x0, z0, x1, z1, fy) in enumerate(BLAZES):
+            if abs(y - fy) <= 0.5 and x0 <= x <= x1 and z0 <= z <= z1:
+                return BLAZE_LINE[k]
+    return None
+
+
+for i, (a, b, g) in enumerate(EDGES):
+    line = crossing(a, b)
+    if line is None:
+        continue
+    if g != "OPEN":
+        fail.append(("a gated edge crosses a Blaze", a, b, g))
+    EDGES[i] = (a, b, f"Gate::Fire(FuelLineId({line}))")
+
+lit_adj = {n: set() for n in BY_NAME}
+for a, b, g in EDGES:
+    if "Fire" in g:
+        continue
+    lit_adj[a].add(b)
+    if "barrier" not in g and "DoorDrop" not in g and "OneWay" not in g:
+        lit_adj[b].add(a)
+seen, stack = set(), ["gh_0_0"]
+while stack:
+    n = stack.pop()
+    if n in seen:
+        continue
+    seen.add(n)
+    stack.extend(lit_adj[n] - seen)
+cut = [n for n in sorted(set(BY_NAME) - seen) if not (n.startswith("w") and n.endswith("_out"))]
+# (the one-way Barrier and drop edges make some nodes reachable only from one side, so reach is also checked from every node below)
+if os.environ.get("LITCHECK"):
+    print("not reached from the start with every line Lit:", cut[:40], len(cut))
+
+
 def coverage():
     """Every open spot of a Zone's floor, on the 1.5 m grid the headless test walks, has a node it can walk straight to."""
     bad = []
@@ -562,7 +621,7 @@ if fail:
 # ---------------------------------------------------------------- write
 out = []
 out.append("//! The Refinery's windows, lamps, plant structures and path-node graph, laid out from `refinery.rs`'s walls by\n//! `tools/refinery_layout.py` (rewritten by it: edit the script, not this file).\n")
-out.append("use bevy::prelude::*;\n\nuse crate::enemies::nav::Gate;\nuse crate::maps::map::{BarrierId, Prop, PropKind, prop};\nuse crate::maps::zone::ZoneId;\n\nuse super::W0;\n")
+out.append("use bevy::prelude::*;\n\nuse crate::enemies::nav::Gate;\nuse crate::maps::fire::FuelLineId;\nuse crate::maps::map::{BarrierId, Prop, PropKind, prop};\nuse crate::maps::zone::ZoneId;\n\nuse super::W0;\n")
 out.append("""const fn v(x: f32, z: f32) -> Vec2 {
     Vec2::new(x, z)
 }
