@@ -192,6 +192,9 @@ pub struct Layout {
     /// rest of the Map only through Quarantine Doors. A `WingId` is its place in this list. Empty
     /// on every Map but the Sanatorium.
     pub wings: &'static [Wing],
+    /// The Fuel Lines: groups of Blazes that the Valves Shut and relight, in order (a `FuelLineId` is its place in this list, at
+    /// most 8). Empty on every Map but the Refinery.
+    pub fuel_lines: &'static [crate::maps::fire::FuelLine],
     /// The path nodes: a name, then where a Zombie's feet stand there (x, y, z).
     pub nav_nodes: &'static [(&'static str, f32, f32, f32)],
     /// The path-node edges, by node name. Barrier and one-way edges run from the first node to
@@ -1417,6 +1420,7 @@ pub fn spawn_map(
     // Water: the surfaces, and the walls round Deep Water.
     crate::maps::water::spawn_water(&mut commands, &mut meshes, &mut materials, layout);
     crate::maps::shifting::spawn_pieces(&mut commands, &mut meshes, &mut materials, layout);
+    crate::maps::fire::spawn_fire(&mut commands, &mut meshes, &mut materials, layout);
 
     // Chalk outlines: a pale gun shape drawn on the wall, its Buyable just in front.
     let chalk_mat = materials.add(StandardMaterial {

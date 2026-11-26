@@ -1236,6 +1236,7 @@ fn run_allies(
     barriers: Res<Barriers>,
     doors: Query<&Door>,
     pieces: Query<&crate::maps::shifting::PieceState>,
+    lines: Option<Res<crate::maps::fire::FuelLines>>,
     move_and_slide: MoveAndSlide,
     mut damage: MessageWriter<DamageZombie>,
     mut expired: MessageWriter<TurnedAllyExpired>,
@@ -1246,7 +1247,7 @@ fn run_allies(
     let open_doors: Vec<_> = doors.iter().filter(|door| door.open).filter_map(|door| door.route()).collect();
     let rests = crate::maps::shifting::standing_rests(pieces.iter().map(|state| (state.id(), state.phase())), graph.map.layout().shifting.len());
     let barrier_open = |b| barriers.is_open(b);
-    let nav = crate::enemies::nav::NavState::new(&open_doors, &barrier_open).with_rests(&rests);
+    let nav = crate::enemies::nav::NavState::new(&open_doors, &barrier_open).with_rests(&rests).with_lit(lines.map_or(crate::maps::fire::LitMask::NONE, |lines| lines.closed()));
     let filter_mask = [GameLayer::World, GameLayer::Zombie, GameLayer::Player];
     for (entity, mut ally, mut route, mut transform, collider) in &mut allies {
         ally.elapsed += dt;

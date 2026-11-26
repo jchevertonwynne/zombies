@@ -114,6 +114,9 @@ pub enum Cheat {
     TurnTide,
     /// One-shot: the Quarantine steps to its next stage now (a Warning, the seal, the Release...).
     StepQuarantine,
+    /// One-shot: the Fuel Line nearest the Player is Shut, or relit, now: free, with no wait (a Lit line Shuts, a Shut one flares up, a
+    /// Flaring one lights).
+    StepFuelLine,
     /// One-shot, Gauntlet only: flips whether every Boon and Pact counts as Unlocked.
     UnlockAll,
     /// One-shot grant: the Power-up, applied at once.
@@ -195,7 +198,7 @@ impl Cheat {
     ];
 
     /// The one-shots that were debug hotkeys, on the panel's Debug tab.
-    pub const DEBUG: [Cheat; 6] = [Cheat::MonkeyBombs, Cheat::LoseGenerator, Cheat::SwingBridge, Cheat::TurnTide, Cheat::StepQuarantine, Cheat::UnlockAll];
+    pub const DEBUG: [Cheat; 7] = [Cheat::MonkeyBombs, Cheat::LoseGenerator, Cheat::SwingBridge, Cheat::TurnTide, Cheat::StepQuarantine, Cheat::StepFuelLine, Cheat::UnlockAll];
 
     /// One Spawn button per kind: the panel puts the Elite tick on at the press.
     pub fn spawns() -> impl Iterator<Item = Cheat> {
@@ -219,6 +222,7 @@ impl Cheat {
             Cheat::SwingBridge => "Swing nearest bridge",
             Cheat::TurnTide => "Turn the Tide",
             Cheat::StepQuarantine => "Step the Quarantine",
+            Cheat::StepFuelLine => "Shut or relight nearest Fuel Line",
             Cheat::UnlockAll => "Unlock all (toggle)",
             Cheat::PowerUp(power_up) => power_up.name(),
             Cheat::Weapon(id, false) => id.stats().name,

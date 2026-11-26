@@ -117,6 +117,7 @@ pub(super) const ARCHIVE: Layout = Layout {
     fixed_joins: &FIXED_JOINS,
     shifting: &SHIFTING,
     wings: &[],
+    fuel_lines: &[],
     nav_nodes: data::NODES,
     nav_edges: data::EDGES,
     jump_pads: &[],

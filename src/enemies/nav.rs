@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use pathfinding::prelude::astar;
 
 use crate::maps::barrier::Barriers;
+use crate::maps::fire::{FuelLineId, LitMask};
 use crate::debug::DebugView;
 use crate::maps::door::Door;
 use crate::maps::map::{BarrierId, MapId};
@@ -38,6 +39,9 @@ pub enum Gate {
     Rest(PieceId, u8),
     /// Open only while the Tide stands at one of these levels (the Polder's Fords).
     Tide(TideMask),
+    /// Across a Blaze of a Fuel Line (the Refinery's): open only while that line is Shut. It closes at the start of a Flare-up, so
+    /// Zombies reroute before the fire comes back.
+    Fire(FuelLineId),
 }
 
 impl Gate {
@@ -57,15 +61,21 @@ pub struct NavState<'a> {
     /// The Rest each Piece stands at, by `PieceId`; `None` while it moves. Empty on a Map without
     /// Pieces.
     pub rests: &'a [Option<u8>],
+    /// The Fuel Lines closed to Zombies: Lit, or Flaring up. Empty on a Map without Fire.
+    pub lit: LitMask,
 }
 
 impl<'a> NavState<'a> {
     pub fn new(open_doors: &'a [(ZoneId, ZoneId)], barrier_open: &'a dyn Fn(BarrierId) -> bool) -> Self {
-        Self { open_doors, barrier_open, rests: &[] }
+        Self { open_doors, barrier_open, rests: &[], lit: LitMask::NONE }
     }
 
     pub fn with_rests(self, rests: &'a [Option<u8>]) -> Self {
         Self { rests, ..self }
+    }
+
+    pub fn with_lit(self, lit: LitMask) -> Self {
+        Self { lit, ..self }
     }
 }
 
@@ -78,6 +88,7 @@ pub fn passable(gate: Gate, state: NavState) -> bool {
         Gate::Rest(piece, rest) => state.rests.get(usize::from(piece.0)).copied().flatten() == Some(rest),
         // The graph checks the Tide itself (`NavGraph::tide`).
         Gate::Tide(_) => true,
+        Gate::Fire(line) => !state.lit.contains(line),
     }
 }
 
@@ -369,6 +380,8 @@ pub struct Route {
     /// Zombie may round the turn there.
     pub bend_clear: bool,
     pub bend_for: Option<Vec3>,
+    /// A Fuel Line has changed under it: it finishes the edge it is on, to the node it is heading for, and only then plans again.
+    pub finishing: bool,
 }
 
 #[derive(Default, Reflect, GizmoConfigGroup)]
@@ -405,12 +418,13 @@ fn draw_graph(
     doors: Query<&Door>,
     barriers: Res<Barriers>,
     pieces: Query<&crate::maps::shifting::PieceState>,
+    lines: Option<Res<crate::maps::fire::FuelLines>>,
     routes: Query<(&Transform, &Route)>,
 ) {
     let open_doors: Vec<_> = doors.iter().filter(|door| door.open).filter_map(|door| door.route()).collect();
     let rests = crate::maps::shifting::standing_rests(pieces.iter().map(|state| (state.id(), state.phase())), graph.map.layout().shifting.len());
     let barrier_open = |b| barriers.is_open(b);
-    let state = NavState::new(&open_doors, &barrier_open).with_rests(&rests);
+    let state = NavState::new(&open_doors, &barrier_open).with_rests(&rests).with_lit(lines.map_or(LitMask::NONE, |lines| lines.closed()));
     let lift = Vec3::Y * 0.3;
     for node in &graph.nodes {
         gizmos.sphere(Isometry3d::from_translation(node.at + lift), 0.15, Color::WHITE);
@@ -427,6 +441,8 @@ fn draw_graph(
             Gate::OneWay => Color::srgb(0.3, 0.6, 1.0),
             Gate::Tide(mask) if mask.contains(graph.tide) => Color::srgb(0.2, 0.8, 0.9),
             Gate::Tide(_) => Color::srgb(0.1, 0.3, 0.5),
+            Gate::Fire(_) if passable(edge.gate, state) => Color::srgb(0.2, 1.0, 0.3),
+            Gate::Fire(_) => Color::srgb(1.0, 0.45, 0.05),
         };
         if edge.gate.one_way() {
             gizmos.arrow(a, b, colour);
@@ -547,6 +563,28 @@ mod tests {
                 .unwrap();
             assert!(ledges.is_empty(), "climbs a ledge on the {}: {ledges:?}", map.name());
         }
+    }
+
+    /// A Fire edge is open only while its line is Shut, and closes at the start of the Flare-up (not at the start of the fire).
+    #[test]
+    fn fire_gate_is_open_only_while_shut_and_closes_at_the_start_of_flare_up() {
+        use crate::maps::fire::{FuelLines, LinePhase};
+        let gate = Gate::Fire(FuelLineId(1));
+        let open = |lines: &FuelLines| passable(gate, NavState::new(&[], &windows_open).with_lit(lines.closed()));
+        let mut lines = FuelLines::start(3);
+        assert!(!open(&lines), "Lit: closed");
+        lines.use_valve(FuelLineId(1), false).unwrap();
+        assert!(open(&lines), "Shut: open");
+        lines.advance(SHUT_SECS - 0.1, false);
+        assert!(open(&lines), "still open at the end of the Shut");
+        lines.advance(0.2, false);
+        assert!(matches!(lines.phase(FuelLineId(1)), LinePhase::FlareUp { .. }));
+        assert!(!open(&lines), "closed from the first moment of the Flare-up");
+        lines.advance(FLARE_UP_SECS, false);
+        assert!(!open(&lines), "and Lit again");
+        // Another line's gate is not this one's, and a state with no fire never closes one.
+        assert!(passable(Gate::Fire(FuelLineId(0)), NavState::new(&[], &windows_open).with_lit(LitMask::NONE.with(FuelLineId(1)))));
+        assert!(passable(gate, NavState::new(&[], &windows_open)));
     }
 
     #[test]

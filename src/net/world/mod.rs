@@ -69,6 +69,7 @@ use crate::run::round::{Round, RoundEnded, RoundPhase, RoundStarted};
 use crate::state::{Choosing, GameState, Paused, world_runs};
 use crate::players::teammate::HeldWeapon;
 use crate::maps::teleporter::{Mainframe, Pad, TeleporterView, mainframe_use_point};
+use crate::maps::fire::{FuelLineId, FuelLines, LinePhase};
 use crate::maps::quarantine::{Quarantine, Stage as QuarantineStage, WingId};
 use crate::maps::shifting::{Lever, PieceId, PiecePhase, PieceState, WheelPost};
 use crate::maps::trap::{Trap, TrapPhase, TrapSwitch};
@@ -295,6 +296,9 @@ pub enum WorldEvent {
     /// Clear: told on every stage change and always to a Player who comes back. A client runs
     /// `elapsed` on only to show it. The Quarantine Doors themselves come as `Piece`.
     Quarantine { wing: Option<WingId>, stage: QuarantineStage, elapsed: f32 },
+    /// The Fuel Line `id` is in this phase, `elapsed` seconds into it: told on every change of phase and always to a Player who comes
+    /// back. A client runs `elapsed` on only to show it.
+    FuelLine { id: FuelLineId, phase: LinePhase },
     /// Round `number` has begun.
     Round { number: u32, hellhound: Option<u32> },
     /// The Round's Horde is dead.
@@ -403,6 +407,8 @@ pub struct Mirror {
     tide: (TidePhase, u8),
     /// The Quarantine as last told: its stage and the Wing out.
     quarantine: (QuarantineStage, Option<WingId>),
+    /// Where each Fuel Line was when last told: the kind of its phase (Lit 0, Shut 1, Flare-up 2).
+    fuel_lines: [u8; crate::maps::fire::MAX_LINES],
     /// Where each Power-up lying about was when last told.
     drop_at: HashMap<Entity, Vec3>,
     perks: HashMap<Seat, (Option<Perk>, Vec<Perk>)>,
@@ -579,6 +585,7 @@ pub fn add(app: &mut App) {
             (
                 tell_tide,
                 tell_quarantine,
+                tell_fuel_lines,
                 tell_extras,
                 tell_sabotage,
                 tell_aftereffect,
@@ -622,7 +629,7 @@ pub fn add(app: &mut App) {
                     hear_offers,
                     hear_gauntlet,
                     hear_left,
-                    (hear_extras, hear_sabotage, hear_aftereffect, stand_after_ride, hear_active, hear_tide, hear_quarantine).chain(),
+                    (hear_extras, hear_sabotage, hear_aftereffect, stand_after_ride, hear_active, hear_tide, hear_quarantine, hear_fuel_lines).chain(),
                 ),
             )
                 .chain()
@@ -671,6 +678,7 @@ type Machine = Or<(
     With<TrapSwitch>,
     With<Lever>,
     With<WheelPost>,
+    With<crate::maps::fire::Valve>,
     // A Piece is named so a Sapper's Sabotage of its Levers or Wheels can say which Piece it was.
     With<PieceState>,
     With<PerkMachine>,
@@ -1025,6 +1033,38 @@ fn tell_quarantine(mut tell: Tell, mut mirror: ResMut<Mirror>, quarantine: Optio
     if mirror.quarantine != now {
         mirror.quarantine = now;
         tell.all(&WorldEvent::Quarantine { wing: now.1, stage: now.0, elapsed: quarantine.elapsed() });
+    }
+}
+
+/// A Fuel Line, whenever its phase changes (not as its seconds run).
+fn tell_fuel_lines(mut tell: Tell, mut mirror: ResMut<Mirror>, lines: Option<Res<FuelLines>>) {
+    let Some(lines) = lines else { return };
+    for i in 0..lines.count() {
+        let id = FuelLineId(i as u8);
+        let phase = lines.phase(id);
+        if mirror.fuel_lines[i] != phase_kind(phase) {
+            mirror.fuel_lines[i] = phase_kind(phase);
+            tell.all(&WorldEvent::FuelLine { id, phase });
+        }
+    }
+}
+
+/// The kind of a Fuel Line's phase, with no seconds.
+fn phase_kind(phase: LinePhase) -> u8 {
+    match phase {
+        LinePhase::Lit => 0,
+        LinePhase::Shut { .. } => 1,
+        LinePhase::FlareUp { .. } => 2,
+    }
+}
+
+/// A client shows each Fuel Line as the Host says, and runs its seconds on from there.
+fn hear_fuel_lines(mut heard: MessageReader<Heard>, lines: Option<ResMut<FuelLines>>) {
+    let Some(mut lines) = lines else { return };
+    for Heard(event) in heard.read() {
+        if let WorldEvent::FuelLine { id, phase } = *event {
+            lines.show(id, phase);
+        }
     }
 }
 
@@ -1488,6 +1528,7 @@ fn catch_up_world(
     ),
     (drops, restores, ids): (Query<(Entity, &Dropped)>, Query<(&NetId, &Restore, &Transform)>, Query<&NetId>),
     pieces: Query<&PieceState>,
+    lines: Option<Res<FuelLines>>,
 ) {
     for &SeatReturned { seat } in returned.read() {
         let Some(&(peer, _)) = tell.roster.0.iter().find(|&&(_, held)| held == seat.0) else { continue };
@@ -1567,6 +1608,13 @@ fn catch_up_world(
         // The stage decides what the beacons and the klaxon show, so it is always told, even Dormant.
         if let Some(quarantine) = &quarantine {
             say(WorldEvent::Quarantine { wing: quarantine.wing(), stage: quarantine.stage(), elapsed: quarantine.elapsed() });
+        }
+        // Every line's phase decides what its Blazes and Valves show, so each is always told, Lit too.
+        if let Some(lines) = &lines {
+            for i in 0..lines.count() {
+                let id = FuelLineId(i as u8);
+                say(WorldEvent::FuelLine { id, phase: lines.phase(id) });
+            }
         }
         if let Some(round) = &round {
             say(WorldEvent::Round { number: round.number, hellhound: round.hellhound });
@@ -2535,6 +2583,8 @@ mod downs;
 mod reconnect;
 #[cfg(test)]
 mod shared;
+#[cfg(test)]
+mod fire_tests;
 #[cfg(test)]
 mod quarantine_tests;
 #[cfg(test)]

@@ -1195,6 +1195,12 @@ fn clear_walk(spatial: &SpatialQuery, probe: &Collider, from: Vec3, to: Vec3, ha
     walk_stop(spatial, probe, from, to, half).is_none()
 }
 
+/// Whether a straight walk between two body centres (`half` above the feet) keeps clear of every Blaze closed to Zombies in `state`
+/// (Lit or Flaring up): a Zombie routes round a Fuel Line, it never cuts across one.
+fn fire_clear(graph: &NavGraph, state: NavState, from: Vec3, to: Vec3, half: f32) -> bool {
+    crate::maps::fire::walk_crosses(graph.map.layout(), state.lit, from - Vec3::Y * half, to - Vec3::Y * half, BLAZE_WALK_MARGIN).is_none()
+}
+
 /// The path nodes a Zombie-sized body, its middle at `centre` and `half` above its feet, follows
 /// to its target standing at `target_feet`: none where it can walk straight there, or where what
 /// stops it (a table, the edge of a Ledge, a crate the Player is up on) leaves it within this
@@ -1214,10 +1220,10 @@ pub(crate) fn plan_route(
     let probe = Collider::sphere(ZOMBIE_RADIUS * 0.8);
     let feet = centre - Vec3::Y * half;
     let target = target_feet + Vec3::Y * half;
-    let walk = |from: Vec3, to: Vec3| clear_walk(spatial, &probe, from, to, half);
+    let walk = |from: Vec3, to: Vec3| clear_walk(spatial, &probe, from, to, half) && fire_clear(graph, state, from, to, half);
     let level = (target_feet.y - feet.y).abs() <= ZOMBIE_DIRECT_MAX_RISE;
     let closes_in = |stop: f32| horizontal(target - centre).length() - stop <= reach * ZOMBIE_CLOSE_IN_SHARE;
-    if level && walk_stop(spatial, &probe, centre, target, half).is_none_or(closes_in) {
+    if level && fire_clear(graph, state, centre, target, half) && walk_stop(spatial, &probe, centre, target, half).is_none_or(closes_in) {
         return Vec::new();
     }
     let mut from = graph.near_where(feet, |node| walk(centre, node.at + Vec3::Y * half));
@@ -1329,6 +1335,7 @@ fn chase(
     doors: Query<&Door>,
     pieces: Query<&crate::maps::shifting::PieceState>,
     barriers: Res<Barriers>,
+    lines: Option<Res<crate::maps::fire::FuelLines>>,
     move_and_slide: MoveAndSlide,
     time: Res<Time>,
 ) {
@@ -1336,7 +1343,7 @@ fn chase(
     let open_doors: Vec<_> = doors.iter().filter(|door| door.open).filter_map(|door| door.route()).collect();
     let rests = crate::maps::shifting::standing_rests(pieces.iter().map(|state| (state.id(), state.phase())), graph.map.layout().shifting.len());
     let barrier_open = |b| barriers.is_open(b);
-    let nav = NavState::new(&open_doors, &barrier_open).with_rests(&rests);
+    let nav = NavState::new(&open_doors, &barrier_open).with_rests(&rests).with_lit(lines.map_or(crate::maps::fire::LitMask::NONE, |lines| lines.closed()));
     let filter_mask = [GameLayer::World, GameLayer::Zombie, GameLayer::Player];
     let positions: Vec<_> = zombies.iter().map(|(entity, _, _, transform, ..)| (entity, transform.translation)).collect();
 
@@ -1372,8 +1379,17 @@ fn chase(
         let last_stand = !player.up && goal_feet.is_none();
         let rise = target_feet.y - feet.y;
 
+        // A Fuel Line changed while it was on an edge: it finishes the edge to its node, then plans again at once.
+        if route.finishing {
+            if route.waypoints.is_empty() {
+                route.finishing = false;
+                route.repath_in = 0.0;
+            } else {
+                route.waypoints.truncate(1);
+            }
+        }
         route.repath_in -= dt;
-        if route.repath_in <= 0.0 {
+        if route.repath_in <= 0.0 && !route.finishing {
             route.repath_in = repath_interval(feet.distance(target_feet));
             route.waypoints = plan_route(
                 &graph,
@@ -1389,7 +1405,7 @@ fn chase(
         // Looks ahead, every so often, for a node further along that it can walk straight to, and
         // goes on from there: it turns for the next doorway as soon as it can see it.
         let probe = Collider::sphere(ZOMBIE_RADIUS * 0.8);
-        let walk = |from: Vec3, to: Vec3| clear_walk(&move_and_slide.spatial_query, &probe, from, to, half);
+        let walk = |from: Vec3, to: Vec3| clear_walk(&move_and_slide.spatial_query, &probe, from, to, half) && fire_clear(&graph, nav, from, to, half);
         route.look_in -= dt;
         if route.look_in <= 0.0 {
             route.look_in = ZOMBIE_LOOK_AHEAD_SECS * (1.0 + 0.5 * personal(entity, 1).abs());

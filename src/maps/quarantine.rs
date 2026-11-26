@@ -260,7 +260,7 @@ pub fn bought_wings(map: MapId, doors: &Query<&Door>) -> Vec<bool> {
 }
 
 /// Whether a Gauntlet Boss Round is being played: from its start until it is cleared.
-fn boss_round(mode: Option<&Mode>, round: Option<&Round>) -> bool {
+pub(crate) fn boss_round(mode: Option<&Mode>, round: Option<&Round>) -> bool {
     mode == Some(&Mode::Gauntlet) && round.is_some_and(|round| round.phase == RoundPhase::Active && is_boss_round(round.number))
 }
 

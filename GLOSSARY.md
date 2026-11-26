@@ -105,10 +105,10 @@ _Avoid_: grenade (when meaning the slot)
 
 **Points**: Currency the Player earns by damaging and killing Zombies and spends on Doors and other buys. Each Player has their own and can't give them to anyone else. Not the same as score.
 
-**Buyable**: Anything in the Map the Player spends Points on with the Use key: a Door, Wall Weapon, Mystery Box, Perk Machine, Pack-a-Punch, Trap, Teleporter Pad or Generator. The Power Switch and a Zipline are used but not bought, so neither is a Buyable.
+**Buyable**: Anything in the Map the Player spends Points on with the Use key: a Door, Wall Weapon, Mystery Box, Perk Machine, Pack-a-Punch, Trap, Teleporter Pad, Generator or a Fuel Line's Valve. The Power Switch and a Zipline are used but not bought, so neither is a Buyable.
 _Avoid_: purchasable, trigger
 
-**Use key**: The single key the Player presses to buy a Buyable, flip the Power Switch, ride a Zipline, push a Crash Bar or turn a Wheel, or holds to put Planks back on a Barrier.
+**Use key**: The single key the Player presses to buy a Buyable, flip the Power Switch, ride a Zipline, push a Crash Bar, turn a Wheel or shut or relight a Valve, or holds to put Planks back on a Barrier.
 
 **Prompt**: The on-screen line saying what the Use key will do here and what it costs.
 
@@ -348,6 +348,16 @@ _Avoid_: stack (a Stack is a copy of a Boon)
 **Aisle**: The 3 m lane between two Bookcases, or between a Bookcase and a Range's end wall. Only one Aisle of a Range is open at a time, and Zombies route only through the open one.
 
 **Wheel**: The free hand wheel at each mouth of an Aisle. A Player who is up and Uses it rolls the Range to open that Aisle, after a 2 s warning and once nobody, Down or not, is standing in the Aisle that is closing; it needs no Power and costs no Points. Not a Lever, and never used by Zombies.
+
+**Blaze**: A patch of fire on the Refinery's floor, part of a Fuel Line. While it is Lit, Zombies route round it; it never spreads. (What it does to bodies comes later.) Only the Refinery has Blazes.
+
+**Fuel Line**: A group of Blazes that are Lit and Shut together by their Valves. Every Fuel Line is Lit when the Run starts. A Gauntlet Boss Round Shuts every one, and holds them Shut until it is cleared.
+
+**Valve**: A Buyable wheel on a Fuel Line, two to a line, one each side of its Blazes: 250 Points shuts a Lit line, and once the line has been Shut for 10 s, the Valve relights it for free. It does nothing during a Flare-up. It is not a Lever or a Trap, so no Trap Boon applies, and it needs no Power; Zombies never use it.
+
+**Shut**: A Fuel Line that has been put out. It burns nothing, Zombies can cross it, and after 45 s it Flares up.
+
+**Flare-up**: The 4 s of hissing gas before a Fuel Line lights again, whether it ran out of Shut or was relit. Zombies already avoid it, but it doesn't burn yet.
 
 **Shoved**: What a Range does to a Zombie in the Aisle that is closing. The Zombie is moved, unharmed, to the nearer mouth of that Aisle. Nothing is ever crushed. A Hellhound, a special or an Elite is Shoved the same way (a Napalm doesn't burst, and nothing counts as a kill), and so is any Player or Zombie who steps into the sweep while the Range rolls: a Player by the Host's `Teleport`. A Shove moves a body at most about 2.5 m of Bookcase plus the 0.6 m the mouth stands off it, and each Zombie plans its route again.
 

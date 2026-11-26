@@ -70,6 +70,7 @@ pub(super) const VILLAGE: Layout = Layout {
     fixed_joins: &FIXED_JOINS,
     shifting: &[],
     wings: &[],
+    fuel_lines: &[],
     nav_nodes: NODES,
     nav_edges: EDGES,
     jump_pads: &[],
