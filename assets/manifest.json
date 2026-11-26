@@ -1585,6 +1585,14 @@
       "notes": "Our own procedural leaf cluster as an alpha card for the Trees' crowns, via texpack --color --opacity"
     },
     {
+      "path": "decals/hazard_stripe",
+      "name": "Hazard stripe",
+      "source": "tools/texpack --hazard 1",
+      "licence": "CC0 (made in this repo)",
+      "fetched": "2026-11-26",
+      "notes": "Procedural; 256 px black-and-yellow diagonal stripe, worn"
+    },
+    {
       "path": "decals/leaking003",
       "name": "ambientCG Leaking003",
       "source": "https://ambientcg.com/a/Leaking003",
@@ -1834,6 +1842,14 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.00092 m"
     },
     {
+      "path": "materials/burned_ground_01",
+      "name": "Burned Ground 01",
+      "source": "https://polyhaven.com/a/burned_ground_01",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1 m"
+    },
+    {
       "path": "materials/castle_brick_02_red",
       "name": "Castle Brick 02 Red",
       "source": "https://polyhaven.com/a/castle_brick_02_red",
@@ -1944,6 +1960,22 @@
       "licence": "CC0",
       "fetched": "2026-11-15",
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.71 m"
+    },
+    {
+      "path": "materials/container_side",
+      "name": "Container Side",
+      "source": "https://polyhaven.com/a/container_side",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1.94 m"
+    },
+    {
+      "path": "materials/corrugated_iron_03",
+      "name": "Corrugated Iron 03",
+      "source": "https://polyhaven.com/a/corrugated_iron_03",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
     },
     {
       "path": "materials/cracked_concrete",
@@ -2130,6 +2162,22 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
     },
     {
+      "path": "materials/metal_grate_rusty",
+      "name": "Metal Grate Rusty",
+      "source": "https://polyhaven.com/a/metal_grate_rusty",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 0.5 m"
+    },
+    {
+      "path": "materials/metal_plate",
+      "name": "Metal Plate",
+      "source": "https://polyhaven.com/a/metal_plate",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 0.5 m"
+    },
+    {
       "path": "materials/metal_plate_02",
       "name": "Metal Plate 02",
       "source": "https://polyhaven.com/a/metal_plate_02",
@@ -2234,6 +2282,14 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.5 m"
     },
     {
+      "path": "materials/rebar_reinforced_concrete",
+      "name": "Rebar Reinforced Concrete",
+      "source": "https://polyhaven.com/a/rebar_reinforced_concrete",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
       "path": "materials/ribbed_concrete_wall",
       "name": "Ribbed Concrete Wall",
       "source": "https://polyhaven.com/a/ribbed_concrete_wall",
@@ -2282,6 +2338,14 @@
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 1 m"
     },
     {
+      "path": "materials/rusty_metal_04",
+      "name": "Rusty Metal 04",
+      "source": "https://polyhaven.com/a/rusty_metal_04",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
       "path": "materials/sandy_gravel_02",
       "name": "Sandy Gravel 02",
       "source": "https://polyhaven.com/a/sandy_gravel_02",
@@ -2304,6 +2368,14 @@
       "licence": "CC0",
       "fetched": "2026-11-15",
       "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2 m"
+    },
+    {
+      "path": "materials/tarred_gravel",
+      "name": "Tarred Gravel",
+      "source": "https://polyhaven.com/a/tarred_gravel",
+      "licence": "CC0",
+      "fetched": "2026-11-26",
+      "notes": "1k PNG (Diffuse, nor_gl, arm); real-world size 2.2 m"
     },
     {
       "path": "materials/terracotta_floor_tiles",
@@ -3018,7 +3090,7 @@
       "licence": "CC0 (Creative Commons Zero, as stated in the pack's License.txt)",
       "fetched": "2026-11-23",
       "archive": "https://opengameart.org/content/particle-pack-80-sprites",
-      "notes": "scorch_01.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); the scorch decal under a blast in src/weapons/blast.rs"
+      "notes": "scorch_01.png, 512 px greyscale, via texpack --color --opacity (brightness as alpha); the scorch decal under a blast in src/weapons/blast.rs; also the Refinery's Soot decal (src/maps/map/decals.rs), tinted near black"
     },
     {
       "path": "sprites/smoke_02",

@@ -145,8 +145,9 @@ pub(super) const REFINERY: Layout = Layout {
         ZoneId::TowerDeck,
     ],
     roofed: true,
-    // The plan's edge is the blast wall: there is no outside to wear (the Look ticket draws the silhouettes beyond it).
-    outside: None,
+    // The plan's edge is the blast wall: the ground round it is oily gravel and its outer faces are the blast wall's concrete (the Look ticket
+    // draws the silhouettes beyond it).
+    outside: Some(super::Outside { floor: super::textures::Material::TarredGravel, wall: super::textures::Material::RebarReinforcedConcrete }),
     sun: Vec3::new(0.3, -1.0, 0.5),
     // A copy of the Village's night until the Refinery's own Look (#510).
     look: crate::maps::look::VILLAGE_NIGHT,
@@ -539,7 +540,7 @@ mod tests {
         for zone in refinery().zones.iter().filter(|zone| ![FittingShop, CompressorHouse, ControlHouse].contains(zone)) {
             assert!(!refinery().indoor(*zone), "{}", zone.name());
         }
-        assert!(refinery().roofed && refinery().outside.is_none());
+        assert!(refinery().roofed && refinery().outside.is_some());
         assert!(refinery().sections.is_empty() && refinery().generators.is_empty() && !refinery().darkness && refinery().shifting.is_empty());
         // The Refinery's 15 Zones take the ZoneSet to 125 of its 128 bits.
         assert_eq!(ZoneId::ALL.len(), 125);
