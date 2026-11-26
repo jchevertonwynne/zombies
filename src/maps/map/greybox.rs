@@ -68,6 +68,7 @@ pub(super) const GREYBOX: Layout = Layout {
     sun: Vec3::new(-1.0, -3.0, -2.0),
     look: crate::maps::look::DUSK,
     lamp_style: super::LampStyle::Bulb,
+    rail_style: super::RailStyle::Solid,
     bulb_zones: &[],
     plan: (Vec2::new(-40.0, -56.0), Vec2::new(40.0, 32.0)),
     build,

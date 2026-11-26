@@ -136,6 +136,7 @@ pub(super) const ARCHIVE: Layout = Layout {
     look: crate::maps::look::LAMPLIGHT,
     // Brass pendants with opal globes; the five cellar Zones keep caged bulbs, which run at half until the Power.
     lamp_style: super::LampStyle::Pendant,
+    rail_style: super::RailStyle::Solid,
     bulb_zones: &[ZoneId::WellStair, ZoneId::FloodedCellar, ZoneId::Undercroft, ZoneId::StrongRoom, ZoneId::PumpRoom],
     plan: (Vec2::new(-36.0, 0.0), Vec2::new(36.0, 36.0)),
     build,

@@ -169,6 +169,7 @@ pub(super) const SANATORIUM: Layout = Layout {
     look: crate::maps::look::FOGBOUND,
     // Fluorescent tubes, but for the Boiler House's caged incandescents (and the outdoor posts).
     lamp_style: super::LampStyle::Tube,
+    rail_style: super::RailStyle::Solid,
     bulb_zones: &[ZoneId::BoilerHouse],
     outside: Some(super::Outside { floor: super::textures::Material::GrassGround, wall: super::textures::Material::WornMossyPlasterwall }),
     plan: (Vec2::new(-72.0, -30.0), Vec2::new(72.0, 66.0)),
