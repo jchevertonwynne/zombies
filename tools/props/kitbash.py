@@ -322,6 +322,16 @@ SET_TILE = {
     "metal_plate_02": 2.0,
     "dark_wooden_planks": 2.0,
     "weathered_planks": 2.0,
+    # The Archive's (#540).
+    "wood_table_worn": 0.55,
+    "dark_paneled_wood": 1.4,
+    "brown_leather": 0.4,
+    "paper006": 0.3,
+    # Flat colours with no texture of their own (`build_props.py` gives each its factors).
+    "lamp_shade": 1.0,
+    "lamp_bulb": 1.0,
+    "glass": 1.0,
+    "ink": 1.0,
 }
 
 
@@ -332,6 +342,15 @@ class Kit:
         self.bm = bmesh.new()
         self.uv = self.bm.loops.layers.uv.new("UVMap")
         self.sets = []
+
+    def _faces_material(self, verts, material):
+        """Gives the faces of `verts` (just made) their material, leaving their own UVs and normals."""
+        if material not in self.sets:
+            self.sets.append(material)
+        index = self.sets.index(material)
+        for face in {f for v in verts for f in v.link_faces}:
+            face.material_index = index
+            face.smooth = material == "paper006"
 
     def _faces(self, verts, material):
         """Gives the faces of `verts` (just made) their material and a box-projected UV."""
@@ -683,6 +702,240 @@ def book_rows_report(obj, name):
     print(f"UNIT {json.dumps({'name': name, 'tris': tris, 'size': [round(hi.x - lo.x, 3), round(hi.z - lo.z, 3), round(hi.y - lo.y, 3)]})}")
 
 
+# ---- The Archive's reading-level kitbashes (#540): the card catalogue, the issue desk, the reading lamp, the lectern, the theatre's
+# tiers, the projector, the display case and the globe. Each wears material sets already under assets/materials (and a few flat
+# colours: the lamp's glass, the case's glass, the globe's ink), each faces +z in the game (Blender's -y), and each is one mesh of at
+# most 2k triangles on its foot (the globe, on its stand's foot).
+
+def card_catalogue():
+    """One 2.0 x 1.5 x 1.2 m run of card drawers, drawers on both faces (the fitting lays four of them as a bank)."""
+    k = Kit()
+    wood, panel, brass = "wood_table_worn", "dark_paneled_wood", "metal_plate_02"
+    k.box((0, 0, 0.04), (2.0, 1.14, 0.08), panel)
+    k.box((0, 0, 0.08 + 0.55), (1.96, 1.14, 1.1), wood)
+    k.box((0, 0, 1.44), (2.0, 1.2, 0.12), panel)
+    cols, rows = 4, 5
+    for side in (-1, 1):
+        for i in range(cols):
+            for j in range(rows):
+                x = (i - (cols - 1) / 2) * 0.48
+                z = 0.2 + j * 0.2
+                k.box((x, side * 0.575, z), (0.44, 0.012, 0.17), panel)
+                k.box((x, side * 0.588, z - 0.01), (0.1, 0.014, 0.02), brass)
+                k.box((x, side * 0.588, z + 0.045), (0.12, 0.012, 0.05), brass)
+    return k.finish("card_catalogue")
+
+
+def issue_desk():
+    """The Reading Room's issue desk: an octagonal counter 6 m across its flats (the Prop's box is 6 x 6), its clerks' well inside, a
+    brass rail round its top and a post at its middle."""
+    k = Kit()
+    wood, panel, brass = "wood_table_worn", "dark_paneled_wood", "metal_plate_02"
+    flat = 6.0 / 2
+    side = 2 * flat * math.tan(math.pi / 8)
+    for i in range(8):
+        a = i * math.pi / 4
+        # A panel whose face is `flat` from the middle, turned to face out along `a`.
+        for radius, length, height, thick, material, z in ((flat - 0.3, side + 0.02, 1.0, 0.6, panel, 0.5), (flat - 0.35, side + 0.2, 0.07, 0.7, wood, 1.035)):
+            c = (radius * math.cos(a), radius * math.sin(a), z)
+            k.box(c, (thick, length, height), material, rot=(0.0, 0.0, a))
+        # A brass rail along the top's outer edge, and a post at each corner.
+        c = ((flat - 0.04) * math.cos(a), (flat - 0.04) * math.sin(a), 1.12)
+        k.box(c, (0.03, side - 0.1, 0.03), brass, rot=(0.0, 0.0, a))
+        corner = a + math.pi / 8
+        r = flat / math.cos(math.pi / 8) - 0.08
+        k.cyl((r * math.cos(corner), r * math.sin(corner), 0.55), 0.03, 1.1, "z", brass, segments=8)
+    # The clerks' well: a low inner desk ring, then the post at the middle (a brass lamp standard) up to the unit's 1.6 m.
+    k.cyl((0, 0, 0.05), 1.2, 0.1, "z", wood, segments=8)
+    k.cyl((0, 0, 0.8), 0.14, 1.6, "z", wood, segments=8)
+    k.cyl((0, 0, 1.55), 0.18, 0.1, "z", brass, segments=8)
+    return k.finish("issue_desk")
+
+
+def reading_lamp():
+    """A banker's lamp: a brass base and stem, a green glass shade open underneath and a bare bulb in it. Faces +z; 0.3 x 0.44 x 0.25 m."""
+    k = Kit()
+    brass, shade, bulb = "metal_plate_02", "lamp_shade", "lamp_bulb"
+    k.box((0, 0, 0.015), (0.2, 0.25, 0.03), brass)
+    k.cyl((0, 0, 0.17), 0.014, 0.28, "z", brass, segments=8)
+    k.box((0, 0, 0.32), (0.05, 0.05, 0.04), brass)
+    # The shade: a roof and two sloping sides over the bulb, 0.3 long.
+    k.box((0, 0, 0.425), (0.3, 0.1, 0.012), shade)
+    for side in (-1, 1):
+        k.box((0, side * 0.075, 0.385), (0.3, 0.012, 0.09), shade, rot=(side * 0.45, 0.0, 0.0))
+    k.cyl((0, 0, 0.35), 0.022, 0.26, "x", bulb, segments=8)
+    return k.finish("reading_lamp")
+
+
+def lectern():
+    """A reading lectern: a panelled pedestal, a sloped desk with a brass ledge. 0.7 x 1.2 x 0.6 m, its desk facing +z."""
+    k = Kit()
+    wood, panel, brass = "wood_table_worn", "dark_paneled_wood", "metal_plate_02"
+    k.box((0, 0, 0.04), (0.6, 0.5, 0.08), panel)
+    k.box((0, 0, 0.5), (0.4, 0.3, 0.84), wood)
+    for side in (-1, 1):
+        k.box((side * 0.215, 0, 0.5), (0.03, 0.32, 0.8), panel)
+    k.box((0, 0, 1.0), (0.7, 0.06, 0.2), wood)
+    # The desk: tipped towards the reader (the front is Blender -y), its ledge at the low edge.
+    k.box((0, 0, 1.105), (0.7, 0.6, 0.04), panel, rot=(-0.4, 0.0, 0.0))
+    k.box((0, -0.27, 1.02), (0.7, 0.03, 0.05), brass, rot=(-0.4, 0.0, 0.0))
+    k.box((0, 0.27, 1.19), (0.7, 0.05, 0.02), wood)
+    return k.finish("lectern")
+
+
+def theatre_bench():
+    """The Lecture Theatre's tiers, seven leather benches down each aisle and a panelled front: one 10 x 5.4 x 14 m unit, the solid
+    bank inset 0.5 m from its box, the benches standing out to the box's edge."""
+    k = Kit()
+    wood, panel, leather, brass = "wood_table_worn", "dark_paneled_wood", "brown_leather", "metal_plate_02"
+    w, h, d = 10.0, 5.4, 14.0
+    inset = 0.5
+    k.box((0, 0, h / 2), (w - 2 * inset, d - 2 * inset, h), panel)
+    # The dais face (game +z, Blender -y): pilasters and a brass rail at the foot of the bank, in the 0.5 m beside the face.
+    for i in range(5):
+        k.box((-4.0 + i * 2.0, -(d / 2 - inset / 2), h / 2), (0.3, inset, h), wood)
+    k.box((0, -(d / 2 - 0.15), 0.9), (w - 2 * inset, 0.06, 0.06), brass)
+    # Seven benches down each side, each 2 m of the aisle's length and rising with the rake (4 m over its 14).
+    for side in (-1, 1):
+        x = side * (w / 2 - inset / 2)
+        for row in range(7):
+            # Front row nearest the dais (game +z, Blender -y): its centre 1 m back, then every 2 m.
+            y = -(d / 2 - 1.0 - 2.0 * row)
+            rise = 2.0 * row * 4.0 / 14.0
+            k.box((x, y, rise + 0.43), (inset - 0.04, 1.8, 0.08), leather)
+            k.box((side * (w / 2 - 0.03), y, rise + 0.7), (0.06, 1.8, 0.5), leather)
+            for yy in (y - 0.8, y + 0.8):
+                k.box((x, yy, rise + 0.2), (inset - 0.1, 0.06, 0.4), wood)
+    return k.finish("theatre_bench")
+
+
+def projector():
+    """A lantern-slide projector on a small trolley: 0.9 x 1.3 x 0.6 m, its lens towards +x (the game's +x)."""
+    k = Kit()
+    wood, brass, iron = "wood_table_worn", "metal_plate_02", "rusty_metal_02"
+    for x in (-0.38, 0.38):
+        for y in (-0.22, 0.22):
+            k.cyl((x, y, 0.45), 0.025, 0.9, "z", wood, segments=8)
+            k.cyl((x, y, 0.04), 0.04, 0.03, "y", iron, segments=8)
+    k.box((0, 0, 0.92), (0.88, 0.58, 0.04), wood)
+    k.box((0, 0, 0.45), (0.8, 0.5, 0.03), wood)
+    # The lamp house, the bellows and the lens.
+    k.box((-0.2, 0, 1.12), (0.36, 0.34, 0.36), iron)
+    k.cyl((-0.2, 0, 1.35), 0.07, 0.1, "z", iron, segments=8)
+    k.box((0.1, 0, 1.12), (0.26, 0.24, 0.24), brass)
+    k.cyl((0.35, 0, 1.12), 0.1, 0.2, "x", brass, segments=10)
+    k.box((0.0, 0.0, 1.28), (0.9, 0.04, 0.04), iron)
+    return k.finish("projector")
+
+
+def display_case():
+    """A glass-topped display case on turned legs, a few open books and loose pages under the glass: 1.2 x 1.0 x 0.7 m."""
+    k = Kit()
+    wood, panel, paper, glass, brass = "wood_table_worn", "dark_paneled_wood", "paper006", "glass", "metal_plate_02"
+    for x in (-0.55, 0.55):
+        for y in (-0.3, 0.3):
+            k.cyl((x, y, 0.36), 0.04, 0.72, "z", wood, segments=8)
+    k.box((0, 0, 0.74), (1.2, 0.7, 0.05), panel)
+    # The case's frame: a brass rim and four corner posts round the glass box.
+    for side in (-1, 1):
+        k.box((0, side * 0.33, 0.78), (1.2, 0.04, 0.04), brass)
+        k.box((side * 0.58, 0, 0.78), (0.04, 0.7, 0.04), brass)
+        k.box((0, side * 0.33, 1.0), (1.2, 0.04, 0.04), brass)
+        k.box((side * 0.58, 0, 1.0), (0.04, 0.7, 0.04), brass)
+    for x in (-0.58, 0.58):
+        for y in (-0.33, 0.33):
+            k.box((x, y, 0.9), (0.04, 0.04, 0.2), brass)
+    k.box((0, 0, 0.99), (1.14, 0.64, 0.012), glass)
+    for side in (-1, 1):
+        k.box((0, side * 0.33, 0.89), (1.14, 0.012, 0.2), glass)
+        k.box((side * 0.58, 0, 0.89), (0.012, 0.64, 0.2), glass)
+    # Under the glass: two open books and a loose sheet.
+    k.box((-0.3, 0, 0.8), (0.4, 0.28, 0.03), paper)
+    k.box((-0.3, 0, 0.82), (0.36, 0.25, 0.012), paper, rot=(0.0, 0.0, 0.1))
+    k.box((0.25, 0.05, 0.8), (0.3, 0.22, 0.03), paper, rot=(0.0, 0.0, -0.2))
+    return k.finish("display_case")
+
+
+GLOBE_RADIUS = 0.3
+GLOBE_AXIS = math.radians(23.5)
+GLOBE_CENTRE = 0.93  # the sphere's middle over the stand's foot
+
+
+def globe():
+    """The Map Room's globe: a 0.6 m sepia Paper006 sphere tilted on its axis with a lat/long graticule laid over it in ink (no CC0
+    globe exists, #514; the graticule is thin quads on the sphere, with no continents), in a brass meridian ring on a turned stand.
+    0.7 x 1.25 x 0.7 m."""
+    k = Kit()
+    wood, brass, paper, ink = "wood_table_worn", "metal_plate_02", "paper006", "ink"
+    tilt = Matrix.Rotation(GLOBE_AXIS, 4, "Y")
+    centre = Vector((0, 0, GLOBE_CENTRE))
+    segs, rings = 24, 12
+    made = bmesh.ops.create_uvsphere(k.bm, u_segments=segs, v_segments=rings, radius=GLOBE_RADIUS, matrix=Matrix.Translation(centre) @ tilt, calc_uvs=True)
+    for face in {f for v in made["verts"] for f in v.link_faces}:
+        for loop in face.loops:
+            u, v = loop[k.uv].uv
+            loop[k.uv].uv = (u * 6.0, v * 3.0)
+    k._faces_material(made["verts"], paper)
+
+    def on_sphere(lat, lon, r):
+        p = Vector((r * math.cos(lat) * math.cos(lon), r * math.cos(lat) * math.sin(lon), r * math.sin(lat)))
+        return centre + tilt @ p
+
+    def strip(a, b, width, material):
+        """A thin quad along the sphere's surface between two (lat, lon) points, `width` wide, a hair proud."""
+        pa, pb = on_sphere(*a, GLOBE_RADIUS + 0.002), on_sphere(*b, GLOBE_RADIUS + 0.002)
+        mid = (pa + pb) / 2
+        normal = (mid - centre).normalized()
+        along = pb - pa
+        side = along.cross(normal).normalized() * width / 2
+        verts = [k.bm.verts.new(c) for c in (pa - side, pb - side, pb + side, pa + side)]
+        face = k.bm.faces.new(verts)
+        face.normal_update()
+        if face.normal.dot(normal) < 0:
+            face.normal_flip()
+        k._faces_material(verts, material)
+
+    steps = 24
+    for lat_deg in (-60, -30, 0, 30, 60):
+        lat = math.radians(lat_deg)
+        for s in range(steps):
+            strip((lat, math.tau * s / steps), (lat, math.tau * (s + 1) / steps), 0.006, ink)
+    for lon_deg in range(0, 360, 30):
+        lon = math.radians(lon_deg)
+        for s in range(12):
+            strip((math.radians(-90 + 15 * s), lon), (math.radians(-90 + 15 * (s + 1)), lon), 0.006, ink)
+    # The brass meridian ring (a ring of short boxes in the x-z plane round the sphere), tipped to the axis, with the axle's caps.
+    ring_r = GLOBE_RADIUS + 0.04
+    segments = 20
+    chord = 2 * ring_r * math.sin(math.pi / segments) + 0.006
+    rot = tilt.to_euler()
+    for i in range(segments):
+        a = i * math.tau / segments
+        local = Vector((ring_r * math.cos(a), 0.0, ring_r * math.sin(a)))
+        k.box(centre + tilt @ local, (chord, 0.03, 0.02), brass, rot=(rot.x, rot.y - a - math.pi / 2, rot.z))
+    for sign in (-1, 1):
+        k.cyl(centre + tilt @ Vector((0, 0, sign * (ring_r + 0.01))), 0.025, 0.04, "z", brass, segments=8)
+    # The stand: a turned post with a collar, a round foot, and a brass arm up to the ring's lowest point.
+    k.cyl((0, 0, 0.03), 0.3, 0.06, "z", wood, segments=12)
+    k.cyl((0, 0, 0.35), 0.035, 0.6, "z", wood, segments=8)
+    k.cyl((0, 0, 0.5), 0.065, 0.08, "z", wood, segments=8)
+    k.cyl((0, 0, 0.68), 0.05, 0.06, "z", wood, segments=8)
+    k.cyl((0, 0, 0.74), 0.03, 0.16, "z", brass, segments=8)
+    return k.finish("globe")
+
+
+ARCHIVE_KITS = {
+    "card_catalogue": card_catalogue,
+    "issue_desk": issue_desk,
+    "reading_lamp": reading_lamp,
+    "lectern": lectern,
+    "theatre_bench": theatre_bench,
+    "projector": projector,
+    "display_case": display_case,
+    "globe": globe,
+}
+
+
 SANATORIUM_KITS = {
     "gurney": gurney,
     "dressing_trolley": dressing_trolley,
@@ -700,7 +953,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--src", required=True)
     parser.add_argument("--out", required=True)
-    parser.add_argument("--only", choices=["crate", "sandbags", "headstone", *SANATORIUM_KITS, *WHEEL_KITS, *(f"book_rows_{v}" for v in BOOK_VARIANTS)])
+    parser.add_argument("--only", choices=["crate", "sandbags", "headstone", *SANATORIUM_KITS, *ARCHIVE_KITS, *WHEEL_KITS, *(f"book_rows_{v}" for v in BOOK_VARIANTS)])
     parser.add_argument("--headstone", help="a high-poly headstone scan to decimate and bake")
     parser.add_argument("--work", help="where the headstone's baked PNGs go")
     args = parser.parse_args(argv)
@@ -717,6 +970,12 @@ def main():
         obj = WHEEL_KITS[args.only]()
         export(obj, out, args.only)
         wheel_report(obj, args.only)
+        return
+    if args.only in ARCHIVE_KITS:
+        reset()
+        obj = ARCHIVE_KITS[args.only]()
+        export(obj, out, args.only)
+        report(obj, args.only)
         return
     if args.only in SANATORIUM_KITS:
         reset()

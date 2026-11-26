@@ -17,6 +17,7 @@ use crate::maps::zone::ZoneId;
 use super::decals::{Decal, DecalFamily, DecalPiece, Instead, leak_transform, leaks, page_keep_out, page_transform, pages, stain_transform, stains};
 use super::door_look::{self, Part, Piece};
 use super::fitting::FittedModel;
+use super::garnish::{Garnish, Garnished, POOL_GLOW, POOL_RADIUS, garnish};
 use super::textures::{Material, Shape, Textured, Tint, Veneer, box_uv_mesh};
 use crate::maps::machine_look::PowerGlow;
 use super::{MapId, DOOR_HEIGHT, DOOR_WIDTH, Infill, Palette, Prop, PropKind, RaisedFloor, STOREY, Slope, Sunken, WALL_THICKNESS, WINDOW_WIDTH, materials, palette, prop_variant};
@@ -61,6 +62,8 @@ const LOCKER_PAINT: Color = Color::srgb(0.46, 0.52, 0.44);
 const MATTRESS: Color = Color::srgb(0.62, 0.62, 0.56);
 const TUB_ENAMEL: Color = Color::srgb(0.7, 0.72, 0.68);
 const TUB_WATER: Color = Color::srgb(0.06, 0.09, 0.07);
+const GLOBE_SEPIA: Color = Color::srgb(0.7, 0.52, 0.32);
+const CASE_GLASS: Color = Color::srgb(0.55, 0.65, 0.65);
 const WET_FLOOR_YELLOW: Color = Color::srgb(0.8, 0.66, 0.1);
 const HEADSTONE: [Color; 3] = [Color::srgb(0.55, 0.55, 0.53), Color::srgb(0.46, 0.47, 0.46), Color::srgb(0.6, 0.58, 0.52)];
 /// Hazard yellow, for the Jump Pads.
@@ -125,6 +128,8 @@ pub(super) struct Builder<'a, 'w, 's> {
     drawn: Vec<Entity>,
     /// The Archive's stacks' meshes and materials, shared by every stack, rail and soffit.
     stacks: stacks_look::Kit,
+    /// The one mesh and material every lamp's light pool shares, made when the first is.
+    pool: Option<(Handle<Mesh>, Handle<StandardMaterial>)>,
 }
 
 impl<'a, 'w, 's> Builder<'a, 'w, 's> {
@@ -139,7 +144,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         let cylinder = meshes.add(Cylinder::new(0.5, 1.0));
         let door = materials.add(Color::srgb(0.85, 0.45, 0.1));
         let power_door = materials.add(Color::srgb(0.5, 0.3, 0.8));
-        Self { commands, meshes, materials, cube, cylinder, paints: HashMap::new(), door, power_door, repaint: None, repaint_wall: None, outside_wall: None, outside_floor: None, windows, map, drawn: Vec::new(), stacks: stacks_look::Kit::default() }
+        Self { commands, meshes, materials, cube, cylinder, paints: HashMap::new(), door, power_door, repaint: None, repaint_wall: None, outside_wall: None, outside_floor: None, windows, map, drawn: Vec::new(), stacks: stacks_look::Kit::default(), pool: None }
     }
 
     /// The material for a flat colour.
@@ -548,7 +553,7 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
     /// material its Zone's set names for it (`nth` picks between the variants, and varies the look
     /// between Props of a kind). A variant with a unit model lays it over the box once it has loaded.
     pub fn prop(&mut self, prop: &Prop, nth: usize) {
-        let Prop { kind, zone, at, size } = *prop;
+        let Prop { kind, zone, at, size, turn } = *prop;
         let middle = at + Vec3::Y * size.y / 2.0;
         let collider = match kind {
             PropKind::Barrel => Collider::cylinder(size.x / 2.0, size.y),
@@ -738,6 +743,30 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                 self.stacks.dress(&mut *self.commands, &mut *self.meshes, &mut *self.materials, root, "fixed stack", || stacks_look::fixed_stack(frame));
                 stacks_look::spawn_book_faces(&mut *self.commands, root, nth);
             }
+            PropKind::Catalogue => {
+                // A bank of card drawers: a carcass with a top slab and a plinth, until its unit has loaded.
+                piece(self, Vec3::new(size.x, size.y - COUNTER_SLAB, size.z), 0.0, Vec2::ZERO, COUNTER_WOOD, mat);
+                piece(self, Vec3::new(size.x + 0.04, COUNTER_SLAB, size.z + 0.04), size.y - COUNTER_SLAB, Vec2::ZERO, COUNTER_TOP, None);
+                band(self, 0.1, 0.06, darker(COUNTER_WOOD));
+            }
+            PropKind::Ladder => {
+                // Two rails and rungs, as a slab, until its model has loaded.
+                piece(self, size, 0.0, Vec2::ZERO, SHELF_WOOD, mat);
+                for k in 1..4 {
+                    band(self, size.y * k as f32 / 4.0, 0.04, SHELF_BOARD);
+                }
+            }
+            PropKind::Globe => {
+                // A turned stand with a ball on it.
+                let stand = size.y * 0.7;
+                piece(self, Vec3::new(size.x * 0.4, stand, size.z * 0.4), 0.0, Vec2::ZERO, SHELF_WOOD, mat);
+                piece(self, Vec3::new(size.x * 0.85, size.y - stand, size.z * 0.85), stand, Vec2::ZERO, GLOBE_SEPIA, None);
+            }
+            PropKind::Case => {
+                // A table with a glass top box.
+                piece(self, Vec3::new(size.x, size.y * 0.75, size.z), 0.0, Vec2::ZERO, SHELF_WOOD, mat);
+                piece(self, Vec3::new(size.x - 0.06, size.y * 0.25, size.z - 0.06), size.y * 0.75, Vec2::ZERO, CASE_GLASS, None);
+            }
             PropKind::Headstone => {
                 // A slab with a narrower cap, leaning a little this way or that.
                 let stone = HEADSTONE[nth % 3];
@@ -750,8 +779,48 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
         if let Some((path, unit)) = variant.and_then(|variant| variant.model) {
             let mut pieces = std::mem::take(&mut self.drawn);
             pieces.retain(|piece| Some(*piece) != kept);
-            self.commands.entity(solid).insert(FittedModel { path, unit, at, size: covered, pieces });
+            self.commands.entity(solid).insert(FittedModel { path, unit, at, size: covered, turn, pieces });
         }
+        for thing in garnish(prop) {
+            match thing {
+                Garnished::Model { path, at, yaw } => {
+                    self.commands.spawn((InRun, Garnish { path }, Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw)), Visibility::default()));
+                }
+                Garnished::Pool { at } => self.light_pool(at),
+            }
+        }
+    }
+
+    /// A warm, soft pool of lamplight lying on a table top at `at`: a fan of triangles whose colour fades to nothing at its rim,
+    /// added to what is under it, so it glows without lighting anything. Every pool shares one mesh and one material.
+    fn light_pool(&mut self, at: Vec3) {
+        let (mesh, material) = match self.pool.clone() {
+            Some(pool) => pool,
+            None => {
+                let rim = 16;
+                let mut positions = vec![[0.0, 0.0, 0.0]];
+                let mut colours = vec![[1.0, 0.78, 0.45, POOL_GLOW]];
+                for i in 0..rim {
+                    let a = i as f32 / rim as f32 * std::f32::consts::TAU;
+                    positions.push([a.cos(), 0.0, a.sin()]);
+                    colours.push([1.0, 0.78, 0.45, 0.0]);
+                }
+                let indices: Vec<u32> = (0..rim as u32).flat_map(|i| [0, 1 + (i + 1) % rim as u32, 1 + i]).collect();
+                let count = positions.len();
+                let mesh = Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, bevy::asset::RenderAssetUsages::default())
+                    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+                    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 1.0, 0.0]; count])
+                    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0, 0.0]; count])
+                    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colours)
+                    .with_inserted_indices(bevy::mesh::Indices::U32(indices));
+                let material = StandardMaterial { base_color: Color::WHITE, unlit: true, alpha_mode: AlphaMode::Add, cull_mode: None, double_sided: true, ..default() };
+                let pool = (self.meshes.add(mesh), self.materials.add(material));
+                self.pool = Some(pool.clone());
+                pool
+            }
+        };
+        // A hair over the top, so it never fights the wood.
+        self.commands.spawn((InRun, Mesh3d(mesh), MeshMaterial3d(material), Transform::from_translation(at + Vec3::Y * 0.004).with_scale(Vec3::new(POOL_RADIUS, 1.0, POOL_RADIUS)), NotShadowCaster));
     }
 
     /// A look built from `items` (a rail, a soffit's letters), in the frame at `at` turned `rot`. Not solid.

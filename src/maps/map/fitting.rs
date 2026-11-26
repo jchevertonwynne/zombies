@@ -62,13 +62,14 @@ pub fn fit(unit: Vec3, size: Vec3) -> Option<Fit> {
 
 impl Fit {
     /// Where each copy goes for a Prop whose foot is centred on `at` and whose box is `size`: the
-    /// transform of its origin (the middle of its foot), scale included.
-    pub fn placements(&self, at: Vec3, size: Vec3) -> Vec<Transform> {
+    /// transform of its origin (the middle of its foot), scale included. `turn` quarter turns more about Y face the model another way
+    /// (the Props' `turn`); copies are laid along the same axis either way.
+    pub fn placements(&self, at: Vec3, size: Vec3, turn: u8) -> Vec<Transform> {
         let along_z = size.z > size.x;
         let long = if along_z { size.z } else { size.x };
         // A unit's length runs along +X; turn it onto Z for a Prop long that way, a quarter more if
         // turned.
-        let quarters = usize::from(along_z) + usize::from(self.turned);
+        let quarters = usize::from(along_z) + usize::from(self.turned) + usize::from(turn);
         let rotation = Quat::from_rotation_y(quarters as f32 * FRAC_PI_2);
         let lay = if along_z { Vec3::Z } else { Vec3::X };
         let each = long / self.copies as f32;
@@ -91,6 +92,8 @@ pub struct FittedModel {
     pub unit: Vec3,
     pub at: Vec3,
     pub size: Vec3,
+    /// Extra quarter turns about Y (`Prop::turn`).
+    pub turn: u8,
     pub pieces: Vec<Entity>,
 }
 
@@ -126,7 +129,7 @@ pub(super) fn put_on_models(
             Dress::Wait => continue,
             Dress::Textured => {
                 if let Some(fit) = fit(model.unit, model.size) {
-                    for placement in fit.placements(model.at, model.size) {
+                    for placement in fit.placements(model.at, model.size, model.turn) {
                         commands.spawn((crate::state::InRun, WorldAssetRoot(scene.clone()), placement));
                     }
                     for &piece in &model.pieces {
@@ -217,7 +220,7 @@ mod tests {
         for size in [Vec3::new(3.1, 2.0, 0.42), Vec3::new(0.42, 2.0, 3.1), Vec3::new(2.0, 1.9, 0.38)] {
             let at = Vec3::new(10.0, 0.5, -4.0);
             let fit = fit(unit, size).unwrap();
-            let placements = fit.placements(at, size);
+            let placements = fit.placements(at, size, 0);
             assert_eq!(placements.len(), fit.copies);
             let (mut lo, mut hi) = (Vec3::MAX, Vec3::MIN);
             for placement in &placements {
@@ -237,7 +240,7 @@ mod tests {
     fn copies_do_not_overlap() {
         let unit = Vec3::new(1.0, 2.0, 0.4);
         let fit = fit(unit, Vec3::new(3.0, 2.0, 0.4)).unwrap();
-        let reaches: Vec<_> = fit.placements(Vec3::ZERO, Vec3::new(3.0, 2.0, 0.4)).iter().map(|p| reach(unit, p)).collect();
+        let reaches: Vec<_> = fit.placements(Vec3::ZERO, Vec3::new(3.0, 2.0, 0.4), 0).iter().map(|p| reach(unit, p)).collect();
         for pair in reaches.windows(2) {
             assert!(pair[0].1.x <= pair[1].0.x + 1e-5);
         }

@@ -64,3 +64,30 @@ python3 -I tools/props/build_props.py --only aisle_wheel   # one
 They come out as `assets/props/<name>/<name>.{gltf,bin}` and a manifest entry each. They are not fitted into a Prop's box:
 `src/maps/stacks_look.rs` stands them at each Wheel (`HUB_AT` there is the hub's place in the post's frame; keep the two in step). Headless
 runs, and a game without the files, draw the same parts from code.
+
+## The Archive's reading level (#540)
+
+`props.py` also makes eight Poly Haven models for the Catalogue Hall, Reading Room, Map Room and Lecture Theatre: `dining_table` (the
+fitting lays it twice as a 4.5 m reading table), `SchoolChair_01`, `marble_bust_01` and `book_encyclopedia_set_01` (dressing: no collider of
+their own, `src/maps/map/garnish.rs`), `wooden_ladder`, `vintage_grandfather_clock_01`, `standing_chalkboard_01` and `GothicCabinet_01`.
+`marble_bust_01` has only a roughness map, so `props.py` packs it with texpack's `--roughness` (unoccluded, non-metal).
+
+```
+python3 -I tools/props/props.py dining_table SchoolChair_01 wooden_ladder ...   # or no names, for all of UNITS
+```
+
+`kitbash.py` makes the eight kitbashes (`card_catalogue`, `issue_desk`, `reading_lamp`, `lectern`, `theatre_bench`, `projector`, `display_case`
+and `globe`), each a mesh of at most 2k triangles in material sets already under `assets/materials` (wood, paper, leather, brass) and, for the
+lamp's shade and bulb (emissive green x 3 and warm x 10, `KHR_materials_emissive_strength`), the display case's glass and the globe's ink, flat
+glTF factors. There is no CC0 globe (#514): `globe` is a Paper006 sphere tinted sepia with a lat/long graticule laid on it as thin ink quads, no
+continents, in a brass meridian ring on a turned stand.
+
+```
+python3 -I tools/props/build_props.py --only archive   # all eight
+python3 -I tools/props/build_props.py --only globe     # one
+```
+
+They come out as `assets/props/<name>/<name>.{gltf,bin}` and a manifest entry each. Their sizes are declared by the `kitbash(..)` constants in
+`src/maps/map/mod.rs` (and `garnish.rs`'s `READING_LAMP`); keep the two in step. The issue desk is an octagon 6 m across its flats, so it stays
+within its Prop's 6 x 6 m box. The Lecture Theatre's seven tier benches (a side) are modelled in the one `theatre_bench` unit that fits the tiers'
+single Prop, since splitting the tiers into stepped Props would make them climbable.
