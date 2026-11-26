@@ -82,8 +82,10 @@ impl Plugin for DarknessPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ChalkMaterials>()
             .add_message::<LampBurst>()
+            .add_message::<flood::FloodOn>()
+            .init_resource::<flood::FloodBeat>()
             .add_observer(light_camera)
-            .add_systems(Update, (light_lamps, light_chalk).run_if(in_state(GameState::Playing)))
+            .add_systems(Update, (light_lamps, light_chalk, flood::light_floods).run_if(in_state(GameState::Playing)))
             .add_systems(
                 PostUpdate,
                 (
@@ -211,11 +213,14 @@ fn flicker(level: f32) -> f32 {
     if level < 1.0 && (level * LAMP_FLICKER_RATE).sin() < LAMP_FLICKER_BELOW { LAMP_FLICKER_DIP } else { 1.0 }
 }
 
+pub mod flood;
 pub mod lamp_flicker;
 pub mod weapon_light;
 
 #[cfg(test)]
 mod archive_tests;
+#[cfg(test)]
+mod refinery_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
