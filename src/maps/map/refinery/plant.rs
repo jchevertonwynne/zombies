@@ -76,10 +76,11 @@ pub fn peephole_emissive(strength: f32) -> LinearRgba {
     LinearRgba::from(PEEPHOLE_COLOUR) * strength
 }
 
-/// Whether `prop` is dressed here (its look is built by `dress`, and it is a collider alone): every plant structure but the tankers and the
-/// transformer pen, which stay plain boxes until the Props come.
+/// Whether `prop` is dressed here (its look is built by `dress`, and it is a collider alone): every plant structure, which is every Prop of
+/// `data::PLANT`. The rest of the Refinery's Props (#574: the tankers, the transformers, the pump sets, the drums and the rest) are ordinary Props
+/// the builder dresses by their Zone's set, unit model and all.
 pub fn dressed(prop: &Prop) -> bool {
-    !(prop.kind == PropKind::Machine && matches!(prop.zone, ZoneId::TankerDock | ZoneId::Substation))
+    data::PLANT.contains(prop)
 }
 
 /// A box of `size` standing on `foot` (the middle of its base), drawn in `colour` or the material, tinted if it is.

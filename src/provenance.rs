@@ -181,3 +181,58 @@ fn the_archives_sound_files_have_cc0_manifest_entries_and_stay_under_2_mb() {
     assert_eq!(count, 20);
     assert!(bytes < 2_000_000, "the Archive's sounds weigh {bytes} bytes");
 }
+
+/// The Refinery's Props (#574): eight Poly Haven models (nine unit directories, `modular_industrial_pipes_01` being split into a run and a manifold)
+/// weighing about 26 MB, and five kitbashes of at most 1.5 MB, each with its own CC0 manifest entry whose source is the page it came from, and every
+/// file the glTFs name on disk (the pipe run wears the manifold's textures).
+#[test]
+fn the_refinerys_props_models_and_kitbashes_have_cc0_manifest_entries_and_weigh_about_26_mb_and_at_most_1_5_mb() {
+    let manifest = manifest();
+    let files = all_files();
+    let on_disk = |path: &str| files.iter().any(|(file, _)| file == path);
+    let models = [
+        ("concrete_road_barrier", "concrete_road_barrier"),
+        ("utility_box_01", "utility_box_01"),
+        ("portable_welding_cart", "portable_welding_cart"),
+        ("old_military_compressor", "old_military_compressor"),
+        ("metal_jerrycan", "metal_jerrycan"),
+        ("pipe_manifold", "modular_industrial_pipes_01"),
+        ("pipe_run", "modular_industrial_pipes_01"),
+        ("fire_escape", "modular_fire_escape"),
+        ("flood_lights", "flood_lights"),
+    ];
+    let mut model_bytes = 0;
+    for (dir, page) in models {
+        let entry = format!("models/{dir}");
+        let found = manifest.assets.iter().find(|e| e.path == entry).unwrap_or_else(|| panic!("no manifest entry for {entry}"));
+        assert_eq!(found.licence, "CC0", "{entry}");
+        assert_eq!(found.source, format!("https://polyhaven.com/a/{page}"), "{entry}");
+        assert!(on_disk(&format!("{entry}/model.gltf")) && on_disk(&format!("{entry}/model.bin")), "{entry} lacks its glTF or its buffer");
+        let gltf: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(root().join(&entry).join("model.gltf")).unwrap()).unwrap();
+        for image in gltf["images"].as_array().into_iter().flatten() {
+            // A uri relative to the model's own directory, `..` and all.
+            let mut parts: Vec<&str> = entry.split('/').collect();
+            for part in image["uri"].as_str().unwrap().split('/') {
+                if part == ".." {
+                    parts.pop();
+                } else {
+                    parts.push(part);
+                }
+            }
+            assert!(on_disk(&parts.join("/")), "{entry} names {} which is not under assets/", parts.join("/"));
+        }
+        model_bytes += files.iter().filter(|(path, _)| covers(&entry, path)).map(|(_, size)| size).sum::<u64>();
+    }
+    assert!((22_000_000..=30_000_000).contains(&model_bytes), "the Refinery's models weigh {:.1} MB", model_bytes as f64 / 1e6);
+    let kitbashes = ["tanker", "transformer", "pump_set", "loading_arm", "flood_mast"];
+    let mut kitbash_bytes = 0;
+    for id in kitbashes {
+        let entry = format!("props/{id}");
+        let found = manifest.assets.iter().find(|e| e.path == entry).unwrap_or_else(|| panic!("no manifest entry for {entry}"));
+        assert_eq!(found.licence, "CC0", "{entry}");
+        assert!(found.source.contains("tools/props/kitbash.py"), "{entry}: source {}", found.source);
+        assert!(on_disk(&format!("{entry}/{id}.gltf")) && on_disk(&format!("{entry}/{id}.bin")), "{entry} lacks its glTF or its buffer");
+        kitbash_bytes += files.iter().filter(|(path, _)| covers(&entry, path)).map(|(_, size)| size).sum::<u64>();
+    }
+    assert!(kitbash_bytes <= 1_500_000, "the Refinery's five kitbashes weigh {:.2} MB", kitbash_bytes as f64 / 1e6);
+}

@@ -327,6 +327,13 @@ impl Layout {
         self.props.iter().filter(|prop| prop.zone == ZoneId::PumpRoom && prop.kind == PropKind::Machine).map(|prop| prop.at + Vec3::Y * prop.size.y / 2.0)
     }
 
+    /// Where the Refinery's pump sets run, each the middle of its box: the Compressor House's Machines (#574), for the sound ticket's `PumpDrone` to play from
+    /// while the Power is on. Every other Map's Layout has none. Built from the Layout, so every machine has the same.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn pump_sets(&self) -> impl Iterator<Item = Vec3> + '_ {
+        self.props.iter().filter(|prop| prop.zone == ZoneId::CompressorHouse && prop.kind == PropKind::Machine).map(|prop| prop.at + Vec3::Y * prop.size.y / 2.0)
+    }
+
     /// Whether `at` is Out of Bounds: outside the Map's plan, in Deep Water, or more than
     /// `OUT_OF_BOUNDS_DROP` below its lowest floor.
     pub fn out_of_bounds(&self, tide: TideLevel, at: Vec3) -> bool {
@@ -515,6 +522,7 @@ fn default_variants(kind: PropKind) -> &'static [PropVariant] {
         PropKind::Stack => STACK,
         PropKind::Catalogue | PropKind::Ladder | PropKind::Globe | PropKind::Case => PLANKS,
         PropKind::Safe => STEEL,
+        PropKind::Pipe | PropKind::Vehicle => STEEL,
     }
 }
 
@@ -609,6 +617,25 @@ const BUCKET: PropVariant = kitbash("props/bucket/bucket.gltf", Vec3::new(0.414,
 pub(crate) const CANDLES: (&str, Vec3) = ("props/candles/candles.gltf", Vec3::new(0.234, 0.214, 0.24));
 const BRICK_PIER: PropVariant = boxed(textures::Material::CastleBrick02Red);
 const BLOCK_COLUMN: PropVariant = boxed(textures::Material::MedievalBlocks05);
+
+// The Refinery's (#574): Poly Haven models for the jersey barriers, the utility boxes, the welding cart, the compressor and the jerrycans; the
+// pipes' two units and the caged ladder assembled from the pieces of two catalogue models (`tools/props/assemble.py`); and five kitbashes
+// (`tools/props/kitbash.py`) for the tankers, the loading arms, the transformers and the pump sets.
+const JERSEY_BARRIER: PropVariant = model("models/concrete_road_barrier/model.gltf", (1.5, 0.84, 0.64), textures::Material::RebarReinforcedConcrete);
+const UTILITY_BOX: PropVariant = model("models/utility_box_01/model.gltf", (0.52, 1.12, 0.43), textures::Material::GreenMetalRust);
+const WELDING_CART: PropVariant = model("models/portable_welding_cart/model.gltf", (0.84, 1.56, 0.65), textures::Material::RustyMetal02);
+const COMPRESSOR: PropVariant = model("models/old_military_compressor/model.gltf", (1.68, 1.18, 0.6), textures::Material::GreenMetalRust);
+const JERRYCAN: PropVariant = model("models/metal_jerrycan/model.gltf", (0.36, 0.47, 0.18), textures::Material::PaintedMetalShutter);
+const PIPE_MANIFOLD: PropVariant = model("models/pipe_manifold/model.gltf", (2.5, 1.15, 0.4), textures::Material::RustyMetal02);
+const PIPE_RUN: PropVariant = model("models/pipe_run/model.gltf", (2.3, 0.7, 0.5), textures::Material::RustyMetal02);
+const CAGE_LADDER: PropVariant = model("models/fire_escape/model.gltf", (0.86, 3.0, 0.86), textures::Material::RustyMetal02);
+const TANKER: PropVariant = kitbash("props/tanker/tanker.gltf", Vec3::new(11.825, 3.015, 3.88), textures::Material::ContainerSide);
+const TRANSFORMER: PropVariant = kitbash("props/transformer/transformer.gltf", Vec3::new(4.6, 2.4, 10.0), textures::Material::GreenMetalRust);
+const PUMP_SET: PropVariant = kitbash("props/pump_set/pump_set.gltf", Vec3::new(2.6, 1.25, 1.0), textures::Material::BlueMetalPlate);
+const LOADING_ARM: PropVariant = kitbash("props/loading_arm/loading_arm.gltf", Vec3::new(1.933, 2.55, 0.8), textures::Material::RustyMetal02);
+/// The floodlights' heads (a twin pair) and the lattice mast under each (`darkness::flood`): not Props, so no variant.
+pub(crate) const FLOOD_HEADS: (&str, Vec3) = ("models/flood_lights/model.gltf", Vec3::new(1.68, 0.435, 0.672));
+pub(crate) const FLOOD_MAST: (&str, Vec3) = ("props/flood_mast/flood_mast.gltf", Vec3::new(1.0, 8.92, 1.0));
 
 // Textured boxes the Sanatorium's sets name (a call can't sit in a promoted constant).
 const STONE_BOX: PropVariant = boxed(textures::Material::RockWall08);
@@ -723,6 +750,20 @@ fn zone_props(zone: ZoneId) -> &'static [(PropKind, &'static [PropVariant])] {
         Undercroft => &[(PropKind::Pillar, &[BLOCK_COLUMN]), (PropKind::Crate, &[DEED_BOXES])],
         StrongRoom => &[(PropKind::Safe, &[SAFE]), (PropKind::Crate, &[DEED_BOXES]), (PropKind::Case, &[DISPLAY_CASE])],
         PumpRoom => &[(PropKind::Machine, &[PUMP_ENGINE]), (PropKind::Barrel, &[BARREL_01, BARREL_03]), (PropKind::Shelf, &[METAL_RACK])],
+        // The Refinery's (#574, #510 section 8). Jersey barriers are Sandbags, drums Barrels, jerrycans Crates, racks Shelves, desks Tables; a Machine
+        // is whichever of its Zone's units fits it (the sizes tell the welding cart from the compressor, the transformers from the cabinets);
+        // the tanks, the column and the sleepers are the plant's own look (`refinery::plant`), not these.
+        Gatehouse => &[(PropKind::Sandbags, &[JERSEY_BARRIER]), (PropKind::Machine, &[UTILITY_BOX]), (PropKind::Barrel, &[BARREL_03, BARREL_01])],
+        TankerDock => &[(PropKind::Vehicle, &[TANKER]), (PropKind::Machine, &[LOADING_ARM]), (PropKind::Barrel, &[BARREL_01, BARREL_03]), (PropKind::Crate, &[JERRYCAN])],
+        FittingShop => &[(PropKind::Machine, &[WELDING_CART, COMPRESSOR]), (PropKind::Shelf, &[METAL_RACK]), (PropKind::Table, &[OFFICE_DESK]), (PropKind::Crate, &[JERRYCAN])],
+        TankFarm => &[(PropKind::Barrel, &[BARREL_03, BARREL_01]), (PropKind::Ladder, &[CAGE_LADDER]), (PropKind::Machine, &[UTILITY_BOX])],
+        RackRoad => &[(PropKind::Pipe, &[PIPE_MANIFOLD, PIPE_RUN]), (PropKind::Barrel, &[BARREL_03, BARREL_01]), (PropKind::Machine, &[UTILITY_BOX])],
+        CompressorHouse => &[(PropKind::Machine, &[PUMP_SET]), (PropKind::Pipe, &[PIPE_MANIFOLD]), (PropKind::Shelf, &[METAL_RACK])],
+        FlareYard => &[(PropKind::Barrel, &[BARREL_01, BARREL_03]), (PropKind::Sandbags, &[JERSEY_BARRIER]), (PropKind::Pipe, &[PIPE_MANIFOLD])],
+        ColumnYard => &[(PropKind::Pipe, &[PIPE_MANIFOLD]), (PropKind::Machine, &[UTILITY_BOX, COMPRESSOR]), (PropKind::Barrel, &[BARREL_03, BARREL_01])],
+        Substation => &[(PropKind::Machine, &[TRANSFORMER, UTILITY_BOX])],
+        ControlHouse => &[(PropKind::Table, &[OFFICE_DESK]), (PropKind::Machine, &[UTILITY_BOX])],
+        ColumnPlatform => &[(PropKind::Machine, &[UTILITY_BOX])],
         _ => &[],
     }
 }
@@ -1278,6 +1319,10 @@ pub enum PropKind {
     Case,
     /// One of the Strong Room's iron safes.
     Safe,
+    /// A pipe manifold or a run of pipes laid on saddles: the Refinery's, from `modular_industrial_pipes_01`.
+    Pipe,
+    /// A road tanker, the Refinery's Tanker Dock's.
+    Vehicle,
 }
 
 /// Something standing on a floor, for the Player to weave round or jump onto and for Zombies to
@@ -1800,7 +1845,7 @@ pub(crate) mod tests {
         // A Pillar wears its Zone's wall.
         assert_eq!(prop_variant(ZoneId::Passage, PropKind::Pillar, 3, Vec3::ONE).unwrap().material, BrickWall001);
         // Every kind but none still in paint has a look in every Zone, and nth wraps round.
-        for kind in [PropKind::Crate, PropKind::Sandbags, PropKind::Headstone, PropKind::Table, PropKind::Bench, PropKind::Counter, PropKind::Altar, PropKind::Pillar, PropKind::Shelf, PropKind::Rubble, PropKind::Barrel, PropKind::Machine, PropKind::Tree, PropKind::Bed, PropKind::Trolley, PropKind::Locker, PropKind::Tub, PropKind::Sign, PropKind::Stack] {
+        for kind in [PropKind::Crate, PropKind::Sandbags, PropKind::Headstone, PropKind::Table, PropKind::Bench, PropKind::Counter, PropKind::Altar, PropKind::Pillar, PropKind::Shelf, PropKind::Rubble, PropKind::Barrel, PropKind::Machine, PropKind::Tree, PropKind::Bed, PropKind::Trolley, PropKind::Locker, PropKind::Tub, PropKind::Sign, PropKind::Stack, PropKind::Pipe, PropKind::Vehicle] {
             assert!(prop_variant(ZoneId::StartRoom, kind, 7, Vec3::ONE).is_some(), "{kind:?}");
         }
         // With two variants named, nth alternates.
@@ -1836,7 +1881,7 @@ pub(crate) mod tests {
         assert!(checked >= 20, "only {checked} model variants named");
     }
 
-    /// Each of the seventeen Poly Haven models (ten, and the Sanatorium's seven) is named by some Zone's set.
+    /// Each of the Poly Haven models of the Props (the first ten, the Sanatorium's seven and the Refinery's eight units) is named by some Zone's set.
     #[test]
     fn every_poly_haven_prop_model_belongs_to_a_zone() {
         let mut named = Vec::new();
@@ -1848,7 +1893,9 @@ pub(crate) mod tests {
             }
         }
         for id in ["barrel_03", "Barrel_01", "wine_barrel_01", "painted_wooden_table", "metal_office_desk", "wooden_table_02", "vintage_wooden_drawer_01", "wooden_bookshelf_worn", "painted_wooden_cabinet_02", "worn_metal_rack",
-            "old_bed_frame", "wheelchair_01", "tool_cart", "steel_frame_shelves_01", "drawer_cabinet", "WetFloorSign_01", "vintage_day_bed"] {
+            "old_bed_frame", "wheelchair_01", "tool_cart", "steel_frame_shelves_01", "drawer_cabinet", "WetFloorSign_01", "vintage_day_bed",
+            // The Refinery's (#574): the flood heads are the masts', not a Prop's, so no Zone's set names them.
+            "concrete_road_barrier", "utility_box_01", "portable_welding_cart", "old_military_compressor", "metal_jerrycan", "pipe_manifold", "pipe_run", "fire_escape"] {
             assert!(named.contains(&format!("models/{id}/model.gltf").as_str()), "{id} is in no Zone's set");
         }
     }

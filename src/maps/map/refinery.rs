@@ -14,7 +14,8 @@
 //! top, its Door at the foot. The one drop is the gap in the Rack Walk's east railing at z 30, on a 1 m cantilever, a 4 m fall into the Rack
 //! Road's east lane, gated on S1.
 //!
-//! The lamps, the plant structures (the tanks, the column, the heater, the sleepers: Props that are colliders alone, dressed by `plant`), the
+//! The lamps, the plant structures (the tanks, the column, the heater, the sleepers: Props that are colliders alone, dressed by `plant`), the 72 Props of the
+//! Tanker Dock, the sheds and the yards (#574: `data::PROPS`, each wearing the unit model of its Zone's set), the
 //! Open railings (`Layout.rail_style`), the three sheds' Infills, the Fuel Lines and the per-Zone tables are in separate items on purpose.
 //! Its path nodes, lamps, windows, Infills and plant (in `data`) are laid out by `tools/refinery_layout.py`, which steers every node and edge
 //! round the plant, the Infills, the pens and the bays. Every machine builds all of it from the same Layout: nothing is on the wire.
@@ -122,7 +123,7 @@ pub(super) const REFINERY: Layout = Layout {
     sunken: &[],
     water: &[],
     canals: &[],
-    props: &data::PLANT,
+    props: &data::ALL,
     lamps: &data::LAMPS,
     fixed_joins: &FIXED_JOINS,
     shifting: &[],
@@ -1313,5 +1314,144 @@ mod tests {
             let edges: Vec<_> = graph.edges.iter().filter(|e| e.gate == crate::enemies::nav::Gate::Barrier(barrier)).collect();
             assert_eq!(edges.len(), 1, "window {}", barrier.0 - W0);
         }
+    }
+
+    /// The Refinery's 72 Props (#574, #510 section 8's table): so many of each kind in each Zone after the plant structures, every one fitting a
+    /// unit model of its Zone's set within 15% on every axis (so none stays a box), and the pump sets, tankers and transformers among them where the
+    /// look decision puts them.
+    #[test]
+    fn refinery_has_72_props() {
+        use crate::maps::map::{PropKind::*, fitting, prop_variant};
+        let layout = refinery();
+        assert_eq!(data::PROPS.len(), 72);
+        // The plant (25 structures) first, then the 72, all in the one Layout.
+        assert_eq!(layout.props.len(), data::PLANT.len() + 72);
+        assert_eq!(&layout.props[..data::PLANT.len()], &data::PLANT[..]);
+        assert_eq!(&layout.props[data::PLANT.len()..], &data::PROPS[..]);
+        let table = [
+            (Gatehouse, vec![(Sandbags, 4), (Machine, 1), (Barrel, 2)]),
+            (TankerDock, vec![(Vehicle, 2), (Machine, 2), (Barrel, 6), (Crate, 2)]),
+            (FittingShop, vec![(Machine, 2), (Shelf, 2), (Table, 2), (Crate, 1)]),
+            (TankFarm, vec![(Ladder, 2), (Barrel, 4), (Machine, 1)]),
+            (RackRoad, vec![(Pipe, 3), (Barrel, 3), (Machine, 2)]),
+            (CompressorHouse, vec![(Machine, 4), (Pipe, 2), (Shelf, 1)]),
+            (FlareYard, vec![(Barrel, 3), (Sandbags, 2), (Pipe, 1)]),
+            (ColumnYard, vec![(Pipe, 2), (Machine, 2), (Barrel, 2)]),
+            (Substation, vec![(Machine, 5)]),
+            (ControlHouse, vec![(Table, 3), (Machine, 3)]),
+            (ColumnPlatform, vec![(Machine, 1)]),
+        ];
+        let mut total = 0;
+        for (zone, kinds) in &table {
+            for &(kind, count) in kinds {
+                assert_eq!(data::PROPS.iter().filter(|prop| prop.zone == *zone && prop.kind == kind).count(), count, "{kind:?} in the {}", zone.name());
+            }
+            let (all, listed) = (data::PROPS.iter().filter(|prop| prop.zone == *zone).count(), kinds.iter().map(|(_, n)| n).sum::<usize>());
+            assert_eq!(all, listed, "the {}'s Props", zone.name());
+            total += all;
+        }
+        assert_eq!(total, 72);
+        let (mut fitted, mut models) = (0, std::collections::BTreeSet::new());
+        for (nth, prop) in layout.props.iter().enumerate().skip(data::PLANT.len()) {
+            let variant = prop_variant(prop.zone, prop.kind, nth, prop.size).unwrap_or_else(|| panic!("the {:?} at {} has no look", prop.kind, prop.at));
+            let (path, unit) = variant.model.unwrap_or_else(|| panic!("the {:?} at {} in the {} names no model and would stay a box", prop.kind, prop.at, prop.zone.name()));
+            let fit = fitting::fit(unit, prop.size).unwrap_or_else(|| panic!("{path} does not fit the {:?} at {} ({})", prop.kind, prop.at, prop.size));
+            assert!(fit.scale.to_array().into_iter().all(|s| (1.0 - fitting::MAX_STRETCH..=1.0 + fitting::MAX_STRETCH).contains(&s)), "{:?} at {}: {fit:?}", prop.kind, prop.at);
+            models.insert(path);
+            fitted += 1;
+        }
+        assert_eq!(fitted, 72);
+        // Every unit of the Props ticket is worn by some Prop: the 8 Poly Haven models' nine units (the flood lights are the masts', not a Prop's) and the
+        // four Prop kitbashes (the flood mast is the floods').
+        for unit in ["models/concrete_road_barrier", "models/utility_box_01", "models/portable_welding_cart", "models/old_military_compressor", "models/metal_jerrycan", "models/pipe_manifold", "models/pipe_run", "models/fire_escape", "props/tanker", "props/transformer", "props/pump_set", "props/loading_arm"] {
+            assert!(models.iter().any(|path| path.starts_with(unit)), "no Prop wears {unit}");
+        }
+        // The tankers are the Dock's two long Machines, the transformers the pen's three, the pump sets the Compressor House's four.
+        assert!(data::PROPS.iter().filter(|prop| prop.kind == crate::maps::map::PropKind::Vehicle).all(|prop| prop.zone == TankerDock && prop.size == Vec3::new(4.0, 3.0, 12.0)));
+        assert_eq!(layout.pump_sets().count(), 4);
+        assert!(layout.pump_sets().all(|at| CompressorHouse.has(at)));
+    }
+
+    /// Every machine builds the same Props from the Layout, and nothing about them is on the wire: two separately built Refineries (a Host's and a client's
+    /// are each built by `spawn_map` from the `Layout` alone) hold the same colliders, and the same unit models in the same places and turns, and the same
+    /// 72 + 25 Props' worth of both.
+    #[test]
+    fn every_machine_builds_the_same_refinery_props() {
+        use avian3d::prelude::*;
+
+        use crate::enemies::zombie::headless::Sim;
+        use crate::maps::map::fitting::FittedModel;
+        let built = || {
+            let mut sim = Sim::on(MapId::Refinery, 60.0, |_| {});
+            sim.world_mut()
+                .run_system_once(|models: Query<&FittedModel>, colliders: Query<(&Collider, &Transform)>| {
+                    let bits = |v: Vec3| v.to_array().map(f32::to_bits);
+                    let mut fitted: Vec<_> = models.iter().map(|model| (model.path, bits(model.at), bits(model.size), model.turn)).collect();
+                    fitted.sort();
+                    let mut solid: Vec<_> = colliders.iter().map(|(collider, at)| (format!("{:?}", collider.shape().shape_type()), bits(at.translation))).collect();
+                    solid.sort();
+                    (fitted, solid)
+                })
+                .unwrap()
+        };
+        use bevy::ecs::system::RunSystemOnce;
+        let (host, client) = (built(), built());
+        assert_eq!(host.0.len(), 72, "every Prop of the 72 wears a unit model");
+        assert_eq!(host, client);
+        // Each Prop's collider is in the build, at its middle.
+        for prop in refinery().props {
+            let middle = (prop.at + Vec3::Y * prop.size.y / 2.0).to_array().map(f32::to_bits);
+            assert!(host.1.iter().any(|(_, at)| *at == middle), "the {:?} at {} has no collider", prop.kind, prop.at);
+        }
+    }
+
+    /// Nothing the Props ticket places is within 1.5 m of a Blaze or a Valve (the hook's rule), and the Props on a floor stand clear of that floor's
+    /// lamp posts and flood masts, of the Infills, and of every path node (the layout script steers the nodes and edges round them).
+    #[test]
+    fn no_refinery_prop_within_1_5_m_of_a_blaze_or_valve() {
+        let layout = refinery();
+        let gap = |a: (Vec2, Vec2), b: (Vec2, Vec2)| Vec2::new((a.0.x - b.1.x).max(b.0.x - a.1.x).max(0.0), (a.0.y - b.1.y).max(b.0.y - a.1.y).max(0.0)).length();
+        let mut bad = Vec::new();
+        for prop in data::PROPS.iter() {
+            let rect = (Vec2::new(prop.at.x - prop.size.x / 2.0, prop.at.z - prop.size.z / 2.0), Vec2::new(prop.at.x + prop.size.x / 2.0, prop.at.z + prop.size.z / 2.0));
+            let floor = prop.zone.floor();
+            for (_, name, blaze) in blazes() {
+                if (blaze.floor - floor).abs() < 1.0 && gap(rect, (blaze.min, blaze.max)) < 1.5 {
+                    bad.push(format!("the {:?} at {} is {:.2} m from the {name}'s Blaze", prop.kind, prop.at, gap(rect, (blaze.min, blaze.max))));
+                }
+            }
+            for line in layout.fuel_lines {
+                for &(_, spot, _) in line.valves {
+                    let d = gap(rect, (Vec2::new(spot.x, spot.z), Vec2::new(spot.x, spot.z)));
+                    if (spot.y - floor).abs() < 1.0 && d < 1.5 {
+                        bad.push(format!("the {:?} at {} is {d:.2} m from a Valve of the {}", prop.kind, prop.at, line.name));
+                    }
+                }
+            }
+            for &(zone, at) in layout.lamps.iter().filter(|(zone, at)| *zone == prop.zone && at.y - zone.floor() > 6.0 && at.y - zone.floor() < 7.5) {
+                let d = gap(rect, (Vec2::new(at.x, at.z), Vec2::new(at.x, at.z)));
+                if d < 0.9 && zone == prop.zone {
+                    bad.push(format!("the {:?} at {} is {d:.2} m from the post lamp at {at}", prop.kind, prop.at));
+                }
+            }
+            for flood in layout.floods.iter().filter(|flood| flood.zone == prop.zone) {
+                let d = gap(rect, (Vec2::new(flood.at.x, flood.at.z), Vec2::new(flood.at.x, flood.at.z)));
+                if d < 1.4 {
+                    bad.push(format!("the {:?} at {} is {d:.2} m from the flood mast at {}", prop.kind, prop.at, flood.at));
+                }
+            }
+            for infill in layout.infills.iter().filter(|infill| infill.zone == prop.zone) {
+                if gap(rect, (infill.min, infill.max)) < 0.3 {
+                    bad.push(format!("the {:?} at {} touches the Infill at {}", prop.kind, prop.at, infill.min));
+                }
+            }
+            for &(name, x, y, z) in layout.nav_nodes {
+                let d = gap(rect, (Vec2::new(x, z), Vec2::new(x, z)));
+                if (y - prop.at.y).abs() < 0.6 && d < 0.3 {
+                    bad.push(format!("the {:?} at {} covers the path node {name}", prop.kind, prop.at));
+                }
+            }
+        }
+        assert!(bad.is_empty(), "{bad:#?}");
     }
 }

@@ -340,6 +340,13 @@ SET_TILE = {
     "gauge_white": 1.0,
     "valve_red": 1.0,
     "needle_red": 1.0,
+    # The Refinery's Props (#574).
+    "rusty_metal_04": 2.0,
+    "container_side": 1.94,
+    "blue_metal_plate": 2.5,
+    "rebar_reinforced_concrete": 2.0,
+    "tyre_rubber": 1.0,
+    "bushing_porcelain": 1.0,
 }
 
 
@@ -1225,6 +1232,136 @@ ARCHIVE_KITS = {
 }
 
 
+# ---- The Refinery's Props (#574): five kitbashes in material sets already under assets/materials (and flat colours), for the Tanker Dock's
+# tankers and loading arms, the Substation's transformers, the Compressor House's pump sets and the six floodlight masts. Each is in the
+# fitting framework's unit frame (its length along +x, its depth along y, up z); the build prints each unit's size, which the `kitbash(..)`
+# constants in `src/maps/map/mod.rs` (and `FLOOD_MAST` in `src/maps/darkness/flood.rs`) repeat: keep them in step.
+
+
+def tanker():
+    """A road tanker, nose to +x: a tank on a chassis with three rear axles and a flat-fronted cab. About 11.8 x 2.95 x 3.9 m (the Dock's bays are
+    4 m wide, so it stands fat)."""
+    k = Kit()
+    skin, cab, iron, rubber = "rusty_metal_04", "container_side", "rusty_metal_02", "tyre_rubber"
+    # The chassis and the tank on it, banded.
+    k.box((-0.2, 0, 0.75), (11.0, 1.2, 0.3), iron)
+    k.cyl((-1.3, 0, 1.55), 1.35, 8.6, "x", skin, segments=20)
+    for x in (-4.6, -2.9, -1.3, 0.3, 1.9):
+        k.cyl((x, 0, 1.55), 1.4, 0.1, "x", iron, segments=20)
+    k.cyl((-1.3, 0, 2.93), 0.36, 0.16, "z", iron, segments=10)
+    # The walkway along the top and its rail, and the rear bumper.
+    k.box((-1.3, 0, 2.95), (6.0, 0.5, 0.05), iron)
+    for y in (-0.27, 0.27):
+        k.box((-1.3, y, 3.0), (6.0, 0.03, 0.03), iron)
+    k.box((-5.75, 0, 0.9), (0.25, 3.0, 0.25), iron)
+    # The cab: a block with a dark windscreen, a bumper and a roof lamp bar.
+    k.box((4.35, 0, 1.75), (2.5, 3.0, 1.9), cab)
+    k.box((5.62, 0, 2.15), (0.04, 2.6, 0.7), rubber)
+    k.box((5.8, 0, 0.95), (0.3, 3.3, 0.4), iron)
+    k.box((4.35, 0, 2.75), (2.5, 3.0, 0.12), iron)
+    # Wheels: a front axle and a tandem of three behind, on both sides, with hubs.
+    for x in (4.6, -4.7, -3.5, -2.3):
+        for y in (-1.7, 1.7):
+            k.cyl((x, y, 0.5), 0.5, 0.4, "y", rubber, segments=12)
+            k.cyl((x, y + (0.2 if y > 0 else -0.2), 0.5), 0.22, 0.08, "y", iron, segments=8)
+    return k.finish("tanker")
+
+
+def transformer():
+    """One of the Substation's grid transformers, 4.6 m thick and 10 m long (laid three times along the pen): a concrete plinth, a tank with
+    a bank of radiator fins at one end, a conservator and three bushings. About 4.6 x 2.4 x 10 m."""
+    k = Kit()
+    body, concrete = "green_metal_rust", "rebar_reinforced_concrete"
+    k.box((0, 0, 0.1), (4.6, 10.0, 0.2), concrete)
+    k.box((0, -1.1, 0.95), (3.4, 6.6, 1.5), body)
+    k.box((0, -1.1, 1.74), (3.0, 6.2, 0.08), body)
+    # The radiator bank: eight fins along y at the +y end, each a tall thin plate with a header pipe above.
+    for i in range(8):
+        k.box((0, 2.55 + 0.28 * i, 1.0), (3.0, 0.1, 1.4), body)
+    k.cyl((0, 3.6, 1.75), 0.07, 3.0, "x", body, segments=8)
+    # The conservator drum along the top, and three bushings (porcelain posts) on the -y half.
+    k.cyl((0, -1.1, 2.08), 0.28, 4.4, "y", body, segments=12)
+    for x in (-1.0, 0.0, 1.0):
+        k.cyl((x, -3.5, 2.0), 0.1, 0.8, "z", "bushing_porcelain", segments=8)
+        for dz in (-0.12, 0.05, 0.22):
+            k.cyl((x, -3.5, 2.0 + dz), 0.16, 0.06, "z", "bushing_porcelain", segments=8)
+    # A cable box on the end face and a ladder-less service plate.
+    k.box((0, -4.5, 0.8), (1.6, 0.4, 0.9), body)
+    return k.finish("transformer")
+
+
+def pump_set():
+    """A motor-driven pump on a steel skid: the motor along x, a coupling guard, the volute and its suction and discharge pipes. About 2.4 x 1.25
+    x 1.0 m."""
+    k = Kit()
+    blue, steel = "blue_metal_plate", "rusty_metal_04"
+    k.box((0, 0, 0.08), (2.4, 1.0, 0.16), blue)
+    k.cyl((-0.65, 0, 0.62), 0.36, 1.1, "x", blue, segments=14)
+    for x in (-1.05, -0.8, -0.55, -0.3):
+        k.cyl((x, 0, 0.62), 0.385, 0.05, "x", blue, segments=14)
+    k.box((-0.65, 0, 1.02), (0.3, 0.3, 0.2), steel)
+    k.box((0.05, 0, 0.58), (0.3, 0.5, 0.4), steel)
+    k.cyl((0.6, 0, 0.58), 0.36, 0.4, "y", steel, segments=14)
+    k.cyl((0.6, 0, 0.9), 0.1, 0.7, "z", steel, segments=8)
+    k.cyl((0.6, 0, 1.2), 0.14, 0.05, "z", steel, segments=8)
+    k.cyl((1.0, 0, 0.58), 0.1, 0.8, "x", steel, segments=8)
+    k.cyl((1.18, 0, 0.58), 0.14, 0.05, "x", steel, segments=8)
+    for x in (-1.0, 1.0):
+        for y in (-0.4, 0.4):
+            k.box((x, y, 0.2), (0.12, 0.08, 0.08), blue)
+    return k.finish("pump_set")
+
+
+def loading_arm():
+    """A tanker loading arm: a base plate and a riser, a swivel, a boom out along +x with a counterweight behind and a drop pipe to a flange.
+    About 1.9 x 2.55 x 0.8 m."""
+    k = Kit()
+    iron, yellow = "rusty_metal_02", "hazard_yellow"
+    k.box((-0.5, 0, 0.05), (0.8, 0.8, 0.1), iron)
+    k.cyl((-0.5, 0, 1.25), 0.11, 2.3, "z", iron, segments=10)
+    k.box((-0.5, 0, 2.4), (0.3, 0.3, 0.3), yellow)
+    k.cyl((0.15, 0, 2.4), 0.08, 1.6, "x", iron, segments=10)
+    k.box((-0.78, 0, 2.4), (0.34, 0.3, 0.3), iron)
+    k.cyl((0.85, 0, 1.9), 0.07, 1.0, "z", iron, segments=10)
+    k.cyl((0.85, 0, 1.4), 0.14, 0.06, "z", iron, segments=10)
+    # A brace from the riser to the boom.
+    k.box((-0.15, 0, 2.0), (0.04, 0.04, 0.95), iron, rot=(0.0, 0.65, 0.0))
+    return k.finish("loading_arm")
+
+
+def flood_mast():
+    """A floodlight mast: a lattice of four legs, rungs and diagonals 8.6 m up to a platform, 0.9 m square. About 0.9 x 8.8 x 0.9 m."""
+    k = Kit()
+    iron = "rusty_metal_02"
+    half, tall, bays = 0.4, 8.6, 9
+    for x in (-half, half):
+        for y in (-half, half):
+            k.box((x, y, tall / 2), (0.06, 0.06, tall), iron)
+    step = tall / bays
+    for i in range(bays + 1):
+        z = step * i
+        for x, y, size in ((0, -half, (2 * half, 0.04, 0.04)), (0, half, (2 * half, 0.04, 0.04)), (-half, 0, (0.04, 2 * half, 0.04)), (half, 0, (0.04, 2 * half, 0.04))):
+            k.box((x, y, z), size, iron)
+    # A diagonal across each face of each bay (alternating the way it leans).
+    length = math.hypot(2 * half, step)
+    lean = math.atan2(2 * half, step)
+    for i in range(bays):
+        z = step * (i + 0.5)
+        sign = 1 if i % 2 == 0 else -1
+        for y in (-half, half):
+            k.box((0, y, z), (0.03, 0.03, length), iron, rot=(0.0, sign * lean, 0.0))
+        for x in (-half, half):
+            k.box((x, 0, z), (0.03, 0.03, length), iron, rot=(sign * lean, 0.0, 0.0))
+    # The platform on top, with a toe rail.
+    k.box((0, 0, tall + 0.05), (1.0, 1.0, 0.1), iron)
+    for x, y, size in ((0, -0.48, (1.0, 0.03, 0.2)), (0, 0.48, (1.0, 0.03, 0.2)), (-0.48, 0, (0.03, 1.0, 0.2)), (0.48, 0, (0.03, 1.0, 0.2))):
+        k.box((x, y, tall + 0.2), size, iron)
+    return k.finish("flood_mast")
+
+
+REFINERY_KITS = {"tanker": tanker, "transformer": transformer, "pump_set": pump_set, "loading_arm": loading_arm, "flood_mast": flood_mast}
+
+
 SANATORIUM_KITS = {
     "gurney": gurney,
     "dressing_trolley": dressing_trolley,
@@ -1242,7 +1379,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--src", required=True)
     parser.add_argument("--out", required=True)
-    parser.add_argument("--only", choices=["crate", "sandbags", "headstone", *SANATORIUM_KITS, *ARCHIVE_KITS, *WHEEL_KITS, *VALVE_KITS, *(f"book_rows_{v}" for v in BOOK_VARIANTS)])
+    parser.add_argument("--only", choices=["crate", "sandbags", "headstone", *SANATORIUM_KITS, *ARCHIVE_KITS, *WHEEL_KITS, *VALVE_KITS, *REFINERY_KITS, *(f"book_rows_{v}" for v in BOOK_VARIANTS)])
     parser.add_argument("--headstone", help="a high-poly headstone scan to decimate and bake")
     parser.add_argument("--work", help="where the headstone's baked PNGs go")
     args = parser.parse_args(argv)
@@ -1253,6 +1390,12 @@ def main():
         obj = book_rows(args.only[len("book_rows_"):])
         export(obj, out, args.only, colours=True)
         book_rows_report(obj, args.only)
+        return
+    if args.only in REFINERY_KITS:
+        reset()
+        obj = REFINERY_KITS[args.only]()
+        export(obj, out, args.only)
+        report(obj, args.only)
         return
     if args.only in WHEEL_KITS or args.only in VALVE_KITS:
         reset()

@@ -1,0 +1,121 @@
+{
+ "asset": {
+  "generator": "Khronos glTF Blender I/O v5.3.43",
+  "version": "2.0"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "name": "Scene",
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "mesh": 0,
+   "name": "flood_lights"
+  }
+ ],
+ "materials": [
+  {
+   "doubleSided": false,
+   "name": "g1",
+   "pbrMetallicRoughness": {
+    "baseColorFactor": [
+     0.04,
+     0.04,
+     0.045,
+     1.0
+    ],
+    "metallicFactor": 0.6,
+    "roughnessFactor": 0.45
+   }
+  }
+ ],
+ "meshes": [
+  {
+   "name": "flood_lights",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2
+     },
+     "indices": 3,
+     "material": 0
+    }
+   ]
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 2928,
+   "max": [
+    0.8400000333786011,
+    0.4351899325847626,
+    0.33587127923965454
+   ],
+   "min": [
+    -0.8400000333786011,
+    0,
+    -0.33587127923965454
+   ],
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 2928,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 2928,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5123,
+   "count": 5196,
+   "type": "SCALAR"
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteLength": 35136,
+   "byteOffset": 0,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 35136,
+   "byteOffset": 35136,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 23424,
+   "byteOffset": 70272,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 10392,
+   "byteOffset": 93696,
+   "target": 34963
+  }
+ ],
+ "buffers": [
+  {
+   "byteLength": 104088,
+   "uri": "model.bin"
+  }
+ ]
+}

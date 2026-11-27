@@ -85,7 +85,7 @@ impl Plugin for DarknessPlugin {
             .add_message::<flood::FloodOn>()
             .init_resource::<flood::FloodBeat>()
             .add_observer(light_camera)
-            .add_systems(Update, (light_lamps, light_chalk, flood::light_floods).run_if(in_state(GameState::Playing)))
+            .add_systems(Update, (light_lamps, light_chalk, flood::light_floods, flood::dress_flood_models).run_if(in_state(GameState::Playing)))
             .add_systems(
                 PostUpdate,
                 (
