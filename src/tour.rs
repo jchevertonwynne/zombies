@@ -15,7 +15,9 @@
 //! Without it no Zombie is ever about.
 //! `ZOMBIES_TOUR_ONLY=<text>[,<text>...]` keeps only the views whose name contains one of the texts, to shoot a few views again.
 //! A tour writes only into `ZOMBIES_TOUR_OUT`, and saves no Run Record.
-//! Build with `--release`, and run with a scratch `HOME` so no Run Record is kept.
+//! Build with `--release`, and run with a scratch `HOME` so no Run Record is kept. Run the built binary (not `cargo run`: a scratch
+//! `HOME` hides the Rust toolchain) with `BEVY_ASSET_ROOT` set to the repository, or it looks for `assets/` beside itself, finds none,
+//! and every shot comes out in flat fallback colours.
 
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
