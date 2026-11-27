@@ -5,13 +5,29 @@
 //! The Dam's tour Holds every Generator, so its Zones are lit to judge, unless `ZOMBIES_TOUR_POWER=off`.
 //! `ZOMBIES_TOUR_POWER=on` throws a Map's Power Switch, so its machines are lit.
 //! `ZOMBIES_TOUR_MODE=gauntlet` plays the tour as a Gauntlet Run, the Player holding a dozen Boons
-//! so the HUD has something in its corner. Build with `--release`, and run with a scratch `HOME` so no Run Record is kept.
+//! so the HUD has something in its corner.
+//! `ZOMBIES_TOUR_WEAPON=<weapon id>` hands the Player that Weapon once (the `GiveWeapon` seam of Developer mode, but no Cheat, so
+//! the Run is not tainted), in hand for every shot: the Weapon's name in lower case (`ak74u`, `raygun`, `trenchgun`, `hk21`, ...;
+//! a wrong one lists them all), with `:upgraded` after it for its Pack-a-Punch form.
+//! `ZOMBIES_TOUR_ZOMBIES=<n>` stands `n` Zombies in front of the camera in every view, `<n>:<kind>` of a kind (`walker`, the default,
+//! `jogger`, `sprinter`, `crawler`, `napalm`, `shrieker`, `nova`, `hellhound` or `sapper`). They are asked for with a `SpawnZombie`
+//! request, so Classic spawns them as it does any, then held where they stand, facing the Player, mid-swing; they harm no one.
+//! Without it no Zombie is ever about.
+//! `ZOMBIES_TOUR_ONLY=<text>[,<text>...]` keeps only the views whose name contains one of the texts, to shoot a few views again.
+//! A tour writes only into `ZOMBIES_TOUR_OUT`, and saves no Run Record.
+//! Build with `--release`, and run with a scratch `HOME` so no Run Record is kept. Run the built binary (not `cargo run`: a scratch
+//! `HOME` hides the Rust toolchain) with `BEVY_ASSET_ROOT` set to the repository, or it looks for `assets/` beside itself, finds none,
+//! and every shot comes out in flat fallback colours.
 
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 use bevy::window::PrimaryWindow;
 
-use crate::enemies::zombie::Zombie;
+use crate::enemies::request::{Requested, RequestedKind, SpawnAt, SpawnProfile, SpawnZombie};
+use crate::enemies::zombie::rig::{Activity, Shown, Swing};
+use crate::enemies::zombie::{Gibbed, Rising, Zombie};
+use crate::weapons::arsenal::WeaponId;
+use crate::weapons::weapon::GiveWeapon;
 use crate::maps::door::Door;
 use crate::maps::generator::Generators;
 use crate::maps::power::Power;
@@ -437,6 +453,12 @@ const POLDER: &[View] = &[
 const WARM_UP: u32 = 240;
 /// Frames each view settles for before its shot.
 const SETTLE: u32 = 40;
+/// Frames a view with risen Zombies settles for: some kinds climb out of the ground.
+const ZOMBIE_SETTLE: u32 = 360;
+/// The `Requested::tag` of the tour's Zombies, plus the slot each stands in.
+const ZOMBIE_TAG: u32 = 0x544F_5552;
+/// Frames a view has settled before its Zombies are stood in it, so the last shot has been taken.
+const ZOMBIES_AFTER: u32 = 3;
 /// Frames a Quarantine view settles for: its doors take `SWING_SECS` to swing shut.
 const QUARANTINE_SETTLE: u32 = 480;
 
@@ -452,8 +474,67 @@ pub struct Tour {
     switched: bool,
     /// The Tide phase to hold the water at (`ZOMBIES_TOUR_TIDE=low|rising|high|falling`).
     tide: Option<crate::maps::tide::TidePhase>,
+    /// The Weapon to hold, and whether it is Pack-a-Punched (`ZOMBIES_TOUR_WEAPON`).
+    weapon: Option<(WeaponId, bool)>,
+    /// How many Zombies to stand in each view, and of what kind (`ZOMBIES_TOUR_ZOMBIES`).
+    zombies: Option<(usize, TourKind)>,
     shot: usize,
     settle: u32,
+}
+
+/// A kind of Zombie a tour can stand in its views.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TourKind {
+    Requested(RequestedKind),
+    /// A Walker whose legs go, as a blast would take them.
+    Crawler,
+}
+
+const TOUR_KINDS: [(&str, TourKind); 9] = [
+    ("walker", TourKind::Requested(RequestedKind::Walker)),
+    ("jogger", TourKind::Requested(RequestedKind::Jogger)),
+    ("sprinter", TourKind::Requested(RequestedKind::Sprinter)),
+    ("crawler", TourKind::Crawler),
+    ("napalm", TourKind::Requested(RequestedKind::Napalm)),
+    ("shrieker", TourKind::Requested(RequestedKind::Shrieker)),
+    ("nova", TourKind::Requested(RequestedKind::NovaCrawler)),
+    ("hellhound", TourKind::Requested(RequestedKind::Hellhound)),
+    ("sapper", TourKind::Requested(RequestedKind::Sapper)),
+];
+
+impl TourKind {
+    /// Whether it is on its feet the moment it spawns, so the view need not wait for it to rise.
+    fn stands_at_once(self) -> bool {
+        matches!(
+            self,
+            TourKind::Crawler | TourKind::Requested(RequestedKind::Walker | RequestedKind::Jogger | RequestedKind::Sprinter)
+        )
+    }
+}
+
+/// The Weapon `ZOMBIES_TOUR_WEAPON` names: its `WeaponId` in lower case, then `:upgraded` for its Pack-a-Punch form.
+fn parse_weapon(text: &str) -> (WeaponId, bool) {
+    let (name, upgraded) = match text.split_once(':') {
+        Some((name, "upgraded")) => (name, true),
+        Some(_) => panic!("ZOMBIES_TOUR_WEAPON={text}: only `:upgraded` may follow the id"),
+        None => (text, false),
+    };
+    let id = WeaponId::ALL.into_iter().find(|id| format!("{id:?}").eq_ignore_ascii_case(name)).unwrap_or_else(|| {
+        let all: Vec<_> = WeaponId::ALL.iter().map(|id| format!("{id:?}").to_ascii_lowercase()).collect();
+        panic!("ZOMBIES_TOUR_WEAPON={text}: one of {}", all.join(", "))
+    });
+    (id, upgraded)
+}
+
+/// The Zombies `ZOMBIES_TOUR_ZOMBIES` asks for: `<n>` or `<n>:<kind>`.
+fn parse_zombies(text: &str) -> (usize, TourKind) {
+    let (count, kind) = text.split_once(':').unwrap_or((text, "walker"));
+    let count = count.parse().unwrap_or_else(|_| panic!("ZOMBIES_TOUR_ZOMBIES={text}: a count, then optionally `:<kind>`"));
+    let kind = TOUR_KINDS.iter().find(|(name, _)| name.eq_ignore_ascii_case(kind)).map(|&(_, kind)| kind).unwrap_or_else(|| {
+        let all: Vec<_> = TOUR_KINDS.iter().map(|(name, _)| *name).collect();
+        panic!("ZOMBIES_TOUR_ZOMBIES={text}: a kind of {}", all.join(", "))
+    });
+    (count, kind)
 }
 
 impl Tour {
@@ -484,7 +565,17 @@ impl Tour {
             "falling" => TidePhase::Falling,
             other => panic!("ZOMBIES_TOUR_TIDE={other}: low, rising, high or falling"),
         });
-        Some(Self { map, views, dir, frames: 0, power, switched, tide, shot: 0, settle: 0 })
+        let weapon = std::env::var("ZOMBIES_TOUR_WEAPON").ok().map(|text| parse_weapon(&text));
+        let zombies = std::env::var("ZOMBIES_TOUR_ZOMBIES").ok().map(|text| parse_zombies(&text)).filter(|&(count, _)| count > 0);
+        let views = match std::env::var("ZOMBIES_TOUR_ONLY") {
+            Ok(only) => {
+                let kept: Vec<View> = views.iter().copied().filter(|&(name, ..)| only.split(',').any(|text| name.contains(text))).collect();
+                assert!(!kept.is_empty(), "ZOMBIES_TOUR_ONLY={only}: no view of that name");
+                &*Box::leak(kept.into_boxed_slice())
+            }
+            Err(_) => views,
+        };
+        Some(Self { map, views, dir, frames: 0, power, switched, tide, weapon, zombies, shot: 0, settle: 0 })
     }
 }
 
@@ -498,7 +589,14 @@ impl Plugin for TourPlugin {
             .add_systems(OnEnter(GameState::MainMenu), start_run)
             // Before Update, so a Zombie is gone before the skin systems reach it, not despawned under their queued commands.
             .add_systems(PreUpdate, clear.run_if(in_state(GameState::Playing)))
-            .add_systems(Update, (shoot, give_boons, hold_generators, throw_switch, hold_tide).run_if(in_state(GameState::Playing)))
+            .add_systems(
+                Update,
+                (shoot, give_boons, give_weapon, keep_unrecorded, stand_zombies.after(shoot), pose_zombies.after(stand_zombies), hold_generators, throw_switch, hold_tide)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            // Whatever the Zombies' own systems did in a step, they are back where the view stands them.
+            .add_systems(FixedUpdate, hold_zombies.after(crate::authority::HostSimulation).run_if(in_state(GameState::Playing)))
+            .add_systems(Update, hold_zombies.after(crate::authority::HostSimulation).after(pose_zombies).run_if(in_state(GameState::Playing)))
             .add_systems(Update, hold_quarantine.before(crate::maps::quarantine::QuarantineClock).run_if(in_state(GameState::Playing)))
             // After the Host's clock and before the Fire's look reads the lines, so the Rack Line shows the phase the view asks for.
             .add_systems(
@@ -628,13 +726,131 @@ fn throw_switch(tour: Res<Tour>, power: Option<ResMut<Power>>) {
     }
 }
 
-/// No Zombies in the shots, and no harm to the Player.
-fn clear(mut commands: Commands, mut players: Query<&mut Health, With<Player>>, zombies: Query<Entity, With<Zombie>>) {
+/// A tour is no Run to keep: its Run Record is marked saved already, so quitting writes none. (No Cheat is used, so the
+/// Run is not Tainted.)
+fn keep_unrecorded(mut recorded: ResMut<crate::storage::records::RunRecorded>) {
+    recorded.0 = true;
+}
+
+/// Hands the Player the Weapon `ZOMBIES_TOUR_WEAPON` names, once, well before the first shot.
+fn give_weapon(tour: Res<Tour>, mut done: Local<bool>, player: Option<Single<Entity, With<LocalPlayer>>>, mut gifts: MessageWriter<GiveWeapon>) {
+    let (Some((id, upgraded)), false, Some(player)) = (tour.weapon, *done, player) else { return };
+    if tour.frames < 30 {
+        return;
+    }
+    gifts.write(GiveWeapon { player: *player, id, upgraded });
+    *done = true;
+}
+
+/// Where a tour Zombie stands, held there so a shot is steady: its place and the way it faces. Its height is left to the floor.
+#[derive(Component, Debug, Clone, Copy)]
+struct Stands {
+    at: Vec2,
+    facing: Quat,
+}
+
+/// Whether a `Requested::tag` is one of the tour's Zombies, and if so which slot.
+fn tour_slot(requested: &Requested) -> Option<usize> {
+    requested.tag?.checked_sub(ZOMBIE_TAG).filter(|&slot| slot < 64).map(|slot| slot as usize)
+}
+
+/// Where Zombie `slot` of `count` stands for a view: in front of the camera, spread across the picture, a little
+/// nearer or further each.
+fn zombie_place(view: View, slot: usize, count: usize) -> Vec3 {
+    let (_, feet, at, ..) = view;
+    let forward = Vec3::new(at.x - feet.x, 0.0, at.z - feet.z).normalize_or_zero();
+    let right = forward.cross(Vec3::Y);
+    let across = slot as f32 - (count as f32 - 1.0) / 2.0;
+    let ahead = 4.5 + 1.1 * ((slot % 3) as f32) + 0.3 * count as f32;
+    feet + forward * ahead + right * across * 1.6
+}
+
+/// With the view up, the previous view's Zombies gone and this one's asked for, once.
+fn stand_zombies(
+    mut commands: Commands,
+    tour: Res<Tour>,
+    mut last: Local<Option<usize>>,
+    old: Query<(Entity, &Requested)>,
+    mut requests: MessageWriter<SpawnZombie>,
+) {
+    let Some((count, kind)) = tour.zombies else { return };
+    if tour.shot >= tour.views.len() || tour.frames < WARM_UP || tour.settle < ZOMBIES_AFTER || *last == Some(tour.shot) {
+        return;
+    }
+    *last = Some(tour.shot);
+    for (entity, requested) in &old {
+        if tour_slot(requested).is_some() {
+            commands.entity(entity).despawn();
+        }
+    }
+    let kind = match kind {
+        TourKind::Requested(kind) => kind,
+        TourKind::Crawler => RequestedKind::Walker,
+    };
+    for slot in 0..count.min(64) {
+        requests.write(SpawnZombie {
+            kind,
+            health_factor: 1.0,
+            scale: 1.0,
+            at: SpawnAt::Point(zombie_place(tour.views[tour.shot], slot, count)),
+            holds_round: false,
+            profile: SpawnProfile { detonates: false, ..SpawnProfile::default() },
+            heavyweight: None,
+            tag: Some(ZOMBIE_TAG + slot as u32),
+            outside_cap: true,
+        });
+    }
+}
+
+/// A tour Zombie that has just spawned is told where it stands, from its slot, and a Crawler loses its legs.
+/// Once it is up (a Riser climbs out first) it is held mid-swing, an arm or both overhead.
+fn pose_zombies(
+    mut commands: Commands,
+    tour: Res<Tour>,
+    new: Query<(Entity, &Requested), (With<Zombie>, Without<Stands>)>,
+    posed: Query<(Entity, &Requested, Has<Rising>), (With<Stands>, Without<Shown>)>,
+    mut gibs: MessageWriter<Gibbed>,
+) {
+    let Some((count, kind)) = tour.zombies else { return };
+    let Some(&view) = tour.views.get(tour.shot) else { return };
+    let (_, feet, ..) = view;
+    for (entity, requested) in &new {
+        let Some(slot) = tour_slot(requested) else { continue };
+        let place = zombie_place(view, slot, count);
+        let facing = Transform::from_translation(place).looking_at(Vec3::new(feet.x, place.y, feet.z), Vec3::Y).rotation;
+        commands.entity(entity).insert(Stands { at: Vec2::new(place.x, place.z), facing });
+        if kind == TourKind::Crawler {
+            gibs.write(Gibbed { zombie: entity });
+        }
+    }
+    for (entity, requested, rising) in &posed {
+        if rising || kind == TourKind::Crawler {
+            continue;
+        }
+        let slot = tour_slot(requested).unwrap_or(0);
+        let arm = if slot % 3 == 2 { Swing::Both } else { Swing::Arm(slot % 2) };
+        commands.entity(entity).insert(Shown(Activity::Swinging { progress: 0.55, arm }));
+    }
+}
+
+/// Every tour Zombie back at its place after a step: they stand, facing the Player, and go nowhere.
+fn hold_zombies(mut zombies: Query<(&mut Transform, &Stands), Without<Rising>>) {
+    for (mut transform, stands) in &mut zombies {
+        transform.translation.x = stands.at.x;
+        transform.translation.z = stands.at.y;
+        transform.rotation = stands.facing;
+    }
+}
+
+/// No Zombies in the shots but the ones the tour stands there, and no harm to the Player.
+fn clear(mut commands: Commands, mut players: Query<&mut Health, With<Player>>, zombies: Query<(Entity, Option<&Requested>), With<Zombie>>) {
     for mut health in &mut players {
         health.current = health.max;
     }
-    for zombie in &zombies {
-        commands.entity(zombie).despawn();
+    for (zombie, requested) in &zombies {
+        if !requested.is_some_and(|requested| tour_slot(requested).is_some()) {
+            commands.entity(zombie).despawn();
+        }
     }
 }
 
@@ -672,7 +888,14 @@ fn shoot(
         }
     }
     tour.settle += 1;
-    if tour.settle < if quarantine_hold(name).is_some() { QUARANTINE_SETTLE } else { SETTLE } {
+    let settle = if quarantine_hold(name).is_some() {
+        QUARANTINE_SETTLE
+    } else if tour.zombies.is_some_and(|(_, kind)| !kind.stands_at_once()) {
+        ZOMBIE_SETTLE
+    } else {
+        SETTLE
+    };
+    if tour.settle < settle {
         return;
     }
     let path = format!("{}/{:02}-{name}.png", tour.dir, tour.shot);
@@ -686,6 +909,35 @@ fn shoot(
 mod tests {
     use super::*;
     use crate::maps::shifting::PiecePhase;
+
+    #[test]
+    fn every_weapon_has_an_id_the_tour_can_name() {
+        for id in WeaponId::ALL {
+            assert_eq!(parse_weapon(&format!("{id:?}").to_ascii_lowercase()), (id, false));
+        }
+        assert_eq!(parse_weapon("raygun:upgraded"), (WeaponId::RayGun, true));
+    }
+
+    #[test]
+    fn the_tours_zombies_default_to_walkers_and_name_every_kind() {
+        assert_eq!(parse_zombies("4"), (4, TourKind::Requested(RequestedKind::Walker)));
+        assert_eq!(parse_zombies("3:crawler"), (3, TourKind::Crawler));
+        for (name, kind) in TOUR_KINDS {
+            assert_eq!(parse_zombies(&format!("2:{name}")), (2, kind));
+        }
+    }
+
+    #[test]
+    fn the_tours_zombies_stand_in_front_of_the_camera_clear_of_the_player() {
+        let view = view("test", (0.0, 1.0, 0.0), (0.0, -10.0), 0.0, false);
+        for count in 1..=6 {
+            for slot in 0..count {
+                let place = zombie_place(view, slot, count);
+                assert_eq!(place.y, 1.0);
+                assert!(place.z < -4.0, "ahead of the Player, out of reach of a swing: {place}");
+            }
+        }
+    }
 
     #[test]
     fn every_fire_hold_names_a_refinery_view_and_a_phase_its_line_has() {
