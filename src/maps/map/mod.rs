@@ -329,7 +329,6 @@ impl Layout {
 
     /// Where the Refinery's pump sets run, each the middle of its box: the Compressor House's Machines (#574), for the sound ticket's `PumpDrone` to play from
     /// while the Power is on. Every other Map's Layout has none. Built from the Layout, so every machine has the same.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn pump_sets(&self) -> impl Iterator<Item = Vec3> + '_ {
         self.props.iter().filter(|prop| prop.zone == ZoneId::CompressorHouse && prop.kind == PropKind::Machine).map(|prop| prop.at + Vec3::Y * prop.size.y / 2.0)
     }

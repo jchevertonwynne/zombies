@@ -227,6 +227,21 @@ cues! {
     PageRustle => "page_rustle", Root, Spatial, 0.3;
     ShelfCreak => "shelf_creak", Root, Spatial, 0.3;
     BookFall => "book_fall", Root, Spatial, 0.5;
+    // The Refinery's Fuel Lines (#575, from #510 section 9): a Lit Blaze's crackle (the three nearest play), the whoosh of a line
+    // lighting, the gas hissing from each Blaze and Valve through a Flare-up, a Valve's wheel turning and the clank of a line
+    // shutting. `BlazeLoop` and `BlazeIgnite` are second slots on the files of `FirePool` and `NapalmWindup`.
+    BlazeLoop => "blaze_loop", Root, Spatial, 0.7;
+    BlazeIgnite => "blaze_ignite", Root, Spatial, 1.0;
+    GasHiss => "gas_hiss", Root, Spatial, 0.9;
+    ValveTurn => "valve_turn", Root, Spatial, 1.0;
+    PipeClank => "pipe_clank", Root, Spatial, 0.4;
+    // The Refinery's ambience: a bed under the whole Map, the flare's roar (faint Map-wide), the pump sets' drone while the Power
+    // is on, the Control House's fans, and a phantom groan of steel every 20 to 60 s. A flood coming on plays `BridgeClunk`.
+    RefineryHum => "refinery_hum", Root, Flat, 0.2;
+    FlareRoar => "flare_roar", Root, Spatial, 0.7;
+    PumpDrone => "pump_drone", Root, Spatial, 0.4;
+    ControlFans => "control_fans", Root, Spatial, 0.25;
+    SteelGroan => "steel_groan", Root, Spatial, 0.35;
     TeleporterCharge => "teleporter_charge", Root, Spatial, 0.9;
     TeleporterFire => "teleporter_fire", Root, Spatial, 1.0;
     TeleporterArrive => "teleporter_arrive", Root, Spatial, 1.0;
@@ -405,6 +420,9 @@ mod tests {
             // The Archive's Ranges and ambience.
             "range_rattle", "range_roll", "range_thud", "wheel_turn", "archive_tone", "cellar_bed", "drip", "page_rustle",
             "shelf_creak", "book_fall",
+            // The Refinery's Fuel Lines and ambience.
+            "blaze_loop", "blaze_ignite", "gas_hiss", "valve_turn", "pipe_clank", "refinery_hum", "flare_roar", "pump_drone",
+            "control_fans", "steel_groan",
             // Gauntlet v2's Proc cues (spec #182, Appendix C6).
             "proc_frost", "proc_blast",
             "set_bonus_tier_two", "set_bonus_tier_four", "set_bonus_tier_six", "duo_taken",

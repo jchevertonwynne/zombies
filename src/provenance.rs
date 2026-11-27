@@ -182,6 +182,50 @@ fn the_archives_sound_files_have_cc0_manifest_entries_and_stay_under_2_mb() {
     assert!(bytes < 2_000_000, "the Archive's sounds weigh {bytes} bytes");
 }
 
+/// The Refinery's sounds (#575): ten slots (twelve files; `blaze_loop` and `blaze_ignite` are the files of `fire_pool` and `napalm_windup` under their own slots), each
+/// with a CC0 manifest entry whose sources are the Freesound pages it was made from, read on the page, and together under the 1 MB the look decision budgets. None is
+/// made from a source the research rules out (CC BY or CC BY-NC).
+#[test]
+fn the_refinerys_sound_files_have_cc0_manifest_entries_and_stay_under_1_mb() {
+    let manifest = manifest();
+    let files = all_files();
+    let slots: [(&str, u8); 10] = [
+        ("blaze_loop", 1),
+        ("blaze_ignite", 1),
+        ("gas_hiss", 1),
+        ("valve_turn", 1),
+        ("flare_roar", 1),
+        ("refinery_hum", 1),
+        ("pump_drone", 1),
+        ("control_fans", 1),
+        ("steel_groan", 3),
+        ("pipe_clank", 1),
+    ];
+    const RULED_OUT: [&str; 7] = ["349111", "349112", "161081", "213085", "278998", "322453", "174999"];
+    let mut bytes = 0;
+    let mut count = 0;
+    for (slot, variants) in slots {
+        for n in 1..=variants {
+            let entry = format!("audio/{slot}_{n}.ogg");
+            let found = manifest.assets.iter().find(|e| e.path == entry).unwrap_or_else(|| panic!("no manifest entry for {entry}"));
+            assert_eq!(found.licence, "CC0", "{entry}");
+            assert!(found.source.split(" ; ").all(|page| page.starts_with("https://freesound.org/people/") && page.contains("/sounds/")), "{entry}: source {}", found.source);
+            assert!(RULED_OUT.iter().all(|id| !found.source.contains(&format!("/sounds/{id}/"))), "{entry} is made from a source that is not CC0: {}", found.source);
+            let notes = found.notes.as_deref().unwrap_or_default();
+            assert!(notes.contains("CC0 on each page"), "{entry}: the licence was read on the page: {notes}");
+            bytes += files.iter().find(|(path, _)| *path == entry).unwrap_or_else(|| panic!("{entry} is not under assets/")).1;
+            count += 1;
+        }
+    }
+    assert_eq!(count, 12);
+    assert!(bytes < 1_000_000, "the Refinery's sounds weigh {bytes} bytes");
+    // The layered `ValveTurn` names all three of its sources.
+    let valve = manifest.assets.iter().find(|e| e.path == "audio/valve_turn_1.ogg").unwrap();
+    assert_eq!(valve.source.split(" ; ").count(), 3, "{}", valve.source);
+    let same = |a: &str, b: &str| std::fs::read(root().join("audio").join(a)).unwrap() == std::fs::read(root().join("audio").join(b)).unwrap();
+    assert!(same("blaze_loop_1.ogg", "fire_pool_1.ogg") && same("blaze_ignite_1.ogg", "napalm_windup_1.ogg"));
+}
+
 /// The Refinery's Props (#574): eight Poly Haven models (nine unit directories, `modular_industrial_pipes_01` being split into a run and a manifold)
 /// weighing about 26 MB, and five kitbashes of at most 1.5 MB, each with its own CC0 manifest entry whose source is the page it came from, and every
 /// file the glTFs name on disk (the pipe run wears the manifold's textures).

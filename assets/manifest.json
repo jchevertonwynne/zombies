@@ -57,6 +57,22 @@
       "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-26); 10-37 s cross-faded (3 s) into a seamless 24 s loop; the reading and stack levels' room tone; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/archive_sounds.py)"
     },
     {
+      "path": "audio/blaze_ignite_1.ogg",
+      "name": "Freesound 244926, fire-whoosh (hnhnh)",
+      "source": "https://freesound.org/people/hnhnh/sounds/244926/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py; CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, re-read 2026-11-27); the same file as napalm_windup_1.ogg, a second slot for a Fuel Line lighting"
+    },
+    {
+      "path": "audio/blaze_loop_1.ogg",
+      "name": "Freesound 650574, Freesound - fire crackling loop.wav (soundofsong)",
+      "source": "https://freesound.org/people/soundofsong/sounds/650574/",
+      "licence": "CC0",
+      "fetched": "2026-11-20",
+      "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py; CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, re-read 2026-11-27); the same file as fire_pool_1.ogg, a second slot for each Lit Blaze's crackle (the three nearest play)"
+    },
+    {
       "path": "audio/boiler_drone_1.ogg",
       "name": "Freesound 567148, Steel mill low frequency drone (sarana)",
       "source": "https://freesound.org/people/sarana/sounds/567148/",
@@ -207,6 +223,14 @@
       "licence": "CC0 (composed for this project)",
       "fetched": "2026-11-20",
       "notes": "Commendation: a short bugle-style call on a D major arpeggio, with a bell. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
+    },
+    {
+      "path": "audio/control_fans_1.ogg",
+      "name": "Freesound 271096, Industrial Factory/Fans Loop (IanStarGem), 0.2-6.4 s",
+      "source": "https://freesound.org/people/IanStarGem/sounds/271096/",
+      "licence": "CC0",
+      "fetched": "2026-11-27",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-27); a 5 s loop (0.8 s equal-power cross-fade); the Control House's fans; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/refinery_sounds.py)"
     },
     {
       "path": "audio/crash_bar_1.ogg",
@@ -401,6 +425,14 @@
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
+      "path": "audio/flare_roar_1.ogg",
+      "name": "Freesound 243763, gas vuur dakwerken gasbrander luchtballon.wav (NickPeeters), 0.5-9.5 s dropped an octave and low-passed at 900 Hz",
+      "source": "https://freesound.org/people/NickPeeters/sounds/243763/",
+      "licence": "CC0",
+      "fetched": "2026-11-27",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-27); an 8 s loop (1.5 s equal-power cross-fade), a substitute for a flare stack's roar (no CC0 recording exists); the flare, faint Map-wide; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/refinery_sounds.py)"
+    },
+    {
       "path": "audio/fluorescent_hum_1.ogg",
       "name": "Freesound 777053, Flickering Fluorescent Light with Background Hum, seamless loop (kentspublicdomain)",
       "source": "https://freesound.org/people/kentspublicdomain/sounds/777053/",
@@ -511,6 +543,14 @@
       "licence": "CC0 (composed for this project)",
       "fetched": "2026-11-20",
       "notes": "Game Over: a low string lament D-C-Bb-A over a D pedal, horns on the last D minor chord, the tape running down. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
+    },
+    {
+      "path": "audio/gas_hiss_1.ogg",
+      "name": "Freesound 367125, Air Hiss (Jofae) (0.3-1.5 s) run into the tail of Freesound 365071, Steam.wav (sniperous) (1.5-5.6 s), both high-passed at 300 Hz",
+      "source": "https://freesound.org/people/Jofae/sounds/367125/ ; https://freesound.org/people/sniperous/sounds/365071/",
+      "licence": "CC0",
+      "fetched": "2026-11-27",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-27); a 4 s loop (0.6 s equal-power cross-fade); the gas hissing from each Blaze and Valve through a Flare-up; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/refinery_sounds.py)"
     },
     {
       "path": "audio/gauntlet_win.ogg",
@@ -961,6 +1001,14 @@
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
+      "path": "audio/pipe_clank_1.ogg",
+      "name": "Freesound 487837, Metal_Pipe_04.wav (BenDrain), 0.15-2.4 s",
+      "source": "https://freesound.org/people/BenDrain/sounds/487837/",
+      "licence": "CC0",
+      "fetched": "2026-11-27",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-27); a Fuel Line shutting, and a phantom clank off the pipe rack; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/refinery_sounds.py)"
+    },
+    {
       "path": "audio/plank_rebuild_1.ogg",
       "name": "Freesound 707525, Hammer hitting nail (LiezelDippenaar)",
       "source": "https://freesound.org/people/LiezelDippenaar/sounds/707525/",
@@ -1049,6 +1097,14 @@
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
+      "path": "audio/pump_drone_1.ogg",
+      "name": "Freesound 512679, Factory machine 003.wav (AudioPapkin), 0.5-14.5 s",
+      "source": "https://freesound.org/people/AudioPapkin/sounds/512679/",
+      "licence": "CC0",
+      "fetched": "2026-11-27",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-27); a 10 s loop (1.5 s equal-power cross-fade); the Compressor House's pump sets while the Power is on; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/refinery_sounds.py)"
+    },
+    {
       "path": "audio/quarantine_klaxon_1.ogg",
       "name": "Freesound 699248, Emergency Alarm (Mozfoo)",
       "source": "https://freesound.org/people/Mozfoo/sounds/699248/",
@@ -1127,6 +1183,14 @@
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
+    },
+    {
+      "path": "audio/refinery_hum_1.ogg",
+      "name": "Freesound 278987, Large Warehouse/Factory Ambience.wav (fimrod), 1-19 s",
+      "source": "https://freesound.org/people/fimrod/sounds/278987/",
+      "licence": "CC0",
+      "fetched": "2026-11-27",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-27); a 14 s loop (2.5 s equal-power cross-fade); the bed under the whole Map; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/refinery_sounds.py)"
     },
     {
       "path": "audio/reload_1.ogg",
@@ -1361,6 +1425,30 @@
       "notes": "Freesound HQ preview (mp3) trimmed, normalised per group, OGG q4 via tools/audio/process.py"
     },
     {
+      "path": "audio/steel_groan_1.ogg",
+      "name": "Freesound 119467, Metal Creak 3.wav (ingudios), 0.1-2.0 s",
+      "source": "https://freesound.org/people/ingudios/sounds/119467/",
+      "licence": "CC0",
+      "fetched": "2026-11-27",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-27); a phantom groan of a tank or catwalk's steel; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/refinery_sounds.py)"
+    },
+    {
+      "path": "audio/steel_groan_2.ogg",
+      "name": "Freesound 119468, Metal Creak 4.wav (ingudios), 0.2-3.0 s at 0.85x speed",
+      "source": "https://freesound.org/people/ingudios/sounds/119468/",
+      "licence": "CC0",
+      "fetched": "2026-11-27",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-27); a phantom groan of a tank or catwalk's steel; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/refinery_sounds.py)"
+    },
+    {
+      "path": "audio/steel_groan_3.ogg",
+      "name": "Freesound 245945, Metal creak.wav (sophiehall3535), 0.25-2.4 s",
+      "source": "https://freesound.org/people/sophiehall3535/sounds/245945/",
+      "licence": "CC0",
+      "fetched": "2026-11-27",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-27); a phantom groan of a tank or catwalk's steel; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/refinery_sounds.py)"
+    },
+    {
       "path": "audio/teleporter_arrive_1.ogg",
       "name": "Freesound 735062, Freesound - Fast Warp In (GammaGool)",
       "source": "https://freesound.org/people/GammaGool/sounds/735062/",
@@ -1447,6 +1535,14 @@
       "licence": "CC0 (composed for this project)",
       "fetched": "2026-11-20",
       "notes": "Twist Round start: strings sliding up a tritone in tremolo, into a diminished brass stab. An original piece composed and synthesised for this project and released as CC0 (no samples); rendered by tools/audio/compose.py (room and tape), normalised to -20 LUFS (music) and encoded OGG q4 by tools/audio/process.py"
+    },
+    {
+      "path": "audio/valve_turn_1.ogg",
+      "name": "layered, each dropped three semitones: Freesound 119467, Metal Creak 3.wav (ingudios) (creak, 0-1.9 s) + Freesound 435052, Hose Sounds.mp3 (JazzyBay) (the opening squeak, 1.1-2.6 s, -5 dB, 50 ms in) + Freesound 698386, Valve Opening (ninoing) (valve opening, whole clip, 0.45 s in)",
+      "source": "https://freesound.org/people/ninoing/sounds/698386/ ; https://freesound.org/people/ingudios/sounds/119467/ ; https://freesound.org/people/JazzyBay/sounds/435052/",
+      "licence": "CC0",
+      "fetched": "2026-11-27",
+      "notes": "Freesound HQ preview (mp3), CC0 on each page (its link is creativecommons.org/publicdomain/zero/1.0/, read 2026-11-27); a 1.4 s layered substitute for a heavy handwheel turn (no CC0 recording exists); a Valve is used; normalised, mono, OGG q4 via tools/audio/process.py (recipe: tools/audio/refinery_sounds.py)"
     },
     {
       "path": "audio/wade_step_1.ogg",
