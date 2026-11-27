@@ -818,6 +818,17 @@ impl<'a, 'w, 's> Builder<'a, 'w, 's> {
                 piece(self, size, 0.0, Vec2::ZERO, SAFE_IRON, mat);
                 band(self, 0.1, 0.12, darker(SAFE_IRON));
             }
+            PropKind::Pipe => {
+                // Pipes on their saddles: a box of steel with a trim band, until its model has loaded.
+                piece(self, size, 0.0, Vec2::ZERO, MACHINE_STEEL, mat);
+                band(self, size.y * 0.5, 0.1, palette(Some(zone)).trim);
+            }
+            PropKind::Vehicle => {
+                // A tanker: the box, a dark chassis and a trim band, until its model has loaded.
+                piece(self, size, 0.0, Vec2::ZERO, MACHINE_STEEL, mat);
+                band(self, size.y * 0.3, 0.2, darker(MACHINE_STEEL));
+                band(self, size.y * 0.7, 0.12, palette(Some(zone)).trim);
+            }
             PropKind::Case => {
                 // A table with a glass top box.
                 piece(self, Vec3::new(size.x, size.y * 0.75, size.z), 0.0, Vec2::ZERO, SHELF_WOOD, mat);

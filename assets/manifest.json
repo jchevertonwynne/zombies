@@ -2546,6 +2546,14 @@
       "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 0.55 x 0.24 x 0.16 m (length, height, depth); textures as KTX2 via texpack"
     },
     {
+      "path": "models/concrete_road_barrier",
+      "name": "Concrete Road Barrier",
+      "source": "https://polyhaven.com/a/concrete_road_barrier",
+      "licence": "CC0",
+      "fetched": "2026-11-27",
+      "notes": "1K glTF decimated by tools/props to 1939 triangles, unit 1.5 x 0.84 x 0.64 m (length, height, depth); textures as KTX2 via texpack; licence read as CC0 1.0 (public domain dedication) on the model's Poly Haven page"
+    },
+    {
       "path": "models/dining_table",
       "name": "Dining Table",
       "source": "https://polyhaven.com/a/dining_table",
@@ -2560,6 +2568,22 @@
       "licence": "CC0",
       "fetched": "2026-11-23",
       "notes": "1K glTF decimated by tools/props to 1938 triangles, unit 1.1 x 1.8 x 0.5 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "models/fire_escape",
+      "name": "Caged ladder (assembled from Poly Haven Modular Fire Escape)",
+      "source": "https://polyhaven.com/a/modular_fire_escape",
+      "licence": "CC0",
+      "fetched": "2026-11-27",
+      "notes": "1K glTF; a few of the model's pieces decimated, turned and joined by tools/props/assemble.py into one unit of 764 triangles, 0.86 x 3 x 0.86 m (length, height, depth), with a few boxes to carry them; no textures: flat glTF colours (the model's are near-black steel); licence read as CC0 1.0 (public domain dedication) on the model's Poly Haven page"
+    },
+    {
+      "path": "models/flood_lights",
+      "name": "Flood light pair (assembled from Poly Haven Flood Lights)",
+      "source": "https://polyhaven.com/a/flood_lights",
+      "licence": "CC0",
+      "fetched": "2026-11-27",
+      "notes": "1K glTF; a few of the model's pieces decimated, turned and joined by tools/props/assemble.py into one unit of 1732 triangles, 1.68 x 0.435 x 0.672 m (length, height, depth), with a few boxes to carry them; no textures: flat glTF colours (the model's are near-black steel); licence read as CC0 1.0 (public domain dedication) on the model's Poly Haven page"
     },
     {
       "path": "models/hellhound",
@@ -2578,6 +2602,14 @@
       "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 0.3 x 0.515 x 0.27 m (length, height, depth); textures as KTX2 via texpack; the model has only a roughness map, so its ORM is roughness alone (unoccluded, non-metal)"
     },
     {
+      "path": "models/metal_jerrycan",
+      "name": "Metal Jerrycan",
+      "source": "https://polyhaven.com/a/metal_jerrycan",
+      "licence": "CC0",
+      "fetched": "2026-11-27",
+      "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 0.36 x 0.47 x 0.18 m (length, height, depth); textures as KTX2 via texpack; licence read as CC0 1.0 (public domain dedication) on the model's Poly Haven page"
+    },
+    {
       "path": "models/metal_office_desk",
       "name": "Metal Office Desk",
       "source": "https://polyhaven.com/a/metal_office_desk",
@@ -2594,6 +2626,14 @@
       "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 2 x 1.1 x 0.9 m (length, height, depth); textures as KTX2 via texpack"
     },
     {
+      "path": "models/old_military_compressor",
+      "name": "Old Military Compressor",
+      "source": "https://polyhaven.com/a/old_military_compressor",
+      "licence": "CC0",
+      "fetched": "2026-11-27",
+      "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 1.68 x 1.18 x 0.6 m (length, height, depth); textures as KTX2 via texpack; licence read as CC0 1.0 (public domain dedication) on the model's Poly Haven page"
+    },
+    {
       "path": "models/painted_wooden_cabinet_02",
       "name": "Painted Wooden Cabinet 02",
       "source": "https://polyhaven.com/a/painted_wooden_cabinet_02",
@@ -2608,6 +2648,30 @@
       "licence": "CC0",
       "fetched": "2026-11-20",
       "notes": "1K glTF decimated by tools/props to 600 triangles, unit 2.5 x 0.8 x 1.1 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "models/pipe_manifold",
+      "name": "Industrial pipe manifold (assembled from Poly Haven Modular Industrial Pipes 01)",
+      "source": "https://polyhaven.com/a/modular_industrial_pipes_01",
+      "licence": "CC0",
+      "fetched": "2026-11-27",
+      "notes": "1K glTF; a few of the model's pieces decimated, turned and joined by tools/props/assemble.py into one unit of 1656 triangles, 2.5 x 1.15 x 0.4 m (length, height, depth), with a few boxes to carry them; textures as KTX2 via texpack (2 materials); licence read as CC0 1.0 (public domain dedication) on the model's Poly Haven page"
+    },
+    {
+      "path": "models/pipe_run",
+      "name": "Industrial pipe run (assembled from Poly Haven Modular Industrial Pipes 01)",
+      "source": "https://polyhaven.com/a/modular_industrial_pipes_01",
+      "licence": "CC0",
+      "fetched": "2026-11-27",
+      "notes": "1K glTF; a few of the model's pieces decimated, turned and joined by tools/props/assemble.py into one unit of 1968 triangles, 2.3 x 0.7 x 0.5 m (length, height, depth), with a few boxes to carry them; textures shared with models/pipe_manifold (KTX2 via texpack); licence read as CC0 1.0 (public domain dedication) on the model's Poly Haven page"
+    },
+    {
+      "path": "models/portable_welding_cart",
+      "name": "Portable Welding Cart",
+      "source": "https://polyhaven.com/a/portable_welding_cart",
+      "licence": "CC0",
+      "fetched": "2026-11-27",
+      "notes": "1K glTF decimated by tools/props to 1939 triangles, unit 0.84 x 1.56 x 0.65 m (length, height, depth); textures as KTX2 via texpack; licence read as CC0 1.0 (public domain dedication) on the model's Poly Haven page"
     },
     {
       "path": "models/standing_chalkboard_01",
@@ -2632,6 +2696,14 @@
       "licence": "CC0",
       "fetched": "2026-11-23",
       "notes": "1K glTF decimated by tools/props to 1940 triangles, unit 1.2 x 0.95 x 0.75 m (length, height, depth); textures as KTX2 via texpack"
+    },
+    {
+      "path": "models/utility_box_01",
+      "name": "Utility Box 01",
+      "source": "https://polyhaven.com/a/utility_box_01",
+      "licence": "CC0",
+      "fetched": "2026-11-27",
+      "notes": "1K glTF decimated by tools/props to 1939 triangles, unit 0.52 x 1.12 x 0.43 m (length, height, depth); textures as KTX2 via texpack; licence read as CC0 1.0 (public domain dedication) on the model's Poly Haven page"
     },
     {
       "path": "models/vintage_day_bed",
@@ -2826,6 +2898,14 @@
       "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/rusty_metal_02 and materials/metal_plate_02 (Poly Haven, CC0), no new texture files"
     },
     {
+      "path": "props/flood_mast",
+      "name": "Floodlight mast (kitbash for the Refinery)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/rusty_metal_02",
+      "licence": "CC0",
+      "fetched": "2026-11-27",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/rusty_metal_02 (Poly Haven, CC0), no new texture files; its flat colours are glTF factors. Not fitted into a Prop's box: src/maps/darkness/flood.rs stands it under each floodlight"
+    },
+    {
       "path": "props/globe",
       "name": "Globe (kitbash for the Archive)",
       "source": "tools/props/kitbash.py, from https://ambientcg.com/a/Paper006, https://polyhaven.com/a/wood_table_worn, https://polyhaven.com/a/metal_plate_02",
@@ -2866,6 +2946,14 @@
       "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/wood_table_worn and materials/dark_paneled_wood and materials/metal_plate_02 (Poly Haven and ambientCG, CC0), no new texture files; its flat colours are glTF factors"
     },
     {
+      "path": "props/loading_arm",
+      "name": "Loading arm (kitbash for the Refinery)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/rusty_metal_02",
+      "licence": "CC0",
+      "fetched": "2026-11-27",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/rusty_metal_02 (Poly Haven, CC0), no new texture files; its flat colours are glTF factors"
+    },
+    {
       "path": "props/locker_bank",
       "name": "Locker bank (kitbash for the Sanatorium)",
       "source": "tools/props/kitbash.py, from https://polyhaven.com/a/painted_metal_shutter, https://polyhaven.com/a/rusty_metal_02",
@@ -2896,6 +2984,14 @@
       "licence": "CC0",
       "fetched": "2026-11-26",
       "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/green_metal_rust and materials/rusty_metal_02 and materials/metal_plate_02 (Poly Haven and ambientCG, CC0), no new texture files; its flat colours are glTF factors"
+    },
+    {
+      "path": "props/pump_set",
+      "name": "Pump set (kitbash for the Refinery)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/blue_metal_plate, https://polyhaven.com/a/rusty_metal_04",
+      "licence": "CC0",
+      "fetched": "2026-11-27",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/blue_metal_plate and materials/rusty_metal_04 (Poly Haven, CC0), no new texture files; its flat colours are glTF factors"
     },
     {
       "path": "props/reading_lamp",
@@ -2930,12 +3026,28 @@
       "notes": "3- and 5-course walls of cement_bag (1K glTF) decimated to ~165 triangles a bag and joined into one mesh by tools/props/kitbash.py. The sack's branded texture is dropped: its UVs are rebuilt as box-projected burlap and it wears materials/hessian_230 (Poly Haven, CC0), tinted khaki"
     },
     {
+      "path": "props/tanker",
+      "name": "Road tanker (kitbash for the Refinery)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/rusty_metal_04, https://polyhaven.com/a/container_side, https://polyhaven.com/a/rusty_metal_02",
+      "licence": "CC0",
+      "fetched": "2026-11-27",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/rusty_metal_04 and materials/container_side and materials/rusty_metal_02 (Poly Haven, CC0), no new texture files; its flat colours are glTF factors"
+    },
+    {
       "path": "props/theatre_bench",
       "name": "Theatre tiers (kitbash for the Archive)",
       "source": "tools/props/kitbash.py, from https://polyhaven.com/a/wood_table_worn, https://polyhaven.com/a/dark_paneled_wood, https://polyhaven.com/a/brown_leather, https://polyhaven.com/a/metal_plate_02",
       "licence": "CC0",
       "fetched": "2026-11-26",
       "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/wood_table_worn and materials/dark_paneled_wood and materials/brown_leather and materials/metal_plate_02 (Poly Haven and ambientCG, CC0), no new texture files; its flat colours are glTF factors"
+    },
+    {
+      "path": "props/transformer",
+      "name": "Grid transformer (kitbash for the Refinery)",
+      "source": "tools/props/kitbash.py, from https://polyhaven.com/a/green_metal_rust, https://polyhaven.com/a/rebar_reinforced_concrete",
+      "licence": "CC0",
+      "fetched": "2026-11-27",
+      "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/green_metal_rust and materials/rebar_reinforced_concrete (Poly Haven, CC0), no new texture files; its flat colours are glTF factors"
     },
     {
       "path": "props/valve_needle",

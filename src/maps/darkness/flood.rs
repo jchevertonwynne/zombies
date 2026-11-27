@@ -2,13 +2,15 @@
 //! Power comes on they light one by one, `FLOOD_GAP_SECS` apart, each with a `STUTTER_SECS` warm-up stutter: the plant's "the lights
 //! come on" beat. Everything follows the replicated `Power` and a hash of the flood's position, so every machine sees the same beat (a late
 //! joiner, already Powered when it first looks, sees the floods steady). Each flood's moment of coming on is a `FloodOn` message, for the
-//! sound ticket's `BridgeClunk`.
+//! sound ticket's `BridgeClunk`. Each stands on a lattice mast (`FloodMast`, #574): the `flood_mast` kitbash under a twin pair of the `flood_lights` heads,
+//! once their files are on disk, and until then (and in the headless runs) a plain post and a box.
 
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::maps::darkness::lamp_flicker::position_hash;
-use crate::maps::map::{Flood, Layout};
+use crate::maps::map::textures::on_disk;
+use crate::maps::map::{FLOOD_HEADS, FLOOD_MAST, Flood, Layout};
 use crate::maps::map::MapId;
 use crate::maps::power::Power;
 use crate::maps::zone::ZoneId;
@@ -41,6 +43,19 @@ pub struct FloodLight {
     on: bool,
     applied: f32,
 }
+
+/// The mast under the `index`th flood of its Map: it stands on the floor under it and reaches up to the flood's own height. Its look is a plain post
+/// until `dress_flood_models` swaps in the lattice and the heads.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct FloodMast {
+    pub index: usize,
+    /// How high it reaches: the flood's height over its Zone's floor.
+    pub top: f32,
+}
+
+/// What a flood is drawn with until its models are on disk: the post and the housing box, which `dress_flood_models` despawns for the models.
+#[derive(Component)]
+pub struct FloodStandIn;
 
 /// A flood has just come on, at `at` in `zone`: for the sound ticket's `BridgeClunk`.
 #[derive(Message, Debug, Clone, Copy, PartialEq)]
@@ -88,7 +103,7 @@ pub fn spawn(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &mut
     if layout.floods.is_empty() {
         return;
     }
-    // A plain lens box stands in for the mast until the Props ticket's `flood_mast`.
+    // A plain lens box and post stand in for the mast and the heads until their models are on disk (`dress_flood_models`).
     let lens = meshes.add(Cuboid::new(0.9, 0.6, 0.12));
     let housing = meshes.add(Cuboid::new(1.0, 0.7, 0.3));
     let pole = meshes.add(Cuboid::new(0.25, 1.0, 0.25));
@@ -114,16 +129,22 @@ pub fn spawn(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &mut
             },
             Transform::from_translation(at).looking_at(aim, Vec3::Y),
             children![
-                (Mesh3d(housing.clone()), MeshMaterial3d(iron.clone()), Transform::from_xyz(0.0, 0.0, 0.2), NotShadowCaster),
-                (Mesh3d(lens.clone()), MeshMaterial3d(glow), Transform::from_xyz(0.0, 0.0, -0.02), NotShadowCaster),
+                (FloodStandIn, Mesh3d(housing.clone()), MeshMaterial3d(iron.clone()), Transform::from_xyz(0.0, 0.0, 0.2), NotShadowCaster),
+                (FloodStandIn, Mesh3d(lens.clone()), MeshMaterial3d(glow), Transform::from_xyz(0.0, 0.0, -0.02), NotShadowCaster),
             ],
         ));
         commands.spawn((
             crate::state::InRun,
-            Mesh3d(pole.clone()),
-            MeshMaterial3d(iron.clone()),
-            Transform::from_translation(Vec3::new(at.x, zone.floor() + (height - 0.5) / 2.0, at.z)).with_scale(Vec3::new(1.0, height - 0.5, 1.0)),
-            NotShadowCaster,
+            FloodMast { index, top: height },
+            Transform::from_translation(Vec3::new(at.x, zone.floor(), at.z)),
+            Visibility::default(),
+            children![(
+                FloodStandIn,
+                Mesh3d(pole.clone()),
+                MeshMaterial3d(iron.clone()),
+                Transform::from_xyz(0.0, (height - 0.5) / 2.0, 0.0).with_scale(Vec3::new(1.0, height - 0.5, 1.0)),
+                NotShadowCaster,
+            )],
         ));
     }
 }
@@ -167,5 +188,50 @@ pub fn light_floods(
             on.write(FloodOn { zone: flood.zone, at: flood.at });
         }
         flood.on = lit;
+    }
+}
+
+/// Swaps each flood's stand-ins for its models once the files are on disk (and there is a world to load them into): the mast becomes the lattice, and the housing
+/// becomes the twin heads, each with a lens that glows (the `FloodLight`'s own material, so the stutter and the Power still drive it). Run once, as each is added.
+pub fn dress_flood_models(
+    mut commands: Commands,
+    asset_server: Option<Res<AssetServer>>,
+    scenes: Option<Res<Assets<WorldAsset>>>,
+    meshes: Option<ResMut<Assets<Mesh>>>,
+    masts: Query<(Entity, &FloodMast), Added<FloodMast>>,
+    floods: Query<(Entity, &FloodLight), Added<FloodLight>>,
+    stand_ins: Query<(Entity, &ChildOf), With<FloodStandIn>>,
+) {
+    let (Some(server), Some(mut meshes)) = (asset_server.filter(|_| scenes.is_some()), meshes) else { return };
+    if masts.is_empty() && floods.is_empty() {
+        return;
+    }
+    if !on_disk(FLOOD_MAST.0) || !on_disk(FLOOD_HEADS.0) {
+        return;
+    }
+    let load = |path: &str| WorldAssetRoot(server.load(GltfAssetLabel::Scene(0).from_asset(path.to_string())));
+    for (entity, mast) in &masts {
+        for (stand_in, parent) in &stand_ins {
+            if parent.parent() == entity {
+                commands.entity(stand_in).despawn();
+            }
+        }
+        // The lattice is modelled 8.92 m tall; stood on each flood's own height, its platform a hair under the heads.
+        let scale = Vec3::new(1.0, (mast.top - 0.1) / FLOOD_MAST.1.y, 1.0);
+        commands.spawn((Name::new(format!("Flood mast {}", mast.index)), load(FLOOD_MAST.0), Transform::from_scale(scale), Visibility::default(), ChildOf(entity)));
+    }
+    let lens = meshes.add(Cuboid::new(0.55, 0.38, 0.05));
+    for (entity, flood) in &floods {
+        for (stand_in, parent) in &stand_ins {
+            if parent.parent() == entity {
+                commands.entity(stand_in).despawn();
+            }
+        }
+        // The heads' front face a hair behind the origin, looking along the flood's own -z, and each lens a hair proud of its head.
+        let heads = Transform::from_xyz(0.0, -FLOOD_HEADS.1.y / 2.0, FLOOD_HEADS.1.z / 2.0 - 0.03).with_rotation(Quat::from_rotation_y(std::f32::consts::PI));
+        commands.spawn((Name::new("Flood heads"), load(FLOOD_HEADS.0), heads, Visibility::default(), ChildOf(entity)));
+        for x in [-0.48, 0.48] {
+            commands.spawn((Name::new("Flood lens"), Mesh3d(lens.clone()), MeshMaterial3d(flood.glow.clone()), Transform::from_xyz(x, 0.0, -0.05), NotShadowCaster, ChildOf(entity)));
+        }
     }
 }

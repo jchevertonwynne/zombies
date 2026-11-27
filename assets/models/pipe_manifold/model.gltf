@@ -1,0 +1,268 @@
+{
+ "asset": {
+  "generator": "Khronos glTF Blender I/O v5.3.43",
+  "version": "2.0"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "name": "Scene",
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "mesh": 0,
+   "name": "pipe_manifold"
+  }
+ ],
+ "materials": [
+  {
+   "doubleSided": false,
+   "name": "g1",
+   "pbrMetallicRoughness": {
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicRoughnessTexture": {
+     "index": 2
+    },
+    "metallicFactor": 1.0,
+    "roughnessFactor": 1.0
+   },
+   "normalTexture": {
+    "index": 1
+   },
+   "occlusionTexture": {
+    "index": 2
+   }
+  },
+  {
+   "doubleSided": false,
+   "name": "g2",
+   "pbrMetallicRoughness": {
+    "baseColorTexture": {
+     "index": 3
+    },
+    "metallicRoughnessTexture": {
+     "index": 5
+    },
+    "metallicFactor": 1.0,
+    "roughnessFactor": 1.0
+   },
+   "normalTexture": {
+    "index": 4
+   },
+   "occlusionTexture": {
+    "index": 5
+   }
+  }
+ ],
+ "meshes": [
+  {
+   "name": "pipe_manifold",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2
+     },
+     "indices": 3,
+     "material": 0
+    },
+    {
+     "attributes": {
+      "POSITION": 4,
+      "NORMAL": 5,
+      "TEXCOORD_0": 6
+     },
+     "indices": 7,
+     "material": 1
+    }
+   ]
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 718,
+   "max": [
+    1.25,
+    1.0382299423217773,
+    0.20000000298023224
+   ],
+   "min": [
+    -1.25,
+    0,
+    -0.20000000298023224
+   ],
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 718,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 718,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5123,
+   "count": 1608,
+   "type": "SCALAR"
+  },
+  {
+   "bufferView": 4,
+   "componentType": 5126,
+   "count": 1704,
+   "max": [
+    0.3687792420387268,
+    1.149999976158142,
+    0.15391004085540771
+   ],
+   "min": [
+    -0.36941444873809814,
+    0.7772401571273804,
+    -0.15391004085540771
+   ],
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 5,
+   "componentType": 5126,
+   "count": 1704,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 6,
+   "componentType": 5126,
+   "count": 1704,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 7,
+   "componentType": 5123,
+   "count": 3360,
+   "type": "SCALAR"
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteLength": 8616,
+   "byteOffset": 0,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 8616,
+   "byteOffset": 8616,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 5744,
+   "byteOffset": 17232,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 3216,
+   "byteOffset": 22976,
+   "target": 34963
+  },
+  {
+   "buffer": 0,
+   "byteLength": 20448,
+   "byteOffset": 26192,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 20448,
+   "byteOffset": 46640,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 13632,
+   "byteOffset": 67088,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 6720,
+   "byteOffset": 80720,
+   "target": 34963
+  }
+ ],
+ "buffers": [
+  {
+   "byteLength": 87440,
+   "uri": "model.bin"
+  }
+ ],
+ "images": [
+  {
+   "uri": "g1_color.ktx2"
+  },
+  {
+   "uri": "g1_normal.ktx2"
+  },
+  {
+   "uri": "g1_orm.ktx2"
+  },
+  {
+   "uri": "g2_color.ktx2"
+  },
+  {
+   "uri": "g2_normal.ktx2"
+  },
+  {
+   "uri": "g2_orm.ktx2"
+  }
+ ],
+ "samplers": [
+  {
+   "magFilter": 9729,
+   "minFilter": 9987,
+   "wrapS": 10497,
+   "wrapT": 10497
+  }
+ ],
+ "textures": [
+  {
+   "source": 0,
+   "sampler": 0
+  },
+  {
+   "source": 1,
+   "sampler": 0
+  },
+  {
+   "source": 2,
+   "sampler": 0
+  },
+  {
+   "source": 3,
+   "sampler": 0
+  },
+  {
+   "source": 4,
+   "sampler": 0
+  },
+  {
+   "source": 5,
+   "sampler": 0
+  }
+ ]
+}

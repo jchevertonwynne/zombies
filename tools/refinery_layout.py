@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Lays out the Refinery's windows, lamps, plant structures (Props) and path-node graph (#556), from the plan in #508.
+"""Lays out the Refinery's windows, lamps, plant structures, 72 Props (#574) and path-node graph (#556), from the plan in #508.
 Writes src/maps/map/refinery/data.rs; `refinery.rs` builds the walls, stairs and decks to match it.
 
     python3 tools/refinery_layout.py
 
 Every grid of nodes is laid out inside a Zone's box, and each edge between two of them is kept only if the straight walk between
-them clears the rectangles in `BLOCKS` (the plant, the pens, the stair bays). The Doors, stairs, windows and the one drop are
+them clears the rectangles in `BLOCKS` (the plant, the 72 Props, the Infills, the pens, the stair bays). The Props' places (`PROPS` below) were each
+found by searching out from a hint for the nearest spot clear of every Door, Blaze, Valve, post lamp, flood mast, Infill, fixture and other Prop, and flush
+to a wall where a free-standing one would have cut a lane (the Rust tests keep every one of those true). The Doors, stairs, windows and the one drop are
 listed by hand below. The seven Blazes' rects (#507, #508; `BLAZES` below, which `refinery.rs`'s `FUEL_LINES` repeats) are kept clear of
 every node, and every edge that crosses one is written `Gate::Fire(line)` (open only while that line is Shut)."""
 import math
@@ -163,14 +165,21 @@ BLAZES = [
 BLAZE_LINE = [0, 0, 1, 2, 3, 4, 5]                      # each Blaze's Fuel Line, by `Layout.fuel_lines` order
 VALVES = [(-4.5, 0, 24), (4.5, 0, 56), (-40, 0, 35), (-40, 0, 45), (-33.5, 4, 52), (-22.5, 4, 52),
           (-37.5, 0, 87.5), (-26.5, 0, 87.5), (5.5, 0, 71.5), (5.5, 0, 80.5), (-37, 0, 4), (-37, 0, 14)]
+# The floodlights (#568; `Layout.floods`): (zone, at, aim). Each stands on a lattice mast (`flood_mast`, #574) from the ground to `at`'s height.
+FLOODS = [
+    ("Gatehouse", (-16.0, 9.0, 1.2), (-4.0, 0.0, 12.0)),
+    ("TankerDock", (-56.0, 9.0, 1.2), (-40.0, 0.0, 12.0)),
+    ("TankFarm", (-58.8, 9.0, 40.0), (-40.0, 0.0, 40.0)),
+    ("RackRoad", (-18.8, 9.0, 57.0), (0.0, 0.0, 44.0)),
+    ("ColumnYard", (18.8, 9.0, 88.5), (6.0, 0.0, 74.0)),
+    ("Substation", (58.8, 9.0, 62.0), (40.0, 0.0, 76.0)),
+]
 
 # ---------------------------------------------------------------- plant structures: the Props that stand as loop centres and Blaze walls
 # (kind, zone, cx, y, cz, w, h, d). Tanks and the column are round (Barrel); everything else is a plain box.
 PLANT = [
     ("Machine", "Gatehouse", 0.0, 0.0, 11.0, 4.0, 2.5, 12.0),          # the weighbridge island
     ("Machine", "Gatehouse", 3.5, 0.0, 15.0, 3.0, 3.0, 4.0),           # the booth, on the island's east edge
-    ("Machine", "TankerDock", -52.0, 0.0, 10.0, 4.0, 3.0, 12.0),       # the west tanker
-    ("Machine", "TankerDock", -44.0, 0.0, 10.0, 4.0, 3.0, 12.0),       # the east tanker
     ("Barrel", "TankFarm", -48.0, 0.0, 40.0, 12.0, 10.0, 12.0),        # Tank A
     ("Barrel", "TankFarm", -32.0, 0.0, 40.0, 12.0, 10.0, 12.0),        # Tank B
     ("Sandbags", "RackRoad", -3.9, 0.0, 40.0, 0.4, 1.0, 32.0),         # the west sleeper line
@@ -181,7 +190,6 @@ PLANT = [
     ("Machine", "FlareYard", -31.5, 0.0, 82.0, 11.0, 3.5, 4.0),        # the knockout drum
     ("Barrel", "ColumnYard", 0.0, 0.0, 76.0, 6.0, 12.0, 6.0),          # the column's base
     ("Machine", "ColumnYard", 12.0, 0.0, 76.0, 8.0, 2.9, 12.0),        # the fired heater (its roof, to 4 m, is a block `refinery.rs` adds under S6)
-    ("Machine", "Substation", 40.0, 0.0, 76.0, 10.0, 2.4, 14.0),       # the transformer pen
     ("Pillar", "ColumnYard", 12.0, 0.0, 83.0, 1.2, 20.0, 1.2),         # the heater's stack, against its north face, to y 20 (#573)
 ]
 for z in (26.0, 34.0, 42.0, 50.0):                                     # the rack's bents, under the Rack Walk
@@ -190,6 +198,101 @@ for z in (26.0, 34.0, 42.0, 50.0):                                     # the rac
 for x, z in ((26.0, 64.0), (54.0, 64.0), (26.0, 84.0), (40.0, 84.0), (54.0, 84.0)):   # the Control House's stilts
     PLANT.append(("Pillar", "Substation", x, 0.0, z, 0.6, 4.0, 0.6))
 for kind, zone, cx, y, cz, w, h, d in PLANT:
+    BLOCKS.append((cx - w / 2, cz - d / 2, cx + w / 2, cz + d / 2, y, 0.3))
+
+# ---------------------------------------------------------------- the Props (#574, #510 section 8): 72 of them, each a collider the nodes and edges steer round.
+# (kind, zone, cx, y, cz, w, h, d, turn): the sizes are the units' (`tools/props`) to within 15% on every axis, so each Prop fits a model; `turn` is
+# `Prop::turn`. Their places were found clear of every Door, Blaze (1.5 m), Valve, lamp, flood mast, Infill, plant structure and fixed fixture,
+# and of each other. A Prop on the Tanker Dock's Raised Floor (y 1.2) is up on it.
+PROPS = []
+PROPS += [
+    # Gatehouse
+    ("Sandbags", "Gatehouse", -7.5, 0, 7.5, 3.0, 0.84, 0.64, 0),
+    ("Sandbags", "Gatehouse", 7.5, 0, 7.5, 3.0, 0.84, 0.64, 0),
+    ("Sandbags", "Gatehouse", -15.0, 0, 14.5, 3.0, 0.84, 0.64, 0),
+    ("Sandbags", "Gatehouse", 15.0, 0, 14.5, 3.0, 0.84, 0.64, 0),
+    ("Machine", "Gatehouse", 8.5, 0, 19.0, 1.04, 1.12, 0.43, 0),
+    ("Barrel", "Gatehouse", 14.5, 0, 18.8, 0.66, 0.95, 0.66, 0),
+    ("Barrel", "Gatehouse", 15.5, 0, 18.6, 0.66, 0.95, 0.66, 0),
+    # TankerDock
+    ("Vehicle", "TankerDock", -52.0, 0, 10.0, 4.0, 3.0, 12.0, 0),
+    ("Vehicle", "TankerDock", -44.0, 0, 10.0, 4.0, 3.0, 12.0, 0),
+    ("Machine", "TankerDock", -28.0, 1.2, 6.8, 1.93, 2.55, 0.8, 2),
+    ("Machine", "TankerDock", -28.0, 1.2, 13.2, 1.93, 2.55, 0.8, 2),
+    ("Barrel", "TankerDock", -51.0, 0, 18.9, 0.66, 0.95, 0.66, 0),
+    ("Barrel", "TankerDock", -50.2, 0, 18.2, 0.66, 0.95, 0.66, 0),
+    ("Barrel", "TankerDock", -49.3, 0, 17.7, 0.66, 0.95, 0.66, 0),
+    ("Barrel", "TankerDock", -45.9, 0, 1.1, 0.66, 0.95, 0.66, 0),
+    ("Barrel", "TankerDock", -45.0, 0, 1.1, 0.66, 0.95, 0.66, 0),
+    ("Barrel", "TankerDock", -44.1, 0, 1.1, 0.66, 0.95, 0.66, 0),
+    ("Crate", "TankerDock", -47.5, 0, 0.9, 1.08, 0.47, 0.18, 2),
+    ("Crate", "TankerDock", -25.3, 0, 18.8, 1.08, 0.47, 0.18, 0),
+    # FittingShop
+    ("Machine", "FittingShop", 23.5, 0, 1.1, 0.84, 1.56, 0.65, 2),
+    ("Machine", "FittingShop", 56.0, 0, 1.1, 1.68, 1.18, 0.6, 2),
+    ("Shelf", "FittingShop", 24.5, 0, 18.9, 1.9, 2.0, 0.6, 0),
+    ("Shelf", "FittingShop", 36.0, 0, 18.9, 1.9, 2.0, 0.6, 0),
+    ("Table", "FittingShop", 30.0, 0, 11.0, 2.0, 0.8, 1.0, 0),
+    ("Table", "FittingShop", 45.0, 0, 13.0, 2.0, 0.8, 1.0, 0),
+    ("Crate", "FittingShop", 57.5, 0, 17.8, 1.08, 0.47, 0.18, 0),
+    # TankFarm
+    ("Ladder", "TankFarm", -50.2, 0, 33.8, 0.86, 3.0, 0.86, 0),
+    ("Ladder", "TankFarm", -31.0, 0, 46.43, 0.86, 3.0, 0.86, 2),
+    ("Barrel", "TankFarm", -21.5, 0, 48.0, 0.66, 0.95, 0.66, 0),
+    ("Barrel", "TankFarm", -21.5, 0, 49.0, 0.66, 0.95, 0.66, 0),
+    ("Barrel", "TankFarm", -21.5, 0, 50.0, 0.66, 0.95, 0.66, 0),
+    ("Barrel", "TankFarm", -21.5, 0, 51.0, 0.66, 0.95, 0.66, 0),
+    ("Machine", "TankFarm", -57.8, 0, 33.5, 1.04, 1.12, 0.43, 0),
+    # RackRoad
+    ("Pipe", "RackRoad", -17.6, 0, 34.0, 0.4, 1.15, 2.5, 0),
+    ("Pipe", "RackRoad", 18.6, 0, 50.0, 0.4, 1.15, 2.5, 2),
+    ("Pipe", "RackRoad", -17.6, 0, 52.0, 0.5, 0.7, 2.3, 0),
+    ("Barrel", "RackRoad", -17.5, 0, 23.6, 0.66, 0.95, 0.66, 0),
+    ("Barrel", "RackRoad", -16.6, 0, 23.6, 0.66, 0.95, 0.66, 0),
+    ("Barrel", "RackRoad", -17.1, 0, 24.5, 0.66, 0.95, 0.66, 0),
+    ("Machine", "RackRoad", -18.7, 0, 45.5, 0.43, 1.12, 1.04, 0),
+    ("Machine", "RackRoad", 18.7, 0, 24.5, 0.43, 1.12, 1.04, 2),
+    # CompressorHouse
+    ("Machine", "CompressorHouse", 30.0, 0, 45.0, 2.6, 1.25, 1.0, 0),
+    ("Machine", "CompressorHouse", 38.0, 0, 45.0, 2.6, 1.25, 1.0, 0),
+    ("Machine", "CompressorHouse", 30.0, 0, 52.0, 2.6, 1.25, 1.0, 0),
+    ("Machine", "CompressorHouse", 38.0, 0, 52.0, 2.6, 1.25, 1.0, 0),
+    ("Pipe", "CompressorHouse", 50.0, 0, 58.9, 2.5, 1.15, 0.4, 0),
+    ("Pipe", "CompressorHouse", 21.0, 0, 48.0, 0.4, 1.15, 2.5, 0),
+    ("Shelf", "CompressorHouse", 55.0, 0, 58.9, 0.95, 2.0, 0.6, 0),
+    # FlareYard
+    ("Barrel", "FlareYard", -21.1, 0, 88.6, 0.66, 0.95, 0.66, 0),
+    ("Barrel", "FlareYard", -21.1, 0, 87.6, 0.66, 0.95, 0.66, 0),
+    ("Barrel", "FlareYard", -21.1, 0, 86.6, 0.66, 0.95, 0.66, 0),
+    ("Sandbags", "FlareYard", -46.0, 0, 73.0, 3.0, 0.84, 0.64, 0),
+    ("Sandbags", "FlareYard", -30.0, 0, 68.0, 3.0, 0.84, 0.64, 0),
+    ("Pipe", "FlareYard", -44.5, 0, 64.5, 2.5, 1.15, 0.4, 0),
+    # ColumnYard
+    ("Pipe", "ColumnYard", -18.8, 0, 81.9, 0.4, 1.15, 2.5, 0),
+    ("Pipe", "ColumnYard", -6.0, 0, 61.0, 2.5, 1.15, 0.4, 2),
+    ("Machine", "ColumnYard", 17.0, 0, 64.0, 1.04, 1.12, 0.43, 2),
+    ("Barrel", "ColumnYard", 18.4, 0, 70.5, 0.66, 0.95, 0.66, 0),
+    ("Barrel", "ColumnYard", 18.4, 0, 69.4, 0.66, 0.95, 0.66, 0),
+    ("Machine", "ColumnYard", -8.0, 0, 88.7, 1.68, 1.18, 0.6, 0),
+    # Substation
+    ("Machine", "Substation", 40.0, 0, 71.3, 10.0, 2.4, 4.6, 0),
+    ("Machine", "Substation", 40.0, 0, 76.0, 10.0, 2.4, 4.6, 0),
+    ("Machine", "Substation", 40.0, 0, 80.7, 10.0, 2.4, 4.6, 0),
+    ("Machine", "Substation", 24.5, 0, 62.0, 1.04, 1.12, 0.43, 0),
+    ("Machine", "Substation", 55.4, 0, 70.0, 0.43, 1.12, 1.04, 2),
+    # ControlHouse
+    ("Table", "ControlHouse", 34.0, 4.0, 70.0, 2.0, 0.8, 1.0, 0),
+    ("Table", "ControlHouse", 42.0, 4.0, 70.0, 2.0, 0.8, 1.0, 0),
+    ("Table", "ControlHouse", 50.0, 4.0, 70.0, 2.0, 0.8, 1.0, 0),
+    ("Machine", "ControlHouse", 30.0, 4.0, 85.0, 1.56, 1.12, 0.43, 0),
+    ("Machine", "ControlHouse", 52.0, 4.0, 85.0, 1.56, 1.12, 0.43, 0),
+    ("Machine", "ControlHouse", 40.0, 4.0, 63.0, 1.56, 1.12, 0.43, 2),
+    # ColumnPlatform
+    ("Machine", "ColumnPlatform", -9.8, 4.0, 86.4, 1.04, 1.12, 0.43, 0),
+]
+if os.environ.get("NO_PROPS"):
+    PROPS = []
+for kind, zone, cx, y, cz, w, h, d, turn in PROPS:
     BLOCKS.append((cx - w / 2, cz - d / 2, cx + w / 2, cz + d / 2, y, 0.3))
 
 # The catwalks' fixtures: the Tank A column through the Girder Ring, the column through the Column Platform and the Tower Deck,
@@ -666,17 +769,12 @@ for zone, x, y, z in LAMPS:
     out.append(f"    (ZoneId::{zone}, Vec3::new({rs(x)}, {rs(y)}, {rs(z)})),\n")
 out.append("];\n\n")
 out.append("""/// The floodlights (#568, #510 §3): one over each of the Gatehouse, the Tanker Dock, the Tank Farm, the Rack Road's north end, the Column Yard
-/// and the Substation, on a mast 9 m up against the blast wall, aimed in over the yard. They come on with the Power.
+/// and the Substation, on a lattice mast 9 m up against the blast wall (`flood_mast`, #574), aimed in over the yard. They come on with the Power.
 pub(super) const FLOODS: [Flood; 6] = [
-    Flood { zone: ZoneId::Gatehouse, at: Vec3::new(-16.0, 9.0, 1.2), aim: Vec3::new(-4.0, 0.0, 12.0) },
-    Flood { zone: ZoneId::TankerDock, at: Vec3::new(-56.0, 9.0, 1.2), aim: Vec3::new(-40.0, 0.0, 12.0) },
-    Flood { zone: ZoneId::TankFarm, at: Vec3::new(-58.8, 9.0, 40.0), aim: Vec3::new(-40.0, 0.0, 40.0) },
-    Flood { zone: ZoneId::RackRoad, at: Vec3::new(-18.8, 9.0, 57.0), aim: Vec3::new(0.0, 0.0, 44.0) },
-    Flood { zone: ZoneId::ColumnYard, at: Vec3::new(18.8, 9.0, 88.5), aim: Vec3::new(6.0, 0.0, 74.0) },
-    Flood { zone: ZoneId::Substation, at: Vec3::new(58.8, 9.0, 62.0), aim: Vec3::new(40.0, 0.0, 76.0) },
-];
-
 """)
+for zone, at, aim in FLOODS:
+    out.append(f"    Flood {{ zone: ZoneId::{zone}, at: Vec3::new({rs(at[0])}, {rs(at[1])}, {rs(at[2])}), aim: Vec3::new({rs(aim[0])}, {rs(aim[1])}, {rs(aim[2])}) }},\n")
+out.append("];\n\n")
 out.append(f"/// The Infills ({len(INFILLS)}, #573): the rooms of the three sheds, laid out clear of the Doors, windows, chalks, lamps and path edges.\npub(super) const INFILLS: [Infill; {len(INFILLS)}] = [\n")
 for zone, (x0, z0), (x1, z1) in INFILLS:
     out.append(f"    infill(ZoneId::{zone}, ({rs(x0)}, {rs(z0)}), ({rs(x1)}, {rs(z1)})),\n")
@@ -685,6 +783,12 @@ out.append(f"/// The plant structures that are loop centres and Blaze walls ({le
 for kind, zone, cx, y, cz, w, h, d in PLANT:
     out.append(f"    p(PropKind::{kind}, ZoneId::{zone}, {rs(cx)}, {rs(y)}, {rs(cz)}, ({rs(w)}, {rs(h)}, {rs(d)})),\n")
 out.append("];\n\n")
+out.append(f"/// The Props (#574, #510 section 8): {len(PROPS)} of them, each laid clear of every Door, Blaze, Valve, lamp, flood mast and Infill, and steered round by the path\n/// nodes and edges. Each Zone's set names the unit model its kind wears (`zone_props`).\npub(super) const PROPS: [Prop; {len(PROPS)}] = [\n")
+for kind, zone, cx, y, cz, w, h, d, turn in PROPS:
+    tail = f".turned({turn})" if turn else ""
+    out.append(f"    p(PropKind::{kind}, ZoneId::{zone}, {rs(cx)}, {rs(y)}, {rs(cz)}, ({rs(w)}, {rs(h)}, {rs(d)})){tail},\n")
+out.append("];\n\n")
+out.append(f"/// Every Prop of the Refinery, the plant first.\npub(super) const ALL: [Prop; {len(PLANT) + len(PROPS)}] = crate::maps::map::concat(PLANT, PROPS);\n\n")
 out.append("pub(super) const NODES: &[(&str, f32, f32, f32)] = &[\n")
 for name, x, y, z in NODES:
     out.append(f'    ("{name}", {rs(x)}, {rs(y)}, {rs(z)}),\n')

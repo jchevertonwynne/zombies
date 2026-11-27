@@ -460,10 +460,51 @@ def build_archive(blender, only):
         })
 
 
+# The Refinery's Props (#574): five kitbashes in Material Sets already under assets/materials, tinted, and flat colours. unit -> (name, {material: spec}).
+STEEL_DARK = [0.25, 0.25, 0.27, 1.0]
+REFINERY_KITS = {
+    "tanker": ("Road tanker", {
+        "rusty_metal_04": [0.78, 0.76, 0.7, 1.0],
+        "container_side": [0.75, 0.78, 0.8, 1.0],
+        "rusty_metal_02": STEEL_DARK,
+        "tyre_rubber": {"color": [0.03, 0.03, 0.035, 1.0], "metallic": 0.0, "roughness": 0.9},
+    }),
+    "transformer": ("Grid transformer", {
+        "green_metal_rust": None,
+        "rebar_reinforced_concrete": [0.8, 0.8, 0.78, 1.0],
+        "bushing_porcelain": {"color": [0.62, 0.6, 0.52, 1.0], "metallic": 0.0, "roughness": 0.25},
+    }),
+    "pump_set": ("Pump set", {"blue_metal_plate": None, "rusty_metal_04": [0.6, 0.6, 0.6, 1.0]}),
+    "loading_arm": ("Loading arm", {"rusty_metal_02": STEEL_DARK, "hazard_yellow": {"color": [0.9, 0.7, 0.05, 1.0], "metallic": 0.0, "roughness": 0.6}}),
+    "flood_mast": ("Floodlight mast", {"rusty_metal_02": STEEL_DARK}),
+}
+
+
+def build_refinery(blender, only):
+    for unit, (name, specs) in REFINERY_KITS.items():
+        if only not in (None, "refinery", unit):
+            continue
+        out = ASSETS / "props" / unit
+        shutil.rmtree(out, ignore_errors=True)
+        out.mkdir(parents=True)
+        run_blender(blender, ["--out", out, "--src", out, "--only", unit])
+        patch_mixed(out / f"{unit}.gltf", specs)
+        sets = [m for m, spec in specs.items() if not isinstance(spec, dict)]
+        record({
+            "path": f"props/{unit}",
+            "name": f"{name} (kitbash for the Refinery)",
+            "source": "tools/props/kitbash.py, from " + ", ".join(f"https://polyhaven.com/a/{s}" for s in sets),
+            "licence": "CC0",
+            "fetched": today(),
+            "notes": "Modelled from boxes and cylinders by tools/props/kitbash.py in headless Blender (at most 2k triangles); it wears materials/" + " and materials/".join(sets) + " (Poly Haven, CC0), no new texture files; its flat colours are glTF factors"
+            + (". Not fitted into a Prop's box: src/maps/darkness/flood.rs stands it under each floodlight" if unit == "flood_mast" else ""),
+        })
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--blender", default=os.environ.get("BLENDER", BLENDER_DEFAULT))
-    parser.add_argument("--only", choices=["crate", "sandbags", "headstone", "sanatorium", *SANATORIUM_KITS, "book_rows", "wheels", *WHEEL_KITS, "valves", *VALVE_KITS, "archive", "archive_stacks", *ARCHIVE_KITS, *ARCHIVE_STACKS_KITS])
+    parser.add_argument("--only", choices=["crate", "sandbags", "headstone", "sanatorium", *SANATORIUM_KITS, "book_rows", "wheels", *WHEEL_KITS, "valves", *VALVE_KITS, "refinery", *REFINERY_KITS, "archive", "archive_stacks", *ARCHIVE_KITS, *ARCHIVE_STACKS_KITS])
     parser.add_argument("--headstone-scan")
     parser.add_argument("--headstone-source")
     args = parser.parse_args()
@@ -475,6 +516,9 @@ def main():
         return
     if args.only in ("wheels", *WHEEL_KITS):
         build_wheels(args.blender, args.only)
+        return
+    if args.only in ("refinery", *REFINERY_KITS):
+        build_refinery(args.blender, args.only)
         return
     if args.only in ("valves", *VALVE_KITS):
         build_valves(args.blender, args.only)

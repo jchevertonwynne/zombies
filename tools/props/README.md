@@ -124,3 +124,37 @@ python3 -I tools/props/build_props.py --only valve_stand   # one
 They come out as `assets/props/<name>/<name>.{gltf,bin}` and a manifest entry each. They are not fitted into a Prop's box: `src/maps/fire_look.rs`
 stands them at each Valve (`HUB_AT`, `GAUGE_AT`, `MAST_AT` and `LAMP_AT` there are the places in the stand's frame; keep them in step with
 `VALVE_*` in `kitbash.py`), turning the wheel and the needle. Headless runs, and a game without the files, draw the same parts from code.
+
+## The Refinery's Props (#574)
+
+Eight Poly Haven models (CC0, each page read for its licence) and five kitbashes for the Refinery's 72 Props and its six floodlight masts.
+
+`props.py` makes the five plain models with the `decimate.py` path: `concrete_road_barrier` (the jersey barriers), `utility_box_01` (the booth's cabinet, the
+yards' cabinets and the Control House's panels), `portable_welding_cart`, `old_military_compressor` and `metal_jerrycan`. The other three models are catalogues of
+separate pieces, so `assemble.py` (headless Blender) takes the pieces it wants, decimates them in place, turns them and joins them into one unit each, with a
+few boxes to carry them:
+
+- `modular_industrial_pipes_01` splits into `pipe_manifold` (a straight, the red-wheeled valve, a tee and a straight on two legs and a skid, 1.7k triangles,
+  two materials: the catalogue's two texture groups) and `pipe_run` (three long straights on two saddles, 2.0k triangles, which wears the manifold's first group:
+  its glTF points at `../pipe_manifold/g1_*.ktx2`, so the textures are on disk once);
+- `modular_fire_escape` gives `fire_escape`, its 6.5 m ladder cut to 3 m inside four hoops of boxes (a caged ladder, 0.8k triangles). Only the ladder is used:
+  the stairs and the rails are not, since the Refinery's stairs and railings are built from primitives;
+- `flood_lights` gives `flood_lights`, a twin pair of its wall-mounted heads on a cross bar (1.7k triangles), the head of each floodlight's mast. It faces +Z.
+
+The ladder cage and the lamp pair are near-black or thin steel, so they wear flat glTF colours and no textures (about 7 MB of the budget saved).
+
+```
+python3 -I tools/props/props.py concrete_road_barrier utility_box_01 portable_welding_cart old_military_compressor metal_jerrycan
+python3 -I tools/props/props.py pipe_manifold pipe_run fire_escape flood_lights     # build the manifold before the run
+python3 -I tools/props/build_props.py --only refinery                              # the five kitbashes
+python3 -I tools/props/build_props.py --only tanker                                # or one
+```
+
+`kitbash.py` makes `tanker` (a road tanker: tank, chassis, cab, wheels; `container_side`, `rusty_metal_04`, `rusty_metal_02`), `transformer` (4.6 m thick, 10 m long, laid three
+times along the Substation's pen: `green_metal_rust` over a `rebar_reinforced_concrete` plinth, radiator fins, a conservator and three bushings), `pump_set`
+(`blue_metal_plate` motor on a skid, volute, suction and discharge pipes), `loading_arm` (a riser, swivel, boom and drop pipe) and `flood_mast` (an 8.9 m lattice of four legs,
+rungs and diagonals under a platform). They wear material sets already under `assets/materials`, so no new texture files (about 0.24 MB in all). The build prints each
+unit's size: the `model(..)` and `kitbash(..)` constants in `src/maps/map/mod.rs` (and `FLOOD_HEADS` and `FLOOD_MAST`, which `src/maps/darkness/flood.rs` stands at each
+flood) repeat them, so keep the two in step.
+
+The Props that wear them are laid by `tools/refinery_layout.py` (its `PROPS` list, written into `PROPS` in `refinery/data.rs`), which also steers every path node and edge round them.

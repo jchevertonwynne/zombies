@@ -1,0 +1,160 @@
+{
+ "asset": {
+  "generator": "Khronos glTF Blender I/O v5.3.43",
+  "version": "2.0"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "name": "Scene",
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "mesh": 0,
+   "name": "pipe_run"
+  }
+ ],
+ "materials": [
+  {
+   "doubleSided": false,
+   "name": "g1",
+   "pbrMetallicRoughness": {
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicRoughnessTexture": {
+     "index": 2
+    },
+    "metallicFactor": 1.0,
+    "roughnessFactor": 1.0
+   },
+   "normalTexture": {
+    "index": 1
+   },
+   "occlusionTexture": {
+    "index": 2
+   }
+  }
+ ],
+ "meshes": [
+  {
+   "name": "pipe_run",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2
+     },
+     "indices": 3,
+     "material": 0
+    }
+   ]
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 2610,
+   "max": [
+    1.149999976158142,
+    0.699999988079071,
+    0.25
+   ],
+   "min": [
+    -1.149999976158142,
+    0,
+    -0.25
+   ],
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 2610,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 2610,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5123,
+   "count": 5904,
+   "type": "SCALAR"
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteLength": 31320,
+   "byteOffset": 0,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 31320,
+   "byteOffset": 31320,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 20880,
+   "byteOffset": 62640,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteLength": 11808,
+   "byteOffset": 83520,
+   "target": 34963
+  }
+ ],
+ "buffers": [
+  {
+   "byteLength": 95328,
+   "uri": "model.bin"
+  }
+ ],
+ "images": [
+  {
+   "uri": "../pipe_manifold/g1_color.ktx2"
+  },
+  {
+   "uri": "../pipe_manifold/g1_normal.ktx2"
+  },
+  {
+   "uri": "../pipe_manifold/g1_orm.ktx2"
+  }
+ ],
+ "samplers": [
+  {
+   "magFilter": 9729,
+   "minFilter": 9987,
+   "wrapS": 10497,
+   "wrapT": 10497
+  }
+ ],
+ "textures": [
+  {
+   "source": 0,
+   "sampler": 0
+  },
+  {
+   "source": 1,
+   "sampler": 0
+  },
+  {
+   "source": 2,
+   "sampler": 0
+  }
+ ]
+}

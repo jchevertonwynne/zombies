@@ -238,6 +238,32 @@ fn refinery_has_three_indoor_probes() {
     assert!(cold.blue > cold.red);
 }
 
+/// Each of the six floods stands on a mast (#574): one `FloodMast` a flood, on the floor under it, as high as the flood is over its Zone's floor, with its
+/// stand-in post built (the lattice and the heads replace it only once their files are on disk and a world loads them, never in the headless runs). No
+/// other Map has floods, so none has masts.
+#[test]
+fn every_flood_has_a_mast() {
+    let mut app = refinery();
+    app.update();
+    let layout = MapId::Refinery.layout();
+    let mut query = app.world_mut().query::<(&flood::FloodMast, &Transform, &Children)>();
+    let mut masts: Vec<_> = query.iter(app.world()).map(|(mast, at, children)| (mast.index, mast.top, at.translation, children.len())).collect();
+    masts.sort_by_key(|&(index, ..)| index);
+    assert_eq!(masts.len(), layout.floods.len());
+    for (index, top, base, kids) in masts {
+        let flood = &layout.floods[index];
+        assert_eq!((base.x, base.z), (flood.at.x, flood.at.z), "mast {index} stands under its flood");
+        assert_eq!(base.y, flood.zone.floor(), "mast {index} stands on the floor");
+        assert!((top - (flood.at.y - flood.zone.floor())).abs() < 1e-4, "mast {index} reaches its flood");
+        assert_eq!(kids, 1, "mast {index} has its stand-in post");
+    }
+    // The models' files are on disk, for a game that loads them.
+    assert!(crate::maps::map::textures::on_disk(crate::maps::map::FLOOD_MAST.0) && crate::maps::map::textures::on_disk(crate::maps::map::FLOOD_HEADS.0));
+    let mut other = playing_with(MapId::Greybox, |_| {});
+    other.update();
+    assert_eq!(other.world_mut().query::<&flood::FloodMast>().iter(other.world()).count(), 0);
+}
+
 #[test]
 fn other_maps_have_no_floods() {
     for map in MapId::ALL {
