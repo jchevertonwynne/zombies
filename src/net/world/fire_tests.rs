@@ -417,3 +417,69 @@ fn a_zombie_in_a_lit_blaze_burns_on_the_host_and_the_client_alike() {
         assert_eq!(flames(&mut run, on, hound), 0, "game {on}: a Shut line burns no one");
     }
 }
+
+/// What a game's Fuel Line sounds have asked for: each cue as it was asked (with where from), and each hiss loop as it began, from the eye of the game's own Player.
+#[derive(Resource, Default)]
+struct FireHeard {
+    cues: Vec<(crate::audio::cues::Cue, Option<Vec3>)>,
+    hisses: Vec<Vec3>,
+    eye: Option<Vec3>,
+}
+
+/// A Host-side Shut and relight of the Flare... of line 0, with the Host's own Player at its Valve, is heard by the Host and by a client alike, from the phase each
+/// shows: the clank and the valve's turn of the Shut, the turn of the relight, the gas hissing from each Blaze and Valve of the line through the Flare-up, and the
+/// ignite at each Blaze as it lights. Each is spatial (it has a place), and the hiss's emitters are the line's own, heard from where each game's own Player stands.
+#[test]
+fn a_client_hears_the_gas_hiss_ignite_and_valve_turn_of_a_host_side_shut_and_relight() {
+    use crate::audio::cues::Cue;
+    use crate::audio::fire::{fuel_line_cues, wanted_loops};
+    use crate::players::player::LocalPlayer;
+    fn note(
+        mut cues: MessageReader<crate::audio::PlayCue>,
+        lines: Res<FuelLines>,
+        map: Res<MapId>,
+        me: Query<&Transform, With<LocalPlayer>>,
+        mut heard: ResMut<FireHeard>,
+    ) {
+        heard.cues.extend(cues.read().map(|cue| (cue.cue, cue.at)));
+        heard.eye = me.iter().next().map(|transform| transform.translation);
+        for (cue, _, at) in wanted_loops(map.layout(), &lines, heard.eye) {
+            if cue == Cue::GasHiss && !heard.hisses.contains(&at) {
+                heard.hisses.push(at);
+            }
+        }
+    }
+    let mut run = Run::on(MapId::Refinery, 1, &|app| {
+        app.add_plugins(FirePlugin).init_resource::<FireHeard>().add_systems(Update, (fuel_line_cues, note).chain());
+    });
+    run.step(10);
+    let line = &MapId::Refinery.layout().fuel_lines[0];
+    let stand = line.valves[0].1 + Vec3::Z * 0.8;
+    for on in 0..2 {
+        let player = run.player(on, 0);
+        run.world(on).get_mut::<Transform>(player).unwrap().translation = stand;
+        run.world(on).entity_mut(player).insert(avian3d::prelude::Position(stand));
+    }
+    run.step(5);
+    // Shut, then (after the wait) relight, then run the Flare-up out.
+    run.world(0).resource_mut::<FuelLines>().use_valve(FuelLineId(0), false).unwrap();
+    run.step(10);
+    host_shows(&mut run, 0, LinePhase::Shut { elapsed: RELIGHT_AFTER_SECS });
+    run.step(10);
+    run.world(0).resource_mut::<FuelLines>().use_valve(FuelLineId(0), false).unwrap();
+    run.step(10);
+    host_shows(&mut run, 0, LinePhase::FlareUp { elapsed: FLARE_UP_SECS - 0.05 });
+    run.step(10);
+    assert_eq!(phase(&mut run, 1, 0), LinePhase::Lit);
+    for on in 0..2 {
+        let heard = run.world(on).resource::<FireHeard>();
+        let cues: Vec<_> = heard.cues.iter().filter(|(cue, _)| matches!(cue, Cue::PipeClank | Cue::ValveTurn | Cue::BlazeIgnite | Cue::GasHiss)).collect();
+        let names: Vec<Cue> = cues.iter().map(|(cue, _)| *cue).collect();
+        let mut want = vec![Cue::PipeClank, Cue::ValveTurn, Cue::ValveTurn];
+        want.extend(std::iter::repeat_n(Cue::BlazeIgnite, line.blazes.len()));
+        assert_eq!(names, want, "game {on}");
+        assert!(cues.iter().all(|(_, at)| at.is_some()), "game {on}: each is heard from where it is");
+        assert_eq!(heard.hisses.len(), line.blazes.len() + line.valves.len(), "game {on}: a hiss from each Blaze and Valve of the line");
+        assert!(heard.eye.is_some(), "game {on}");
+    }
+}

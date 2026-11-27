@@ -277,3 +277,35 @@ fn other_maps_have_no_floods() {
     }
     assert_eq!((flood::FLOOD_LUMENS, flood::FLOOD_RANGE, flood::FLOOD_CONE), (4_000_000.0, 45.0, 0.45));
 }
+
+/// A clunk for each flood coming on (#575): the real beat after the Power, each flood's `FloodOn` becomes one `BridgeClunk` from the flood, six in all and
+/// in the beat's order, none before the Power, and none for a machine that is already Powered when it first looks.
+#[test]
+fn a_clunk_per_flood_coming_on() {
+    use crate::audio::PlayCue;
+    use crate::audio::cues::Cue;
+    let build = || {
+        playing_with(MapId::Refinery, |app| {
+            app.init_resource::<Power>().add_message::<PlayCue>().add_systems(Update, crate::audio::fire::flood_clunks);
+        })
+    };
+    let heard = |app: &mut App| -> Vec<(Cue, Option<Vec3>)> { app.world_mut().resource_mut::<Messages<PlayCue>>().drain().map(|cue| (cue.cue, cue.at)).collect() };
+    let mut app = build();
+    run(&mut app, 0.5);
+    assert!(heard(&mut app).is_empty(), "no clunk before the Power");
+    throw_the_power(&mut app);
+    let mut clunks = Vec::new();
+    for _ in 0..((flood::beat_secs(6) + 0.5) / FRAME) as u32 {
+        app.update();
+        clunks.extend(heard(&mut app));
+    }
+    let want: Vec<_> = MapId::Refinery.layout().floods.iter().map(|flood| (Cue::BridgeClunk, Some(flood.at))).collect();
+    assert_eq!(clunks, want);
+    // A late joiner, Powered on its first frame, sees the floods steady and hears none.
+    let mut late = playing_with(MapId::Refinery, |app| {
+        app.init_resource::<Power>().add_message::<PlayCue>().add_systems(Update, crate::audio::fire::flood_clunks);
+        app.world_mut().resource_mut::<Power>().switch_on();
+    });
+    late.update();
+    assert!(heard(&mut late).is_empty());
+}

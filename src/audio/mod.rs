@@ -7,6 +7,7 @@
 //! [`mix`].
 
 mod ambience;
+pub mod fire;
 pub mod range;
 pub mod cues;
 pub mod mix;
@@ -15,7 +16,7 @@ pub mod slots;
 use std::collections::HashMap;
 
 use bevy::asset::io::file::FileAssetReader;
-use bevy::audio::Volume;
+use bevy::audio::{SpatialScale, Volume};
 use bevy::prelude::*;
 
 use crate::weapons::attachment::{FlameFired, Underbarrel};
@@ -51,6 +52,9 @@ use mix::BoxPhase;
 
 /// Distance between the Player's ears, in metres, for spatial cues.
 const EAR_GAP: f32 = 0.2;
+/// How much of its distance the flare's roar is heard through (`SpatialScale`): the flare stands in a corner of the Map, and is faintly heard from
+/// every Zone.
+const FLARE_SPATIAL_SCALE: f32 = 0.1;
 /// A spawn fire pool crackles at this fraction of a death pool's volume.
 const SPAWN_POOL_GAIN: f32 = 0.5;
 /// The Flamethrower's roar lingers this long after its last tick, so it holds between ticks.
@@ -206,6 +210,7 @@ impl Plugin for AudioPlugin {
         app.add_message::<PlayCue>()
             .add_message::<crate::maps::darkness::lamp_flicker::LampBurst>()
             .add_message::<crate::maps::map::archive::flood::DripLanded>()
+            .add_message::<crate::maps::darkness::flood::FloodOn>()
             .add_systems(Startup, load_sounds)
             .add_systems(OnEnter(GameState::GameOver), |mut commands: Commands, mut sounds: ResMut<Sounds>| {
                 sounds.play(&mut commands, Cue::GameOver, None);
@@ -216,7 +221,7 @@ impl Plugin for AudioPlugin {
                     add_listener,
                     muffle,
                     // Before `play_cues`, so a Range's thud sounds the frame its phase shows.
-                    range::range_cues,
+                    (range::range_cues, fire::fuel_line_cues, fire::flood_clunks),
                     play_cues,
                     play_round_sounds,
                     play_buy_sounds,
@@ -238,6 +243,7 @@ impl Plugin for AudioPlugin {
                         ambience::phantom_sounds,
                         ambience::drips,
                         range::range_loops,
+                        fire::fire_loops,
                     )
                         .chain(),
                     cap_voices,
@@ -397,9 +403,13 @@ impl Sounds {
     /// `None` if its slot is bad.
     fn looping(&mut self, cue: Cue, scale: f32) -> Option<impl Bundle + use<>> {
         let sound = self.next(cue)?;
-        let settings = PlaybackSettings::LOOP
+        let mut settings = PlaybackSettings::LOOP
             .with_volume(Volume::Linear(self.gain(cue) * scale))
             .with_spatial(cue.spec().mix == Mix::Spatial);
+        // The flare's roar carries over the whole Map, so it is heard as if from a tenth of the distance.
+        if cue == Cue::FlareRoar {
+            settings = settings.with_spatial_scale(SpatialScale::new(FLARE_SPATIAL_SCALE));
+        }
         Some((AudioPlayer::new(sound), settings, Transform::default()))
     }
 }

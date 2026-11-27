@@ -16,6 +16,11 @@
 //! phantoms: `PageRustle` every 20 to 60 s from a stack hall or the Reading Room, `ShelfCreak` every 30 to 90 s from a fixed stack
 //! and, rarely, `BookFall` from one. Its Ranges' cues are in `range.rs`.
 //!
+//! The Refinery (#575) has its own: `RefineryHum` flat under the whole Map; `FlareRoar` from the flare's tip, faint Map-wide (a wide spatial
+//! scale); `PumpDrone` at the Compressor House's pump sets while the Power is on; `ControlFans` at the Control House's two ends, heard only
+//! with the eye in it; and two local phantoms, `SteelGroan` every 20 to 60 s from a catwalk and `PipeClank` every 30 to 90 s from the rack.
+//! Its Fuel Lines' cues are in `fire.rs`; a flood coming on plays `BridgeClunk` there too.
+//!
 //! Every machine runs these from its own eye and clock: the Zone, the Power and the layout are the
 //! same on all of them, so a Co-op client hears the same cues from the same places. The phantom
 //! squeaks and the lamp bursts' timing are local and cosmetic by design. The pure rules are here
@@ -56,6 +61,17 @@ pub const DRIP_VOICES: usize = 4;
 pub const RUSTLE_EVERY: RangeInclusive<f32> = 20.0..=60.0;
 pub const CREAK_EVERY: RangeInclusive<f32> = 30.0..=90.0;
 pub const FALL_EVERY: RangeInclusive<f32> = 120.0..=300.0;
+/// The seconds between one phantom steel groan and the next, and one phantom pipe clank and the next.
+pub const GROAN_EVERY: RangeInclusive<f32> = 20.0..=60.0;
+pub const CLANK_EVERY: RangeInclusive<f32> = 30.0..=90.0;
+/// The catwalk Zones a phantom groan sounds in, over their lamps.
+const GROAN_ZONES: [ZoneId; 5] = [ZoneId::RackWalk, ZoneId::TankWalk, ZoneId::PipeBridge, ZoneId::ColumnPlatform, ZoneId::TowerDeck];
+/// Where a phantom clank sounds off the pipe rack: along the Rack Road's middle, at the height of the rack's runs under the Rack Walk.
+const RACK_CLANK_AT: [f32; 6] = [23.0, 29.0, 35.0, 41.0, 47.0, 53.0];
+const RACK_CLANK_HEIGHT: f32 = 3.0;
+/// The Control House's fans sound this high above its floor, at each end of the room.
+const FAN_HEIGHT: f32 = 2.5;
+const FAN_ENDS: [f32; 2] = [0.25, 0.75];
 /// The Zones a phantom page turn sounds in: the four stack halls and the Reading Room.
 const RUSTLE_ZONES: [ZoneId; 5] = [ZoneId::OldStacks, ZoneId::FolioStacks, ZoneId::PeriodicalStacks, ZoneId::NewStacks, ZoneId::ReadingRoom];
 /// How high above a floor a phantom page turn sounds, and how high up a fixed stack its creak or fallen book does (a share of its height).
@@ -69,21 +85,24 @@ pub fn cellar(zone: ZoneId) -> bool {
     CELLAR_ZONES.contains(&zone)
 }
 
-/// The two flat loops `map` keeps under it (see `Ambient`), if it has any: the Sanatorium's room tone and wind, the Archive's tone and bed.
-pub fn ambient_cues(map: MapId) -> Option<[Cue; 2]> {
+/// The flat loops `map` keeps under it (see `Ambient`), if it has any: the Sanatorium's room tone and wind, the Archive's tone and bed, the
+/// Refinery's one hum.
+pub fn ambient_cues(map: MapId) -> Option<&'static [Cue]> {
     match map {
-        MapId::Sanatorium => Some([Cue::RoomTone, Cue::FogWind]),
-        MapId::Archive => Some([Cue::ArchiveTone, Cue::CellarBed]),
+        MapId::Sanatorium => Some(&[Cue::RoomTone, Cue::FogWind]),
+        MapId::Archive => Some(&[Cue::ArchiveTone, Cue::CellarBed]),
+        MapId::Refinery => Some(&[Cue::RefineryHum]),
         _ => None,
     }
 }
 
 /// How loud the flat ambience `cue` wants to be with the eye in `zone` of `layout`, from 0 to 1: the Sanatorium's by indoors or out, the
-/// Archive's tone above the cellar and its bed in it.
+/// Archive's tone above the cellar and its bed in it, the Refinery's hum everywhere.
 pub fn zone_target(cue: Cue, layout: &Layout, zone: ZoneId) -> f32 {
     match cue {
         Cue::ArchiveTone => (!cellar(zone)).into(),
         Cue::CellarBed => cellar(zone).into(),
+        Cue::RefineryHum => 1.0,
         _ => ambience_target(cue, layout.indoor(zone)),
     }
 }
@@ -138,6 +157,16 @@ pub struct Emitters {
     pub rustles: Vec<Vec3>,
     /// Where a phantom shelf creak or fallen book may sound: the middles of the fixed stacks.
     pub stacks: Vec<Vec3>,
+    /// The Refinery's flare, where its roar comes from: the tip.
+    pub flares: Vec<Vec3>,
+    /// The Refinery's pump sets, where the drone comes from while the Power is on.
+    pub pumps: Vec<Vec3>,
+    /// The Refinery's Control House fans, each with its Zone: heard only with the eye in it.
+    pub fans: Vec<(ZoneId, Vec3)>,
+    /// Where a phantom steel groan may sound: over the catwalks' lamps.
+    pub groans: Vec<Vec3>,
+    /// Where a phantom pipe clank may sound: off the rack.
+    pub clanks: Vec<Vec3>,
 }
 
 /// The emitters of `map`: on the Sanatorium a hum in each indoor Zone, the boilers and the electrotherapy machine (the Machine Props of
@@ -185,20 +214,41 @@ pub fn emitters(map: MapId) -> Emitters {
                 .collect(),
             ..default()
         },
+        MapId::Refinery => {
+            let (low, high) = ZoneId::ControlHouse.volume();
+            let floor = ZoneId::ControlHouse.floor();
+            let (rack_low, rack_high) = ZoneId::RackRoad.volume();
+            Emitters {
+                flares: vec![crate::maps::map::refinery::sky::FLARE_LIGHT_AT],
+                pumps: layout.pump_sets().collect(),
+                fans: FAN_ENDS
+                    .iter()
+                    .map(|&share| (ZoneId::ControlHouse, Vec3::new(low.x + (high.x - low.x) * share, floor + FAN_HEIGHT, (low.z + high.z) / 2.0)))
+                    .collect(),
+                groans: layout.lamps.iter().filter(|(zone, _)| GROAN_ZONES.contains(zone)).map(|&(_, at)| at).collect(),
+                clanks: RACK_CLANK_AT.iter().map(|&z| Vec3::new((rack_low.x + rack_high.x) / 2.0, RACK_CLANK_HEIGHT, z)).collect(),
+                ..default()
+            }
+        }
         _ => Emitters::default(),
     }
 }
 
 /// The looping sounds wanted at points right now, each as (cue, key, where): the nearest hums to
-/// `eye`, and the boilers' drone and the monitor's beep while the Power is on. A key tells one
-/// emitter of a cue from another.
+/// `eye`, and the boilers' drone and the monitor's beep while the Power is on; and on the Refinery the flare's roar always, the pumps'
+/// drone while the Power is on and the fans while the eye is in the Control House. A key tells one emitter of a cue from another.
 pub fn wanted_loops(emitters: &Emitters, eye: Option<Vec3>, power_on: bool) -> Vec<(Cue, usize, Vec3)> {
     let mut wanted = Vec::new();
     if let Some(eye) = eye {
         let points: Vec<Vec3> = emitters.hums.iter().map(|&(_, at)| at).collect();
         wanted.extend(nearest(eye, &points, HUM_VOICES).into_iter().map(|i| (Cue::FluorescentHum, i, points[i])));
     }
+    wanted.extend(emitters.flares.iter().enumerate().map(|(i, &at)| (Cue::FlareRoar, i, at)));
+    if let Some(eye) = eye {
+        wanted.extend(emitters.fans.iter().enumerate().filter(|(_, (zone, _))| zone.has(eye)).map(|(i, &(_, at))| (Cue::ControlFans, i, at)));
+    }
     if power_on {
+        wanted.extend(emitters.pumps.iter().enumerate().map(|(i, &at)| (Cue::PumpDrone, i, at)));
         wanted.extend(emitters.boilers.iter().enumerate().map(|(i, &at)| (Cue::BoilerDrone, i, at)));
         wanted.extend(emitters.monitors.iter().enumerate().map(|(i, &at)| (Cue::HeartMonitor, i, at)));
     }
@@ -244,7 +294,7 @@ pub(super) fn ambience(
     let layout = map.layout();
     // Before the eye has a Zone it is where the Run begins.
     let zone = zones.iter().next().map_or_else(|| layout.start_zone(), |zone| zone.0);
-    for cue in ambient_cues(map).into_iter().flatten() {
+    for &cue in ambient_cues(map).into_iter().flatten() {
         if !playing.iter().any(|(_, ambient, _)| ambient.cue == cue)
             && let Some(sound) = sounds.looping(cue, 0.0)
         {
@@ -322,12 +372,14 @@ fn found_emitters(found: &mut Option<(MapId, Emitters)>, map: MapId) -> &Emitter
 }
 
 /// The phantom sounds `emitters` has places for, each as (cue, the seconds between one and the next, where it may sound from).
-pub fn phantoms(emitters: &Emitters) -> [(Cue, RangeInclusive<f32>, &[Vec3]); 4] {
+pub fn phantoms(emitters: &Emitters) -> [(Cue, RangeInclusive<f32>, &[Vec3]); 6] {
     [
         (Cue::TrolleySqueak, SQUEAK_EVERY_SECS, &emitters.squeaks),
         (Cue::PageRustle, RUSTLE_EVERY, &emitters.rustles),
         (Cue::ShelfCreak, CREAK_EVERY, &emitters.stacks),
         (Cue::BookFall, FALL_EVERY, &emitters.stacks),
+        (Cue::SteelGroan, GROAN_EVERY, &emitters.groans),
+        (Cue::PipeClank, CLANK_EVERY, &emitters.clanks),
     ]
 }
 
@@ -340,10 +392,10 @@ pub(super) fn phantom_sounds(
     state: Res<State<GameState>>,
     time: Res<Time>,
     mut found: Local<Option<(MapId, Emitters)>>,
-    mut next: Local<[Option<f32>; 4]>,
+    mut next: Local<[Option<f32>; 6]>,
 ) {
     let Some(map) = ambient_map(&map, &state) else {
-        *next = [None; 4];
+        *next = [None; 6];
         return;
     };
     let now = time.elapsed_secs();
@@ -550,8 +602,8 @@ mod tests {
             assert_eq!(zone_target(Cue::ArchiveTone, layout, zone), 1.0, "{zone:?} is a reading or stack Zone");
         }
         // Each Map keeps its own pair, and nothing else keeps any.
-        assert_eq!(ambient_cues(MapId::Archive), Some([Cue::ArchiveTone, Cue::CellarBed]));
-        assert_eq!(ambient_cues(MapId::Sanatorium), Some([Cue::RoomTone, Cue::FogWind]));
+        assert_eq!(ambient_cues(MapId::Archive), Some(&[Cue::ArchiveTone, Cue::CellarBed][..]));
+        assert_eq!(ambient_cues(MapId::Sanatorium), Some(&[Cue::RoomTone, Cue::FogWind][..]));
         assert_eq!(ambient_cues(MapId::Cove), None);
         // The crossfade between them takes the same half second.
         let mut level = 0.0;
@@ -669,5 +721,147 @@ mod tests {
             total += variants.iter().map(|file| std::fs::metadata(dir.join(file)).unwrap().len()).sum::<u64>();
         }
         assert!(total < 2_000_000, "the Archive's sounds are {total} bytes");
+    }
+    fn refinery() -> Emitters {
+        emitters(MapId::Refinery)
+    }
+
+    /// The Refinery keeps one flat bed, `RefineryHum`, under every Zone at once (no crossfade to anything), and only the Refinery does.
+    #[test]
+    fn the_refinery_hum_is_flat_under_every_zone() {
+        let layout = MapId::Refinery.layout();
+        assert_eq!(ambient_cues(MapId::Refinery), Some(&[Cue::RefineryHum][..]));
+        assert_eq!(Cue::RefineryHum.spec().mix, super::super::cues::Mix::Flat);
+        assert_eq!(Cue::RefineryHum.spec().gain, 0.2);
+        for &zone in layout.zones {
+            assert_eq!(zone_target(Cue::RefineryHum, layout, zone), 1.0, "{zone:?}");
+        }
+        for map in [MapId::Greybox, MapId::Quarry, MapId::Village, MapId::Dam, MapId::Cove, MapId::Polder] {
+            assert_eq!(ambient_cues(map), None, "{map:?}");
+        }
+    }
+
+    #[test]
+    fn pump_drone_plays_only_with_the_power() {
+        let emitters = refinery();
+        let sets: Vec<Vec3> = MapId::Refinery.layout().pump_sets().collect();
+        assert_eq!(sets.len(), 4, "the Compressor House's four pump sets");
+        assert_eq!(emitters.pumps, sets);
+        let eye = Some(Vec3::new(40.0, 1.6, 40.0));
+        let drones = |power| wanted_loops(&emitters, eye, power).into_iter().filter(|(cue, ..)| *cue == Cue::PumpDrone).collect::<Vec<_>>();
+        assert!(drones(false).is_empty(), "no drone before the Power");
+        let with = drones(true);
+        assert_eq!(with.len(), 4);
+        assert!(with.iter().all(|(_, _, at)| sets.contains(at) && ZoneId::CompressorHouse.has(*at)), "{with:?}");
+        // Nothing of the Sanatorium's or the Archive's comes with it.
+        assert!(wanted_loops(&emitters, eye, true).iter().all(|(cue, ..)| matches!(cue, Cue::PumpDrone | Cue::FlareRoar)));
+    }
+
+    #[test]
+    fn control_fans_play_only_in_the_control_house() {
+        let emitters = refinery();
+        assert_eq!(emitters.fans.len(), 2, "one at each end of the room");
+        assert!(emitters.fans.iter().all(|&(zone, at)| zone == ZoneId::ControlHouse && ZoneId::ControlHouse.has(at)), "{:?}", emitters.fans);
+        let fans = |eye: Vec3| wanted_loops(&emitters, Some(eye), true).into_iter().filter(|(cue, ..)| *cue == Cue::ControlFans).count();
+        // With the eye in the Control House (on its floor, the Power on or off) both play...
+        let house = Vec3::new(40.0, ZoneId::ControlHouse.floor() + 1.6, 74.0);
+        assert!(ZoneId::ControlHouse.has(house));
+        assert_eq!(fans(house), 2);
+        assert_eq!(wanted_loops(&refinery(), Some(house), false).iter().filter(|(cue, ..)| *cue == Cue::ControlFans).count(), 2, "they do not wait for the Power");
+        // ...and from the eye in every other Zone, none do.
+        let layout = MapId::Refinery.layout();
+        for &zone in layout.zones.iter().filter(|&&zone| zone != ZoneId::ControlHouse) {
+            let (low, high) = zone.volume();
+            let eye = Vec3::new((low.x + high.x) / 2.0, zone.floor() + 1.6, (low.z + high.z) / 2.0);
+            assert_eq!(fans(eye), 0, "{zone:?}");
+        }
+    }
+
+    /// The flare's roar is always on (its spatial scale makes it faint Map-wide), from the tip of the stack, with or without the Power or an
+    /// eye; the other Maps have no flare.
+    #[test]
+    fn the_flare_roars_from_its_tip_always() {
+        let emitters = refinery();
+        assert_eq!(emitters.flares, vec![crate::maps::map::refinery::sky::FLARE_LIGHT_AT]);
+        for power in [false, true] {
+            for eye in [None, Some(Vec3::ZERO), Some(Vec3::new(50.0, 1.6, 5.0))] {
+                let roars: Vec<_> = wanted_loops(&emitters, eye, power).into_iter().filter(|(cue, ..)| *cue == Cue::FlareRoar).collect();
+                assert_eq!(roars.len(), 1, "power {power}, eye {eye:?}");
+            }
+        }
+        assert!(wanted_loops(&archive(), None, true).iter().all(|(cue, ..)| *cue != Cue::FlareRoar));
+    }
+
+    #[test]
+    fn the_refinerys_phantoms_come_from_the_catwalks_and_the_rack() {
+        let emitters = refinery();
+        assert!(emitters.groans.len() >= 15, "{}", emitters.groans.len());
+        assert!(emitters.groans.iter().all(|at| at.y > 4.0), "over a catwalk's deck: {:?}", emitters.groans);
+        assert_eq!(emitters.clanks.len(), 6);
+        assert!(emitters.clanks.iter().all(|&at| ZoneId::RackRoad.has(at) && at.y > 2.4 && at.y < 3.6), "{:?}", emitters.clanks);
+        let kinds = phantoms(&emitters);
+        let secs: Vec<_> = kinds.iter().map(|(cue, every, points)| (*cue, *every.start(), *every.end(), !points.is_empty())).collect();
+        assert_eq!(secs[4], (Cue::SteelGroan, 20.0, 60.0, true));
+        assert_eq!(secs[5], (Cue::PipeClank, 30.0, 90.0, true));
+        assert!(secs[..4].iter().all(|&(.., any)| !any), "none of the other Maps' phantoms");
+        // And no other Map has either.
+        for emitters in [sanatorium(), archive()] {
+            assert!(phantoms(&emitters)[4..].iter().all(|(.., points)| points.is_empty()));
+        }
+    }
+
+    /// Footsteps come from `Material::family`, so the Refinery's new Material Sets step on the families that have files: metal on every catwalk
+    /// and the Tower Deck, and gravel on the Dirt yards.
+    #[test]
+    fn the_refinerys_catwalks_step_on_metal_and_its_dirt_yards_on_gravel() {
+        use super::super::cues::FloorFamily;
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets").join(super::super::cues::AUDIO_DIR);
+        let files = super::super::slots::list_files(&dir);
+        let mut heard = std::collections::HashMap::new();
+        for &zone in MapId::Refinery.layout().zones {
+            // Under a lamp of the Zone (the middle of a catwalk's box can be a gap in it).
+            let lamp = MapId::Refinery.layout().lamps.iter().find(|(lamp_zone, _)| *lamp_zone == zone).map(|&(_, at)| at);
+            let (low, high) = zone.volume();
+            let middle = lamp.map_or(Vec3::new((low.x + high.x) / 2.0, 0.0, (low.z + high.z) / 2.0), |at| at);
+            let feet = Vec3::new(middle.x, zone.floor(), middle.z);
+            let family = crate::maps::map::floor_family(MapId::Refinery, feet).unwrap_or_else(|| panic!("{zone:?} has no floor at {feet}"));
+            let slot = super::super::slots::variants(family.slot(), &files).unwrap_or_else(|error| panic!("{zone:?}: {error}"));
+            assert!(!slot.is_empty(), "{zone:?} steps on {family:?}, which has no files");
+            heard.insert(zone, family);
+        }
+        for zone in [ZoneId::RackWalk, ZoneId::TankWalk, ZoneId::PipeBridge, ZoneId::ColumnPlatform, ZoneId::TowerDeck] {
+            assert_eq!(heard[&zone], FloorFamily::Metal, "{zone:?} is steel underfoot");
+        }
+        for zone in [ZoneId::TankerDock, ZoneId::RackRoad, ZoneId::FlareYard, ZoneId::Substation] {
+            assert_eq!(heard[&zone], FloorFamily::Dirt, "{zone:?} is a gravel yard");
+        }
+        for zone in [ZoneId::Gatehouse, ZoneId::TankFarm, ZoneId::ColumnYard] {
+            assert_eq!(heard[&zone], FloorFamily::Concrete, "{zone:?}");
+        }
+    }
+
+    #[test]
+    fn the_refinerys_sounds_total_under_one_megabyte() {
+        const SLOTS: [(&str, usize); 10] = [
+            ("blaze_loop", 1),
+            ("blaze_ignite", 1),
+            ("gas_hiss", 1),
+            ("valve_turn", 1),
+            ("flare_roar", 1),
+            ("refinery_hum", 1),
+            ("pump_drone", 1),
+            ("control_fans", 1),
+            ("steel_groan", 3),
+            ("pipe_clank", 1),
+        ];
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets").join(super::super::cues::AUDIO_DIR);
+        let files = super::super::slots::list_files(&dir);
+        let mut total = 0;
+        for (slot, want) in SLOTS {
+            let variants = super::super::slots::variants(slot, &files).unwrap_or_else(|error| panic!("{error}"));
+            assert_eq!(variants.len(), want, "{slot}");
+            total += variants.iter().map(|file| std::fs::metadata(dir.join(file)).unwrap().len()).sum::<u64>();
+        }
+        assert!(total < 1_000_000, "the Refinery's sounds are {total} bytes");
     }
 }
