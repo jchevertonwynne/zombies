@@ -230,7 +230,7 @@ const SANATORIUM: &[View] = &[
     view("upper-landing", (0.0, 4.0, 44.0), (0.0, 62.0), -0.05, false),
     view("operating-theatre", (12.0, 4.0, 44.0), (30.0, 50.0), -0.05, false),
     view("sun-roof", (-32.0, 4.0, 17.0), (-45.0, 40.0), -0.02, false),
-    view("isolation-ward", (-12.0, 4.0, 44.0), (-24.0, 54.0), -0.05, false),
+    view("isolation-ward", (-12.5, 4.0, 54.5), (-24.0, 46.0), -0.05, false),
     view("childrens-ward", (-28.0, 4.0, 44.0), (-48.0, 54.0), -0.05, false),
     // The Infills that the room views above leave behind the camera.
     view("infill-hall-lodge", (0.0, 0.0, 6.5), (8.3, 0.7), -0.05, false),
@@ -249,7 +249,7 @@ const SANATORIUM: &[View] = &[
     view("infill-bath-hall-calorifier", (36.0, 0.0, 24.0), (48.0, 15.5), -0.05, false),
     view("infill-bath-hall-pier", (38.0, 0.0, 29.0), (49.7, 28.8), -0.05, false),
     view("infill-treatment-room-cupboard", (36.0, 0.0, 48.0), (48.5, 54.5), -0.05, false),
-    view("infill-upper-landing-cupboards", (0.0, 4.0, 50.0), (0.0, 42.5), -0.05, false),
+    view("infill-upper-landing-cupboards", (0.0, 4.0, 55.0), (0.0, 42.5), -0.05, false),
     view("infill-theatre-scrub-room", (20.0, 4.0, 48.0), (12.0, 43.5), -0.05, false),
     view("infill-isolation-ward-partitions", (-18.5, 4.0, 52.0), (-18.5, 43.0), -0.05, false),
     view("infill-childrens-ward-breast", (-40.0, 4.0, 46.0), (-40.9, 55.6), -0.05, false),
@@ -496,7 +496,9 @@ impl Plugin for TourPlugin {
         app.insert_resource(tour)
             .add_systems(Startup, set_window)
             .add_systems(OnEnter(GameState::MainMenu), start_run)
-            .add_systems(Update, (clear, shoot, give_boons, hold_generators, throw_switch, hold_tide).run_if(in_state(GameState::Playing)))
+            // Before Update, so a Zombie is gone before the skin systems reach it, not despawned under their queued commands.
+            .add_systems(PreUpdate, clear.run_if(in_state(GameState::Playing)))
+            .add_systems(Update, (shoot, give_boons, hold_generators, throw_switch, hold_tide).run_if(in_state(GameState::Playing)))
             .add_systems(Update, hold_quarantine.before(crate::maps::quarantine::QuarantineClock).run_if(in_state(GameState::Playing)))
             // After the Host's clock and before the Fire's look reads the lines, so the Rack Line shows the phase the view asks for.
             .add_systems(
