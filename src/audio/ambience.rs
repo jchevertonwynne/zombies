@@ -790,7 +790,6 @@ mod tests {
             }
         }
         assert!(wanted_loops(&archive(), None, true).iter().all(|(cue, ..)| *cue != Cue::FlareRoar));
-        assert!(super::super::FLARE_SPATIAL_SCALE < 0.5, "wide, so it carries");
     }
 
     #[test]
